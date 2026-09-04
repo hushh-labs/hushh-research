@@ -43,7 +43,7 @@ export function PreviewCarouselStep({
         title: "A memory",
         accent: "built for you",
         subtitle:
-          "One learns from the apps you connect, starting with Gmail and growing to everything you use.",
+          "One learns from the apps you choose to connect, and grows with the tools you use.",
         preview: <WorkflowsPreviewCompact />,
       },
       {

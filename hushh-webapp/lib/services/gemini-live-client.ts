@@ -2,21 +2,27 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import type { OneVoiceContextSnapshot } from "@/lib/voice/screen-context-builder";
-import type { OneVoiceActionSettlement } from "@/lib/voice/one-voice-transport";
+import type {
+  OneVoiceActionSettlement,
+  OneVoiceActionConfirmation,
+  OneVoiceContextApplyResult,
+} from "@/lib/voice/one-voice-transport";
 import type {
   OneVoiceTransportHandlers,
   OneVoiceTransportStartOptions,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
 import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-machine";
+import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
 
 /**
  * Browser client for Gemini Live full-duplex voice.
  *
  * Flow:
- *   1. Open a WebSocket to our backend Vertex Live relay. The relay runs Gemini
- *      Live over Vertex AI via ADC, so it works on projects where the Developer
- *      API is restricted; the managed key never reaches the browser.
+ *   1. Open a WebSocket to the backend relay. The first authenticated frame
+ *      selects either Hushh-managed Vertex or a turn-local Gemini API key.
+ *      The key is immediately cleared and never enters route state, storage,
+ *      telemetry, or model context.
  *   2. The relay owns the Live setup and announces readiness with a
  *      {"setupComplete": {}} frame.
  *   3. Capture mic audio as 16 kHz mono PCM16 and stream it up.
@@ -24,14 +30,32 @@ import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-m
  *      and output amplitude + a coarse status so the UI waveform can react.
  *
  * This is the only realtime full-duplex voice transport; the chat
- * workspace's turn-based voice path (AgentVoiceClient) is separate.
+ * Agent Bar owns the only interactive audio path; Agent Chat delegates voice
+ * requests here and has no STT/TTS fallback transport.
  */
 
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
+// Queue playback slightly AHEAD of the clock rather than at it. Starting a
+// buffer at exactly `currentTime` hands the audio thread a start time inside
+// the render quantum it is already computing, which it rounds up to the next
+// block boundary -- audible as a click on every chunk that arrives late.
+// 80ms is well under the gap a listener notices and comfortably more than one
+// quantum of jitter.
+const OUTPUT_SCHEDULE_LEAD_SECONDS = 0.08;
+// Fade applied only where the stream was interrupted, never between
+// contiguous chunks. Ramping every chunk would put a tremolo on ordinary
+// speech; ramping only after a gap removes the discontinuity that cracks.
+const OUTPUT_RESUME_FADE_SECONDS = 0.006;
 // This is intentionally a coarse barge-in signal, not speech recognition.
 // It needs sustained energy to avoid treating microphone silence/noise as a
 // visitor turn and cancelling the idle welcome cue on every connection.
+/**
+ * Mirrors FRAME_SIZE in public/audio/gemini-live-capture.worklet.js. Only used
+ * to derive the real-time frame interval for the outbound pacing guard, so a
+ * drift between the two costs pacing accuracy, never correctness.
+ */
+const CAPTURE_FRAME_SIZE = 2048;
 const VISITOR_ACTIVITY_LEVEL = 0.08;
 const VISITOR_ACTIVITY_FRAMES = 8;
 
@@ -117,6 +141,28 @@ function describeSocketCloseError(event: CloseEvent): string {
   return `Voice session could not start (code ${event.code}).`;
 }
 
+/**
+ * The relay classifies a mid-call failure and sends `{"sessionEnded": {...}}`
+ * before it closes the socket -- but nothing on this side ever read the
+ * frame, so a genuine provider outage and a normal hangup produced the
+ * identical, silent `stop()`. This is the one place that turns the relay's
+ * wire-level reason into something a person can act on.
+ */
+function describeSessionEndedReason(reason: string, resumable: boolean): string {
+  switch (reason) {
+    case "provider_unavailable":
+      return "Voice is temporarily unavailable. Try again in a moment.";
+    case "unknown_tool_call":
+      return "One hit a snag with that request. Try again.";
+    case "runtime_error":
+      return "Something went wrong with the voice connection. Try again.";
+    default:
+      return resumable
+        ? "Voice session ended. Try again in a moment."
+        : "Voice session ended unexpectedly. Try again.";
+  }
+}
+
 function bytesFromBase64(value: string): Uint8Array {
   const binary = atob(value);
   const bytes = new Uint8Array(binary.length);
@@ -179,6 +225,14 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+/**
+ * Upper bound on the setup handshake (socket open + runtime_bootstrap + relay
+ * run_live + first {"setupComplete": {}}). Generous enough to absorb a cold
+ * managed-Vertex start, small enough that a stalled session fails loudly
+ * instead of hanging with a dead mic.
+ */
+const SETUP_COMPLETE_TIMEOUT_MS = 20_000;
+
 export class GeminiLiveClient implements RealtimeVoiceTransport {
   readonly provider = "gemini_live" as const;
   private handlers: GeminiLiveHandlers;
@@ -190,17 +244,60 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private captureNode: AudioWorkletNode | null = null;
   private closed = false;
   private setupComplete = false;
+  /**
+   * Guards the setup handshake. The socket can open and accept our
+   * runtime_bootstrap yet never return {"setupComplete": {}} (relay stall, a
+   * model not enabled for the region, or a cold managed-Vertex start that never
+   * finishes). Without this the mic stays gated forever and One silently never
+   * "comes alive". On expiry we fail with a diagnosable message + telemetry.
+   */
+  private setupTimeoutTimer: ReturnType<typeof setTimeout> | null = null;
+  private runtimeCredentialMode: "hushh_managed_vertex" | "byok" =
+    "hushh_managed_vertex";
+  private runtimeCredential: string | null = null;
+  /**
+   * The provider's own opaque continuation token. Seeded from `start()`'s
+   * options when reconnecting, and replaced every time the provider issues a
+   * fresh one (it rotates through a session, not just once). Sent on the next
+   * `runtime_bootstrap` this instance makes, and handed off in the `closed`
+   * event so a NEW instance -- start() always builds one -- can carry it
+   * forward.
+   */
+  private resumptionHandle: string | null = null;
+  /** A Voice Settings persona pick, sent on runtime_bootstrap; null uses the deployment default. */
+  private voiceName: string | null = null;
+  private runtimeCredentialTransport: "developer_api" | "vertex_api_key" =
+    "developer_api";
+  private runtimeVertexProject: string | null = null;
+  private runtimeVertexLocation: string | null = null;
   private playheadTime = 0;
+  /** Times the playback queue ran dry mid-turn. Counted so "it sounds broken" has a number. */
+  private outputUnderruns = 0;
   private activeSources = new Set<AudioBufferSourceNode>();
+  private activeGains = new Map<AudioBufferSourceNode, GainNode>();
   private outputLevelTimer: ReturnType<typeof setInterval> | null = null;
   private state: GeminiLiveVoiceState = "idle";
   private sessionId: string | null = null;
   private sourceSeq = 0;
   /** Snapshot captured at start(), pushed as app_context after setup. */
   private startContext: OneVoiceContextSnapshot | null = null;
+  /** Most recent full snapshot; token refreshes must never replace it with {}. */
+  private latestContext: OneVoiceContextSnapshot | null = null;
+  /**
+   * Audio must not reach One until the relay has accepted the initial redacted
+   * route and action inventory. Without this barrier a fast first utterance
+   * can be evaluated against `context_pending`, which looks like an action is
+   * unavailable even though its onboarding control is mounted.
+   */
+  private initialContextReady = false;
+  private initialContextInFlight = false;
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
+  /** Real-time pacing guard for outbound audio; see sendRealtimeAudio. */
+  private lastRealtimeAudioSentAt = 0;
+  /** Frames discarded as backlog. Non-zero means the main thread stalled. */
+  private droppedBacklogFrames = 0;
   private consecutiveSpeechFrames = 0;
   private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
@@ -223,6 +320,19 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private playbackDrainResolvers = new Set<() => void>();
   /** Timestamp of the most recent enqueued audio chunk (drain heuristics). */
   private lastAudioEnqueueAt = 0;
+  private acknowledgedContextIds = new Set<string>();
+  private contextAckWaiters = new Map<
+    string,
+    (result: OneVoiceContextApplyResult) => void
+  >();
+  private actionConfirmationWaiters = new Map<
+    string,
+    {
+      resolve: (value: OneVoiceActionConfirmation) => void;
+      reject: (error: Error) => void;
+      timer: ReturnType<typeof setTimeout>;
+    }
+  >();
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
@@ -262,13 +372,40 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
+    this.lastRealtimeAudioSentAt = 0;
+    this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
     this.bufferedVisitorSpeechFrames = [];
+    this.initialContextReady = false;
+    this.initialContextInFlight = false;
     this.setState("connecting");
 
     const context = options?.context ?? null;
     this.startContext = context;
+    this.latestContext = context;
     this.consentToken = options?.consentToken ?? null;
+    this.resumptionHandle = options?.resumptionHandle?.trim() || null;
+    this.voiceName = options?.voiceName?.trim() || null;
+    this.runtimeCredentialMode =
+      options?.runtimeCredentialMode === "byok"
+        ? "byok"
+        : "hushh_managed_vertex";
+    this.runtimeCredential =
+      this.runtimeCredentialMode === "byok"
+        ? options?.runtimeCredential?.trim() || null
+        : null;
+    this.runtimeCredentialTransport =
+      options?.runtimeCredentialTransport === "vertex_api_key"
+        ? "vertex_api_key"
+        : "developer_api";
+    this.runtimeVertexProject =
+      this.runtimeCredentialTransport === "vertex_api_key"
+        ? options?.runtimeVertexProject?.trim() || null
+        : null;
+    this.runtimeVertexLocation =
+      this.runtimeCredentialTransport === "vertex_api_key"
+        ? options?.runtimeVertexLocation?.trim() || null
+        : null;
     let relayUrl: string;
     try {
       relayUrl =
@@ -339,6 +476,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       const frame = event.data as Float32Array;
       if (
         !this.setupComplete ||
+        !this.initialContextReady ||
         !this.ws ||
         this.ws.readyState !== WebSocket.OPEN
       ) {
@@ -364,13 +502,58 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     };
   }
 
-  private sendRealtimeAudio(pcm: Uint8Array): void {
+  private sendRealtimeAudio(pcm: Uint8Array, paced = true): void {
     if (
       !this.ws ||
       this.ws.readyState !== WebSocket.OPEN ||
       !this.setupComplete
     )
       return;
+    // Never stream faster than real time.
+    //
+    // The capture worklet runs on the audio thread and posts a frame every
+    // ~43ms no matter what the main thread is doing. When the main thread
+    // stalls -- a dev route compile blocks it for seconds -- those messages
+    // queue, then drain in one synchronous burst, and the provider kills the
+    // socket with 1011 "client sending data too fast". Steady state is ~23
+    // frames/sec, so anything arriving well inside a frame interval is backlog
+    // being flushed, not live speech.
+    //
+    // Dropping is the correct response, not buffering: audio that late is
+    // already history in a live conversation, and re-sending it would only
+    // push the burst further out. Compared against a single clock so this
+    // cannot drift against the worklet's own timebase.
+    const frameIntervalMs =
+      (CAPTURE_FRAME_SIZE /
+        (this.inputContext?.sampleRate || INPUT_SAMPLE_RATE)) *
+      1000;
+    const now = performance.now();
+    // `paced === false` is the speech-onset flush: a bounded, once-per-session
+    // catch-up of frames deliberately withheld until the activity signal could
+    // precede them. It is intentional and small, unlike a stall backlog, and
+    // dropping it would clip the first words of the first sentence.
+    // A quarter-interval, not a half: frames legitimately arrive with tens of
+    // milliseconds of scheduling jitter, and dropping a merely-early frame
+    // punches a gap in the stream that the provider's VAD reads as end of
+    // speech -- ending the turn and cutting playback mid-sentence. A stall
+    // backlog drains ~0ms apart, so it is still caught with room to spare.
+    if (paced && now - this.lastRealtimeAudioSentAt < frameIntervalMs * 0.25) {
+      this.droppedBacklogFrames += 1;
+      // Surfaced, not merely counted. This counter existed and was read by
+      // nothing, so the only observable symptom of a stall was the provider
+      // closing the socket with 1011 -- indistinguishable from the pacer not
+      // running at all, which made "is the fix live in this browser?"
+      // unanswerable. Logged on rising powers of two so a pathological stall
+      // is loud while ordinary jitter stays quiet.
+      if ((this.droppedBacklogFrames & (this.droppedBacklogFrames - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] paced out ${this.droppedBacklogFrames} backlog frame(s) ` +
+            `this session; the main thread is stalling and would otherwise trip 1011`,
+        );
+      }
+      return;
+    }
+    this.lastRealtimeAudioSentAt = now;
     this.ws.send(
       JSON.stringify({
         realtimeInput: {
@@ -408,7 +591,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.visitorActivitySent = true;
     this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
     for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
-      this.sendRealtimeAudio(bufferedFrame);
+      this.sendRealtimeAudio(bufferedFrame, false);
     }
     this.bufferedVisitorSpeechFrames = [];
     // A visitor who starts speaking should be able to barge in over an
@@ -419,14 +602,67 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     return false;
   }
 
+  private clearSetupTimeout(): void {
+    if (this.setupTimeoutTimer !== null) {
+      clearTimeout(this.setupTimeoutTimer);
+      this.setupTimeoutTimer = null;
+    }
+  }
+
   private connectSocket(relayUrl: string): void {
     const ws = new WebSocket(relayUrl);
     this.ws = ws;
 
-    // The server relay owns the Live setup (model, voice, system instruction)
-    // and announces readiness with a {"setupComplete": {}} frame, so the browser
-    // does not send a setup message here. It simply waits for setupComplete and
-    // then streams mic audio.
+    // Arm the handshake watchdog for the whole open -> bootstrap -> setup path.
+    // onerror/onclose (which call fail -> stop) clear it if the socket dies
+    // first; a socket that opens but never reaches setupComplete trips this.
+    this.clearSetupTimeout();
+    this.setupTimeoutTimer = setTimeout(() => {
+      this.setupTimeoutTimer = null;
+      if (this.closed || this.setupComplete) return;
+      // Telemetry: distinct, greppable tag so a stalled handshake is
+      // diagnosable in browser logs without exposing any credential.
+      console.warn(
+        "[one-voice] setup handshake timed out before setupComplete",
+        {
+          elapsedMs: SETUP_COMPLETE_TIMEOUT_MS,
+          socketOpen: ws.readyState === WebSocket.OPEN,
+        },
+      );
+      this.fail(
+        "Voice took too long to start. This usually clears on a retry; if it keeps happening the voice model may not be enabled for this workspace.",
+      );
+    }, SETUP_COMPLETE_TIMEOUT_MS);
+
+    // The first post-ticket frame picks the current connection's provider mode.
+    // A BYOK credential exists only in this closure and is cleared immediately
+    // after `send`; it never enters app_context, a URL, storage, or telemetry.
+    ws.onopen = () => {
+      const credential = this.runtimeCredential;
+      ws.send(
+        JSON.stringify({
+          type: "runtime_bootstrap",
+          runtime_credential_mode: this.runtimeCredentialMode,
+          runtime_credential_transport: this.runtimeCredentialTransport,
+          ...(this.runtimeCredentialTransport === "vertex_api_key"
+            ? {
+                runtime_vertex_project: this.runtimeVertexProject,
+                runtime_vertex_location: this.runtimeVertexLocation,
+              }
+            : {}),
+          ...(this.runtimeCredentialMode === "byok" && credential
+            ? { runtime_credential: credential }
+            : {}),
+          ...(this.resumptionHandle
+            ? { resumption_handle: this.resumptionHandle }
+            : {}),
+          ...(this.voiceName ? { voice_name: this.voiceName } : {}),
+        }),
+      );
+      this.runtimeCredential = null;
+      this.runtimeVertexProject = null;
+      this.runtimeVertexLocation = null;
+    };
 
     ws.onmessage = (event) => {
       void this.handleSocketMessage(event.data);
@@ -468,17 +704,96 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if ("setupComplete" in message) {
       this.setupComplete = true;
+      this.clearSetupTimeout();
       // Push the initial app context (screen + governed consent token) now
       // that the session is live; the relay never accepts these in the URL.
+      // Do not expose a listening mic until the relay acknowledges it. The
+      // server deliberately rejects action tools while that context is pending.
       if (this.startContext) {
-        this.updateContext(this.startContext);
+        this.beginInitialContextHandshake(this.startContext);
         this.startContext = null;
       } else {
-        // Even a context-free/legacy start publishes one bounded frame so the
-        // relay can settle its initial-context gate without guessing.
-        this.sendAppContext({});
+        this.fail("Voice is waiting for the current screen. Please try again.");
       }
-      this.setState("listening");
+      return;
+    }
+
+    // The relay's own classified reason for a mid-call end, sent moments
+    // before it closes the socket. Without reading this, that close reached
+    // `ws.onclose` after `setupComplete` and went through the same silent
+    // `stop()` a normal hangup does -- the person just saw the mic go dark.
+    const sessionEnded = readRecord(message.sessionEnded);
+    if (sessionEnded) {
+      const reason = readString(sessionEnded.reason) ?? "unknown";
+      const resumable = sessionEnded.resumable === true;
+      this.fail(describeSessionEndedReason(reason, resumable), resumable);
+      return;
+    }
+
+    // The provider's own continuation token, reissued through the life of a
+    // session (not just once). Kept for the next runtime_bootstrap this
+    // instance sends, and handed off via the `closed` event once this
+    // instance tears down, so a reconnect can carry it into a fresh one.
+    const sessionResumption = readRecord(message.sessionResumption);
+    const resumptionHandle = readString(sessionResumption?.handle);
+    if (resumptionHandle) {
+      this.resumptionHandle = resumptionHandle;
+      return;
+    }
+
+    // The provider's own advance warning that it is about to end the
+    // session on its own terms. No reconnect exists yet to act on this, so
+    // for now this only stops the signal from being silently dropped --
+    // logged so "how often does this fire, and how much runway does it
+    // actually give" is answerable before building on it.
+    const goAway = readRecord(message.goAway);
+    if (goAway) {
+      logVoiceMetric({
+        metric: "voice_go_away_received",
+        value: 1,
+        turnId: createVoiceTurnId(),
+        tags: { time_left: readString(goAway.timeLeft) },
+      });
+      return;
+    }
+
+    const contextAck = readRecord(message.appContextAccepted);
+    const contextId = readString(contextAck?.contextId);
+    if (contextId) {
+      this.acknowledgedContextIds.add(contextId);
+      const resolve = this.contextAckWaiters.get(contextId);
+      if (resolve) {
+        this.contextAckWaiters.delete(contextId);
+        resolve({ status: "acknowledged", contextId });
+      }
+      return;
+    }
+
+    const confirmationAccepted = readRecord(message.actionConfirmationAccepted);
+    const acceptedDirectiveId = readString(confirmationAccepted?.directiveId);
+    if (acceptedDirectiveId) {
+      const waiter = this.actionConfirmationWaiters.get(acceptedDirectiveId);
+      const receipt = readString(confirmationAccepted?.receipt);
+      const expiresAt = readString(confirmationAccepted?.expiresAt);
+      if (waiter && receipt && expiresAt) {
+        clearTimeout(waiter.timer);
+        this.actionConfirmationWaiters.delete(acceptedDirectiveId);
+        waiter.resolve({ receipt, expiresAt });
+      }
+      return;
+    }
+
+    const confirmationRejected = readRecord(message.actionConfirmationRejected);
+    const rejectedDirectiveId = readString(confirmationRejected?.directiveId);
+    if (rejectedDirectiveId) {
+      const waiter = this.actionConfirmationWaiters.get(rejectedDirectiveId);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        this.actionConfirmationWaiters.delete(rejectedDirectiveId);
+        waiter.reject(
+          new Error("This voice action is stale or was already confirmed."),
+        );
+      }
       return;
     }
 
@@ -492,6 +807,25 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         directive: {
           kind: directiveKind,
           payload: readRecord(clientDirective.payload) || undefined,
+          delegateAgentId: readString(clientDirective.delegateAgentId),
+        },
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+      return;
+    }
+
+    const toolTrace = readRecord(message.toolTrace);
+    const toolTraceKind = readString(toolTrace?.kind);
+    if (toolTrace && toolTraceKind) {
+      const eventOptions = this.nextEventOptions();
+      this.handlers.onEvent?.({
+        type: "tool_trace",
+        provider: this.provider,
+        trace: {
+          kind: toolTraceKind,
+          payload: readRecord(toolTrace.payload) || undefined,
         },
         sessionId: eventOptions.sessionId,
         sourceId: eventOptions.sourceId,
@@ -588,6 +922,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     if (serverContent.interrupted) {
       this.modelTurnOpen = false;
+      // The turn that was open is now closed, one way or another -- whatever
+      // the visitor says next is a fresh utterance, not a continuation of
+      // whatever last set this. Without this reset, voice_activity_start
+      // only ever fires once for the whole socket instead of once per
+      // utterance, which silently breaks every backend guard keyed on it
+      // meaning "fresh speech" (live_voice_context.py's per-turn dedupe
+      // clears, the already-completed/already-failed loop guards, stale
+      // directive disarming) for the rest of the call after the first thing
+      // the visitor says.
+      this.visitorActivitySent = false;
       this.stopPlayback();
       this.setState("listening");
       return;
@@ -598,6 +942,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       // settle back to listening when nothing is queued for playback.
       // When audio is still queued, the last node's onended settles instead.
       this.modelTurnOpen = false;
+      this.visitorActivitySent = false;
       this.suppressModelAudio = false;
       if (
         this.activeSources.size === 0 &&
@@ -741,17 +1086,44 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     });
   }
 
-  updateContext(context: OneVoiceContextSnapshot): boolean {
-    if (!this.setupComplete) {
-      // Keep the newest route snapshot while the socket is opening. Otherwise
-      // setupComplete would publish the stale screen captured by start().
-      this.startContext = context;
-      return true;
+  private beginInitialContextHandshake(context: OneVoiceContextSnapshot): void {
+    if (
+      this.initialContextReady ||
+      this.initialContextInFlight ||
+      this.closed
+    ) {
+      return;
     }
+    this.initialContextInFlight = true;
+    void this.applyContextAndWait(context, { timeoutMs: 1500 }).then(
+      (result) => {
+        this.initialContextInFlight = false;
+        if (this.closed || !this.setupComplete) return;
+        if (result.status !== "acknowledged") {
+          this.fail(
+            "Voice could not confirm the current screen. Please try again.",
+          );
+          return;
+        }
+        this.initialContextReady = true;
+        this.setState("listening");
+      },
+    );
+  }
+
+  private sendSnapshotContext(context: OneVoiceContextSnapshot): boolean {
     return this.sendAppContext({
+      context_id: context.snapshot_id,
       screen: context.route.screen,
       route_family: context.route.route_family,
+      // route_family is the path alone, so tabs sharing a path are
+      // indistinguishable without this. The relay derives the authoritative
+      // screen from both; dropping it here silently pins every tab to the
+      // path's default screen.
+      route_query: context.route.route_query,
       route_playbook_id: context.route.playbook_id,
+      context_revision: `${context.revisions.route}:${context.revisions.ui}`,
+      signed_in: context.auth?.signed_in === true,
       persona: context.persona.active,
       voice_state: context.voice.state,
       available_action_ids: context.available_action_ids,
@@ -766,6 +1138,75 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     });
   }
 
+  updateContext(context: OneVoiceContextSnapshot): boolean {
+    this.latestContext = context;
+    if (!this.setupComplete) {
+      // Keep the newest route snapshot while the socket is opening. Otherwise
+      // setupComplete would publish the stale screen captured by start().
+      this.startContext = context;
+      return true;
+    }
+    if (!this.initialContextReady && !this.initialContextInFlight) {
+      this.beginInitialContextHandshake(context);
+      return true;
+    }
+    return this.sendSnapshotContext(context);
+  }
+
+  async applyContextAndWait(
+    context: OneVoiceContextSnapshot,
+    options: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<OneVoiceContextApplyResult> {
+    // `settleAgentGatewayAction` has already observed the destination route
+    // and its mounted publisher. Give that exact stable snapshot a distinct
+    // control-plane id and clear only the presentation-level pending marker;
+    // otherwise the next eligible journey step can deadlock behind the source
+    // action that it is about to report as settled.
+    const settledSnapshotId = context.snapshot_id.endsWith(":settled")
+      ? context.snapshot_id
+      : `${context.snapshot_id}:settled`;
+    const settledContext: OneVoiceContextSnapshot = {
+      ...context,
+      snapshot_id: settledSnapshotId,
+      pending_settlement: false,
+    };
+    const contextId = settledContext.snapshot_id;
+    if (!contextId || options.signal?.aborted) {
+      return { status: "cancelled", contextId: contextId || null };
+    }
+    if (this.acknowledgedContextIds.has(contextId)) {
+      return { status: "acknowledged", contextId };
+    }
+    if (!this.updateContext(settledContext)) {
+      return { status: this.closed ? "closed" : "cancelled", contextId };
+    }
+
+    return new Promise<OneVoiceContextApplyResult>((resolve) => {
+      let timeout: ReturnType<typeof setTimeout> | null = null;
+      let settled = false;
+      let abort: () => void = () => {};
+      const finish = (result: OneVoiceContextApplyResult) => {
+        if (settled) return;
+        settled = true;
+        if (timeout !== null) clearTimeout(timeout);
+        options.signal?.removeEventListener("abort", abort);
+        if (this.contextAckWaiters.get(contextId) === finish) {
+          this.contextAckWaiters.delete(contextId);
+        }
+        resolve(result);
+      };
+      abort = () => finish({ status: "cancelled", contextId });
+      timeout = setTimeout(() => {
+        finish({ status: "timeout", contextId });
+      }, options.timeoutMs ?? 1200);
+      this.contextAckWaiters.set(contextId, finish);
+      options.signal?.addEventListener("abort", abort, { once: true });
+      if (this.acknowledgedContextIds.has(contextId)) {
+        finish({ status: "acknowledged", contextId });
+      }
+    });
+  }
+
   /**
    * Refresh the consent token mid-call (sign-in / vault unlock while a voice
    * session is already open). Stored locally so it also rides on the next
@@ -776,7 +1217,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const trimmed = consentToken?.trim() || null;
     if (trimmed === this.consentToken) return false;
     this.consentToken = trimmed;
-    return this.sendAppContext({});
+    // An authority-only update must retain the current route, inventory, and
+    // context revision. Sending `{}` here caused the relay to sanitize an
+    // empty screen and wipe a live Location journey mid-call.
+    return this.latestContext
+      ? this.sendSnapshotContext(this.latestContext)
+      : false;
   }
 
   reportActionSettlement(settlement: OneVoiceActionSettlement): boolean {
@@ -794,6 +1240,50 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       }),
     );
     return true;
+  }
+
+  confirmActionDirective(input: {
+    directiveId: string;
+    actionId: string;
+    contextRevision: string;
+  }): Promise<OneVoiceActionConfirmation> {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete
+    ) {
+      return Promise.reject(new Error("Voice confirmation is not connected."));
+    }
+    if (this.actionConfirmationWaiters.has(input.directiveId)) {
+      return Promise.reject(
+        new Error("Voice confirmation is already pending."),
+      );
+    }
+    return new Promise<OneVoiceActionConfirmation>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.actionConfirmationWaiters.delete(input.directiveId);
+        reject(
+          new Error(
+            "Voice confirmation timed out. Ask One to propose it again.",
+          ),
+        );
+      }, 5000);
+      this.actionConfirmationWaiters.set(input.directiveId, {
+        resolve,
+        reject,
+        timer,
+      });
+      this.ws?.send(
+        JSON.stringify({
+          type: "action_confirm",
+          actionConfirmation: {
+            directiveId: input.directiveId,
+            actionId: input.actionId,
+            contextRevision: input.contextRevision,
+          },
+        }),
+      );
+    });
   }
 
   /**
@@ -816,6 +1306,9 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.ws.send(
       JSON.stringify({
         type: "app_context",
+        ...(typeof appContext.context_id === "string"
+          ? { contextId: appContext.context_id }
+          : {}),
         appContext: {
           ...appContext,
           // Explicit null clears authority server-side when the vault locks or
@@ -858,16 +1351,49 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     const node = context.createBufferSource();
     node.buffer = buffer;
-    node.connect(context.destination);
-    const startAt = Math.max(context.currentTime, this.playheadTime);
+    const gain = context.createGain();
+    node.connect(gain);
+    gain.connect(context.destination);
+    // The playhead falling behind the clock means the queue ran dry and
+    // silence has already played. Restarting exactly at `currentTime` -- which
+    // is what Math.max did -- lands inside the render quantum the audio thread
+    // is already computing, so it begins on the next block boundary instead,
+    // and the discontinuity is audible as a click. Reported as speech that
+    // "cracks and cuts".
+    //
+    // Resume slightly ahead of now instead, and fade in over a few
+    // milliseconds. Contiguous chunks are untouched: they still butt directly
+    // against the previous buffer with no ramp, because ramping every chunk
+    // would put a tremolo on ordinary speech.
+    const underran = this.playheadTime < context.currentTime;
+    if (underran) {
+      this.playheadTime = context.currentTime + OUTPUT_SCHEDULE_LEAD_SECONDS;
+      this.outputUnderruns += 1;
+      if ((this.outputUnderruns & (this.outputUnderruns - 1)) === 0) {
+        console.info(
+          `[VOICE_AUDIO] output underran ${this.outputUnderruns} time(s) this ` +
+            `session; playback queue ran dry and speech will have broken up`,
+        );
+      }
+    }
+    const startAt = this.playheadTime;
+    if (underran) {
+      gain.gain.setValueAtTime(0, startAt);
+      gain.gain.linearRampToValueAtTime(
+        1,
+        startAt + OUTPUT_RESUME_FADE_SECONDS,
+      );
+    }
     node.start(startAt);
     this.playheadTime = startAt + buffer.duration;
     this.lastAudioEnqueueAt = Date.now();
     this.modelTurnOpen = true;
     this.setState("speaking");
     this.activeSources.add(node);
+    this.activeGains.set(node, gain);
     node.onended = () => {
       this.activeSources.delete(node);
+      this.activeGains.delete(node);
       if (this.activeSources.size === 0 && !this.closed) {
         if (this.modelTurnOpen) {
           // Transient buffer underrun mid-turn: more chunks are coming
@@ -898,19 +1424,31 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   private stopPlayback(): void {
+    const context = this.outputContext;
+    const FADE_SECONDS = 0.015;
     for (const node of this.activeSources) {
       try {
-        node.stop();
+        const gain = this.activeGains.get(node);
+        if (context && gain) {
+          const now = context.currentTime;
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value, now);
+          gain.gain.linearRampToValueAtTime(0, now + FADE_SECONDS);
+          node.stop(now + FADE_SECONDS);
+        } else {
+          node.stop();
+        }
       } catch {
         // ignore
       }
     }
     this.activeSources.clear();
+    this.activeGains.clear();
     if (this.outputContext) this.playheadTime = this.outputContext.currentTime;
     this.handlers.onOutputLevel?.(0);
   }
 
-  private fail(message: string): void {
+  private fail(message: string, resumable?: boolean): void {
     const eventOptions = this.nextEventOptions();
     this.handlers.onError?.(message, eventOptions);
     this.handlers.onEvent?.({
@@ -920,6 +1458,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       sessionId: eventOptions.sessionId,
       sourceId: eventOptions.sourceId,
       sourceSeq: eventOptions.sourceSeq,
+      ...(resumable !== undefined ? { resumable } : {}),
     });
     this.stop();
   }
@@ -928,6 +1467,22 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.closed) return;
     this.closed = true;
     this.setupComplete = false;
+    this.clearSetupTimeout();
+    this.initialContextReady = false;
+    this.initialContextInFlight = false;
+    this.runtimeCredential = null;
+    this.runtimeVertexProject = null;
+    this.runtimeVertexLocation = null;
+    for (const [contextId, resolve] of this.contextAckWaiters) {
+      resolve({ status: "closed", contextId });
+    }
+    this.contextAckWaiters.clear();
+    for (const waiter of this.actionConfirmationWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.reject(new Error("Voice session closed before confirmation."));
+    }
+    this.actionConfirmationWaiters.clear();
+    this.acknowledgedContextIds.clear();
     this.resolvePlaybackDrain();
 
     if (this.outputLevelTimer) {
@@ -978,6 +1533,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.handlers.onEvent?.({
       type: "closed",
       provider: this.provider,
+      resumptionHandle: this.resumptionHandle,
     });
     this.handlers.onClose?.();
   }

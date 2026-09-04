@@ -8,6 +8,10 @@ function text(value: string | null | undefined): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function number(value: number | null | undefined): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
 function stringArray(value: string[] | null | undefined): string[] {
   return Array.isArray(value) ? value.filter((item) => typeof item === "string") : [];
 }
@@ -38,7 +42,7 @@ export function isRiaAdvisoryAccessReady(
     status?.verification_status ||
     ""
   ).toLowerCase();
-  return value === "active" || value === "verified";
+  return value === "active" || value === "verified" || value === "finra_verified";
 }
 
 // Map the server-backed onboarding status onto the props OnboardingStepReview
@@ -101,6 +105,12 @@ export function seedRiaDraftFromStatus(
     pinZip: props.pinZip,
     areaLocality: props.areaLocality,
     fullStreetAddress: props.fullStreetAddress,
+    // The profile save sends `draft.latitude/longitude` verbatim. Leaving them
+    // unseeded meant every save wrote undefined over whatever coordinates the
+    // record already held, so opening the edit panel and saving silently
+    // dropped the adviser's geocoded office.
+    latitude: number(status?.business_latitude),
+    longitude: number(status?.business_longitude),
     contactEmail: text(status?.contact_email),
     contactPhone: text(status?.contact_phone),
     licenseVerificationStatus: isRiaAdvisoryAccessReady(status)

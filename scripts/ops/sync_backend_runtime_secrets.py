@@ -13,7 +13,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 UPSERT_SECRET_SCRIPT = REPO_ROOT / "scripts" / "ops" / "upsert_gcp_secret.py"
-GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
 
 LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
     "APP_SIGNING_KEY": ("APP_SIGNING_KEY", "SECRET_KEY"),
@@ -37,7 +37,9 @@ LEGACY_SECRET_FALLBACKS: dict[str, tuple[str, ...]] = {
 }
 
 
-def _run(cmd: list[str], *, input_text: str | None = None, check: bool = True) -> subprocess.CompletedProcess[str]:
+def _run(
+    cmd: list[str], *, input_text: str | None = None, check: bool = True
+) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
         cmd,
         input=input_text,
@@ -141,7 +143,9 @@ def _gmail_oauth_redirect_uri(app_frontend_origin: str) -> str:
 
 
 def _read_voice_config(project: str) -> dict[str, Any]:
-    existing_raw = _resolve_secret(project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"])
+    existing_raw = _resolve_secret(
+        project, LEGACY_SECRET_FALLBACKS["VOICE_RUNTIME_CONFIG_JSON"]
+    )
     if not existing_raw:
         return {}
     try:
@@ -156,7 +160,10 @@ def _read_voice_config(project: str) -> dict[str, Any]:
 def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
     config: dict[str, Any] = {
         "environment": args.environment,
+        "hushh_genai_auth_mode": "vertex_adc",
         "google_genai_use_vertexai": True,
+        "google_cloud_project": args.project,
+        "google_cloud_location": "global",
         "db_host": args.db_host,
         "db_port": args.db_port,
         "db_name": args.db_name,
@@ -166,7 +173,6 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "sync_remote_enabled": args.sync_remote_enabled,
         "developer_api_enabled": args.developer_api_enabled,
         "remote_mcp_enabled": args.remote_mcp_enabled,
-        "crm_registry_db_enabled": args.crm_registry_db_enabled,
         "cors_allowed_origins": args.cors_allowed_origins,
         "obs_data_stale_ratio_threshold": args.obs_data_stale_ratio_threshold,
         "passkey_allowed_rp_ids": args.passkey_allowed_rp_ids,
@@ -177,8 +183,99 @@ def _build_backend_runtime_config(args: argparse.Namespace) -> dict[str, Any]:
         "plaid_redirect_path": args.plaid_redirect_path,
         "plaid_redirect_uri": args.plaid_redirect_uri,
         "plaid_tx_history_days": args.plaid_tx_history_days,
+        "one_location_read_only_state_enabled": args.one_location_read_only_state_enabled,
+        "one_location_nearby_presence_mode": args.one_location_nearby_presence_mode,
+        "one_location_nearby_presence_cohort": args.one_location_nearby_presence_cohort,
+        "consent_center_summary_v2_enabled": args.consent_center_summary_v2_enabled,
+        "db_bulk_batching_enabled": args.db_bulk_batching_enabled,
+        "hushh_trusted_device_enabled": args.hushh_trusted_device_enabled,
+        "hushh_trusted_device_uat_allowlist": args.hushh_trusted_device_uat_allowlist,
+        "hushh_tech_client_enabled": getattr(
+            args, "hushh_tech_client_enabled", "false"
+        ),
+        "hushh_tech_developer_app_id": getattr(args, "hushh_tech_developer_app_id", ""),
+        "hushh_tech_allowed_audience": getattr(args, "hushh_tech_allowed_audience", ""),
+        "hushh_tech_allowed_redirect_uris": getattr(
+            args, "hushh_tech_allowed_redirect_uris", ""
+        ),
+        "hushh_tech_allowed_consent_scopes": getattr(
+            args, "hushh_tech_allowed_consent_scopes", ""
+        ),
+        "hushh_tech_uat_firebase_uid_allowlist": getattr(
+            args, "hushh_tech_uat_firebase_uid_allowlist", ""
+        ),
+        "hushh_tech_shadow_max_age_ms": getattr(
+            args, "hushh_tech_shadow_max_age_ms", "604800000"
+        ),
+        "hushh_tech_trusted_proxy_hops": getattr(
+            args, "hushh_tech_trusted_proxy_hops", "0"
+        ),
+        "hushh_tech_proxy_audience": getattr(args, "hushh_tech_proxy_audience", ""),
+        "hushh_tech_trusted_proxy_service_accounts": getattr(
+            args, "hushh_tech_trusted_proxy_service_accounts", ""
+        ),
+        "advisors_api_base_url": args.advisors_api_base_url,
+        "insurance_agents_api_base_url": args.insurance_agents_api_base_url,
+        "nws_nearby_api_base_url": args.nws_nearby_api_base_url,
+        "nws_nearby_v4_api_base_url": args.nws_nearby_v4_api_base_url,
+        # The lane's own registered consumer identity upstream. Derived from the
+        # deploy target rather than taken as a flag: a per-lane value with a
+        # default is the shape that silently ships one lane's identity to
+        # another, and a mismatch here is refused upstream as a project
+        # mismatch — which reads like an outage, not a config error.
+        "nws_nearby_v4_project_id": args.project,
+        "one_places_directory_enabled": args.one_places_directory_enabled,
     }
     return _drop_empty(config)
+
+
+# One NWS v4 credential per lane, because the upstream registry binds each key
+# to exactly one consumer and one project. An unlisted lane resolves to blank,
+# which skips the mirror and leaves the surface reporting "not set up" — the
+# right answer for a lane with no registered consumer, and better than handing
+# it another lane's identity.
+_NWS_V4_KEY_SOURCE_BY_PROJECT: dict[str, str] = {
+    "hushh-pda-uat": "nws-hushh-research-v4-api-key-uat",
+    "hushh-pda": "nws-hushh-research-v4-api-key-prod",
+}
+
+
+def _mirror_directory_key(
+    *,
+    target_project: str,
+    target_secret: str,
+    source_project: str,
+    source_secret: str,
+) -> str | None:
+    """Mirror a directory key from its home project into this lane.
+
+    These keys live in one project and are consumed by several. Copying one by
+    hand is exactly what broke UAT: the source rotated and disabled the old
+    version, the hand-made copy did not follow, and the surface began answering
+    502 with a revoked credential. Re-mirroring on every deploy bounds that
+    drift to a single release instead of forever.
+
+    A lane without read access to the source simply gets nothing, and the
+    feature stays inert there rather than failing the deploy. That is a real
+    state, not a theoretical one — read access is a per-secret grant in the home
+    project and does not come with any lane's own project-level roles.
+    """
+    source_project = str(source_project or "").strip()
+    source_secret = str(source_secret or "").strip()
+    if not (source_project and source_secret):
+        return None
+
+    value = _read_secret(source_project, source_secret)
+    if not value:
+        return None
+
+    if _read_secret(target_project, target_secret) == value:
+        # The shared upsert helper adds a version unconditionally; skipping the
+        # write keeps a no-op deploy from minting a secret version each time.
+        return f"{target_secret} (unchanged)"
+
+    _upsert_secret(target_project, target_secret, value)
+    return f"{target_secret} (rotated)"
 
 
 def _upsert_secret(project: str, secret: str, value: str) -> None:
@@ -210,7 +307,6 @@ def main() -> int:
     parser.add_argument("--sync-remote-enabled", required=True)
     parser.add_argument("--developer-api-enabled", required=True)
     parser.add_argument("--remote-mcp-enabled", required=True)
-    parser.add_argument("--crm-registry-db-enabled", default="")
     parser.add_argument("--cors-allowed-origins", required=True)
     parser.add_argument("--obs-data-stale-ratio-threshold", required=True)
     parser.add_argument("--passkey-allowed-rp-ids", default="")
@@ -221,12 +317,136 @@ def main() -> int:
     parser.add_argument("--plaid-redirect-path", default="")
     parser.add_argument("--plaid-redirect-uri", default="")
     parser.add_argument("--plaid-tx-history-days", default="")
+    # Hosted rollouts stay on the compatibility path until their bounded
+    # retention scheduler is installed and verified. The service itself keeps
+    # its read-only semantic default; this generator default is deliberately a
+    # rollout default, not a change to application behavior when the env is
+    # absent.
+    parser.add_argument("--one-location-read-only-state-enabled", default="false")
+    # Nearby check-in admission. Blank leaves the flow closed in production and
+    # unchanged everywhere else; `_drop_empty` keeps an unset flag out of the
+    # config entirely rather than writing an empty string the gate would have to
+    # interpret. Opening production needs BOTH of these -- see the route gate.
+    parser.add_argument("--one-location-nearby-presence-mode", default="")
+    parser.add_argument("--one-location-nearby-presence-cohort", default="")
+    parser.add_argument("--consent-center-summary-v2-enabled", default="false")
+    parser.add_argument("--db-bulk-batching-enabled", default="false")
+    parser.add_argument("--hushh-trusted-device-enabled", default="false")
+    parser.add_argument("--hushh-trusted-device-uat-allowlist", default="")
+    parser.add_argument("--hushh-tech-client-enabled", default="false")
+    parser.add_argument("--hushh-tech-developer-app-id", default="")
+    parser.add_argument("--hushh-tech-allowed-audience", default="")
+    parser.add_argument("--hushh-tech-allowed-redirect-uris", default="")
+    parser.add_argument("--hushh-tech-allowed-consent-scopes", default="")
+    parser.add_argument("--hushh-tech-uat-firebase-uid-allowlist", default="")
+    parser.add_argument("--hushh-tech-shadow-max-age-ms", default="604800000")
+    parser.add_argument("--hushh-tech-trusted-proxy-hops", default="0")
+    parser.add_argument("--hushh-tech-proxy-audience", default="")
+    parser.add_argument("--hushh-tech-trusted-proxy-service-accounts", default="")
+    # Advisor directory base URL. Non-secret, so it belongs in the generated
+    # runtime config rather than in the deploy step, which sits close to Cloud
+    # Build's arg ceiling. Blank leaves it out entirely and the surface reports
+    # unavailable; the bearer key is a real secret and is mounted separately.
+    parser.add_argument("--advisors-api-base-url", default="")
+    # The directory key is owned by one project and consumed by several, so it
+    # is mirrored rather than copied by hand — see _sync_advisors_api_key.
+    parser.add_argument("--advisors-api-key-source-project", default="hushh-tech-prod")
+    parser.add_argument(
+        "--advisors-api-key-source-secret", default="brokercheck-api-key"
+    )
+    # Insurance agent directory. Same split as the advisor directory directly
+    # above: a non-secret base URL in the generated runtime config, and a bearer
+    # key mirrored from the project that owns it.
+    parser.add_argument("--insurance-agents-api-base-url", default="")
+    parser.add_argument("--one-places-directory-enabled", default="")
+    parser.add_argument(
+        "--insurance-agents-api-key-source-project", default="hushh-tech-prod"
+    )
+    parser.add_argument(
+        "--insurance-agents-api-key-source-secret", default="insurance-agents-api-key"
+    )
+    # NWS Nearby Intelligence. Same split again, with one deliberate difference:
+    # the base URL carries a real default instead of "". There is exactly one
+    # deployed NWS service and every lane calls it, so a blank default would
+    # leave any lane whose workflow forgot the flag silently unconfigured while
+    # the lane that remembered looked healthy. The two directories above are
+    # per-lane and correctly default to blank; this one is not.
+    parser.add_argument(
+        "--nws-nearby-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument(
+        "--nws-nearby-api-key-source-project", default="hushh-tech-prod"
+    )
+    parser.add_argument(
+        "--nws-nearby-api-key-source-secret", default="nws-nearby-api-key"
+    )
+    # NWS v4 net-worth contract. Same single deployed service, so the base URL
+    # carries a real default for the same reason as the v2 one above. The v4
+    # credential is a per-consumer key rather than the shared service key, so it
+    # is mirrored from its own source secret and never falls back to the v2 one:
+    # presenting the v2 key to v4 is refused as invalid credentials, and sharing
+    # one key across two consumers is exactly what the upstream registry exists
+    # to prevent.
+    parser.add_argument(
+        "--nws-nearby-v4-api-base-url",
+        default="https://nws-nearby-intelligence-fro3hygenq-uc.a.run.app",
+    )
+    parser.add_argument(
+        "--nws-nearby-v4-api-key-source-project", default="hushh-tech-prod"
+    )
+    # Blank by default and resolved from the lane below. Unlike the v2 key,
+    # which is one shared service credential every lane may use, a v4 key is
+    # bound in the upstream registry to a single consumer with a single
+    # project. Mirroring one key into every lane would hand production UAT's
+    # credential, and the upstream would refuse it as a project mismatch.
+    parser.add_argument("--nws-nearby-v4-api-key-source-secret", default="")
     args = parser.parse_args()
+
+    if not str(args.nws_nearby_v4_api_key_source_secret or "").strip():
+        args.nws_nearby_v4_api_key_source_secret = _NWS_V4_KEY_SOURCE_BY_PROJECT.get(
+            args.project, ""
+        )
 
     sync_summary: list[str] = []
 
+    for target_secret, source_project, source_secret in (
+        (
+            "ADVISORS_API_KEY",
+            args.advisors_api_key_source_project,
+            args.advisors_api_key_source_secret,
+        ),
+        (
+            "INSURANCE_AGENTS_API_KEY",
+            args.insurance_agents_api_key_source_project,
+            args.insurance_agents_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_API_KEY",
+            args.nws_nearby_api_key_source_project,
+            args.nws_nearby_api_key_source_secret,
+        ),
+        (
+            "NWS_NEARBY_V4_API_KEY",
+            args.nws_nearby_v4_api_key_source_project,
+            args.nws_nearby_v4_api_key_source_secret,
+        ),
+    ):
+        status = _mirror_directory_key(
+            target_project=args.project,
+            target_secret=target_secret,
+            source_project=source_project,
+            source_secret=source_secret,
+        )
+        if status:
+            sync_summary.append(status)
+
     for canonical_name, fallback_names in LEGACY_SECRET_FALLBACKS.items():
-        if canonical_name in {"APP_FRONTEND_ORIGIN", "BACKEND_RUNTIME_CONFIG_JSON", "VOICE_RUNTIME_CONFIG_JSON"}:
+        if canonical_name in {
+            "APP_FRONTEND_ORIGIN",
+            "BACKEND_RUNTIME_CONFIG_JSON",
+            "VOICE_RUNTIME_CONFIG_JSON",
+        }:
             continue
         value = _resolve_secret(args.project, fallback_names)
         if not value:
@@ -234,7 +454,9 @@ def main() -> int:
         _upsert_secret(args.project, canonical_name, value)
         sync_summary.append(canonical_name)
 
-    _upsert_secret(args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip())
+    _upsert_secret(
+        args.project, "APP_FRONTEND_ORIGIN", args.app_frontend_origin.strip()
+    )
     sync_summary.append("APP_FRONTEND_ORIGIN")
 
     _upsert_secret(

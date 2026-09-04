@@ -1,9 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Building2 } from "lucide-react";
-
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -11,17 +9,43 @@ import {
 } from "@/components/app-ui/app-page-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import {
+  ConnectedSystemLogo,
+  ConnectedSystemsPanel,
+  crmTypeDisplayLabel,
+} from "@/components/profile/connected-systems-panel";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import type { ConnectedSystemAgentInstruction } from "@/components/profile/connected-systems-panel";
+import type { ConnectedSystemSummary } from "@/lib/services/connected-systems-service";
+import { publishConnectedSystemPresentation } from "@/lib/navigation/connected-system-presentation";
 
-export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) {
+export function ConnectedSystemDetailClient({
+  systemId,
+  routeId = "/one/connected-systems/[systemId]",
+}: {
+  systemId: string;
+  routeId?: "/one/connected-systems" | "/one/connected-systems/[systemId]";
+}) {
   const { user, phoneNumber } = useAuth();
   const { vaultOwnerToken } = useVault();
   const searchParams = useSearchParams();
   const [showUnlock, setShowUnlock] = useState(false);
+  const [system, setSystem] = useState<ConnectedSystemSummary | null>(null);
+  const handleSystemResolved = useCallback(
+    (resolvedSystem: ConnectedSystemSummary) => {
+      setSystem(resolvedSystem);
+      publishConnectedSystemPresentation({
+        systemId: resolvedSystem.systemId,
+        label:
+          resolvedSystem.displayName ||
+          resolvedSystem.customerDisplayName ||
+          "CRM",
+      });
+    },
+    [],
+  );
   const [agentInstruction] = useState<ConnectedSystemAgentInstruction | null>(() => {
     if (typeof window === "undefined") return null;
     const instructionId = searchParams.get("agentActionId");
@@ -43,35 +67,40 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
   return (
     <AppPageShell
       as="main"
-      width="standard"
+      width="reading"
       className="pb-[calc(var(--app-bottom-inset)+var(--kai-command-fixed-ui,82px)+1.25rem)] sm:pb-10 md:pb-8"
       nativeTest={{
-        routeId: "/one/connected-systems/[systemId]",
+        routeId,
         marker: "native-route-connected-system-detail",
         authState: user ? "authenticated" : "pending",
         dataState: "loaded",
       }}
     >
       <NativeTestBeacon
-        routeId="/one/connected-systems/[systemId]"
+        routeId={routeId}
         marker="native-route-connected-system-detail"
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
       <AppPageHeaderRegion>
         <PageHeader
-          eyebrow="CRM systems"
-          title="Macy's"
-          icon={Building2}
+          title={system?.displayName || system?.customerDisplayName || "CRM"}
+          description={crmTypeDisplayLabel(system) || "CRM"}
+          actions={
+            system ? <ConnectedSystemLogo system={system} size="hero" /> : null
+          }
+          actionsInlineMobile
           accent="neutral"
         />
       </AppPageHeaderRegion>
       <AppPageContentRegion>
         <ConnectedSystemsPanel
+          cacheUserId={user?.uid}
           vaultOwnerToken={vaultOwnerToken}
           onRequestUnlock={() => setShowUnlock(true)}
           mode="detail"
           systemId={systemId}
+          onSystemResolved={handleSystemResolved}
           agentInstruction={agentInstruction}
           profile={{
             displayName: user?.displayName,
@@ -87,7 +116,7 @@ export function ConnectedSystemDetailClient({ systemId }: { systemId: string }) 
           open={showUnlock}
           onOpenChange={setShowUnlock}
           title="Unlock vault"
-          description="Unlock your vault to inspect CRM records and approve Connected Systems actions."
+          description="Unlock to review CRM."
           onSuccess={() => setShowUnlock(false)}
         />
       ) : null}

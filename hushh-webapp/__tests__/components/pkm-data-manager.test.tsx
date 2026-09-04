@@ -1,7 +1,10 @@
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
-import { PkmDomainDetailPanel } from "@/components/profile/pkm-data-manager";
+import {
+  PkmDataManagerPanel,
+  PkmDomainDetailPanel,
+} from "@/components/profile/pkm-data-manager";
 import type { PkmSectionPreviewPresentation } from "@/lib/profile/pkm-section-preview";
 
 const previewPresentation: PkmSectionPreviewPresentation = {
@@ -31,7 +34,8 @@ describe("PkmDomainDetailPanel", () => {
         domain={{
           key: "financial",
           title: "Financial",
-          summary: "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+          summary:
+            "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
           highlights: [
             "19 saved details",
             "Organized into Portfolio, Analytics, and Documents",
@@ -88,18 +92,22 @@ describe("PkmDomainDetailPanel", () => {
         onPreviewOpenChange={vi.fn()}
         onPreviewPermission={vi.fn()}
         onTogglePermission={vi.fn()}
-      />
+      />,
     );
 
     expect(
       screen.getByText(
-        "Kai keeps a readable view of your financial details across portfolio, analytics, and documents."
-      )
+        "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+      ),
     ).toBeTruthy();
-    expect(screen.getByText("19 saved details")).toBeTruthy();
-    expect(screen.getByText("Organized into Portfolio, Analytics, and Documents")).toBeTruthy();
+    expect(screen.getByText("19 items")).toBeTruthy();
+    expect(
+      screen.getByText("Organized into Portfolio, Analytics, and Documents"),
+    ).toBeTruthy();
     expect(screen.getByText("Sharing controls")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "View Portfolio information" })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "View Portfolio information" }),
+    ).toBeTruthy();
     expect(screen.queryByText("What's saved here")).toBeNull();
     expect(screen.queryByText("Current access")).toBeNull();
   });
@@ -110,7 +118,8 @@ describe("PkmDomainDetailPanel", () => {
         domain={{
           key: "financial",
           title: "Financial",
-          summary: "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
+          summary:
+            "Kai keeps a readable view of your financial details across portfolio, analytics, and documents.",
           highlights: [],
           sections: ["Portfolio"],
           sourceLabels: ["Portfolio imports"],
@@ -163,17 +172,175 @@ describe("PkmDomainDetailPanel", () => {
         onPreviewOpenChange={vi.fn()}
         onPreviewPermission={vi.fn()}
         onTogglePermission={vi.fn()}
-      />
+      />,
     );
 
-    expect(screen.getByText("Snapshot of your saved holdings and balances.")).toBeTruthy();
+    expect(
+      screen.getByText("Snapshot of your saved holdings and balances."),
+    ).toBeTruthy();
     expect(screen.getByText("2 accounts")).toBeTruthy();
     expect(screen.getByText("14 holdings")).toBeTruthy();
     expect(screen.getByText("Total value")).toBeTruthy();
     expect(screen.getByText("$412,000")).toBeTruthy();
     expect(screen.queryByText("saved_data")).toBeNull();
-    const dialogContent = document.querySelector('[data-slot="dialog-content"]');
-    expect(dialogContent?.className).toContain("sm:max-w-[min(42rem,calc(100vw-4rem))]");
+    const dialogContent = document.querySelector(
+      '[data-slot="dialog-content"]',
+    );
+    expect(dialogContent?.className).toContain(
+      "sm:max-w-[min(42rem,calc(100vw-4rem))]",
+    );
     expect(screen.getByRole("button", { name: "Close" })).toBeTruthy();
+  });
+});
+
+describe("PkmDataManagerPanel", () => {
+  const baseProps = {
+    signedIn: true,
+    loading: false,
+    needsVaultCreation: false,
+    needsUnlock: false,
+    summary: null,
+    domains: [],
+    loadingManifestsByDomain: {},
+    manifestErrorsByDomain: {},
+    onOpenSharing: vi.fn(),
+    onOpenImport: vi.fn(),
+    onRefresh: vi.fn(),
+    onOpenDomain: vi.fn(),
+  };
+
+  it("uses one compact status lane while Memory is cold", () => {
+    render(
+      <PkmDataManagerPanel
+        {...baseProps}
+        metadataReady={false}
+        sharingReady={false}
+      />,
+    );
+
+    expect(screen.getByTestId("memory-background-status")).toHaveTextContent(
+      "Loading saved details…",
+    );
+    expect(screen.queryByTestId("memory-saved-details-group")).toBeNull();
+    expect(screen.queryByText("Checking sharing status")).toBeNull();
+    expect(screen.queryByText("Checking your saved details")).toBeNull();
+  });
+
+  it("keeps cached category rows visible while sharing refreshes", () => {
+    render(
+      <PkmDataManagerPanel
+        {...baseProps}
+        metadataReady
+        sharingReady={false}
+        summary={{
+          metadataResolved: true,
+          sharingResolved: false,
+          totalDomains: 1,
+          totalAttributes: 19,
+          totalSourceCount: 1,
+          activeGrantCount: 0,
+          sharedDomainCount: 0,
+          staleDomainCount: 0,
+          missingDomainCount: 0,
+          density: "relaxed",
+          lastUpdated: "2026-07-19T12:00:00.000Z",
+          recentDomainTitles: ["Financial"],
+          attentionItems: [],
+        }}
+        domains={[{
+          key: "financial",
+          title: "Financial",
+          summary: "Saved holdings and account details.",
+          highlights: [],
+          sections: ["Portfolio"],
+          sourceLabels: ["Portfolio import"],
+          updatedAt: "2026-07-19T12:00:00.000Z",
+          detailCount: 19,
+          status: "complete",
+          statusLabel: "Complete",
+          accessEntries: [],
+          accessSummary: "Access status unavailable",
+          accessCount: 0,
+          attentionFlags: [],
+          permissionCount: 0,
+          enabledPermissionCount: 0,
+        }]}
+      />,
+    );
+
+    expect(screen.getByTestId("memory-background-status")).toHaveTextContent(
+      "Updating sharing controls…",
+    );
+    expect(screen.getByTestId("memory-category-financial")).toBeTruthy();
+  });
+
+  it("uses the canonical settings group and row geometry for Memory categories", () => {
+    const onOpenDomain = vi.fn();
+    render(
+      <PkmDataManagerPanel
+        signedIn
+        loading={false}
+        metadataReady
+        sharingReady
+        needsVaultCreation={false}
+        needsUnlock={false}
+        summary={{
+          metadataResolved: true,
+          sharingResolved: true,
+          totalDomains: 1,
+          totalAttributes: 19,
+          totalSourceCount: 1,
+          activeGrantCount: 0,
+          sharedDomainCount: 0,
+          staleDomainCount: 0,
+          missingDomainCount: 0,
+          density: "relaxed",
+          lastUpdated: "2026-07-19T12:00:00.000Z",
+          recentDomainTitles: ["Financial"],
+          attentionItems: [],
+        }}
+        domains={[
+          {
+            key: "financial",
+            title: "Financial",
+            summary: "Saved holdings and account details.",
+            highlights: [],
+            sections: ["Portfolio"],
+            sourceLabels: ["Portfolio import"],
+            updatedAt: "2026-07-19T12:00:00.000Z",
+            detailCount: 19,
+            status: "complete",
+            statusLabel: "Complete",
+            accessEntries: [],
+            accessSummary: "Private",
+            accessCount: 0,
+            attentionFlags: [],
+            permissionCount: 0,
+            enabledPermissionCount: 0,
+          },
+        ]}
+        loadingManifestsByDomain={{}}
+        manifestErrorsByDomain={{}}
+        onOpenSharing={vi.fn()}
+        onOpenImport={vi.fn()}
+        onRefresh={vi.fn()}
+        onOpenDomain={onOpenDomain}
+      />,
+    );
+
+    expect(screen.getByTestId("memory-saved-details-group")).toBeTruthy();
+    expect(screen.queryByText("Saved details")).toBeNull();
+    expect(
+      screen.queryByText(
+        "Review what One remembers and choose how it can be shared.",
+      ),
+    ).toBeNull();
+    const row = screen.getByTestId("memory-category-financial");
+    expect(row.querySelector('[data-slot="settings-row-icon"]')).toBeTruthy();
+    expect(screen.getByText("19 items")).toBeTruthy();
+    screen.getByRole("button", { name: /Financial/i }).click();
+    expect(onOpenDomain).toHaveBeenCalledWith(
+      expect.objectContaining({ key: "financial" }),
+    );
   });
 });

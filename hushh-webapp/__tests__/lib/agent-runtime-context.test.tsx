@@ -15,8 +15,12 @@ import {
   registerMountedLocalActionHandler,
   unregisterMountedLocalActionHandler,
 } from "@/lib/agent/local-onboarding-actions";
+import {
+  forgetVoicePreferences,
+  updateVoicePreferences,
+} from "@/lib/agent/voice-preferences";
 
-let mockPathname = "/profile";
+let mockPathname = "/one/profile";
 const cacheMocks = vi.hoisted(() => ({
   values: new Map<string, unknown>(),
   listeners: new Set<(event: { type: "set"; key: string }) => void>(),
@@ -24,6 +28,7 @@ const cacheMocks = vi.hoisted(() => ({
 
 vi.mock("next/navigation", () => ({
   usePathname: () => mockPathname,
+  useSearchParams: () => new URLSearchParams(window.location.search),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -89,16 +94,17 @@ function Probe({ onValue }: { onValue: (value: AgentRuntimeState) => void }) {
 
 describe("AgentRuntimeStateProvider", () => {
   beforeEach(() => {
-    mockPathname = "/profile";
-    window.history.replaceState({}, "", "/profile");
+    mockPathname = "/one/profile";
+    window.history.replaceState({}, "", "/one/profile");
     cacheMocks.values.clear();
     cacheMocks.listeners.clear();
     clearVoiceSurfaceMetadata("login_surface");
+    forgetVoicePreferences("user_1");
   });
 
   it("updates shared runtime context for query-only route changes", async () => {
     const seen: AgentRuntimeState[] = [];
-    render(
+    const view = render(
       <AgentRuntimeStateProvider>
         <Probe onValue={(value) => seen.push(value)} />
       </AgentRuntimeStateProvider>
@@ -109,14 +115,19 @@ describe("AgentRuntimeStateProvider", () => {
     });
 
     act(() => {
-      window.history.pushState({}, "", "/profile?panel=gmail&tab=account");
+      window.history.pushState({}, "", "/one/profile?panel=gmail&tab=account");
     });
+    view.rerender(
+      <AgentRuntimeStateProvider>
+        <Probe onValue={(value) => seen.push(value)} />
+      </AgentRuntimeStateProvider>,
+    );
 
     await waitFor(() => {
       const latest = seen.at(-1);
       expect(latest?.screen).toBe("profile_gmail_panel");
       expect(latest?.appRuntimeState.route.pathname).toBe(
-        "/profile?panel=gmail&tab=account"
+        "/one/profile?panel=gmail&tab=account"
       );
       expect(latest?.oneVoiceContextSnapshot.revisions.route).toBeTruthy();
       expect(latest?.morphyAxSnapshot.context.screen).toBe("profile_gmail_panel");
@@ -203,6 +214,40 @@ describe("AgentRuntimeStateProvider", () => {
         "auth.open_terms",
         "runtime-context-test",
       );
+    });
+  });
+
+  it("reflects the person's own voice preferences in the live snapshot, reactively", async () => {
+    const seen: AgentRuntimeState[] = [];
+    render(
+      <AgentRuntimeStateProvider>
+        <Probe onValue={(value) => seen.push(value)} />
+      </AgentRuntimeStateProvider>
+    );
+
+    await waitFor(() => {
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.voice_settings).toEqual({
+        voice_enabled: true,
+        require_tap_confirmation: false,
+        disabled_domains: [],
+      });
+    });
+
+    act(() => {
+      updateVoicePreferences("user_1", (current) => ({
+        ...current,
+        voiceEnabled: false,
+        requireTapConfirmation: true,
+        disabledDomains: ["location"],
+      }));
+    });
+
+    await waitFor(() => {
+      expect(seen.at(-1)?.oneVoiceContextSnapshot.voice_settings).toEqual({
+        voice_enabled: false,
+        require_tap_confirmation: true,
+        disabled_domains: ["location"],
+      });
     });
   });
 });

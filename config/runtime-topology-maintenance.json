@@ -1,0 +1,216 @@
+{
+  "schema_version": "hushh.runtime_topology_maintenance.v1",
+  "purpose": "Authored structural metadata for the generated runtime topology index. It never contains user information, credentials, request payloads, or executable action authority.",
+  "semantic_routes": [
+    {
+      "id": "public.research",
+      "pathname": "/welcome",
+      "query": { "tab": "research" },
+      "canonical_url": "/welcome?tab=research",
+      "tab_set": "public",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "public.blog",
+      "pathname": "/welcome",
+      "query": { "tab": "blog" },
+      "canonical_url": "/welcome?tab=blog",
+      "tab_set": "public",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "public.developers",
+      "pathname": "/welcome",
+      "query": { "tab": "developers" },
+      "canonical_url": "/welcome?tab=developers",
+      "tab_set": "public",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "finance.market",
+      "pathname": "/one/kai",
+      "query": { "tab": "market" },
+      "canonical_url": "/one/kai?tab=market",
+      "tab_set": "finance",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "finance.portfolio",
+      "pathname": "/one/kai",
+      "query": { "tab": "portfolio" },
+      "canonical_url": "/one/kai?tab=portfolio",
+      "tab_set": "finance",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "finance.analysis",
+      "pathname": "/one/kai",
+      "query": { "tab": "analysis" },
+      "canonical_url": "/one/kai?tab=analysis",
+      "tab_set": "finance",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "consent.requests",
+      "pathname": "/one/consent",
+      "query": { "tab": "requests" },
+      "canonical_url": "/one/consent?tab=requests",
+      "tab_set": "consent",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "consent.active",
+      "pathname": "/one/consent",
+      "query": { "tab": "active" },
+      "canonical_url": "/one/consent?tab=active",
+      "tab_set": "consent",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "consent.history",
+      "pathname": "/one/consent",
+      "query": { "tab": "history" },
+      "canonical_url": "/one/consent?tab=history",
+      "tab_set": "consent",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "consent.connections",
+      "pathname": "/one/consent",
+      "query": { "tab": "connections" },
+      "canonical_url": "/one/consent?tab=connections",
+      "tab_set": "consent",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "location.now",
+      "pathname": "/one/location",
+      "query": { "view": "now" },
+      "canonical_url": "/one/location?view=now",
+      "tab_set": "location",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "location.people",
+      "pathname": "/one/location",
+      "query": { "view": "people" },
+      "canonical_url": "/one/location?view=people",
+      "tab_set": "location",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "location.links",
+      "pathname": "/one/location",
+      "query": { "view": "links" },
+      "canonical_url": "/one/location?view=links",
+      "tab_set": "location",
+      "lifecycle": "canonical"
+    },
+    {
+      "id": "location.inbox",
+      "pathname": "/one/location",
+      "query": { "view": "inbox" },
+      "canonical_url": "/one/location?view=inbox",
+      "tab_set": "location",
+      "lifecycle": "canonical"
+    }
+  ],
+  "route_aliases": [
+    {
+      "pathname": "/developers",
+      "canonical_url": "/welcome?tab=developers",
+      "owner": "public_knowledge_workspace",
+      "reason": "Preserves published developer links while the unified public workspace is canonical.",
+      "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+    },
+    {
+      "pathname": "/research",
+      "canonical_url": "/welcome?tab=research",
+      "owner": "public_knowledge_workspace",
+      "reason": "Preserves research links while the unified public workspace is canonical.",
+      "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+    },
+    {
+      "pathname": "/blog",
+      "canonical_url": "/welcome?tab=blog",
+      "owner": "public_knowledge_workspace",
+      "reason": "Preserves editorial links while the unified public workspace is canonical.",
+      "retirement_policy": "Keep until inbound-link telemetry and search migration support removal."
+    }
+  ],
+  "implementation_overrides": [
+    {
+      "pathname": "/one/kai/analysis",
+      "kind": "redirect_with_shared_feature_module",
+      "canonical_url": "/one/kai?tab=analysis",
+      "shared_feature_export": "KaiAnalysisPageContent",
+      "reason": "The compatibility page redirects by default while the canonical Finance tab mounts its named feature export."
+    },
+    {
+      "pathname": "/one/profile/pkm-agent-lab",
+      "kind": "development_only_feature_with_production_redirect",
+      "canonical_url": "/one/pkm",
+      "reason": "The local PKM agent lab is available only in development; production redirects to the canonical PKM workspace."
+    }
+  ],
+  "compatibility_surfaces": [
+    {
+      "id": "api.world_model",
+      "pathname_prefix": "/api/world-model",
+      "canonical_prefix": "/api/pkm",
+      "owner": "backend",
+      "lifecycle": "decision_required",
+      "sunset_at": "2026-06-30T00:00:00Z",
+      "reason": "Compatibility proxies remain mounted after their declared sunset and need an explicit remove-or-extend decision."
+    }
+  ],
+  "database_retirements": [
+    {
+      "table": "one_location_network_connections",
+      "owner": "iam-consent-governance",
+      "lifecycle": "pending_destructive_preflight",
+      "superseded_by": "trusted_connections",
+      "reason": "Migration 079 copied the active graph, but no forward migration has dropped the legacy table.",
+      "required_preflight": [
+        "Verify there are no runtime service reads or writes.",
+        "Record an environment-specific row count and confirm retention requirements.",
+        "Verify a recoverable backup before the forward-only drop migration.",
+        "Update dev and UAT schema contracts in the same change as the drop migration."
+      ]
+    }
+  ],
+  "maintenance_profiles": [
+    {
+      "id": "one_core",
+      "personas": ["One", "Onboarding"],
+      "route_prefixes": ["/", "/one", "/login", "/one/setup"],
+      "agent_ids": ["agent_one", "agent_onboarding"],
+      "table_family_ids": ["actor_identity_state", "agent_chat_encrypted_memory", "relay_ticket_replay_guard"],
+      "evidence_lanes": ["frontend_architect", "backend_architect", "voice_systems_architect", "reviewer"]
+    },
+    {
+      "id": "finance",
+      "personas": ["Kai", "Investor", "RIA"],
+      "route_prefixes": ["/one/kai", "/ria", "/marketplace"],
+      "agent_ids": ["agent_kai", "agent_financial_guard", "agent_portfolio_import"],
+      "table_family_ids": ["kai_brokerage_provider_cache", "funding_trading_audit", "ria_marketplace_relationships"],
+      "evidence_lanes": ["frontend_architect", "backend_architect", "data_model_architect", "voice_systems_architect"]
+    },
+    {
+      "id": "privacy_connections",
+      "personas": ["Nav", "Location", "Connections"],
+      "route_prefixes": ["/one/consent", "/one/location", "/one/connect"],
+      "agent_ids": ["agent_nav", "agent_location", "agent_connections"],
+      "table_family_ids": ["consent_authority_audit", "trusted_connections_graph", "two_way_connection_graph", "one_location_agent"],
+      "evidence_lanes": ["backend_architect", "data_model_architect", "security_consent_auditor", "frontend_architect"]
+    },
+    {
+      "id": "information_identity",
+      "personas": ["KYC", "Email", "Connected Systems", "Personal Information"],
+      "route_prefixes": ["/one/kyc", "/one/connected-systems", "/one/profile", "/one/gmail"],
+      "agent_ids": ["agent_kyc", "agent_email", "agent_connected_systems", "agent_personal_information"],
+      "table_family_ids": ["one_email_kyc_workflow", "enterprise_crm_registry", "connected_system_workflows", "information_marketplace_requests"],
+      "evidence_lanes": ["backend_architect", "data_model_architect", "security_consent_auditor", "product_docs_architect"]
+    }
+  ]
+}

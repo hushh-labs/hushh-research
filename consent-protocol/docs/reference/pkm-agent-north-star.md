@@ -32,6 +32,13 @@ Imperative code is allowed only to:
 
 Imperative code must not replace the agent as the canonical semantic classifier.
 
+`source_library` is the deliberate exception to generic domain selection: it is
+a fixed capability boundary with its own canonical writer. Memory Intent,
+Memory Merge, and PKM Structure agents must not select, create, redirect, or
+repurpose it. Requests to find, organize, manage, or share mounted source files
+belong to the bounded Hermes-local Source Library Steward; they are not ordinary
+PKM structure mutations.
+
 ## Required architecture
 
 Every canonical PKM preview follows this flow:
@@ -66,6 +73,7 @@ Every canonical PKM preview follows this flow:
    - prevent non-financial prompts from contaminating `financial`
    - enforce that sanctioned financial memory stays inside guarded financial structure
    - reject gibberish, ciphertext-like input, and semantically empty text from entering PKM
+   - reject any generic structure output targeting the reserved `source_library` domain
 
 ## Prompt contract discipline
 

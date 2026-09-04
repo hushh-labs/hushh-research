@@ -131,6 +131,9 @@ CREATE TABLE IF NOT EXISTS "pkm_manifests" (
   "domain_contract_version" INTEGER NOT NULL,
   "readable_summary_version" INTEGER NOT NULL,
   "upgraded_at" TEXT,
+  "pkm_contract_version" TEXT NOT NULL,
+  "readable_projection_version" TEXT NOT NULL,
+  "latest_upgrade_commit_id" TEXT,
   PRIMARY KEY ("user_id", "domain")
 );
 
@@ -182,7 +185,11 @@ CREATE TABLE IF NOT EXISTS "pkm_scope_registry" (
   "updated_at" TEXT NOT NULL,
   "visibility_posture" TEXT NOT NULL,
   "default_projection_ready" INTEGER NOT NULL,
-  "default_projection_updated_at" TEXT
+  "default_projection_updated_at" TEXT,
+  "owner_consent_override" INTEGER NOT NULL,
+  "scope_origin" TEXT NOT NULL,
+  "scope_origin_code" TEXT NOT NULL,
+  "source_kind" TEXT NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS "pkm_default_available_projections" (
@@ -218,6 +225,118 @@ CREATE TABLE IF NOT EXISTS "pkm_migration_state" (
   "updated_at" TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS "pkm_upgrade_runs" (
+  "run_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "from_model_version" INTEGER NOT NULL,
+  "to_model_version" INTEGER NOT NULL,
+  "current_domain" TEXT,
+  "initiated_by" TEXT NOT NULL,
+  "resume_count" INTEGER NOT NULL,
+  "started_at" TEXT NOT NULL,
+  "last_checkpoint_at" TEXT,
+  "completed_at" TEXT,
+  "last_error" TEXT,
+  "created_at" TEXT NOT NULL,
+  "updated_at" TEXT NOT NULL,
+  "mode" TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "pkm_domain_revisions" (
+  "revision_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "domain" TEXT NOT NULL,
+  "source_content_revision" INTEGER NOT NULL,
+  "source_manifest_revision" INTEGER NOT NULL,
+  "is_origin" INTEGER NOT NULL,
+  "archive_reason" TEXT NOT NULL,
+  "source_commit_id" TEXT,
+  "manifest_snapshot" TEXT NOT NULL,
+  "path_rows_snapshot" TEXT NOT NULL,
+  "scope_rows_snapshot" TEXT NOT NULL,
+  "index_domain_summary_snapshot" TEXT NOT NULL,
+  "index_domain_present" INTEGER NOT NULL,
+  "retention_expires_at" TEXT,
+  "restored_count" INTEGER NOT NULL,
+  "last_restored_at" TEXT,
+  "created_at" TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "pkm_domain_revision_segments" (
+  "revision_id" TEXT NOT NULL,
+  "segment_id" TEXT NOT NULL,
+  "ciphertext" TEXT NOT NULL,
+  "iv" TEXT NOT NULL,
+  "tag" TEXT NOT NULL,
+  "algorithm" TEXT NOT NULL,
+  "original_content_revision" INTEGER NOT NULL,
+  "original_manifest_revision" INTEGER NOT NULL,
+  "size_bytes" INTEGER NOT NULL,
+  "created_at" TEXT NOT NULL,
+  PRIMARY KEY ("revision_id", "segment_id")
+);
+
+CREATE TABLE IF NOT EXISTS "pkm_domain_commits" (
+  "commit_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "domain" TEXT NOT NULL,
+  "commit_kind" TEXT NOT NULL,
+  "request_fingerprint" TEXT,
+  "run_id" TEXT,
+  "claim_id" TEXT,
+  "expected_content_revision" INTEGER NOT NULL,
+  "expected_manifest_revision" INTEGER NOT NULL,
+  "result_content_revision" INTEGER NOT NULL,
+  "result_manifest_revision" INTEGER NOT NULL,
+  "archived_revision_id" TEXT,
+  "retention_expires_at" TEXT,
+  "created_at" TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "pkm_upgrade_claims" (
+  "claim_id" TEXT PRIMARY KEY,
+  "commit_id" TEXT NOT NULL,
+  "run_id" TEXT NOT NULL,
+  "user_id" TEXT NOT NULL,
+  "domain" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "source_content_revision" INTEGER NOT NULL,
+  "source_manifest_revision" INTEGER NOT NULL,
+  "target_domain_contract_version" INTEGER NOT NULL,
+  "target_readable_summary_version" INTEGER NOT NULL,
+  "target_pkm_contract_version" TEXT NOT NULL,
+  "target_readable_projection_version" TEXT NOT NULL,
+  "expires_at" TEXT NOT NULL,
+  "issued_at" TEXT NOT NULL,
+  "committed_at" TEXT,
+  "target_content_revision" INTEGER,
+  "target_manifest_revision" INTEGER,
+  "archived_revision_id" TEXT,
+  "preservation_receipt" TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS "pkm_upgrade_steps" (
+  "id" INTEGER PRIMARY KEY,
+  "run_id" TEXT NOT NULL,
+  "domain" TEXT NOT NULL,
+  "status" TEXT NOT NULL,
+  "from_domain_contract_version" INTEGER NOT NULL,
+  "to_domain_contract_version" INTEGER NOT NULL,
+  "from_readable_summary_version" INTEGER NOT NULL,
+  "to_readable_summary_version" INTEGER NOT NULL,
+  "attempt_count" INTEGER NOT NULL,
+  "last_completed_content_revision" INTEGER,
+  "last_completed_manifest_version" INTEGER,
+  "checkpoint_payload" TEXT NOT NULL,
+  "created_at" TEXT NOT NULL,
+  "updated_at" TEXT NOT NULL,
+  "last_claim_id" TEXT,
+  "last_commit_id" TEXT,
+  "last_archived_revision_id" TEXT,
+  "preservation_receipt" TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS "vault_keys" (
   "user_id" TEXT PRIMARY KEY,
   "vault_status" TEXT NOT NULL,
@@ -238,6 +357,7 @@ CREATE TABLE IF NOT EXISTS "vault_keys" (
   "setup_capability_ids" TEXT,
   "setup_capabilities_updated_at" INTEGER,
   "setup_state_updated_at" INTEGER,
+  "one_runtime_setup_choice" TEXT CHECK ("one_runtime_setup_choice" IS NULL OR "one_runtime_setup_choice" IN ('hushh_managed_vertex', 'byok_pending_vault')),
   "onboarding_journey_version" INTEGER,
   "onboarding_phase" TEXT,
   "onboarding_active_capability" TEXT,
@@ -324,7 +444,25 @@ CREATE TABLE IF NOT EXISTS "developer_apps" (
   "owner_email" TEXT,
   "owner_display_name" TEXT,
   "owner_provider_ids" TEXT NOT NULL,
-  "brand_image_url" TEXT
+  "brand_image_url" TEXT,
+  "kind" TEXT NOT NULL DEFAULT 'self_serve',
+  "crm_id" TEXT,
+  "allowed_capabilities" TEXT NOT NULL DEFAULT '[]',
+  "schema_profile" TEXT NOT NULL DEFAULT 'standard',
+  "oauth_client_credentials_enabled" INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE TABLE IF NOT EXISTS "developer_connector_keys" (
+  "app_id" TEXT NOT NULL,
+  "connector_key_id" TEXT NOT NULL,
+  "connector_public_key" TEXT NOT NULL,
+  "recipient_key_fingerprint" TEXT NOT NULL,
+  "connector_wrapping_alg" TEXT NOT NULL DEFAULT 'X25519-AES256-GCM',
+  "status" TEXT NOT NULL DEFAULT 'active',
+  "created_at" INTEGER NOT NULL,
+  "retired_at" INTEGER,
+  "revoked_at" INTEGER,
+  PRIMARY KEY ("app_id", "connector_key_id")
 );
 
 CREATE TABLE IF NOT EXISTS "developer_tokens" (
@@ -341,5 +479,83 @@ CREATE TABLE IF NOT EXISTS "developer_tokens" (
   "last_used_ip" TEXT,
   "last_used_user_agent" TEXT
 );
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_clients" (
+  "app_id" TEXT PRIMARY KEY,
+  "client_id" TEXT NOT NULL UNIQUE,
+  "client_secret_hash" TEXT NOT NULL,
+  "client_secret_prefix" TEXT NOT NULL,
+  "redirect_uris" TEXT NOT NULL DEFAULT '[]',
+  "created_at" INTEGER NOT NULL,
+  "secret_rotated_at" INTEGER NOT NULL,
+  "revoked_at" INTEGER,
+  "allowed_grant_types" TEXT NOT NULL DEFAULT '["authorization_code","refresh_token"]',
+  "mcp_execution_mode" TEXT NOT NULL DEFAULT 'execute'
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_authorizations" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "transaction_ref" TEXT NOT NULL UNIQUE,
+  "code_hash" TEXT UNIQUE,
+  "app_id" TEXT NOT NULL,
+  "client_id" TEXT NOT NULL,
+  "redirect_uri" TEXT NOT NULL,
+  "code_challenge" TEXT NOT NULL,
+  "subject_firebase_uid" TEXT,
+  "requested_scope" TEXT NOT NULL,
+  "state" TEXT,
+  "status" TEXT NOT NULL,
+  "expires_at" INTEGER NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "consumed_at" INTEGER
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_tokens" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "token_hash" TEXT NOT NULL UNIQUE,
+  "token_prefix" TEXT NOT NULL,
+  "token_kind" TEXT NOT NULL,
+  "app_id" TEXT NOT NULL,
+  "subject_firebase_uid" TEXT,
+  "authorization_id" INTEGER,
+  "scopes" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL,
+  "expires_at" INTEGER NOT NULL,
+  "revoked_at" INTEGER,
+  "last_used_at" INTEGER,
+  "grant_type" TEXT NOT NULL DEFAULT 'authorization_code',
+  "mcp_execution_mode" TEXT NOT NULL DEFAULT 'execute'
+);
+
+CREATE TABLE IF NOT EXISTS "developer_oauth_audit_events" (
+  "id" INTEGER PRIMARY KEY AUTOINCREMENT,
+  "app_id" TEXT NOT NULL,
+  "client_id" TEXT,
+  "subject_firebase_uid" TEXT,
+  "event_type" TEXT NOT NULL,
+  "created_at" INTEGER NOT NULL
+);
+
+-- Coarse terminal checkpoint for resumable Kai analyze (debate) runs.
+-- Mirror of migration 125_kai_analyze_run_store.sql for the offline SQLite test
+-- harness. Epochs are INTEGER; terminal_payload is TEXT JSON (portable across
+-- Postgres and SQLite -- no jsonb/now()/INTERVAL).
+CREATE TABLE IF NOT EXISTS "kai_analyze_runs" (
+  "run_id" TEXT PRIMARY KEY,
+  "user_id" TEXT NOT NULL,
+  "debate_session_id" TEXT NOT NULL,
+  "ticker" TEXT NOT NULL,
+  "risk_profile" TEXT NOT NULL,
+  "status" TEXT NOT NULL CHECK ("status" IN ('completed', 'failed', 'canceled')),
+  "terminal_event" TEXT,
+  "terminal_payload" TEXT NOT NULL DEFAULT '{}',
+  "started_at_iso" TEXT,
+  "completed_at_iso" TEXT,
+  "created_at" INTEGER NOT NULL,
+  "expires_at" INTEGER NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS "idx_kai_analyze_runs_expiry"
+  ON "kai_analyze_runs" ("expires_at");
 
 -- WARNING: table users not found in live schema, skipped

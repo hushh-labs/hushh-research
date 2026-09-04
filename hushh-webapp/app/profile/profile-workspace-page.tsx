@@ -1,6 +1,5 @@
 "use client";
 
-import styles from "./page.module.css";
 import {
   Suspense,
   useCallback,
@@ -12,21 +11,21 @@ import {
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   AlertTriangle,
-  Bug,
   CodeXml,
-  Code2,
-  ClipboardCheck,
+  ContactRound,
   ExternalLink,
   Fingerprint,
   Folder,
   KeyRound,
-  LifeBuoy,
   Loader2,
   LogOut,
   Mail,
   MapPin,
+  Mic,
   MessageCircleQuestion,
+  Users,
   Monitor,
+  Laptop,
   Phone,
   Palette,
   RefreshCw,
@@ -36,8 +35,8 @@ import {
   Trash2,
   User,
   UserRound,
+  Wallet,
 } from "lucide-react";
-import type { LucideIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
@@ -46,15 +45,7 @@ import {
   AppPageHeaderRegion,
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
-import {
-  SurfaceCard,
-  SurfaceCardContent,
-  SurfaceCardDescription,
-  SurfaceCardHeader,
-  SurfaceCardTitle,
-  SurfaceInset,
-  SurfaceStack,
-} from "@/components/app-ui/surfaces";
+import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   PkmAccessManagerPanel,
   PkmAccessConnectionDetailPanel,
@@ -66,8 +57,12 @@ import {
   type ProfileStackEntry,
 } from "@/components/profile/profile-stack-navigator";
 import { ProfileKaiPreferencesPanel } from "@/components/profile/profile-kai-preferences-panel";
+import { GeminiLogo } from "@/components/brand/gemini-logo";
+import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-panel";
+import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
+import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
-import { RuntimeSecretSettingsCard } from "@/components/profile/runtime-secret-settings-card";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -79,7 +74,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { ProfileAvatarEditor } from "@/components/profile/profile-avatar-editor";
 import { Badge } from "@/components/ui/badge";
 import {
   Dialog,
@@ -102,8 +97,9 @@ import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow
 import { useAuth } from "@/hooks/use-auth";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
+import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { resolveDeveloperRuntime } from "@/lib/developers/runtime";
+import { isPkmDeveloperHost } from "@/app/one/pkm/developer-visibility";
 import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
@@ -112,6 +108,8 @@ import {
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
 import { ROUTES } from "@/lib/navigation/routes";
+import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
+import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
 import {
   buildCanonicalProfileRouteFromLegacyQuery,
   buildProfileRoute,
@@ -124,24 +122,19 @@ import {
   resolveGmailStatusSummary,
   sanitizeGmailUserMessage,
 } from "@/lib/profile/mail-flow";
-import {
-  getProfileRiaRefreshLicenseNumber,
-  resolveProfileRiaRegulatoryRow,
-} from "@/lib/profile/profile-ria-regulatory-row";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { Icon } from "@/lib/morphy-ux/ui";
+import { SegmentedTabs } from "@/lib/morphy-ux/ui";
 import { Button, morphyToast } from "@/lib/morphy-ux/morphy";
 import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { cn } from "@/lib/utils";
 import { AccountService } from "@/lib/services/account-service";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import {
-  RiaService,
-  type RiaOnboardingStatus,
-} from "@/lib/services/ria-service";
+import { RiaService } from "@/lib/services/ria-service";
 import {
   ConsentCenterService,
   type ConsentCenterResponse,
@@ -150,6 +143,7 @@ import {
   SupportService,
   type SupportMessageKind,
 } from "@/lib/services/support-service";
+import { ReferralsPanel } from "@/components/profile/referrals-panel";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import {
   buildPkmAccessConnections,
@@ -166,7 +160,7 @@ import {
 } from "@/lib/profile/pkm-section-preview";
 import { loadProfilePkmMetadataForVaultState } from "@/lib/profile/profile-pkm-metadata-policy";
 import { applySlicePosture } from "@/lib/personal-knowledge-model/slice-publishing";
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import type { DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
 import { UserLocalStateService } from "@/lib/services/user-local-state-service";
@@ -204,10 +198,18 @@ const PROFILE_LABELS = {
   account: "Your account",
   preferences: "Appearance & preferences",
   security: "Security & privacy",
+  referrals: "Invite friends",
   support: "Help & feedback",
   developerTools: "Developer tools",
   accountAccess: "Account access",
+  setup: "Set up One",
 } as const;
+
+/**
+ * Read once at module scope: `NEXT_PUBLIC_*` is inlined at build time, so this
+ * cannot change across renders and does not belong in state or a memo.
+ */
+const walletCardEntryEnabled = isWalletCardEntryEnabled();
 
 function cloneManifest(manifest: DomainManifest | null): DomainManifest | null {
   if (!manifest) return null;
@@ -292,29 +294,75 @@ function buildPkmEntityDeletionCandidate(
   return root;
 }
 
-const SUPPORT_KIND_COPY: Record<
+const SUPPORT_INTENT_PRESENTATION: Record<
   SupportMessageKind,
-  { title: string; description: string; subject: string }
+  {
+    label: string;
+    accessibleLabel: string;
+    placeholder: string;
+    submitLabel: string;
+    successTitle: string;
+    successDescription: string;
+    internalSubject: string;
+  }
 > = {
   bug_report: {
-    title: "Report a bug",
-    description:
-      "Tell us what broke, what you expected, and anything we should look at.",
-    subject: "Bug report",
+    label: "Problem",
+    accessibleLabel: "Problem, report something that is not working",
+    placeholder: "What happened, and what did you expect?",
+    submitLabel: "Send report",
+    successTitle: "Report sent",
+    successDescription: "Thanks -- we'll review it.",
+    internalSubject: "Bug report",
   },
   support_request: {
-    title: "Contact support",
-    description:
-      "Ask for help with your account, portfolio flows, or something unclear in the app.",
-    subject: "Support request",
+    label: "Help",
+    accessibleLabel: "Help, get help using One",
+    placeholder: "What do you need help with?",
+    submitLabel: "Send request",
+    successTitle: "Request sent",
+    successDescription: "We received your support request.",
+    internalSubject: "Support request",
   },
   developer_reachout: {
-    title: "Reach the developer",
-    description:
-      "Share product feedback, implementation notes, or a direct engineering question.",
-    subject: "Developer feedback",
+    label: "Feedback",
+    accessibleLabel: "Feedback, share an idea or improvement",
+    placeholder: "What should we improve?",
+    submitLabel: "Send feedback",
+    successTitle: "Feedback sent",
+    successDescription: "Thanks for helping us improve One.",
+    internalSubject: "Developer feedback",
   },
 };
+
+type SupportComposerState =
+  | { status: "editing" }
+  | { status: "sending" }
+  | { status: "sent"; kind: SupportMessageKind }
+  | { status: "error"; message: string };
+
+const SUPPORT_INTENT_OPTIONS = (
+  Object.keys(SUPPORT_INTENT_PRESENTATION) as SupportMessageKind[]
+).map((kind) => ({
+  value: kind,
+  label: SUPPORT_INTENT_PRESENTATION[kind].label,
+  accessibleLabel: SUPPORT_INTENT_PRESENTATION[kind].accessibleLabel,
+}));
+
+function normalizeSupportKind(value: string | null): SupportMessageKind | null {
+  if (
+    value === "bug_report" ||
+    value === "support_request" ||
+    value === "developer_reachout"
+  ) {
+    return value;
+  }
+  return null;
+}
+
+function isValidReplyEmail(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
+}
 
 function normalizeProfileVaultReturnTo(value: string | null): string | null {
   const normalized = String(value ?? "").trim();
@@ -511,7 +559,6 @@ function profileRouteRequiresUnlockedVault(
 ): boolean {
   if (
     panel === "my-data" ||
-    panel === "access" ||
     panel === "connected-systems" ||
     panel === "gmail"
   ) {
@@ -520,20 +567,30 @@ function profileRouteRequiresUnlockedVault(
   if (panel === "security") {
     return true;
   }
-  return panel === "preferences" && detail === "kai-preferences";
+  return (
+    panel === "preferences" &&
+    (detail === "kai-preferences" || detail === "gemini")
+  );
 }
 
 function profileRouteNeedsWorkspaceData(panel: ProfilePanel | null): boolean {
-  return panel === "my-data" || panel === "access";
+  return panel === "my-data";
 }
 
 function ProfilePageContent() {
-  const canShowPkmAgentLab = resolveDeveloperRuntime().environment === "local";
+  const [canShowPkmAgentLab, setCanShowPkmAgentLab] = useState(false);
   const appAccent = useAccent();
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const searchParamsString = searchParams.toString();
+
+  useEffect(() => {
+    setCanShowPkmAgentLab(
+      process.env.NODE_ENV === "development" &&
+        isPkmDeveloperHost(window.location.hostname),
+    );
+  }, []);
 
   const {
     user,
@@ -638,26 +695,24 @@ function ProfilePageContent() {
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
-  const [riaOnboardingStatus, setRiaOnboardingStatus] =
-    useState<RiaOnboardingStatus | null>(null);
-  const [loadingRiaOnboardingStatus, setLoadingRiaOnboardingStatus] =
+  // The combined find-and-auto-connect setting is explicit and fail-closed.
+  const [contactDiscoverable, setContactDiscoverable] = useState(false);
+  const [loadingContactDiscoverable, setLoadingContactDiscoverable] =
+    useState(true);
+  const [savingContactDiscoverable, setSavingContactDiscoverable] =
     useState(false);
-  const [riaOnboardingStatusError, setRiaOnboardingStatusError] = useState<
-    string | null
-  >(null);
-  const [showRegulatoryRefresh, setShowRegulatoryRefresh] = useState(false);
-  const [regulatoryLicenseNumber, setRegulatoryLicenseNumber] = useState("");
-  const [regulatoryRegulator, setRegulatoryRegulator] = useState("SEC");
-  const [refreshingRegulatoryProfile, setRefreshingRegulatoryProfile] =
-    useState(false);
-  const [regulatoryRefreshMessage, setRegulatoryRefreshMessage] = useState<
-    string | null
-  >(null);
   const [supportKind, setSupportKind] =
     useState<SupportMessageKind>("support_request");
-  const [supportSubject, setSupportSubject] = useState("");
   const [supportMessage, setSupportMessage] = useState("");
-  const [sendingSupportMessage, setSendingSupportMessage] = useState(false);
+  const [supportReplyEmail, setSupportReplyEmail] = useState("");
+  const [supportMessageError, setSupportMessageError] = useState<string | null>(
+    null,
+  );
+  const [supportReplyEmailError, setSupportReplyEmailError] = useState<
+    string | null
+  >(null);
+  const [supportComposerState, setSupportComposerState] =
+    useState<SupportComposerState>({ status: "editing" });
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | "sync" | null
   >(null);
@@ -669,6 +724,9 @@ function ProfilePageContent() {
     string | null
   >(null);
   const vaultUnlockCompletingRef = useRef(false);
+  const supportMessageRef = useRef<HTMLTextAreaElement | null>(null);
+  const supportReplyEmailRef = useRef<HTMLInputElement | null>(null);
+  const supportSuccessHeadingRef = useRef<HTMLHeadingElement | null>(null);
 
   const legacyProfileRedirectHref = useMemo(
     () => buildCanonicalProfileRouteFromLegacyQuery(pathname, searchParams),
@@ -680,6 +738,27 @@ function ProfilePageContent() {
   );
   const activePanel = profileRouteState.panel;
   const activeDetail = profileRouteState.detail;
+  const supportComposeKind =
+    activePanel === "support" && activeDetail?.startsWith("support-compose:")
+      ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
+      : null;
+  const supportQueryKind =
+    activePanel === "support"
+      ? normalizeSupportKind(searchParams.get("kind"))
+      : null;
+  const supportRouteKind = supportComposeKind ?? supportQueryKind;
+  const sendingSupportMessage = supportComposerState.status === "sending";
+  const supportPresentation = SUPPORT_INTENT_PRESENTATION[supportKind];
+  const hasAccountReplyEmail = Boolean(user?.email?.trim());
+  const effectiveReplyEmail = hasAccountReplyEmail
+    ? user?.email?.trim() || ""
+    : supportReplyEmail.trim();
+  const supportReplyLine = effectiveReplyEmail
+    ? `Replies go to ${effectiveReplyEmail}`
+    : "No reply email added.";
+  const supportMessageErrorId = "support-message-error";
+  const supportReplyEmailErrorId = "support-reply-email-error";
+  const supportSendStatusId = "support-send-status";
   const profileNativeRouteId = useMemo(
     () =>
       pathname === ROUTES.PROFILE || pathname.startsWith(`${ROUTES.PROFILE}/`)
@@ -712,21 +791,59 @@ function ProfilePageContent() {
     router.replace(legacyProfileRedirectHref, { scroll: false });
   }, [legacyProfileRedirectHref, router]);
 
+  useEffect(() => {
+    if (!supportRouteKind || supportRouteKind === supportKind) return;
+    setSupportKind(supportRouteKind);
+    setSupportMessageError(null);
+    setSupportReplyEmailError(null);
+  }, [supportKind, supportRouteKind]);
+
+  const legacySupportRouteHref = useMemo(() => {
+    if (activePanel !== "support") return null;
+    if (activeDetail === "support-routing") {
+      return buildProfileRoute({
+        panel: "support",
+        detail: null,
+        searchParams,
+      });
+    }
+    if (supportComposeKind) {
+      return buildProfileRoute({
+        panel: "support",
+        detail: `support-compose:${supportComposeKind}`,
+        searchParams,
+      });
+    }
+    return null;
+  }, [activeDetail, activePanel, searchParams, supportComposeKind]);
+
+  useEffect(() => {
+    if (!legacySupportRouteHref) return;
+    router.replace(legacySupportRouteHref, { scroll: false });
+  }, [legacySupportRouteHref, router]);
+
+  useEffect(() => {
+    if (supportComposerState.status !== "sent") return;
+    supportSuccessHeadingRef.current?.focus();
+  }, [supportComposerState.status]);
+
   const provider = getProvider(user);
   const gmailRouteHref = searchParamsString
     ? `${pathname}?${searchParamsString}`
     : pathname;
+  const gmailIdTokenProvider = useCallback(
+    () => (user?.getIdToken ? user.getIdToken() : Promise.resolve("")),
+    [user],
+  );
   const gmail = useGmailConnectorStatus({
     userId: user?.uid || null,
     enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail",
-    idTokenProvider: user?.getIdToken ? () => user.getIdToken() : null,
+    idTokenProvider: user?.getIdToken ? gmailIdTokenProvider : null,
     routeHref: gmailRouteHref,
     refreshKey: gmailRouteHref,
   });
   const gmailActionsBusy =
     gmail.refreshingStatus || gmail.syncingRun || gmailActionBusy !== null;
-  const personaList = personaState?.personas ?? ["investor"];
-  const hasRiaPersona = personaList.includes("ria");
   const vaultAccess = useMemo(
     () =>
       resolveVaultAvailabilityState({
@@ -791,7 +908,7 @@ function ProfilePageContent() {
         metadata: pkmMetadata,
         domains: domainPresentations,
         activeGrants: consentCenter?.active_grants || [],
-        pendingRequestCount: pendingConsents,
+        pendingRequestCount: pendingConsents ?? 0,
         metadataResolved: pkmMetadataReady,
         sharingResolved: consentCenterReady,
       }),
@@ -893,7 +1010,7 @@ function ProfilePageContent() {
   }, [selectedDomain?.key]);
 
   const selectedConnection = useMemo(() => {
-    if (activePanel !== "access" || !activeDetail?.startsWith("connection:"))
+    if (activePanel !== "my-data" || !activeDetail?.startsWith("connection:"))
       return null;
     const connectionId = activeDetail.slice("connection:".length);
     return (
@@ -911,10 +1028,19 @@ function ProfilePageContent() {
         },
         mode: "push" | "replace" = "push",
       ) => {
+        // Preserve only the `from` origin marker (not transient vault/return
+        // keys, which must not re-fire while drilling panels) so the shared
+        // top-bar back control can retrace to wherever Profile was opened from,
+        // even after Profile → panel → detail → back all the way out.
+        const originFrom = searchParams.get("from");
+        const originParams = originFrom
+          ? new URLSearchParams({ from: originFrom })
+          : undefined;
         const href = buildProfileRoute({
           panel: typeof next.panel === "undefined" ? activePanel : next.panel,
           detail:
             typeof next.detail === "undefined" ? activeDetail : next.detail,
+          searchParams: originParams,
         });
         if (mode === "push") {
           router.push(href, { scroll: false });
@@ -922,7 +1048,7 @@ function ProfilePageContent() {
           router.replace(href, { scroll: false });
         }
       },
-    [activeDetail, activePanel, router],
+    [activeDetail, activePanel, router, searchParams],
   );
 
   useEffect(() => {
@@ -1024,43 +1150,34 @@ function ProfilePageContent() {
     setLoadingMarketplaceOptIn(false);
   }, [personaState, user]);
 
-  const refreshRiaOnboardingStatus = useCallback(
-    async (force = false) => {
-      if (!user?.uid || !user.getIdToken || !hasRiaPersona) {
-        setRiaOnboardingStatus(null);
-        setRiaOnboardingStatusError(null);
-        setLoadingRiaOnboardingStatus(false);
-        return null;
-      }
-
-      setLoadingRiaOnboardingStatus(true);
-      setRiaOnboardingStatusError(null);
+  useEffect(() => {
+    if (!user) {
+      setContactDiscoverable(false);
+      setLoadingContactDiscoverable(false);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
       try {
         const idToken = await user.getIdToken();
-        const nextStatus = await RiaService.getOnboardingStatus(idToken, {
-          userId: user.uid,
-          force,
-        });
-        setRiaOnboardingStatus(nextStatus);
-        return nextStatus;
+        const result = await RiaService.getContactDiscoverability(idToken);
+        if (!cancelled) {
+          setContactDiscoverable(Boolean(result.contact_discoverable));
+        }
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : "Couldn't load RIA regulatory status.";
-        setRiaOnboardingStatusError(message);
-        return null;
+        // Keep the fail-closed default; a failed read must never imply consent.
+        console.error(
+          "[ProfilePage] Failed to load contact discoverability:",
+          error,
+        );
       } finally {
-        setLoadingRiaOnboardingStatus(false);
+        if (!cancelled) setLoadingContactDiscoverable(false);
       }
-    },
-    [hasRiaPersona, user],
-  );
-
-  useEffect(() => {
-    if (authLoading) return;
-    void refreshRiaOnboardingStatus(false);
-  }, [authLoading, refreshRiaOnboardingStatus]);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const refreshPkmMetadata = useCallback(
     async (force = false) => {
@@ -1082,6 +1199,28 @@ function ProfilePageContent() {
     },
     [hasVault, user?.uid, vaultOwnerToken],
   );
+
+  // A domain written on another route (Wallet, Kai import, chat) reaches this
+  // screen through the epoch when it mounts later, and through the event
+  // while it is mounted. Either way the metadata is re-read, not patched.
+  const appliedPkmEpochRef = useRef(0);
+  useEffect(() => {
+    const uid = user?.uid;
+    if (!uid || hasVault === null || typeof window === "undefined") return;
+    const epoch = currentPkmInvalidationEpoch(uid);
+    if (epoch > appliedPkmEpochRef.current) {
+      appliedPkmEpochRef.current = epoch;
+      void refreshPkmMetadata(true).catch(() => undefined);
+    }
+    const handleDomainChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ userId?: unknown }>).detail;
+      if (detail?.userId !== uid) return;
+      appliedPkmEpochRef.current = currentPkmInvalidationEpoch(uid);
+      void refreshPkmMetadata(true).catch(() => undefined);
+    };
+    window.addEventListener("pkm-domain-changed", handleDomainChanged);
+    return () => window.removeEventListener("pkm-domain-changed", handleDomainChanged);
+  }, [hasVault, refreshPkmMetadata, user?.uid]);
 
   const refreshDomainManifest = useCallback(
     async (domainKey: string, force = false) => {
@@ -1387,7 +1526,7 @@ function ProfilePageContent() {
           })(),
           {
             loading: "Deleting your account...",
-            success: "Account deleted. Redirecting...",
+            success: "Account deleted.",
             error: "Failed to delete account. Please try again.",
             variant: "destructive",
           },
@@ -1525,6 +1664,30 @@ function ProfilePageContent() {
     }
   };
 
+  const handleContactDiscoverableToggle = async () => {
+    if (!user) return;
+    const next = !contactDiscoverable;
+    try {
+      setSavingContactDiscoverable(true);
+      const idToken = await user.getIdToken();
+      const result = await RiaService.setContactDiscoverability(idToken, next);
+      setContactDiscoverable(Boolean(result.contact_discoverable));
+      toast.success(
+        result.contact_discoverable
+          ? "People who have your number can find and connect with you automatically."
+          : "You are hidden from contact sync.",
+      );
+    } catch (error) {
+      console.error(
+        "[ProfilePage] Failed to update contact discoverability:",
+        error,
+      );
+      toast.error("Could not update contact discoverability.");
+    } finally {
+      setSavingContactDiscoverable(false);
+    }
+  };
+
   const handleMarketplaceOptInToggle = async () => {
     if (!user) return;
     try {
@@ -1553,19 +1716,6 @@ function ProfilePageContent() {
     }
   };
 
-  function openSupportComposer(kind: SupportMessageKind) {
-    setSupportKind(kind);
-    setSupportSubject(SUPPORT_KIND_COPY[kind].subject);
-    setSupportMessage("");
-    updateProfileView(
-      {
-        panel: "support",
-        detail: `support-compose:${kind}`,
-      },
-      "push",
-    );
-  }
-
   function requestVaultUnlock(
     reason:
       "profile_data" | "delete_account" | "reset_account" = "profile_data",
@@ -1577,7 +1727,7 @@ function ProfilePageContent() {
   function openVaultBackedPanel(
     panel: Extract<
       ProfilePanel,
-      "my-data" | "access" | "connected-systems" | "gmail" | "security"
+      "my-data" | "connected-systems" | "gmail" | "security"
     >,
   ) {
     if (vaultAccess.needsVaultCreation && panel !== "security") {
@@ -1593,20 +1743,41 @@ function ProfilePageContent() {
   }
 
   async function submitSupportMessage() {
-    if (!user) return;
-    const trimmedSubject = supportSubject.trim();
+    if (!user || sendingSupportMessage) return;
+
     const trimmedMessage = supportMessage.trim();
+    const trimmedReplyEmail = supportReplyEmail.trim();
+    const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
-    if (trimmedSubject.length < 3) {
-      toast.error("Add a short subject so we can triage this quickly.");
-      return;
-    }
     if (trimmedMessage.length < 10) {
-      toast.error("Add a bit more detail so we can help properly.");
+      setSupportMessageError("Add a few more details.");
+      setSupportComposerState({ status: "editing" });
+      supportMessageRef.current?.focus();
       return;
     }
 
-    setSendingSupportMessage(true);
+    if (
+      !hasAccountReplyEmail &&
+      trimmedReplyEmail &&
+      !isValidReplyEmail(trimmedReplyEmail)
+    ) {
+      setSupportReplyEmailError("Enter a valid email.");
+      setSupportComposerState({ status: "editing" });
+      supportReplyEmailRef.current?.focus();
+      return;
+    }
+
+    if (typeof navigator !== "undefined" && navigator.onLine === false) {
+      setSupportComposerState({
+        status: "error",
+        message: "You're offline. Reconnect to send your message.",
+      });
+      return;
+    }
+
+    setSupportMessageError(null);
+    setSupportReplyEmailError(null);
+    setSupportComposerState({ status: "sending" });
     try {
       const idToken = await user.getIdToken();
       const pageUrl =
@@ -1615,29 +1786,26 @@ function ProfilePageContent() {
         idToken,
         userId: user.uid,
         kind: supportKind,
-        subject: trimmedSubject,
+        subject: presentation.internalSubject,
         message: trimmedMessage,
-        userEmail: user.email,
+        userEmail: user.email?.trim() || trimmedReplyEmail || null,
         userDisplayName: user.displayName,
         persona: personaState?.active_persona || null,
         pageUrl,
       });
-      toast.success(
-        result.delivery_mode === "test"
-          ? `Sent in test mode to ${result.recipient}.`
-          : `Sent to ${result.recipient}.`,
-      );
-      updateProfileView({ panel: "support", detail: null }, "replace");
+
+      if (!result.accepted) {
+        throw new Error("Support message was not accepted.");
+      }
+
+      setSupportComposerState({ status: "sent", kind: supportKind });
       setSupportMessage("");
     } catch (error) {
       console.error("[ProfilePage] Failed to send support message:", error);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : "We couldn't send your message right now.",
-      );
-    } finally {
-      setSendingSupportMessage(false);
+      setSupportComposerState({
+        status: "error",
+        message: "We couldn't send your message. Try again.",
+      });
     }
   }
 
@@ -1899,16 +2067,15 @@ function ProfilePageContent() {
     ? "Unlock to delete account"
     : "Delete account";
   const deleteRowDescription = vaultAccess.needsVaultCreation
-    ? "No vault exists yet. This deletes cloud-linked account records."
-    : "This permanently deletes your One account.";
+    ? "Deletes cloud-linked records."
+    : "Deletes your One account.";
   const deleteDialogTitle = DELETE_ACCOUNT_DIALOG_TITLE;
   const deleteDialogDescription = DELETE_ACCOUNT_DIALOG_DESCRIPTION;
 
-  const resetRowDescription =
-    "Clear your saved details and start onboarding fresh. Keeps your account and sign-in.";
-  const resetDialogTitle = "Reset your One account?";
+  const resetRowDescription = "Clears saved details. Keeps sign-in.";
+  const resetDialogTitle = "Reset account?";
   const resetDialogDescription =
-    "This clears all your saved details: connected services, finance and Gmail, your knowledge base, consents, and saved preferences. It keeps your account, your sign-in, and your vault. You will start onboarding again.";
+    "Clears saved details and setup progress. Your sign-in and vault stay.";
 
   const handleVaultUnlockOpenChange = (open: boolean) => {
     setShowVaultUnlock(open);
@@ -1927,16 +2094,16 @@ function ProfilePageContent() {
 
   const unlockDialogTitle =
     vaultUnlockReason === "delete_account"
-      ? "Unlock Vault to Delete Account"
+      ? "Unlock to delete"
       : vaultUnlockReason === "reset_account"
-        ? "Unlock Vault to Reset Account"
-        : "Unlock Vault";
+        ? "Unlock to reset"
+        : "Unlock vault";
   const unlockDialogDescription =
     vaultUnlockReason === "delete_account"
-      ? "Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
+      ? "This permanently removes encrypted records."
       : vaultUnlockReason === "reset_account"
-        ? "Unlock your vault to confirm reset. This clears your saved details but keeps your account and vault."
-        : "Unlock your vault to access profile settings.";
+        ? "Saved details reset. Account and vault stay."
+        : "Unlock to continue.";
 
   const displayedUnlockMethod = effectiveVaultMethod ?? vaultMethod;
   const recommendedQuickMethod =
@@ -1981,9 +2148,14 @@ function ProfilePageContent() {
     : marketplaceOptIn
       ? "Discoverable to RIAs"
       : "Hidden from marketplace search";
+  const contactDiscoverableStatusText = loadingContactDiscoverable
+    ? "Checking discoverability…"
+    : contactDiscoverable
+      ? "Verified people with your number can find and connect with you automatically. No location or personal information is shared."
+      : "Hidden from contact sync";
   const phoneSummaryText = phoneNumber
-    ? maskPhoneNumber(phoneNumber)
-    : "No phone number linked yet";
+    ? formatMaskedPhoneNumber(phoneNumber)
+    : "No phone number yet";
   const emailVerified = Boolean(user?.emailVerified);
 
   const gmailStatusLabel = gmailPresentation.badgeLabel;
@@ -2003,10 +2175,6 @@ function ProfilePageContent() {
     activeControlId: activeVoiceControlId,
     lastInteractedControlId: lastVoiceControlId,
   } = useVoiceSurfaceControlTracking();
-  const supportComposeKind =
-    activePanel === "support" && activeDetail?.startsWith("support-compose:")
-      ? (activeDetail.slice("support-compose:".length) as SupportMessageKind)
-      : null;
   const securitySummaryText = vaultAccess.needsVaultCreation
     ? "Vault not created yet"
     : loadingVaultMethod
@@ -2014,28 +2182,6 @@ function ProfilePageContent() {
       : vaultAccess.needsUnlock
         ? "Locked"
         : readableMethod(displayedUnlockMethod);
-  const shouldShowRiaRegulatoryRow =
-    hasRiaPersona || Boolean(riaOnboardingStatus?.exists);
-  const riaRegulatoryRow = resolveProfileRiaRegulatoryRow({
-    loading: loadingRiaOnboardingStatus,
-    status: riaOnboardingStatus,
-    error: riaOnboardingStatusError,
-  });
-  const currentRiaLicenseNumber =
-    getProfileRiaRefreshLicenseNumber(riaOnboardingStatus);
-  const currentRiaRegulatorMetadata =
-    riaOnboardingStatus?.latest_verification_event?.reference_metadata
-      ?.provider;
-  const currentRiaRegulator =
-    riaOnboardingStatus?.regulator ||
-    (typeof currentRiaRegulatorMetadata === "string"
-      ? currentRiaRegulatorMetadata
-      : null) ||
-    "SEC";
-  const currentRiaFirm =
-    riaOnboardingStatus?.advisory_firm_legal_name ||
-    riaOnboardingStatus?.display_name ||
-    "Official regulator record";
   const profileVoiceSurfaceMetadata = useMemo(() => {
     const profileHomeControls = [
       {
@@ -2065,25 +2211,6 @@ function ProfilePageContent() {
           "vault security",
         ],
       },
-      ...(shouldShowRiaRegulatoryRow
-        ? [
-            {
-              id: "profile_ria_regulatory",
-              label: "Regulatory profile",
-              purpose:
-                "updates official RIA license, CRD, firm, certification, and business location information.",
-              actionId: "ria.profile.refresh_license",
-              role: "card",
-              voiceAliases: [
-                "update my RIA license",
-                "refresh regulatory profile",
-                "sync CRD information",
-                "update license information",
-                "regulatory profile",
-              ],
-            },
-          ]
-        : []),
       {
         id: "profile_account",
         label: PROFILE_LABELS.account,
@@ -2099,6 +2226,14 @@ function ProfilePageContent() {
         actionId: "route.profile_receipts",
         role: "card",
         voiceAliases: ["gmail receipts", "receipts"],
+      },
+      {
+        id: "profile_referrals",
+        label: PROFILE_LABELS.referrals,
+        purpose: "opens your referral link and referral status.",
+        actionId: "route.profile_referrals_panel",
+        role: "card",
+        voiceAliases: ["referrals", "invite friends", "my referral link"],
       },
       {
         id: "profile_support",
@@ -2160,9 +2295,7 @@ function ProfilePageContent() {
             ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
-              : activePanel === "access"
-                ? "Access & sharing"
-                : activePanel === "connected-systems"
+              : activePanel === "connected-systems"
                   ? "Connected Systems"
                   : activePanel === "preferences"
                     ? PROFILE_LABELS.preferences
@@ -2175,7 +2308,6 @@ function ProfilePageContent() {
         ]
       : [
           PROFILE_LABELS.account,
-          ...(shouldShowRiaRegulatoryRow ? ["Regulatory profile"] : []),
           PROFILE_LABELS.preferences,
           PROFILE_LABELS.security,
           PROFILE_LABELS.support,
@@ -2193,7 +2325,12 @@ function ProfilePageContent() {
             ...(gmailPresentation.isConnected ? ["Disconnect Gmail"] : []),
           ]
         : activePanel === "support"
-          ? ["Report a bug", "Get support", "Reach developer"]
+          ? [
+              "Choose Problem",
+              "Choose Help",
+              "Choose Feedback",
+              "Send support message",
+            ]
           : activePanel === "connected-systems"
             ? [
                 "Load Salesforce CRM schema",
@@ -2216,9 +2353,6 @@ function ProfilePageContent() {
                   : [
                       "Open your account",
                       "Open security & privacy",
-                      ...(shouldShowRiaRegulatoryRow
-                        ? ["Update license information"]
-                        : []),
                       "Open help & feedback",
                     ];
 
@@ -2230,9 +2364,7 @@ function ProfilePageContent() {
             ? PROFILE_LABELS.account
             : activePanel === "my-data"
               ? "Memory"
-              : activePanel === "access"
-                ? "Access & sharing"
-                : activePanel === "connected-systems"
+              : activePanel === "connected-systems"
                   ? "Connected Systems"
                   : activePanel === "preferences"
                     ? PROFILE_LABELS.preferences
@@ -2263,7 +2395,8 @@ function ProfilePageContent() {
           {
             id: "support",
             title: PROFILE_LABELS.support,
-            purpose: "Support routing and compose flows.",
+            purpose:
+              "Send a problem report, support request, or product feedback.",
           },
         ],
         actions: availableActions.map((action) => ({
@@ -2285,15 +2418,13 @@ function ProfilePageContent() {
         ? "passphrase_dialog"
         : showVaultUnlock
           ? "vault_unlock"
-          : showRegulatoryRefresh
-            ? "ria_license_refresh"
-            : supportComposeKind
-              ? "support_compose"
-              : activeDetail
-                ? `${activePanel}_${activeDetail}`
-                : activePanel
-                  ? `${activePanel}_panel`
-                  : null,
+          : activePanel === "support"
+            ? "support_form"
+            : activeDetail
+              ? `${activePanel}_${activeDetail}`
+              : activePanel
+                ? `${activePanel}_panel`
+                : null,
       availableActions,
       activeControlId: activeVoiceControlId,
       lastInteractedControlId: lastVoiceControlId,
@@ -2302,14 +2433,13 @@ function ProfilePageContent() {
         ...(sendingSupportMessage ? ["support_message"] : []),
         ...(switchingVaultMethod ? ["vault_method_update"] : []),
         ...(savingMarketplaceOptIn ? ["marketplace_visibility_update"] : []),
-        ...(refreshingRegulatoryProfile ? ["ria_license_refresh"] : []),
       ],
       screenMetadata: {
         profile_panel: activePanel,
         profile_detail: activeDetail,
         total_attributes: profileSummary.totalAttributes,
         domain_count: profileSummary.totalDomains,
-        pending_consents: pendingConsents,
+        pending_consents: pendingConsents ?? 0,
         gmail_connected: gmailPresentation.isConnected,
         gmail_state: gmailPresentation.state,
         gmail_status_label: gmailStatusLabel,
@@ -2318,9 +2448,6 @@ function ProfilePageContent() {
         google_email: gmail.status?.google_email || null,
         pkm_agent_lab_available: canShowPkmAgentLab,
         marketplace_opt_in: marketplaceOptIn,
-        ria_regulatory_profile_visible: shouldShowRiaRegulatoryRow,
-        ria_license_number: currentRiaLicenseNumber || null,
-        ria_regulator: currentRiaRegulator,
         security_summary: securitySummaryText,
         phone_verified: Boolean(phoneNumber),
         email_verified: emailVerified,
@@ -2333,8 +2460,6 @@ function ProfilePageContent() {
     activePanel,
     activeVoiceControlId,
     canShowPkmAgentLab,
-    currentRiaLicenseNumber,
-    currentRiaRegulator,
     gmailActionsBusy,
     gmailLastSyncText,
     gmailPresentation.isConnected,
@@ -2349,14 +2474,10 @@ function ProfilePageContent() {
     phoneNumber,
     profileSummary.totalAttributes,
     profileSummary.totalDomains,
-    refreshingRegulatoryProfile,
     savingMarketplaceOptIn,
     securitySummaryText,
     sendingSupportMessage,
-    shouldShowRiaRegulatoryRow,
-    showRegulatoryRefresh,
     showVaultUnlock,
-    supportComposeKind,
     switchingVaultMethod,
     emailVerified,
     vaultAccess.needsVaultCreation,
@@ -2431,84 +2552,6 @@ function ProfilePageContent() {
   const openPreferencesPanel = () =>
     updateProfileView({ panel: "preferences", detail: null }, "push");
   const openSecurityPanel = () => openVaultBackedPanel("security");
-  const openRegulatoryProfileRow = async () => {
-    if (riaRegulatoryRow.action === "wait") return;
-    if (riaRegulatoryRow.action === "onboarding") {
-      router.push(ROUTES.RIA_ONBOARDING);
-      return;
-    }
-
-    const latestStatus =
-      riaOnboardingStatus ?? (await refreshRiaOnboardingStatus(true));
-    if (!latestStatus?.exists) {
-      router.push(ROUTES.RIA_ONBOARDING);
-      return;
-    }
-
-    setRegulatoryLicenseNumber(getProfileRiaRefreshLicenseNumber(latestStatus));
-    setRegulatoryRegulator(latestStatus.regulator || "SEC");
-    setRegulatoryRefreshMessage(null);
-    setShowRegulatoryRefresh(true);
-  };
-
-  const submitRegulatoryProfileRefresh = async () => {
-    if (!user?.uid || !user.getIdToken) return;
-    const nextLicenseNumber = regulatoryLicenseNumber.trim();
-    if (!nextLicenseNumber) {
-      setRegulatoryRefreshMessage("Enter a license or CRD number first.");
-      return;
-    }
-
-    setRefreshingRegulatoryProfile(true);
-    setRegulatoryRefreshMessage(null);
-    try {
-      const idToken = await user.getIdToken();
-      const result = await RiaService.refreshLicenseProfile(idToken, {
-        license_number: nextLicenseNumber,
-        regulator: regulatoryRegulator.trim() || undefined,
-        force_live_verification: true,
-      });
-
-      if (!result.updated) {
-        const message =
-          result.message ||
-          "The regulator did not return a verified profile. No fields were changed.";
-        setRegulatoryRefreshMessage(message);
-        toast.error("Official RIA information was not updated.", {
-          description: message,
-        });
-        return;
-      }
-
-      CacheSyncService.onPersonaStateChanged(user.uid, {
-        preservePersonaState: true,
-      });
-      const nextStatus = await refreshRiaOnboardingStatus(true);
-      if (nextStatus) {
-        setRegulatoryLicenseNumber(
-          getProfileRiaRefreshLicenseNumber(nextStatus),
-        );
-        setRegulatoryRegulator(
-          nextStatus.regulator || regulatoryRegulator || "SEC",
-        );
-      }
-      await refreshPersonaState({ force: true });
-      toast.success("Official RIA information updated.");
-      setShowRegulatoryRefresh(false);
-    } catch (error) {
-      const message =
-        error instanceof Error
-          ? error.message
-          : "Couldn't update official RIA information.";
-      setRegulatoryRefreshMessage(message);
-      toast.error("Couldn't update official RIA information.", {
-        description: message,
-      });
-    } finally {
-      setRefreshingRegulatoryProfile(false);
-    }
-  };
-
   const handlePreviewDomainPermission = async (
     domainKey: string,
     permission: {
@@ -3003,46 +3046,8 @@ function ProfilePageContent() {
     }
   };
 
-  const supportActions: Array<{
-    kind: SupportMessageKind;
-    icon: LucideIcon;
-    label: string;
-    description: string;
-  }> = [
-    {
-      kind: "bug_report",
-      icon: Bug,
-      label: "Report bug",
-      description:
-        "Broken flow, confusing UI, or something off in the product.",
-    },
-    {
-      kind: "support_request",
-      icon: LifeBuoy,
-      label: "Get support",
-      description:
-        "Need help with onboarding, portfolio information, or account setup.",
-    },
-    {
-      kind: "developer_reachout",
-      icon: Code2,
-      label: "Reach developer",
-      description:
-        "Direct product or engineering feedback routed through support.",
-    },
-  ];
-
   const myDataContent = (
     <div className="space-y-4 sm:space-y-5">
-      <RuntimeSecretSettingsCard
-        userId={user?.uid}
-        vaultKey={vaultKey}
-        vaultOwnerToken={vaultOwnerToken}
-        needsVaultCreation={vaultAccess.needsVaultCreation}
-        needsUnlock={vaultAccess.needsUnlock}
-        onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
-        onRequestVaultCreation={() => setShowVaultCreation(true)}
-      />
       <PkmDataManagerPanel
         signedIn={Boolean(user)}
         loading={profileManagerLoading}
@@ -3054,12 +3059,10 @@ function ProfilePageContent() {
         needsUnlock={vaultAccess.needsUnlock}
         summary={profileSummary}
         domains={domainPresentations}
-        manifestsByDomain={domainManifests}
         loadingManifestsByDomain={loadingDomainManifests}
         manifestErrorsByDomain={domainManifestErrors}
-        upgradeStatesByDomain={upgradeStatesByDomain}
         onOpenSharing={() =>
-          updateProfileView({ panel: "access", detail: null }, "push")
+          updateProfileView({ panel: "my-data", detail: "sharing" }, "push")
         }
         onOpenImport={() => router.push(ROUTES.KAI_IMPORT)}
         onRefresh={() => {
@@ -3092,7 +3095,7 @@ function ProfilePageContent() {
         onOpenConnection={(connection) =>
           updateProfileView(
             {
-              panel: "access",
+              panel: "my-data",
               detail: `connection:${connection.id}`,
             },
             "push",
@@ -3107,7 +3110,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={MapPin}
           title="Location sharing"
-          description="Share, request, and revoke encrypted live-location access."
+          description="Manage live location."
           trailing={<Badge variant="secondary">One</Badge>}
           chevron
           stackTrailingOnMobile
@@ -3116,11 +3119,28 @@ function ProfilePageContent() {
         <SettingsRow
           icon={ExternalLink}
           title="Consent center"
-          description="Open the full sharing workspace."
+          description="Review sharing."
           trailing={<Badge variant="secondary">Manage</Badge>}
           chevron
           stackTrailingOnMobile
           onClick={() => router.push(ROUTES.CONSENTS)}
+        />
+        <SettingsRow
+          icon={ContactRound}
+          title="Find and connect me by phone number"
+          description={contactDiscoverableStatusText}
+          trailing={
+            <Switch
+              checked={contactDiscoverable}
+              disabled={loadingContactDiscoverable || savingContactDiscoverable}
+              aria-label="Toggle contact discoverability"
+              onPointerDown={(event) => {
+                event.stopPropagation();
+              }}
+              onClick={(event) => event.stopPropagation()}
+              onCheckedChange={() => void handleContactDiscoverableToggle()}
+            />
+          }
         />
         <SettingsRow
           icon={RefreshCw}
@@ -3152,49 +3172,29 @@ function ProfilePageContent() {
   };
 
   const accountContent = (
-    <div className="space-y-4">
+    <div className="profile-account-content">
       <SettingsGroup title="Identity">
         <SettingsRow
           icon={User}
+          iconTone="gray"
           title="Display name"
           description={user.displayName || "Not available"}
         />
         <SettingsRow
           icon={Mail}
+          iconTone="gray"
           title="Email"
           description={user.email || "Not available"}
-          trailing={
-            <Badge variant="secondary">
-              {emailVerified ? "Verified" : "Unverified"}
-            </Badge>
-          }
-          stackTrailingOnMobile
         />
         <SettingsRow
           icon={Phone}
+          iconTone="gray"
           title="Phone number"
           description={phoneSummaryText}
           trailing={
-            <Badge variant="secondary">
-              {phoneNumber ? "Verified" : "Required"}
-            </Badge>
-          }
-          stackTrailingOnMobile
-        />
-        <SettingsRow
-          icon={Fingerprint}
-          title="Sign-in provider"
-          description={provider.name}
-        />
-      </SettingsGroup>
-      <SettingsGroup title="Account actions">
-        <SettingsRow
-          icon={Phone}
-          title={phoneNumber ? "Change phone number" : "Add phone number"}
-          description={
-            phoneNumber
-              ? "Verify a new number to replace the current one."
-              : "Add a verified phone number to this account."
+            <span className="text-xs font-medium text-accent-strong">
+              {phoneNumber ? "Change" : "Add"}
+            </span>
           }
           chevron
           onClick={() =>
@@ -3202,15 +3202,36 @@ function ProfilePageContent() {
           }
         />
         <SettingsRow
+          icon={Fingerprint}
+          iconTone="gray"
+          title="Sign-in provider"
+          description={provider.name}
+        />
+        {walletCardEntryEnabled ? (
+          <SettingsRow
+            icon={Wallet}
+            iconTone="purple"
+            className="profile-account-service-row"
+            title={WALLET_CARD_COPY.profileEntry.title}
+            description={WALLET_CARD_COPY.profileEntry.description}
+            chevron
+            onClick={() => router.push(ROUTES.ONE_WALLET_CARD)}
+          />
+        ) : null}
+      </SettingsGroup>
+      <SettingsGroup title="Account actions">
+        <SettingsRow
           icon={RefreshCw}
+          iconTone="gray"
+          className="profile-account-reset-row"
           title="Reset account"
           description={resetRowDescription}
-          tone="destructive"
           chevron
           onClick={() => void handleResetClick()}
         />
         <SettingsRow
           icon={Trash2}
+          className="profile-account-delete-row"
           title={deleteButtonLabel}
           description={deleteRowDescription}
           tone="destructive"
@@ -3229,39 +3250,76 @@ function ProfilePageContent() {
           title="Appearance"
           description="Light, dark, or system."
           trailing={
-            <ThemeToggleLean size="expanded" className="w-full min-w-0" />
+            <ThemeToggleLean
+              size="expanded"
+              className="w-full sm:w-60 min-w-0"
+            />
           }
           stackTrailingOnMobile
         />
         <SettingsRow
           icon={Palette}
           title="Accent"
-          description="The highlight color One uses across the app."
+          description="Choose the app accent."
           trailing={
             <Select
               value={appAccent}
               onValueChange={(value) => {
-                const next = writeAccent(value as AppAccent);
-                toast.success(
-                  next === "gold"
-                    ? "Accent set to Molten Gold."
-                    : "Accent set to iOS Blue.",
-                );
+                writeAccent(value as AppAccent);
               }}
             >
               <SelectTrigger
-                className="w-full min-w-[11rem] sm:w-[228px]"
+                className="w-full sm:w-60 min-w-[11rem]"
                 aria-label="App accent color"
               >
                 <SelectValue placeholder="iOS Blue" />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="blue">iOS Blue</SelectItem>
-                <SelectItem value="gold">Molten Gold</SelectItem>
+                <SelectItem value="blue">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-blue)" }}
+                    />
+                    iOS Blue
+                  </span>
+                </SelectItem>
+                <SelectItem value="gold">
+                  <span className="flex items-center gap-2">
+                    <span
+                      aria-hidden
+                      className="h-2.5 w-2.5 shrink-0 rounded-full"
+                      style={{ backgroundColor: "var(--accent-preview-gold)" }}
+                    />
+                    Molten Gold
+                  </span>
+                </SelectItem>
               </SelectContent>
             </Select>
           }
           stackTrailingOnMobile
+        />
+        <SettingsRow
+          leading={<GeminiLogo className="h-8 w-8" />}
+          title="Gemini"
+          description="Choose managed or BYOK."
+          chevron
+          onClick={() =>
+            updateProfileView(
+              { panel: "preferences", detail: "gemini" },
+              "push",
+            )
+          }
+        />
+        <SettingsRow
+          icon={Mic}
+          title="Voice"
+          description="What One's voice can do, and its safety controls."
+          chevron
+          onClick={() =>
+            updateProfileView({ panel: "preferences", detail: "voice" }, "push")
+          }
         />
       </SettingsGroup>
     </div>
@@ -3284,34 +3342,209 @@ function ProfilePageContent() {
   );
 
   const supportContent = (
-    <div className="space-y-4 sm:space-y-5">
-      <SettingsGroup>
-        {supportActions.map((action) => (
-          <SettingsRow
-            key={action.kind}
-            icon={action.icon}
-            title={action.label}
-            description={action.description}
-            chevron
-            onClick={() => openSupportComposer(action.kind)}
-          />
-        ))}
-      </SettingsGroup>
+    <div className="mx-auto flex w-full max-w-[580px] flex-col px-0">
+      {supportComposerState.status === "sent" ? (
+        <section
+          aria-labelledby="support-success-heading"
+          aria-live="polite"
+          className="flex min-h-[280px] flex-col justify-center gap-5 py-6"
+        >
+          <div className="space-y-2">
+            <h2
+              id="support-success-heading"
+              ref={supportSuccessHeadingRef}
+              tabIndex={-1}
+              className="text-[20px] font-semibold leading-[25px] text-foreground outline-none"
+            >
+              {
+                SUPPORT_INTENT_PRESENTATION[supportComposerState.kind]
+                  .successTitle
+              }
+            </h2>
+            <p className="text-[15px] leading-5 text-muted-foreground">
+              {supportComposerState.kind === "support_request" &&
+              effectiveReplyEmail
+                ? supportReplyLine
+                : SUPPORT_INTENT_PRESENTATION[supportComposerState.kind]
+                    .successDescription}
+            </p>
+          </div>
+          <Button
+            size="default"
+            variant="none"
+            effect="fill"
+            showRipple={false}
+            className="h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+            onClick={() => {
+              setSupportComposerState({ status: "editing" });
+              setSupportReplyEmail("");
+              updateProfileView({ panel: null, detail: null }, "replace");
+            }}
+          >
+            Done
+          </Button>
+        </section>
+      ) : (
+        <form
+          className="flex w-full flex-col py-1"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void submitSupportMessage();
+          }}
+        >
+          <div className="space-y-2">
+            <p
+              id="support-intent-label"
+              className="text-[15px] font-semibold leading-5 text-foreground"
+            >
+              What do you need?
+            </p>
+            <div
+              role="group"
+              aria-labelledby="support-intent-label"
+              aria-describedby="support-intent-description"
+            >
+              <SegmentedTabs
+                value={supportKind}
+                onValueChange={(value) => {
+                  const nextKind = normalizeSupportKind(value);
+                  if (!nextKind) return;
+                  setSupportKind(nextKind);
+                  setSupportMessageError(null);
+                  setSupportReplyEmailError(null);
+                  if (supportComposerState.status === "error") {
+                    setSupportComposerState({ status: "editing" });
+                  }
+                }}
+                options={SUPPORT_INTENT_OPTIONS}
+                disabled={sendingSupportMessage}
+                className="min-h-11 [&_[data-state=active]]:!border-[color:var(--app-accent)] [&_[data-state=active]]:!bg-[color:var(--app-accent)] [&_[data-state=active]]:!text-white [&_[data-state=active]]:!shadow-none [&_[data-ui-contract=required-title]]:whitespace-normal"
+              />
+            </div>
+            <p id="support-intent-description" className="sr-only">
+              Choose Problem to report something broken, Help to get support, or
+              Feedback to share an improvement.
+            </p>
+          </div>
 
-      <SettingsGroup title="Routing">
-        <SettingsRow
-          icon={SendHorizontal}
-          title="Support routing"
-          description="Reply address and routing."
-          chevron
-          onClick={() =>
-            updateProfileView(
-              { panel: "support", detail: "support-routing" },
-              "push",
-            )
-          }
-        />
-      </SettingsGroup>
+          <div className="mt-5 space-y-1.5">
+            <label
+              htmlFor="support-message"
+              className="text-[15px] font-semibold leading-5 text-foreground"
+            >
+              Message
+            </label>
+            <Textarea
+              id="support-message"
+              ref={supportMessageRef}
+              value={supportMessage}
+              onChange={(event) => {
+                setSupportMessage(event.target.value);
+                if (supportMessageError) setSupportMessageError(null);
+                if (supportComposerState.status === "error") {
+                  setSupportComposerState({ status: "editing" });
+                }
+              }}
+              placeholder={supportPresentation.placeholder}
+              disabled={sendingSupportMessage}
+              aria-invalid={Boolean(supportMessageError)}
+              aria-describedby={cn(
+                supportMessageError ? supportMessageErrorId : null,
+                supportComposerState.status === "error"
+                  ? supportSendStatusId
+                  : null,
+              )}
+              className="min-h-[176px] resize-y rounded-[12px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] px-4 py-3 text-[16px] leading-[22px] shadow-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+            />
+            {supportMessageError ? (
+              <p
+                id={supportMessageErrorId}
+                role="alert"
+                className="px-1 text-[13px] leading-[18px] text-destructive"
+              >
+                {supportMessageError}
+              </p>
+            ) : null}
+          </div>
+
+          {!hasAccountReplyEmail ? (
+            <div className="mt-4 space-y-1.5">
+              <label
+                htmlFor="support-reply-email"
+                className="text-[15px] font-semibold leading-5 text-foreground"
+              >
+                Email for reply (optional)
+              </label>
+              <Input
+                id="support-reply-email"
+                ref={supportReplyEmailRef}
+                type="email"
+                inputMode="email"
+                autoComplete="email"
+                value={supportReplyEmail}
+                onChange={(event) => {
+                  setSupportReplyEmail(event.target.value);
+                  if (supportReplyEmailError) setSupportReplyEmailError(null);
+                  if (supportComposerState.status === "error") {
+                    setSupportComposerState({ status: "editing" });
+                  }
+                }}
+                placeholder="name@example.com"
+                disabled={sendingSupportMessage}
+                aria-invalid={Boolean(supportReplyEmailError)}
+                aria-describedby={
+                  supportReplyEmailError ? supportReplyEmailErrorId : undefined
+                }
+                className="h-12 rounded-[12px] border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] px-4 text-[16px] leading-[22px] shadow-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+              />
+              {supportReplyEmailError ? (
+                <p
+                  id={supportReplyEmailErrorId}
+                  role="alert"
+                  className="px-1 text-[13px] leading-[18px] text-destructive"
+                >
+                  {supportReplyEmailError}
+                </p>
+              ) : null}
+            </div>
+          ) : null}
+
+          {effectiveReplyEmail ? (
+            <p className="mt-3 text-[13px] leading-[18px] text-muted-foreground">
+              {supportReplyLine}
+            </p>
+          ) : null}
+
+          {supportComposerState.status === "error" ? (
+            <p
+              id={supportSendStatusId}
+              role="alert"
+              className="mt-3 text-[13px] leading-[18px] text-destructive"
+            >
+              {supportComposerState.message}
+            </p>
+          ) : null}
+
+          <Button
+            type="submit"
+            size="default"
+            variant="none"
+            effect="fill"
+            showRipple={false}
+            loading={sendingSupportMessage}
+            className="mt-5 h-[52px] w-full rounded-[16px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-white shadow-none hover:bg-[color:var(--app-accent)] focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] disabled:opacity-70"
+            aria-describedby={
+              supportComposerState.status === "error"
+                ? supportSendStatusId
+                : undefined
+            }
+          >
+            {sendingSupportMessage
+              ? "Sending..."
+              : supportPresentation.submitLabel}
+          </Button>
+        </form>
+      )}
     </div>
   );
 
@@ -3335,7 +3568,7 @@ function ProfilePageContent() {
         <SettingsRow
           icon={RefreshCw}
           title="Actions"
-          description="Connect, sync, receipts, or disconnect."
+          description="Sync, receipts, or disconnect."
           chevron
           onClick={() =>
             updateProfileView(
@@ -3350,6 +3583,7 @@ function ProfilePageContent() {
 
   const connectedSystemsContent = (
     <ConnectedSystemsPanel
+      cacheUserId={user?.uid}
       vaultOwnerToken={vaultOwnerToken}
       onRequestUnlock={() => requestVaultUnlock("profile_data")}
       profile={{
@@ -3367,7 +3601,7 @@ function ProfilePageContent() {
           <SettingsRow
             icon={KeyRound}
             title="Create your vault"
-            description="Set up a passphrase to secure your saved details."
+            description="Secure saved details."
             chevron
             onClick={() => setShowVaultCreation(true)}
           />
@@ -3435,7 +3669,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={KeyRound}
                 title="Unlock vault"
-                description="Unlock your vault to change methods or update your passphrase."
+                description="Change methods or passphrase."
                 chevron
                 onClick={() => requestVaultUnlock("profile_data")}
               />
@@ -3451,8 +3685,8 @@ function ProfilePageContent() {
                 }
                 description={
                   isPasskeyVaultMethod(recommendedQuickMethod)
-                    ? "Create a saved passkey for this device or browser."
-                    : "Enable this device's secure quick unlock."
+                    ? "Save a passkey."
+                    : "Enable quick unlock."
                 }
                 disabled={switchingVaultMethod}
                 chevron
@@ -3531,7 +3765,7 @@ function ProfilePageContent() {
               <SettingsRow
                 icon={RefreshCw}
                 title="Change passphrase"
-                description="Update the passphrase that protects your vault."
+                description="Update vault protection."
                 disabled={switchingVaultMethod}
                 chevron
                 onClick={() => setPassphraseDialogOpen(true)}
@@ -3652,79 +3886,6 @@ function ProfilePageContent() {
     </SettingsGroup>
   );
 
-  const supportRoutingContent = (
-    <SettingsGroup title="Routing">
-      <SettingsRow
-        icon={SendHorizontal}
-        title="Support inbox"
-        description="Messages are routed through support@hushh.ai."
-      />
-      {user.email ? (
-        <SettingsRow
-          icon={SendHorizontal}
-          title="Reply address"
-          description={user.email}
-        />
-      ) : null}
-    </SettingsGroup>
-  );
-
-  const supportComposeContent = supportComposeKind ? (
-    <SurfaceCard>
-      <SurfaceCardHeader>
-        <SurfaceCardTitle>
-          {SUPPORT_KIND_COPY[supportComposeKind].title}
-        </SurfaceCardTitle>
-        <SurfaceCardDescription>
-          {SUPPORT_KIND_COPY[supportComposeKind].description}
-        </SurfaceCardDescription>
-      </SurfaceCardHeader>
-      <SurfaceCardContent className="space-y-3">
-        <Input
-          value={supportSubject}
-          onChange={(event) => setSupportSubject(event.target.value)}
-          placeholder="Subject"
-        />
-        <Textarea
-          value={supportMessage}
-          onChange={(event) => setSupportMessage(event.target.value)}
-          placeholder="Tell us what happened and what you expected."
-          className="min-h-[180px]"
-        />
-        <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-          <Button
-            variant="none"
-            effect="fade"
-            size="default"
-            className="w-full sm:w-auto"
-            onClick={() => popProfileStack()}
-            disabled={sendingSupportMessage}
-          >
-            Cancel
-          </Button>
-          <Button
-            size="default"
-            className="w-full sm:w-auto"
-            onClick={() => void submitSupportMessage()}
-            disabled={sendingSupportMessage}
-          >
-            {sendingSupportMessage ? (
-              <>
-                <Icon icon={Loader2} size="sm" className="mr-2 animate-spin" />
-                Sending...
-              </>
-            ) : (
-              <>
-                <Icon icon={SendHorizontal} size="sm" className="mr-2" />
-                Send message
-              </>
-            )}
-          </Button>
-        </div>
-      </SurfaceCardContent>
-    </SurfaceCard>
-  ) : null;
-
   const financialContextControls = (
     <div className="space-y-3">
       <Select
@@ -3793,16 +3954,17 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:account",
       title: "Account",
-      description: "Manage email, phone number, and sign-in identity.",
+      description: "Email, phone, and sign-in.",
       content: accountContent,
+      presentation: "account",
     });
     if (activeDetail === "phone") {
       profileStackEntries.push({
         key: "detail:phone",
         title: phoneNumber ? "Change phone number" : "Add phone number",
         description: phoneNumber
-          ? "Verify a new number to replace the current one."
-          : "Add a verified phone number to this account.",
+          ? "Verify a new number."
+          : "Add a verified number.",
         content: (
           <>
             <PhoneVerificationFlow
@@ -3820,8 +3982,8 @@ function ProfilePageContent() {
               className="gap-5"
               helperText={
                 phoneNumber
-                  ? "Choose your country code and enter the new phone number you want to use for this account."
-                  : "Choose your country code and enter your phone number. We’ll send you a verification code."
+                  ? "Enter the new phone number."
+                  : "Enter your phone number."
               }
             />
             <div id="recaptcha-container" className="min-h-0" />
@@ -3833,14 +3995,14 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:my-data",
       title: "Memory",
-      description: "Browse saved details and sharing controls.",
+      description: "Saved details and sharing.",
       content: myDataContent,
     });
     if (selectedDomain) {
       profileStackEntries.push({
         key: `detail:domain:${selectedDomain.key}`,
         title: selectedDomain.title,
-        description: "Review sections and sharing controls.",
+        description: "Sections and sharing.",
         content: (
           <PkmDomainDetailPanel
             domain={selectedDomain}
@@ -3902,18 +4064,19 @@ function ProfilePageContent() {
         ),
       });
     }
-  } else if (!routeBlockedByVault && activePanel === "access") {
-    profileStackEntries.push({
-      key: "panel:access",
-      title: "Access & sharing",
-      description: "Review who can read what and manage live grants.",
-      content: accessContent,
-    });
+    if (activeDetail === "sharing") {
+      profileStackEntries.push({
+        key: "detail:sharing",
+        title: "Access & sharing",
+        description: "Review live access.",
+        content: accessContent,
+      });
+    }
     if (selectedConnection) {
       profileStackEntries.push({
         key: `detail:connection:${selectedConnection.id}`,
         title: selectedConnection.requesterLabel,
-        description: "Inspect exact scopes and revoke access inline.",
+        description: "Scopes and access.",
         content: (
           <PkmAccessConnectionDetailPanel
             connection={selectedConnection}
@@ -3928,21 +4091,21 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:connected-systems",
       title: "Connected Systems",
-      description: "Salesforce CRM and future MuleSoft-backed systems.",
+      description: "Connected CRM systems.",
       content: connectedSystemsContent,
     });
   } else if (!routeBlockedByVault && activePanel === "preferences") {
     profileStackEntries.push({
       key: "panel:preferences",
       title: PROFILE_LABELS.preferences,
-      description: "Choose the app theme and accent color.",
+      description: "Theme and accent.",
       content: preferencesContent,
     });
     if (activeDetail === "kai-preferences") {
       profileStackEntries.push({
         key: "detail:kai-preferences",
-        title: "Kai preferences",
-        description: "Secure personal investing preferences.",
+        title: "Finance preferences",
+        description: "Investing preferences.",
         content: (
           <ProfileKaiPreferencesPanel
             userId={user.uid}
@@ -3953,26 +4116,81 @@ function ProfilePageContent() {
           />
         ),
       });
+    } else if (activeDetail === "gemini") {
+      profileStackEntries.push({
+        key: "detail:gemini",
+        title: "Gemini",
+        description: "Gemini access.",
+        content: (
+          <GeminiRuntimeSettingsCard
+            userId={user.uid}
+            vaultKey={vaultKey}
+            vaultOwnerToken={vaultOwnerToken}
+            needsVaultCreation={vaultAccess.needsVaultCreation}
+            needsUnlock={vaultAccess.needsUnlock}
+            onRequestVaultCreation={() => requestVaultUnlock("profile_data")}
+            onRequestVaultUnlock={() => requestVaultUnlock("profile_data")}
+          />
+        ),
+      });
+    } else if (
+      activeDetail === "voice" ||
+      activeDetail === "voice-changelog" ||
+      activeDetail === "voice-examples"
+    ) {
+      profileStackEntries.push({
+        key: "detail:voice",
+        title: "Voice",
+        description: "One's voice controls.",
+        content: (
+          <VoicePreferencesPanel
+            userId={user.uid}
+            vaultOwnerToken={vaultOwnerToken}
+            getIdToken={user.getIdToken ? () => user.getIdToken() : null}
+            onOpenChangelog={() =>
+              updateProfileView({ detail: "voice-changelog" }, "push")
+            }
+            onOpenExamples={() =>
+              updateProfileView({ detail: "voice-examples" }, "push")
+            }
+          />
+        ),
+      });
+      if (activeDetail === "voice-changelog") {
+        profileStackEntries.push({
+          key: "detail:voice-changelog",
+          title: "What's new",
+          description: "Voice engine updates and fixes.",
+          content: <VoiceChangelogPage />,
+        });
+      } else if (activeDetail === "voice-examples") {
+        profileStackEntries.push({
+          key: "detail:voice-examples",
+          title: "What can I say",
+          description: "Examples for every part of the app.",
+          content: <VoiceExamplesPage />,
+        });
+      }
     }
   } else if (!routeBlockedByVault && activePanel === "security") {
     profileStackEntries.push({
       key: "panel:security",
       title: PROFILE_LABELS.security,
-      description: "Vault methods and account access controls.",
+      description: "Vault and sign-in.",
       content: securityContent,
     });
     if (activeDetail === "vault") {
       profileStackEntries.push({
         key: "detail:vault",
         title: "Vault methods",
-        description: "Review unlock method and secure defaults.",
+        description: "Unlock methods.",
         content: vaultMethodsContent,
       });
     } else if (activeDetail === "session") {
       profileStackEntries.push({
         key: "detail:session",
         title: PROFILE_LABELS.accountAccess,
-        description: "Manage sign-in on this device.",
+        description: "This device.",
         content: (
           <SettingsGroup title={PROFILE_LABELS.accountAccess}>
             <SettingsRow
@@ -3990,80 +4208,55 @@ function ProfilePageContent() {
     profileStackEntries.push({
       key: "panel:gmail",
       title: "Gmail receipts",
-      description: "Connection state, sync health, and receipt actions.",
+      description: "Receipts and sync.",
       content: gmailContent,
     });
     if (activeDetail === "gmail-connection") {
       profileStackEntries.push({
         key: "detail:gmail-connection",
         title: "Connection",
-        description: "Current inbox, status, and latest sync.",
+        description: "Inbox and sync.",
         content: gmailConnectionContent,
       });
     } else if (activeDetail === "gmail-actions") {
       profileStackEntries.push({
         key: "detail:gmail-actions",
         title: "Actions",
-        description: "Connect, sync, open receipts, or disconnect.",
+        description: "Sync, receipts, or disconnect.",
         content: gmailActionsContent,
       });
     }
+  } else if (!routeBlockedByVault && activePanel === "referrals") {
+    profileStackEntries.push({
+      key: "panel:referrals",
+      title: PROFILE_LABELS.referrals,
+      description: "Your link and referrals.",
+      content: <ReferralsPanel />,
+    });
   } else if (!routeBlockedByVault && activePanel === "support") {
     profileStackEntries.push({
       key: "panel:support",
       title: PROFILE_LABELS.support,
-      description: "Get help, report bugs, or send product feedback.",
+      description: "Tell us what you need. We'll route it to the right team.",
       content: supportContent,
     });
-    if (activeDetail === "support-routing") {
-      profileStackEntries.push({
-        key: "detail:support-routing",
-        title: "Support routing",
-        description: "Where support messages are routed and replied.",
-        content: supportRoutingContent,
-      });
-    } else if (supportComposeKind && supportComposeContent) {
-      profileStackEntries.push({
-        key: `detail:support-compose:${supportComposeKind}`,
-        title: SUPPORT_KIND_COPY[supportComposeKind].title,
-        description: "Write and send a concise support message.",
-        content: supportComposeContent,
-      });
-    }
   }
 
   const profileRootContent = (
-    <>
-      <AppPageHeaderRegion className={styles.profilePageHeaderRegion}>
+    <div className="profile-home-screen">
+      <AppPageHeaderRegion>
         <header
-          className="flex w-full min-w-0 flex-col items-center gap-2.5 px-4 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
           data-slot="page-header"
           data-page-primary="true"
         >
-          <Avatar className="h-14 w-14 shrink-0 ring-4 ring-primary/18 sm:h-16 sm:w-16">
-            <AvatarImage
-              src={user.photoURL || undefined}
-              alt={user.displayName || "Profile"}
-            />
-            <AvatarFallback className="bg-muted text-base font-semibold text-muted-foreground sm:text-lg">
-              {user.displayName ? (
-                user.displayName
-                  .split(" ")
-                  .map((part) => part[0])
-                  .join("")
-                  .slice(0, 2)
-                  .toUpperCase()
-              ) : (
-                <Icon icon={User} size={48} />
-              )}
-            </AvatarFallback>
-          </Avatar>
-          <div className="min-w-0 max-w-full space-y-1.5">
-            <h1 className="text-[28px] font-medium leading-[1.08] tracking-normal text-foreground [overflow-wrap:anywhere] sm:text-[34px]">
+          <ProfileAvatarEditor />
+          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
+            <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="inline-flex max-w-full items-center justify-center gap-2 text-sm text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4077,29 +4270,11 @@ function ProfilePageContent() {
 
       <AppPageContentRegion>
         <SurfaceStack compact>
-          <div className="space-y-4 sm:space-y-5">
+          <div className="profile-home-content">
             <SettingsGroup title="Your settings" separatorInset>
-              {shouldShowRiaRegulatoryRow ? (
-                <SettingsRow
-                  icon={ClipboardCheck}
-                  iconTone="blue"
-                  title={riaRegulatoryRow.title}
-                  trailing={
-                    <Badge variant="secondary">{riaRegulatoryRow.badge}</Badge>
-                  }
-                  chevron
-                  density="compact"
-                  disabled={riaRegulatoryRow.disabled}
-                  voiceControlId="profile_ria_regulatory"
-                  voiceActionId="ria.profile.refresh_license"
-                  voiceLabel="Regulatory profile"
-                  voicePurpose="Update official RIA license and CRD information from the regulator."
-                  onClick={() => void openRegulatoryProfileRow()}
-                />
-              ) : null}
               <SettingsRow
                 icon={UserRound}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.account}
                 chevron
                 density="compact"
@@ -4107,7 +4282,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={SlidersHorizontal}
-                iconTone="purple"
+                iconTone="gray"
                 title={PROFILE_LABELS.preferences}
                 chevron
                 density="compact"
@@ -4126,8 +4301,33 @@ function ProfilePageContent() {
                 onClick={openSecurityPanel}
               />
               <SettingsRow
+                icon={Laptop}
+                iconTone="gray"
+                title="Trusted devices"
+                chevron
+                density="compact"
+                onClick={() => router.push(ROUTES.PROFILE_SECURITY_DEVICES)}
+              />
+              <SettingsRow
+                icon={Users}
+                iconTone="blue"
+                title={PROFILE_LABELS.referrals}
+                chevron
+                density="compact"
+                voiceControlId="profile_referrals"
+                voiceActionId="route.profile_referrals_panel"
+                voiceLabel={PROFILE_LABELS.referrals}
+                voicePurpose="Opens your referral link and referral status."
+                onClick={() =>
+                  updateProfileView(
+                    { panel: "referrals", detail: null },
+                    "push",
+                  )
+                }
+              />
+              <SettingsRow
                 icon={MessageCircleQuestion}
-                iconTone="orange"
+                iconTone="gray"
                 title={PROFILE_LABELS.support}
                 chevron
                 density="compact"
@@ -4143,7 +4343,7 @@ function ProfilePageContent() {
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
                   density="compact"
-                  onClick={() => router.push("/profile/pkm-agent-lab")}
+                  onClick={() => router.push("/one/profile/pkm-agent-lab")}
                 />
               ) : null}
             </SettingsGroup>
@@ -4161,7 +4361,7 @@ function ProfilePageContent() {
           </div>
         </SurfaceStack>
       </AppPageContentRegion>
-    </>
+    </div>
   );
 
   if (legacyProfileRedirectHref) {
@@ -4173,7 +4373,8 @@ function ProfilePageContent() {
       data-testid="profile-primary"
       as="div"
       width="reading"
-      className="relative isolate pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      fitContent
+      className="relative isolate pb-3"
       nativeTest={{
         routeId: profileNativeRouteId,
         marker: "native-route-profile",
@@ -4258,99 +4459,6 @@ function ProfilePageContent() {
           }}
         />
       )}
-
-      <Dialog
-        open={showRegulatoryRefresh}
-        onOpenChange={setShowRegulatoryRefresh}
-      >
-        <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-lg">
-          <DialogTitle>Update license data</DialogTitle>
-          <DialogDescription>
-            Refresh official regulator fields. Your bio, services, fees, email,
-            phone, and custom profile copy stay unchanged.
-          </DialogDescription>
-          <div className="space-y-4 pt-2">
-            <div className="rounded-2xl border bg-muted/30 px-4 py-3 text-sm">
-              <p className="font-medium text-foreground">{currentRiaFirm}</p>
-              <p className="mt-1 text-muted-foreground">
-                Current CRD {currentRiaLicenseNumber || "not stored"} -{" "}
-                {currentRiaRegulator}
-              </p>
-            </div>
-
-            <label className="block space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                License / CRD
-              </span>
-              <Input
-                value={regulatoryLicenseNumber}
-                onChange={(event) =>
-                  setRegulatoryLicenseNumber(event.target.value)
-                }
-                inputMode="numeric"
-                placeholder="Enter license or CRD number"
-                disabled={refreshingRegulatoryProfile}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            <label className="block space-y-1.5">
-              <span className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
-                Regulator
-              </span>
-              <Input
-                value={regulatoryRegulator}
-                onChange={(event) => setRegulatoryRegulator(event.target.value)}
-                placeholder="SEC"
-                disabled={refreshingRegulatoryProfile}
-                spellCheck={false}
-                autoComplete="off"
-              />
-            </label>
-
-            {regulatoryRefreshMessage ? (
-              <p className="rounded-2xl bg-destructive/10 px-4 py-3 text-sm text-destructive">
-                {regulatoryRefreshMessage}
-              </p>
-            ) : null}
-
-            <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
-              <Button
-                variant="none"
-                effect="fade"
-                size="default"
-                className="w-full sm:w-auto"
-                onClick={() => setShowRegulatoryRefresh(false)}
-                disabled={refreshingRegulatoryProfile}
-              >
-                Cancel
-              </Button>
-              <Button
-                size="default"
-                className="w-full sm:w-auto"
-                disabled={
-                  refreshingRegulatoryProfile || !regulatoryLicenseNumber.trim()
-                }
-                onClick={() => void submitRegulatoryProfileRefresh()}
-              >
-                {refreshingRegulatoryProfile ? (
-                  <>
-                    <Icon
-                      icon={Loader2}
-                      size="sm"
-                      className="mr-2 animate-spin"
-                    />
-                    Updating...
-                  </>
-                ) : (
-                  "Update official information"
-                )}
-              </Button>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
 
       <Dialog
         open={passphraseDialogOpen}
@@ -4451,7 +4559,7 @@ function ProfilePageContent() {
       <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
         <AlertDialogContent className="w-[calc(100%-1rem)] sm:max-w-lg">
           <AlertDialogHeader>
-            <AlertDialogTitle className="app-critical-title flex items-center gap-2">
+            <AlertDialogTitle className="flex items-center gap-2 text-[color:var(--app-destructive)]">
               <Icon icon={AlertTriangle} size="md" />
               {deleteDialogTitle}
             </AlertDialogTitle>
@@ -4467,15 +4575,15 @@ function ProfilePageContent() {
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
-              variant="default"
-              className="app-critical-action min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight opacity-90 transition-opacity hover:opacity-100 sm:w-auto sm:min-w-[12rem]"
+              variant="destructive"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleDeleteAccount();
               }}
               disabled={isDeleting}
             >
-              {isDeleting ? "Deleting..." : "Yes, delete my account"}
+              {isDeleting ? "Deleting..." : "Delete account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
@@ -4501,14 +4609,14 @@ function ProfilePageContent() {
             </AlertDialogCancel>
             <AlertDialogAction
               variant="default"
-              className="min-h-10 w-full !whitespace-normal px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[12rem]"
+              className="min-h-10 w-full px-4 py-2 text-center leading-tight sm:w-auto sm:min-w-[10rem]"
               onClick={(event) => {
                 event.preventDefault();
                 void handleResetAccount();
               }}
               disabled={isResetting}
             >
-              {isResetting ? "Resetting..." : "Yes, reset my account"}
+              {isResetting ? "Resetting..." : "Reset account"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

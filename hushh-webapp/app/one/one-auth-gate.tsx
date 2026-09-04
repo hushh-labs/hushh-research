@@ -1,14 +1,25 @@
 "use client";
 
+import { useRedeemReferralAttribution } from "@/lib/referral/use-redeem-referral-attribution";
+
 import type { ReactNode } from "react";
 import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { PhoneMandateGuard } from "@/components/auth/phone-mandate-guard";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import {
+  LocationFunnelObserver,
+  LocationVaultUnlockedObserver,
+} from "@/components/observability/location-funnel-observer";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth } from "@/hooks/use-auth";
-import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  isOneSetupSurfaceRoute,
+  isPublicRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 /**
  * OneAuthGate - conditionally applies the vault + phone + onboarding guards to
@@ -17,10 +28,11 @@ import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
  * Most One surfaces are private and must stay behind VaultLockGuard +
  * PhoneMandateGuard. Root setup admission is applied once app-wide by
  * OnboardingJourneyGuard. However, a small set of One routes
- * are intentionally public - notably shared temporary location links at
- * `/one/location/request/[token]`. Anyone who receives such a link must be
- * able to open it and view the shared live location WITHOUT signing in or
- * having a Hushh account.
+ * are intentionally public - notably shared live-location links at
+ * `/one/location/view/[token]` (and `/one/location/request/[token]`, the path
+ * links minted before the rename still carry). Anyone who receives such a link
+ * must be able to open it and view the shared live location WITHOUT signing in
+ * or having a Hushh account.
  *
  * The source of truth for "which One routes are public" is `isPublicRoute()`
  * in lib/navigation/routes.ts, which the server-side middleware (proxy.ts)
@@ -32,40 +44,46 @@ import { isPublicRoute, ROUTES } from "@/lib/navigation/routes";
  * identity settles, including non-One route families.
  */
 /**
- * Routes that stay signed-in-gated but skip the hard vault wall. The CRM
- * systems overview lists registry metadata only, while Location owns an
- * authored contextual vault prerequisite for its encrypted workflow. Forcing
- * the full-screen guard ahead of either route would make that route-owned
- * recovery unreachable.
+ * OAuth callbacks and root-setup screens need an authenticated Firebase
+ * identity but cannot depend on an in-memory vault key. Setup is where a new
+ * user may create or choose that vault; capability screens add their own
+ * scoped vault prerequisite only when the specific operation requires it.
+ * Every other private One route uses the hard vault gate below.
  */
-const SOFT_VAULT_ROUTE_PREFIXES = ["/one/connected-systems"] as const;
-const SOFT_VAULT_ROUTES = [ROUTES.ONE_LOCATION] as const;
+const AUTH_ONLY_ROUTE_PREFIXES = [
+  ROUTES.PROFILE_GMAIL_OAUTH_RETURN,
+  ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
+  // The Calendar workspace only reads Firebase-bound connection metadata and
+  // lets the owner start/revoke OAuth. It must be reachable immediately after
+  // Google's callback; calendar information and mutations still require a
+  // vault-owner token in the specialist/chat path.
+  ROUTES.CALENDAR,
+  ROUTES.PROFILE_SECURITY_DEVICE_AUTHORIZE,
+] as const;
 
-function isSoftVaultRoute(pathname: string): boolean {
-  return (
-    SOFT_VAULT_ROUTES.includes(
-      pathname as (typeof SOFT_VAULT_ROUTES)[number],
-    ) ||
-    SOFT_VAULT_ROUTE_PREFIXES.some(
-      (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-    )
+function isAuthOnlyRoute(pathname: string): boolean {
+  return AUTH_ONLY_ROUTE_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }
 
 /**
  * Sign-in gate without the vault wall: VaultLockGuard normally owns the
- * login redirect, so soft-vault routes need their own (PhoneMandateGuard
+ * login redirect, so external callback routes need their own (PhoneMandateGuard
  * renders children for anonymous users rather than redirecting).
  */
 function SignedInGate({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
+  useSessionChromeSuppression(loading);
 
   useEffect(() => {
     if (loading || user) return;
     if (typeof window !== "undefined") {
       const currentPath =
-        window.location.pathname + window.location.search + window.location.hash;
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
   }, [loading, router, user]);
@@ -82,21 +100,47 @@ function SignedInGate({ children }: { children: ReactNode }) {
 export function OneAuthGate({ children }: { children: ReactNode }) {
   const pathname = usePathname();
 
+  // A referral link opened before sign-in left an opaque attribution handle
+  // behind. Entering One is where it is redeemed -- the person being referred
+  // never opens the Referrals tab, so redeeming there would mean no referral
+  // ever completes. Silent by design; see the hook.
+  useRedeemReferralAttribution();
+
+  // Mounted outside the guards on purpose: the observer needs to see the
+  // pre-authentication state too, and anything rendered as a child of
+  // VaultLockGuard is unmounted while the gate is redirecting.
+  const funnelObserver = <LocationFunnelObserver />;
+
   if (isPublicRoute(pathname ?? "")) {
-    return <>{children}</>;
+    return (
+      <>
+        {funnelObserver}
+        {children}
+      </>
+    );
   }
 
-  if (isSoftVaultRoute(pathname ?? "")) {
+  if (
+    isAuthOnlyRoute(pathname ?? "") ||
+    isOneSetupSurfaceRoute(pathname ?? "")
+  ) {
     return (
-      <SignedInGate>
-        <PhoneMandateGuard>{children}</PhoneMandateGuard>
-      </SignedInGate>
+      <>
+        {funnelObserver}
+        <SignedInGate>
+          <PhoneMandateGuard>{children}</PhoneMandateGuard>
+        </SignedInGate>
+      </>
     );
   }
 
   return (
-    <VaultLockGuard>
-      <PhoneMandateGuard>{children}</PhoneMandateGuard>
-    </VaultLockGuard>
+    <>
+      {funnelObserver}
+      <VaultLockGuard>
+        <LocationVaultUnlockedObserver />
+        <PhoneMandateGuard>{children}</PhoneMandateGuard>
+      </VaultLockGuard>
+    </>
   );
 }

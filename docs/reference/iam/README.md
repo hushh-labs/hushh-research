@@ -24,6 +24,8 @@ flowchart TD
   root --> n8
   n9["Agent Delegation Boundary"]
   root --> n9
+  n10["Hermes Trusted-Device Vault Enrollment"]
+  root --> n10
 ```
 
 This directory is the **source of truth** for Investor + RIA identity, consent IAM policy, and marketplace access contracts.
@@ -60,6 +62,7 @@ Use this section for production-grade rules and contracts that govern:
 7. [Validation Checklist](./validation-checklist.md)
 8. [External Dependencies](./external-dependencies.md)
 9. [Agent Delegation Boundary](./agent-delegation-boundary.md)
+10. [Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md)
 
 ## Canonical-Only Policy
 

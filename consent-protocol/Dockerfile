@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 # Multi-stage build for Python FastAPI backend
 # Optimized for Google Cloud Run
 
@@ -17,9 +18,13 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Install uv map requirements to virtual environment
 RUN pip install uv
 
-# Copy requirements and install Python dependencies using uv with bytecode compilation
+# Copy requirements and install Python dependencies using uv with bytecode compilation.
+# The BuildKit cache mount keeps uv's wheel cache OUT of the image layer while still
+# speeding partial re-resolves; the layer itself is cached in the registry (mode=max),
+# so an unchanged requirements.txt makes this whole step a cache hit.
 COPY requirements.txt .
-RUN uv pip install --no-cache-dir --system --compile-bytecode -r requirements.txt
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv pip install --system --compile-bytecode -r requirements.txt
 
 # Stage 2: Production runtime
 FROM python:3.13-slim

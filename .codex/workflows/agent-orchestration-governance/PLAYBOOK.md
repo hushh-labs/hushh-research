@@ -12,7 +12,7 @@ Define or tighten repo-scoped Codex custom agents, bounded subagent limits, and 
 2. Open only the required reads listed in `workflow.json` plus the touched agent or skill manifests.
 3. Verify first that a repo-scoped custom agent is justified; prefer existing skills and workflows when a new role boundary is unnecessary.
 4. Keep repo custom agents thin, narrow, read-first, and inheritance-first for model family.
-5. Keep repo custom agents inheritance-first for craft: reference the Principal Craft Kernel in `AGENTS.md`, then add only role-specific priorities.
+5. Keep repo custom agents inheritance-first: reference the Principal Craft Kernel and Bacterial Software Architecture Gate in `AGENTS.md`, then add only role-specific priorities.
 6. Keep `default_reasoning_effort` pins only for curated high-risk evidence lanes; broad parent-model overrides still need a documented reason.
 7. Keep global limits bounded:
    - `max_threads = 6`

@@ -29,7 +29,8 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
@@ -352,6 +353,14 @@ export default function PkmAgentLabPageClient() {
   const [access, setAccess] = useState<DeveloperPortalAccess | null>(null);
   const [accessLoading, setAccessLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"overview" | "permissions" | "advanced">("overview");
+  const pkmAgentLabTabOptions = useMemo(
+    () => [
+      { value: "overview", label: "Memory overview" },
+      { value: "permissions", label: "Permissions" },
+      { value: "advanced", label: "Advanced" },
+    ],
+    [],
+  );
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [manifests, setManifests] = useState<Record<string, DomainManifest | null>>({});
   const [bootstrapLoading, setBootstrapLoading] = useState(false);
@@ -960,9 +969,7 @@ export default function PkmAgentLabPageClient() {
             domainData: candidatePayload,
             summary: {
               ...nextSummaryProjection,
-              message_excerpt: String(card.source_text || message).slice(0, 160),
               source: "pkm_agent_lab",
-              card_id: card.card_id,
             },
             mergeDecision: card.merge_decision,
             structureDecision: nextStructureDecision,
@@ -1090,7 +1097,7 @@ export default function PkmAgentLabPageClient() {
   return (
     <>
       <NativeTestBeacon
-        routeId="/profile/pkm-agent-lab"
+        routeId="/one/profile/pkm-agent-lab"
         marker="native-route-profile-pkm"
         authState={user ? "authenticated" : "pending"}
         dataState={loading || bootstrapLoading || accessLoading ? "loading" : "loaded"}
@@ -1101,18 +1108,19 @@ export default function PkmAgentLabPageClient() {
         description="See what Kai knows, manage permissions, and explore your encrypted Personal Knowledge Model."
       >
         <SurfaceInset className="space-y-4 px-4 py-4">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={activeTab}
             onValueChange={(v) => setActiveTab(v as typeof activeTab)}
-            options={[
-              { value: "overview", label: "Memory overview" },
-              { value: "permissions", label: "Permissions" },
-              { value: "advanced", label: "Advanced" },
-            ]}
+            options={pkmAgentLabTabOptions}
           />
 
+          <SwipeViews
+            tabSetId="pkm-agent-lab"
+            activeValue={activeTab}
+            options={pkmAgentLabTabOptions}
+            onSelectionChange={(value) => setActiveTab(value as typeof activeTab)}
+          >
           {/* ── Memory Overview tab ── */}
-          {activeTab === "overview" ? (
             <div className="space-y-4">
               <SettingsGroup embedded>
                 <SettingsRow
@@ -1128,10 +1136,8 @@ export default function PkmAgentLabPageClient() {
               </SettingsGroup>
               <PkmNaturalPanel onOpenExplorer={() => setActiveTab("advanced")} />
             </div>
-          ) : null}
 
           {/* ── Permissions tab ── */}
-          {activeTab === "permissions" ? (
           <SettingsGroup
             embedded
             title="Domain controls"
@@ -1246,10 +1252,8 @@ export default function PkmAgentLabPageClient() {
               })
             )}
           </SettingsGroup>
-          ) : null}
 
           {/* ── Advanced tab ── */}
-          {activeTab === "advanced" ? (
           <div className="space-y-4">
           <SettingsGroup
             embedded
@@ -1376,7 +1380,7 @@ export default function PkmAgentLabPageClient() {
             </div>
           ) : null}
           </div>
-          ) : null}
+          </SwipeViews>
         </SurfaceInset>
       </PkmSettingsShell>
 

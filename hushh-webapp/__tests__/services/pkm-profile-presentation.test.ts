@@ -5,6 +5,7 @@ import {
   buildPkmDomainPermissionPresentation,
   buildPkmDomainUpgradePresentation,
   buildPkmProfileSummaryPresentation,
+  isConsumerBrowsablePkmDomain,
   isConsumerVisiblePkmDomain,
 } from "@/lib/profile/pkm-profile-presentation";
 
@@ -20,6 +21,29 @@ const domain = {
 };
 
 describe("pkm profile presentation", () => {
+  it("hides only authoritatively empty Memory domains and preserves unknown legacy state", () => {
+    expect(
+      isConsumerBrowsablePkmDomain({
+        ...domain,
+        summary: {
+          scope_materialization: {
+            preferences: { state: "empty", materialized_leaf_count: 0 },
+          },
+        },
+      })
+    ).toBe(false);
+    expect(
+      isConsumerBrowsablePkmDomain({
+        ...domain,
+        summary: {
+          scope_materialization: {
+            preferences: { state: "unknown", materialized_leaf_count: 0 },
+          },
+        },
+      })
+    ).toBe(true);
+  });
+
   it("builds consumer permission rows from scope registry and matches broad access", () => {
     const permissions = buildPkmDomainPermissionPresentation({
       domain,
@@ -79,7 +103,7 @@ describe("pkm profile presentation", () => {
         exposureEnabled: true,
         visibilityPosture: "consent_required",
         defaultProjectionReady: false,
-        stateLabel: "Ask first",
+        stateLabel: "Approved for sharing",
         requesterLabels: ["Planner Pro"],
         includesBroadAccess: true,
       }),
@@ -127,10 +151,43 @@ describe("pkm profile presentation", () => {
         visibilityPosture: "consent_required",
         defaultProjectionReady: true,
         defaultProjectionUpdatedAt: "2026-05-21T10:00:00Z",
-        stateLabel: "Ask first",
+        stateLabel: "Consent required to share",
       }),
     ]);
     expect(permissions[0]?.stateDescription).not.toMatch(/scope|manifest|registry|PKM/i);
+  });
+
+  it("describes private sections as available to the owner-unlocked private agent", () => {
+    const permissions = buildPkmDomainPermissionPresentation({
+      domain,
+      manifest: {
+        domain: "financial",
+        manifest_version: 4,
+        domain_contract_version: 2,
+        readable_summary_version: 1,
+        summary_projection: {},
+        top_level_scope_paths: ["portfolio"],
+        externalizable_paths: [],
+        paths: [],
+        scope_registry: [
+          {
+            scope_handle: "financial.portfolio",
+            scope_label: "Portfolio",
+            segment_ids: ["portfolio"],
+            exposure_enabled: false,
+            visibility_posture: "private",
+            summary_projection: { top_level_scope_path: "portfolio" },
+          },
+        ],
+      },
+      activeGrants: [],
+      upgradeState: null,
+    });
+
+    expect(permissions[0]).toMatchObject({
+      stateLabel: "Private to your private agent",
+      counterpartSummary: "Sharing disabled",
+    });
   });
 
   it("keeps upgrade compatibility separate from manifest concurrency", () => {
@@ -222,6 +279,13 @@ describe("pkm profile presentation", () => {
         displayName: "Kyc Workflow",
       })
     ).toBe(false);
+    expect(
+      isConsumerVisiblePkmDomain({
+        ...domain,
+        key: "runtime_secrets",
+        displayName: "Runtime Secrets",
+      })
+    ).toBe(false);
 
     const presentation = buildPkmDomainPresentation({
       domain: {
@@ -243,7 +307,7 @@ describe("pkm profile presentation", () => {
     });
 
     expect(presentation.detailCount).toBe(1);
-    expect(presentation.sourceLabels).toEqual(["Saved memory"]);
+    expect(presentation.sourceLabels).toEqual([]);
 
     const summary = buildPkmProfileSummaryPresentation({
       metadata: null,
@@ -252,6 +316,30 @@ describe("pkm profile presentation", () => {
     });
     expect(summary.totalDomains).toBe(1);
     expect(summary.totalAttributes).toBe(1);
+  });
+
+  it("shows friendly provenance only when an explicit source is available", () => {
+    const fromGmail = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "shopping",
+        displayName: "Shopping",
+        readableSourceLabel: "gmail_receipts_sync",
+      },
+      activeGrants: [],
+    });
+    const withoutSource = buildPkmDomainPresentation({
+      domain: {
+        ...domain,
+        key: "portfolio",
+        displayName: "Portfolio",
+        readableSourceLabel: null,
+      },
+      activeGrants: [],
+    });
+
+    expect(fromGmail.sourceLabels).toEqual(["From Gmail"]);
+    expect(withoutSource.sourceLabels).toEqual([]);
   });
 
   it("does not treat structural-only path counts as user memory", () => {

@@ -8,9 +8,10 @@ flowchart TB
   subgraph routes["Kai route surfaces"]
     import["/one/kai/import"]
     home["/one/kai"]
-    portfolio["/one/kai/portfolio"]
+    news["/one/kai/news"]
+    portfolio["/one/kai?tab=portfolio"]
+    portfolioDetails["/one/kai/portfolio/*"]
     analysis["/one/kai/analysis"]
-    optimize["/one/kai/optimize"]
   end
 
   subgraph frontend["Frontend runtime"]
@@ -37,11 +38,12 @@ flowchart TB
 
   import --> flow --> pkm --> encrypted
   home --> market --> insights --> marketcache --> providers
+  news --> market --> insights
   home --> financial
   portfolio --> financial --> pkm
+  portfolioDetails --> financial
   analysis --> stream --> debate
   analysis --> financial
-  optimize --> financial
   source --> plaid --> prefs
   source --> pkm
   plaid --> providers
@@ -63,7 +65,7 @@ Founder-language lens:
 
 | Step | Route/UI | Web Service Layer | Backend Route | Persistence | Cache / Sync |
 | --- | --- | --- | --- | --- | --- |
-| Persona/preferences capture | `/one/setup/finance`, `/profile` | `KaiProfileService`, `PersonalKnowledgeModelService` | `/api/pkm/store-domain` | `pkm_blobs(financial/profile)` + `pkm_index.summary_projection.financial` | `CacheSyncService.onPkmDomainStored(...)` patches PKM metadata and the encrypted domain cache |
+| Persona/preferences capture | `/one/setup/finance`, `/one/profile` | `KaiProfileService`, `PersonalKnowledgeModelService` | `/api/pkm/store-domain` | `pkm_blobs(financial/one/profile)` + `pkm_index.summary_projection.financial` | `CacheSyncService.onPkmDomainStored(...)` patches PKM metadata and the encrypted domain cache |
 | Completion + nav tour state | onboarding components + nav tour | `KaiNavTourSyncService` / profile sync | `/api/pkm/store-domain` | encrypted `financial.profile` fields | cache write-through + metadata reconciliation |
 
 Notes:
@@ -100,6 +102,13 @@ Notes:
 | Refresh behavior | manual refresh + poll | same as above | same as above | cache-first while fresh; stale fallback if provider errors | degraded labels and provider status emitted in payload |
 | Startup/unlock warm | vault unlock flow + onboarding bridge | `UnlockWarmOrchestrator` (single-flight) | same endpoints as above | route-priority warm (`/one/kai` -> market cache first, `/one/kai/portfolio` -> financial + profile picks first, `/one/kai/analysis` -> analysis context first) | avoids duplicate warm calls across components |
 
+### 3a) Market News (`/one/kai/news`) -> Cached Snapshot -> Providers
+
+| Step | Route/UI | Web Service Layer | Backend Route | Cache Layer | Provider Layer |
+| --- | --- | --- | --- | --- | --- |
+| Open full feed | Market preview **All news** -> `/one/kai/news` | `KaiMarketNewsResourceService.getStaleFirst` | baseline `/api/kai/market/news/baseline/{user_id}` or vault-owner `/api/kai/market/news/{user_id}` | browser memory + device stale page cache, backend L1 memory + L2 postgres snapshot | up to three symbols, concurrency capped at two, priority fallback per symbol |
+| Load next page | visible **Load more** control | same service with opaque cursor | same endpoint | cursor slices the existing `news_feed:v1` snapshot; mismatch returns 409 and restarts page one | no new provider work for a cache hit |
+
 ### 4) Debate Stream -> Degraded Mode -> UI Decision Cards
 
 | Step | Route/UI | Backend Stream | Contract | UI Surface |
@@ -123,6 +132,12 @@ Notes:
 - Backend route: `consent-protocol/api/routes/kai/market_insights.py`
 - Backend cache: `consent-protocol/hushh_mcp/services/market_insights_cache.py`
 - Backend L2 cache: `consent-protocol/hushh_mcp/services/market_cache_store.py`
+
+### `/one/kai/news`
+- UI: `hushh-webapp/components/kai/kai-market-news-page.tsx`
+- Resource/cache: `hushh-webapp/lib/kai/kai-market-news-resource.ts`
+- Backend route: `consent-protocol/api/routes/kai/market_insights.py`
+- Cursor contract: opaque server snapshot; UI never derives a page from an Analysis route
 
 ### `/one/kai/portfolio`
 - UI: `hushh-webapp/components/kai/views/dashboard-master-view.tsx`

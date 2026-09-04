@@ -1,6 +1,6 @@
 ---
 name: frontend-native-surface-mapper
-description: Use when changing or auditing the generated mapping between app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.
+description: Use when regenerating or auditing the frontend surface map that joins app routes, page files, Next.js API proxies, backend endpoint families, native transport, Capacitor plugins, and voice/action contracts.
 ---
 
 # Hussh Frontend Native Surface Mapper Skill
@@ -9,7 +9,7 @@ description: Use when changing or auditing the generated mapping between app rou
 
 - Primary scope: `frontend-native-surface-map`
 - Trigger on route-to-API/native/plugin/voice mapping, screen parity audits, Next.js server API dependency mapping, and generated surface-map contract changes.
-- Avoid overlap with `frontend-architecture`, `mobile-parity-audit`, `backend-api-contracts`, and `kai-voice-governance`.
+- Avoid overlap with `frontend-architecture`, `mobile-parity-audit`, `backend-api-contracts`, and `one-voice-governance`.
 
 ## Coverage and Ownership
 
@@ -27,7 +27,7 @@ Non-owned surfaces:
 1. `frontend`
 2. `mobile-native`
 3. `backend-api-contracts`
-4. `kai-voice-governance`
+4. `one-voice-governance`
 5. `docs-governance`
 
 ## Do Use
@@ -42,7 +42,7 @@ Non-owned surfaces:
 1. Broad frontend structure work that belongs to `frontend-architecture`.
 2. Native plugin implementation or registration work that belongs to `mobile-plugin-contracts`.
 3. Backend route wire-shape changes that belong to `backend-api-contracts`.
-4. Voice/action gateway authoring that belongs to `kai-voice-governance`.
+4. Voice/action gateway authoring that belongs to `one-voice-governance`.
 
 ## Read First
 
@@ -67,7 +67,7 @@ Non-owned surfaces:
 2. If the work is broad route/package structure, route to `frontend-architecture`.
 3. If native parity evidence or simulator proof is needed, route to `mobile-parity-audit`.
 4. If a Next.js proxy or backend endpoint contract changes, route to `backend-api-contracts`.
-5. If voice/action ids, reachability, or execution policy changes, route to `kai-voice-governance`.
+5. If voice/action ids, reachability, or execution policy changes, route to `one-voice-governance`.
 6. If documentation homes or stale links are the main problem, route to `docs-governance`.
 
 ## Required Checks

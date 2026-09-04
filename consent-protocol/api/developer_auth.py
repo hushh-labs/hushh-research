@@ -2,15 +2,92 @@ from __future__ import annotations
 
 import logging
 import os
+import re
 
 from fastapi import HTTPException, Request, status
 
+from hushh_mcp.services.developer_oauth_service import DeveloperOAuthService
 from hushh_mcp.services.developer_registry_service import (
+    TOOL_GROUP_HUSHH_TECH_CLIENT,
     DeveloperPrincipal,
     DeveloperRegistryService,
 )
 
 logger = logging.getLogger(__name__)
+
+_HUSHH_TECH_ALLOWED_DEVELOPER_ROUTES = frozenset(
+    {
+        ("POST", "/api/v1/request-consent"),
+        ("GET", "/api/v1/consent-status"),
+        ("GET", "/api/v1/consent-events"),
+        ("POST", "/api/v1/scoped-export"),
+        ("GET", "/api/v1/products/hushh-tech/link/status"),
+        ("POST", "/api/v1/products/hushh-tech/link/verify"),
+        ("POST", "/api/v1/products/hushh-tech/link/revoke"),
+        ("GET", "/api/v1/products/hushh-tech/compatibility/profile"),
+        ("GET", "/api/v1/products/hushh-tech/compatibility/onboarding"),
+        ("GET", "/api/v1/products/hushh-tech/compatibility/access_state"),
+        ("GET", "/api/v1/products/hushh-tech/compatibility/report_asset"),
+    }
+)
+
+
+def _enforce_product_client_route(
+    principal: DeveloperPrincipal,
+    *,
+    request: Request | None,
+) -> DeveloperPrincipal:
+    configured_app_id = str(os.getenv("HUSSH_TECH_DEVELOPER_APP_ID", "")).strip()
+    groups = tuple(principal.allowed_tool_groups)
+    is_candidate = (
+        bool(configured_app_id and principal.app_id == configured_app_id)
+        or TOOL_GROUP_HUSHH_TECH_CLIENT in groups
+    )
+    if not is_candidate:
+        return principal
+    from hushh_mcp.services.hushh_tech_client_service import hushh_tech_client_enabled
+
+    if (
+        not configured_app_id
+        or principal.app_id != configured_app_id
+        or groups != (TOOL_GROUP_HUSHH_TECH_CLIENT,)
+        or tuple(principal.allowed_capabilities)
+        or principal.auth_source != "registry"
+        or not hushh_tech_client_enabled()
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "FEATURE_DISABLED",
+                "message": "This product registration is not enabled.",
+            },
+        )
+    path = ""
+    method = ""
+    if request is not None:
+        try:
+            path = str(request.url.path or "")
+            method = str(request.method or "").upper()
+        except Exception:
+            path = ""
+            method = ""
+    allowed = (method, path) in _HUSHH_TECH_ALLOWED_DEVELOPER_ROUTES or (
+        method == "GET"
+        and re.fullmatch(
+            r"/api/v1/scoped-export/resources/[A-Za-z0-9_-]{32,64}/revisions/(?:[1-9][0-9]{0,6}|10000000)",
+            path,
+        )
+        is not None
+    )
+    if not allowed:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "error_code": "APP_ROUTE_NOT_ALLOWED",
+                "message": "This product registration is not permitted on that developer route.",
+            },
+        )
+    return principal
 
 
 def _env_truthy(name: str, fallback: str = "false") -> bool:
@@ -152,20 +229,24 @@ def authenticate_developer_principal(
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
-    principal = DeveloperRegistryService().authenticate_token(
+    principal = DeveloperOAuthService().authenticate_access_token(
+        raw_token,
+        ip_address=client_ip,
+        user_agent=user_agent,
+    ) or DeveloperRegistryService().authenticate_token(
         raw_token,
         ip_address=client_ip,
         user_agent=user_agent,
     )
     if principal is None:
         raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
+            status_code=status.HTTP_401_UNAUTHORIZED,
             detail={
                 "error_code": "DEVELOPER_TOKEN_INVALID",
                 "message": "Developer token is invalid or revoked.",
             },
         )
-    return principal
+    return _enforce_product_client_route(principal, request=request)
 
 
 def try_authenticate_developer_principal(
@@ -191,8 +272,13 @@ def try_authenticate_developer_principal(
 
     client_ip = request.client.host if request and request.client else None
     user_agent = request.headers.get("user-agent") if request else None
-    return DeveloperRegistryService().authenticate_token(
+    principal = DeveloperOAuthService().authenticate_access_token(
+        raw_token,
+        ip_address=client_ip,
+        user_agent=user_agent,
+    ) or DeveloperRegistryService().authenticate_token(
         raw_token,
         ip_address=client_ip,
         user_agent=user_agent,
     )
+    return _enforce_product_client_route(principal, request=request) if principal else None

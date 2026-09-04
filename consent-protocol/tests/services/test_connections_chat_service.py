@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -61,9 +62,13 @@ def _loop_service(*, service, store, responses, ready=True):
 
 async def test_list_my_connections_tool_flow():
     fake = MagicMock()
-    fake.list_connections.return_value = [
-        {"connectionId": "cx", "userId": "u2", "displayName": "Priya Rao"}
-    ]
+    fake.list_connections_page.return_value = {
+        "items": [{"connectionId": "cx", "userId": "u2", "displayName": "Priya Rao"}],
+        "page": 1,
+        "hasMore": False,
+        "totalCount": 1,
+        "audience": "all",
+    }
     store = _FakeStore()
     svc = _loop_service(
         service=fake,
@@ -76,10 +81,31 @@ async def test_list_my_connections_tool_flow():
     out = await svc.handle_turn(
         user_id="u1", message="who are my connections", consent_token=_TOKEN
     )
-    fake.list_connections.assert_called_once_with("u1")
+    fake.list_connections_page.assert_called_once_with("u1", query="", page=1, limit=25)
     assert out["response"] == "You're connected with Priya Rao."
     assert out["stateChanged"] is False
     assert out["isComplete"] is True
+
+
+async def test_list_my_connections_tool_bounds_model_supplied_page_size():
+    fake = MagicMock()
+    fake.list_connections_page.return_value = {
+        "items": [],
+        "page": 2,
+        "hasMore": True,
+        "totalCount": 5000,
+        "audience": "all",
+    }
+    svc = _loop_service(
+        service=fake,
+        store=_FakeStore(),
+        responses=[
+            _fc_response("list_my_connections", {"query": "Pat", "page": 2, "limit": 5000}),
+            _text_response("There are more matching connections."),
+        ],
+    )
+    await svc.handle_turn(user_id="u1", message="find Pat", consent_token=_TOKEN)
+    fake.list_connections_page.assert_called_once_with("u1", query="Pat", page=2, limit=100)
 
 
 async def test_find_people_tool_flow():
@@ -122,6 +148,39 @@ async def test_list_pending_requests_tool_flow():
     out = await svc.handle_turn(user_id="u1", message="any pending requests", consent_token=_TOKEN)
     fake.list_requests.assert_called_once_with("u1", direction="incoming")
     assert "Sam Lee" in out["response"]
+
+
+async def test_list_my_connections_survives_a_raw_datetime_from_the_service():
+    """Regression guard for the fix already made at the source
+    (ConnectionsService.list_connections now stringifies createdAt via
+    _iso()) -- this integration point trusts that fix rather than doing its
+    own stringifying, so if the source fix were ever reverted, this proves
+    the failure mode: the tool result would carry a raw datetime straight
+    into types.Part.from_function_response, the same class of bug that
+    crashed the live voice session, just reached through the specialist
+    pathway instead of the direct read-tool one."""
+    fake = MagicMock()
+    fake.list_connections.return_value = [
+        {
+            "connectionId": "cx",
+            "userId": "u2",
+            "displayName": "Priya Rao",
+            "createdAt": datetime(2026, 7, 9, tzinfo=timezone.utc),
+        }
+    ]
+    store = _FakeStore()
+    svc = _loop_service(
+        service=fake,
+        store=store,
+        responses=[
+            _fc_response("list_my_connections", {}),
+            _text_response("You're connected with Priya Rao."),
+        ],
+    )
+    out = await svc.handle_turn(
+        user_id="u1", message="who are my connections", consent_token=_TOKEN
+    )
+    assert out["response"] == "You're connected with Priya Rao."
 
 
 async def test_unready_model_returns_unavailable():

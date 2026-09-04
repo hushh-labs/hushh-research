@@ -38,7 +38,7 @@ export interface ConsentCenterEntry {
   scope_description?: string | null;
   scope_icon_name?: string | null;
   scope_color_hex?: string | null;
-  counterpart_type: "ria" | "investor" | "developer" | "self";
+  counterpart_type: "ria" | "investor" | "person" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
   counterpart_email?: string | null;
@@ -143,7 +143,7 @@ export interface PendingConsentLookupResponse {
 
 export interface ConsentRequestorGroup {
   id: string;
-  counterpart_type: "ria" | "investor" | "developer" | "self";
+  counterpart_type: "ria" | "investor" | "person" | "developer" | "self";
   counterpart_id?: string | null;
   counterpart_label?: string | null;
   latest_request_at?: number | string | null;
@@ -214,6 +214,7 @@ export interface ConsentCenterResponse {
   history: ConsentCenterEntry[];
   invites: ConsentCenterEntry[];
   developer_requests: ConsentCenterEntry[];
+  connection_requests?: ConsentCenterEntry[];
   requestor_groups: {
     pending: ConsentRequestorGroup[];
     active: ConsentRequestorGroup[];
@@ -425,6 +426,9 @@ export class ConsentCenterService {
     payload.invites = normalizeConsentEntries(payload.invites);
     payload.developer_requests = normalizeConsentEntries(
       payload.developer_requests,
+    );
+    payload.connection_requests = normalizeConsentEntries(
+      payload.connection_requests,
     );
     payload.self_activity_summary = payload.self_activity_summary || null;
 

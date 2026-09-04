@@ -33,9 +33,14 @@ ARG NEXT_PUBLIC_DEVELOPER_API_URL
 ARG NEXT_PUBLIC_APP_URL
 ARG NEXT_PUBLIC_APP_ENV
 ARG NEXT_PUBLIC_OBSERVABILITY_ENABLED
+ARG NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED
+ARG NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN
+ARG NEXT_PUBLIC_LOCATION_MAP_DEMO
 ARG NEXT_PUBLIC_OBSERVABILITY_DEBUG
 ARG NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE
 ARG NEXT_PUBLIC_GTM_ID
+ARG NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+ARG NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY
 ARG NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 
 # Set environment variables for build
@@ -52,9 +57,14 @@ ENV NEXT_PUBLIC_DEVELOPER_API_URL=$NEXT_PUBLIC_DEVELOPER_API_URL
 ENV NEXT_PUBLIC_APP_URL=$NEXT_PUBLIC_APP_URL
 ENV NEXT_PUBLIC_APP_ENV=$NEXT_PUBLIC_APP_ENV
 ENV NEXT_PUBLIC_OBSERVABILITY_ENABLED=$NEXT_PUBLIC_OBSERVABILITY_ENABLED
+ENV NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=$NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED
+ENV NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=$NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN
+ENV NEXT_PUBLIC_LOCATION_MAP_DEMO=$NEXT_PUBLIC_LOCATION_MAP_DEMO
 ENV NEXT_PUBLIC_OBSERVABILITY_DEBUG=$NEXT_PUBLIC_OBSERVABILITY_DEBUG
 ENV NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=$NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE
 ENV NEXT_PUBLIC_GTM_ID=$NEXT_PUBLIC_GTM_ID
+ENV NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID
+ENV NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY
 ENV NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY
 ENV CAPACITOR_BUILD=false
 ENV NODE_ENV=production
@@ -83,6 +93,11 @@ COPY --from=builder /app/public ./public
 
 # Copy static assets
 COPY --from=builder /app/.next/static ./.next/static
+
+# Read every server chunk before binding the Cloud Run port. This makes an
+# image-layer/filesystem EIO a startup failure instead of an intermittent 500
+# or 120-second timeout on the first request that lazily loads that chunk.
+COPY --from=builder /app/scripts/runtime/verify-server-chunks.mjs ./scripts/runtime/verify-server-chunks.mjs
 
 # Normalize the supported standalone layouts so Cloud Run always has one
 # canonical entrypoint and any nested standalone path still resolves assets.
@@ -113,5 +128,5 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
     CMD wget --no-verbose --tries=1 --spider http://localhost:8080/ || exit 1
 
-# Start the canonical normalized standalone server.
-CMD ["node", "server.js"]
+# Verify the immutable runtime image, then start the canonical server.
+CMD ["sh", "-c", "node scripts/runtime/verify-server-chunks.mjs && exec node server.js"]

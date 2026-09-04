@@ -17,7 +17,7 @@ on:
           - backend
           - frontend
       run_predeploy_backup_job:
-        description: "Optionally run logical backup job before backend deploy gate"
+        description: "Optionally take an on-demand Cloud SQL backup before the deploy gate"
         required: true
         default: "false"
         type: choice
@@ -32,22 +32,36 @@ on:
         options:
           - "false"
           - "true"
+      nearby_check_in_cohort:
+        description: "Nearby check-in audience. Leave this as 'all' for a normal deploy. Clearing it turns nearby check-in OFF in production, which is the kill switch; a comma-separated list of user ids restricts it to those accounts."
+        required: false
+        default: "all"
+        type: string
 
 permissions:
-  contents: read
+  # write: this workflow tags a healthy release as "last known good"
+  # (scripts/ci/tag-last-known-good.sh) so a future revert check and a
+  # future rollback both have a durable anchor. Scoped to pushing tags only
+  # — the workflow never touches a branch.
+  contents: write
   checks: read
+  id-token: write
 
 env:
   GCP_PROJECT_ID: hushh-pda
   GCP_REGION: us-central1
   BACKEND_SERVICE: consent-protocol
+  RUNTIME_SERVICE_ACCOUNT: consent-protocol-runtime@hushh-pda.iam.gserviceaccount.com
   FRONTEND_SERVICE: hushh-webapp
   APP_FRONTEND_ORIGIN: https://one.hushh.ai
-  CLOUD_RUN_REVISION_RETENTION: "10"
-  BACKUP_BUCKET: hushh-pda-prod-db-backups
-  BACKUP_PREFIX: prod/supabase-logical
+  CONSENT_API_PUBLIC_ORIGIN: https://api.hushh.ai
+  BACKEND_REVISION_RETENTION: "3"
+  FRONTEND_REVISION_RETENTION: "10"
+  PROD_CLOUDSQL_INSTANCE_NAME: hushh-vault-db
+  PROD_CLOUDSQL_INSTANCE: hushh-pda:us-central1:hushh-vault-db
+  PROD_DB_UNIX_SOCKET: /cloudsql/hushh-pda:us-central1:hushh-vault-db
+  PROD_DB_NAME: hushh_vault
   BACKUP_MAX_AGE_HOURS: "30"
-  BACKUP_JOB_NAME: prod-supabase-logical-backup
   PROTOCOL_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
 concurrency:
@@ -99,12 +113,27 @@ jobs:
 
       - name: Report production deploy lane
         run: |
-          echo "Owner-only production deploy: using production environment."
+          echo "Governed production deploy: using production environment."
+
+      - name: Validate Google Cloud workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing environment variable GCP_WORKLOAD_IDENTITY_PROVIDER" >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing environment variable GCP_DEPLOY_SERVICE_ACCOUNT" >&2; exit 1; }
 
       - name: Authenticate to Google Cloud
+        id: gcp-auth
         uses: google-github-actions/auth@v2
         with:
-          credentials_json: ${{ secrets.GCP_SA_KEY }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
 
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
@@ -198,14 +227,15 @@ jobs:
             --project "${{ env.GCP_PROJECT_ID }}" \
             --environment production \
             --app-frontend-origin "${{ env.APP_FRONTEND_ORIGIN }}" \
-            --db-host "aws-1-us-east-1.pooler.supabase.com" \
+            --db-host "cloudsql-socket" \
             --db-port "5432" \
-            --db-name "postgres" \
+            --db-name "${{ env.PROD_DB_NAME }}" \
+            --db-unix-socket "${{ env.PROD_DB_UNIX_SOCKET }}" \
+            --cloudsql-instance-connection-name "${{ env.PROD_CLOUDSQL_INSTANCE }}" \
             --consent-sse-enabled "false" \
             --sync-remote-enabled "false" \
-            --developer-api-enabled "false" \
-            --remote-mcp-enabled "false" \
-            --crm-registry-db-enabled "true" \
+            --developer-api-enabled "true" \
+            --remote-mcp-enabled "true" \
             --cors-allowed-origins "${{ env.APP_FRONTEND_ORIGIN }}" \
             --obs-data-stale-ratio-threshold "0.25" \
             --passkey-allowed-rp-ids "localhost,127.0.0.1,one.hushh.ai" \
@@ -215,6 +245,12 @@ jobs:
             --plaid-webhook-url "${{ env.APP_FRONTEND_ORIGIN }}/api/kai/plaid/webhook" \
             --plaid-redirect-path "/kai/plaid/oauth/return" \
             --plaid-tx-history-days "730" \
+            --one-location-read-only-state-enabled "false" \
+            --hushh-trusted-device-enabled "${{ vars.HUSSH_TRUSTED_DEVICE_ENABLED || 'false' }}" \
+            --hushh-tech-client-enabled "false" \
+            --hushh-tech-allowed-consent-scopes "" \
+            --one-location-nearby-presence-mode "${{ github.event.inputs.nearby_check_in_cohort && 'production' || '' }}" \
+            --one-location-nearby-presence-cohort "${{ github.event.inputs.nearby_check_in_cohort }}" \
             > /tmp/prod-runtime-secret-sync.json
 
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/sync_frontend_runtime_secrets.py \
@@ -226,28 +262,88 @@ jobs:
         if: steps.scope.outputs.deploy_backend == 'true' && github.event.inputs.run_predeploy_backup_job == 'true'
         run: |
           set -euo pipefail
-          gcloud run jobs execute "${BACKUP_JOB_NAME}" \
+          gcloud sql backups create \
+            --instance="${PROD_CLOUDSQL_INSTANCE_NAME}" \
             --project="${GCP_PROJECT_ID}" \
-            --region="${GCP_REGION}" \
-            --wait
+            --description="predeploy-${GITHUB_SHA:-manual}"
 
-      - name: Pre-deploy logical backup freshness gate
+      - name: Pre-deploy Cloud SQL backup posture gate
         if: steps.scope.outputs.deploy_backend == 'true'
         id: backup-gate
         shell: bash
         run: |
           set -euo pipefail
-          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/logical_backup_freshness_check.py \
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/cloudsql_backup_freshness_check.py \
             --project-id "${GCP_PROJECT_ID}" \
-            --bucket "${BACKUP_BUCKET}" \
-            --prefix "${BACKUP_PREFIX}" \
+            --instance "${PROD_CLOUDSQL_INSTANCE_NAME}" \
             --max-age-hours "${BACKUP_MAX_AGE_HOURS}" \
             --report-path /tmp/backup-posture-report.json
 
-          BACKUP_OBJECT_URI="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('backup_object_uri') or '').strip())")"
-          BACKUP_COMPLETED_AT="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('backup_completed_at') or '').strip())")"
-          echo "backup_object_uri=${BACKUP_OBJECT_URI}" >> "$GITHUB_OUTPUT"
+          BACKUP_ID="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('id') or '').strip())")"
+          BACKUP_COMPLETED_AT="$(python3 -c "import json; from pathlib import Path; payload=json.loads(Path('/tmp/backup-posture-report.json').read_text(encoding='utf-8')); latest=payload.get('latest_backup', {}) if isinstance(payload, dict) else {}; print(str(latest.get('completed_at') or '').strip())")"
+          echo "backup_id=${BACKUP_ID}" >> "$GITHUB_OUTPUT"
           echo "backup_completed_at=${BACKUP_COMPLETED_AT}" >> "$GITHUB_OUTPUT"
+
+      - name: Install Cloud SQL Auth Proxy
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.18.3/cloud-sql-proxy.linux.amd64 \
+            -o /usr/local/bin/cloud-sql-proxy
+          chmod +x /usr/local/bin/cloud-sql-proxy
+
+      - name: Apply production release migrations
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          # Production is Cloud SQL, reached only through the Auth Proxy from this
+          # runner (there is no plain DB_HOST/DB_PORT env var on the deployed
+          # service to scrape -- that approach never matched how this app actually
+          # resolves its DB connection, see BACKEND_RUNTIME_CONFIG_JSON's
+          # db_unix_socket key and hydrate_runtime_environment()). Mirrors the UAT
+          # deploy lane's proven pattern exactly.
+          DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
+          DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
+          echo "::add-mask::${DB_USER}"
+          echo "::add-mask::${DB_PASSWORD}"
+
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
+
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6544 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6544
+          export DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER DB_PASSWORD
+
+          (
+            cd consent-protocol
+            "${{ env.PROTOCOL_PYTHON }}" db/migrate.py --release \
+              --release-environment production \
+              --migration-mode replay
+          )
 
       - name: Migration governance and DB drift gate
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -255,36 +351,39 @@ jobs:
         run: |
           set -euo pipefail
 
-          SERVICE_JSON="$(gcloud run services describe "${{ env.BACKEND_SERVICE }}" \
-            --project="${{ env.GCP_PROJECT_ID }}" \
-            --region="${{ env.GCP_REGION }}" \
-            --format=json)"
-
-          # DB host/port/name come from the deployed service when present, but newer
-          # revisions no longer expose DB_HOST as a plain env var (it moved into the
-          # runtime config JSON), so the template scrape can return empty. Fall back to
-          # the canonical prod DB host used by the secret-sync step above so the gate
-          # does not break just because a prior failed revision changed the env shape.
-          # `// empty` guards against jq emitting the literal string "null".
-          DB_HOST="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_HOST") | .value // empty' | tail -n 1)"
-          DB_PORT="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_PORT") | .value // empty' | tail -n 1)"
-          DB_NAME="$(printf '%s' "${SERVICE_JSON}" | jq -r '.spec.template.spec.containers[0].env[] | select(.name=="DB_NAME") | .value // empty' | tail -n 1)"
-          DB_HOST="${DB_HOST:-aws-1-us-east-1.pooler.supabase.com}"
-
           DB_USER="$(gcloud secrets versions access latest --secret=DB_USER --project="${{ env.GCP_PROJECT_ID }}")"
           DB_PASSWORD="$(gcloud secrets versions access latest --secret=DB_PASSWORD --project="${{ env.GCP_PROJECT_ID }}")"
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
-          if [ -z "${DB_HOST}" ] || [ -z "${DB_USER}" ] || [ -z "${DB_PASSWORD}" ]; then
-            echo "Failed to resolve DB credentials/host for migration governance gate."
-            exit 1
-          fi
+          cloud-sql-proxy \
+            --address 127.0.0.1 \
+            --port 6544 \
+            ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
+            "${{ env.PROD_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-prod-drift-gate.log 2>&1 &
+          PROXY_PID=$!
+          trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
-          export DB_HOST DB_USER DB_PASSWORD
-          export DB_PORT="${DB_PORT:-5432}"
-          export DB_NAME="${DB_NAME:-postgres}"
+          python3 - <<'PY'
+          import socket
+          import time
+
+          deadline = time.time() + 20
+          while time.time() < deadline:
+              with socket.socket() as sock:
+                  sock.settimeout(0.5)
+                  if sock.connect_ex(("127.0.0.1", 6544)) == 0:
+                      raise SystemExit(0)
+              time.sleep(0.25)
+          raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6544 in time")
+          PY
+
+          export DB_HOST=127.0.0.1
+          export DB_PORT=6544
+          export DB_NAME="${{ env.PROD_DB_NAME }}"
+          export DB_USER DB_PASSWORD
           "${{ env.PROTOCOL_PYTHON }}" scripts/ops/db_migration_release_guard.py \
+            --release-environment production \
             --report-path /tmp/db-migration-guard-report.json
 
       - name: Generate production migration release manifest
@@ -318,7 +417,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/backend.cloudbuild.yaml \
-            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_BACKEND_SERVICE=${{ env.BACKEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_CLOUDSQL_INSTANCES=${{ env.PROD_CLOUDSQL_INSTANCE }},_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID,_PLAID_SECRET_SECRET=PLAID_SECRET,_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY,_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY,_PMP_API_KEY_SECRET=PMP_API_KEY,_NEWSAPI_KEY_SECRET=NEWSAPI_KEY,_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID,_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET,_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI,_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY,_OPENAI_API_KEY_SECRET=OPENAI_API_KEY,_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY,_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON,_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN,_HUSHH_PROD_PHONE_TEST_NUMBERS_SECRET=HUSHH_PROD_PHONE_TEST_NUMBERS,_HUSHH_PROD_PHONE_TEST_CODE_SECRET=HUSHH_PROD_PHONE_TEST_CODE,_HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET_SECRET=HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET,_HUSHH_PROD_PHONE_TEST_ENABLED=true,_KAI_ANALYZE_DURABLE_RUN_STORE=true,_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL,_CONSENT_API_PUBLIC_ORIGIN=${{ env.CONSENT_API_PUBLIC_ORIGIN }},_CONSENT_WEB_FALLBACK_ENABLED=false,_CONSENT_SSE_ENABLED=false,_DB_POOL_MIN_SIZE=1,_DB_POOL_MAX_SIZE=4,_DB_SQLALCHEMY_POOL_SIZE=4,_DB_SQLALCHEMY_MAX_OVERFLOW=0,_CLOUD_RUN_MIN_INSTANCES=1,_CLOUD_RUN_MAX_INSTANCES=5,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_ONE_WALLET_CARD_ENABLED=true,_WALLET_PASS_PROVIDER=service,_WALLET_API_KEY_SECRET=WALLET_API_KEY,_HUSSH_GEMINI_TEXT_MODEL=gemini-3.7-flash,_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }},_RUNTIME_SERVICE_ACCOUNT=${{ env.RUNTIME_SERVICE_ACCOUNT }}"
 
       - name: Get backend URL
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -334,7 +433,7 @@ jobs:
       - name: Retain latest backend revisions
         if: steps.scope.outputs.deploy_backend == 'true'
         continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.BACKEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.BACKEND_REVISION_RETENTION }}"
 
       - name: Deploy frontend using Cloud Build
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -342,7 +441,7 @@ jobs:
           gcloud builds submit \
             --project="${{ env.GCP_PROJECT_ID }}" \
             --config=deploy/frontend.cloudbuild.yaml \
-            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_APP_ENV=production,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
+            "--substitutions=_FRONTEND_SERVICE=${{ env.FRONTEND_SERVICE }},_REGION=${{ env.GCP_REGION }},_ONE_LOCATION_NEARBY_CHECK_IN=${{ github.event.inputs.nearby_check_in_cohort && 'true' || 'false' }},_LOCATION_MAP_DEMO=false,_APP_ENV=production,_ONE_WALLET_CARD_ENABLED=true,_CLOUD_RUN_NO_TRAFFIC=true,_IMAGE_TAG=prod-${{ github.event.inputs.sha }},_DEPLOY_ENV=production,_DEPLOY_SOURCE=deploy-production,_DEPLOY_SHA=${{ github.event.inputs.sha }},_GITHUB_RUN_ID=${{ github.run_id }}"
 
       - name: Get frontend URL
         if: steps.scope.outputs.deploy_frontend == 'true'
@@ -358,7 +457,7 @@ jobs:
       - name: Retain latest frontend revisions
         if: steps.scope.outputs.deploy_frontend == 'true'
         continue-on-error: true
-        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.CLOUD_RUN_REVISION_RETENTION }}"
+        run: bash scripts/ci/cloudrun-retention.sh "${{ env.FRONTEND_SERVICE }}" "${{ env.GCP_REGION }}" "${{ env.FRONTEND_REVISION_RETENTION }}"
 
       - name: Resolve deployed candidate revisions
         id: candidate-state
@@ -384,11 +483,52 @@ jobs:
           echo "Backend candidate revision: ${backend_revision:-n/a}"
           echo "Frontend candidate revision: ${frontend_revision:-n/a}"
 
+      - name: Verify backend candidate runtime identity
+        if: steps.scope.outputs.deploy_backend == 'true'
+        run: >-
+          bash scripts/ci/assert-cloud-run-runtime-identity.sh
+          "${{ env.GCP_PROJECT_ID }}"
+          "${{ env.GCP_REGION }}"
+          "${{ steps.candidate-state.outputs.backend_revision }}"
+          "${{ env.RUNTIME_SERVICE_ACCOUNT }}"
+
+      - name: Verify production candidate runtime env parity
+        id: verify-parity
+        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
+        continue-on-error: true
+        run: |
+          python3 scripts/ops/verify-env-secrets-parity.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --backend-service "${{ env.BACKEND_SERVICE }}" \
+            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
+            --backend-revision "${{ steps.candidate-state.outputs.backend_revision }}" \
+            --frontend-revision "${{ steps.candidate-state.outputs.frontend_revision }}" \
+            --require-plaid \
+            --require-market-data \
+            --require-gmail \
+            --require-voice \
+            --require-connected-systems \
+            --require-prod-phone-test \
+            --assert-runtime-env-contract \
+            --report-path /tmp/prod-runtime-parity.json
+
+      - name: Verify production Connected Systems Omni Gateway
+        id: verify-connected-systems
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.verify-parity.outcome == 'success'
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/verify_connected_systems_gateway.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            2>&1 | tee /tmp/prod-connected-systems.log
+
       # New revisions are deployed with --no-traffic (see _CLOUD_RUN_NO_TRAFFIC=true
       # above), so promotion is an explicit, reversible step: shift 100% to the
       # freshly built revision, then health-gate it, then auto-roll-back on failure.
       - name: Promote deployed revisions to production traffic
         id: promote-traffic
+        if: steps.verify-parity.outcome == 'success' && (steps.scope.outputs.deploy_backend != 'true' || steps.verify-connected-systems.outcome == 'success')
         continue-on-error: true
         shell: bash
         run: |
@@ -406,9 +546,43 @@ jobs:
               --to-revisions="${{ steps.candidate-state.outputs.frontend_revision }}=100"
           fi
 
+      - name: Verify production backend deployment provenance
+        id: verify-backend-provenance
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --service "${{ env.BACKEND_SERVICE }}" \
+            --expected-env production \
+            --expected-source deploy-production \
+            --expected-sha "${{ github.event.inputs.sha }}" \
+            --expected-run-id "${{ github.run_id }}" \
+            --report-path /tmp/prod-backend-provenance.json
+
+      - name: Verify production frontend deployment provenance
+        id: verify-frontend-provenance
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success'
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ci/verify-cloudrun-revision-provenance.py \
+            --project "${{ env.GCP_PROJECT_ID }}" \
+            --region "${{ env.GCP_REGION }}" \
+            --service "${{ env.FRONTEND_SERVICE }}" \
+            --expected-env production \
+            --expected-source deploy-production \
+            --expected-sha "${{ github.event.inputs.sha }}" \
+            --expected-run-id "${{ github.run_id }}" \
+            --report-path /tmp/prod-frontend-provenance.json
+
       - name: Post-deploy backend runtime health gate
         id: health-backend
-        if: steps.scope.outputs.deploy_backend == 'true'
+        if: steps.scope.outputs.deploy_backend == 'true' && steps.promote-traffic.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -422,7 +596,7 @@ jobs:
 
       - name: Post-deploy frontend runtime health gate
         id: health-frontend
-        if: steps.scope.outputs.deploy_frontend == 'true'
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success'
         continue-on-error: true
         shell: bash
         run: |
@@ -430,21 +604,16 @@ jobs:
           bash scripts/ci/cloudrun-http-health.sh \
             "${{ steps.frontend-url.outputs.url }}" "/" 3 30 5 200
 
-      - name: Verify production runtime env parity
-        id: verify-parity
-        if: steps.scope.outputs.deploy_backend == 'true' || steps.scope.outputs.deploy_frontend == 'true'
+      - name: Verify production native passkey domain associations
+        id: verify-passkey-associations
+        if: steps.scope.outputs.deploy_frontend == 'true' && steps.promote-traffic.outcome == 'success'
         continue-on-error: true
+        shell: bash
         run: |
-          python3 scripts/ops/verify-env-secrets-parity.py \
+          set -euo pipefail
+          python3 scripts/ops/verify_passkey_domain_associations.py \
             --project "${{ env.GCP_PROJECT_ID }}" \
-            --region "${{ env.GCP_REGION }}" \
-            --backend-service "${{ env.BACKEND_SERVICE }}" \
-            --frontend-service "${{ env.FRONTEND_SERVICE }}" \
-            --require-plaid \
-            --require-market-data \
-            --require-gmail \
-            --require-voice \
-            --assert-runtime-env-contract
+            --origin "${{ env.APP_FRONTEND_ORIGIN }}"
 
       - name: Classify production release outcome
         id: classify
@@ -456,18 +625,35 @@ jobs:
           HEALTH_BACKEND: ${{ steps.health-backend.outcome }}
           HEALTH_FRONTEND: ${{ steps.health-frontend.outcome }}
           PARITY_OUTCOME: ${{ steps.verify-parity.outcome }}
+          CONNECTED_SYSTEMS_OUTCOME: ${{ steps.verify-connected-systems.outcome }}
           PROMOTE_OUTCOME: ${{ steps.promote-traffic.outcome }}
+          BACKEND_PROVENANCE_OUTCOME: ${{ steps.verify-backend-provenance.outcome }}
+          FRONTEND_PROVENANCE_OUTCOME: ${{ steps.verify-frontend-provenance.outcome }}
+          PASSKEY_ASSOCIATIONS_OUTCOME: ${{ steps.verify-passkey-associations.outcome }}
+          UPSTREAM_JOB_STATUS: ${{ job.status }}
         run: |
           set -euo pipefail
+          upstream_failed=false
           backend_failure=false
           frontend_failure=false
           parity_failed=false
+          connected_systems_failed=false
           promote_failed=false
+          backend_provenance_failed=false
+          frontend_provenance_failed=false
+          passkey_associations_failed=false
 
-          # Runtime health is the rollback trigger: only revert traffic when the
-          # newly promoted revision is not actually serving. A parity gap (e.g. a
-          # benign missing optional secret) fails the workflow for visibility but
-          # does NOT auto-revert a revision that is serving traffic healthily.
+          # GitHub marks job.status as failure when any earlier non-optional step
+          # failed. This catches configuration, authentication, backup, migration,
+          # build, and other pre-traffic failures even when their downstream
+          # outputs are empty.
+          if [ "$UPSTREAM_JOB_STATUS" != "success" ]; then
+            upstream_failed=true
+          fi
+
+          # Runtime health remains the rollback trigger after promotion. Candidate
+          # parity is a pre-traffic gate, so a parity failure leaves serving traffic
+          # untouched and fails the release without invoking rollback.
           if [ "$DEPLOY_BACKEND" = "true" ] && [ "$HEALTH_BACKEND" = "failure" ]; then
             backend_failure=true
           fi
@@ -477,38 +663,66 @@ jobs:
           if [ "$PARITY_OUTCOME" = "failure" ]; then
             parity_failed=true
           fi
+          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$CONNECTED_SYSTEMS_OUTCOME" != "success" ]; then
+            connected_systems_failed=true
+          fi
           if [ "$PROMOTE_OUTCOME" = "failure" ]; then
             promote_failed=true
+            # A multi-service promotion can fail after one service has already
+            # shifted traffic. Roll back every selected service to its proven
+            # predeploy revision; the rollback is safe and idempotent for a
+            # service whose traffic never moved.
+            if [ "$DEPLOY_BACKEND" = "true" ]; then
+              backend_failure=true
+            fi
+            if [ "$DEPLOY_FRONTEND" = "true" ]; then
+              frontend_failure=true
+            fi
+          fi
+          if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "$BACKEND_PROVENANCE_OUTCOME" != "success" ]; then
+            backend_provenance_failed=true
+            backend_failure=true
+          fi
+          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "$FRONTEND_PROVENANCE_OUTCOME" != "success" ]; then
+            frontend_provenance_failed=true
+            frontend_failure=true
+          fi
+          if [ "$DEPLOY_FRONTEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ] \
+             && [ "$PASSKEY_ASSOCIATIONS_OUTCOME" != "success" ]; then
+            passkey_associations_failed=true
+            frontend_failure=true
           fi
 
-          # release_failed drives the workflow's final pass/fail. It is gated on
-          # things that mean prod is NOT correctly serving the new revision:
-          # a runtime-health failure (also triggers rollback) or a promote
-          # failure (traffic never cut over). A parity gap is NOT included: the
-          # runtime health gate already fails+rolls-back when a genuinely
-          # boot-critical secret is missing (the app crashes), so a parity
-          # mismatch that survives a healthy promote is a benign optional-feature
-          # gap (e.g. voice/Gmail secrets not yet provisioned). It is surfaced as
-          # a warning for visibility instead of failing a healthy production release.
+          # release_failed drives the workflow's final pass/fail. Required runtime
+          # parity is not optional: missing consent origins, provider credentials,
+          # or key mounts must fail closed before promotion.
           release_failed=false
-          if [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
-             || [ "$promote_failed" = "true" ]; then
+          if [ "$upstream_failed" = "true" ] \
+             || [ "$backend_failure" = "true" ] || [ "$frontend_failure" = "true" ] \
+             || [ "$parity_failed" = "true" ] || [ "$connected_systems_failed" = "true" ] \
+             || [ "$promote_failed" = "true" ] \
+             || [ "$backend_provenance_failed" = "true" ] \
+             || [ "$frontend_provenance_failed" = "true" ] \
+             || [ "$passkey_associations_failed" = "true" ]; then
             release_failed=true
           fi
 
-          if [ "$parity_failed" = "true" ] && [ "$release_failed" = "false" ]; then
-            echo "::warning title=Env parity gap::Production runtime env parity reported missing optional secrets, but the promoted revision is serving healthily. Provision the missing secrets to close the gap; not failing the release."
-          fi
-
           {
+            echo "upstream_failed=$upstream_failed"
             echo "backend_failure=$backend_failure"
             echo "frontend_failure=$frontend_failure"
             echo "parity_failed=$parity_failed"
+            echo "connected_systems_failed=$connected_systems_failed"
             echo "promote_failed=$promote_failed"
+            echo "backend_provenance_failed=$backend_provenance_failed"
+            echo "frontend_provenance_failed=$frontend_provenance_failed"
+            echo "passkey_associations_failed=$passkey_associations_failed"
             echo "release_failed=$release_failed"
           } >> "$GITHUB_OUTPUT"
 
-          echo "Release classification: release_failed=$release_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed (warning-only) promote_failed=$promote_failed"
+          echo "Release classification: release_failed=$release_failed upstream_failed=$upstream_failed backend_failure=$backend_failure frontend_failure=$frontend_failure parity_failed=$parity_failed connected_systems_failed=$connected_systems_failed promote_failed=$promote_failed backend_provenance_failed=$backend_provenance_failed frontend_provenance_failed=$frontend_provenance_failed passkey_associations_failed=$passkey_associations_failed"
 
       - name: Roll back backend revision
         id: rollback-backend
@@ -545,6 +759,107 @@ jobs:
           echo "backend_serving=${backend_serving}" >> "$GITHUB_OUTPUT"
           echo "frontend_serving=${frontend_serving}" >> "$GITHUB_OUTPUT"
 
+      - name: Write production release status artifact
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          STATUS="blocked"
+          if [ "${{ steps.classify.outputs.release_failed }}" = "false" ]; then
+            STATUS="healthy"
+            if [ "${{ steps.scope.outputs.deploy_backend }}" = "true" ] \
+               && [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.candidate-state.outputs.backend_revision }}" ]; then
+              STATUS="blocked"
+            fi
+            if [ "${{ steps.scope.outputs.deploy_frontend }}" = "true" ] \
+               && [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.candidate-state.outputs.frontend_revision }}" ]; then
+              STATUS="blocked"
+            fi
+          else
+            ROLLBACK_REQUIRED=false
+            ROLLBACK_PROVEN=true
+            if [ "${{ steps.classify.outputs.backend_failure }}" = "true" ]; then
+              ROLLBACK_REQUIRED=true
+              if [ "${{ steps.predeploy-state.outputs.backend_revision }}" = "" ] \
+                 || [ "${{ steps.rollback-backend.outcome }}" != "success" ] \
+                 || [ "${{ steps.final-state.outputs.backend_serving }}" != "${{ steps.predeploy-state.outputs.backend_revision }}" ]; then
+                ROLLBACK_PROVEN=false
+              fi
+            fi
+            if [ "${{ steps.classify.outputs.frontend_failure }}" = "true" ]; then
+              ROLLBACK_REQUIRED=true
+              if [ "${{ steps.predeploy-state.outputs.frontend_revision }}" = "" ] \
+                 || [ "${{ steps.rollback-frontend.outcome }}" != "success" ] \
+                 || [ "${{ steps.final-state.outputs.frontend_serving }}" != "${{ steps.predeploy-state.outputs.frontend_revision }}" ]; then
+                ROLLBACK_PROVEN=false
+              fi
+            fi
+            if [ "$ROLLBACK_REQUIRED" = "true" ] && [ "$ROLLBACK_PROVEN" = "true" ]; then
+              STATUS="rolled_back"
+            fi
+          fi
+          export STATUS
+          python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          payload = {
+              "status": os.environ["STATUS"],
+              "sha": "${{ github.event.inputs.sha }}",
+              "scope": "${{ steps.scope.outputs.scope }}",
+              "predeploy": {
+                  "backend_revision": "${{ steps.predeploy-state.outputs.backend_revision }}",
+                  "frontend_revision": "${{ steps.predeploy-state.outputs.frontend_revision }}",
+              },
+              "candidate": {
+                  "backend_revision": "${{ steps.candidate-state.outputs.backend_revision }}",
+                  "frontend_revision": "${{ steps.candidate-state.outputs.frontend_revision }}",
+              },
+              "final": {
+                  "backend_revision": "${{ steps.final-state.outputs.backend_serving }}",
+                  "frontend_revision": "${{ steps.final-state.outputs.frontend_serving }}",
+              },
+              "verification": {
+                  "runtime_parity": "${{ steps.verify-parity.outcome }}",
+                  "connected_systems": "${{ steps.verify-connected-systems.outcome }}",
+                  "backend_provenance": "${{ steps.verify-backend-provenance.outcome }}",
+                  "frontend_provenance": "${{ steps.verify-frontend-provenance.outcome }}",
+                  "backend_health": "${{ steps.health-backend.outcome }}",
+                  "frontend_health": "${{ steps.health-frontend.outcome }}",
+                  "passkey_domain_associations": "${{ steps.verify-passkey-associations.outcome }}",
+              },
+              "classification": {
+                  "release_failed": "${{ steps.classify.outputs.release_failed }}",
+                  "promote_failed": "${{ steps.classify.outputs.promote_failed }}",
+                  "backend_provenance_failed": "${{ steps.classify.outputs.backend_provenance_failed }}",
+                  "frontend_provenance_failed": "${{ steps.classify.outputs.frontend_provenance_failed }}",
+              },
+              "rollback": {
+                  "backend": "${{ steps.rollback-backend.outcome }}",
+                  "frontend": "${{ steps.rollback-frontend.outcome }}",
+              },
+          }
+          Path("/tmp/prod-release-status.json").write_text(
+              json.dumps(payload, indent=2), encoding="utf-8"
+          )
+          PY
+
+      - name: Upload production deploy artifacts
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: prod-release-${{ github.run_id }}
+          if-no-files-found: error
+          path: |
+            /tmp/prod-runtime-secret-sync.json
+            /tmp/prod-frontend-runtime-secret-sync.json
+            /tmp/prod-runtime-parity.json
+            /tmp/prod-connected-systems.log
+            /tmp/prod-backend-provenance.json
+            /tmp/prod-frontend-provenance.json
+            /tmp/prod-release-status.json
+
       - name: Deployment Summary
         if: always()
         shell: bash
@@ -554,7 +869,8 @@ jobs:
             echo ""
             echo "- Commit SHA: \`${{ github.event.inputs.sha }}\`"
             echo "- Scope: \`${{ steps.scope.outputs.scope }}\`"
-            if [ "${{ steps.classify.outputs.release_failed }}" = "true" ]; then
+            echo "- Release status: \`$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")\`"
+            if [ "${{ steps.classify.outputs.release_failed }}" != "false" ]; then
               echo "- Status: \`FAILED\`"
             else
               echo "- Status: \`healthy\`"
@@ -567,7 +883,7 @@ jobs:
               echo "- Backend serving revision (final): \`${{ steps.final-state.outputs.backend_serving || 'unknown' }}\`"
               echo "- Backend health gate: \`${{ steps.health-backend.outcome }}\`"
               echo "- Backend rollback: \`${{ steps.rollback-backend.outcome }}\`"
-              echo "- Latest backup object: \`${{ steps.backup-gate.outputs.backup_object_uri }}\`"
+              echo "- Latest backup id: \`${{ steps.backup-gate.outputs.backup_id }}\`"
               echo "- Latest backup completed at: \`${{ steps.backup-gate.outputs.backup_completed_at }}\`"
             else
               echo "- Backend: skipped"
@@ -584,20 +900,56 @@ jobs:
             fi
             echo ""
             echo "- Traffic promotion: \`${{ steps.promote-traffic.outcome }}\`"
+            echo "- Backend provenance: \`${{ steps.verify-backend-provenance.outcome }}\`"
+            echo "- Frontend provenance: \`${{ steps.verify-frontend-provenance.outcome }}\`"
             echo "- Env parity: \`${{ steps.verify-parity.outcome }}\`"
+            echo "- Connected Systems Omni Gateway: \`${{ steps.verify-connected-systems.outcome }}\`"
+            echo "- Native passkey domain associations: \`${{ steps.verify-passkey-associations.outcome }}\`"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Tag this release as last known good
+        id: tag-last-known-good
+        if: always()
+        # Advisory annotation, not a release-health signal: the deploy above
+        # already succeeded and classified healthy by this point. A tagging
+        # failure (e.g. a transient push conflict) must never turn a healthy
+        # release red or trigger the rollback investigation that implies.
+        continue-on-error: true
+        shell: bash
+        env:
+          ENVIRONMENT: production
+          SHA: ${{ github.event.inputs.sha }}
+          BACKEND_REVISION: ${{ steps.final-state.outputs.backend_serving }}
+          BACKEND_SERVICE_URL: ${{ steps.backend-url.outputs.url }}
+          FRONTEND_REVISION: ${{ steps.final-state.outputs.frontend_serving }}
+          FRONTEND_SERVICE_URL: ${{ steps.frontend-url.outputs.url }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          ACTOR: ${{ github.triggering_actor }}
+        run: |
+          set -euo pipefail
+          STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$STATUS" != "healthy" ]; then
+            echo "[tag-last-known-good] Release status is '$STATUS', not 'healthy' — not tagging."
+            exit 0
+          fi
+          bash scripts/ci/tag-last-known-good.sh
 
       - name: Fail workflow when production release did not end healthy
         if: always()
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${{ steps.classify.outputs.release_failed }}" = "true" ]; then
+          STATUS="$(python3 -c "import json; from pathlib import Path; print(json.loads(Path('/tmp/prod-release-status.json').read_text(encoding='utf-8'))['status'])")"
+          if [ "$STATUS" != "healthy" ]; then
             echo "Production release did not end healthy."
+            echo "release_status=$STATUS"
+            echo "upstream_failed=${{ steps.classify.outputs.upstream_failed }}"
             echo "backend_failure=${{ steps.classify.outputs.backend_failure }}"
             echo "frontend_failure=${{ steps.classify.outputs.frontend_failure }}"
             echo "parity_failed=${{ steps.classify.outputs.parity_failed }}"
             echo "promote_failed=${{ steps.classify.outputs.promote_failed }}"
+            echo "backend_provenance_failed=${{ steps.classify.outputs.backend_provenance_failed }}"
+            echo "frontend_provenance_failed=${{ steps.classify.outputs.frontend_provenance_failed }}"
             echo "backend_rollback=${{ steps.rollback-backend.outcome }}"
             echo "frontend_rollback=${{ steps.rollback-frontend.outcome }}"
             if [ "${{ steps.rollback-backend.outcome }}" = "success" ] || [ "${{ steps.rollback-frontend.outcome }}" = "success" ]; then

@@ -3,10 +3,9 @@
 Database Client - SQLAlchemy (synchronous)
 
 This module provides a unified, SYNCHRONOUS database access layer using
-SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Supabase has been
-removed; Cloud SQL is the only datastore. Connectivity matches db.connection:
-the Cloud SQL Auth Proxy locally (127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud
-SQL Unix socket on Cloud Run.
+SQLAlchemy + psycopg2 over Google Cloud SQL (Postgres). Cloud SQL is the only
+datastore. Connectivity matches db.connection: the Cloud SQL Auth Proxy locally
+(127.0.0.1:CLOUDSQL_PROXY_PORT) and the Cloud SQL Unix socket on Cloud Run.
 
 Architecture:
   API Route → Service Layer (validates consent) → DB Client → Cloud SQL
@@ -19,9 +18,11 @@ IMPORTANT — blocking I/O:
   async asyncpg pool in db.connection for new async code paths.
 """
 
+import hashlib
 import json
 import logging
 import os
+import time
 from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Callable, Optional, TypeVar, Union
@@ -34,7 +35,8 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 from sqlalchemy.pool import NullPool, QueuePool
 
-from db.connection import format_database_unavailable_details, local_database_unavailable_hint
+from db.connection import database_unavailable_hint, format_database_unavailable_details
+from db.query_telemetry import record_query
 
 load_dotenv()
 
@@ -85,9 +87,33 @@ def _env_int(name: str, default: int, *, minimum: int = 0) -> int:
     return value
 
 
+class JsonParam:
+    """Explicit marker telling ``rpc``/``execute_raw`` to serialize this value
+    as JSON/JSONB rather than passing it through as a native array parameter
+    (e.g. a Postgres ``TEXT[]`` or ``vector``). Wrap any JSONB array argument
+    (a list of row objects, or a plain list bound to a JSONB column/param)
+    with this before passing it to ``rpc()``.
+    """
+
+    __slots__ = ("value",)
+
+    def __init__(self, value: Any):
+        self.value = value
+
+
 def _adapt_db_param_value(value: Any, dialect_name: str | None = None) -> Any:
-    """Adapt JSON-like values for the active DB driver."""
+    """Adapt JSON-like values for the active DB driver.
+
+    Plain dicts are always JSON/JSONB. A list containing JSON objects also
+    maps to a JSONB array (Postgres arrays cannot hold dicts) and is
+    auto-detected; lists of scalars stay as native arrays (e.g. ``TEXT[]``)
+    unless explicitly wrapped in ``JsonParam``, in which case they are always
+    serialized as JSON/JSONB too.
+    """
     is_postgres = bool(dialect_name and dialect_name.startswith("postgres"))
+    if isinstance(value, JsonParam):
+        inner = value.value
+        return PsycopgJson(inner) if is_postgres else json.dumps(inner)
     if isinstance(value, dict):
         return PsycopgJson(value) if is_postgres else json.dumps(value)
     # A list containing JSON objects maps to a jsonb array (Postgres arrays
@@ -165,8 +191,13 @@ def _run_with_connection_retry(
 ) -> _T:
     last_error: Exception | None = None
     for attempt in range(1, _DB_RETRY_ATTEMPTS + 1):
+        wait_started = time.perf_counter()
+        pool_wait_ms = 0.0
+        sql_started = wait_started
         try:
             with engine.connect() as conn:
+                pool_wait_ms = (time.perf_counter() - wait_started) * 1000
+                sql_started = time.perf_counter()
                 return callback(conn)
         except DatabaseExecutionError:
             raise
@@ -181,6 +212,12 @@ def _run_with_connection_retry(
                 exc,
             )
             _dispose_engine_quietly(engine, reason=operation_label)
+        finally:
+            record_query(
+                operation_label,
+                sql_duration_ms=(time.perf_counter() - sql_started) * 1000,
+                pool_wait_ms=pool_wait_ms,
+            )
     if last_error is None:  # pragma: no cover - defensive fallback
         raise RuntimeError(f"Database operation failed without captured error: {operation_label}")
     raise last_error
@@ -294,12 +331,12 @@ def get_db_engine() -> Engine:
             )
             target = db_unix_socket
         else:
-            ssl_suffix = (
-                "?sslmode=require"
-                if ("supabase.com" in str(db_host) or "pooler.supabase" in str(db_host))
-                else ""
+            # Cloud SQL is reached through the Auth Proxy (local loopback) or the
+            # Unix socket on Cloud Run; both already provide transport security,
+            # so no sslmode override is appended here.
+            database_url = (
+                f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}"
             )
-            database_url = f"postgresql+psycopg2://{db_user}:{db_password}@{db_host}:{db_port}/{db_name}{ssl_suffix}"
             target = f"{db_host}:{db_port}/{db_name}"
 
         connect_args: dict[str, Any] = {
@@ -376,7 +413,7 @@ def get_db_connection():
 
 @dataclass
 class QueryResult:
-    """Result from a database query, compatible with Supabase response format."""
+    """Result from a database query."""
 
     data: list[dict]
     count: Optional[int] = None
@@ -385,14 +422,10 @@ class QueryResult:
 
 class TableQuery:
     """
-    Supabase-compatible query builder for SQLAlchemy.
+    Fluent query builder for SQLAlchemy.
 
-    Provides a fluent API similar to supabase-py for easy migration:
+    Usage:
 
-        # Old (Supabase REST):
-        supabase.table("users").select("*").eq("id", user_id).execute()
-
-        # New (SQLAlchemy):
         db.table("users").select("*").eq("id", user_id).execute()
     """
 
@@ -583,7 +616,7 @@ class TableQuery:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def _execute_select(self, conn) -> QueryResult:
@@ -645,18 +678,33 @@ class TableQuery:
             raise ValueError("Empty data list")
 
         columns = list(data_list[0].keys())
+        if any(list(row.keys()) != columns for row in data_list):
+            raise ValueError("All bulk insert rows must have identical ordered columns")
         col_names = ", ".join(f'"{c}"' for c in columns)
 
         dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         inserted_rows = []
-        for i, row_data in enumerate(data_list):
-            param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = _adapt_db_params(
-                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
-            )
-
+        max_parameters = (
+            (900 if dialect_name == "sqlite" else 30_000)
+            if _env_truthy("DB_BULK_BATCHING_ENABLED", False)
+            else len(columns)
+        )
+        batch_size = max(1, max_parameters // max(1, len(columns)))
+        for batch_start in range(0, len(data_list), batch_size):
+            batch = data_list[batch_start : batch_start + batch_size]
+            params: dict[str, Any] = {}
+            value_groups: list[str] = []
+            for row_index, row_data in enumerate(batch):
+                names = []
+                for column in columns:
+                    key = f"v{row_index}_{column}"
+                    names.append(f":{key}")
+                    params[key] = row_data[column]
+                value_groups.append(f"({', '.join(names)})")
+            params = _adapt_db_params(params, dialect_name=dialect_name)
             sql = (
-                f'INSERT INTO "{self.table_name}" ({col_names}) VALUES ({param_names}) RETURNING *'
+                f'INSERT INTO "{self.table_name}" ({col_names}) VALUES '
+                f"{', '.join(value_groups)} RETURNING *"
             )
             result = conn.execute(text(sql), params)
             inserted_rows.extend([dict(row._mapping) for row in result])
@@ -699,6 +747,8 @@ class TableQuery:
             raise ValueError("Empty data list")
 
         columns = list(data_list[0].keys())
+        if any(list(row.keys()) != columns for row in data_list):
+            raise ValueError("All bulk upsert rows must have identical ordered columns")
         col_names = ", ".join(f'"{c}"' for c in columns)
         conflict_cols = [
             field.strip() for field in (self._on_conflict or "id").split(",") if field.strip()
@@ -715,23 +765,35 @@ class TableQuery:
 
         dialect_name = getattr(getattr(self.engine, "dialect", None), "name", None)
         upserted_rows = []
-        for i, row_data in enumerate(data_list):
-            param_names = ", ".join(f":v{i}_{c}" for c in columns)
-            params = _adapt_db_params(
-                {f"v{i}_{c}": row_data[c] for c in columns}, dialect_name=dialect_name
-            )
-
+        max_parameters = (
+            (900 if dialect_name == "sqlite" else 30_000)
+            if _env_truthy("DB_BULK_BATCHING_ENABLED", False)
+            else len(columns)
+        )
+        batch_size = max(1, max_parameters // max(1, len(columns)))
+        for batch_start in range(0, len(data_list), batch_size):
+            batch = data_list[batch_start : batch_start + batch_size]
+            params: dict[str, Any] = {}
+            value_groups: list[str] = []
+            for row_index, row_data in enumerate(batch):
+                names = []
+                for column in columns:
+                    key = f"v{row_index}_{column}"
+                    names.append(f":{key}")
+                    params[key] = row_data[column]
+                value_groups.append(f"({', '.join(names)})")
+            params = _adapt_db_params(params, dialect_name=dialect_name)
             if update_clause:
                 sql = f'''
                     INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    VALUES {", ".join(value_groups)}
                     ON CONFLICT ({conflict_cols_quoted}) DO UPDATE SET {update_clause}
                     RETURNING *
                 '''
             else:
                 sql = f'''
                     INSERT INTO "{self.table_name}" ({col_names}) 
-                    VALUES ({param_names}) 
+                    VALUES {", ".join(value_groups)}
                     ON CONFLICT ({conflict_cols_quoted}) DO NOTHING
                     RETURNING *
                 '''
@@ -757,7 +819,7 @@ class TableQuery:
 
 class DatabaseClient:
     """
-    Main database client with Supabase-compatible API.
+    Main database client.
 
     Usage:
         from db.db_client import get_db
@@ -821,13 +883,22 @@ class DatabaseClient:
 
             return _run_with_connection_retry(
                 self.engine,
-                operation_label="<raw_sql>.execute_raw",
+                operation_label=(
+                    "<raw_sql>." + hashlib.sha256(sql.encode("utf-8")).hexdigest()[:12]
+                ),
                 callback=_execute,
             )
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Raw SQL error: {e}")
+            # SQLAlchemy exception strings can include the complete statement
+            # and bound values. Keep runtime telemetry useful without placing
+            # owner identifiers, ciphertext, or other private values in logs.
+            logger.error(
+                "Raw SQL operation failed error_type=%s sql_fingerprint=%s",
+                type(e).__name__,
+                hashlib.sha256(sql.encode("utf-8")).hexdigest()[:12],
+            )
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",
@@ -835,7 +906,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
     def rpc(self, function_name: str, params: Optional[dict] = None) -> QueryResult:
@@ -881,7 +952,7 @@ class DatabaseClient:
                 details=format_database_unavailable_details(str(e)) if is_unavailable else str(e),
                 status_code=503 if is_unavailable else 500,
                 code="DATABASE_UNAVAILABLE" if is_unavailable else "DATABASE_EXECUTION_ERROR",
-                hint=local_database_unavailable_hint() if is_unavailable else None,
+                hint=database_unavailable_hint(str(e)) if is_unavailable else None,
             ) from e
 
 
@@ -902,14 +973,3 @@ def get_db() -> DatabaseClient:
     if _db_client is None:
         _db_client = DatabaseClient()
     return _db_client
-
-
-# Backward compatibility alias
-def get_supabase() -> DatabaseClient:
-    """
-    Backward compatibility alias for get_db().
-
-    DEPRECATED: Use get_db() instead.
-    """
-    logger.warning("get_supabase() is deprecated, use get_db() instead")
-    return get_db()

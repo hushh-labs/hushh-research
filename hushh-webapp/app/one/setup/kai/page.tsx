@@ -10,6 +10,7 @@ import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiPersonaScreen } from "@/components/kai/onboarding/KaiPersonaScreen";
 import { KaiPreferencesWizard } from "@/components/kai/onboarding/KaiPreferencesWizard";
 import { KaiInviteHandshake } from "@/components/kai/onboarding/kai-invite-handshake";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import {
   SetupCapabilityLoading,
   SetupCapabilityTerminalFooter,
@@ -37,10 +38,13 @@ import {
   type PreVaultOnboardingState,
 } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import {
+  canActivateFinanceSetup,
+  shouldShowFinanceSetupWizard,
+} from "@/lib/onboarding/finance-setup-admission";
 import { VaultService } from "@/lib/services/vault-service";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
-import { usePersonaState } from "@/lib/persona/persona-context";
 import {
   buildOneSetupKaiRoute,
   buildOneSetupRoute,
@@ -56,8 +60,9 @@ import { Card } from "@/lib/morphy-ux/card";
 import { Button } from "@/lib/morphy-ux/button";
 import { AlertTriangle } from "lucide-react";
 import { useNativeTestConfig } from "@/lib/testing/native-test";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 
-type Stage = "loading" | "entry" | "wizard" | "persona";
+type Stage = "loading" | "vault_required" | "entry" | "wizard" | "persona";
 type OnboardingSource = "pre_vault" | "vault";
 
 type WizardAnswers = {
@@ -74,7 +79,9 @@ function profileToAnswers(profile: KaiProfileV2 | null): WizardAnswers {
   };
 }
 
-function pendingToAnswers(pending: PreVaultOnboardingState | null): WizardAnswers {
+function pendingToAnswers(
+  pending: PreVaultOnboardingState | null,
+): WizardAnswers {
   return {
     investment_horizon: pending?.answers.investment_horizon ?? null,
     drawdown_response: pending?.answers.drawdown_response ?? null,
@@ -82,7 +89,10 @@ function pendingToAnswers(pending: PreVaultOnboardingState | null): WizardAnswer
   };
 }
 
-function computePersona(answers: WizardAnswers, explicit?: RiskProfile | null): RiskProfile {
+function computePersona(
+  answers: WizardAnswers,
+  explicit?: RiskProfile | null,
+): RiskProfile {
   if (explicit) return explicit;
   const score = computeRiskScore(answers as PreVaultOnboardingAnswers);
   return score === null ? "balanced" : mapRiskProfile(score);
@@ -99,7 +109,7 @@ function computePersona(answers: WizardAnswers, explicit?: RiskProfile | null): 
  */
 function SetupKaiStageRegion({ children }: { children: ReactNode }) {
   return (
-    <div className="flex min-h-[100dvh] w-full flex-col items-center justify-center px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]">
+    <div className="flex min-h-[100dvh] w-full max-w-full flex-col items-center justify-center px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)]">
       {children}
     </div>
   );
@@ -116,15 +126,16 @@ function KaiOnboardingPageContent({
   const nativeTestConfig = useNativeTestConfig();
   const { user, loading: authLoading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { activePersona, loading: personaLoading, riaCapability } = usePersonaState();
 
   const [source, setSource] = useState<OnboardingSource | null>(null);
   const [stage, setStage] = useState<Stage>("loading");
   const [saving, setSaving] = useState(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [profile, setProfile] = useState<KaiProfileV2 | null>(null);
-  const [preVaultState, setPreVaultState] = useState<PreVaultOnboardingState | null>(null);
+  const [preVaultState, setPreVaultState] =
+    useState<PreVaultOnboardingState | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [vaultOpen, setVaultOpen] = useState(false);
   const onboardingStartedRef = useRef(false);
   const inviteToken = searchParams.get("invite");
   const onboardingFromHref = useMemo(
@@ -139,6 +150,7 @@ function KaiOnboardingPageContent({
     skipActionId: "setup.skip_finance",
     enabled: isStaticFinanceSetupRoute,
     screenId: "one_setup_finance",
+    journeyMode: "auto",
   });
   // Intentional re-entry: a user who has ALREADY resolved the setup gate but
   // deliberately reopens this wizard (tapping the Finance tile, which forwards
@@ -151,7 +163,8 @@ function KaiOnboardingPageContent({
     [onboardingFromHref, searchParams],
   );
   const onboardingSelfHref = useMemo(
-    () => buildOneSetupKaiRoute({ from: onboardingFromHref, invite: inviteToken }),
+    () =>
+      buildOneSetupKaiRoute({ from: onboardingFromHref, invite: inviteToken }),
     [inviteToken, onboardingFromHref],
   );
   const preserveOnboardingAuditRoute =
@@ -162,10 +175,12 @@ function KaiOnboardingPageContent({
     let cancelled = false;
 
     async function load() {
-      if (authLoading || personaLoading) return;
+      if (authLoading) return;
 
       if (!user) {
-        router.replace(`${ROUTES.LOGIN}?redirect=${encodeURIComponent(onboardingSelfHref)}`);
+        router.replace(
+          `${ROUTES.LOGIN}?redirect=${encodeURIComponent(onboardingSelfHref)}`,
+        );
         return;
       }
 
@@ -183,10 +198,13 @@ function KaiOnboardingPageContent({
 
         if (!hasVault) {
           setSource("pre_vault");
-          const remoteState = await PreVaultUserStateService.bootstrapState(user.uid);
+          const remoteState = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+          );
           if (cancelled) return;
 
-          const onboardingResolved = PreVaultUserStateService.isSetupResolved(remoteState);
+          const onboardingResolved =
+            PreVaultUserStateService.isSetupResolved(remoteState);
           if (onboardingResolved) {
             setOnboardingRequiredCookie(false);
             setOnboardingFlowActiveCookie(false);
@@ -198,23 +216,19 @@ function KaiOnboardingPageContent({
           const pending = await PreVaultOnboardingService.load(user.uid);
           if (cancelled) return;
           setPreVaultState(pending);
-          if (
-            activePersona === "ria" &&
-            riaCapability !== "disabled" &&
-            !preserveOnboardingAuditRoute
-          ) {
-            router.replace(ROUTES.RIA_HOME);
-            return;
-          }
           // The investor-preferences wizard renders here when the root flow is
           // unresolved and a draft exists, OR when a resolved user intentionally
           // re-enters to review/edit their answers (finance tile / edit=1).
           // Otherwise the canonical surface is the `/one/setup` capability hub,
           // so we redirect there instead of showing the legacy entry hub.
           if (
-            (!onboardingResolved && (pending || isStaticFinanceSetupRoute)) ||
-            wizardReentryRequested ||
-            preserveOnboardingAuditRoute
+            shouldShowFinanceSetupWizard({
+              onboardingResolved,
+              hasPendingPreVaultState: Boolean(pending),
+              isCanonicalFinanceSetupRoute: isStaticFinanceSetupRoute,
+              wizardReentryRequested,
+              preserveOnboardingAuditRoute,
+            })
           ) {
             setStage("wizard");
           } else {
@@ -226,7 +240,16 @@ function KaiOnboardingPageContent({
         setSource("vault");
 
         if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken) {
-          setStage("loading");
+          const pending = await PreVaultOnboardingService.load(user.uid);
+          if (cancelled) return;
+          if (pending || isStaticFinanceSetupRoute) {
+            setSource("pre_vault");
+            setPreVaultState(pending);
+            setStage("wizard");
+            return;
+          }
+          setStage("vault_required");
+          setVaultOpen(true);
           return;
         }
 
@@ -244,16 +267,26 @@ function KaiOnboardingPageContent({
           // Finance preferences are a capability result, never the root setup
           // decision. Returning to the hub leaves its explicit Finish/Skip as
           // the sole authority for resolving onboarding.
-          const rootState = await PreVaultUserStateService.bootstrapState(user.uid).catch(
-            () => null,
+          const rootState = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+          ).catch(() => null);
+          setOnboardingRequiredCookie(
+            !PreVaultUserStateService.isSetupResolved(rootState),
           );
-          setOnboardingRequiredCookie(!PreVaultUserStateService.isSetupResolved(rootState));
           setOnboardingFlowActiveCookie(false);
           // Onboarding is complete. A user who intentionally re-enters to edit
           // their preferences (finance tile / edit=1) stays on the questionnaire,
           // pre-filled from the saved profile. Everyone else returns to the
           // canonical `/one/setup` hub rather than the legacy entry screen.
-          if (wizardReentryRequested || preserveOnboardingAuditRoute) {
+          if (
+            shouldShowFinanceSetupWizard({
+              onboardingResolved: true,
+              hasPendingPreVaultState: false,
+              isCanonicalFinanceSetupRoute: isStaticFinanceSetupRoute,
+              wizardReentryRequested,
+              preserveOnboardingAuditRoute,
+            })
+          ) {
             setStage("wizard");
             return;
           }
@@ -280,10 +313,7 @@ function KaiOnboardingPageContent({
     };
   }, [
     authLoading,
-    activePersona,
     inviteToken,
-    personaLoading,
-    riaCapability,
     user,
     user?.uid,
     isVaultUnlocked,
@@ -305,10 +335,18 @@ function KaiOnboardingPageContent({
 
   const persona: RiskProfile = useMemo(() => {
     if (source === "vault") {
-      return computePersona(wizardAnswers, profile?.preferences.risk_profile ?? null);
+      return computePersona(
+        wizardAnswers,
+        profile?.preferences.risk_profile ?? null,
+      );
     }
     return computePersona(wizardAnswers, preVaultState?.risk_profile ?? null);
-  }, [source, wizardAnswers, profile?.preferences.risk_profile, preVaultState?.risk_profile]);
+  }, [
+    source,
+    wizardAnswers,
+    profile?.preferences.risk_profile,
+    preVaultState?.risk_profile,
+  ]);
 
   useEffect(() => {
     if (!source || stage !== "wizard" || onboardingStartedRef.current) return;
@@ -320,7 +358,10 @@ function KaiOnboardingPageContent({
 
   const handleLaunchDashboard = async () => {
     if (saving || !user) {
-      return { status: "blocked" as const, summary: "Finance setup is not ready to finish yet." };
+      return {
+        status: "blocked" as const,
+        summary: "Finance setup is not ready to finish yet.",
+      };
     }
 
     try {
@@ -331,7 +372,7 @@ function KaiOnboardingPageContent({
       const journey = await PreVaultUserStateService.bootstrapState(user.uid, {
         force: true,
       });
-      if (journey.onboardingActiveCapability !== "finance") {
+      if (!canActivateFinanceSetup(journey)) {
         router.replace(ROUTES.ONE_SETUP);
         return {
           status: "blocked" as const,
@@ -346,23 +387,27 @@ function KaiOnboardingPageContent({
         callbackState: "none",
         expectedJourneyUpdatedAt: journey.onboardingJourneyUpdatedAt,
       });
-      toast.success("Finance preferences saved. Choose how to add your portfolio.");
+      toast.success(
+        "Finance preferences saved. Choose how to add your portfolio.",
+      );
       setOnboardingRequiredCookie(true);
       setOnboardingFlowActiveCookie(true);
       trackEvent("onboarding_step_completed", {
         action: "preferences",
         result: "success",
       });
-      router.replace(
-        ROUTES.ONE_SETUP_FINANCE_IMPORT,
-      );
+      router.replace(ROUTES.ONE_SETUP_FINANCE_IMPORT);
       return {
         status: "started" as const,
-        summary: "Finance preferences saved. Choose Plaid, a statement, or later.",
+        summary:
+          "Finance preferences saved. Choose Plaid, a statement, or later.",
         routeAfter: ROUTES.ONE_SETUP_FINANCE_IMPORT,
       };
     } catch (error) {
-      console.error("[OneOnboardingPage] Failed to finalize onboarding:", error);
+      console.error(
+        "[OneOnboardingPage] Failed to finalize onboarding:",
+        error,
+      );
       trackEvent("onboarding_completed", {
         action: "complete",
         result: "error",
@@ -370,7 +415,8 @@ function KaiOnboardingPageContent({
       toast.error("Couldn't complete onboarding. Please retry.");
       return {
         status: "failed" as const,
-        summary: "Finance preferences could not be finalized. Please try again.",
+        summary:
+          "Finance preferences could not be finalized. Please try again.",
       };
     } finally {
       setSaving(false);
@@ -383,10 +429,13 @@ function KaiOnboardingPageContent({
   // Hooks; the handler itself is a no-op unless a user session exists.
   useLocalOnboardingActionHandler("kai.setup.launch_dashboard", async () => {
     if (!user) {
-      return { status: "blocked", summary: "Sign in to finish Kai setup." };
+      return { status: "blocked", summary: "Sign in to finish Finance setup." };
     }
     if (stage !== "persona") {
-      return { status: "blocked", summary: "Answer all three questions first." };
+      return {
+        status: "blocked",
+        summary: "Answer all three questions first.",
+      };
     }
     return handleLaunchDashboard();
   });
@@ -398,10 +447,10 @@ function KaiOnboardingPageContent({
     stage === "wizard" || stage === "persona"
       ? {
           screenId: "one_setup_finance",
-          title: "Kai investor preferences",
+          title: "Finance investor preferences",
           purpose:
             stage === "wizard"
-              ? "Three quick questions tune Kai to your investing style."
+              ? "Three quick questions tune One to your investing style."
               : "Review your computed investor persona and launch the dashboard.",
           actions:
             stage === "wizard"
@@ -438,7 +487,10 @@ function KaiOnboardingPageContent({
     { role: voicePublisherRole },
   );
 
-  if (authLoading || (isStaticFinanceSetupRoute && !financeSetupCoordinator.isReady)) {
+  if (
+    authLoading ||
+    (isStaticFinanceSetupRoute && !financeSetupCoordinator.isReady)
+  ) {
     return (
       <SetupKaiStageRegion>
         <SetupCapabilityLoading label="Preparing Finance setup…" />
@@ -511,6 +563,42 @@ function KaiOnboardingPageContent({
     );
   }
 
+  if (stage === "vault_required") {
+    return (
+      <SetupKaiStageRegion>
+        <div className="flex w-full max-w-sm flex-col items-center gap-4 text-center">
+          <p className="text-sm text-muted-foreground">
+            Open your private vault to continue Finance setup.
+          </p>
+          <Button
+            variant="blue-gradient"
+            effect="fill"
+            onClick={() => setVaultOpen(true)}
+          >
+            Open private vault
+          </Button>
+          {isStaticFinanceSetupRoute ? (
+            <SetupCapabilityTerminalFooter
+              capabilityId="finance"
+              isOperationallyReady={false}
+              coordinator={financeSetupCoordinator}
+              supportingText="You can return any time."
+            />
+          ) : null}
+        </div>
+        <VaultUnlockDialog
+          user={user}
+          open={vaultOpen}
+          onOpenChange={setVaultOpen}
+          title="Open your private vault"
+          description="Continue Finance setup after your private vault is ready."
+          allowVaultCreation={false}
+          onSuccess={() => setVaultOpen(false)}
+        />
+      </SetupKaiStageRegion>
+    );
+  }
+
   if (stage === "loading" || !source) {
     return (
       <SetupKaiStageRegion>
@@ -546,14 +634,17 @@ function KaiOnboardingPageContent({
           riskProfile={persona}
           onEditAnswers={() => setStage("wizard")}
           onLaunchDashboard={handleLaunchDashboard}
+          terminalFooter={
+            isStaticFinanceSetupRoute ? (
+              <SetupCapabilityTerminalFooter
+                capabilityId="finance"
+                isOperationallyReady={false}
+                coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
+              />
+            ) : null
+          }
         />
-        {isStaticFinanceSetupRoute ? (
-          <SetupCapabilityTerminalFooter
-            capabilityId="finance"
-            isOperationallyReady={false}
-            coordinator={financeSetupCoordinator}
-          />
-        ) : null}
       </>
     );
   }
@@ -566,94 +657,112 @@ function KaiOnboardingPageContent({
         authState={user ? "authenticated" : "pending"}
         dataState="loaded"
       />
-      <KaiPreferencesWizard
-        mode="onboarding"
-        layout="page"
-        initialStep={0}
-        initialAnswers={wizardAnswers}
-        // Back returns to the hub but retains the active task. Only the
-        // explicit terminal Skip action may clear it.
-        onBack={() => {
-          if (user && isStaticFinanceSetupRoute) {
-            router.replace(ROUTES.ONE_SETUP);
-            return;
+      <CapabilityCinematicIntroGate capabilityId="finance">
+        <KaiPreferencesWizard
+          mode="onboarding"
+          layout="page"
+          initialStep={0}
+          initialAnswers={wizardAnswers}
+          terminalFooter={
+            isStaticFinanceSetupRoute ? (
+              <SetupCapabilityTerminalFooter
+                capabilityId="finance"
+                isOperationallyReady={false}
+                coordinator={financeSetupCoordinator}
+                supportingText="You can return any time."
+              />
+            ) : null
           }
-          router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
-        }}
-        onAnswersChange={(nextAnswers) => {
-        if (source !== "pre_vault") return;
-        const score = computeRiskScore(nextAnswers as PreVaultOnboardingAnswers);
-        void PreVaultOnboardingService.saveDraft(user.uid, {
-          answers: nextAnswers,
-          risk_score: score,
-          risk_profile: score === null ? null : mapRiskProfile(score),
-        })
-          .then((nextState) => {
-            setPreVaultState(nextState);
-          })
-          .catch((error) => {
-            console.warn("[OneOnboardingPage] Failed to save pre-vault onboarding draft:", error);
-          });
-      }}
-      onComplete={async (payload) => {
-        if (saving) return;
-        const nextAnswers: WizardAnswers = {
-          investment_horizon: payload.investment_horizon,
-          drawdown_response: payload.drawdown_response,
-          volatility_preference: payload.volatility_preference,
-        };
-
-        try {
-          setSaving(true);
-
-          if (source === "vault") {
-            if (!vaultKey || !vaultOwnerToken) {
-              toast.error("Set up or open your private vault to continue.");
+          // Back returns to the hub but retains the active task. Only the
+          // explicit terminal Skip action may clear it.
+          onBack={() => {
+            if (user && isStaticFinanceSetupRoute) {
+              router.replace(ROUTES.ONE_SETUP);
               return;
             }
-
-            const nextProfile = await KaiProfileService.savePreferences({
-              userId: user.uid,
-              vaultKey,
-              vaultOwnerToken,
-              updates: nextAnswers,
-              mode: "onboarding",
-            });
-            setProfile(nextProfile);
-          } else {
-            const score = computeRiskScore(nextAnswers as PreVaultOnboardingAnswers);
-            const nextState = await PreVaultOnboardingService.saveDraft(user.uid, {
+            router.replace(buildOneSetupRoute({ from: onboardingFromHref }));
+          }}
+          onAnswersChange={(nextAnswers) => {
+            if (source !== "pre_vault") return;
+            const score = computeRiskScore(
+              nextAnswers as PreVaultOnboardingAnswers,
+            );
+            void PreVaultOnboardingService.saveDraft(user.uid, {
               answers: nextAnswers,
               risk_score: score,
               risk_profile: score === null ? null : mapRiskProfile(score),
-            });
-            setPreVaultState(nextState);
-          }
+            })
+              .then((nextState) => {
+                setPreVaultState(nextState);
+              })
+              .catch((error) => {
+                console.warn(
+                  "[OneOnboardingPage] Failed to save pre-vault onboarding draft:",
+                  error,
+                );
+              });
+          }}
+          onComplete={async (payload) => {
+            if (saving) return;
+            const nextAnswers: WizardAnswers = {
+              investment_horizon: payload.investment_horizon,
+              drawdown_response: payload.drawdown_response,
+              volatility_preference: payload.volatility_preference,
+            };
 
-          setStage("persona");
-          trackEvent("onboarding_step_completed", {
-            action: "preferences",
-            result: "success",
-          });
-        } catch (error) {
-          console.error("[OneOnboardingPage] Failed to save preferences:", error);
-          trackEvent("onboarding_step_completed", {
-            action: "preferences",
-            result: "error",
-          });
-          toast.error("Couldn't save preferences. Please retry.");
-        } finally {
-          setSaving(false);
-        }
-        }}
-      />
-      {isStaticFinanceSetupRoute ? (
-        <SetupCapabilityTerminalFooter
-          capabilityId="finance"
-          isOperationallyReady={false}
-          coordinator={financeSetupCoordinator}
+            try {
+              setSaving(true);
+
+              if (source === "vault") {
+                if (!vaultKey || !vaultOwnerToken) {
+                  toast.error("Set up or open your private vault to continue.");
+                  return;
+                }
+
+                const nextProfile = await KaiProfileService.savePreferences({
+                  userId: user.uid,
+                  vaultKey,
+                  vaultOwnerToken,
+                  updates: nextAnswers,
+                  mode: "onboarding",
+                });
+                setProfile(nextProfile);
+              } else {
+                const score = computeRiskScore(
+                  nextAnswers as PreVaultOnboardingAnswers,
+                );
+                const nextState = await PreVaultOnboardingService.saveDraft(
+                  user.uid,
+                  {
+                    answers: nextAnswers,
+                    risk_score: score,
+                    risk_profile: score === null ? null : mapRiskProfile(score),
+                  },
+                );
+                setPreVaultState(nextState);
+              }
+
+              setStage("persona");
+              trackEvent("onboarding_step_completed", {
+                action: "preferences",
+                result: "success",
+              });
+            } catch (error) {
+              console.error(
+                "[OneOnboardingPage] Failed to save preferences:",
+                error,
+              );
+              trackEvent("onboarding_step_completed", {
+                action: "preferences",
+                result: "error",
+              });
+              toast.error("Couldn't save preferences. Please retry.");
+            } finally {
+              setSaving(false);
+            }
+          }}
         />
-      ) : null}
+      </CapabilityCinematicIntroGate>
     </>
   );
 }

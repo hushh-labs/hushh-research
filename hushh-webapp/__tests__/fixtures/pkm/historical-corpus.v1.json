@@ -1,0 +1,69 @@
+{
+  "schema_version": "pkm_historical_fixture_corpus.v1",
+  "fixtures": [
+    {
+      "id": "unversioned_full_blob",
+      "stored_domain_contract_version": 0,
+      "domain": "financial",
+      "data": {
+        "portfolio": {
+          "holdings": [{ "symbol": "SENTINEL_A", "quantity": 0, "enabled": false }],
+          "cash_balance": null
+        },
+        "unknown_legacy_key": "preserve"
+      }
+    },
+    {
+      "id": "v1_sparse_private_scope",
+      "stored_domain_contract_version": 1,
+      "domain": "preferences",
+      "data": {
+        "profile": {},
+        "private": { "note": "sentinel-private" },
+        "canonical_scope": "attr.preferences.profile.*"
+      }
+    },
+    {
+      "id": "v2_heterogeneous_arrays_unicode",
+      "stored_domain_contract_version": 2,
+      "domain": "gmail_memory",
+      "data": {
+        "messages": [
+          { "subject": "alpha", "flagged": false },
+          { "receipt_total": 0, "currency": "USD" },
+          { "unicode": "नमस्ते 🌎", "empty": "" }
+        ]
+      }
+    },
+    {
+      "id": "v3_finance_statement_plaid_kyc",
+      "stored_domain_contract_version": 3,
+      "domain": "financial",
+      "data": {
+        "profile": { "risk_tolerance": "balanced", "durable_decision": "hold" },
+        "portfolio": { "holdings": [{ "symbol": "SENTINEL_B", "quantity": 1 }] },
+        "sources": {
+          "statement": {
+            "active_snapshot_id": "statement-sentinel",
+            "snapshots": [{ "id": "statement-sentinel", "artifact_ref": "sha256:sentinel" }]
+          },
+          "plaid": { "active_item_ids": ["plaid-sentinel"] }
+        },
+        "kyc": { "employment_status": "sentinel" }
+      }
+    },
+    {
+      "id": "v4_duplicates_empty_retired_aliases",
+      "stored_domain_contract_version": 4,
+      "domain": "custom_memory",
+      "data": {
+        "duplicate_a": { "value": "same" },
+        "duplicate_b": { "value": "same" },
+        "empty_object": {},
+        "empty_array": [],
+        "falsy": [false, 0, "", null],
+        "retired_scope_audit_text": "portfolio.read"
+      }
+    }
+  ]
+}

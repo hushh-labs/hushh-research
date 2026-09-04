@@ -2,6 +2,7 @@
 
 import { ApiService } from "@/lib/services/api-service";
 import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import type { PkmUpgradeDomainState } from "@/lib/services/personal-knowledge-model-service";
 
 export class PkmUpgradeRouteUnavailableError extends Error {
@@ -15,6 +16,46 @@ export class PkmUpgradeRouteUnavailableError extends Error {
 }
 
 export type PkmUpgradeMode = "real" | "rehearsal_no_write";
+
+export type UpgradeClaimV1 = {
+  schemaVersion: "pkm_upgrade_claim.v1";
+  claimId: string;
+  commitId: string;
+  ownerUserId: string;
+  runId: string;
+  domain: string;
+  sourceContentRevision: number;
+  sourceManifestRevision: number;
+  targetDomainContractVersion: number;
+  targetReadableSummaryVersion: number;
+  targetPkmContractVersion: string;
+  targetReadableProjectionVersion: string;
+  expiresAt: string;
+  mode: "real";
+};
+
+export type PkmUpgradePolicyV1 = {
+  schemaVersion: "pkm_upgrade_policy.v1";
+  stage: "off" | "reviewer" | "internal" | "1" | "5" | "25" | "100";
+  shadowEnabled: boolean;
+  writePromotionEnabled: boolean;
+  killSwitchActive: boolean;
+  eligible: boolean;
+  targetDomain: string;
+  targetPkmContractVersion: string;
+  cohortPercent?: number;
+};
+
+export type PkmRollbackResult = {
+  success: boolean;
+  conflict: boolean;
+  idempotentReplay: boolean;
+  commitId: string | null;
+  dataVersion: number | null;
+  manifestRevision: number | null;
+  restoredRevisionId: string | null;
+  archivedRevisionId: string | null;
+};
 
 export type PkmUpgradeErrorContext = {
   stage: string | null;
@@ -77,8 +118,21 @@ export type PkmUpgradeStatus = {
   targetReadableProjectionVersion: string | null;
   upgradeStatus: string;
   upgradableDomains: PkmUpgradeDomainState[];
+  unsupportedDomains: PkmUpgradeDomainState[];
   lastUpgradedAt: string | null;
   run: PkmUpgradeRun | null;
+  upgradePolicy: PkmUpgradePolicyV1;
+};
+
+const FAIL_CLOSED_UPGRADE_POLICY: PkmUpgradePolicyV1 = {
+  schemaVersion: "pkm_upgrade_policy.v1",
+  stage: "off",
+  shadowEnabled: false,
+  writePromotionEnabled: false,
+  killSwitchActive: true,
+  eligible: false,
+  targetDomain: "financial",
+  targetPkmContractVersion: "7.0.0",
 };
 
 function mapErrorContext(
@@ -174,6 +228,7 @@ function mapDomain(domain: Record<string, unknown>): PkmUpgradeDomainState {
     blockedReasons: Array.isArray(blockers) ? blockers.map(String) : [],
     upgradedAt: typeof domain.upgraded_at === "string" ? domain.upgraded_at : null,
     needsUpgrade: Boolean(domain.needs_upgrade),
+    unsupportedFutureVersion: Boolean(domain.unsupported_future_version),
   };
 }
 
@@ -240,6 +295,11 @@ function mapRun(run: Record<string, unknown> | null | undefined): PkmUpgradeRun 
 }
 
 function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
+  const rawPolicy =
+    payload.upgrade_policy && typeof payload.upgrade_policy === "object"
+      ? (payload.upgrade_policy as Record<string, unknown>)
+      : null;
+  const validPolicy = rawPolicy?.schema_version === "pkm_upgrade_policy.v1";
   return {
     userId: String(payload.user_id || ""),
     modelVersion: Number(payload.model_version || 1),
@@ -278,6 +338,11 @@ function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
           .filter((domain): domain is Record<string, unknown> => !!domain && typeof domain === "object")
           .map(mapDomain)
       : [],
+    unsupportedDomains: Array.isArray(payload.unsupported_domains)
+      ? payload.unsupported_domains
+          .filter((domain): domain is Record<string, unknown> => !!domain && typeof domain === "object")
+          .map(mapDomain)
+      : [],
     lastUpgradedAt:
       typeof payload.last_upgraded_at === "string" ? payload.last_upgraded_at : null,
     run: mapRun(
@@ -285,6 +350,46 @@ function mapStatus(payload: Record<string, unknown>): PkmUpgradeStatus {
         ? (payload.run as Record<string, unknown>)
         : null
     ),
+    upgradePolicy: validPolicy
+      ? {
+          schemaVersion: "pkm_upgrade_policy.v1",
+          stage: ["off", "reviewer", "internal", "1", "5", "25", "100"].includes(
+            String(rawPolicy.stage || "")
+          )
+            ? (String(rawPolicy.stage) as PkmUpgradePolicyV1["stage"])
+            : "off",
+          shadowEnabled: rawPolicy.shadow_enabled === true,
+          writePromotionEnabled: rawPolicy.write_promotion_enabled === true,
+          killSwitchActive: rawPolicy.kill_switch_active !== false,
+          eligible: rawPolicy.eligible === true,
+          targetDomain: String(rawPolicy.target_domain || "financial"),
+          targetPkmContractVersion: String(
+            rawPolicy.target_pkm_contract_version || "7.0.0"
+          ),
+          cohortPercent: Math.max(0, Math.min(100, Number(rawPolicy.cohort_percent) || 0)),
+        }
+      : FAIL_CLOSED_UPGRADE_POLICY,
+  };
+}
+
+function mapClaim(payload: Record<string, unknown>): UpgradeClaimV1 {
+  return {
+    schemaVersion: "pkm_upgrade_claim.v1",
+    claimId: String(payload.claim_id || ""),
+    commitId: String(payload.commit_id || ""),
+    ownerUserId: String(payload.owner_user_id || ""),
+    runId: String(payload.run_id || ""),
+    domain: String(payload.domain || ""),
+    sourceContentRevision: Number(payload.source_content_revision || 0),
+    sourceManifestRevision: Number(payload.source_manifest_revision || 0),
+    targetDomainContractVersion: Number(payload.target_domain_contract_version || 0),
+    targetReadableSummaryVersion: Number(payload.target_readable_summary_version || 0),
+    targetPkmContractVersion: String(payload.target_pkm_contract_version || "0.0.0"),
+    targetReadableProjectionVersion: String(
+      payload.target_readable_projection_version || "0.0.0"
+    ),
+    expiresAt: String(payload.expires_at || ""),
+    mode: "real",
   };
 }
 
@@ -452,6 +557,91 @@ export class PkmUpgradeService {
       CacheService.getInstance().set(this.getCacheKey(params.userId), payload, CACHE_TTL.SHORT);
       return payload;
     });
+  }
+
+  static async issueClaim(params: {
+    runId: string;
+    domain: string;
+    userId: string;
+    sourceContentRevision: number;
+    sourceManifestRevision: number;
+    vaultOwnerToken?: string;
+  }): Promise<UpgradeClaimV1> {
+    const response = await ApiService.apiFetch(
+      `${this.API_PREFIX}/runs/${params.runId}/steps/${encodeURIComponent(params.domain)}/claim`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(params.vaultOwnerToken),
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          source_content_revision: params.sourceContentRevision,
+          source_manifest_revision: params.sourceManifestRevision,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to issue PKM upgrade claim: ${response.status}`);
+    }
+    return mapClaim((await response.json()) as Record<string, unknown>);
+  }
+
+  static async rollbackRevision(params: {
+    runId: string;
+    domain: string;
+    userId: string;
+    revisionId: string;
+    expectedContentRevision: number;
+    expectedManifestRevision: number;
+    rollbackCommitId: string;
+    vaultOwnerToken?: string;
+  }): Promise<PkmRollbackResult> {
+    const response = await ApiService.apiFetch(
+      `${this.API_PREFIX}/runs/${params.runId}/domains/${encodeURIComponent(params.domain)}/rollback`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders(params.vaultOwnerToken),
+        },
+        body: JSON.stringify({
+          user_id: params.userId,
+          revision_id: params.revisionId,
+          expected_content_revision: params.expectedContentRevision,
+          expected_manifest_revision: params.expectedManifestRevision,
+          rollback_commit_id: params.rollbackCommitId,
+        }),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to roll back PKM revision: ${response.status}`);
+    }
+    const payload = (await response.json()) as Record<string, unknown>;
+    const result: PkmRollbackResult = {
+      success: payload.success === true,
+      conflict: payload.conflict === true,
+      idempotentReplay: payload.idempotent_replay === true,
+      commitId: typeof payload.commit_id === "string" ? payload.commit_id : null,
+      dataVersion: typeof payload.data_version === "number" ? payload.data_version : null,
+      manifestRevision:
+        typeof payload.manifest_revision === "number" ? payload.manifest_revision : null,
+      restoredRevisionId:
+        typeof payload.restored_revision_id === "string"
+          ? payload.restored_revision_id
+          : null,
+      archivedRevisionId:
+        typeof payload.archived_revision_id === "string"
+          ? payload.archived_revision_id
+          : null,
+    };
+    if (!result.success || result.conflict) {
+      throw new Error("PKM rollback did not produce a complete restored revision.");
+    }
+    this.invalidateStatus(params.userId);
+    CacheSyncService.onPkmDomainRestored(params.userId, params.domain);
+    return result;
   }
 
   static async completeRun(params: {

@@ -12,6 +12,7 @@
  */
 
 import { Capacitor } from "@capacitor/core";
+import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
@@ -111,6 +112,26 @@ export class AuthService {
 
   private static async pause(ms: number): Promise<void> {
     await new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Bounded token fetch that tolerates a Firebase session still restoring
+   * (common a few frames after a fresh Google/Apple sign-in or a referral
+   * redirect). One short wait-and-retry only -- never an unbounded loop --
+   * so a genuinely signed-out caller still fails fast.
+   */
+  static async getIdTokenWithRetry(options?: {
+    retries?: number;
+    delayMs?: number;
+  }): Promise<string | null> {
+    const retries = options?.retries ?? 1;
+    const delayMs = options?.delayMs ?? 400;
+    let token = await this.getIdToken();
+    for (let attempt = 0; !token && attempt < retries; attempt += 1) {
+      await this.pause(delayMs);
+      token = await this.getIdToken();
+    }
+    return token;
   }
 
   private static getLocalDevPhoneTestConfig(): {
@@ -414,6 +435,28 @@ export class AuthService {
    * for a pre-approved reviewer UID. No reviewer password is exposed to clients.
    */
   static async signInWithCustomToken(customToken: string): Promise<AuthResult> {
+    if (Capacitor.isNativePlatform()) {
+      const nativeResult = await FirebaseAuthentication.signInWithCustomToken({
+        token: customToken,
+      });
+      if (!nativeResult.user) {
+        throw new Error("Native custom-token login returned no user");
+      }
+      const idTokenResult = await FirebaseAuthentication.getIdToken();
+      const idToken = idTokenResult.token || "";
+      if (!idToken) {
+        throw new Error("Native custom-token login returned no ID token");
+      }
+      return {
+        user: this.createUserFromNative(
+          nativeResult.user,
+          idToken,
+          "custom",
+        ),
+        idToken,
+      };
+    }
+
     const result = await firebaseSignInWithCustomToken(auth, customToken);
     const idToken = await result.user.getIdToken();
     return {
@@ -441,23 +484,45 @@ export class AuthService {
         "🍎 [AuthService] Calling FirebaseAuthentication.signInWithGoogle()...",
       );
 
-      const result = await FirebaseAuthentication.signInWithGoogle();
+      // The Capawesome Android Google provider can return to the WebView
+      // without settling its saved Capacitor call when the provider activity
+      // is recreated. HusshAuth owns an ActivityResultLauncher and the
+      // Firebase exchange on Android, so use that native contract there.
+      // iOS keeps the Capawesome path, which is its canonical implementation.
+      let nativeAuthUser: AuthUser | NonNullable<
+        Awaited<
+          ReturnType<typeof FirebaseAuthentication.signInWithGoogle>
+        >["user"]
+      >;
+      let idToken = "";
+      let accessToken: string | undefined;
+      if (Capacitor.getPlatform() === "android") {
+        const result = await HushhAuth.signIn();
+        nativeAuthUser = result.user;
+        idToken = result.idToken;
+        accessToken = result.accessToken;
+      } else {
+        const result = await FirebaseAuthentication.signInWithGoogle();
+        if (!result.user) {
+          throw new Error("Invalid response from native sign-in");
+        }
+        nativeAuthUser = result.user;
+        const nativeIdTokenResult =
+          await FirebaseAuthentication.getIdToken();
+        idToken =
+          nativeIdTokenResult.token || result.credential?.idToken || "";
+        accessToken = result.credential?.accessToken;
+      }
 
       this.debugLog("✅ [AuthService] Native sign-in returned result");
 
-      if (!result.user) {
+      if (!nativeAuthUser) {
         this.debugError(
           "❌ [AuthService] Invalid response from native sign-in",
         );
         toast.error("Invalid native auth response", { id: toastId });
         throw new Error("Invalid response from native sign-in");
       }
-
-      const nativeIdTokenResult = await FirebaseAuthentication.getIdToken();
-      const idToken =
-        nativeIdTokenResult.token || result.credential?.idToken || "";
-      const accessToken = result.credential?.accessToken;
-      const nativeAuthUser = result.user; // AuthUser type
 
       this.debugLog("✅ [AuthService] Got native ID token");
 
@@ -770,6 +835,10 @@ export class AuthService {
 
       const idToken = result.idToken;
       const nativeAuthUser = result.user;
+      const nativeUid = this.getNativeUserField(
+        nativeAuthUser as unknown as Record<string, unknown>,
+        ["uid", "id"],
+      );
 
       this.debugLog("✅ [AuthService] Got Apple ID token");
 
@@ -814,9 +883,23 @@ export class AuthService {
         }
       }
 
-      // Construct final User object
+      // A stale Firebase JS session can survive while the native Apple sheet
+      // establishes a new account. It must not be paired with the new native
+      // token; use the native wrapper until JS reports the matching UID.
+      const matchingFirebaseUser =
+        firebaseUser && nativeUid && firebaseUser.uid === nativeUid
+          ? firebaseUser
+          : null;
+      if (firebaseUser && !matchingFirebaseUser) {
+        this.debugLog(
+          "🍎 [AuthService] Ignoring stale Firebase JS user after native Apple sign-in",
+        );
+      }
+
+      // Construct final User object.
       const user =
-        firebaseUser || this.createUserFromNativeApple(nativeAuthUser, idToken);
+        matchingFirebaseUser ||
+        this.createUserFromNativeApple(nativeAuthUser, idToken);
 
       toast.success("Signed in successfully", { id: toastId });
 
@@ -905,19 +988,26 @@ export class AuthService {
   static async signOut(): Promise<void> {
     this.debugLog("🚪 [AuthService] Signing out...");
 
-    try {
-      // Sign out using Custom HushhAuth plugin
-      await HushhAuth.signOut();
-
-      // Also sign out from Firebase JS SDK for web consistency
-      await firebaseSignOut(auth);
-
-      this.debugLog("✅ [AuthService] Sign-out complete");
-    } catch (error) {
+    // Native and Firebase JS auth are independent persistence owners in a
+    // Capacitor WebView. Always attempt both; a failure in one must never
+    // short-circuit cleanup of the other.
+    const results = await Promise.allSettled([
+      HushhAuth.signOut(),
+      firebaseSignOut(auth),
+    ]);
+    const failures = results.filter(
+      (result): result is PromiseRejectedResult => result.status === "rejected",
+    );
+    if (failures.length > 0) {
+      const error = new AggregateError(
+        failures.map((failure) => failure.reason),
+        "One or more authentication stores failed to sign out",
+      );
       this.debugError("❌ [AuthService] Sign-out error", error);
-      toast.error("SignOut Failed: " + error);
       throw error;
     }
+
+    this.debugLog("✅ [AuthService] Sign-out complete");
   }
 
   static async startPhoneLinkVerification(
@@ -1171,6 +1261,8 @@ export class AuthService {
     try {
       const result = await signInWithCredential(phoneClaimAuth, credential);
       claimToken = await result.user.getIdToken(true);
+    } catch (error) {
+      throw this.normalizePhoneVerificationError(error, "link_confirm");
     } finally {
       await firebaseSignOut(phoneClaimAuth).catch(() => undefined);
     }
@@ -1329,14 +1421,28 @@ export class AuthService {
       );
     }
 
+    if (code === "code-expired") {
+      return this.createPhoneVerificationError(
+        code,
+        "This verification code has expired. Please request a new code.",
+      );
+    }
+
+    if (code === "invalid-verification-code") {
+      return this.createPhoneVerificationError(
+        code,
+        "That verification code is incorrect. Please check the code and try again.",
+      );
+    }
+
     if (
       code === "credential-already-in-use" ||
       code === "phone-number-already-exists"
     ) {
-      return this.createPhoneVerificationError(
-        code,
-        "This phone number is already associated with another active account. If the account was just deleted, wait a moment and try again.",
-      );
+      // Same words as the mail this triggers, from one shared source. Reading
+      // one thing on screen and a different one in the inbox reads like two
+      // separate problems.
+      return this.createPhoneVerificationError(code, PHONE_CONFLICT_COPY.inApp);
     }
 
     if (code === "provider-already-linked") {
@@ -1465,13 +1571,33 @@ export class AuthService {
       }
     }
 
-    // Fallback to Capacitor Firebase plugin
+    // Browser auth is owned exclusively by the Firebase JS SDK. Calling the
+    // Capacitor plugin's web shim here turns a normal signed-out state into a
+    // noisy runtime error and cannot recover a browser session.
+    if (!Capacitor.isNativePlatform()) return null;
+
+    // Prefer the shared Capacitor Firebase plugin when it owns the native
+    // session. On iOS, Apple/Google sign-in may instead be restored by the
+    // app-owned HushhAuth keychain plugin, so a FirebaseAuthentication runtime
+    // error is not evidence that the authenticated session has no token.
     try {
       const result = await FirebaseAuthentication.getIdToken();
-      return result.token;
-    } catch {
-      return null;
+      if (result.token) return result.token;
+    } catch (error) {
+      this.debugError(
+        "[AuthService] FirebaseAuthentication token lookup failed",
+        error,
+      );
     }
+
+    try {
+      const result = await HushhAuth.getIdToken();
+      return result.idToken || null;
+    } catch (error) {
+      this.debugError("[AuthService] HushhAuth token lookup failed", error);
+    }
+
+    return null;
   }
 
   /**

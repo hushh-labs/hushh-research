@@ -1,9 +1,14 @@
 import type {
+  OneLocationAccessRequest,
   OneLocationNetworkConnection,
   OneLocationRecipient,
   OneLocationState,
 } from "@/lib/one-location/types";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
+  buildOneLocationWorkflowHref,
+  ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
+  ONE_LOCATION_SMS_EMERGENCY_PROFILE,
   privacySafeOneLocationNotificationLabel,
   type OneLocationWorkflowNotificationType,
 } from "@/lib/one-location/notifications";
@@ -25,6 +30,54 @@ function addValue(
   if (normalized) payload[key] = normalized;
 }
 
+/**
+ * Copy the ask — how much time, whether it is extra time on a live share, and
+ * how much of that share is left — onto a notification payload.
+ *
+ * `notification_revision` is what makes a raised ask a NEW notification. The
+ * provider de-duplicates by (type, id), so a person who asked for an hour and
+ * then for four would otherwise have their second ask silently swallowed and
+ * the owner would sit looking at the first number.
+ */
+function addAskValues(
+  payload: OneLocationNotificationPayload,
+  request: OneLocationAccessRequest,
+): void {
+  addValue(payload, "requested_duration_hours", request.requestedDurationHours);
+  addValue(payload, "requested_duration_mode", request.requestedDurationMode);
+  addValue(payload, "extends_grant_id", request.extendsGrantId);
+  addValue(payload, "extends_grant_expires_at", request.extendsGrantExpiresAt);
+  if (request.isExtension || request.extendsGrantId) {
+    addValue(payload, "is_extension", "true");
+  }
+  if (Number(request.requestRevision) > 1) {
+    addValue(payload, "notification_revision", request.requestRevision);
+  }
+}
+
+/**
+ * The hours an approval added to a share that was already running.
+ *
+ * `undefined` whenever the answer is not knowable from these two timestamps --
+ * an open-ended share on either end, an unparseable value, or a result that is
+ * not positive. Callers must render amount-free copy in that case; inventing a
+ * number here is the defect this exists to prevent.
+ */
+function extensionAddedHours(
+  extendedExpiresAt: string | null | undefined,
+  approvedExpiresAt: string | null | undefined,
+): number | undefined {
+  if (!extendedExpiresAt || !approvedExpiresAt) return undefined;
+  const before = Date.parse(extendedExpiresAt);
+  const after = Date.parse(approvedExpiresAt);
+  if (!Number.isFinite(before) || !Number.isFinite(after)) return undefined;
+  const hours = (after - before) / 3_600_000;
+  if (!(hours > 0)) return undefined;
+  // Two decimals, matching `normalize_duration_hours` server-side, so the two
+  // delivery paths cannot word the same approval differently.
+  return Math.round(hours * 100) / 100;
+}
+
 function recipientLabel(
   recipients: OneLocationRecipient[],
   userId: string,
@@ -40,7 +93,9 @@ function networkCounterpartyId(
   connection: OneLocationNetworkConnection,
   userId: string,
 ): string {
-  return connection.userAId === userId ? connection.userBId : connection.userAId;
+  return connection.userAId === userId
+    ? connection.userBId
+    : connection.userAId;
 }
 
 export function buildOneLocationNotificationPayloads(
@@ -74,11 +129,17 @@ export function buildOneLocationNotificationPayloads(
     if (
       grant.status !== "active" ||
       approvedGrantIds.has(grant.id) ||
+      // SMS grants are created immediately before their first encrypted
+      // envelope. Do not tell the recipient that live location is available
+      // until the backend has durably linked that first envelope.
+      (grant.shareKind === "sos" && !grant.latestEnvelopeId) ||
       options.isGrantUnwatched?.(grant.id)
     ) {
       continue;
     }
-    const payload: OneLocationNotificationPayload = { type: "location_share_created" };
+    const payload: OneLocationNotificationPayload = {
+      type: "location_share_created",
+    };
     addValue(payload, "grant_id", grant.id);
     addValue(payload, "owner_user_id", grant.ownerUserId);
     addValue(
@@ -91,14 +152,33 @@ export function buildOneLocationNotificationPayloads(
     );
     addValue(payload, "expires_at", grant.expiresAt);
     addValue(payload, "duration_hours", grant.durationHours);
+    addValue(payload, "duration_mode", grant.durationMode);
     addValue(payload, "share_kind", grant.shareKind);
     addValue(payload, "share_message", grant.shareMessage);
+    if (grant.shareKind === "sos") {
+      addValue(
+        payload,
+        "notification_profile",
+        ONE_LOCATION_SMS_EMERGENCY_PROFILE,
+      );
+      addValue(
+        payload,
+        "notification_category",
+        ONE_LOCATION_SMS_EMERGENCY_CATEGORY,
+      );
+    }
     payloads.push(payload);
   }
 
+  const requestNowMs = Date.now();
   for (const request of state.requests ?? []) {
-    if (request.ownerUserId === normalizedUserId && request.status === "pending") {
-      const payload: OneLocationNotificationPayload = { type: "location_access_request" };
+    if (
+      request.ownerUserId === normalizedUserId &&
+      isLocationRequestPending(request, requestNowMs)
+    ) {
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_request",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "requester_user_id", request.requesterUserId);
       addValue(
@@ -107,6 +187,9 @@ export function buildOneLocationNotificationPayloads(
         request.requesterDisplayName ||
           recipientLabel(recipients, request.requesterUserId, "Someone"),
       );
+      // The ask itself. Without these the owner's popup says only that somebody
+      // wants location, whether they asked for fifteen minutes or a day.
+      addAskValues(payload, request);
       payloads.push(payload);
       continue;
     }
@@ -124,17 +207,54 @@ export function buildOneLocationNotificationPayloads(
       "Location owner",
     );
     if (request.status === "approved" && request.approvedGrantId) {
-      const payload: OneLocationNotificationPayload = { type: "location_access_approved" };
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_approved",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "grant_id", request.approvedGrantId);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
+      // What was actually granted, read off the grant the approval produced —
+      // which is the only number that is true. The requested amount is what was
+      // asked for, and an owner is free to give less.
+      const approvedGrant = (state.receivedGrants ?? []).find(
+        (grant) => grant.id === request.approvedGrantId,
+      );
+      if (approvedGrant) {
+        addValue(payload, "duration_hours", approvedGrant.durationHours);
+        addValue(payload, "duration_mode", approvedGrant.durationMode);
+        addValue(payload, "expires_at", approvedGrant.expiresAt);
+        // How much an extension ADDED, which is a different number from the
+        // total above now that approving "30 min more" tops up the running
+        // share instead of replacing it (#6256). The push carries this from
+        // the server; this path rebuilds the notification from local state
+        // when the push never arrived, and without it the bell would put the
+        // new total next to the word "more" -- announcing a thirty-minute
+        // top-up of a two-hour share as "2 hours 30 min more".
+        //
+        // Measured as the distance between the two expiries the payload
+        // already carries, so no new server field is needed. Undefined when
+        // either end is open-ended or unreadable, and the copy then drops the
+        // amount rather than guessing one.
+        addValue(
+          payload,
+          "added_duration_hours",
+          extensionAddedHours(
+            request.extendsGrantExpiresAt,
+            approvedGrant.expiresAt,
+          ),
+        );
+      }
       payloads.push(payload);
     } else if (request.status === "denied") {
-      const payload: OneLocationNotificationPayload = { type: "location_access_denied" };
+      const payload: OneLocationNotificationPayload = {
+        type: "location_access_denied",
+      };
       addValue(payload, "request_id", request.id);
       addValue(payload, "owner_user_id", request.ownerUserId);
       addValue(payload, "owner_display_label", ownerLabel);
+      addAskValues(payload, request);
       payloads.push(payload);
     }
   }
@@ -165,8 +285,14 @@ export function buildOneLocationNotificationPayloads(
   }
 
   for (const referral of state.referrals ?? []) {
-    if (referral.referredUserId !== normalizedUserId || referral.status !== "pending") continue;
-    const payload: OneLocationNotificationPayload = { type: "location_referral_invite" };
+    if (
+      referral.referredUserId !== normalizedUserId ||
+      referral.status !== "pending"
+    )
+      continue;
+    const payload: OneLocationNotificationPayload = {
+      type: "location_referral_invite",
+    };
     addValue(payload, "referral_id", referral.id);
     addValue(payload, "request_id", referral.requestId);
     addValue(payload, "grant_id", referral.grantId);
@@ -196,10 +322,42 @@ export function buildOneLocationNotificationPayloads(
     payloads.push(payload);
   }
 
+  for (const invite of state.circleMemberInvites ?? []) {
+    if (
+      invite.inviteeUserId !== normalizedUserId ||
+      invite.status !== "pending"
+    ) {
+      continue;
+    }
+    const payload: OneLocationNotificationPayload = {
+      type: "location_circle_member_invite",
+    };
+    addValue(payload, "invite_id", invite.id);
+    addValue(payload, "circle_id", invite.circleId);
+    addValue(payload, "circle_name", invite.circleName);
+    addValue(payload, "inviter_user_id", invite.inviterUserId);
+    addValue(
+      payload,
+      "inviter_display_label",
+      invite.inviterDisplayName ||
+        recipientLabel(recipients, invite.inviterUserId, "A connection"),
+    );
+    addValue(
+      payload,
+      "deep_link",
+      buildOneLocationWorkflowHref({
+        circleInviteId: invite.id,
+        section: "people",
+      }),
+    );
+    payloads.push(payload);
+  }
+
   for (const connection of state.networkConnections ?? []) {
     if (
       connection.status !== "active" ||
-      (connection.userAId !== normalizedUserId && connection.userBId !== normalizedUserId)
+      (connection.userAId !== normalizedUserId &&
+        connection.userBId !== normalizedUserId)
     ) {
       continue;
     }

@@ -31,6 +31,7 @@ import {
 import { Button } from "@/lib/morphy-ux/morphy";
 import { type DomainManifest } from "@/lib/personal-knowledge-model/manifest";
 import { isConsumerVisiblePkmDomain } from "@/lib/profile/pkm-profile-presentation";
+import { usePkmDomainChangeRevision } from "@/lib/pkm/use-pkm-domain-change-revision";
 
 type DomainInspectorState = {
   manifest: DomainManifest | null;
@@ -50,6 +51,7 @@ function formatTimestamp(value: string | null | undefined): string {
 export function PkmExplorerPanel() {
   const { user, loading } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const pkmChangeRevision = usePkmDomainChangeRevision(user?.uid);
 
   const [metadata, setMetadata] = useState<PersonalKnowledgeModelMetadata | null>(null);
   const [selectedDomain, setSelectedDomain] = useState<string | null>(null);
@@ -115,11 +117,11 @@ export function PkmExplorerPanel() {
       }
     }
 
-    void loadBootstrap();
+    void loadBootstrap(pkmChangeRevision > 0);
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, loading, user, vaultOwnerToken]);
+  }, [isVaultUnlocked, loading, pkmChangeRevision, user, vaultOwnerToken]);
 
   useEffect(() => {
     let cancelled = false;
@@ -180,7 +182,14 @@ export function PkmExplorerPanel() {
     return () => {
       cancelled = true;
     };
-  }, [isVaultUnlocked, selectedDomain, user, vaultKey, vaultOwnerToken]);
+  }, [
+    isVaultUnlocked,
+    pkmChangeRevision,
+    selectedDomain,
+    user,
+    vaultKey,
+    vaultOwnerToken,
+  ]);
 
   const selectedSummary = useMemo<DomainSummary | null>(() => {
     if (!metadata || !selectedDomain) return null;

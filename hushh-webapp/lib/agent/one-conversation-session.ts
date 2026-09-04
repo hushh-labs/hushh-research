@@ -27,6 +27,8 @@ export type AgentChatHandoff = {
   id: string;
   reason: AgentChatHandoffReason;
   transcript?: string | null;
+  /** A user-initiated Gmail draft request. It never authorizes delivery. */
+  emailDraftInstruction?: string | null;
   assistantText?: string | null;
   actionId?: string | null;
   resultSummary?: string | null;

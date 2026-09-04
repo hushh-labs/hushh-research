@@ -57,13 +57,17 @@ def test_issue_and_validate_agent_kai_analyze_token():
     assert parsed.scope_str == ConsentScope.AGENT_KAI_ANALYZE.value
 
 
-def test_retired_scope_cannot_be_issued_or_authorize_historical_token():
+@pytest.mark.parametrize(
+    "retired_scope",
+    ("agent.one.orchestrate", "attr.source_library.knowledge.*"),
+)
+def test_retired_scope_cannot_be_issued_or_authorize_historical_token(retired_scope: str):
     with pytest.raises(ValueError, match="SCOPE_RETIRED"):
-        issue_token(USER_ID, AGENT_ID, "agent.one.orchestrate")
+        issue_token(USER_ID, AGENT_ID, retired_scope)
 
     issued_at = int(time.time() * 1000)
     expires_at = issued_at + 60_000
-    raw = f"{USER_ID}|{AGENT_ID}|agent.one.orchestrate|{issued_at}|{expires_at}"
+    raw = f"{USER_ID}|{AGENT_ID}|{retired_scope}|{issued_at}|{expires_at}"
     signature = token_module._sign(raw)
     encoded = base64.urlsafe_b64encode(raw.encode()).decode()
 

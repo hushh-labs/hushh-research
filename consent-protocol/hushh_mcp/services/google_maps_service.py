@@ -6,27 +6,517 @@ calls our own /api/one/location/maps/* endpoints, which call this service.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
-from typing import Any
+import math
+import os
+import time
+from typing import Any, Literal
 from urllib.parse import quote
 
 import httpx
+from cachetools import TTLCache
+from redis import asyncio as redis_asyncio
 
 from hushh_mcp.config import GOOGLE_MAPS_API_KEY
+from hushh_mcp.services import place_taxonomy as _taxonomy
 
 logger = logging.getLogger(__name__)
 
 _TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 _PLACES_BASE = "https://places.googleapis.com"
+_PLACES_NEARBY_URL = f"{_PLACES_BASE}/v1/places:searchNearby"
+_PLACES_TEXT_URL = f"{_PLACES_BASE}/v1/places:searchText"
 _ROUTES_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
 _GEOCODE_URL = "https://maps.googleapis.com/maps/api/geocode/json"
+_NEARBY_CHECK_IN_RADIUS_METERS = 500.0
+# Search Nearby (New) hard-caps a single response at 20. That cap is per
+# request, not per area, which is why "All" alone can never be complete in a
+# dense block: 20 cafes within 40 m bury the hotel 120 m away.
+_NEARBY_CHECK_IN_RESULT_LIMIT = 20
+# Ceiling for the merged multi-request sweep. Each category bucket contributes
+# its own 20-result budget, so a hotel is never crowded out by restaurants.
+_NEARBY_CHECK_IN_MERGED_LIMIT = 80
+
+# Repeat opens at the same spot (home, office) are the dominant real-world
+# pattern for both the check-in picker and the directory, so a short cache
+# keyed on a coarse grid cell avoids re-billing Google for a location that
+# has not moved. 3 decimal places is ~110 m at the equator -- tighter than
+# the 500 m check-in radius, so a hit still means "the same immediate area",
+# not "somewhere down the block".
+#
+# Google's Maps Platform terms permit exactly this: temporary caching for
+# Customer Application performance is allowed for under 30 consecutive
+# calendar days, kept secure, not redistributed, and not used to defeat
+# Google's usage accounting. 10 minutes is far inside that ceiling.
+#
+# Two tiers, cache-aside:
+#   L1 -- per-process TTLCache. Bounded (maxsize) so a long-lived worker
+#         cannot grow this without limit; evicts on both size and age.
+#   L2 -- Redis, shared across every Cloud Run instance and worker, so a
+#         cell one instance already paid for is free on every other one.
+#         Reuses the connection this service already runs in production for
+#         rate limiting (api/middlewares/rate_limit.py) -- same documented
+#         "SCALE SEAM" pattern, second consumer. If Redis is unset or errors,
+#         every call here degrades to L1-only: caching gets less effective,
+#         nothing breaks.
+_PLACES_CACHE_TTL_SECONDS = 600.0
+_PLACES_CACHE_CELL_DECIMALS = 3
+_PLACES_CACHE_MAX_ENTRIES = 2_000
+# v2: the taxonomy rewrite changed both `categories` and the row subtitle, and a
+# cached row carries the fully shaped result. Without a new namespace the old
+# revision keeps writing old-taxonomy rows into the same keys through a rolling
+# deploy, and the fix reads as half-applied for the TTL.
+_PLACES_CACHE_KEY_PREFIX = "places-cache:v2:"
+_REDIS_OP_TIMEOUT_SECONDS = 0.5
+
+# A module-level indirection so a test can freeze/advance time deterministically
+# instead of sleeping for real seconds to prove TTL expiry. The lambdas below
+# look this global up by name on every call (not at construction time), so
+# monkeypatching `_cache_clock` after the caches already exist still works.
+_cache_clock = time.monotonic
+
+# Two independent caches: the check-in picker's "all" sweep and the
+# directory's per-category, caller-chosen-radius lookups have different key
+# shapes and must not collide with each other.
+_nearby_places_cache: TTLCache = TTLCache(
+    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+)
+_directory_cache: TTLCache = TTLCache(
+    maxsize=_PLACES_CACHE_MAX_ENTRIES, ttl=_PLACES_CACHE_TTL_SECONDS, timer=lambda: _cache_clock()
+)
+_redis_client: "redis_asyncio.Redis | None" = None
+
+
+def clear_places_cache() -> None:
+    """Reset both cache tiers.
+
+    Call this between tests -- otherwise a cache hit from one test (many
+    reuse the same lat/lng as "the" standard test point) silently serves a
+    different test's mock response instead of exercising a fresh call. Also
+    drops the Redis client so a test that monkeypatches the connection URL
+    or injects a fake client starts from a clean slate.
+    """
+
+    global _redis_client
+    _nearby_places_cache.clear()
+    _directory_cache.clear()
+    _redis_client = None
+
+
+def _geo_cell(lat: float, lng: float) -> tuple[float, float]:
+    return (
+        round(float(lat), _PLACES_CACHE_CELL_DECIMALS),
+        round(float(lng), _PLACES_CACHE_CELL_DECIMALS),
+    )
+
+
+def _cache_key_string(namespace: str, key_parts: tuple[Any, ...]) -> str:
+    return _PLACES_CACHE_KEY_PREFIX + namespace + ":" + ":".join(str(part) for part in key_parts)
+
+
+def _redis_url() -> str:
+    # A dedicated override, falling back to the URI this service already
+    # provisions for rate limiting -- same Memorystore instance, a second,
+    # namespaced use, no new secret required.
+    return (
+        os.getenv("PLACES_CACHE_REDIS_URL") or os.getenv("RATE_LIMIT_STORAGE_URI") or ""
+    ).strip()
+
+
+def _get_redis_client() -> "redis_asyncio.Redis | None":
+    """Lazily build the shared Redis client, or None if unconfigured.
+
+    Constructing `Redis.from_url` does not itself open a connection -- it is
+    cheap and does not need to be awaited -- so this can stay a plain
+    function. Every real network call happens in `_redis_cache_get/_set`,
+    which swallow errors, so a bad or unreachable URL degrades to L1-only
+    caching instead of failing a request.
+    """
+
+    global _redis_client
+    if _redis_client is not None:
+        return _redis_client
+    url = _redis_url()
+    if not url:
+        return None
+    _redis_client = redis_asyncio.Redis.from_url(
+        url,
+        socket_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+        socket_connect_timeout=_REDIS_OP_TIMEOUT_SECONDS,
+    )
+    return _redis_client
+
+
+async def _redis_cache_get(cache_key: str) -> list[dict[str, Any]] | None:
+    client = _get_redis_client()
+    if client is None:
+        return None
+    try:
+        raw = await client.get(cache_key)
+    except Exception:
+        logger.warning("maps.places_cache.redis_get_failed")
+        return None
+    if raw is None:
+        return None
+    try:
+        decoded = json.loads(raw)
+    except (TypeError, ValueError):
+        return None
+    # Don't trust a cached blob's shape blindly -- a version bump on this key
+    # prefix, or a stale write from a future/older deploy sharing the same
+    # Redis instance, must read as a miss, not a corrupt result.
+    if not isinstance(decoded, list) or not all(isinstance(item, dict) for item in decoded):
+        return None
+    return decoded
+
+
+async def _redis_cache_set(cache_key: str, value: list[dict[str, Any]]) -> None:
+    client = _get_redis_client()
+    if client is None:
+        return
+    try:
+        await client.set(cache_key, json.dumps(value), ex=int(_PLACES_CACHE_TTL_SECONDS))
+    except Exception:
+        logger.warning("maps.places_cache.redis_set_failed")
+
+
+async def _places_cache_get(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+) -> list[dict[str, Any]] | None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_hit = local_cache.get(cache_key)
+    if local_hit is not None:
+        return list(local_hit)
+    remote_hit = await _redis_cache_get(cache_key)
+    if remote_hit is None:
+        return None
+    # Backfill L1 so the next hit on this same instance is free of the
+    # network round trip, not just free of Google.
+    local_cache[cache_key] = remote_hit
+    return list(remote_hit)
+
+
+async def _places_cache_set(
+    local_cache: TTLCache,
+    namespace: str,
+    key_parts: tuple[Any, ...],
+    value: list[dict[str, Any]],
+) -> None:
+    cache_key = _cache_key_string(namespace, key_parts)
+    local_cache[cache_key] = list(value)
+    await _redis_cache_set(cache_key, value)
+
+
+NearbyPlaceCategory = Literal[
+    "all",
+    "food_drink",
+    "health",
+    "shopping_services",
+    "hotels_stays",
+    "education",
+    "outdoors_landmarks",
+    "transit",
+    "worship",
+    "civic",
+    "other",
+]
+
+# THE REQUEST SIDE. Recall only -- this table decides what we ASK Google for,
+# never what a place is shown as. Classification lives in
+# `hushh_mcp.services.place_taxonomy`, and the two are deliberately separate:
+# a chip used to BE a request, so adding one cost a provider call on every
+# drawer open, and the taxonomy stayed at 52 hand-picked types out of Table A's
+# 478. Splitting them makes chips free and let the classifier become
+# exhaustive, which is what "no place is silently skipped" needs.
+#
+# Bucket COUNT is the cost -- one request per bucket. Nine, up from seven.
+#
+# The types inside a bucket are NOT free, which is the trap. Google caps
+# `includedTypes` at 50, so a wide bucket costs nothing to ASK; but the response
+# is capped at 20 and ranked by distance, so every type in a bucket competes for
+# the same twenty slots. Worship and government were briefly folded in alongside
+# landmarks to keep the count at seven, and in a pilgrimage city -- which is
+# where this was reported -- twenty nearby temples would take every slot and the
+# Leisure chip would render empty at a spot that has parks and museums in range.
+#
+# So the rule is: a bucket's types must classify to that bucket's own chip.
+# `test_every_swept_type_belongs_to_the_bucket_that_fetches_it` pins it, and it
+# is a better guard than the count -- it catches the starvation this comment is
+# about, which a count never would.
+#
+# "All" issues one request per bucket here, concurrently, and merges the
+# results. That costs more provider calls per drawer open than the single
+# unfiltered request it replaced, and buys the only thing that makes the picker
+# trustworthy: each category gets its own slice of the provider's 20-result cap,
+# so a hotel cannot be buried by twenty nearer cafes. The client filters chips
+# from that one merged sweep, so browsing categories now costs nothing extra.
+# These are broad Table A types from Places API (New): Google includes matching
+# specialized subtypes (for example an Indian restaurant when `restaurant` is
+# requested).
+_NEARBY_SWEEP_TYPES: dict[str, tuple[str, ...]] = {
+    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
+    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
+    "shopping_services": (
+        "store",
+        "shopping_mall",
+        "supermarket",
+        "convenience_store",
+        "beauty_salon",
+        "hair_salon",
+        "barber_shop",
+        "laundry",
+        # Vehicle service stops are somewhere a person genuinely waits, so they
+        # belong in the picker. They already surfaced under "All" (which sends no
+        # includedTypes filter) but were unreachable from every category chip.
+        "car_repair",
+        "car_wash",
+        "car_dealer",
+        # Everyday errands people wait at, same reasoning.
+        "bank",
+        "atm",
+    ),
+    # Every lodging leaf, not just the six we happened to name. A guest house,
+    # an inn or a resort is exactly what somebody standing outside one expects
+    # the Hotels chip to have found.
+    # The chip's own leaves, not the whole Lodging family: a campsite, a camping
+    # cabin and an RV park are Leisure, and a mobile-home park is somewhere
+    # people live, so fetching them here would spend this bucket's twenty
+    # distance-ranked slots on rows the Hotels chip will not show.
+    "hotels_stays": _taxonomy.CHIP_TYPES["hotels_stays"],
+    "education": (
+        "school",
+        "university",
+        "preschool",
+        "library",
+        "educational_institution",
+    ),
+    # Landmarks, plus the two families that had no way of being fetched at all:
+    # a temple, a mosque, a police station and a government office appeared in
+    # no bucket, so they surfaced only when Google happened to return them
+    # unfiltered -- and then matched no chip and vanished behind the first tap.
+    # Swept here, chipped as Worship and Civic.
+    "outdoors_landmarks": (
+        "park",
+        "tourist_attraction",
+        "museum",
+        "art_gallery",
+        "historical_landmark",
+        "beach",
+        "garden",
+        "plaza",
+        "stadium",
+        "gym",
+        "fitness_center",
+        "movie_theater",
+        "night_club",
+        "event_venue",
+        "community_center",
+        "zoo",
+        "campground",
+        "rv_park",
+    ),
+    # Their own buckets, and worth the two extra calls. Neither family was in any
+    # bucket before, so a temple, a mosque or a police station was only ever
+    # returned by the single unfiltered sweep -- which the note above explains is
+    # routinely saturated by the nearest cafes -- and then matched no chip and
+    # vanished behind the first tap.
+    "worship": _taxonomy.FAMILY_WORSHIP,
+    # `post_office` used to be fetched by the shops bucket; it is a government
+    # counter, so it is classified as Civic and is fetched here now. `gym` left
+    # the shops bucket for the same reason -- it is Leisure, and the landmarks
+    # bucket already reaches it.
+    "civic": _taxonomy.FAMILY_GOVERNMENT,
+    "transit": (
+        "transit_station",
+        "bus_stop",
+        "train_station",
+        "subway_station",
+        "airport",
+        "parking",
+        "gas_station",
+    ),
+}
+
+# Search Nearby can return geographical/address records when no category filter
+# is supplied. They are useful for geocoding but are not places a person can
+# meaningfully check in to.
+_NON_CHECK_IN_PRIMARY_TYPES = frozenset(
+    {
+        "colloquial_area",
+        "continent",
+        "country",
+        "geocode",
+        "intersection",
+        "locality",
+        "neighborhood",
+        "political",
+        "plus_code",
+        "postal_town",
+        "premise",
+        "route",
+        "room",
+        "school_district",
+        "street_address",
+        "street_number",
+        "subpremise",
+    }
+)
+_NON_CHECK_IN_PRIMARY_TYPE_PREFIXES = (
+    "administrative_area_level_",
+    "postal_code",
+    "sublocality",
+)
+
+# Types that prove a record is a real venue rather than a geocoded address, but
+# are too vague to display as its category.
+_GENERIC_ESTABLISHMENT_TYPES = frozenset({"establishment", "point_of_interest"})
+
+
+# Deliberately a SEPARATE table from `_NEARBY_SWEEP_TYPES`, not an
+# extension of it. `nearby_places` builds its "All" sweep by iterating that dict,
+# so every key added there becomes another concurrent provider call on every
+# check-in drawer open. The directory needs finer buckets than the picker wants
+# (a person choosing where they are standing does not need "banking" split from
+# "shops"), and the picker must not pay for that. Two readers, two tables.
+#
+# The three buckets the picker does not have -- banking, fitness_beauty, auto --
+# are a re-partition of its single `shopping_services` chip, which jams retail,
+# laundry, beauty, vehicle service and cash machines into one filter. Every type
+# below already appears in the picker's table; none is new to this codebase.
+_DIRECTORY_CATEGORY_TYPES: dict[str, tuple[str, ...]] = {
+    "hotels_stays": (
+        "hotel",
+        "lodging",
+        "motel",
+        "hostel",
+        "bed_and_breakfast",
+        "campground",
+    ),
+    "food_drink": ("restaurant", "cafe", "bakery", "bar", "meal_takeaway"),
+    "health": ("hospital", "medical_clinic", "doctor", "dentist", "pharmacy"),
+    "banking": ("bank", "atm"),
+    "shops": (
+        "store",
+        "shopping_mall",
+        "supermarket",
+        "convenience_store",
+        "laundry",
+        "post_office",
+    ),
+    "fitness_beauty": (
+        "gym",
+        "beauty_salon",
+        "hair_salon",
+        "barber_shop",
+        "spa",
+    ),
+    "auto": (
+        "car_repair",
+        "car_wash",
+        "car_dealer",
+        "gas_station",
+        "electric_vehicle_charging_station",
+    ),
+    "transit": (
+        "transit_station",
+        "bus_stop",
+        "train_station",
+        "subway_station",
+        "airport",
+        "parking",
+    ),
+    "education": (
+        "school",
+        "university",
+        "preschool",
+        "library",
+        "educational_institution",
+    ),
+    "outdoors": (
+        "park",
+        "tourist_attraction",
+        "museum",
+        "art_gallery",
+        "historical_landmark",
+        "beach",
+        "garden",
+        "plaza",
+    ),
+}
+
+DIRECTORY_CATEGORY_SLUGS: tuple[str, ...] = tuple(_DIRECTORY_CATEGORY_TYPES)
+
+# Search Nearby (New) caps one response at 20 regardless of what we ask for.
+_DIRECTORY_MAX_RESULT_COUNT = 20
+# Google rejects a radius above 50 km outright.
+_DIRECTORY_MAX_RADIUS_METERS = 50_000.0
+
+# Kept to the cheap field tiers on purpose. Rating, opening hours, phone and
+# website are billed higher and are only worth buying for the one place a reader
+# actually opened, so they live on `directory_place_details` instead of on every
+# row of every list.
+_DIRECTORY_LIST_FIELD_MASK = (
+    "places.id,places.displayName,places.shortFormattedAddress,"
+    "places.formattedAddress,places.location,places.primaryType,"
+    "places.types,places.primaryTypeDisplayName,places.businessStatus"
+)
+_DIRECTORY_DETAIL_FIELD_MASK = (
+    "id,displayName,formattedAddress,shortFormattedAddress,location,"
+    "primaryType,primaryTypeDisplayName,types,businessStatus,"
+    "nationalPhoneNumber,websiteUri,regularOpeningHours,googleMapsUri"
+)
+
+
+# Kept as a module-level name because the classifier used to live here. The
+# mapping itself is `place_taxonomy.CHIP_BY_PLACE_TYPE`, which is exhaustive over
+# Table A rather than derived from whatever the sweep happens to request.
+_CATEGORY_BY_PLACE_TYPE = _taxonomy.CHIP_BY_PLACE_TYPE
+
+
+def _place_types(place: dict[str, Any]) -> list[str]:
+    """Every type Google reported, primary first, de-duplicated."""
+
+    ordered: list[str] = []
+    seen: set[str] = set()
+    for raw in (place.get("primaryType"), *(place.get("types") or [])):
+        if not isinstance(raw, str):
+            continue
+        value = raw.strip()[:80]
+        if not value or value in seen:
+            continue
+        seen.add(value)
+        ordered.append(value)
+    return ordered
+
+
+def _is_non_check_in_type(place_type: str) -> bool:
+    return place_type in _NON_CHECK_IN_PRIMARY_TYPES or place_type.startswith(
+        _NON_CHECK_IN_PRIMARY_TYPE_PREFIXES
+    )
+
+
+def _place_categories(place_types: list[str]) -> list[str]:
+    """Category chips this place belongs to. Never empty -- see `place_taxonomy`."""
+
+    return _taxonomy.place_categories(place_types)
 
 
 class GoogleMapsError(RuntimeError):
     """Raised for a missing key (503) or an upstream Maps failure (502)."""
 
-    def __init__(self, message: str, *, status_code: int) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        status_code: int,
+        code: str = "ONE_LOCATION_MAPS_FAILED",
+    ) -> None:
         self.status_code = status_code
+        self.code = code
         super().__init__(message)
 
 
@@ -67,14 +557,277 @@ def _classify_traffic(eta_seconds: int, static_seconds: int) -> str | None:
     return "heavy"
 
 
+def _country_code_from_components(components: Any) -> str | None:
+    """Read an ISO alpha-2 country code from Geocoding or Places components."""
+    if not isinstance(components, list):
+        return None
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        types = component.get("types") or []
+        if "country" not in types:
+            continue
+        value = component.get("short_name") or component.get("shortText")
+        normalized = str(value or "").strip().upper()
+        if len(normalized) == 2 and normalized.isalpha():
+            return normalized
+    return None
+
+
+def _postal_code_from_components(components: Any) -> str:
+    """Read a postal code from Geocoding or Places address components."""
+    if not isinstance(components, list):
+        return ""
+    for component in components:
+        if not isinstance(component, dict):
+            continue
+        types = component.get("types") or []
+        if "postal_code" not in types:
+            continue
+        value = component.get("long_name") or component.get("longText")
+        normalized = str(value or "").strip()
+        if normalized:
+            return normalized
+    return ""
+
+
+def _distance_meters(
+    *,
+    origin_lat: float,
+    origin_lng: float,
+    destination_lat: float,
+    destination_lng: float,
+) -> float:
+    radius = 6_371_000.0
+    lat1 = math.radians(origin_lat)
+    lat2 = math.radians(destination_lat)
+    delta_lat = math.radians(destination_lat - origin_lat)
+    delta_lng = math.radians(destination_lng - origin_lng)
+    value = (
+        math.sin(delta_lat / 2.0) ** 2
+        + math.cos(lat1) * math.cos(lat2) * math.sin(delta_lng / 2.0) ** 2
+    )
+    clamped = max(0.0, min(1.0, value))
+    return radius * (2.0 * math.atan2(math.sqrt(clamped), math.sqrt(max(0.0, 1.0 - clamped))))
+
+
+def _valid_coordinates(*, lat: float, lng: float) -> bool:
+    return (
+        math.isfinite(lat)
+        and math.isfinite(lng)
+        and -90.0 <= lat <= 90.0
+        and -180.0 <= lng <= 180.0
+    )
+
+
+def _provider_object(response: httpx.Response, operation: str) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except ValueError as exc:
+        raise GoogleMapsError(
+            f"{operation} returned an invalid response.",
+            status_code=502,
+        ) from exc
+    if not isinstance(payload, dict):
+        raise GoogleMapsError(
+            f"{operation} returned an invalid response.",
+            status_code=502,
+        )
+    return payload
+
+
+def _check_in_place_identity(
+    place: dict[str, Any],
+) -> tuple[str, str, list[str]] | None:
+    """Return name, category type and types for a physical, usable check-in place.
+
+    `primaryType` is absent on a large share of real venues -- independent
+    hotels, clinics and shops routinely come back with `types` only. Requiring
+    it silently deleted exactly those places from the picker, which is how a
+    second hotel behind the first went missing. Any non-address type now
+    qualifies, and a bare `establishment` still counts as a venue while a
+    geocoded address (`street_address`, `premise`, ...) still does not.
+    """
+
+    business_status = str(place.get("businessStatus") or "").strip().upper()
+    if business_status and business_status != "OPERATIONAL":
+        return None
+    pure_service_area = place.get("pureServiceAreaBusiness")
+    if pure_service_area is True or (
+        pure_service_area is not None and not isinstance(pure_service_area, bool)
+    ):
+        return None
+    display_name = place.get("displayName") or {}
+    if not isinstance(display_name, dict):
+        return None
+    raw_display = display_name.get("text")
+    if not isinstance(raw_display, str):
+        return None
+    display = raw_display.strip()[:160]
+    if not display:
+        return None
+
+    place_types = _place_types(place)
+    if not place_types:
+        return None
+    descriptive = [
+        place_type
+        for place_type in place_types
+        if not _is_non_check_in_type(place_type) and place_type not in _GENERIC_ESTABLISHMENT_TYPES
+    ]
+    if descriptive:
+        return display, descriptive[0], place_types
+    # No descriptive type left. Keep it only when Google still calls it a venue,
+    # so a named business survives while an address record does not.
+    if any(place_type in _GENERIC_ESTABLISHMENT_TYPES for place_type in place_types):
+        return display, "establishment", place_types
+    return None
+
+
 class GoogleMapsService:
+    async def resolve_place(self, *, query: str) -> dict[str, Any]:
+        """Postal code and coordinates for a free-text place ("FIRM, CITY, ST").
+
+        Text Search (New), not Geocoding: the Geocoding API is not enabled for
+        this key, and Places already is — the same reason ``reverse_geocode``
+        falls back to a nearby place. Enrichment only, so every failure path
+        (no key, transport, upstream error, no match) returns empty values and
+        never raises into the caller.
+        """
+        empty: dict[str, Any] = {"postal_code": "", "latitude": None, "longitude": None}
+        text = str(query or "").strip()
+        if not text or not GOOGLE_MAPS_API_KEY:
+            return empty
+        try:
+            async with _async_client() as client:
+                response = await client.post(
+                    _PLACES_TEXT_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                        "X-Goog-FieldMask": "places.addressComponents,places.location",
+                    },
+                    json={"textQuery": text, "maxResultCount": 1},
+                )
+        except httpx.HTTPError as exc:
+            logger.info("maps.resolve_place transport %s", type(exc).__name__)
+            return empty
+        if response.status_code >= 400:
+            logger.info("maps.resolve_place upstream %s", response.status_code)
+            return empty
+        try:
+            places = response.json().get("places") or []
+        except ValueError:
+            return empty
+        if not places or not isinstance(places[0], dict):
+            return empty
+        place = places[0]
+        location = place.get("location")
+        location = location if isinstance(location, dict) else {}
+        latitude = location.get("latitude")
+        longitude = location.get("longitude")
+        return {
+            "postal_code": _postal_code_from_components(place.get("addressComponents")),
+            "latitude": float(latitude) if isinstance(latitude, int | float) else None,
+            "longitude": float(longitude) if isinstance(longitude, int | float) else None,
+        }
+
+    async def resolve_postal_code(self, *, query: str) -> str:
+        """Just the postal code — see :meth:`resolve_place`."""
+        return str((await self.resolve_place(query=query)).get("postal_code") or "")
+
+    async def _nearest_place_address(
+        self,
+        *,
+        key: str,
+        lat: float,
+        lng: float,
+    ) -> dict[str, Any]:
+        """Resolve a nearby address when Geocoding is unavailable for this key."""
+        async with _async_client() as client:
+            try:
+                response = await client.post(
+                    _PLACES_NEARBY_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": (
+                            "places.displayName,places.formattedAddress,places.addressComponents"
+                        ),
+                    },
+                    json={
+                        "maxResultCount": 1,
+                        "rankPreference": "DISTANCE",
+                        "locationRestriction": {
+                            "circle": {
+                                "center": {
+                                    "latitude": lat,
+                                    "longitude": lng,
+                                },
+                                # Keep the fallback tightly bounded so a distant
+                                # landmark is never presented as the user's place.
+                                "radius": 100.0,
+                            }
+                        },
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(
+                    f"Nearby place lookup failed: {exc}",
+                    status_code=502,
+                ) from exc
+        if response.status_code >= 400:
+            logger.warning(
+                "maps.reverse_geocode nearby upstream %s",
+                response.status_code,
+            )
+            raise GoogleMapsError("Nearby place lookup failed.", status_code=502)
+
+        places = response.json().get("places") or []
+        if not places:
+            return {
+                "name": None,
+                "formattedAddress": None,
+                "countryCode": None,
+            }
+        place = places[0]
+        name = (place.get("displayName") or {}).get("text") or None
+        formatted = place.get("formattedAddress") or None
+        return {
+            "name": str(name) if name else None,
+            "formattedAddress": str(formatted) if formatted else None,
+            "countryCode": _country_code_from_components(place.get("addressComponents")),
+        }
+
     async def autocomplete(
-        self, input_text: str, *, session_token: str | None = None
+        self,
+        input_text: str,
+        *,
+        session_token: str | None = None,
+        lat: float | None = None,
+        lng: float | None = None,
+        nearby_only: bool = False,
     ) -> list[dict[str, Any]]:
         key = _require_key()
         body: dict[str, Any] = {"input": input_text}
         if session_token:
             body["sessionToken"] = session_token
+        if lat is not None and lng is not None:
+            location_area = {
+                "circle": {
+                    "center": {
+                        "latitude": float(lat),
+                        "longitude": float(lng),
+                    },
+                    "radius": (_NEARBY_CHECK_IN_RADIUS_METERS if nearby_only else 2_000.0),
+                }
+            }
+            body["locationRestriction" if nearby_only else "locationBias"] = location_area
+            if nearby_only:
+                body["origin"] = {
+                    "latitude": float(lat),
+                    "longitude": float(lng),
+                }
         async with _async_client() as client:
             try:
                 response = await client.post(
@@ -92,17 +845,456 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.autocomplete upstream %s", response.status_code)
             raise GoogleMapsError("Places autocomplete failed.", status_code=502)
-        data = response.json()
+        data = _provider_object(response, "Places autocomplete")
+        provider_suggestions = data.get("suggestions") or []
+        if not isinstance(provider_suggestions, list):
+            raise GoogleMapsError(
+                "Places autocomplete returned an invalid response.",
+                status_code=502,
+            )
         results: list[dict[str, Any]] = []
-        for suggestion in data.get("suggestions", []):
+        for suggestion in provider_suggestions[:20]:
+            if not isinstance(suggestion, dict):
+                continue
             prediction = suggestion.get("placePrediction") or {}
+            if not isinstance(prediction, dict):
+                continue
             place_id = prediction.get("placeId")
-            text = (prediction.get("text") or {}).get("text")
-            if place_id and text:
-                results.append({"placeId": str(place_id), "text": str(text)})
+            prediction_text = prediction.get("text") or {}
+            if not isinstance(prediction_text, dict):
+                prediction_text = {}
+            text = prediction_text.get("text")
+            normalized_place_id = str(place_id or "").strip()
+            normalized_text = str(text or "").strip()[:500]
+            if normalized_place_id and len(normalized_place_id) <= 300 and normalized_text:
+                distance = prediction.get("distanceMeters")
+                if nearby_only and isinstance(distance, (int, float)):
+                    normalized_distance = float(distance)
+                    if (
+                        not math.isfinite(normalized_distance)
+                        or normalized_distance < 0
+                        or normalized_distance > _NEARBY_CHECK_IN_RADIUS_METERS
+                    ):
+                        continue
+                results.append(
+                    {
+                        "placeId": normalized_place_id,
+                        "text": normalized_text,
+                        **(
+                            {"distanceMeters": int(round(float(distance)))}
+                            if nearby_only and isinstance(distance, (int, float))
+                            else {}
+                        ),
+                    }
+                )
         return results
 
-    async def place_details(self, place_id: str) -> dict[str, Any]:
+    async def _search_nearby_once(
+        self,
+        client: httpx.AsyncClient,
+        *,
+        key: str,
+        lat: float,
+        lng: float,
+        included_types: tuple[str, ...] | None,
+    ) -> list[dict[str, Any]]:
+        """One Search Nearby call. Returns the raw provider place records."""
+
+        body: dict[str, Any] = {
+            "maxResultCount": _NEARBY_CHECK_IN_RESULT_LIMIT,
+            "rankPreference": "DISTANCE",
+            "locationRestriction": {
+                "circle": {
+                    "center": {
+                        "latitude": float(lat),
+                        "longitude": float(lng),
+                    },
+                    "radius": _NEARBY_CHECK_IN_RADIUS_METERS,
+                }
+            },
+        }
+        if included_types:
+            body["includedTypes"] = list(included_types)
+        try:
+            response = await client.post(
+                _PLACES_NEARBY_URL,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": key,
+                    "X-Goog-FieldMask": (
+                        "places.id,places.displayName,places.shortFormattedAddress,"
+                        "places.formattedAddress,places.location,places.primaryType,"
+                        "places.types,places.primaryTypeDisplayName,"
+                        "places.businessStatus,places.pureServiceAreaBusiness"
+                    ),
+                },
+                json=body,
+            )
+        except httpx.HTTPError as exc:
+            raise GoogleMapsError(
+                f"Nearby places lookup failed: {exc}",
+                status_code=502,
+            ) from exc
+        if response.status_code >= 400:
+            logger.warning("maps.nearby_places upstream %s", response.status_code)
+            raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
+        payload = _provider_object(response, "Nearby places lookup")
+        provider_places = payload.get("places") or []
+        if not isinstance(provider_places, list):
+            raise GoogleMapsError(
+                "Nearby places lookup returned an invalid response.",
+                status_code=502,
+            )
+        return [place for place in provider_places if isinstance(place, dict)]
+
+    def _normalize_nearby_place(
+        self,
+        place: dict[str, Any],
+        *,
+        lat: float,
+        lng: float,
+    ) -> dict[str, Any] | None:
+        """Shape one provider record, or drop it if it is not check-in-able."""
+
+        place_id = str(place.get("id") or "").strip()
+        if not place_id or len(place_id) > 300:
+            return None
+        location = place.get("location") or {}
+        if not isinstance(location, dict):
+            return None
+        try:
+            place_lat = float(location.get("latitude"))
+            place_lng = float(location.get("longitude"))
+        except (TypeError, ValueError):
+            return None
+        if not _valid_coordinates(lat=place_lat, lng=place_lng):
+            return None
+        identity = _check_in_place_identity(place)
+        if identity is None:
+            return None
+        display, primary_type, place_types = identity
+        address = str(
+            place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
+        ).strip()[:300]
+        text = ", ".join(part for part in (display, address) if part)
+        if not text:
+            return None
+        raw_distance_meters = _distance_meters(
+            origin_lat=float(lat),
+            origin_lng=float(lng),
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+        if (
+            not math.isfinite(raw_distance_meters)
+            or raw_distance_meters > _NEARBY_CHECK_IN_RADIUS_METERS
+        ):
+            return None
+        primary_type_display = place.get("primaryTypeDisplayName") or {}
+        if not isinstance(primary_type_display, dict):
+            primary_type_display = {}
+        # Our wording where Google's reads as a classification rather than a
+        # description. "Lodging" under a place named "... Lounge" is what the
+        # report was actually looking at: a true label, in a vocabulary nobody
+        # outside the Places API speaks.
+        category_label = _taxonomy.display_label(primary_type, primary_type_display.get("text"))
+        return {
+            "placeId": place_id,
+            "name": display,
+            "address": address or None,
+            "text": text,
+            "distanceMeters": int(round(raw_distance_meters)),
+            # The owner's own chosen venue is public Google data, so its point
+            # may travel to the client -- it is what the map pins and what the
+            # backend anchors co-presence on. A nearby *person* never gets one.
+            "latitude": place_lat,
+            "longitude": place_lng,
+            "primaryType": primary_type or None,
+            "category": category_label,
+            "categories": _place_categories(place_types),
+        }
+
+    async def nearby_places(
+        self,
+        *,
+        lat: float,
+        lng: float,
+        category: NearbyPlaceCategory = "all",
+    ) -> list[dict[str, Any]]:
+        """Return the nearest check-in-able places, complete rather than merely bounded.
+
+        A single Search Nearby response is capped at 20 records by the provider.
+        On "All" that cap is spent on whatever happens to be closest, so a hotel
+        one street back disappears behind twenty cafes -- and the drawer looked
+        like it had simply skipped it. "All" therefore sweeps every category
+        bucket concurrently and merges: each bucket brings its own 20-result
+        budget, so no category can crowd out another.
+
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in a
+        two-tier cache-aside cache (process memory, plus Redis when
+        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`) so
+        a drawer reopened at a spot that has not moved is answered without
+        billing Google again. Exact distance helps the owner choose a place
+        but is never included in nearby-person responses.
+        """
+
+        cache_key_parts = (category, *_geo_cell(lat, lng))
+        cached = await _places_cache_get(_nearby_places_cache, "nearby", cache_key_parts)
+        if cached is not None:
+            return cached
+
+        key = _require_key()
+        # (chip this request stands for, types it filters on). The leading
+        # (None, None) sweep is unfiltered and catches anything the buckets miss.
+        requests: list[tuple[str | None, tuple[str, ...] | None]]
+        if category == "all":
+            requests = [
+                (None, None),
+                *((chip, types) for chip, types in _NEARBY_SWEEP_TYPES.items()),
+            ]
+        else:
+            requests = [(category, _NEARBY_SWEEP_TYPES.get(category))]
+
+        async with _async_client() as client:
+            batches = await asyncio.gather(
+                *(
+                    self._search_nearby_once(
+                        client,
+                        key=key,
+                        lat=lat,
+                        lng=lng,
+                        included_types=included_types,
+                    )
+                    for _chip, included_types in requests
+                ),
+                return_exceptions=True,
+            )
+
+        merged: dict[str, dict[str, Any]] = {}
+        order: dict[str, int] = {}
+        failures = 0
+        for (_request_chip, _types), batch in zip(requests, batches, strict=True):
+            if isinstance(batch, BaseException):
+                # One bucket failing must not empty the whole picker; the rest
+                # of the sweep is still a better list than no list.
+                failures += 1
+                continue
+            for source_index, place in enumerate(batch):
+                normalized = self._normalize_nearby_place(place, lat=lat, lng=lng)
+                if normalized is None:
+                    continue
+                place_id = str(normalized["placeId"])
+                if place_id not in merged:
+                    merged[place_id] = normalized
+                    order[place_id] = source_index
+                else:
+                    order[place_id] = min(order[place_id], source_index)
+
+        # A place is classified by WHAT IT IS, never by which request surfaced it.
+        #
+        # It used to be filed under whichever bucket's sweep returned it when its
+        # own types matched no chip -- written so an independent hotel Google
+        # knows only as `establishment` would not vanish behind the Hotels chip.
+        # The same rule filed a lounge under Hotels, because the hotels sweep is
+        # what happened to find it. `place_taxonomy` answers both halves now: it
+        # is exhaustive, so almost nothing is unclassifiable, and what remains
+        # lands in `other` -- a real chip, so the venue is still reachable
+        # rather than hidden.
+
+        if not merged and failures == len(batches):
+            raise GoogleMapsError("Nearby places lookup failed.", status_code=502)
+
+        results = sorted(
+            merged.values(),
+            key=lambda item: (
+                int(item["distanceMeters"]),
+                order[str(item["placeId"])],
+                str(item["name"]).casefold(),
+            ),
+        )
+        limit = (
+            _NEARBY_CHECK_IN_MERGED_LIMIT if category == "all" else _NEARBY_CHECK_IN_RESULT_LIMIT
+        )
+        bounded = results[:limit]
+        await _places_cache_set(_nearby_places_cache, "nearby", cache_key_parts, bounded)
+        return bounded
+
+    async def search_directory_category(
+        self,
+        *,
+        lat: float,
+        lng: float,
+        category: str,
+        radius_meters: float,
+        limit: int,
+    ) -> list[dict[str, Any]]:
+        """Places of one directory category around a point, nearest first.
+
+        One provider call, one category. The caller fans these out and streams
+        each result the moment it lands, so this deliberately does no merging of
+        its own -- merging is what forces a caller to wait for the slowest
+        bucket, which is the behaviour the directory exists to avoid.
+
+        Unlike the check-in picker's sweep, radius and count are arguments. The
+        picker is answering "where am I standing", so 500 m is the honest bound;
+        a directory is answering "what is around here", where the reader chooses.
+
+        The request point is never logged or persisted by this service. It is
+        sent to Google for a foreground request, and briefly held in a
+        two-tier cache-aside cache (process memory, plus Redis when
+        configured -- see `_places_cache_get`/`_PLACES_CACHE_TTL_SECONDS`)
+        keyed on category, grid cell, and the clamped radius/limit -- so
+        tapping between radius tiers or reopening the same category on the
+        same visit does not re-bill Google for an answer already in hand.
+        """
+
+        key = _require_key()
+        included = _DIRECTORY_CATEGORY_TYPES.get(category)
+        if not included:
+            raise GoogleMapsError(
+                f"Unknown directory category: {category}",
+                status_code=400,
+                code="ONE_PLACES_UNKNOWN_CATEGORY",
+            )
+
+        bounded_radius = max(1.0, min(float(radius_meters), _DIRECTORY_MAX_RADIUS_METERS))
+        bounded_limit = max(1, min(int(limit), _DIRECTORY_MAX_RESULT_COUNT))
+
+        cache_key_parts = (category, *_geo_cell(lat, lng), round(bounded_radius), bounded_limit)
+        cached = await _places_cache_get(_directory_cache, "directory", cache_key_parts)
+        if cached is not None:
+            return cached
+
+        body: dict[str, Any] = {
+            "maxResultCount": bounded_limit,
+            "rankPreference": "DISTANCE",
+            "includedTypes": list(included),
+            "locationRestriction": {
+                "circle": {
+                    "center": {"latitude": float(lat), "longitude": float(lng)},
+                    "radius": bounded_radius,
+                }
+            },
+        }
+
+        async with _async_client() as client:
+            try:
+                response = await client.post(
+                    _PLACES_NEARBY_URL,
+                    headers={
+                        "Content-Type": "application/json",
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": _DIRECTORY_LIST_FIELD_MASK,
+                    },
+                    json=body,
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(
+                    f"Directory lookup failed: {exc}",
+                    status_code=502,
+                ) from exc
+
+        if response.status_code >= 400:
+            # Never log the category with coordinates alongside it.
+            logger.warning("maps.directory upstream %s", response.status_code)
+            raise GoogleMapsError("Directory lookup failed.", status_code=502)
+
+        payload = _provider_object(response, "Directory lookup")
+        provider_places = payload.get("places") or []
+        if not isinstance(provider_places, list):
+            raise GoogleMapsError(
+                "Directory lookup returned an invalid response.",
+                status_code=502,
+            )
+
+        rows: list[dict[str, Any]] = []
+        for place in provider_places:
+            if not isinstance(place, dict):
+                continue
+            row = self._normalize_directory_place(place, lat=lat, lng=lng, category=category)
+            if row is not None:
+                rows.append(row)
+
+        rows.sort(key=lambda item: (item["distanceMeters"], str(item["name"]).casefold()))
+        await _places_cache_set(_directory_cache, "directory", cache_key_parts, rows)
+        return rows
+
+    def _normalize_directory_place(
+        self,
+        place: dict[str, Any],
+        *,
+        lat: float,
+        lng: float,
+        category: str,
+    ) -> dict[str, Any] | None:
+        """Shape one provider record for a directory row, or drop it."""
+
+        place_id = str(place.get("id") or "").strip()
+        if not place_id or len(place_id) > 300:
+            return None
+
+        location = place.get("location") or {}
+        if not isinstance(location, dict):
+            return None
+        try:
+            place_lat = float(location.get("latitude"))
+            place_lng = float(location.get("longitude"))
+        except (TypeError, ValueError):
+            return None
+        if not _valid_coordinates(lat=place_lat, lng=place_lng):
+            return None
+
+        display_name = place.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        name = str(display_name.get("text") or "").strip()[:160]
+        if not name:
+            return None
+
+        primary_type = str(place.get("primaryType") or "").strip() or None
+        if primary_type and _is_non_check_in_type(primary_type):
+            # A geocoded address is not a business, whatever filter surfaced it.
+            return None
+
+        type_display = place.get("primaryTypeDisplayName") or {}
+        if not isinstance(type_display, dict):
+            type_display = {}
+        category_label = str(type_display.get("text") or "").strip()[:80] or None
+
+        distance = _distance_meters(
+            origin_lat=lat,
+            origin_lng=lng,
+            destination_lat=place_lat,
+            destination_lng=place_lng,
+        )
+
+        return {
+            "placeId": place_id,
+            "name": name,
+            "address": (
+                str(
+                    place.get("shortFormattedAddress") or place.get("formattedAddress") or ""
+                ).strip()[:300]
+                or None
+            ),
+            "distanceMeters": int(distance),
+            "primaryType": primary_type,
+            "categoryLabel": category_label,
+            # The directory's own bucket, not `_place_categories` -- that reads
+            # the picker's table and would answer in the picker's vocabulary.
+            "category": category,
+            "businessStatus": str(place.get("businessStatus") or "").strip() or None,
+        }
+
+    async def directory_place_details(self, place_id: str) -> dict[str, Any]:
+        """The richer record behind one directory row.
+
+        Phone, website and posted hours sit in a dearer billing tier than the
+        list fields, so they are bought once, for the one place a reader opened,
+        rather than for every row of every category they scrolled past.
+        """
+
         key = _require_key()
         async with _async_client() as client:
             try:
@@ -110,7 +1302,75 @@ class GoogleMapsService:
                     f"{_PLACES_BASE}/v1/places/{quote(place_id, safe='')}",
                     headers={
                         "X-Goog-Api-Key": key,
-                        "X-Goog-FieldMask": "id,location,displayName,formattedAddress",
+                        "X-Goog-FieldMask": _DIRECTORY_DETAIL_FIELD_MASK,
+                    },
+                )
+            except httpx.HTTPError as exc:
+                raise GoogleMapsError(f"Place details failed: {exc}", status_code=502) from exc
+
+        if response.status_code >= 400:
+            logger.warning("maps.directory_details upstream %s", response.status_code)
+            raise GoogleMapsError("Place details failed.", status_code=502)
+
+        data = _provider_object(response, "Place details lookup")
+
+        display_name = data.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        type_display = data.get("primaryTypeDisplayName") or {}
+        if not isinstance(type_display, dict):
+            type_display = {}
+
+        hours = data.get("regularOpeningHours") or {}
+        if not isinstance(hours, dict):
+            hours = {}
+        raw_descriptions = hours.get("weekdayDescriptions")
+        weekday_descriptions = (
+            [str(entry)[:120] for entry in raw_descriptions[:7]]
+            if isinstance(raw_descriptions, list)
+            else []
+        )
+
+        return {
+            "placeId": str(data.get("id") or place_id),
+            "name": str(display_name.get("text") or "").strip()[:160] or None,
+            "address": (
+                str(
+                    data.get("formattedAddress") or data.get("shortFormattedAddress") or ""
+                ).strip()[:300]
+                or None
+            ),
+            "categoryLabel": str(type_display.get("text") or "").strip()[:80] or None,
+            "phone": str(data.get("nationalPhoneNumber") or "").strip()[:40] or None,
+            "website": str(data.get("websiteUri") or "").strip()[:500] or None,
+            "mapsUrl": str(data.get("googleMapsUri") or "").strip()[:500] or None,
+            "businessStatus": str(data.get("businessStatus") or "").strip() or None,
+            # Posted hours only. Google's `openNow` is a live claim we would be
+            # repeating without being able to stand behind it, so it is not read
+            # and the UI never says "open now".
+            "weekdayDescriptions": weekday_descriptions,
+        }
+
+    async def place_details(
+        self,
+        place_id: str,
+        *,
+        require_check_inable: bool = False,
+    ) -> dict[str, Any]:
+        key = _require_key()
+        async with _async_client() as client:
+            try:
+                response = await client.get(
+                    f"{_PLACES_BASE}/v1/places/{quote(place_id, safe='')}",
+                    headers={
+                        "X-Goog-Api-Key": key,
+                        "X-Goog-FieldMask": (
+                            "id,location,displayName,formattedAddress,primaryType,"
+                            # `types` must stay in step with the picker's field
+                            # mask: a venue with no primaryType is listable, so
+                            # it has to stay confirmable at check-in too.
+                            "types,businessStatus,pureServiceAreaBusiness"
+                        ),
                     },
                 )
             except httpx.HTTPError as exc:
@@ -118,16 +1378,43 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.place_details upstream %s", response.status_code)
             raise GoogleMapsError("Place details failed.", status_code=502)
-        data = response.json()
+        data = _provider_object(response, "Place details lookup")
         location = data.get("location") or {}
-        display = (data.get("displayName") or {}).get("text") or ""
-        address = data.get("formattedAddress") or ""
+        if not isinstance(location, dict):
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            )
+        try:
+            latitude = float(location.get("latitude"))
+            longitude = float(location.get("longitude"))
+        except (TypeError, ValueError) as exc:
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            ) from exc
+        if not _valid_coordinates(lat=latitude, lng=longitude):
+            raise GoogleMapsError(
+                "Place details lookup returned an invalid location.",
+                status_code=502,
+            )
+        if require_check_inable and _check_in_place_identity(data) is None:
+            raise GoogleMapsError(
+                "The selected place is not available for check-in.",
+                status_code=422,
+                code="ONE_LOCATION_PLACE_NOT_CHECK_INABLE",
+            )
+        display_name = data.get("displayName") or {}
+        if not isinstance(display_name, dict):
+            display_name = {}
+        display = str(display_name.get("text") or "").strip()[:160]
+        address = str(data.get("formattedAddress") or "").strip()[:300]
         label = ", ".join(part for part in (display, address) if part) or display or address
         return {
             "placeId": str(data.get("id") or place_id),
             "label": label,
-            "latitude": float(location.get("latitude", 0.0)),
-            "longitude": float(location.get("longitude", 0.0)),
+            "latitude": latitude,
+            "longitude": longitude,
         }
 
     async def reverse_geocode(self, *, lat: float, lng: float) -> dict[str, Any]:
@@ -143,19 +1430,41 @@ class GoogleMapsService:
         if response.status_code >= 400:
             logger.warning("maps.reverse_geocode upstream %s", response.status_code)
             raise GoogleMapsError("Reverse geocode failed.", status_code=502)
-        results = response.json().get("results") or []
+        data = response.json()
+        results = data.get("results") or []
         if not results:
-            return {"name": None, "formattedAddress": None}
+            provider_status = str(data.get("status") or "").strip().upper()
+            if provider_status == "REQUEST_DENIED":
+                return await self._nearest_place_address(key=key, lat=lat, lng=lng)
+            if provider_status in {"", "OK", "ZERO_RESULTS"}:
+                return {
+                    "name": None,
+                    "formattedAddress": None,
+                    "countryCode": None,
+                }
+            logger.warning(
+                "maps.reverse_geocode logical status %s",
+                provider_status,
+            )
+            raise GoogleMapsError("Reverse geocode failed.", status_code=502)
         formatted = results[0].get("formatted_address") or None
+        country_code: str | None = None
         name: str | None = None
         for result in results:
+            if country_code is None:
+                country_code = _country_code_from_components(result.get("address_components"))
             types = result.get("types") or []
-            if any(t in types for t in ("point_of_interest", "establishment", "premise")):
+            if name is None and any(
+                t in types for t in ("point_of_interest", "establishment", "premise")
+            ):
                 components = result.get("address_components") or []
                 if components:
                     name = components[0].get("long_name") or None
-                break
-        return {"name": name, "formattedAddress": formatted}
+        return {
+            "name": name,
+            "formattedAddress": formatted,
+            "countryCode": country_code,
+        }
 
     async def route_eta(
         self,

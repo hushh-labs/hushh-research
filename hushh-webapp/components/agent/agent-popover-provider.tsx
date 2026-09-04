@@ -270,8 +270,8 @@ function AgentPopoverSurface({
     path.startsWith(ROUTES.LOGOUT);
   const canShowAgent = !isAgentSuppressedRoute;
   const isCollapsing = motionState === "closing";
-  const surfaceVisible = expanded || motionState !== "idle";
   const isFullscreen = sizeMode === "fullscreen";
+  const surfaceRef = useRef<HTMLElement | null>(null);
   const resizeStartRef = useRef<{
     pointerId: number;
     startX: number;
@@ -289,10 +289,11 @@ function AgentPopoverSurface({
     );
   }, [customSize, sizeMode]);
 
-  // Keyboard avoidance is handled globally by @capacitor/keyboard
-  // `resize: "native"` (capacitor.config.ts): the WKWebView frame shrinks by
-  // the keyboard height, so the sheet's 100dvh shrinks with it and the composer
-  // stays above the keyboard — no per-screen JS, matching every other screen.
+  // Keyboard avoidance is global and event-driven: KeyboardInsetManager
+  // publishes the on-screen keyboard height as `--kb-height`, and the composer
+  // padding (`--agent-chat-composer-bottom`, globals.css) lifts by it. We keep
+  // Capacitor `resize:"none"` so the WKWebView frame never resizes (no per-frame
+  // dvh thrash / vault jank). See mobile-bug-log B21. Do NOT flip to "native".
   const panelStyle = useMemo<CSSProperties>(
     () =>
       ({
@@ -302,11 +303,30 @@ function AgentPopoverSurface({
     [resolvedPanelSize.height, resolvedPanelSize.width],
   );
 
+  const blurFocusedEditable = useCallback(() => {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !surfaceRef.current?.contains(active)) {
+      return;
+    }
+    const isEditable =
+      active.tagName === "INPUT" ||
+      active.tagName === "TEXTAREA" ||
+      active.isContentEditable;
+    if (isEditable) active.blur();
+  }, []);
+
+  // Every close path is routed through this owner. Blurring first lets the
+  // native keyboard settle before the sheet begins its compositor-only exit.
+  // The chat remains mounted for history continuity, but receives the closing
+  // phase and stops any legacy capture/playback before it is hidden.
+  const requestClose = useCallback(() => {
+    blurFocusedEditable();
+    minimizeAgent();
+  }, [blurFocusedEditable, minimizeAgent]);
+
   const handleNavigationActionComplete = useCallback(() => {
-    window.setTimeout(() => {
-      minimizeAgent();
-    }, 120);
-  }, [minimizeAgent]);
+    requestClose();
+  }, [requestClose]);
 
   const handleResizePointerDown = useCallback(
     (event: ReactPointerEvent<HTMLButtonElement>) => {
@@ -372,29 +392,31 @@ function AgentPopoverSurface({
       {hasOpened ? (
         <div
           className={cn(
-            "pointer-events-none fixed inset-0 z-[460] transition-opacity duration-300 motion-reduce:transition-none",
-            surfaceVisible ? "opacity-100" : "opacity-0",
+            "pointer-events-none fixed inset-0 z-[460] transition-opacity duration-[360ms] motion-reduce:transition-none",
+            expanded
+              ? "opacity-100 ease-[cubic-bezier(0.22,1,0.36,1)]"
+              : "opacity-0 ease-[cubic-bezier(0.64,0,0.78,0)]",
           )}
           aria-hidden={!expanded}
         >
           <section
+            ref={surfaceRef}
             className={cn(
-              "pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden bg-white/95 text-[#1d1d1f] shadow-2xl backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] ease-[cubic-bezier(0.22,1,0.36,1)] will-change-transform motion-reduce:transform-none motion-reduce:transition-none dark:bg-[#1c1c1e]/95 dark:text-[#f5f5f7]",
+              "pointer-events-auto fixed flex min-h-0 origin-bottom-right flex-col overflow-hidden transform-gpu bg-background/95 text-foreground shadow-[var(--app-card-shadow-feature)] backdrop-blur-xl transition-[border-radius,filter,height,opacity,transform,width] duration-[360ms] will-change-[transform,opacity] motion-reduce:transform-none motion-reduce:transition-none",
               isFullscreen
                 ? "inset-0 rounded-none border-0"
                 : // On phones the Agent window is a full immersive sheet: edge to
                   // edge across the entire dynamic viewport (incl. safe areas),
                   // no rounded corners and no hairline border. On >=sm it is a
                   // floating, rounded, inset card with a hairline border.
-                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-lg border border-black/10 max-sm:inset-x-0 max-sm:top-0 max-sm:bottom-auto max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))] dark:border-white/10",
+                  "bottom-[calc(max(var(--app-safe-area-bottom-effective),0.5rem)+0.5rem)] right-2 h-[min(var(--agent-popover-height),calc(100dvh-1rem))] w-[min(var(--agent-popover-width),calc(100vw-1rem))] rounded-[var(--app-card-radius-feature)] border border-border/70 max-sm:inset-x-0 max-sm:top-0 max-sm:bottom-auto max-sm:h-[100dvh] max-sm:w-screen max-sm:rounded-none max-sm:border-0 sm:right-4 sm:h-[min(var(--agent-popover-height),calc(100dvh-2rem))] sm:w-[min(var(--agent-popover-width),calc(100vw-2rem))]",
               expanded
-                ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0"
+                ? "translate-x-0 translate-y-0 scale-100 opacity-100 blur-0 ease-[cubic-bezier(0.22,1,0.36,1)]"
                 : // Closed/closing motion. On phones the sheet simply slides down
                   // and fades (no corner-scale), so it never collapses into the
                   // agent bar's spot and fights its fade-in. On >=sm it keeps the
                   // genie-style shrink toward the bottom-right launcher.
-                  "pointer-events-none opacity-0 max-sm:translate-y-full max-sm:scale-100 max-sm:blur-0 sm:translate-x-3 sm:translate-y-[calc(100%-5.75rem)] sm:scale-[0.2] sm:blur-sm",
-              isCollapsing && "sm:rounded-2xl sm:ring-1 sm:ring-primary/25",
+                  "pointer-events-none opacity-0 ease-[cubic-bezier(0.64,0,0.78,0)] max-sm:translate-y-full max-sm:scale-100 max-sm:blur-0 sm:translate-x-3 sm:translate-y-[calc(100%-5.75rem)] sm:scale-[0.2] sm:blur-sm",
             )}
             style={panelStyle}
             role="dialog"
@@ -405,7 +427,7 @@ function AgentPopoverSurface({
             onKeyDown={(event) => {
               if (event.key !== "Escape") return;
               event.stopPropagation();
-              minimizeAgent();
+              requestClose();
             }}
           >
             {!isFullscreen ? (
@@ -432,12 +454,13 @@ function AgentPopoverSurface({
                   <AgentPopoverWindowControls
                     sizeMode={sizeMode}
                     setSizeMode={setSizeMode}
-                    onMinimize={minimizeAgent}
-                    onClose={minimizeAgent}
+                    onMinimize={requestClose}
+                    onClose={requestClose}
                   />
                 }
-                onMinimize={minimizeAgent}
+                onMinimize={requestClose}
                 onNavigationActionComplete={handleNavigationActionComplete}
+                isSurfaceClosing={isCollapsing}
               />
             </Suspense>
           </section>

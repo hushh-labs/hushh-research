@@ -10,7 +10,7 @@ import time
 from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
-from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, RETIRED_SCOPE_VALUES, ConsentScope
+from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
 logger = logging.getLogger(__name__)
@@ -145,7 +145,7 @@ def issue_token(
     else:
         scope_str = scope
 
-    if scope_str in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(scope_str):
         raise ValueError(f"SCOPE_RETIRED: {scope_str}")
     if not ConsentScope.validate(scope_str):
         raise ValueError(f"Unknown or invalid active scope: {scope_str!r}")
@@ -186,7 +186,7 @@ def _scope_str_to_enum(scope_str: str) -> ConsentScope:
     Dynamic scopes (attr.*) map to PKM_READ.
     Unknown static scopes are rejected instead of silently escalating to PKM_READ.
     """
-    if scope_str in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(scope_str):
         raise ValueError(f"SCOPE_RETIRED: {scope_str}")
     try:
         return ConsentScope(scope_str)
@@ -267,7 +267,7 @@ def validate_token(
         # Retired authority strings remain readable in immutable audit rows but
         # can never authorize a live request. Check only after signature and
         # expiry validation so an untrusted token cannot probe policy details.
-        if scope_str in RETIRED_SCOPE_VALUES:
+        if ConsentScope.is_retired_scope(scope_str):
             return False, "SCOPE_RETIRED", None
 
         # Map scope string to enum only after authenticity/policy checks.
@@ -374,6 +374,16 @@ async def validate_token_with_db(
     if not valid:
         return valid, reason, token_obj
 
+    agent_id = str(token_obj.agent_id) if token_obj is not None else ""
+    is_device_bound_owner = (
+        token_obj is not None
+        and agent_id.startswith("device:")
+        and (
+            token_obj.scope_str == ConsentScope.VAULT_OWNER.value
+            or token_obj.scope == ConsentScope.VAULT_OWNER
+        )
+    )
+
     # Additional DB check for revocation status
     # This catches tokens revoked on other Cloud Run instances
     try:
@@ -397,6 +407,18 @@ async def validate_token_with_db(
                     _token_fingerprint(token_str),
                 )
                 return False, "Token has been revoked (DB check)", None
+            if is_device_bound_owner:
+                device_id = agent_id.removeprefix("device:")
+                if not device_id or not await service.is_trusted_device_active(
+                    str(token_obj.user_id), device_id
+                ):
+                    _revoked_tokens.add(token_str)
+                    logger.warning(
+                        "Device-bound owner token rejected because device is inactive "
+                        "(fingerprint=%s)",
+                        _token_fingerprint(token_str),
+                    )
+                    return False, "TRUSTED_DEVICE_REVOKED", None
     except Exception as e:
         # DB is unreachable — apply fail-closed policy based on token scope.
         # VAULT_OWNER tokens get a short grace period to avoid locking users
@@ -406,6 +428,16 @@ async def validate_token_with_db(
         is_vault_owner = token_obj is not None and (
             token_obj.scope_str == "vault.owner" or token_obj.scope == ConsentScope.VAULT_OWNER
         )
+        if is_device_bound_owner:
+            logger.error(
+                "Device-bound owner revocation status could not be confirmed; failing closed: %s",
+                e,
+            )
+            return (
+                False,
+                "TRUSTED_DEVICE_STATUS_UNCONFIRMED",
+                None,
+            )
         if is_vault_owner:
             logger.warning(
                 "DB revocation check failed for VAULT_OWNER token, "

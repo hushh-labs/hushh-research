@@ -72,10 +72,10 @@ export const RIA_COPY = {
   clients: {
     eyebrow: "Clients",
     title: "Client roster",
-    description: "One workspace per client — status, access, Kai, explorer.",
+    description: "One workspace per client — status, access, research, explorer.",
     section: {
       title: "Connected investors",
-      description: "Status, access, Kai, and explorer in one place.",
+      description: "Status, access, research, and explorer in one place.",
     },
     loading: "Loading clients…",
     empty: "No connected investors yet.",
@@ -89,13 +89,14 @@ export const RIA_COPY = {
       title: "Verify your advisor account first",
       description: "Finish verification in onboarding to access investors.",
       body: "Locked until verification is complete.",
+      cta: "Complete verification",
     },
   },
 
   picks: {
     eyebrow: "Picks",
     title: "Stock universe",
-    description: "Switch Kai's package and yours — avoid and screening stay.",
+    description: "Switch between the suggested package and yours — avoid and screening stay.",
     screening: {
       investable: {
         title: "Investable requirements",
@@ -113,11 +114,11 @@ export const RIA_COPY = {
     emptyMyList: {
       title: "Build your live package",
       description:
-        "Shape the package your investors debate. Start from Kai, edit tiers, or upload a CSV.",
+        "Shape the package your investors debate. Start from the suggested list, edit tiers, or upload a CSV.",
     },
     avoidEmpty: {
       title: "Avoid list is empty",
-      description: "Add names for Kai to exclude from debates.",
+      description: "Add names for One to exclude from debates.",
     },
     unlockRail: "Unlock the vault to edit or publish.",
   },

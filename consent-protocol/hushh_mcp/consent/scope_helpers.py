@@ -30,6 +30,9 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     """
     generator = get_scope_generator()
 
+    if ConsentScope.is_retired_scope(scope):
+        raise ValueError(f"SCOPE_RETIRED: {scope}")
+
     # Master scope
     if scope == "vault.owner":
         return ConsentScope.VAULT_OWNER
@@ -53,6 +56,7 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
     _AGENT_SCOPE_MAP = {
         "cap.one.invoke": ConsentScope.CAP_ONE_INVOKE,
         "agent.kai.analyze": ConsentScope.AGENT_KAI_ANALYZE,
+        "agent.wallet.manage": ConsentScope.AGENT_WALLET_MANAGE,
         "agent.nav.review": ConsentScope.AGENT_NAV_REVIEW,
         "agent.kyc.process": ConsentScope.AGENT_KYC_PROCESS,
         "agent.kyc.redraft.llm": ConsentScope.AGENT_KYC_REDRAFT_LLM,
@@ -62,11 +66,21 @@ def resolve_scope_to_enum(scope: str) -> ConsentScope:
         "cap.location.live.request": ConsentScope.CAP_LOCATION_LIVE_REQUEST,
         "cap.location.live.revoke": ConsentScope.CAP_LOCATION_LIVE_REVOKE,
         "cap.location.live.refer_request": ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST,
+        # The nearby triple has existed in `ConsentScope` and in
+        # `capability_scopes()` since nearby check-in shipped, but never here --
+        # so every one of them raised `Unknown capability scope` the moment
+        # anything tried to resolve it. Declared but unresolvable is worse than
+        # absent: the scope reads as supported everywhere it is listed.
+        "cap.location.nearby.publish": ConsentScope.CAP_LOCATION_NEARBY_PUBLISH,
+        "cap.location.nearby.discover": ConsentScope.CAP_LOCATION_NEARBY_DISCOVER,
+        "cap.location.nearby.revoke": ConsentScope.CAP_LOCATION_NEARBY_REVOKE,
+        "cap.location.place_rating.publish": ConsentScope.CAP_LOCATION_PLACE_RATING_PUBLISH,
+        "cap.location.place_rating.discover": ConsentScope.CAP_LOCATION_PLACE_RATING_DISCOVER,
+        "cap.location.place_rating.revoke": ConsentScope.CAP_LOCATION_PLACE_RATING_REVOKE,
         "cap.pkm.marketplace.view": ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
         "cap.pkm.marketplace.manage": ConsentScope.CAP_PKM_MARKETPLACE_MANAGE,
+        "cap.contact.discovery": ConsentScope.CAP_CONTACT_DISCOVERY,
     }
-    if scope in RETIRED_SCOPE_VALUES:
-        raise ValueError(f"SCOPE_RETIRED: {scope}")
     if scope.startswith("agent."):
         resolved = _AGENT_SCOPE_MAP.get(scope)
         if resolved is None:
@@ -103,7 +117,7 @@ def scope_matches(granted_scope: str, requested_scope: str) -> bool:
     """
     # Historical strings are display/audit-only and never authorize access,
     # even when both sides contain the same retired value.
-    if granted_scope in RETIRED_SCOPE_VALUES or requested_scope in RETIRED_SCOPE_VALUES:
+    if ConsentScope.is_retired_scope(granted_scope) or requested_scope in RETIRED_SCOPE_VALUES:
         return False
 
     # Exact match
@@ -163,6 +177,8 @@ def get_scope_display_metadata(scope: str) -> dict:
 
     # Dynamic attr.* scopes — resolve via DynamicScopeGenerator + domain contracts
     if generator.is_dynamic_scope(scope):
+        from hushh_mcp.consent.pkm_scope_policy import is_reserved_domain_scope
+
         display_info = generator.get_scope_display_info(scope)
         return {
             "label": display_info["display_name"],
@@ -170,6 +186,10 @@ def get_scope_display_metadata(scope: str) -> dict:
             or f"Access your {display_info['domain']} data",
             "icon_name": display_info["icon_name"],
             "color_hex": display_info["color_hex"],
+            # Owner-managed reserved domains (source_library, wallet)
+            # carry an explicit indicator so chat and consent surfaces never
+            # present a reserved grant as an ordinary dynamic-domain grant.
+            "reserved": is_reserved_domain_scope(scope),
         }
 
     # Static scope metadata
@@ -203,6 +223,12 @@ def get_scope_display_metadata(scope: str) -> dict:
             "description": "Allow Kai agent to analyze your data",
             "icon_name": "brain",
             "color_hex": "#D4AF37",
+        },
+        "agent.wallet.manage": {
+            "label": "Wallet Management",
+            "description": "Allow the Wallet agent to help you store, list, and reveal your cards on this device",
+            "icon_name": "credit-card",
+            "color_hex": "#B45309",
         },
         "agent.nav.review": {
             "label": "Nav Scope Review",
@@ -258,17 +284,69 @@ def get_scope_display_metadata(scope: str) -> dict:
             "icon_name": "user-plus",
             "color_hex": "#0F766E",
         },
+        # Without these six, `describe_scope` falls through to the title-cased
+        # handle and the consent surface shows a person the string
+        # "Cap Location Nearby Publish" where a sentence belongs.
+        "cap.location.nearby.publish": {
+            "label": "Appear Nearby",
+            "description": "Show your first name to opted-in people at the same place, for up to two hours",
+            "icon_name": "radio",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.discover": {
+            "label": "See Who Is Nearby",
+            "description": "Read the list of opted-in people checked in at the same place as you",
+            "icon_name": "users-round",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.nearby.revoke": {
+            "label": "Check Out",
+            "description": "Stop appearing nearby and clear the place you checked in at",
+            "icon_name": "log-out",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.publish": {
+            "label": "Rate A Place",
+            "description": (
+                "Save your own star rating for a place you were recorded at. "
+                "Your rating is private to you and counts toward an anonymous average"
+            ),
+            "icon_name": "star",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.discover": {
+            "label": "See Place Ratings",
+            "description": "Read the anonymous average rating for a place, never who rated it",
+            "icon_name": "chart-no-axes-column",
+            "color_hex": "#0F766E",
+        },
+        "cap.location.place_rating.revoke": {
+            "label": "Delete Your Rating",
+            "description": "Remove your rating and take it out of the place's average",
+            "icon_name": "trash-2",
+            "color_hex": "#0F766E",
+        },
+        "cap.contact.discovery": {
+            "label": "Find People You Know",
+            "description": (
+                "Match your address book against Hussh accounts. "
+                "Phone numbers are hashed on your device and never stored"
+            ),
+            "icon_name": "users",
+            "color_hex": "#0F766E",
+        },
     }
 
     meta = _STATIC_SCOPE_META.get(scope)
     if meta:
-        return meta
+        return {**meta, "reserved": False}
 
     return {
         "label": scope.replace(".", " ").replace("_", " ").title(),
         "description": f"Access: {scope}",
         "icon_name": None,
         "color_hex": None,
+        "reserved": False,
     }
 
 

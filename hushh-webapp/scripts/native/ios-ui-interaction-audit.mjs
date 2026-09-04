@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
@@ -10,6 +11,20 @@ import {
 } from "../testing/reviewer-test-identity.mjs";
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
+import {
+  advanceNativeUiCheckpoint,
+  createNativeUiAuditPlan,
+  hasTerminalNativeUiStatus,
+  NATIVE_UI_TERMINAL_STATUS_GRACE_MS,
+  nativeUiFlowStepTimeoutMs,
+  validateNativeUiAuditCompletion,
+} from "./native-ui-audit-plan.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const monorepoRoot = path.resolve(repoRoot, "..");
@@ -25,14 +40,29 @@ const destination =
   process.env.IOS_TEST_DESTINATION ||
   resolveSimulatorDestination(process.env.IOS_TEST_DEVICE_NAME || "iPhone 14 Plus");
 const destinationDeviceId = destination.match(/(?:^|,)id=([^,]+)/)?.[1] || "";
+const requiredSimulatorDeviceId = "9C5B1D61-028C-474A-BDFC-523BACC3B02C";
 const simulatorDevice = destinationDeviceId || "booted";
 const bundleId = "com.hushh.app";
 const timeoutMs = Number(process.env.IOS_UI_INTERACTION_TIMEOUT_MS || "600000");
+const bootstrapTimeoutMs = Math.min(
+  timeoutMs,
+  Number(process.env.IOS_UI_INTERACTION_BOOT_TIMEOUT_MS || "45000")
+);
 const flowFilter = (process.env.IOS_UI_FLOW_FILTER || "").trim();
 const routeFilter = (process.env.IOS_UI_ROUTE_FILTER || "").trim();
 const xcodeProject = "ios/App/App.xcodeproj";
 const xcodeScheme = "App";
-const keepAppAfterAudit = process.env.IOS_UI_INTERACTION_KEEP_APP === "true";
+// Isolates in-page flow checkpoints between audit launches without carrying
+// user, vault, or route information into the identifier.
+const uiFlowRunId = `ios-${Date.now().toString(36)}`;
+let auditAppLaunched = false;
+
+assertDestructiveNativeAuditAllowed();
+if (destinationDeviceId !== requiredSimulatorDeviceId) {
+  throw new Error(
+    `native iOS UI interaction audit requires the configured iPhone 14 Plus (${requiredSimulatorDeviceId}).`,
+  );
+}
 
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir: repoRoot }),
@@ -40,13 +70,14 @@ const reviewerIdentity = resolveReviewerTestIdentity({
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
-const REDACTED_REPORT_STATUS_KEYS = new Set([
-  "bootstrap_uid",
-  "body",
-  "bodySnippet",
-  "jserr",
-]);
+const auditPlan = createNativeUiAuditPlan(uiFlows);
 
+function assertDestructiveNativeAuditAllowed() {
+  if (process.env.HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT === "true") return;
+  throw new Error(
+    "This is a destructive cold-start audit: it terminates, uninstalls, and resets the iOS app before injecting the reviewer fixture. It cannot prove vault or route continuity. Use npm run ios:continuity:local for a normal-session check, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true only for an intentional cold audit.",
+  );
+}
 function resolveSimulatorDestination(deviceName) {
   try {
     const output = execFileSync(
@@ -97,11 +128,7 @@ function applyEnvValues(values = {}) {
 function ensureNativeTestBuildEnv() {
   const uatEnvPath = path.join(repoRoot, ".env.uat.local");
   const uatValues = parseEnvFile(uatEnvPath);
-  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  const backendUrl =
-    configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
-      ? configured
-      : String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
+  const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
 
   if (!backendUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
     throw new Error(
@@ -116,6 +143,7 @@ function ensureNativeTestBuildEnv() {
     NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
+    NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
@@ -149,7 +177,11 @@ function buildApp() {
   if (!fs.existsSync(copiedManifestPath)) {
     throw new Error("native-ui-flows.json was not copied into the iOS app bundle.");
   }
-  console.log(`==> native UI flow manifest copied (${manifest.flows.length} flow(s))`);
+  const copiedManifest = JSON.parse(fs.readFileSync(copiedManifestPath, "utf8"));
+  if (copiedManifest?.audit_plan?.digest !== auditPlan.digest) {
+    throw new Error("iOS bundle flow manifest does not match the requested audit plan.");
+  }
+  console.log(`==> native UI flow manifest copied (${manifest.flows.length} flow(s), plan ${auditPlan.digest.slice(0, 12)})`);
   run(
     "xcodebuild",
     [
@@ -170,10 +202,30 @@ function buildApp() {
   );
 }
 
+function verifyPrebuiltApp() {
+  if (!fs.existsSync(appPath)) {
+    throw new Error(`prebuilt iOS app is missing: ${appPath}`);
+  }
+  const bundledManifestPath = path.join(appPath, "public", "native-ui-flows.json");
+  if (!fs.existsSync(bundledManifestPath)) {
+    throw new Error("prebuilt iOS app has no native UI flow manifest.");
+  }
+  const bundledManifest = JSON.parse(fs.readFileSync(bundledManifestPath, "utf8"));
+  if (bundledManifest?.audit_plan?.digest !== auditPlan.digest) {
+    throw new Error(
+      "prebuilt iOS app flow manifest does not match the requested audit plan.",
+    );
+  }
+  console.log(
+    `==> verified prebuilt iOS app (${uiFlows.length} flow(s), plan ${auditPlan.digest.slice(0, 12)})`,
+  );
+}
+
 function ensureSimulatorBooted() {
   if (!destinationDeviceId) return;
   tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
   run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"]);
+  tryRun("open", ["-a", "Simulator"]);
 }
 
 function parseStatus(raw) {
@@ -189,15 +241,6 @@ function parseStatus(raw) {
   );
 }
 
-function sanitizeStatusForReport(status = {}) {
-  return Object.fromEntries(
-    Object.entries(status || {}).map(([key, value]) => [
-      key,
-      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ])
-  );
-}
-
 function readUiReportFromContainer() {
   const container = run("xcrun", [
     "simctl",
@@ -206,7 +249,7 @@ function readUiReportFromContainer() {
     bundleId,
     "data",
   ]);
-  const reportFile = path.join(container, "Documents", "native-ui-interaction-report.json");
+  const reportFile = path.join(container, "Library", "Caches", "native-ui-interaction-report.json");
   if (!fs.existsSync(reportFile)) return null;
   return JSON.parse(fs.readFileSync(reportFile, "utf8"));
 }
@@ -223,27 +266,45 @@ function launchUiInteractionAudit() {
     bundleId,
     "-UITestMode",
     "-UITestInitialRoute",
-    "/login?redirect=%2Fria",
+    "/login?redirect=%2Fone",
     "-UITestExpectedMarker",
-    "native-route-ria-home",
+    "native-route-one-home",
     "-UITestExpectedRoute",
-    "/ria",
+    "/one",
     "-UITestAutoReviewerLogin",
     "true",
     "-UITestResetAppState",
     "true",
     "-UITestRunUiFlows",
     "true",
+    "-UITestUiFlowRunId",
+    uiFlowRunId,
     "-UITestVaultPassphrase",
     reviewerVaultPassphrase,
     "-UITestExpectedUserId",
     reviewerUid,
   ];
   run("xcrun", args);
+  auditAppLaunched = true;
+}
+
+function terminateAuditApp() {
+  if (!auditAppLaunched) return;
+  auditAppLaunched = false;
+  tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    terminateAuditApp();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
 }
 
 function captureFailureScreenshot() {
-  const screenshotPath = path.join(repoRoot, "native-ios-ui-interaction-failure.png");
+  const screenshotDir = path.join(os.tmpdir(), "hushh-native-test-artifacts");
+  fs.mkdirSync(screenshotDir, { recursive: true });
+  const screenshotPath = path.join(screenshotDir, "native-ios-ui-interaction-failure.png");
   tryRun("xcrun", [
     "simctl",
     "io",
@@ -257,7 +318,11 @@ function captureFailureScreenshot() {
 function waitForUiInteractionReport() {
   const startedAt = Date.now();
   let lastStatus = {};
-  let lastFlow = "";
+  let lastProgressKey = "";
+  let lastProgressAt = startedAt;
+  let completedReport = null;
+  let completedReportObservedAt = 0;
+  const highestCheckpointByFlow = new Map();
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
@@ -268,27 +333,93 @@ function waitForUiInteractionReport() {
         bundleId,
         "data",
       ]);
-      const statusPath = path.join(container, "Documents", "native-test-status.txt");
+      const statusPath = path.join(container, "Library", "Caches", "native-test-status.txt");
       if (fs.existsSync(statusPath)) {
         const raw = fs.readFileSync(statusPath, "utf8").trim();
         lastStatus = parseStatus(raw);
-        const currentFlow = lastStatus.ui_flow || "";
-        if (currentFlow && currentFlow !== lastFlow) {
-          process.stdout.write(`\n   → flow ${currentFlow} ... `);
-          lastFlow = currentFlow;
+        const checkpoint = advanceNativeUiCheckpoint({
+          flows: uiFlows,
+          status: lastStatus,
+          highestByFlow: highestCheckpointByFlow,
+        });
+        if (!checkpoint.ok) {
+          return {
+            ok: false,
+            report: readUiReportFromContainer(),
+            status: lastStatus,
+            error: `UI interaction audit ${checkpoint.reason}`,
+          };
         }
-        if ((lastStatus.ui_complete || "") === "1") {
-          const report = readUiReportFromContainer();
-          if (report) return { ok: true, report, status: lastStatus };
+        const progressKey = [
+          lastStatus.ui_run || "",
+          lastStatus.ui_flow || "",
+          lastStatus.ui_step || "",
+          lastStatus.ui_step_type || "",
+          lastStatus.ui_checkpoint || "",
+          lastStatus.route || "",
+          lastStatus.bootstrap || "",
+        ].join("|");
+        if (progressKey && progressKey !== lastProgressKey) {
+          process.stdout.write(
+            `\n   → ${lastStatus.ui_flow || "bootstrap"} / ${lastStatus.ui_step_type || "waiting"} ... `,
+          );
+          lastProgressKey = progressKey;
+          lastProgressAt = Date.now();
         }
-        if ((lastStatus.ui_complete || "") === "0" && lastStatus.error) {
-          // keep waiting unless explicit failure in report
+        if (hasTerminalNativeUiStatus(lastStatus)) {
+          const report = completedReport || readUiReportFromContainer();
+          if (report) return { ok: Boolean(report.ok), report, status: lastStatus };
+        }
+        if (
+          (lastStatus.runui || "") === "1" &&
+          (lastStatus.uistarted || "") !== "1" &&
+          (lastStatus.ui_complete || "") !== "1" &&
+          Date.now() - startedAt >= bootstrapTimeoutMs
+        ) {
+          return {
+            ok: false,
+            status: lastStatus,
+            error: "UI interaction audit bootstrap timed out",
+          };
+        }
+        if ((lastStatus.uifailed || "") === "1") {
+          return {
+            ok: false,
+            report: readUiReportFromContainer(),
+            status: lastStatus,
+            error: "UI interaction audit reported a terminal failure",
+          };
+        }
+        if (
+          (lastStatus.uistarted || "") === "1" &&
+          (lastStatus.ui_complete || "") !== "1" &&
+          Date.now() - lastProgressAt > nativeUiFlowStepTimeoutMs(uiFlows, lastStatus) + 10_000
+        ) {
+          return {
+            ok: false,
+            report: readUiReportFromContainer(),
+            status: lastStatus,
+            error: "UI interaction audit stalled without step progress",
+          };
         }
       }
 
       const report = readUiReportFromContainer();
       if (report?.completedAt) {
-        return { ok: Boolean(report.ok), report, status: lastStatus };
+        completedReport = report;
+        completedReportObservedAt ||= Date.now();
+        if (
+          Date.now() - completedReportObservedAt >=
+          NATIVE_UI_TERMINAL_STATUS_GRACE_MS
+        ) {
+          return {
+            ok: false,
+            report: completedReport,
+            status: lastStatus,
+            error:
+              "iOS UI interaction report completed before native terminal status settled",
+          };
+        }
       }
     } catch {
       // App may still be booting.
@@ -297,7 +428,7 @@ function waitForUiInteractionReport() {
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 1000);
   }
 
-  const report = readUiReportFromContainer();
+  const report = completedReport || readUiReportFromContainer();
   return {
     ok: false,
     report,
@@ -313,56 +444,89 @@ function main() {
 
   console.log(`==> native iOS UI interaction audit (${uiFlows.length} flows)`);
   console.log(`==> destination: ${destination}`);
+  console.log(`==> audit plan: ${auditPlan.digest.slice(0, 12)}`);
   for (const flow of uiFlows) {
     console.log(`   • ${flow.id} — ${flow.description}`);
   }
 
-  if (process.env.IOS_UI_INTERACTION_SKIP_BUILD !== "true") {
-    buildApp();
-  } else {
-    console.log("==> skipping rebuild (IOS_UI_INTERACTION_SKIP_BUILD=true)");
-    prepareNativeTestArtifacts({ flowFilter, routeFilter });
-  }
+  try {
+    if (process.env.IOS_UI_INTERACTION_SKIP_BUILD === "true") {
+      verifyPrebuiltApp();
+    } else {
+      buildApp();
+    }
 
-  ensureSimulatorBooted();
-  launchUiInteractionAudit();
-  const result = waitForUiInteractionReport();
-  const auditOk = Boolean(result.ok && result.report?.ok);
-  const failureScreenshotPath = auditOk ? null : captureFailureScreenshot();
-  if (!keepAppAfterAudit) {
-    tryRun("xcrun", ["simctl", "terminate", simulatorDevice, bundleId]);
-  }
+    ensureSimulatorBooted();
+    launchUiInteractionAudit();
+    const result = waitForUiInteractionReport();
+    const completion = validateNativeUiAuditCompletion({
+      report: result.report,
+      status: result.status,
+      plan: auditPlan,
+      runId: uiFlowRunId,
+    });
+    const auditOk = Boolean(result.ok && completion.ok);
+    const failureScreenshotPath = auditOk ? null : captureFailureScreenshot();
+    const sanitizedReport = sanitizeNativeArtifact(result.report);
+    const sanitizedErrorClass = errorClass(result.error || completion.reason);
+    const skippedOptionalFlows = completion.ok
+      ? completion.optionalSkippedFlowIds
+      : [];
+    const skippedConditionalRiaWorkspaceFlows = completion.ok
+      ? completion.conditionalRiaWorkspaceSkippedFlowIds
+      : [];
+    const summary = {
+      generated_at: new Date().toISOString(),
+      destination,
+      plan: {
+        version: auditPlan.version,
+        digest: auditPlan.digest,
+        flow_count: auditPlan.flow_count,
+      },
+      flow_count: uiFlows.length,
+      passed_flows:
+        sanitizedReport?.flows?.filter((flow) => flow.ok && !flow.skipped).length ?? 0,
+      failed_flows: sanitizedReport?.flows?.filter((flow) => !flow.ok).length ?? 0,
+      skipped_optional_flows: skippedOptionalFlows,
+      skipped_conditional_ria_workspace_flows:
+        skippedConditionalRiaWorkspaceFlows,
+      ok: auditOk,
+      flows: uiFlows.map((flow) => flow.id),
+      report: sanitizedReport,
+      errorClass: sanitizedErrorClass || null,
+      failure_screenshot: failureScreenshotPath ? "<external-test-artifact>" : null,
+      last_status: sanitizeStatusForReport(result.status),
+    };
 
-  const summary = {
-    generated_at: new Date().toISOString(),
-    destination,
-    flow_count: uiFlows.length,
-    passed_flows: result.report?.flows?.filter((flow) => flow.ok).length ?? 0,
-    failed_flows: result.report?.flows?.filter((flow) => !flow.ok).length ?? 0,
-    ok: auditOk,
-    flows: uiFlows.map((flow) => flow.id),
-    report: result.report,
-    error: result.error || null,
-    failure_screenshot: failureScreenshotPath,
-    last_status: sanitizeStatusForReport(result.status),
-  };
+    assertNativeArtifactSafe(summary, [reviewerUid, reviewerVaultPassphrase]);
+    fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
+    console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
 
-  fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
-  console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
+    if (summary.ok) {
+      const optionalSuffix = skippedOptionalFlows.length
+        ? `; ${skippedOptionalFlows.length} optional skipped`
+        : "";
+      const conditionalSuffix = skippedConditionalRiaWorkspaceFlows.length
+        ? `; ${skippedConditionalRiaWorkspaceFlows.length} RIA-workspace conditional skipped`
+        : "";
+      console.log(`==> UI interactions passed (${summary.passed_flows}/${summary.flow_count}${optionalSuffix}${conditionalSuffix})`);
+      return;
+    }
 
-  if (summary.ok) {
-    console.log(`==> UI interactions passed (${summary.passed_flows}/${summary.flow_count})`);
-    return;
+    const failed = (sanitizedReport?.flows || []).filter((flow) => !flow.ok);
+    for (const flow of failed) {
+      console.log(`   ✗ ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.errorClass || "failed"}`);
+    }
+    if (result.error) {
+      console.log(`   ✗ ${sanitizedErrorClass || "other"}`);
+    }
+    if (!completion.ok) {
+      console.log("   ✗ audit report did not prove the requested plan completed");
+    }
+    process.exitCode = 1;
+  } finally {
+    terminateAuditApp();
   }
-
-  const failed = (result.report?.flows || []).filter((flow) => !flow.ok);
-  for (const flow of failed) {
-    console.log(`   ✗ ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`);
-  }
-  if (result.error) {
-    console.log(`   ✗ ${result.error}`);
-  }
-  process.exit(1);
 }
 
 main();

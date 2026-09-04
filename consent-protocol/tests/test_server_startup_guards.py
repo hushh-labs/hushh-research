@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import pathlib
+import re
 
 import pytest
 
@@ -104,6 +106,109 @@ def test_schema_guard_still_fails_when_required_tables_are_missing(
         RuntimeError, match="Required runtime tables are missing: runtime_persona_state"
     ):
         asyncio.run(server.startup_required_schema_guard())
+
+
+def test_market_warmup_does_not_block_http_startup(monkeypatch: pytest.MonkeyPatch):
+    """External market calls must not delay the app becoming reachable."""
+
+    scheduled: list[object] = []
+    tracked: list[object] = []
+
+    def _capture_task(coro, *, name: str):
+        assert name == "market-insights-startup-warm"
+        scheduled.append(coro)
+        return object()
+
+    monkeypatch.setattr(server.asyncio, "create_task", _capture_task)
+    monkeypatch.setattr(server, "_track_startup_background_task", tracked.append)
+
+    asyncio.run(server.startup_market_insights_refresh())
+
+    assert len(scheduled) == 1
+    assert len(tracked) == 1
+    scheduled[0].close()
+
+
+def test_named_circle_tables_are_required_runtime_dependencies():
+    assert {
+        "one_location_circles",
+        "one_location_circle_memberships",
+        "one_location_circle_invite_codes",
+        "connection_origins",
+        "one_location_circle_member_invites",
+    } <= set(server.REQUIRED_RUNTIME_TABLES)
+
+
+def test_agent_one_profile_and_session_tables_are_runtime_dependencies():
+    assert {
+        "one_information_request_bundles",
+        "one_information_request_items",
+        "one_adk_sessions",
+    } <= set(server.REQUIRED_RUNTIME_TABLES)
+
+
+def test_required_runtime_tables_are_live_in_migrations():
+    """Every guarded table must still exist after the last migration runs.
+
+    Regression: a long-lived branch merge resurrected `ria_pick_uploads` and
+    `ria_pick_upload_rows` here after migration 129 had dropped them. Nothing
+    caught it -- both tables are absent from the DB contract, so the predeploy
+    schema gate had no opinion -- and the guard raises on startup, so the
+    deployed revision never became ready. UAT answered 503 on /health, every
+    downstream check failed, and the release rolled itself back.
+
+    A guarded table that no migration creates, or that a later migration drops,
+    is not a failing check: it is a backend that cannot boot at all.
+    """
+
+    db_dir = pathlib.Path(server.__file__).resolve().parent / "db"
+    # Base schema files seed tables that predate the numbered series, so they
+    # count as version 0 -- `consent_audit` is created there, not by a migration.
+    sources = [
+        (0, path.read_text(encoding="utf-8", errors="ignore"))
+        for path in (db_dir / "offline_schema.sql", db_dir / "legacy" / "init_legacy_schema.sql")
+        if path.exists()
+    ]
+    migrations = [
+        (int(path.name[:3]), path.read_text(encoding="utf-8", errors="ignore"))
+        for path in sorted((db_dir / "migrations").glob("[0-9][0-9][0-9]_*.sql"))
+    ]
+    assert migrations, "no migrations found; this test cannot verify the guard"
+
+    problems: list[str] = []
+    for table in server.REQUIRED_RUNTIME_TABLES:
+        created = [
+            version
+            for version, sql in sources + migrations
+            if re.search(
+                rf"CREATE\s+TABLE(?:\s+IF\s+NOT\s+EXISTS)?\s+(?:public\.)?{table}\b",
+                sql,
+                re.IGNORECASE,
+            )
+        ]
+        # Only numbered migrations can retire a table; a drop in a base schema
+        # file is part of that file rebuilding itself, not a retirement.
+        dropped = [
+            version
+            for version, sql in migrations
+            if re.search(
+                rf"DROP\s+TABLE(?:\s+IF\s+EXISTS)?\s+(?:public\.)?{table}\b",
+                sql,
+                re.IGNORECASE,
+            )
+        ]
+        if not created:
+            problems.append(f"{table}: nothing under db/ creates it")
+        elif dropped and max(dropped) > max(created):
+            problems.append(
+                f"{table}: dropped by migration {max(dropped):03d} after being "
+                f"created by migration {max(created):03d}"
+            )
+
+    assert not problems, (
+        "REQUIRED_RUNTIME_TABLES names tables the schema no longer has, so the "
+        "server will refuse to start:\n  " + "\n  ".join(problems)
+    )
 
 
 def test_market_cache_table_startup_warns_and_continues_in_development(

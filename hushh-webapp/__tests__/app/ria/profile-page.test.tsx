@@ -10,7 +10,11 @@ const mocks = vi.hoisted(() => ({
   refresh: vi.fn(),
   switchPersona: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
-  riaService: { deleteProfile: vi.fn(), updateProfile: vi.fn() },
+  riaService: {
+    deleteProfile: vi.fn(),
+    updateProfile: vi.fn(),
+    refreshLicenseProfile: vi.fn(),
+  },
   openKaiCommandBar: vi.fn(),
   draftClear: vi.fn(),
   onPersonaStateChanged: vi.fn(),
@@ -22,9 +26,16 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("lucide-react", () => ({
+  AlertTriangle: () => <span />,
   ArrowRight: () => <span />,
+  CheckCircle2: () => <span />,
+  ClipboardCheck: () => <span />,
+  ExternalLink: () => <span />,
   Loader2: () => <span />,
+  MessageCircle: () => <span />,
+  Pencil: () => <span />,
   RotateCcw: () => <span />,
+  ShieldCheck: () => <span />,
   Trash2: () => <span />,
 }));
 
@@ -33,10 +44,18 @@ vi.mock("@/components/ria/ria-page-shell", () => ({
     <div data-testid="ria-page-shell">{children}</div>
   ),
   RiaCompatibilityState: () => <div data-testid="ria-compat" />,
+  isRiaVerified: (status?: string | null) =>
+    ["active", "verified", "finra_verified"].includes(
+      String(status || "").toLowerCase(),
+    ),
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
   OnboardingStepReview: () => <div data-testid="step-review" />,
+}));
+
+vi.mock("@/components/ria/profile/ria-location-map", () => ({
+  RiaLocationMap: () => <div data-testid="ria-location-map" />,
 }));
 
 vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
@@ -51,8 +70,14 @@ vi.mock("@/components/app-ui/settings-ui", () => ({
     open: boolean;
     children: React.ReactNode;
   }) => (open ? <div data-testid="edit-panel">{children}</div> : null),
-  SettingsGroup: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="manage-group">{children}</div>
+  SettingsGroup: ({
+    children,
+    testId = "manage-group",
+  }: {
+    children: React.ReactNode;
+    testId?: string;
+  }) => (
+    <div data-testid={testId}>{children}</div>
   ),
   SettingsRow: ({
     title,
@@ -67,6 +92,45 @@ vi.mock("@/components/app-ui/settings-ui", () => ({
   }) => (
     <button data-testid={testId} onClick={onClick} disabled={disabled}>
       {title}
+    </button>
+  ),
+}));
+
+vi.mock("@/components/ui/dialog", () => ({
+  Dialog: ({
+    open,
+    children,
+  }: {
+    open: boolean;
+    children: React.ReactNode;
+  }) => (open ? <div data-testid="license-dialog">{children}</div> : null),
+  DialogContent: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogTitle: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+  DialogDescription: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
+}));
+
+vi.mock("@/components/ui/input", () => ({
+  Input: (props: Record<string, unknown>) => <input {...props} />,
+}));
+
+vi.mock("@/components/ui/button", () => ({
+  Button: ({
+    children,
+    onClick,
+    disabled,
+  }: {
+    children: React.ReactNode;
+    onClick?: () => void;
+    disabled?: boolean;
+  }) => (
+    <button onClick={onClick} disabled={disabled}>
+      {children}
     </button>
   ),
 }));
@@ -148,7 +212,7 @@ vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
   openKaiCommandBar: mocks.openKaiCommandBar,
 }));
 
-import RiaProfilePage from "@/app/ria/profile/page";
+import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 
 const VERIFIED_STATUS = {
   exists: true,
@@ -160,7 +224,20 @@ const VERIFIED_STATUS = {
   fee_structure: ["Hourly"],
 };
 
-describe("RiaProfilePage manage actions", () => {
+// The RIA advisor profile now renders as the shared RiaProfileSection inside the
+// unified /one/profile "Regulatory profile" panel. The host owns the status fetch and
+// passes it in; the section owns view/edit/re-initiate/delete/license logic.
+function renderSection(status: unknown = VERIFIED_STATUS) {
+  return render(
+    <RiaProfileSection
+      status={status as never}
+      loading={false}
+      onRefresh={vi.fn()}
+    />,
+  );
+}
+
+describe("RiaProfileSection manage actions", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useAuth.mockReturnValue({
@@ -183,15 +260,19 @@ describe("RiaProfilePage manage actions", () => {
   });
 
   it("renders the Manage group with re-initiate and delete rows", async () => {
-    render(<RiaProfilePage />);
+    renderSection();
     await waitFor(() => {
+      expect(screen.queryByTestId("step-review")).toBeNull();
+      expect(screen.getByTestId("ria-profile-licence-summary")).toBeTruthy();
+      expect(screen.getByTestId("ria-profile-services-summary")).toBeTruthy();
+      expect(screen.getByTestId("ria-profile-location-summary")).toBeTruthy();
       expect(screen.getByTestId("ria-profile-reinitiate")).toBeTruthy();
       expect(screen.getByTestId("ria-profile-delete")).toBeTruthy();
     });
   });
 
   it("re-initiate routes to the onboarding wizard with ?reinitiate=1", async () => {
-    render(<RiaProfilePage />);
+    renderSection();
     await waitFor(() =>
       expect(screen.getByTestId("ria-profile-reinitiate")).toBeTruthy(),
     );
@@ -204,7 +285,7 @@ describe("RiaProfilePage manage actions", () => {
   });
 
   it("delete confirms, calls deleteProfile, switches persona, and routes to One", async () => {
-    render(<RiaProfilePage />);
+    renderSection();
     await waitFor(() =>
       expect(screen.getByTestId("ria-profile-delete")).toBeTruthy(),
     );
@@ -218,6 +299,16 @@ describe("RiaProfilePage manage actions", () => {
       expect(screen.getByTestId("delete-dialog")).toBeTruthy(),
     );
 
+    // The destructive action is gated behind a typed confirmation: tapping it
+    // before the word is entered must do nothing at all.
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("delete-confirm"));
+    });
+    expect(mocks.riaService.deleteProfile).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByTestId("ria-delete-confirm-input"), {
+      target: { value: "DELETE" },
+    });
     await act(async () => {
       fireEvent.click(screen.getByTestId("delete-confirm"));
     });
@@ -245,7 +336,7 @@ describe("RiaProfilePage manage actions", () => {
       switchPersona: mocks.switchPersona,
     });
 
-    render(<RiaProfilePage />);
+    renderSection({ exists: false });
 
     await waitFor(() =>
       expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/onboarding"),

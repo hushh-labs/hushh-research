@@ -81,7 +81,7 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 1. Investor route tree remains under existing Kai surfaces.
 2. RIA route tree is isolated under `/ria/*`.
 3. Shared discovery entry is `/marketplace` with dual-sided tabs.
-4. Shared workflow hub is `/consents`.
+4. Shared workflow hub is `/one/consent`; `/consents` is inbound compatibility only.
 5. `/ria/requests` is a compatibility alias into the consent center, not a first-class workflow surface.
 
 ## Consent IAM Control Plane
@@ -91,6 +91,10 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 3. Investor receives pending request and can approve/deny/revoke.
 4. Active token grants scoped access only to approved domains/paths.
 5. Revocation and expiry immediately remove access rights.
+6. Connection provenance does not widen or narrow later consent policy: active
+   request-accepted and contact-sync relationships are evaluated identically by
+   owner-configured relationship rules. A connection alone grants no private
+   information or live-location capability.
 
 ## Ecosystem Contract Mapping
 
@@ -106,6 +110,29 @@ A single authenticated account may hold both `investor` and `ria` personas. Runt
 Public discovery data may be shown in marketplace cards.
 Private data is always consent-gated and scoped.
 
+### Contact-sync relationship boundary
+
+1. Contact sync has one combined, explicit setting: verified people who already
+   hold the account's verified phone number may find and automatically connect
+   with it. The setting defaults off and records the exact authored disclosure,
+   a server enablement timestamp, and a monotonic consent-rule version. Enabling
+   without `contact_find_auto_connect_v1` fails, so legacy default-on state or an
+   older findability-only client is not relationship consent.
+2. Every current, unambiguous verified-phone match that passes that setting is
+   connected immediately. An already active pair receives viewer-relative
+   contact provenance; an explicit disconnect tombstone remains dominant and
+   suppresses future contact-sync attempts. A later explicit request/accept flow
+   remains a separate user action.
+3. Contact-sync provenance may create only the canonical relationship, its
+   source ledger, cancellation of redundant unscoped pending requests, and the
+   Trusted-list projection. A capability-bearing request stays pending for
+   explicit scope review. Contact sync never grants location, PKM,
+   personal-information, consent-scope, Circle sharing, SMS, envelope, or
+   capability access.
+4. Disabling the setting prevents future matches. Existing relationships remain
+   visible and individually disconnectable so preference changes do not silently
+   destroy a user's graph.
+
 ### Storage Boundary
 
 1. Relational tables own identity, consent workflow, verification/compliance, firm membership, public discovery, and query-heavy shared market datasets.
@@ -113,11 +140,77 @@ Private data is always consent-gated and scoped.
 3. `pkm_index` stores sanitized metadata only.
 4. RIA verification/compliance and relationship workflow do not belong in the PKM.
 5. Live-location coordinates are never stored in the clear. The One Location Agent (`one_location_*` tables) persists ciphertext-only envelopes; recipient private keys stay on-device. The legacy plaintext prototype (`kai_location_*`) was removed in migration `069_drop_kai_location_plaintext.sql`.
-6. The developer-token registry (`developer_applications`, `developer_apps`, `developer_tokens`) is defined by versioned migration `070_developer_registry.sql` and registered in `release_migration_manifest.json` (the `developer` lane); only peppered HMAC-SHA256 token hashes are stored, never raw tokens.
+6. Nearby presence is an explicit, short-lived workflow. A fresh point is used
+   to resolve suggestions, and a new point is captured at final confirmation.
+   The confirmed check-in point is persisted only as an authenticated encryption
+   envelope plus a short-epoch server-keyed candidate token; accuracy is not
+   persisted. Checkout clears both synchronously. Expiry synchronously blocks roster
+   and Connect access; the next feature operation or required hosted hourly
+   retention job scrubs the due envelope and token. Candidate tokens are
+   broad-phase only: exact radius is rechecked against decrypted check-in points before
+   roster or Connect authorization. Both people must remain explicitly active;
+   a Connect edge or phone-verification flag alone is never presence consent.
+   The GPS-spoofable verifier is non-production simulation code and fails
+   closed in production.
+7. The developer-token registry (`developer_applications`, `developer_apps`, `developer_tokens`) is defined by versioned migration `070_developer_registry.sql` and registered in `release_migration_manifest.json` (the `developer` lane); only peppered HMAC-SHA256 token hashes are stored, never raw tokens.
+8. Connected Systems stores owner-scoped external record pointers separately
+   from immutable workflow/audit history. A missing remote record is not an
+   authorization failure: the backend reports a typed recovery state, and only
+   explicit `VAULT_OWNER` confirmation may transition the local pointer from
+   `active` to `disconnected`. This never invokes remote deletion.
+9. `source_library` is a fixed, owner-managed PKM capability boundary. Every
+   `attr.source_library.*` form is non-discoverable and non-authorizing, and the
+   domain cannot publish a public-profile projection. Mounted provider files remain
+   authoritative blobs; encrypted PKM holds private semantic/control memory; and
+   profile-scoped SQLite holds only rebuildable opaque mapping and operation state.
+   Filesystem-first sharing uses a pinned object revision plus an opaque `share_ref`
+   and owner-bound mounted target. A SQLite row is neither access authority nor
+   revocation proof, and Hermes does not claim verified provider ACL recipients.
+   Hermes additionally derives local Source Library encryption from the unlocked
+   vault key plus a device-only, local-user-presence Data Protection Keychain
+   secret. This is Keychain protection, not a Secure Enclave key claim.
 
 ### Device-to-Device Capability Tokens
 
 Cross-device sharing rides the consent protocol as a standard. A live-location grant mints a signed HCT consent token scoped `cap.location.live.view`, bound to a `device:<recipient_user_id>` agent identity, expiring with the grant. The recipient device exercises this token as its capability; the backend validates signature, expiry, and scope before accepting any ciphertext envelope. This makes the grant's authority a verifiable cryptographic capability rather than a descriptive column.
+
+### First-Party Hermes Trusted Devices
+
+Hermes is an additive first-party device surface, not a developer-token
+elevation:
+
+1. Firebase OAuth identifies the account through Authorization Code + PKCE.
+2. A registered P-256 device key proves the exact Hermes installation.
+3. The approval browser may reuse an RP-compatible One passkey to unwrap and
+   hash-validate the vault key locally, seal it to an ephemeral Hermes key, and
+   attach ciphertext to the one-time authorization. The PKCE exchange consumes
+   that ciphertext exactly once.
+4. If no usable passkey exists, Hermes fetches the mandatory passphrase wrapper
+   and unwraps it through a native masked prompt. The passphrase and plaintext
+   vault key never enter Hussh infrastructure or model context.
+5. A signed, single-use device challenge permits a 15-minute
+   device-bound `VAULT_OWNER` capability.
+6. PKM ciphertext and `PkmMutationPlanV2` continue through the existing
+   validation/store endpoints and optimistic concurrency contract.
+7. Developer tokens remain application identity only. They never map to
+   `VAULT_OWNER`, PKM write, vault unwrap, or a trusted-device credential.
+
+The 15-minute capability is an automatically renewable in-memory lease, not
+the trusted-device lifetime. Device registration and Keychain-bound local
+custody remain durable until lock, disconnect, or revocation. Hermes uses the
+native connector for owner writes; the hosted MCP handshake is unchanged.
+
+Postgres `pkm_events.id` is the metadata-only encrypted-replica cursor today.
+Trusted devices fetch current ciphertext through the existing snapshot
+contract, and revision-safe domain deletion leaves a durable tombstone. This is
+the replaceable outbox seam for future Redis/Memorystore fan-out.
+
+Postgres owns one-time codes, nonce replay protection, device state, and
+metadata-only audit today. `TrustedDeviceStore` is the replaceable seam for a
+future Redis/Memorystore replay and revocation fan-out adapter.
+
+Canonical enrollment, custody, failure, and UAT verification contract:
+[Hermes Trusted-Device Vault Enrollment](./hermes-trusted-device-vault-enrollment.md).
 
 ## Change Control
 

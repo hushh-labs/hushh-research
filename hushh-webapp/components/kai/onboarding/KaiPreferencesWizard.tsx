@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import * as RadioGroupPrimitive from "@radix-ui/react-radio-group";
 import { ArrowLeft, Check } from "lucide-react";
 
@@ -43,7 +43,7 @@ type WizardCompletePayload = WizardAnswers & {
 const QUESTIONS = [
   {
     id: "investment_horizon" as const,
-    prompt: "How long do you expect to keep this money invested?",
+    prompt: "How long will this stay invested?",
     options: [
       { value: "short_term" as const, label: "Less than 3 years" },
       { value: "medium_term" as const, label: "3–7 years" },
@@ -52,7 +52,7 @@ const QUESTIONS = [
   },
   {
     id: "drawdown_response" as const,
-    prompt: "If your portfolio drops 20%, what would you most likely do?",
+    prompt: "Portfolio down 20%, what's your move?",
     options: [
       { value: "reduce" as const, label: "Reduce investments to limit further losses" },
       { value: "stay" as const, label: "Stay invested and review the situation" },
@@ -79,6 +79,12 @@ export function KaiPreferencesWizard(props: {
   onAnswersChange?: (answers: WizardAnswers) => void | Promise<void>;
   onBack?: () => void;
   onComplete: (payload: WizardCompletePayload) => void | Promise<void>;
+  /**
+   * Route-owned terminal actions (for example, Skip Finance setup). Keeping
+   * this inside the wizard's bounded viewport prevents a sibling footer from
+   * extending a fullscreen flow underneath persistent onboarding chrome.
+   */
+  terminalFooter?: ReactNode;
 }) {
   const total = QUESTIONS.length;
   const layout = props.layout ?? "page";
@@ -226,11 +232,14 @@ export function KaiPreferencesWizard(props: {
       : "Next";
 
   const reserveBackSlot = props.mode === "onboarding";
-  // In onboarding the Back control is always available: on step 0 it returns to
-  // the One setup hub (resuming the main onboarding) via props.onBack; on later
-  // steps it walks back through the questions. This replaces the old intra-step
-  // "Skip" button so a sub-step can never satisfy or skip the root flow.
-  const showBack = props.mode === "onboarding" && Boolean(props.onBack || step > 0);
+  // In onboarding, step 0 relies on the shared route-level TopAppBar back
+  // chevron to leave the flow entirely (this wizard is rendered under a
+  // "flow" layout route, which keeps that chrome visible) — showing a
+  // second "Back" pill here for step 0 would be a redundant, visually
+  // duplicate affordance for the exact same action. From step 1 onward the
+  // wizard's own Back pill is the only way to walk back through the
+  // questions (the TopAppBar cannot do that), so it stays visible there.
+  const showBack = props.mode === "onboarding" && step > 0;
   const canGoPrevious = step > 0;
   const isPageLayout = layout === "page";
 
@@ -248,16 +257,16 @@ export function KaiPreferencesWizard(props: {
     <main
       data-top-content-anchor={isPageLayout ? "true" : undefined}
       className={cn(
-        "w-full bg-transparent flex flex-col",
+        "w-full max-w-full bg-transparent flex flex-col",
         isPageLayout
-          ? "min-h-[100dvh] px-5 pt-[var(--top-content-pad)] pb-[var(--app-screen-footer-pad)] sm:px-6 lg:px-[var(--page-inline-gutter-standard)]"
+          ? "min-h-[calc(100dvh-var(--app-scroll-bottom-pad,0px))] px-4 sm:px-6 pt-[var(--top-content-pad)] pb-[var(--app-scroll-bottom-pad)]"
           : "min-h-0 px-4 pt-4 pb-4"
       )}
     >
       <div
         className={cn(
           isPageLayout
-            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-screen-footer-pad))] w-full max-w-[25rem] flex-col justify-center py-6"
+            ? "mx-auto flex min-h-[calc(100dvh-var(--top-content-pad)-var(--app-scroll-bottom-pad,0px))] w-full max-w-[25rem] flex-1 flex-col py-6"
             : "w-full max-w-sm mx-auto flex min-h-[calc(100dvh-var(--app-screen-footer-pad))] flex-col",
           !isPageLayout && "min-h-0"
         )}
@@ -265,7 +274,7 @@ export function KaiPreferencesWizard(props: {
         <div
           className={cn(
             isPageLayout
-              ? "w-full"
+              ? "flex w-full flex-1 flex-col justify-center"
               : "contents"
           )}
         >
@@ -320,7 +329,7 @@ export function KaiPreferencesWizard(props: {
                   isPageLayout ? "type-subhead" : "type-footnote"
                 )}
               >
-                No right or wrong answers. We’ll tune Kai to your investing style.
+                We’ll tune One to you.
               </p>
 
               <div
@@ -372,6 +381,9 @@ export function KaiPreferencesWizard(props: {
             </div>
           </div>
         </div>
+        {isPageLayout && props.terminalFooter ? (
+          <div className="w-full shrink-0">{props.terminalFooter}</div>
+        ) : null}
       </div>
 
       <AlertDialog open={horizonDialogOpen} onOpenChange={setHorizonDialogOpen}>

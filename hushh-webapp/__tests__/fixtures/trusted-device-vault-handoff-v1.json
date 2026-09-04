@@ -1,0 +1,22 @@
+{
+  "version": "hussh-one-trusted-device-vault-handoff-v1",
+  "algorithm": "X25519-AES256-GCM",
+  "recipient_private_key_b64": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "recipient_public_key_b64": "B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw=",
+  "sender_private_key_b64": "ISIjJCUmJygpKissLS4vMDEyMzQ1Njc4OTo7PD0+P0A=",
+  "sender_public_key_b64": "WGmv9FBUlzLLqu1eXfmzCm2jHLDldCutWtShp2jxpns=",
+  "vault_key_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+  "vault_key_hash": "6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b",
+  "iv_b64": "AAECAwQFBgcICQoL",
+  "wrapped_key_b64": "j+1+tmfQW8w2P7B8J3h2O+G4l0a8qWUQCqjISlNtuBk=",
+  "tag_b64": "zf6xBa1TyPbvmJcwi/PNow==",
+  "state": "state-1",
+  "authorization_id": "authorization-1",
+  "device_id": "device-1",
+  "user_id": "user-1",
+  "expires_at": 123456,
+  "wrapper_id": "wrapper-1",
+  "rp_id": "uat.one.hushh.ai",
+  "environment": "uat",
+  "aad": "hussh-one-trusted-device-vault-handoff-v1|state-1|authorization-1|device-1|user-1|123456|6c86c6aac5fb24bcf5d9939cb7d7d5645ce39418f449e03b262dd4fa14b4b92b|wrapper-1|uat.one.hushh.ai|uat|B6N8vBQgk8i3VdwbEOhstCY3StFqqFPtC9/AsrhtHHw="
+}

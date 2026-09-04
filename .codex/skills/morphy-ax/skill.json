@@ -15,6 +15,7 @@
   ],
   "task_types": ["morphy-ax-governance"],
   "required_reads": [
+    "docs/reference/quality/design.md",
     "docs/reference/quality/morphy-agent-experience.md",
     "docs/reference/one/one-voice-runtime-architecture.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",
@@ -46,7 +47,7 @@
   ],
   "handoff_targets": [
     "frontend",
-    "kai-voice-governance",
+    "one-voice-governance",
     "backend-agents-operons",
     "frontend-design-system",
     "quality-contracts",
@@ -54,7 +55,7 @@
   ],
   "adjacent_skills": [
     "frontend-design-system",
-    "kai-voice-governance",
+    "one-voice-governance",
     "backend-agents-operons",
     "quality-contracts"
   ],

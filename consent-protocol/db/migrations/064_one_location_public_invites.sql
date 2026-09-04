@@ -77,10 +77,26 @@ ALTER TABLE one_location_events
       'location_envelope_updated',
       'location_share_viewed',
       'location_share_revoked',
+      -- Emitted by one_location_agent_service when the owner shortens a live
+      -- share (the Edit action on a duration). It was never added here, so the
+      -- first person to use it wrote a row this constraint rejects -- and this
+      -- ADD is validating, so every replay after that died on it.
+      'location_share_shortened',
+      -- The owner setting a new end time on a share that is already running,
+      -- in either direction. Added again by migration 153, which is the copy
+      -- that actually reaches an environment where 064 has already run.
+      'location_share_duration_changed',
       'location_share_expired',
       'location_access_request',
       'location_access_approved',
+      'location_auto_approve_rule_changed',
       'location_access_denied',
+      -- Emitted when the person who SENT a request takes it back, before the
+      -- owner has answered. Added here rather than in a later migration for
+      -- the reason the comment above records: this ADD is validating and UAT
+      -- replays the whole set, so a value only allowlisted downstream dies
+      -- here on the first replay after somebody uses the feature.
+      'location_access_request_withdrawn',
       'location_referral_invite',
       'location_public_invite_created',
       'location_public_invite_revoked',
@@ -88,7 +104,14 @@ ALTER TABLE one_location_events
       'location_circle_invite_created',
       'location_circle_invite_claimed',
       'location_circle_invite_revoked',
-      'location_one_network_joined'
+      'location_one_network_joined',
+      -- Added by migration 180, which reaches every environment through this
+      -- same validating ADD. Same failure mode as 'location_share_shortened'
+      -- above: any value 180 introduces has to appear here too, or replay
+      -- dies on it the first time a real row uses one.
+      'location_circle_code_joined',
+      'location_circle_member_invite_accepted',
+      'circle_member_added'
     )
   );
 

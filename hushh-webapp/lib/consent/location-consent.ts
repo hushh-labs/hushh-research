@@ -37,6 +37,13 @@ export function isLocationConsent(
   );
 }
 
+export function isCircleMemberInviteConsent(metadata: MetadataLike): boolean {
+  return (
+    readString(metadata, "request_source") ===
+    "one_location_circle_member_invite"
+  );
+}
+
 /**
  * Deep link back to the One Location surface, optionally focused on the
  * relevant section (mirrors the in-app notification deep links).
@@ -45,6 +52,7 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   const section = readString(metadata, "section");
   const grantId = readString(metadata, "grant_id");
   const requestId = readString(metadata, "request_id");
+  const circleInviteId = readString(metadata, "invite_id");
   // Use the canonical One Location query params (section / grantId / requestId)
   // so the consent-manager deep link drives the exact same tab-switch + scroll
   // behavior as in-app notifications. A "shared" grant link also marks the
@@ -53,6 +61,7 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
   return buildOneLocationWorkflowHref({
     grantId: grantId || null,
     requestId: requestId || null,
+    circleInviteId: circleInviteId || null,
     section:
       (section as
         | "people"
@@ -68,13 +77,13 @@ export function locationConsentWorkflowHref(metadata: MetadataLike): string {
 
 
 /**
- * Short human tag for a location consent row's share kind (SOS / Check-In /
+ * Short human tag for a location consent row's share kind (SMS / Check-In /
  * Share). Returns "" for rows that carry no share_kind (e.g. access requests,
  * public/circle invites) so the caller can omit the badge entirely.
  */
 export function locationConsentShareKindLabel(metadata: MetadataLike): string {
   const kind = readString(metadata, "share_kind").toLowerCase();
-  if (kind === "sos") return "SOS";
+  if (kind === "sos") return "SMS";
   if (kind === "check_in" || kind === "checkin") return "Check-In";
   if (kind === "share") return "Share";
   return "";
@@ -84,7 +93,7 @@ export function locationConsentShareKindLabel(metadata: MetadataLike): string {
  * Human summary for a location consent row. Coordinate-free by contract:
  * we never surface latitude/longitude in consent metadata or copy. When the row
  * is a share grant the summary is kind-aware so the Consent Manager can tell an
- * emergency SOS from a friendly Check-In (with its note) from a plain share,
+ * Save My Soul from a friendly Check-In (with its note) from a plain share,
  * instead of the same generic "wants to see your location" line for every row.
  */
 export function locationConsentSummary(metadata: MetadataLike): string {
@@ -93,23 +102,29 @@ export function locationConsentSummary(metadata: MetadataLike): string {
   const who = requesterLabel || "Someone in your One Network";
   const shareKind = readString(metadata, "share_kind").toLowerCase();
   const shareMessage = readString(metadata, "share_message");
+  if (isCircleMemberInviteConsent(metadata)) {
+    const circleName = readString(metadata, "circle_name") || "a Circle";
+    return `${who} invited you to join ${circleName}. Membership connects the group, while location and SMS stay private until you choose to share.`;
+  }
   const durationSuffix = durationLabel ? ` for ${durationLabel}` : "";
   if (shareKind === "sos") {
-    return `${who} triggered an SOS and is sharing live location with you${durationSuffix}.`;
+    return shareMessage
+      ? `${who}: ${shareMessage}`
+      : `${who} sent an SMS and is sharing live location with you${durationSuffix}.`;
   }
   if (shareKind === "check_in" || shareKind === "checkin") {
     if (shareMessage) {
       return `${who}: ${shareMessage}`;
     }
-    return `${who} checked in and shared their location with you${durationSuffix}.`;
+    return `${who} checked in and shared location with you${durationSuffix}.`;
   }
   if (shareKind === "share") {
-    return `${who} is sharing their location with you${durationSuffix}.`;
+    return `${who} is sharing location with you${durationSuffix}.`;
   }
   if (durationLabel) {
     return `${who} wants to see your location for ${durationLabel}.`;
   }
-  return `${who} wants to see your location through Onepoint.`;
+  return `${who} wants to see your location through Location.`;
 }
 
 /**
@@ -125,6 +140,7 @@ export type LocationConsentRecordKind =
   | "share_grant"
   | "public_invite"
   | "circle_invite"
+  | "circle_member_invite"
   | "unknown";
 
 export interface LocationConsentEntryRef {
@@ -147,6 +163,7 @@ const _LOCATION_ID_PREFIXES: Record<string, LocationConsentRecordKind> = {
   one_location_grant: "share_grant",
   one_location_public: "public_invite",
   one_location_circle: "circle_invite",
+  one_location_circle_member_invite: "circle_member_invite",
 };
 
 const _LOCATION_SOURCE_KINDS: Record<string, LocationConsentRecordKind> = {
@@ -154,6 +171,7 @@ const _LOCATION_SOURCE_KINDS: Record<string, LocationConsentRecordKind> = {
   one_location_share_grant: "share_grant",
   one_location_public_invite: "public_invite",
   one_location_circle_invite: "circle_invite",
+  one_location_circle_member_invite: "circle_member_invite",
 };
 
 /**
@@ -180,6 +198,7 @@ export function parseLocationConsentEntry(
   const metadataRequestId =
     readString(entry.metadata, "request_id") ||
     String(entry.request_id || "").trim();
+  const metadataInviteId = readString(entry.metadata, "invite_id");
 
   let id = suffix.trim();
   if (!id) {
@@ -188,6 +207,8 @@ export function parseLocationConsentEntry(
         ? metadataGrantId
         : kind === "access_request"
           ? metadataRequestId
+          : kind === "circle_member_invite"
+            ? metadataInviteId
           : "";
   }
 
@@ -196,4 +217,3 @@ export function parseLocationConsentEntry(
 
   return { kind, id, requestId };
 }
-

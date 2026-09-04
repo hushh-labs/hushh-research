@@ -1,61 +1,73 @@
 "use client";
 
 /**
- * Onepoint redesign — Quick Actions grid (Now tab).
+ * Location agent redesign — Quick Actions grid (Now tab).
  *
  * PRESENTATION ONLY. A single reusable `QuickActionCard` renders every tile in
- * the "Quick actions" block so the six location shortcuts (Check-In, Alert,
- * Drive To, Pick Me Up, Meeting, Safe Arrival) stay visually identical and
- * behaviourally consistent. Each card is a 44px tinted icon circle + bold title
- * + a footer row (subtitle + circular chevron), on a 3-column grid, matching the
- * Apple Blue v2 design. Cards are prop-driven and delegate taps to the hub.
+ * the Location action block so first-class actions stay equal, responsive
+ * controls. Each card uses the shared typography roles and iOS grouped-card
+ * geometry. Cards are prop-driven and delegate taps to the hub.
  */
 
 import type { ReactNode } from "react";
-import { ChevronRight } from "lucide-react";
 
+import {
+  RowDescription,
+  RowLabel,
+  SectionTitle,
+} from "@/components/app-ui/typography";
 import { cn } from "@/lib/utils";
-import { SECTION_HEADING } from "./tokens";
 
 export type QuickActionTone = "green" | "red" | "blue" | "violet" | "slate";
 
 /**
- * Per-tone icon-circle palette, using the design's exact soft tints + saturated
- * foregrounds (with sensible dark-mode fallbacks).
+ * Per-tone semantic icon palette. The tile owns service/action color; labels
+ * stay neutral through the shared typography roles.
  */
 const TONE_STYLES: Record<QuickActionTone, { tile: string; icon: string }> = {
+  // Tokens, not literals: these hard-coded the LIGHT hex, so in dark mode the
+  // glyphs stayed at the light-appearance shade while every other semantic
+  // colour on the screen switched.
   green: {
-    tile: "bg-[#e5f4ea] dark:bg-emerald-400/15",
-    icon: "text-[#2ea44f] dark:text-emerald-300",
+    tile: "bg-[color:var(--app-success)]/12",
+    icon: "text-[color:var(--app-success)]",
   },
   red: {
-    tile: "bg-[#fdeeec] dark:bg-red-400/15",
-    icon: "text-[#e0342c] dark:text-red-300",
+    tile: "bg-[color:var(--app-destructive)]/12",
+    icon: "text-[color:var(--app-destructive)]",
   },
   blue: {
-    tile: "bg-[#e7f0fd] dark:bg-sky-400/15",
-    icon: "text-[#2f7cf6] dark:text-sky-300",
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
   },
   violet: {
-    tile: "bg-[#efeafc] dark:bg-violet-400/15",
-    icon: "text-[#7b5cf0] dark:text-violet-300",
+    tile: "bg-[color:var(--app-accent-surface)]",
+    icon: "text-[color:var(--app-accent-deep)]",
   },
   slate: {
-    tile: "bg-[#eeeef2] dark:bg-white/10",
-    icon: "text-[#6b6b76] dark:text-slate-300",
+    tile: "bg-[color:var(--app-neutral-fill)]",
+    icon: "text-[color:var(--app-secondary-label)]",
   },
 };
 
 export type QuickActionCardProps = {
   icon: ReactNode;
   title: string;
-  subtitle: string;
+  subtitle?: string;
   tone?: QuickActionTone;
   onClick?: () => void;
   /** Non-interactive treatment for actions that aren't wired up yet. */
   comingSoon?: boolean;
   /** Disable interaction without the coming-soon semantics. */
   disabled?: boolean;
+  /**
+   * The `control_ids` anchor from this tile's entry in the Location voice
+   * action contract. It is what lets One and the search bar name the button a
+   * person is looking at, rather than only the screen it sits on.
+   */
+  controlId?: string;
+  voiceActionId?: string;
+  ariaLabel?: string;
 };
 
 export function QuickActionCard({
@@ -66,73 +78,102 @@ export function QuickActionCard({
   onClick,
   comingSoon = false,
   disabled = false,
+  controlId,
+  voiceActionId,
+  ariaLabel,
 }: QuickActionCardProps) {
   const palette = TONE_STYLES[tone];
   const interactive = !comingSoon && !disabled;
+  const isEmergency = tone === "red";
 
   return (
     <button
       type="button"
+      data-ui-role="grouped-card"
       onClick={interactive ? onClick : undefined}
       disabled={!interactive}
       aria-disabled={!interactive}
+      aria-label={ariaLabel}
+      data-voice-control-id={controlId}
+      data-voice-action-id={voiceActionId}
       className={cn(
-        "group flex h-full w-full min-w-0 flex-col gap-3 rounded-2xl bg-white p-3 text-left shadow-[0_2px_8px_rgba(0,0,0,0.04)] transition-all duration-200 dark:bg-[color:var(--app-card-surface-default-solid)]",
+        "group flex min-h-[112px] w-full min-w-0 flex-col items-center justify-center gap-2.5 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] px-3 py-3.5 text-center shadow-[var(--app-card-shadow-standard)] transition-colors duration-150 dark:shadow-none",
+        isEmergency &&
+          "bg-[color:var(--app-destructive)]/7 dark:bg-[color:var(--app-destructive)]/12",
         interactive
-          ? "cursor-pointer hover:-translate-y-0.5 active:scale-[0.98] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+          ? cn(
+              "cursor-pointer active:bg-[rgba(120,120,128,0.08)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              isEmergency
+                ? "hover:bg-[color:var(--app-destructive)]/10"
+                : "hover:bg-[color:var(--app-card-surface-compact)]",
+            )
           : "cursor-not-allowed",
       )}
     >
-      <div className="flex w-full items-start justify-between gap-2">
-        <span
+      <span
+        className={cn(
+          "flex h-14 w-14 items-center justify-center rounded-full [&_svg]:h-7 [&_svg]:w-7 [&_svg]:stroke-[2]",
+          palette.tile,
+          palette.icon,
+          isEmergency &&
+            "bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]",
+        )}
+      >
+        {icon}
+      </span>
+
+      <div className="w-full min-w-0">
+        <RowLabel
+          as="p"
           className={cn(
-            "flex h-11 w-11 items-center justify-center rounded-full",
-            palette.tile,
-            palette.icon,
+            "truncate !font-semibold",
+            isEmergency && "text-[color:var(--app-destructive)]",
           )}
         >
-          {icon}
-        </span>
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-[#eef2f8] dark:bg-white/10">
-          <ChevronRight className="h-3 w-3 text-black/40 dark:text-muted-foreground" />
-        </span>
-      </div>
-
-      <div className="mt-auto w-full min-w-0">
-        <p className="truncate text-[15px] font-bold leading-tight text-[#1c1c2e] dark:text-foreground">
           {title}
-        </p>
-        {/* Subtitle spans the full card width (no chevron sharing the row) and
-            uses a compact size so the one-line description stays fully visible
-            on every device without truncating to an ellipsis. */}
-        <span className="mt-1.5 block truncate text-[11px] leading-tight text-black/50 dark:text-muted-foreground">
-          {subtitle}
-        </span>
+        </RowLabel>
+        {subtitle ? (
+          <RowDescription
+            as="span"
+            className={cn(
+              "mt-0.5 block truncate",
+              isEmergency && "text-[color:var(--app-destructive)] opacity-80",
+            )}
+          >
+            {subtitle}
+          </RowDescription>
+        ) : null}
       </div>
     </button>
   );
 }
 
-
 export function QuickActionsSection({
   title = "Quick actions",
   children,
+  columns = 3,
+  className,
+  testId,
 }: {
   title?: string;
   children: ReactNode;
+  columns?: 2 | 3;
+  className?: string;
+  testId?: string;
 }) {
   return (
-    <section className="space-y-3">
-      <div className="flex items-center justify-between px-1">
-        <h2 className={SECTION_HEADING}>{title}</h2>
-        <span className="inline-flex items-center gap-[7px] rounded-full bg-[#eef2f8] px-3 py-1.5 dark:bg-white/10">
-          <span className="h-2 w-2 rounded-full bg-[color:var(--app-accent)]" />
-          <span className="text-[13px] font-semibold text-black/55 dark:text-muted-foreground">
-            Live features
-          </span>
-        </span>
+    <section className={cn("space-y-3", className)} data-testid={testId}>
+      <div className="flex items-center px-1">
+        <SectionTitle>{title}</SectionTitle>
       </div>
-      <div className="grid auto-rows-fr grid-cols-3 gap-2.5">{children}</div>
+      <div
+        className={cn(
+          "grid auto-rows-fr gap-2.5 sm:gap-3",
+          columns === 2 ? "grid-cols-2" : "grid-cols-3",
+        )}
+      >
+        {children}
+      </div>
     </section>
   );
 }

@@ -1,17 +1,23 @@
 "use client";
 
 import * as React from "react";
-import type { LucideIcon } from "lucide-react";
 
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { cn } from "@/lib/utils";
-import { Icon } from "@/lib/morphy-ux/ui/icon";
+
+export type SegmentedPillIcon = React.ElementType<
+  React.SVGProps<SVGSVGElement> & { size?: number | string }
+>;
 
 export type SegmentedPillOption = {
   value: string;
   label: string;
-  icon?: LucideIcon;
-  badge?: number;
+  icon?: SegmentedPillIcon;
+  /** Optional selected-state counterpart for libraries with filled icons. */
+  activeIcon?: SegmentedPillIcon;
+  /** A count when sets are exactly countable, or a dot for attention unions
+   * whose sources may overlap. */
+  badge?: number | "dot";
   tone?: "default" | "accent";
   disabled?: boolean;
   dataTourId?: string;
@@ -48,36 +54,36 @@ const SIZE_STYLES: Record<
 > = {
   compact: {
     container: "min-h-[36px] p-0.5",
-    button: "px-2 py-1 text-xs",
+    button: "px-2 py-1 ui-text-tab-label",
     icon: "xs",
-    label: "text-[11px] font-medium leading-none",
+    label: "leading-none",
     gap: "gap-1",
     stackedContainer: "min-h-[52px] p-0.5",
     stackedButton: "px-1 py-1",
-    stackedLabel: "text-[9.5px] font-medium leading-[1.05]",
+    stackedLabel: "text-[11px] leading-[13px]",
     stackedGap: "gap-0.5",
   },
   shell: {
     container: "min-h-[42px] p-1",
-    button: "px-2.5 py-1.5 text-xs",
+    button: "px-2.5 py-1.5 ui-text-tab-label",
     icon: "sm",
-    label: "text-xs font-medium leading-none",
+    label: "leading-none",
     gap: "gap-1.5",
-    stackedContainer: "min-h-[58px] p-1",
-    stackedButton: "px-1.5 py-1.5",
-    stackedLabel: "text-[11px] font-medium leading-none",
-    stackedGap: "gap-1",
+    stackedContainer: "min-h-[64px] p-2",
+    stackedButton: "min-h-11 px-1 py-1",
+    stackedLabel: "text-[11px] leading-[13px]",
+    stackedGap: "gap-[3px]",
   },
   default: {
     container: "min-h-[45px] p-1",
-    button: "px-3 py-2 text-sm",
+    button: "px-3 py-2 ui-text-form-label",
     icon: "sm",
-    label: "text-sm font-medium",
+    label: "",
     gap: "gap-1.5",
-    stackedContainer: "min-h-[66px] p-1",
-    stackedButton: "px-2 py-2",
-    stackedLabel: "text-xs font-medium leading-tight",
-    stackedGap: "gap-1.5",
+    stackedContainer: "min-h-[64px] p-2",
+    stackedButton: "min-h-11 px-2 py-1",
+    stackedLabel: "text-[11px] leading-[13px]",
+    stackedGap: "gap-[3px]",
   },
 };
 
@@ -128,7 +134,7 @@ export const SegmentedPill = React.forwardRef<
         role="radiogroup"
         aria-label={ariaLabel}
         className={cn(
-          "pointer-events-none relative grid items-center rounded-full border-0 bg-background/80 shadow-[0_11px_34px_0_var(--theme-color-boxShadow)] backdrop-blur-[var(--blur-standard)]",
+          "pointer-events-none relative grid items-center rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] backdrop-blur-[var(--blur-standard)]",
           isStacked ? styles.stackedContainer : styles.container,
           className,
         )}
@@ -139,16 +145,16 @@ export const SegmentedPill = React.forwardRef<
         <div
           aria-hidden
           data-segment-indicator
-          className="pointer-events-none absolute left-1 top-1 bottom-1 overflow-hidden rounded-full bg-black/10 shadow-[0_2px_8px_rgba(0,0,0,0.08)] backdrop-blur-sm transition-transform duration-[420ms] ease-[cubic-bezier(0.34,1.56,0.64,1)] dark:bg-white/15 dark:shadow-[0_2px_8px_rgba(0,0,0,0.4)]"
+          className="pointer-events-none absolute left-2 top-2 bottom-2 overflow-hidden rounded-full bg-transparent shadow-none transition-transform duration-[300ms] ease-[cubic-bezier(0.2,0.8,0.2,1)]"
           style={{
-            width: `calc((100% - 0.5rem) / ${resolvedSlotCount})`,
+            width: `calc((100% - 1rem) / ${resolvedSlotCount})`,
             transform: `translateX(calc(${activeIndex * 100}% + var(--segment-drag-x, 0px)))`,
           }}
         >
           <span
             key={`${value}-${activePulseKey}`}
             data-segment-active-pulse
-            className="absolute inset-0 rounded-full bg-accent/25 opacity-0"
+            className="absolute inset-0 rounded-full bg-transparent opacity-0"
           />
         </div>
         {options.map((option) => {
@@ -156,6 +162,14 @@ export const SegmentedPill = React.forwardRef<
           const isDisabled = !!option.disabled;
           const isAccent = option.tone === "accent";
           const needsWrapper = hitArea === "content" || hitArea === "segment";
+          const OptionIcon =
+            isActive && option.activeIcon ? option.activeIcon : option.icon;
+          const numericBadge =
+            typeof option.badge === "number" ? option.badge : null;
+          const hasNumericBadge = numericBadge !== null && numericBadge > 0;
+          const numericBadgeText =
+            numericBadge !== null && numericBadge > 9 ? "9+" : numericBadge;
+          const hasDotBadge = option.badge === "dot";
           const button = (
             <button
               key={option.value}
@@ -170,7 +184,7 @@ export const SegmentedPill = React.forwardRef<
                 onValueChange(option.value);
               }}
               className={cn(
-                "relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-500 ease-[cubic-bezier(0.25,1,0.5,1)] disabled:cursor-not-allowed",
+                "press-scale relative z-10 flex min-w-0 items-center justify-center overflow-hidden rounded-full text-center transition-[color,opacity,transform] duration-200 ease-[cubic-bezier(0.2,0,0,1)] disabled:cursor-not-allowed",
                 "pointer-events-auto",
                 hitArea === "content"
                   ? "w-fit flex-none self-center"
@@ -179,27 +193,39 @@ export const SegmentedPill = React.forwardRef<
                 isStacked ? styles.stackedButton : styles.button,
                 isStacked ? styles.stackedGap : styles.gap,
                 isActive
-                  ? "text-accent-strong font-semibold segmented-pill-active-choice"
-                  : isAccent
-                    ? "text-accent-strong/85 segmented-pill-button-accent"
-                    : "text-foreground/60 segmented-pill-button-default",
+                  ? "text-[color:var(--app-accent)] font-medium segmented-pill-active-choice"
+                : isAccent
+                    ? "text-[color:var(--app-accent)] segmented-pill-button-accent"
+                    : "text-muted-foreground segmented-pill-button-default",
                 isDisabled && "opacity-45",
               )}
             >
-              {option.icon ||
-              (typeof option.badge === "number" && option.badge > 0) ? (
+              {OptionIcon || hasNumericBadge || hasDotBadge ? (
                 <span className="relative flex shrink-0 items-center justify-center">
-                  {option.icon ? (
-                    <Icon
-                      icon={option.icon}
-                      size={styles.icon}
+                  {OptionIcon ? (
+                    <OptionIcon
+                      data-segment-icon
+                      data-segment-icon-variant={
+                        isActive && option.activeIcon ? "active" : "default"
+                      }
+                      size={isStacked ? 22 : { xs: 14, sm: 16, md: 20 }[styles.icon]}
                       className="shrink-0"
+                      aria-hidden
                     />
                   ) : null}
-                  {typeof option.badge === "number" && option.badge > 0 ? (
-                    <span className="absolute -right-1 -top-1 inline-flex h-3.5 min-w-[0.875rem] items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[9px] font-bold leading-none text-white">
-                      {option.badge > 9 ? "9+" : option.badge}
+                  {hasNumericBadge ? (
+                    <span className="absolute -right-1 -top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-red-500 px-1 text-[11px] font-bold leading-none text-white">
+                      {numericBadgeText}
                     </span>
+                  ) : null}
+                  {hasDotBadge ? (
+                    <>
+                      <span
+                        aria-hidden="true"
+                        className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full border border-background bg-red-500"
+                      />
+                      <span className="sr-only">New activity</span>
+                    </>
                   ) : null}
                 </span>
               ) : null}

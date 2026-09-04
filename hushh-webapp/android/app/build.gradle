@@ -3,25 +3,53 @@ apply plugin: 'kotlin-android'
 
 def releaseSigningProperties = new Properties()
 def releaseSigningPropertiesFile = new File(rootProject.projectDir.parentFile, ".env.local.d/android/release-signing.properties")
-def hasReleaseSigning = releaseSigningPropertiesFile.exists()
-if (hasReleaseSigning) {
+
+def envKeystorePath = System.getenv("ANDROID_KEYSTORE_PATH")
+def envKeyAlias = System.getenv("ANDROID_KEY_ALIAS")
+def envKeystorePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+def envKeyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+
+def hasEnvReleaseSigning = envKeystorePath && new File(envKeystorePath).exists() && envKeyAlias && envKeystorePassword
+def hasReleaseSigning = releaseSigningPropertiesFile.exists() || hasEnvReleaseSigning
+
+// A package/SHA-restricted Android Maps SDK key. It is intentionally supplied
+// by the build environment and never committed. An empty value builds a safe
+// unavailable Map surface instead of falling back to the browser/server key.
+def googleMapsApiKey = (System.getenv("NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY") ?: project.findProperty("GOOGLE_MAPS_ANDROID_API_KEY") ?: "").replace('"', '\\"')
+if (releaseSigningPropertiesFile.exists()) {
     releaseSigningProperties.load(new FileInputStream(releaseSigningPropertiesFile))
 }
 
 android {
-    namespace = "com.hushh.app"
+    namespace = "com.hussh.app"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "com.hushh.app"
+        applicationId "com.hussh.app"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 2
         versionName "1.1.0"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        resValue "string", "google_maps_key", googleMapsApiKey
         aaptOptions {
              // Files and dirs to omit from the packaged assets dir, modified to accommodate modern web apps.
              // Default: https://android.googlesource.com/platform/frameworks/base/+/282e181b58cf72b6ca770dc7ca5f91f135444502/tools/aapt/AaptAssets.cpp#61
             ignoreAssetsPattern = '!.svn:!.git:!.ds_store:!*.scc:.*:!CVS:!thumbs.db:!picasa.ini:!*~'
+        }
+    }
+    signingConfigs {
+        release {
+            if (hasEnvReleaseSigning) {
+                keyAlias envKeyAlias
+                keyPassword envKeyPassword ?: envKeystorePassword
+                storeFile file(envKeystorePath)
+                storePassword envKeystorePassword
+            } else if (releaseSigningPropertiesFile.exists()) {
+                keyAlias releaseSigningProperties['keyAlias']
+                keyPassword releaseSigningProperties['keyPassword']
+                storeFile releaseSigningProperties['storeFile'] ? file(releaseSigningProperties['storeFile']) : null
+                storePassword releaseSigningProperties['storePassword']
+            }
         }
     }
     buildTypes {
@@ -30,16 +58,6 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release
-            }
-        }
-    }
-    signingConfigs {
-        if (hasReleaseSigning) {
-            release {
-                keyAlias releaseSigningProperties['keyAlias']
-                keyPassword releaseSigningProperties['keyPassword']
-                storeFile releaseSigningProperties['storeFile'] ? file(releaseSigningProperties['storeFile']) : null
-                storePassword releaseSigningProperties['storePassword']
             }
         }
     }

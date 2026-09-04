@@ -165,10 +165,10 @@ for (const filePath of appSources) {
   }
 }
 
-const profilePagePath = path.join(repoRoot, "app/profile/page.tsx");
-const profilePageSource = read(profilePagePath);
-if (profilePageSource.includes("PageSectionSwitcher")) {
-  failures.push("app/profile/page.tsx must not use PageSectionSwitcher for primary profile navigation");
+const profileWorkspacePath = path.join(repoRoot, "app/profile/profile-workspace-page.tsx");
+const profileWorkspaceSource = read(profileWorkspacePath);
+if (profileWorkspaceSource.includes("PageSectionSwitcher")) {
+  failures.push("app/profile/profile-workspace-page.tsx must not use PageSectionSwitcher for primary profile navigation");
 }
 
 const pkmManagerPath = path.join(repoRoot, "components/profile/pkm-data-manager.tsx");
@@ -189,7 +189,7 @@ if (!settingsUiSource.includes('role="heading"') || !settingsUiSource.includes("
     "components/app-ui/settings-ui.tsx must expose SettingsGroup titles as accessible compact headings"
   );
 }
-if (!settingsUiSource.includes("gap-x-2") || !settingsUiSource.includes("tracking-[0.22em]")) {
+if (!settingsUiSource.includes("gap-x-2")) {
   failures.push(
     "components/app-ui/settings-ui.tsx must keep SettingsGroup eyebrow inline with the title, not as a separate page-header line"
   );

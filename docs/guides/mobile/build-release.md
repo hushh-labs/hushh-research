@@ -3,6 +3,8 @@
 ## Visual Context
 
 Canonical visual owner: [Mobile Guide](../mobile.md).
+- One-click iOS TestFlight Pipeline: [Ship iOS to TestFlight](./ship-ios-testflight.md)
+- One-click Android Google Play Pipeline: [Ship Android to Google Play Store](./ship-android-playstore.md)
 
 ## Fresh Native Build Rule
 
@@ -68,8 +70,8 @@ Local checks:
 ```bash
 cd hushh-webapp
 npm run typecheck
-npm run ios:test
-npm run ios:device:ui:test
+npm run ios:cold:audit
+HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:device:ui:test
 ```
 
 Before archiving:

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
+import os
 import re
 from enum import Enum
-from typing import Optional
+from typing import Mapping, Optional
 
 # ==================== Consent Scopes ====================
 
@@ -45,6 +46,11 @@ class ConsentScope(str, Enum):
 
     AGENT_KAI_ANALYZE = "agent.kai.analyze"
 
+    # Cards specialist invocation. Control-plane only: it never authorizes a
+    # read of the reserved wallet PKM domain, whose data leaves the
+    # vault solely through client-side decryption or an explicit attr.* grant.
+    AGENT_WALLET_MANAGE = "agent.wallet.manage"
+
     AGENT_NAV_REVIEW = "agent.nav.review"
 
     AGENT_KYC_PROCESS = "agent.kyc.process"
@@ -59,6 +65,40 @@ class ConsentScope(str, Enum):
     CAP_LOCATION_LIVE_REQUEST = "cap.location.live.request"
     CAP_LOCATION_LIVE_REVOKE = "cap.location.live.revoke"
     CAP_LOCATION_LIVE_REFER_REQUEST = "cap.location.live.refer_request"
+
+    # ==================== NEARBY PRESENCE CAPABILITIES ====================
+    # Short-lived, explicit nearby-check-in scopes. These never authorize a
+    # recipient-scoped live-location grant and are not externally requestable.
+    CAP_LOCATION_NEARBY_PUBLISH = "cap.location.nearby.publish"
+    CAP_LOCATION_NEARBY_DISCOVER = "cap.location.nearby.discover"
+    CAP_LOCATION_NEARBY_REVOKE = "cap.location.nearby.revoke"
+
+    # ==================== PLACE RATING CAPABILITIES ====================
+    # Rating a place the caller was recorded at. These authorize the only
+    # durable person-to-venue link in One Location, so they are deliberately
+    # separate from the nearby triple above: holding a nearby scope must never
+    # imply permission to leave a permanent record of having been somewhere.
+    # Not externally requestable.
+    CAP_LOCATION_PLACE_RATING_PUBLISH = "cap.location.place_rating.publish"
+    CAP_LOCATION_PLACE_RATING_DISCOVER = "cap.location.place_rating.discover"
+    CAP_LOCATION_PLACE_RATING_REVOKE = "cap.location.place_rating.revoke"
+
+    # ==================== CONTACT DISCOVERY ====================
+    # Matching an address book against the user directory. Declared here so the
+    # capability has a name the consent surface can show and an audit row can
+    # carry -- until now, the single most identity-revealing query in the
+    # product was the only one with no scope attached to it at all.
+    #
+    # NOT yet enforced on `POST /api/marketplace/contacts/match`. That route
+    # authenticates with a Firebase ID token, and every shipped client -- web,
+    # iOS and Android -- calls it that way, so requiring a consent token here
+    # would break contact sync on all three the moment it deployed. Making this
+    # a hard gate is a coordinated client change, and it should be one rather
+    # than a silent outage.
+    CAP_CONTACT_DISCOVERY = "cap.contact.discovery"
+    # Registered in `_STATIC_SCOPE_META` (hushh_mcp/consent/scope_helpers.py) so
+    # the consent surface renders a sentence rather than title-casing the raw
+    # handle into "Cap Contact Discovery".
 
     # ============ MARKETPLACE / PERSONAL INFORMATION AGENT CAPABILITIES ============
     # Capability scopes for the One Personal Information Agent — the marketplace
@@ -92,14 +132,23 @@ class ConsentScope(str, Enum):
         authorities, and vault authority are internal projection details.
         """
         normalized = str(scope or "").strip()
-        return normalized == cls.CAP_ONE_INVOKE.value or bool(
-            _EXTERNAL_DYNAMIC_SCOPE_PATTERN.fullmatch(normalized)
-        )
+        if normalized == cls.CAP_ONE_INVOKE.value:
+            return True
+        if not _EXTERNAL_DYNAMIC_SCOPE_PATTERN.fullmatch(normalized):
+            return False
+        from hushh_mcp.consent.pkm_scope_policy import is_private_pkm_export_scope
+
+        return not is_private_pkm_export_scope(normalized)
 
     @classmethod
     def is_retired_scope(cls, scope: str) -> bool:
         """Return whether ``scope`` is a historical, non-authorizing value."""
-        return str(scope or "").strip() in RETIRED_SCOPE_VALUES
+        normalized = str(scope or "").strip()
+        if normalized in RETIRED_SCOPE_VALUES:
+            return True
+        from hushh_mcp.consent.pkm_scope_policy import is_source_library_pkm_scope
+
+        return is_source_library_pkm_scope(normalized)
 
     @classmethod
     def is_wildcard_scope(cls, scope: str) -> bool:
@@ -118,6 +167,9 @@ class ConsentScope(str, Enum):
         Returns:
             True if the scope is valid
         """
+        if cls.is_retired_scope(scope):
+            return False
+
         # Check static scopes first
         if scope in ACTIVE_RESERVED_SCOPE_VALUES:
             return True
@@ -174,6 +226,8 @@ class ConsentScope(str, Enum):
         if cls.VAULT_OWNER.value in granted_scopes:
             return True
 
+        granted_scopes = [scope for scope in granted_scopes if not cls.is_retired_scope(scope)]
+
         # Direct match
         if requested_scope in granted_scopes:
             return True
@@ -205,6 +259,7 @@ class ConsentScope(str, Enum):
         """Return all agent operation scopes."""
         return [
             cls.AGENT_KAI_ANALYZE,
+            cls.AGENT_WALLET_MANAGE,
             cls.AGENT_NAV_REVIEW,
             cls.AGENT_KYC_PROCESS,
             cls.AGENT_KYC_REDRAFT_LLM,
@@ -220,6 +275,12 @@ class ConsentScope(str, Enum):
             cls.CAP_LOCATION_LIVE_REQUEST,
             cls.CAP_LOCATION_LIVE_REVOKE,
             cls.CAP_LOCATION_LIVE_REFER_REQUEST,
+            cls.CAP_LOCATION_NEARBY_PUBLISH,
+            cls.CAP_LOCATION_NEARBY_DISCOVER,
+            cls.CAP_LOCATION_NEARBY_REVOKE,
+            cls.CAP_LOCATION_PLACE_RATING_PUBLISH,
+            cls.CAP_LOCATION_PLACE_RATING_DISCOVER,
+            cls.CAP_LOCATION_PLACE_RATING_REVOKE,
             cls.CAP_PKM_MARKETPLACE_VIEW,
             cls.CAP_PKM_MARKETPLACE_MANAGE,
         ]
@@ -307,18 +368,30 @@ DEFAULT_TRUST_LINK_EXPIRY_MS = 1000 * 60 * 60 * 24 * 30  # 30 days
 # debate agents, HushhAgent manifest default, portfolio import). Keep every
 # agent lane on the same generation; the voice head uses the dedicated Live
 # model via AGENT_ONE_ADK_MODEL instead.
-GEMINI_MODEL = "gemini-3.5-flash"
+#
+# One switch: HUSSH_GEMINI_TEXT_MODEL moves every text agent to a new generation
+# at once (manifests say `gemini-default` and resolve here). The default is the
+# last generation proven in every lane; a lane flips the switch through the
+# `_HUSSH_GEMINI_TEXT_MODEL` deploy substitution once its Vertex allowed-models
+# policy admits the new id. Pins that name a different family (the memory chain
+# on 3.1 pro preview, the reducer on 3.1 flash lite, the Live head) are
+# deliberate and stay explicit in their manifests.
+FLEET_TEXT_MODEL_DEFAULT = "gemini-3.8-flash"
 
-# Full path format (for ADK and direct API calls)
-GEMINI_MODEL_FULL = "models/gemini-3.5-flash"
 
-# Vertex AI model (for Google Cloud deployments)
-GEMINI_MODEL_VERTEX = "gemini-3.5-flash"
+def fleet_text_model_from_env(environ: "Mapping[str, str] | None" = None) -> str:
+    """The switched fleet text model: HUSSH_GEMINI_TEXT_MODEL, else the proven default."""
+    source = os.environ if environ is None else environ
+    return (source.get("HUSSH_GEMINI_TEXT_MODEL") or "").strip() or FLEET_TEXT_MODEL_DEFAULT
+
+
+GEMINI_MODEL = fleet_text_model_from_env()
+
 
 # ==================== Kai Portfolio Import Defaults ====================
 
-# Portfolio import extraction is prompt-first and optimized for lower latency.
-KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL = "gemini-3.5-flash"
+# Portfolio import extraction is prompt-first and optimized for lower latency. The
+# model itself is the fleet model; only these sampling settings are import-specific.
 KAI_PORTFOLIO_IMPORT_ENABLE_THINKING = True
 KAI_PORTFOLIO_IMPORT_THINKING_LEVEL = "LOW"
 KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS = 32768
@@ -355,9 +428,6 @@ __all__ = [
     "DEFAULT_CONSENT_TOKEN_EXPIRY_MS",
     "DEFAULT_TRUST_LINK_EXPIRY_MS",
     "GEMINI_MODEL",
-    "GEMINI_MODEL_FULL",
-    "GEMINI_MODEL_VERTEX",
-    "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL",
     "KAI_PORTFOLIO_IMPORT_ENABLE_THINKING",
     "KAI_PORTFOLIO_IMPORT_THINKING_LEVEL",
     "KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS",

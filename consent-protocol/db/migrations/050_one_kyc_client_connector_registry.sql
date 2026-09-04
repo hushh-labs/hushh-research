@@ -36,11 +36,16 @@ CREATE INDEX IF NOT EXISTS idx_one_kyc_client_connectors_fingerprint
 ALTER TABLE one_kyc_workflows
   DROP CONSTRAINT IF EXISTS one_kyc_workflows_status_check;
 
+-- NOTE: 'needs_confirm' is included here (added later by migration 095) because
+-- the release lane REPLAYS every migration in order on each deploy. Without it,
+-- replaying this DROP/ADD re-validates existing rows and fails once any
+-- 'needs_confirm' workflow exists, before 095 can widen the constraint again.
 ALTER TABLE one_kyc_workflows
   ADD CONSTRAINT one_kyc_workflows_status_check
     CHECK (status IN (
       'needs_client_connector',
       'needs_scope',
+      'needs_confirm',
       'needs_documents',
       'drafting',
       'waiting_on_user',

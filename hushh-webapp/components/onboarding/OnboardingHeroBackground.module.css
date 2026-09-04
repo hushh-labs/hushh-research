@@ -1,19 +1,23 @@
 .root {
   pointer-events: none;
-  position: absolute;
+  /* Fixed (viewport-anchored), not absolute (parent-box-anchored): this
+     background must always cover the full screen regardless of the exact
+     pixel height its parent page computes. An absolute position tied the
+     background's bottom edge to the parent's own (sometimes miscalculated)
+     height, producing a plain-page-background seam whenever that height
+     came up short of one real viewport. */
+  position: fixed;
   inset: 0;
+  z-index: -1;
   overflow: hidden;
 }
 
 .base {
   position: absolute;
   inset: 0;
-  background:
-    radial-gradient(circle at 4% 4%, rgba(197, 244, 237, 0.34), rgba(197, 244, 237, 0) 32%),
-    radial-gradient(circle at 100% 0%, rgba(207, 246, 237, 0.28), rgba(207, 246, 237, 0) 34%),
-    radial-gradient(circle at 0% 100%, rgba(255, 204, 226, 0.36), rgba(255, 204, 226, 0) 34%),
-    radial-gradient(circle at 100% 100%, rgba(255, 214, 179, 0.28), rgba(255, 214, 179, 0) 32%),
-    #fcf9f2;
+  /* The shared Foundation canvas owns the gradient. This route only adds its
+     optional motion layers, keeping every screen on the same surface. */
+  background: transparent;
 }
 
 .moteLayer {
@@ -36,7 +40,10 @@
   position: absolute;
   inset: 0;
   opacity: 0.05;
-  background-image: radial-gradient(rgba(154, 112, 56, 0.72) 0.5px, transparent 0.7px);
+  background-image: radial-gradient(
+    color-mix(in oklab, var(--foreground) 72%, transparent) 0.5px,
+    transparent 0.7px
+  );
   background-size: 4px 4px;
 }
 

@@ -84,7 +84,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let token = "\(CONSENT_TOKEN_PREFIX):\(encoded).\(signature)"
         let tokenId = String(token.prefix(32))
         
-        print("✅ [\(TAG)] Token issued for \(userId), scope: \(scope)")
+        print("✅ [\(TAG)] Token issued")
         
         call.resolve([
             "token": token,
@@ -141,10 +141,12 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
             return
         }
         let backendUrl = resolvedBackendUrl(call)
+        var body: [String: Any] = ["userId": userId, "scope": scope]
+        if let requestId = call.getString("requestId"), !requestId.isEmpty {
+            body["requestId"] = requestId
+        }
         
-        let body: [String: Any] = ["userId": userId, "scope": scope]
-        
-        print("🔒 [\(TAG)] Revoking consent for scope: \(scope)")
+        print("🔒 [\(TAG)] Revoking consent")
         
         performRequest(
             url: "\(backendUrl)/api/consent/revoke",
@@ -301,12 +303,12 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
         let backendUrl = resolvedBackendUrl(call)
         let body: [String: Any] = ["userId": userId]
         
-        print("[\(TAG)] Requesting VAULT_OWNER token for user: \(userId)")
+        print("[\(TAG)] Requesting VAULT_OWNER token")
         
         performRequest(url: "\(backendUrl)/api/consent/vault-owner-token", body: body, authToken: authToken) { result, error in
             if let error = error {
                 let errorMsg = "Failed to issue VAULT_OWNER token: \(error) | backendUrl: \(backendUrl)"
-                print("❌ [\(self.TAG)] VAULT_OWNER token request failed: \(errorMsg)")
+                print("❌ [\(self.TAG)] VAULT_OWNER token request failed")
                 call.reject(errorMsg)
                 return
             }
@@ -632,7 +634,7 @@ public class HushhConsentPlugin: CAPPlugin, CAPBridgedPlugin {
                     errorMsg += " | body: \(truncatedBody)"
                 }
                 errorMsg += " | backendUrl: \(url)"
-                print("❌ [HushhConsent] Request failed: \(errorMsg)")
+                print("❌ [HushhConsent] Request failed")
                 completion(nil, errorMsg)
                 return
             }

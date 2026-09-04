@@ -164,7 +164,7 @@ export function HistoryDetailView({
 
   if (embedded) {
     return (
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
         {showHeader ? (
           <Card variant="none" effect="glass" preset="default">
             <CardContent className="p-4">
@@ -276,7 +276,7 @@ export function HistoryDetailView({
         </div>
       </div>
       
-      <div className="mx-auto w-full space-y-4 pb-safe" style={APP_MEASURE_STYLES.reading}>
+      <div className="mx-auto w-full space-y-4" style={APP_MEASURE_STYLES.reading}>
 
 
       {/* Stored analysis badge */}
@@ -305,7 +305,7 @@ export function HistoryDetailView({
            <RoundTabsCard 
               roundNumber={1} 
               title="Initial Deep Analysis" 
-              description="Agents analyzed raw data independently."
+              description="Agents analyzed the source information independently."
               isCollapsed={collapsedRounds[1] ?? true} 
               onToggleCollapse={() => setCollapsedRounds(prev => ({ ...prev, 1: !prev[1] }))}
               agentStates={entry.debate_transcript.round1 as Record<string, AgentState>}

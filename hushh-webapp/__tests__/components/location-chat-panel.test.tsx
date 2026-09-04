@@ -111,10 +111,9 @@ describe("LocationChatPanel", () => {
     );
   });
 
-  it("renders a locked stub when there is no vault token", () => {
-    render(<LocationChatPanel vaultOwnerToken={null} />);
-    expect(screen.getByTestId("location-chat-panel")).toBeTruthy();
-    expect(screen.getByText(/unlock your vault/i)).toBeTruthy();
+  it("defers locked state to the canonical route vault gate", () => {
+    const view = render(<LocationChatPanel vaultOwnerToken={null} />);
+    expect(view.container).toBeEmptyDOMElement();
     expect(screen.queryByTestId("location-chat-input")).toBeNull();
   });
 });

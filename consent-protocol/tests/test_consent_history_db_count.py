@@ -69,7 +69,7 @@ class _FakeTable:
         return _FakeResponse(rows)
 
 
-class _FakeSupabase:
+class _FakeDb:
     def __init__(self, rows: list[dict], calls: list[tuple]):
         self._rows = rows
         self._calls = calls
@@ -83,11 +83,82 @@ class _FakeSupabase:
 
 def _service(rows: list[dict], calls: list[tuple], monkeypatch) -> ConsentDBService:
     service = ConsentDBService()
-    monkeypatch.setattr(service, "_get_supabase", lambda: _FakeSupabase(rows, calls))
+    monkeypatch.setattr(service, "_get_db", lambda: _FakeDb(rows, calls))
     return service
 
 
 class TestConsentCenterDbReads:
+    @pytest.mark.asyncio
+    async def test_live_views_hide_retired_source_library_authority(self, monkeypatch):
+        calls: list[tuple] = []
+        rows = [
+            {
+                "id": "source_pending",
+                "user_id": "firebase_uid",
+                "request_id": "req_source",
+                "action": "REQUESTED",
+                "agent_id": "developer:test",
+                "scope": "attr.source_library.knowledge.*",
+                "issued_at": 300,
+                "poll_timeout_at": None,
+            },
+            {
+                "id": "source_grant",
+                "user_id": "firebase_uid",
+                "request_id": "grant_source",
+                "action": "CONSENT_GRANTED",
+                "agent_id": "developer:test",
+                "scope": "attr.source_library.knowledge.*",
+                "issued_at": 200,
+                "expires_at": None,
+            },
+            {
+                "id": "financial_grant",
+                "user_id": "firebase_uid",
+                "request_id": "grant_financial",
+                "action": "CONSENT_GRANTED",
+                "agent_id": "developer:test",
+                "scope": "attr.financial.portfolio.*",
+                "issued_at": 100,
+                "expires_at": None,
+            },
+        ]
+        service = _service(rows, calls, monkeypatch)
+
+        pending = await service.get_pending_requests("firebase_uid")
+        active = await service.get_active_tokens("firebase_uid")
+
+        assert pending == []
+        assert [item["scope"] for item in active] == ["attr.financial.portfolio.*"]
+
+    @pytest.mark.asyncio
+    async def test_exact_retired_pending_lookup_remains_available_for_terminal_rejection(
+        self, monkeypatch
+    ):
+        calls: list[tuple] = []
+        rows = [
+            {
+                "id": "source_pending",
+                "user_id": "firebase_uid",
+                "request_id": "req_source",
+                "action": "REQUESTED",
+                "agent_id": "developer:test",
+                "scope": "attr.source_library.knowledge.*",
+                "issued_at": 300,
+                "poll_timeout_at": None,
+            }
+        ]
+        service = _service(rows, calls, monkeypatch)
+
+        pending = await service.get_pending_by_request_id("firebase_uid", "req_source")
+        opened = await service.mark_pending_request_opened(
+            user_id="firebase_uid", request_id="req_source"
+        )
+
+        assert pending is not None
+        assert pending["scope"] == "attr.source_library.knowledge.*"
+        assert opened is None
+
     @pytest.mark.asyncio
     async def test_pending_requests_accept_alias_user_ids(self, monkeypatch):
         calls: list[tuple] = []

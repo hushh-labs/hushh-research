@@ -151,6 +151,12 @@ export interface StreamingAccordionProps {
   bodyClassName?: string;
   /** Message shown while streaming if no text has arrived yet */
   emptyStreamingMessage?: string;
+  /**
+   * `flat` lets an owning Morphy surface provide the only visual container.
+   * It prevents the nested-card outline that made streamed analysis look like
+   * a panel inside another panel.
+   */
+  surface?: "card" | "flat";
 }
 
 // ============================================================================
@@ -174,6 +180,7 @@ export function StreamingAccordion({
   autoCollapseOnComplete = true,
   bodyClassName,
   emptyStreamingMessage = "Preparing stream...",
+  surface = "card",
 }: StreamingAccordionProps) {
 
   // Accordion open state
@@ -411,12 +418,19 @@ export function StreamingAccordion({
       onValueChange={handleValueChange}
       className={cn("w-full", className)}
     >
-      <AccordionPrimitive.Item value={id} className="border rounded-lg overflow-hidden">
+      <AccordionPrimitive.Item
+        value={id}
+        className={cn(
+          "overflow-hidden",
+          surface === "card" ? "rounded-lg border" : "rounded-none border-0",
+        )}
+      >
         <AccordionPrimitive.Header className="flex">
           <AccordionPrimitive.Trigger
             className={cn(
-              "flex flex-1 items-center justify-between gap-3 px-4 py-3",
-              "text-left text-sm font-medium transition-all",
+              "flex flex-1 items-center justify-between gap-3",
+              surface === "card" ? "px-4 py-3" : "px-0 py-2",
+              "text-left text-sm font-semibold transition-all",
               "hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               "[&[data-state=open]>svg.chevron]:rotate-180"
             )}
@@ -453,7 +467,8 @@ export function StreamingAccordion({
             <div
               ref={contentRef}
               className={cn(
-                "overflow-y-auto overscroll-contain px-4 pb-4",
+                "overflow-y-auto overscroll-contain",
+                surface === "card" ? "px-4 pb-4" : "px-0 pb-2",
                 "scrollbar-thin scrollbar-thumb-muted scrollbar-track-transparent"
               )}
               style={{ maxHeight }}
@@ -484,7 +499,7 @@ export function StreamingAccordion({
                 className={cn(
                   "absolute bottom-2 left-1/2 -translate-x-1/2 z-10",
                   "px-3 py-1.5 rounded-full",
-                  "bg-primary text-primary-foreground text-xs font-medium",
+                  "bg-primary text-primary-foreground text-xs font-semibold",
                   "shadow-lg hover:shadow-xl transition-all",
                   "animate-in fade-in slide-in-from-bottom-2",
                   "flex items-center gap-1.5"

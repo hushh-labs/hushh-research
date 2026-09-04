@@ -1,0 +1,851 @@
+{
+  "contractVersion": "0.4.0",
+  "resources": [],
+  "server": {
+    "instructions": {
+      "consent_flow": [
+        "Search for the narrowest available scope.",
+        "Request consent or prepare consent-backed offer context.",
+        "Wait for a terminal lifecycle state before export retrieval.",
+        "Decrypt hosted ciphertext only in the connector, outside the model."
+      ]
+    },
+    "name": "Hushh Consent MCP Server",
+    "version": "0.4.0"
+  },
+  "tools": [
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Search user scopes"
+      },
+      "description": "Finds consent scopes available for one registered user. Use this before request-consent to choose the narrowest scope. Returns only scope strings and pagination state.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "country": {
+            "description": "Optional country name used for phone resolution when country_iso2 is absent.",
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Country name",
+            "type": "string"
+          },
+          "country_iso2": {
+            "description": "Optional two-letter ISO country code used for phone resolution.",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country ISO 3166-1 alpha-2 code",
+            "type": "string"
+          },
+          "cursor": {
+            "description": "Optional cursor returned by the previous search-user-scopes call.",
+            "maxLength": 64,
+            "title": "Pagination cursor",
+            "type": "string"
+          },
+          "domain": {
+            "description": "Optional lower-case domain filter such as financial.",
+            "maxLength": 64,
+            "title": "Scope domain",
+            "type": "string"
+          },
+          "limit": {
+            "description": "Maximum number of scopes to return, from 1 through 50.",
+            "maximum": 50,
+            "minimum": 1,
+            "title": "Result limit",
+            "type": "integer"
+          },
+          "query": {
+            "description": "Optional search text. Leave empty to list all scopes.",
+            "maxLength": 200,
+            "title": "Scope search text",
+            "type": "string"
+          },
+          "user_identifier": {
+            "description": "Registered email address, phone number, or Hussh account identifier. Hussh resolves it internally and never returns it.",
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "User identifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_identifier"
+        ],
+        "title": "Search user scopes input",
+        "type": "object"
+      },
+      "name": "search-user-scopes",
+      "outputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "has_more": {
+            "description": "True when another page of scopes is available.",
+            "title": "More results available",
+            "type": "boolean"
+          },
+          "next_cursor": {
+            "description": "Cursor for the next page, or an empty string when no next page exists.",
+            "maxLength": 64,
+            "title": "Next-page cursor",
+            "type": "string"
+          },
+          "scope_values": {
+            "description": "Available scope strings. Use one unchanged in request-consent.",
+            "items": {
+              "description": "One least-privilege scope value.",
+              "maxLength": 200,
+              "type": "string"
+            },
+            "maxItems": 50,
+            "title": "Available consent scopes",
+            "type": "array"
+          },
+          "status": {
+            "description": "Result status. A successful call returns success.",
+            "title": "Lifecycle status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "scope_values",
+          "next_cursor",
+          "has_more"
+        ],
+        "title": "Search user scopes output",
+        "type": "object"
+      },
+      "title": "Search user scopes"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Prepare consent-backed offer context"
+      },
+      "description": "Prepares a least-privilege consent-backed offer or experience context for one user. It selects an available scope, creates or reuses consent, and returns safe lifecycle state for an agent or frontend.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "approval_timeout_minutes": {
+            "description": "How long Hussh waits for approval, from 5 through 1440 minutes.",
+            "maximum": 1440,
+            "minimum": 5,
+            "title": "Approval timeout minutes",
+            "type": "integer"
+          },
+          "campaign_goal": {
+            "description": "Plain-language goal for the offer or experience.",
+            "maxLength": 500,
+            "minLength": 8,
+            "title": "Offer goal",
+            "type": "string"
+          },
+          "country": {
+            "description": "Optional country name used for phone resolution when country_iso2 is absent.",
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Country name",
+            "type": "string"
+          },
+          "country_iso2": {
+            "description": "Optional two-letter ISO country code used for phone resolution.",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country ISO 3166-1 alpha-2 code",
+            "type": "string"
+          },
+          "expiry_hours": {
+            "description": "How long an approved grant remains valid, from 24 through 2160 hours.",
+            "maximum": 2160,
+            "minimum": 24,
+            "title": "Expiry hours",
+            "type": "integer"
+          },
+          "fetch_export_metadata": {
+            "description": "Whether to report encrypted-export readiness after an already granted request.",
+            "title": "Fetch export metadata",
+            "type": "boolean"
+          },
+          "offer_amount": {
+            "description": "Optional amount offered for the approved consent. This records an offer; it does not settle payment.",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000,
+            "title": "Offer amount",
+            "type": "number"
+          },
+          "offer_currency": {
+            "description": "Optional ISO 4217 offer currency such as USD.",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Offer currency",
+            "type": "string"
+          },
+          "offer_summary": {
+            "description": "Optional user-facing summary of the offer.",
+            "maxLength": 500,
+            "title": "Offer summary",
+            "type": "string"
+          },
+          "poll_seconds": {
+            "description": "Optional bounded in-call wait for lifecycle state, from 0 through 90 seconds.",
+            "maximum": 90,
+            "minimum": 0,
+            "title": "Offer polling window seconds",
+            "type": "integer"
+          },
+          "preferred_context": {
+            "description": "Optional scope preference. Use auto to let Hussh select the least-privilege match.",
+            "maxLength": 256,
+            "title": "Preferred context",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "Plain-language purpose displayed to the user for this consent request.",
+            "maxLength": 280,
+            "minLength": 8,
+            "title": "Consent purpose",
+            "type": "string"
+          },
+          "refresh_policy": {
+            "description": "Use snapshot for one export or continuous_until_expiry for approved refreshes.",
+            "enum": [
+              "snapshot",
+              "continuous_until_expiry"
+            ],
+            "title": "Grant refresh policy",
+            "type": "string"
+          },
+          "settlement_ref": {
+            "description": "Optional opaque settlement reference owned by the caller.",
+            "maxLength": 128,
+            "title": "Settlement reference",
+            "type": "string"
+          },
+          "surface": {
+            "description": "Optional experience surface using this context.",
+            "maxLength": 80,
+            "title": "Experience surface",
+            "type": "string"
+          },
+          "user_identifier": {
+            "description": "Registered email address, phone number, or Hussh account identifier. Hussh resolves it internally and never returns it.",
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "User identifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_identifier"
+        ],
+        "title": "Prepare consent-backed offer context input",
+        "type": "object"
+      },
+      "name": "prepare-campaign-context",
+      "outputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "approval_required": {
+            "description": "True when the person must still review the consent request.",
+            "title": "Approval required",
+            "type": "boolean"
+          },
+          "approval_timeout_at": {
+            "description": "Unix epoch milliseconds when approval polling should stop, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Approval timeout time",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Expiry time",
+            "type": "integer"
+          },
+          "export_metadata_ready": {
+            "description": "True when an approved encrypted export is ready for connector-side retrieval.",
+            "title": "Export metadata ready",
+            "type": "boolean"
+          },
+          "export_revision": {
+            "description": "Encrypted export revision, or zero when not ready.",
+            "minimum": 0,
+            "title": "Export revision",
+            "type": "integer"
+          },
+          "grant_ref": {
+            "description": "Opaque approved-grant reference, or an empty string while pending.",
+            "maxLength": 64,
+            "title": "Consent grant reference",
+            "type": "string"
+          },
+          "offer_amount": {
+            "description": "Recorded offer amount, or zero when no offer was supplied.",
+            "minimum": 0,
+            "title": "Offer amount",
+            "type": "number"
+          },
+          "offer_currency": {
+            "description": "Recorded offer currency, or an empty string when no offer was supplied.",
+            "maxLength": 3,
+            "title": "Offer currency",
+            "type": "string"
+          },
+          "offer_status": {
+            "description": "Offer state. An approved consent remains pending user clearance for settlement.",
+            "maxLength": 64,
+            "title": "Offer status",
+            "type": "string"
+          },
+          "offer_summary": {
+            "description": "Recorded offer summary, or an empty string when no offer was supplied.",
+            "maxLength": 500,
+            "title": "Offer summary",
+            "type": "string"
+          },
+          "poll_after_seconds": {
+            "description": "Minimum delay before another status check, or zero when terminal.",
+            "minimum": 0,
+            "title": "Polling delay seconds",
+            "type": "integer"
+          },
+          "request_ref": {
+            "description": "Opaque pending-request reference, or an empty string after approval.",
+            "maxLength": 64,
+            "title": "Consent request reference",
+            "type": "string"
+          },
+          "selected_scope": {
+            "description": "Least-privilege scope selected for this offer or context.",
+            "maxLength": 200,
+            "title": "Selected consent scope",
+            "type": "string"
+          },
+          "selected_scope_label": {
+            "description": "User-facing label for the selected scope.",
+            "maxLength": 120,
+            "title": "Selected scope label",
+            "type": "string"
+          },
+          "settlement_ref": {
+            "description": "Caller settlement reference, or an empty string when none was supplied.",
+            "maxLength": 128,
+            "title": "Settlement reference",
+            "type": "string"
+          },
+          "status": {
+            "description": "Consent lifecycle state.",
+            "title": "Lifecycle status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "selected_scope",
+          "selected_scope_label",
+          "request_ref",
+          "grant_ref",
+          "approval_required",
+          "poll_after_seconds",
+          "expires_at",
+          "approval_timeout_at",
+          "export_metadata_ready",
+          "export_revision",
+          "offer_amount",
+          "offer_currency",
+          "offer_summary",
+          "settlement_ref",
+          "offer_status"
+        ],
+        "title": "Prepare consent-backed offer context output",
+        "type": "object"
+      },
+      "title": "Prepare consent-backed offer context"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": false,
+        "title": "Request consent"
+      },
+      "description": "Creates or reuses a least-privilege consent request for one user. Use after search-user-scopes. The user must approve before encrypted retrieval is available.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "approval_timeout_minutes": {
+            "description": "How long Hussh waits for user approval, from 5 through 1440 minutes.",
+            "maximum": 1440,
+            "minimum": 5,
+            "title": "Approval timeout minutes",
+            "type": "integer"
+          },
+          "connector_key_id": {
+            "description": "Optional connector key identifier. Supply it with the public key and wrapping algorithm for an unregistered connector; a registered app may omit it or must supply the exact registered value.",
+            "maxLength": 128,
+            "minLength": 1,
+            "title": "Connector key identifier",
+            "type": "string"
+          },
+          "connector_public_key": {
+            "description": "Optional connector X25519 public key. An unregistered connector supplies the complete key bundle per request; a registered app may omit it or must supply the exact registered value.",
+            "maxLength": 128,
+            "minLength": 40,
+            "title": "Connector public key",
+            "type": "string"
+          },
+          "connector_wrapping_alg": {
+            "description": "Optional wrapping algorithm. It must be X25519-AES256-GCM and is supplied with an unregistered connector key bundle; a registered app may omit it or must supply the exact registered value.",
+            "enum": [
+              "X25519-AES256-GCM"
+            ],
+            "title": "Connector wrapping algorithm",
+            "type": "string"
+          },
+          "country": {
+            "description": "Optional country name used for phone resolution when country_iso2 is absent.",
+            "maxLength": 64,
+            "minLength": 2,
+            "title": "Country name",
+            "type": "string"
+          },
+          "country_iso2": {
+            "description": "Optional two-letter ISO country code used for phone resolution.",
+            "maxLength": 2,
+            "minLength": 2,
+            "title": "Country ISO 3166-1 alpha-2 code",
+            "type": "string"
+          },
+          "expiry_hours": {
+            "description": "How long an approved grant remains valid, from 24 through 2160 hours.",
+            "maximum": 2160,
+            "minimum": 24,
+            "title": "Expiry hours",
+            "type": "integer"
+          },
+          "offer_amount": {
+            "description": "Optional amount offered for the approved consent. This records an offer; it does not settle payment.",
+            "exclusiveMinimum": 0,
+            "maximum": 1000000,
+            "title": "Offer amount",
+            "type": "number"
+          },
+          "offer_currency": {
+            "description": "Optional ISO 4217 offer currency such as USD.",
+            "maxLength": 3,
+            "minLength": 3,
+            "title": "Offer currency",
+            "type": "string"
+          },
+          "offer_summary": {
+            "description": "Optional user-facing summary of the offer.",
+            "maxLength": 500,
+            "title": "Offer summary",
+            "type": "string"
+          },
+          "purpose": {
+            "description": "Plain-language purpose displayed to the user for this consent request.",
+            "maxLength": 280,
+            "minLength": 8,
+            "title": "Consent purpose",
+            "type": "string"
+          },
+          "refresh_policy": {
+            "description": "Use snapshot for one export or continuous_until_expiry for approved refreshes.",
+            "enum": [
+              "snapshot",
+              "continuous_until_expiry"
+            ],
+            "title": "Grant refresh policy",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Least-privilege scope returned by search-user-scopes. Preserve the value exactly when requesting consent.",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^attr(?:\\.[a-z][a-z0-9_]{0,63})+\\.\\*$",
+            "title": "Consent scope",
+            "type": "string"
+          },
+          "settlement_ref": {
+            "description": "Optional opaque settlement reference owned by the caller.",
+            "maxLength": 128,
+            "title": "Settlement reference",
+            "type": "string"
+          },
+          "user_identifier": {
+            "description": "Registered email address, phone number, or Hussh account identifier. Hussh resolves it internally and never returns it.",
+            "maxLength": 320,
+            "minLength": 1,
+            "title": "User identifier",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_identifier",
+          "scope",
+          "purpose"
+        ],
+        "title": "Request consent input",
+        "type": "object"
+      },
+      "name": "request-consent",
+      "outputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "approval_timeout_at": {
+            "description": "Unix epoch milliseconds when approval polling should stop, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Approval timeout time",
+            "type": "integer"
+          },
+          "coverage_kind": {
+            "description": "Coverage relationship between requested and granted scope, or an empty string when pending.",
+            "maxLength": 64,
+            "title": "Scope coverage kind",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Expiry time",
+            "type": "integer"
+          },
+          "grant_ref": {
+            "description": "Opaque approved-grant reference, or an empty string while pending.",
+            "maxLength": 64,
+            "title": "Consent grant reference",
+            "type": "string"
+          },
+          "offer_amount": {
+            "description": "Recorded offer amount, or zero when no offer was supplied.",
+            "minimum": 0,
+            "title": "Offer amount",
+            "type": "number"
+          },
+          "offer_currency": {
+            "description": "Recorded offer currency, or an empty string when no offer was supplied.",
+            "maxLength": 3,
+            "title": "Offer currency",
+            "type": "string"
+          },
+          "offer_status": {
+            "description": "Offer state, or an empty string when no offer was supplied.",
+            "maxLength": 64,
+            "title": "Offer status",
+            "type": "string"
+          },
+          "offer_summary": {
+            "description": "Recorded offer summary, or an empty string when no offer was supplied.",
+            "maxLength": 500,
+            "title": "Offer summary",
+            "type": "string"
+          },
+          "poll_after_seconds": {
+            "description": "Minimum delay before polling check-consent-status, or zero when terminal.",
+            "minimum": 0,
+            "title": "Polling delay seconds",
+            "type": "integer"
+          },
+          "request_ref": {
+            "description": "Opaque pending-request reference, or an empty string after approval.",
+            "maxLength": 64,
+            "title": "Consent request reference",
+            "type": "string"
+          },
+          "scope": {
+            "description": "Scope evaluated by this request.",
+            "maxLength": 200,
+            "title": "Consent scope",
+            "type": "string"
+          },
+          "settlement_ref": {
+            "description": "Caller settlement reference, or an empty string when none was supplied.",
+            "maxLength": 128,
+            "title": "Settlement reference",
+            "type": "string"
+          },
+          "status": {
+            "description": "Consent lifecycle state, for example pending or granted.",
+            "title": "Lifecycle status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "scope",
+          "request_ref",
+          "grant_ref",
+          "expires_at",
+          "poll_after_seconds",
+          "approval_timeout_at",
+          "coverage_kind",
+          "offer_amount",
+          "offer_currency",
+          "offer_summary",
+          "settlement_ref",
+          "offer_status"
+        ],
+        "title": "Request consent output",
+        "type": "object"
+      },
+      "title": "Request consent"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Check consent status"
+      },
+      "description": "Checks one consent request previously returned by request-consent. Poll no faster than poll_after_seconds and stop at a terminal state.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "request_ref": {
+            "description": "Opaque request reference returned by request-consent.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Consent request reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "request_ref"
+        ],
+        "title": "Check consent status input",
+        "type": "object"
+      },
+      "name": "check-consent-status",
+      "outputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "approval_timeout_at": {
+            "description": "Unix epoch milliseconds when polling should stop, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Approval timeout time",
+            "type": "integer"
+          },
+          "expires_at": {
+            "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Expiry time",
+            "type": "integer"
+          },
+          "grant_ref": {
+            "description": "Opaque approved-grant reference, or an empty string until granted.",
+            "maxLength": 64,
+            "title": "Consent grant reference",
+            "type": "string"
+          },
+          "poll_after_seconds": {
+            "description": "Minimum delay before another status check, or zero when terminal.",
+            "minimum": 0,
+            "title": "Polling delay seconds",
+            "type": "integer"
+          },
+          "status": {
+            "description": "Current consent lifecycle state.",
+            "title": "Lifecycle status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "grant_ref",
+          "expires_at",
+          "poll_after_seconds",
+          "approval_timeout_at"
+        ],
+        "title": "Check consent status output",
+        "type": "object"
+      },
+      "title": "Check consent status"
+    },
+    {
+      "annotations": {
+        "destructiveHint": false,
+        "idempotentHint": true,
+        "openWorldHint": false,
+        "readOnlyHint": true,
+        "title": "Get encrypted scoped export"
+      },
+      "description": "Secure connector delivery only: retrieves ciphertext for an approved grant. Use only after check-consent-status returns a grant_ref. Never display, interpret, or decrypt this result in an LLM; the registered connector decrypts it outside the model.",
+      "inputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "expected_scope": {
+            "description": "Least-privilege scope returned by search-user-scopes. Preserve the value exactly when requesting consent.",
+            "maxLength": 200,
+            "minLength": 3,
+            "pattern": "^attr(?:\\.[a-z][a-z0-9_]{0,63})+\\.\\*$",
+            "title": "Expected scope",
+            "type": "string"
+          },
+          "grant_ref": {
+            "description": "Opaque approved-grant reference returned by request-consent or check-consent-status.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Consent grant reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "grant_ref",
+          "expected_scope"
+        ],
+        "title": "Get encrypted scoped export input",
+        "type": "object"
+      },
+      "name": "get-encrypted-scoped-export",
+      "outputSchema": {
+        "additionalProperties": false,
+        "description": "A flat, capability-safe field set.",
+        "properties": {
+          "ciphertext": {
+            "description": "Base64 ciphertext. Never treat it as plaintext or model context.",
+            "title": "Encrypted ciphertext",
+            "type": "string"
+          },
+          "connector_key_id": {
+            "description": "Registered partner key identifier that must select the matching private key.",
+            "maxLength": 128,
+            "title": "Connector key identifier",
+            "type": "string"
+          },
+          "delivery": {
+            "description": "Delivery mode. Trusted hosted connectors receive encrypted_inline; trusted local stdio may receive decrypted_local. Decrypt outside every language-model context.",
+            "title": "Delivery mode",
+            "type": "string"
+          },
+          "expected_scope": {
+            "description": "Scope requested for this export.",
+            "maxLength": 200,
+            "title": "Expected scope",
+            "type": "string"
+          },
+          "expires_at": {
+            "description": "Unix epoch milliseconds when the grant expires, or zero when unavailable.",
+            "minimum": 0,
+            "title": "Expiry time",
+            "type": "integer"
+          },
+          "export_envelope_json": {
+            "description": "Canonical JSON envelope for partner-side integrity validation and decryption.",
+            "maxLength": 20000,
+            "title": "Encrypted export envelope JSON",
+            "type": "string"
+          },
+          "export_revision": {
+            "description": "Positive revision number of this encrypted export.",
+            "minimum": 1,
+            "title": "Export revision",
+            "type": "integer"
+          },
+          "granted_scope": {
+            "description": "Approved scope that covers the requested scope.",
+            "maxLength": 200,
+            "title": "Granted scope",
+            "type": "string"
+          },
+          "information_json": {
+            "description": "Reserved for a trusted local stdio connector. Hosted responses, including MuleSoft and Agentforce relays, always return an empty string.",
+            "maxLength": 120000,
+            "title": "Locally decrypted information JSON",
+            "type": "string"
+          },
+          "payload_iv": {
+            "description": "Base64 initialization vector for the ciphertext payload.",
+            "maxLength": 512,
+            "title": "Payload initialization vector",
+            "type": "string"
+          },
+          "payload_tag": {
+            "description": "Base64 authentication tag for the ciphertext payload.",
+            "maxLength": 512,
+            "title": "Payload authentication tag",
+            "type": "string"
+          },
+          "sender_public_key": {
+            "description": "Base64 ephemeral X25519 public key used for key agreement.",
+            "maxLength": 512,
+            "title": "Sender public key",
+            "type": "string"
+          },
+          "status": {
+            "description": "Result status. A successful call returns success.",
+            "title": "Lifecycle status",
+            "type": "string"
+          },
+          "wrapped_export_key": {
+            "description": "Base64 wrapped symmetric export key.",
+            "maxLength": 2048,
+            "title": "Wrapped export key",
+            "type": "string"
+          },
+          "wrapped_key_iv": {
+            "description": "Base64 initialization vector for wrapped_export_key.",
+            "maxLength": 512,
+            "title": "Wrapped-key initialization vector",
+            "type": "string"
+          },
+          "wrapped_key_tag": {
+            "description": "Base64 authentication tag for wrapped_export_key.",
+            "maxLength": 512,
+            "title": "Wrapped-key authentication tag",
+            "type": "string"
+          },
+          "wrapping_alg": {
+            "description": "Key-wrapping algorithm. Always X25519-AES256-GCM.",
+            "enum": [
+              "X25519-AES256-GCM"
+            ],
+            "title": "Key wrapping algorithm",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "delivery",
+          "expected_scope",
+          "granted_scope",
+          "expires_at",
+          "export_revision",
+          "ciphertext",
+          "payload_iv",
+          "payload_tag",
+          "wrapped_export_key",
+          "wrapped_key_iv",
+          "wrapped_key_tag",
+          "sender_public_key",
+          "connector_key_id",
+          "wrapping_alg",
+          "export_envelope_json",
+          "information_json"
+        ],
+        "title": "Get encrypted scoped export output",
+        "type": "object"
+      },
+      "title": "Get encrypted scoped export"
+    }
+  ]
+}

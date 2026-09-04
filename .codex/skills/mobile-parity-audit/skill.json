@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "mobile-native",
   "primary_scope": "mobile-parity-audit",
-  "description": "Use when auditing mobile/native parity, release readiness, or platform-specific coverage across the Hussh app.",
+  "description": "Use when auditing mobile/native parity, release readiness, the native route inventory report, or platform-specific coverage gates across the Hussh app.",
   "owned_paths": [
     "docs/reference/mobile",
     "hushh-webapp/scripts/native",
@@ -26,19 +26,19 @@
   ],
   "required_commands": [
     "cd hushh-webapp && npm run verify:capacitor:static",
-    "cd hushh-webapp && npm run cap:build",
-    "cd hushh-webapp && npm run ios:test"
+    "cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon",
+    "cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/App/build/DerivedData build-for-testing"
   ],
   "verification_bundles": [
     {
       "id": "mobile-parity-audit",
       "commands": [
         "cd hushh-webapp && npm run verify:capacitor:static",
-        "cd hushh-webapp && npm run cap:build",
-        "cd hushh-webapp && npm run ios:test"
+        "cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon",
+        "cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk iphonesimulator -destination 'generic/platform=iOS Simulator' -derivedDataPath ios/App/build/DerivedData build-for-testing"
       ],
       "tests": [
-        "cd hushh-webapp && npm run ios:test"
+        "cd hushh-webapp && ./android/gradlew -p android :app:testDebugUnitTest --no-daemon"
       ]
     }
   ],

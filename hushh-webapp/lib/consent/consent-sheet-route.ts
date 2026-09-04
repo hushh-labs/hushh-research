@@ -27,6 +27,7 @@ const INTERNAL_APP_ROUTE_PREFIXES = [
   ROUTES.HOME,
   ROUTES.ONE_HOME,
   ROUTES.CONSENTS,
+  ROUTES.LEGACY_CONSENTS,
   ROUTES.PROFILE,
   ROUTES.CONNECTED_SYSTEMS,
   ROUTES.ONE_KYC,
@@ -158,7 +159,7 @@ export function normalizeInternalAppHref(href: string | null | undefined): strin
   const trimmed = String(href || "").trim();
   if (!trimmed) return null;
   if (trimmed.startsWith("/") && isKnownInternalAppPath(trimmed.split("?")[0] || trimmed)) {
-    return trimmed;
+    return canonicalizeConsentWorkspaceHref(trimmed);
   }
 
   try {
@@ -167,10 +168,18 @@ export function normalizeInternalAppHref(href: string | null | undefined): strin
       return trimmed;
     }
     const query = `${parsed.search || ""}${parsed.hash || ""}`;
-    return `${parsed.pathname}${query}`;
+    return canonicalizeConsentWorkspaceHref(`${parsed.pathname}${query}`);
   } catch {
     return trimmed;
   }
+}
+
+function canonicalizeConsentWorkspaceHref(href: string): string {
+  const [pathname, suffix = ""] = href.split(/(?=[?#])/, 2);
+  if (pathname === ROUTES.LEGACY_CONSENTS) {
+    return `${ROUTES.CONSENTS}${suffix}`;
+  }
+  return href;
 }
 
 function appendFromIfNeeded(href: string, from: string | null | undefined): string {

@@ -22,11 +22,12 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import { usePathname } from "next/navigation";
+import { usePathname, useSearchParams } from "next/navigation";
 
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -40,6 +41,12 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { resolveEffectiveDisabledDomains } from "@/lib/agent/voice-engine-domains";
+import {
+  readVoicePreferences,
+  subscribeVoicePreferences,
+  type OneVoicePreferencesState,
+} from "@/lib/agent/voice-preferences";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
@@ -56,6 +63,10 @@ import {
 } from "@/lib/morphy-ax";
 import { getVoiceV2Flags } from "@/lib/voice/voice-feature-flags";
 import { useLocalOnboardingHandlerRevision } from "@/lib/agent/local-onboarding-actions";
+import {
+  deriveVoiceCapabilityState,
+  type VoiceCapabilityStateV1,
+} from "@/lib/voice/capability-projection";
 
 // The access tier the agent should operate at. This is what drives how the
 // bar presents itself and which persona the backend should compose.
@@ -94,6 +105,8 @@ export type AgentRuntimeState = {
   screen: string;
   /** Redacted One Voice snapshot safe for realtime prompt shaping. */
   oneVoiceContextSnapshot: OneVoiceContextSnapshot;
+  /** Redacted lifecycle and mounted-control state for action discovery. */
+  capabilityState: VoiceCapabilityStateV1;
   /** Pure, redacted Agent Experience snapshot; never an action authority. */
   morphyAxSnapshot: MorphyAxSnapshotV1;
   /** Shared presentation posture derived from the existing voice FSM. */
@@ -150,66 +163,17 @@ function resolveOnboardingPhase(params: {
 
 export function AgentRuntimeStateProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
+  const searchParams = useSearchParams();
   // This subscription is the runtime bridge between a route-local rendered
   // control and One's redacted snapshot. It carries authored metadata only;
   // no DOM inference or second action registry is involved.
   const surfaceMetadata = useVoiceSurfaceMetadata();
   const localHandlerRevision = useLocalOnboardingHandlerRevision();
-  // The query string is purely client runtime metadata (it shapes the derived
-  // voice route screen). We read it from window.location instead of
-  // useSearchParams() so this app-wide provider does not force a CSR Suspense
-  // bailout on every route (including statically-exported pages like /404).
-  const [routeQuery, setRouteQuery] = useState("");
-  useEffect(() => {
-    if (typeof window === "undefined") {
-      return;
-    }
-    const originalPushState = window.history.pushState;
-    const originalReplaceState = window.history.replaceState;
-    let syncTimer: number | null = null;
-    const syncNow = () => {
-      const search = window.location.search;
-      const next = search.startsWith("?") ? search.slice(1) : search;
-      // pushState/replaceState may be invoked synchronously from another
-      // component's useInsertionEffect (styling libs, the Next router). Setting
-      // state right here would schedule an update during that phase, which React
-      // forbids ("useInsertionEffect must not schedule updates"). Defer to a
-      // microtask so the update always lands outside the insertion-effect phase,
-      // and bail out when the query is unchanged to avoid extra renders.
-      queueMicrotask(() => {
-        setRouteQuery((prev) => (prev === next ? prev : next));
-      });
-    };
-    const scheduleSync = () => {
-      if (syncTimer !== null) {
-        window.clearTimeout(syncTimer);
-      }
-      syncTimer = window.setTimeout(() => {
-        syncTimer = null;
-        syncNow();
-      }, 0);
-    };
-    window.history.pushState = ((...args) => {
-      const result = originalPushState.apply(window.history, args);
-      scheduleSync();
-      return result;
-    }) as History["pushState"];
-    window.history.replaceState = ((...args) => {
-      const result = originalReplaceState.apply(window.history, args);
-      scheduleSync();
-      return result;
-    }) as History["replaceState"];
-    syncNow();
-    window.addEventListener("popstate", scheduleSync);
-    return () => {
-      if (syncTimer !== null) {
-        window.clearTimeout(syncTimer);
-      }
-      window.history.pushState = originalPushState;
-      window.history.replaceState = originalReplaceState;
-      window.removeEventListener("popstate", scheduleSync);
-    };
-  }, [pathname]);
+  // App Router is the query-state authority. This provider already lives under
+  // the root Suspense boundary, so subscribing here does not affect static
+  // export. Never wrap History: Next owns its insertion-effect settlement and
+  // native post-auth routing must not acquire a second route publisher.
+  const routeQuery = searchParams.toString();
   const { user } = useAuth();
   const {
     isVaultUnlocked,
@@ -222,7 +186,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
 
@@ -270,13 +236,36 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       const cached = cache.get<PreVaultUserState>(cacheKey);
       if (active && cached) setPreVaultState(cached);
     };
-    void PreVaultUserStateService.bootstrapState(uid)
-      .then((state) => {
-        if (active) setPreVaultState(state);
-      })
-      .catch(() => {
-        if (active) setPreVaultState(null);
-      });
+    const loadPreVaultState = () => {
+      void PreVaultUserStateService.bootstrapState(uid)
+        .then((state) => {
+          if (active) setPreVaultState(state);
+        })
+        .catch(() => {
+          if (active) setPreVaultState(null);
+        });
+    };
+    const isGmailRoute =
+      path.startsWith("/one/gmail") ||
+      path.startsWith("/one/setup/gmail") ||
+      path.startsWith("/one/email");
+    let cancelIdle: (() => void) | null = null;
+    if (isGmailRoute && typeof window !== "undefined") {
+      if ("requestIdleCallback" in window) {
+        const requestIdle = window.requestIdleCallback as (
+          callback: IdleRequestCallback,
+          options?: IdleRequestOptions,
+        ) => number;
+        const cancel = window.cancelIdleCallback as (handle: number) => void;
+        const handle = requestIdle(loadPreVaultState, { timeout: 4_000 });
+        cancelIdle = () => cancel(handle);
+      } else {
+        const timeout = globalThis.setTimeout(loadPreVaultState, 1_000);
+        cancelIdle = () => globalThis.clearTimeout(timeout);
+      }
+    } else {
+      loadPreVaultState();
+    }
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" && event.key === cacheKey) {
         refreshFromCache();
@@ -296,9 +285,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     });
     return () => {
       active = false;
+      cancelIdle?.();
       unsubscribe();
     };
-  }, [uid]);
+  }, [path, uid]);
 
   // hasPortfolioData mirrors the cache-subscribed computation that previously
   // lived only inside the chat workspace, so the shared state stays in sync as
@@ -323,6 +313,15 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       }
     });
     return () => unsubscribe();
+  }, [uid]);
+
+  const [voicePreferences, setVoicePreferences] = useState<OneVoicePreferencesState>(
+    () => readVoicePreferences(uid),
+  );
+  useEffect(() => {
+    setVoicePreferences(readVoicePreferences(uid));
+    if (!uid) return;
+    return subscribeVoicePreferences(uid, setVoicePreferences);
   }, [uid]);
 
   const availablePersonas = useMemo(() => {
@@ -374,6 +373,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         transition_target: personaTransitionTarget,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: voiceActive,
@@ -386,6 +386,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       activeAnalysisTicker,
       activePersona,
       availablePersonas,
+      riaOnboardingComplete,
       busyOperations,
       hasPortfolioData,
       isVaultUnlocked,
@@ -426,6 +427,15 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         surfaceMetadata,
         state: oneVoiceState,
         lastTransition: lastVoiceTransition,
+        voiceSettings: {
+          voiceEnabled: voicePreferences.voiceEnabled,
+          requireTapConfirmation: voicePreferences.requireTapConfirmation,
+          // Unenforced domains have no switch, so a key left over from when
+          // they did must not keep restricting voice with no way to undo it.
+          disabledDomains: resolveEffectiveDisabledDomains(
+            voicePreferences.disabledDomains,
+          ),
+        },
         onboarding: {
           phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))
             ? resolveOnboardingPhase({
@@ -457,6 +467,10 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       const oneVoiceContextSnapshot = morphyAxEnabled
         ? toOneVoiceContextSnapshot(morphyAxSnapshot, compatibilitySnapshot)
         : compatibilitySnapshot;
+      const capabilityState = deriveVoiceCapabilityState({
+        appRuntimeState,
+        snapshot: oneVoiceContextSnapshot,
+      });
       return {
         appRuntimeState,
         tier,
@@ -466,6 +480,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         activePersona,
         screen: routeInfo.screen,
         oneVoiceContextSnapshot,
+        capabilityState,
         morphyAxSnapshot,
         morphyAxPresentation: resolveMorphyAxPresentation(oneVoiceState),
         morphyAxEnabled,
@@ -486,6 +501,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       signedIn,
       surfaceMetadata,
       localHandlerRevision,
+      voicePreferences,
     ]
   );
 

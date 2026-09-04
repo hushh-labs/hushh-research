@@ -61,6 +61,7 @@ REQUIRED_WORKFLOW_KEYS = [
 ]
 EXPECTED_WORKFLOW_IDS = [
     "agent-orchestration-governance",
+    "runtime-topology-maintenance",
     "repo-orientation",
     "new-feature-tri-flow",
     "frontend-native-surface-map",
@@ -77,6 +78,7 @@ EXPECTED_WORKFLOW_IDS = [
     "pre-pr-readiness",
     "security-consent-audit",
     "mobile-parity-check",
+    "puppy-one-harness",
     "release-readiness",
     "docs-sync",
     "founder-brief-curation",
@@ -87,7 +89,7 @@ EXPECTED_WORKFLOW_IDS = [
     "community-response",
     "autonomous-rca-governance",
     "future-roadmap-plan",
-    "kai-voice-governance",
+    "one-voice-governance",
     "mcp-surface-change",
     "product-agent-development",
     "oss-license-governance",
@@ -96,6 +98,8 @@ EXPECTED_WORKFLOW_IDS = [
     "hushh-consent-mcp-ops",
     "ria-api-reference",
     "security-posture-maintenance",
+    "reviewer-app-rehearsal",
+    "pkm-upgrade-rehearsal",
 ]
 SPECIAL_HANDOFF_TOKENS = {"selected-owner-skill"}
 MEANINGFUL_SURFACES = [
@@ -177,6 +181,19 @@ TRUTH_FIRST_DOMAIN_PROBES = [
 ]
 FOUNDER_WIKI_REFERENCE = ".codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md"
 FOUNDER_WIKI_AUDIT_SCRIPT = ".codex/skills/codex-skill-authoring/scripts/founder_wiki_workspace_audit.py"
+ADMIN_RELEASE_REFERENCE = ".codex/skills/repo-operations/references/admin-release-sop.md"
+ADMIN_RELEASE_SKILL_IDS = {
+    "repo-operations",
+    "release-ios-appstore",
+    "uat-scoped-deploy",
+}
+ADMIN_RELEASE_WORKFLOW_IDS = {
+    "ci-watch-and-heal",
+    "pre-pr-readiness",
+    "pr-governance-review",
+    "release-readiness",
+    "uat-scoped-deploy",
+}
 
 
 def parse_frontmatter(text: str) -> dict[str, str]:
@@ -527,7 +544,14 @@ def validate_workflows(skill_manifests: dict[str, dict[str, Any]], errors: list[
     }
     issue_sections: dict[str, str] = {}
 
-    for workflow_dir in sorted(path for path in WORKFLOWS_ROOT.iterdir() if path.is_dir()):
+    # Empty directories are not repository state, but sync providers can retain
+    # them after a workflow rename. Validate only directories with authored files.
+    workflow_dirs = sorted(
+        path
+        for path in WORKFLOWS_ROOT.iterdir()
+        if path.is_dir() and any(path.iterdir())
+    )
+    for workflow_dir in workflow_dirs:
         workflow_path = workflow_dir / "workflow.json"
         playbook_path = workflow_dir / "PLAYBOOK.md"
         rel = workflow_dir.relative_to(REPO_ROOT)
@@ -624,9 +648,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     if comms_skill.exists():
         skill_text = comms_skill.read_text(encoding="utf-8")
         required_skill_phrases = [
-            "default to exactly two named outputs",
-            "`Brief reply`",
-            "`Detailed reply`",
+            "default to one sendable reply",
             "canonical GitHub markdown doc links on `main`, not repo-relative paths",
             "maintained top-level doc first",
             "Founder Wiki North-Star Probe",
@@ -642,10 +664,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         rules_text = reply_rules.read_text(encoding="utf-8")
         required_rules_phrases = [
             "All public links must be full GitHub URLs on `main`",
-            "default output must include exactly:",
-            "`Brief reply`",
-            "`Detailed reply`",
-            "`Firmer reply`",
+            "return one sendable answer by default",
             "Do not answer with repo-relative paths unless the user explicitly wants repo-local references.",
             "Keep normal Q&A lean",
             "Founder Wiki North-Star Probe",
@@ -660,7 +679,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
     if community_playbook.exists():
         playbook_text = community_playbook.read_text(encoding="utf-8")
         required_playbook_phrases = [
-            "For drafted reply/Q&A requests, default to:",
+            "For drafted reply/Q&A requests, default to one sendable reply.",
             "full GitHub `blob/main` links",
         ]
         for phrase in required_playbook_phrases:
@@ -675,8 +694,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         impact_fields = workflow.get("impact_fields", [])
         common_failures = workflow.get("common_failures", [])
         expected_deliverables = {
-            "Brief reply",
-            "Detailed reply",
+            "one sendable reply",
             "claim classification for material premise corrections",
             "repo-backed GitHub doc citations",
         }
@@ -685,7 +703,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 errors.append(
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response deliverable `{value}`"
                 )
-        expected_impacts = {"GitHub doc links used", "Claim classification used", "Reply variants provided"}
+        expected_impacts = {"GitHub doc links used", "Claim classification used", "Reply is immediately sendable"}
         for value in expected_impacts:
             if value not in impact_fields:
                 errors.append(
@@ -694,7 +712,7 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
         expected_failures = {
             "repo-relative paths instead of canonical GitHub doc links",
             "accepting contributor wording as repo truth",
-            "bloated drafted-reply variants beyond Brief/Detailed without need",
+            "unnecessary drafted-reply variants or memo structure",
         }
         for value in expected_failures:
             if value not in common_failures:
@@ -702,9 +720,9 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                     f"{community_workflow.relative_to(REPO_ROOT)}: missing community-response failure mode `{value}`"
                 )
         forbidden_values = {
-            "default reply variant",
-            "detailed reply variant",
-            "missing required drafted-reply variants",
+            "Brief reply",
+            "Detailed reply",
+            "optional firmer reply variant when correction is needed",
         }
         for value in forbidden_values:
             if value in deliverables or value in common_failures:
@@ -998,6 +1016,249 @@ def validate_special_skill_contracts(errors: list[str]) -> None:
                 )
 
 
+def validate_admin_release_contract(errors: list[str]) -> None:
+    reference_path = REPO_ROOT / ADMIN_RELEASE_REFERENCE
+    skill_contract_path = (
+        SKILLS_ROOT / "codex-skill-authoring" / "references" / "skill-contract.md"
+    )
+    if not reference_path.exists():
+        errors.append(f"missing canonical Admin release contract: {ADMIN_RELEASE_REFERENCE}")
+        return
+
+    reference_text = reference_path.read_text(encoding="utf-8")
+    normalized_reference_text = " ".join(reference_text.split())
+    required_phrases = [
+        "The ordinary path is PR validation followed by the GitHub merge queue.",
+        "An Admin PR landing is a queue bypass, not a validation bypass.",
+        "Admin PR landing preflight",
+        "--admin --merge --match-head-commit <head-sha>",
+        "Main Post-Merge Smoke Gate = success",
+        "The workflow compares the target SHA with each service's currently deployed SHA",
+        "Hosted Cloud Run UAT and production use their own governed GitHub environments and workload identities.",
+        "Report this truthfully as an Admin queue bypass.",
+        "Restore the preserved developer branch",
+    ]
+    for phrase in required_phrases:
+        if phrase not in normalized_reference_text:
+            errors.append(
+                f"{ADMIN_RELEASE_REFERENCE}: missing Admin release phrase `{phrase}`"
+            )
+
+    if not skill_contract_path.exists():
+        errors.append(
+            f"missing skill contract for Admin release inheritance: "
+            f"{skill_contract_path.relative_to(REPO_ROOT)}"
+        )
+    elif ADMIN_RELEASE_REFERENCE not in skill_contract_path.read_text(encoding="utf-8"):
+        errors.append(
+            f"{skill_contract_path.relative_to(REPO_ROOT)}: must inherit "
+            f"`{ADMIN_RELEASE_REFERENCE}`"
+        )
+
+    for skill_id in sorted(ADMIN_RELEASE_SKILL_IDS):
+        manifest_path = SKILLS_ROOT / skill_id / "skill.json"
+        if not manifest_path.exists():
+            errors.append(f"missing Admin release skill manifest: {skill_id}")
+            continue
+        manifest = load_json(manifest_path)
+        if ADMIN_RELEASE_REFERENCE not in manifest.get("required_reads", []):
+            errors.append(
+                f"{manifest_path.relative_to(REPO_ROOT)}: release-authority skill must "
+                f"require `{ADMIN_RELEASE_REFERENCE}`"
+            )
+
+    for workflow_id in sorted(ADMIN_RELEASE_WORKFLOW_IDS):
+        workflow_path = WORKFLOWS_ROOT / workflow_id / "workflow.json"
+        if not workflow_path.exists():
+            errors.append(f"missing Admin release workflow pack: {workflow_id}")
+            continue
+        workflow = load_json(workflow_path)
+        if ADMIN_RELEASE_REFERENCE not in workflow.get("required_reads", []):
+            errors.append(
+                f"{workflow_path.relative_to(REPO_ROOT)}: release-authority workflow "
+                f"must require `{ADMIN_RELEASE_REFERENCE}`"
+            )
+
+    pointer_paths = [
+        REPO_ROOT / "deploy/README.md",
+        REPO_ROOT / "docs/reference/operations/ci.md",
+        REPO_ROOT / "docs/reference/operations/branch-governance.md",
+        REPO_ROOT / "docs/guides/mobile/ship-ios-testflight.md",
+        REPO_ROOT / "docs/guides/mobile/release-ios-appstore.md",
+    ]
+    forbidden_shell_commands = [
+        "git push origin main",
+        "gcloud builds submit",
+        "gcloud run deploy",
+        "gcloud run services update ",
+        "gcloud run services update-traffic",
+    ]
+    for path in pointer_paths:
+        if not path.exists():
+            errors.append(f"missing Admin release pointer surface: {path.relative_to(REPO_ROOT)}")
+            continue
+        text = path.read_text(encoding="utf-8")
+        if ADMIN_RELEASE_REFERENCE not in text:
+            errors.append(
+                f"{path.relative_to(REPO_ROOT)}: must point to `{ADMIN_RELEASE_REFERENCE}`"
+            )
+        shell_blocks = re.findall(r"```(?:bash|sh)\s*\n(.*?)```", text, re.S | re.I)
+        for block in shell_blocks:
+            normalized_block = "\n".join(
+                line.strip().lower() for line in block.splitlines() if line.strip()
+            )
+            for command in forbidden_shell_commands:
+                if command in normalized_block:
+                    errors.append(
+                        f"{path.relative_to(REPO_ROOT)}: governed release docs must not "
+                        f"teach direct command `{command}`"
+                    )
+
+    legacy_claude_release_paths = [
+        REPO_ROOT / ".claude/skills/ship-discipline/SKILL.md",
+        REPO_ROOT / ".claude/skills/mobile-bug-log/SKILL.md",
+        REPO_ROOT / ".claude/skills/ship-ios-testflight/SKILL.md",
+        REPO_ROOT / ".claude/skills/release-ios-appstore/SKILL.md",
+    ]
+    for path in legacy_claude_release_paths:
+        if not path.exists():
+            errors.append(
+                f"missing governed legacy skill surface: {path.relative_to(REPO_ROOT)}"
+            )
+            continue
+        legacy_text = path.read_text(encoding="utf-8")
+        if ADMIN_RELEASE_REFERENCE not in legacy_text:
+            errors.append(
+                f"{path.relative_to(REPO_ROOT)}: legacy release-influencing skill must "
+                f"inherit `{ADMIN_RELEASE_REFERENCE}`"
+            )
+        shell_blocks = re.findall(
+            r"```(?:bash|sh)\s*\n(.*?)```", legacy_text, re.S | re.I
+        )
+        for block in shell_blocks:
+            normalized_block = "\n".join(
+                line.strip().lower() for line in block.splitlines() if line.strip()
+            )
+            for command in forbidden_shell_commands:
+                if command in normalized_block:
+                    errors.append(
+                        f"{path.relative_to(REPO_ROOT)}: legacy skill must not teach "
+                        f"direct release command `{command}`"
+                    )
+
+    legacy_release_bridges = [
+        REPO_ROOT / ".claude/skills/ship-ios-testflight/SKILL.md",
+        REPO_ROOT / ".claude/skills/release-ios-appstore/SKILL.md",
+    ]
+    for path in legacy_release_bridges:
+        if not path.exists():
+            continue
+        bridge_text = path.read_text(encoding="utf-8")
+        if "not a second release SOP" not in bridge_text and "not an independent release procedure" not in bridge_text:
+            errors.append(
+                f"{path.relative_to(REPO_ROOT)}: legacy release skill must be a canonical compatibility bridge"
+            )
+        if "KT/hushh-one-publish-safety-audit.md" in bridge_text:
+            errors.append(
+                f"{path.relative_to(REPO_ROOT)}: uncommitted working notes cannot be release authority"
+            )
+
+    governance_path = REPO_ROOT / "config/ci-governance.json"
+    if not governance_path.exists():
+        errors.append("missing deployment governance policy: config/ci-governance.json")
+        return
+    governance = load_json(governance_path)
+    post_merge_workflow = governance.get("uat", {}).get("post_merge_workflow")
+    post_merge_workflow_path = REPO_ROOT / ".github/workflows/main-post-merge-smoke.yml"
+    if not post_merge_workflow:
+        errors.append("config/ci-governance.json: missing uat.post_merge_workflow")
+    elif not post_merge_workflow_path.exists():
+        errors.append("missing post-merge workflow: .github/workflows/main-post-merge-smoke.yml")
+    else:
+        post_merge_workflow_text = post_merge_workflow_path.read_text(encoding="utf-8")
+        if f'name: "{post_merge_workflow}"' not in post_merge_workflow_text:
+            errors.append(
+                "config/ci-governance.json: uat.post_merge_workflow must match "
+                ".github/workflows/main-post-merge-smoke.yml"
+            )
+    workflow_contracts = {
+        "uat": REPO_ROOT / ".github/workflows/deploy-uat.yml",
+        "production": REPO_ROOT / ".github/workflows/deploy-production.yml",
+    }
+    common_markers = [
+        "workflow_dispatch:",
+        "GITHUB_REF_NAME",
+        "scripts/ci/assert-governed-actor.py",
+        "scripts/ci/require-deploy-sha-on-main.sh",
+        "scripts/ci/cloudrun-rollback.sh",
+        "exit 1",
+    ]
+    for environment, workflow_path in workflow_contracts.items():
+        if not workflow_path.exists():
+            errors.append(f"missing governed deploy workflow: {workflow_path.relative_to(REPO_ROOT)}")
+            continue
+        workflow_text = workflow_path.read_text(encoding="utf-8")
+        policy = governance.get(environment, {})
+        environment_name = policy.get("environment") or policy.get("owner_environment")
+        required_check = policy.get("required_post_merge_check")
+        environment_markers = [
+            *common_markers,
+            f"environment: {environment_name}",
+            f"--surface {environment}",
+            str(required_check),
+        ]
+        for marker in environment_markers:
+            if not marker or marker not in workflow_text:
+                errors.append(
+                    f"{workflow_path.relative_to(REPO_ROOT)}: missing governed deploy marker `{marker}`"
+                )
+
+    uat_workflow_text = workflow_contracts["uat"].read_text(encoding="utf-8")
+    for marker in [
+        "scripts/ci/resolve-deploy-scope.py",
+        "scripts/ci/verify-cloudrun-revision-provenance.py",
+        "Write UAT release status artifact",
+        "Upload UAT deploy artifacts",
+    ]:
+        if marker not in uat_workflow_text:
+            errors.append(
+                f".github/workflows/deploy-uat.yml: missing UAT release proof marker `{marker}`"
+            )
+
+    production_workflow_text = workflow_contracts["production"].read_text(encoding="utf-8")
+    for marker in [
+        "Verify production backend deployment provenance",
+        "Verify production frontend deployment provenance",
+        "scripts/ci/verify-cloudrun-revision-provenance.py",
+        "Write production release status artifact",
+        "Upload production deploy artifacts",
+        "/tmp/prod-release-status.json",
+    ]:
+        if marker not in production_workflow_text:
+            errors.append(
+                f".github/workflows/deploy-production.yml: missing production release proof marker `{marker}`"
+            )
+    promotion_failure_start = production_workflow_text.find(
+        'if [ "$PROMOTE_OUTCOME" = "failure" ]; then'
+    )
+    promotion_failure_end = production_workflow_text.find(
+        'if [ "$DEPLOY_BACKEND" = "true" ] && [ "$PROMOTE_OUTCOME" = "success" ]',
+        promotion_failure_start,
+    )
+    if promotion_failure_start < 0 or promotion_failure_end < 0:
+        errors.append(
+            ".github/workflows/deploy-production.yml: missing partial-promotion failure classification"
+        )
+    else:
+        body = production_workflow_text[promotion_failure_start:promotion_failure_end]
+        for marker in ["backend_failure=true", "frontend_failure=true"]:
+            if marker not in body:
+                errors.append(
+                    ".github/workflows/deploy-production.yml: partial promotion failure must "
+                    f"mark selected services for rollback (`{marker}`)"
+                )
+
+
 def validate_truth_first_contract(errors: list[str]) -> None:
     truth_reference = REPO_ROOT / TRUTH_FIRST_REFERENCE
     founder_wiki_reference = REPO_ROOT / FOUNDER_WIKI_REFERENCE
@@ -1128,9 +1389,9 @@ def validate_truth_first_contract(errors: list[str]) -> None:
     if community_workflow.exists():
         workflow = load_json(community_workflow)
         deliverables = workflow.get("deliverables", [])
-        if "Brief reply" not in deliverables or "Detailed reply" not in deliverables:
+        if "one sendable reply" not in deliverables:
             errors.append(
-                f"{community_workflow.relative_to(REPO_ROOT)}: community workflow must use Brief/Detailed reply outputs"
+                f"{community_workflow.relative_to(REPO_ROOT)}: community workflow must use one sendable reply output"
             )
 
 
@@ -1168,6 +1429,7 @@ def main() -> int:
     validate_workflows(skill_manifests, errors)
     validate_reference_budgets(errors)
     validate_special_skill_contracts(errors)
+    validate_admin_release_contract(errors)
     validate_truth_first_contract(errors)
 
     if errors:

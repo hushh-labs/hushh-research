@@ -95,4 +95,33 @@ describe("OneLocationService SOS additions", () => {
     expect("reason" in body).toBe(false);
   });
 
+  it("adds and removes owner-scoped SMS contacts through the Location API", async () => {
+    const addCalls = stubFetch({ smsContactUserIds: ["r1"] });
+    await expect(
+      OneLocationService.addSmsContact({
+        vaultOwnerToken: "tok",
+        recipientUserId: "r1",
+      }),
+    ).resolves.toEqual(["r1"]);
+    expect(addCalls[0]).toMatchObject({
+      url: "/api/one/location/sms-contacts",
+      init: {
+        method: "POST",
+        body: JSON.stringify({ recipientUserId: "r1" }),
+      },
+    });
+
+    const removeCalls = stubFetch({ smsContactUserIds: [] });
+    await expect(
+      OneLocationService.removeSmsContact({
+        vaultOwnerToken: "tok",
+        recipientUserId: "r1",
+      }),
+    ).resolves.toEqual([]);
+    expect(removeCalls[0]).toMatchObject({
+      url: "/api/one/location/sms-contacts/r1",
+      init: { method: "DELETE" },
+    });
+  });
+
 });

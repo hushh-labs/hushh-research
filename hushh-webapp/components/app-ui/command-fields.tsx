@@ -25,13 +25,20 @@ import { cn } from "@/lib/utils";
 
 // 1. Defined standard class names at the top for better maintainability
 const FIELD_TRIGGER_CLASSNAME =
-  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70";
+  "flex min-h-10 w-full items-center justify-between gap-3 rounded-[16px] border px-3 py-2 text-left text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70";
 
 const COMMAND_ITEM_CLASSNAME =
   "rounded-[18px] border border-transparent px-3 py-3 transition-colors duration-300 hover:bg-primary/10 hover:text-foreground aria-selected:border-primary/25 aria-selected:bg-primary/15 aria-selected:text-foreground data-[disabled=true]:pointer-events-none data-[disabled=true]:opacity-45";
 
+// Mobile: these editors top-anchor the sheet. The offset must clear the iOS
+// status bar / Dynamic Island even on routes where the top shell is hidden
+// (e.g. RIA Picks), where `--top-shell-reserved-height` collapses toward 0 and
+// left the header flush at 0.75rem under the clock. `max(...)` floors the
+// offset at the probe-backed safe-area inset (min 44px on iOS native, 0 on
+// desktop → inert on web) so the header is always tappable/readable. The
+// max-height subtracts that same inset so a tall sheet can't grow back over it.
 const COMMAND_SHELL_CLASSNAME =
-  "chrome-glass-surface top-[calc(var(--top-shell-reserved-height,0px)+0.75rem)] max-h-[min(70dvh,32rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
+  "chrome-glass-surface top-[calc(max(var(--app-safe-area-top-effective,0px),var(--top-shell-reserved-height,0px))+0.75rem)] max-h-[calc(100dvh-max(var(--app-safe-area-top-effective,0px),var(--top-shell-reserved-height,0px))-1.5rem)] w-[calc(100%-1rem)] translate-y-0 rounded-[28px] border border-white/55 p-0 shadow-2xl sm:top-1/2 sm:w-full sm:max-w-[52rem] sm:max-h-[min(76dvh,38rem)] sm:-translate-y-1/2 lg:max-w-[58rem] dark:border-white/12";
 
 export type CommandPickerOption<T = unknown> = {
   value: string;
@@ -251,6 +258,7 @@ export function PopupTextEditorField({
   triggerClassName,
   previewClassName,
   textareaClassName,
+  maxLength,
 }: {
   title: ReactNode;
   description?: ReactNode;
@@ -263,16 +271,28 @@ export function PopupTextEditorField({
   triggerClassName?: string;
   previewClassName?: string;
   textareaClassName?: string;
+  maxLength?: number;
 }) {
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState(value);
   const textareaId = useId();
+  const characterCountId = useId();
+  const resolvedMaxLength =
+    typeof maxLength === "number" && Number.isFinite(maxLength)
+      ? Math.max(0, Math.trunc(maxLength))
+      : null;
+  const hasCharacterLimit = resolvedMaxLength !== null;
+  const characterCount = hasCharacterLimit
+    ? Math.min(draft.length, resolvedMaxLength)
+    : null;
 
   useEffect(() => {
     if (open) {
-      setDraft(value); // Only sync draft when opening the dialog to avoid overriding user edits
+      setDraft(
+        resolvedMaxLength !== null ? value.slice(0, resolvedMaxLength) : value,
+      ); // Only sync draft when opening the dialog to avoid overriding user edits
     }
-  }, [open, value]);
+  }, [open, resolvedMaxLength, value]);
 
   const preview = value.trim();
 
@@ -284,7 +304,7 @@ export function PopupTextEditorField({
         aria-expanded={open}
         onClick={() => setOpen(true)}
         className={cn(
-          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+          "group flex min-h-[76px] w-full items-start justify-between gap-3 rounded-[16px] border px-3 py-3 text-left outline-none transition focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring/70",
           invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80 bg-background hover:border-border",
           triggerClassName
         )}
@@ -329,14 +349,32 @@ export function PopupTextEditorField({
             <Textarea
               id={textareaId}
               value={draft}
-              onChange={(event) => setDraft(event.target.value)}
+              onChange={(event) => {
+                const nextValue = event.target.value;
+                setDraft(
+                  resolvedMaxLength !== null
+                    ? nextValue.slice(0, resolvedMaxLength)
+                    : nextValue,
+                );
+              }}
               placeholder={placeholder}
+              maxLength={resolvedMaxLength ?? undefined}
+              aria-describedby={hasCharacterLimit ? characterCountId : undefined}
               className={cn(
                 "min-h-[220px] resize-none rounded-[22px] border-border/80 bg-background/90 px-4 py-3 text-sm leading-6 sm:min-h-[260px]",
                 invalid ? "border-rose-300 dark:border-rose-500/50" : "",
                 textareaClassName
               )}
             />
+            {hasCharacterLimit ? (
+              <p
+                id={characterCountId}
+                className="mt-2 text-right text-xs leading-5 text-muted-foreground"
+                aria-live="polite"
+              >
+                {characterCount} / {resolvedMaxLength}
+              </p>
+            ) : null}
           </div>
 
           <DialogFooter className="border-t border-black/10 px-5 py-4 dark:border-white/10">

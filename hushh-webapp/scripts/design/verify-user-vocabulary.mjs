@@ -65,13 +65,18 @@ const ALLOWLIST_PATTERNS = [
   /app\/one\/location\/page\.tsx$/,
 ];
 
-// The email/drafting capability must not surface the internal "KYC" term.
-// (Scoped to the authored setup copy, where the label is rendered verbatim.)
+// "KYC" is an abbreviation nobody meets for the first time and understands, so
+// it must not be the first thing a person reads on the setup row. It is
+// deliberately still allowed on the action label: the destination keeps its
+// name, which is the call made on main (and pinned by
+// __tests__/lib/capability-setup-copy.test.ts). `onlyFields` is what keeps this
+// gate enforcing the principle without overruling that decision.
 const SCOPED_CHECKS = [
   {
     file: "lib/onboarding/capability-setup-copy.ts",
     term: "KYC",
-    why: "industry jargon in authored setup copy; name the outcome instead",
+    onlyFields: ["setupTitle", "setupBlurb", "introPremise", "introPromise"],
+    why: "industry jargon in the first line a person reads; name the outcome instead",
   },
 ];
 
@@ -130,7 +135,14 @@ for (const check of SCOPED_CHECKS) {
   if (!fs.existsSync(abs)) continue;
   const lines = fs.readFileSync(abs, "utf8").split("\n");
   lines.forEach((line, index) => {
-    if (line.includes(check.term)) {
+    if (!line.includes(check.term)) return;
+    // When the check names fields, only those authored values are governed —
+    // the same term may be legitimate elsewhere in the file (a route, an id).
+    if (check.onlyFields) {
+      const field = line.trim().match(/^([A-Za-z][A-Za-z0-9_]*)\s*:/)?.[1];
+      if (!field || !check.onlyFields.includes(field)) return;
+    }
+    {
       violations.push({
         relPath: check.file,
         line: index + 1,

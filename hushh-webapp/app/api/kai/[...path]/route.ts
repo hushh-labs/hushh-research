@@ -7,13 +7,19 @@ import {
   createUpstreamHeaders,
   resolveRequestId,
   withRequestIdJson,
-  withRequestIdResponse,
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
 const GMAIL_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(15_000, {
   developmentFloorMs: 15_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_TIMEOUT_MS",
+});
+// Nudges do a bounded live inbox read after the Gmail shell has rendered. Give
+// that non-blocking panel enough time for Google to answer instead of turning a
+// healthy, merely slow mailbox into a false load failure.
+const GMAIL_NUDGES_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
+  developmentFloorMs: 30_000,
+  overrideEnvKey: "HUSHH_KAI_GMAIL_NUDGES_TIMEOUT_MS",
 });
 const GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
@@ -27,25 +33,8 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
 });
-const AGENT_VOICE_STT_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(35_000, {
-  developmentFloorMs: 35_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_STT_TIMEOUT_MS",
-});
-const AGENT_VOICE_TTS_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
-  developmentFloorMs: 45_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_VOICE_TTS_TIMEOUT_MS",
-});
-const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
-  developmentFloorMs: 120_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
-});
-
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
-}
-
-function isBinaryTtsPath(path: string): boolean {
-  return path === "voice/tts" || path === "agent/voice/tts";
 }
 
 function isUpstreamTimeoutError(error: unknown): boolean {
@@ -75,8 +64,12 @@ function isClientAbortError(error: unknown): boolean {
 
 function resolveUpstreamSignal(
   requestSignal: AbortSignal,
-  timeoutMs: number | null
+  timeoutMs: number | null,
+  options?: { ignoreClientAbort?: boolean }
 ): AbortSignal {
+  if (options?.ignoreClientAbort) {
+    return timeoutMs ? AbortSignal.timeout(timeoutMs) : new AbortController().signal;
+  }
   if (!timeoutMs) {
     return requestSignal;
   }
@@ -159,15 +152,6 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
-  if (path === "agent/voice/stt") {
-    return AGENT_VOICE_STT_PROXY_TIMEOUT_MS;
-  }
-  if (path === "agent/voice/tts") {
-    return AGENT_VOICE_TTS_PROXY_TIMEOUT_MS;
-  }
-  if (path === "agent/chat/stream") {
-    return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
-  }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }
@@ -176,6 +160,9 @@ function resolveKaiUpstreamTimeoutMs(path: string): number | null {
   }
   if (path === "gmail/connect/complete") {
     return GMAIL_CONNECT_COMPLETE_TIMEOUT_MS;
+  }
+  if (path.startsWith("gmail/nudges/")) {
+    return GMAIL_NUDGES_TIMEOUT_MS;
   }
   if (isGmailPath(path)) {
     return GMAIL_PROXY_TIMEOUT_MS;
@@ -297,7 +284,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
-      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs),
+      // The callback page can close as soon as the provider hands control
+      // back. Its single-use code exchange must still finish within the
+      // bounded server timeout so the Gmail opener can recover from persisted
+      // connection state on focus/close.
+      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs, {
+        ignoreClientAbort: path === "gmail/connect/complete",
+      }),
     });
 
     // Check for SSE stream response
@@ -325,11 +318,6 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
         status: response.status,
         headers,
       });
-    }
-
-    if (isBinaryTtsPath(path)) {
-      console.log(`[Kai API] request_id=${requestId} binary_pass_through=true path=${path}`);
-      return withRequestIdResponse(requestId, response);
     }
 
     const data = await response.json().catch(() => ({}));

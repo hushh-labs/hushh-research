@@ -53,6 +53,7 @@ export interface AgentState {
   stage: "idle" | "active" | "complete" | "error";
   text: string;
   thoughts: string[];
+  statusMessage?: string;
   error?: string;
   // Rich data from agent_complete
   recommendation?: string;
@@ -443,8 +444,6 @@ interface DebateStreamViewProps {
   portfolioContextOverride?: Record<string, unknown> | null;
   portfolioSource?: PortfolioSource;
   pickSource?: string;
-  pickSourceLabel?: string;
-  pickSourceKind?: string;
   onClose: () => void;
   onDecisionReady?: (entry: AnalysisHistoryEntry, meta: { runId: string | null }) => void;
   onDecisionPersisted?: (entry: AnalysisHistoryEntry, meta: { runId: string }) => void;
@@ -685,8 +684,6 @@ export function DebateStreamView({
   portfolioContextOverride,
   portfolioSource,
   pickSource,
-  pickSourceKind,
-  pickSourceLabel,
   onClose,
   onDecisionReady,
   onDecisionPersisted,
@@ -785,6 +782,41 @@ export function DebateStreamView({
   const decisionNotifiedRef = useRef(false);
   const finalizingNotifiedRef = useRef(false);
   const persistedNotifiedRef = useRef(false);
+  const tokenPaintFrameRef = useRef<number | null>(null);
+  const pendingTokenPaintRef = useRef<{ round1: boolean; round2: boolean }>({
+    round1: false,
+    round2: false,
+  });
+
+  const flushTokenPaint = useCallback(() => {
+    tokenPaintFrameRef.current = null;
+    const pending = pendingTokenPaintRef.current;
+    pendingTokenPaintRef.current = { round1: false, round2: false };
+    if (pending.round1) {
+      setRound1States({ ...round1StatesRef.current });
+    }
+    if (pending.round2) {
+      setRound2States({ ...round2StatesRef.current });
+    }
+  }, []);
+
+  const queueTokenPaint = useCallback(
+    (round: 1 | 2) => {
+      pendingTokenPaintRef.current[round === 1 ? "round1" : "round2"] = true;
+      if (tokenPaintFrameRef.current !== null) return;
+      tokenPaintFrameRef.current = window.requestAnimationFrame(flushTokenPaint);
+    },
+    [flushTokenPaint]
+  );
+
+  const cancelTokenPaint = useCallback(() => {
+    if (tokenPaintFrameRef.current !== null) {
+      window.cancelAnimationFrame(tokenPaintFrameRef.current);
+      tokenPaintFrameRef.current = null;
+    }
+    pendingTokenPaintRef.current = { round1: false, round2: false };
+  }, []);
+
   // Helper to update specific agent state in current round
   const updateAgentState = useCallback((round: 1 | 2, agent: string, update: Partial<AgentState>) => {
     // Update Ref (Source of Truth for Stream)
@@ -920,6 +952,7 @@ export function DebateStreamView({
     setDecision(null);
     setInsights([]);
     setRetryCountdown(null);
+    cancelTokenPaint();
     decisionNotifiedRef.current = false;
     finalizingNotifiedRef.current = false;
     persistedNotifiedRef.current = false;
@@ -927,7 +960,7 @@ export function DebateStreamView({
     // Reset refs
     round1StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
     round2StatesRef.current = JSON.parse(JSON.stringify(INITIAL_ROUND_STATE));
-  }, []);
+  }, [cancelTokenPaint]);
 
   const resolveRoundForEnvelope = useCallback((data: StreamPayload): 1 | 2 => {
     if (data.round === 2 || data.round === "2") return 2;
@@ -942,6 +975,9 @@ export function DebateStreamView({
     (envelope: KaiStreamEnvelope) => {
       const resolvedEventType = envelope.event;
       const data = envelope.payload as StreamPayload;
+      if (resolvedEventType !== "agent_token") {
+        flushTokenPaint();
+      }
       setLoading(false);
       setRetryCountdown(null);
 
@@ -1008,7 +1044,10 @@ export function DebateStreamView({
             activeRoundRef.current = 2;
             setActiveRound(2);
           }
-          updateAgentState(r, (data.agent || "").toString(), { stage: "active" });
+          updateAgentState(r, (data.agent || "").toString(), {
+            stage: "active",
+            statusMessage: sanitizeStatusMessage(data.message),
+          });
           break;
         }
         case "agent_token": {
@@ -1031,25 +1070,14 @@ export function DebateStreamView({
             };
           }
 
-          const setter = r === 1 ? setRound1States : setRound2States;
-          setter((prev) => {
-            const current = prev[ag];
-            if (!current) return prev;
-            return {
-              ...prev,
-              [ag]: {
-                ...current,
-                stage: current.stage === "idle" ? "active" : current.stage,
-                text: toInvestorStreamText((current.text || "") + txt),
-              },
-            };
-          });
+          queueTokenPaint(r);
           break;
         }
         case "agent_complete": {
           const r = resolveRoundForEnvelope(data);
           updateAgentState(r, (data.agent || "").toString(), {
             stage: "complete",
+            statusMessage: "Analysis complete",
             text: toInvestorStreamText(data.summary || ""),
             thoughts: [],
             recommendation: optionalString(data.recommendation),
@@ -1076,9 +1104,7 @@ export function DebateStreamView({
             setKaiThinking("Preparing your final recommendation...");
             if (!finalizingNotifiedRef.current) {
               finalizingNotifiedRef.current = true;
-              toast.message("Final recommendation in progress", {
-                description: "Final consensus is being prepared.",
-              });
+              toast.message("Final recommendation in progress. Final consensus is being prepared.");
             }
           }
           break;
@@ -1147,15 +1173,15 @@ export function DebateStreamView({
           const fallbackPickSource =
             typeof data.pick_source === "string" && data.pick_source.trim().length > 0
               ? data.pick_source.trim()
-              : pickSource;
+              : undefined;
           const fallbackPickSourceLabel =
             typeof data.pick_source_label === "string" && data.pick_source_label.trim().length > 0
               ? data.pick_source_label.trim()
-              : pickSourceLabel;
+              : undefined;
           const fallbackPickSourceKind =
             typeof data.pick_source_kind === "string" && data.pick_source_kind.trim().length > 0
               ? data.pick_source_kind.trim()
-              : pickSourceKind;
+              : undefined;
           const normalizedDecision: DecisionResult = {
             ticker: String(data.ticker || ticker).toUpperCase(),
             decision: String(data.decision || "hold"),
@@ -1268,14 +1294,13 @@ export function DebateStreamView({
     },
     [
       currentRunId,
+      flushTokenPaint,
       onDecisionReady,
-      pickSource,
-      pickSourceKind,
-      pickSourceLabel,
       resolveRoundForEnvelope,
       runId,
       setBusyOperation,
       ticker,
+      queueTokenPaint,
       updateAgentState,
       userId,
     ]
@@ -1421,8 +1446,6 @@ export function DebateStreamView({
             riskProfile: effectiveRiskProfile,
             userContext: context,
             pickSource,
-            pickSourceLabel,
-            pickSourceKind,
             vaultOwnerToken,
             vaultKey,
           });
@@ -1498,18 +1521,18 @@ export function DebateStreamView({
 
     return () => {
       cancelled = true;
+      cancelTokenPaint();
       if (unsubscribeRun) unsubscribeRun();
       if (unsubscribeState) unsubscribeState();
       setBusyOperation("stock_analysis_stream", false);
     };
   }, [
     applyEnvelope,
+    cancelTokenPaint,
     onDecisionPersisted,
     portfolioContextOverride,
     portfolioSource,
     pickSource,
-    pickSourceKind,
-    pickSourceLabel,
     reloadNonce,
     resetState,
     riskProfileProp,
@@ -1535,7 +1558,7 @@ export function DebateStreamView({
     const display = getErrorDisplay(errorType, retryCountdown ?? undefined);
     return (
       <div className="h-full flex flex-col items-center justify-center p-6 space-y-4">
-        <div className="max-w-md w-full">
+        <div className="w-full">
           <MorphyCard showRipple={false}>
             <MorphyCardContent className="p-8 flex flex-col items-center space-y-4">
             <div className="p-4 rounded-full bg-muted/30">{display.icon}</div>
@@ -1624,7 +1647,7 @@ export function DebateStreamView({
               ) : loading && kaiThinking ? (
                 <Badge
                   variant="outline"
-                  className="max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
+                  className="max-w-[180px] xs:max-w-[260px] truncate text-[10px] bg-primary/10 text-primary border-primary/30 font-medium"
                 >
                   <Icon icon={Loader2} size={12} className="mr-1 animate-spin" /> {kaiThinking}
                 </Badge>
@@ -1682,7 +1705,7 @@ export function DebateStreamView({
       ) : null}
 
       <ScrollArea className={cn("flex-1 px-2 pb-4 sm:px-3", !showHeader && "pt-0")}>
-        <div className="mx-auto w-full max-w-3xl space-y-4 px-0 pb-8">
+        <div className="mx-auto w-full space-y-4 px-0 pb-8">
           {decision ? (
             <MorphyCard>
               <MorphyCardContent className="p-0">
@@ -1700,7 +1723,7 @@ export function DebateStreamView({
             <RoundTabsCard
               roundNumber={1}
               title="Initial Deep Analysis"
-              description="Agents analyze raw data independently."
+              description="Agents analyze the source information independently."
               isCollapsed={collapsedRounds[1] || false}
               onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
               activeAgent={activeRound === 1 ? activeAgent : undefined}
@@ -1728,7 +1751,7 @@ export function DebateStreamView({
               <RoundTabsCard
                 roundNumber={1}
                 title="Initial Deep Analysis"
-                description="Agents analyze raw data independently."
+                description="Agents analyze the source information independently."
                 isCollapsed={collapsedRounds[1] ?? true}
                 onToggleCollapse={() => setCollapsedRounds((prev) => ({ ...prev, 1: !prev[1] }))}
                 activeAgent={undefined}

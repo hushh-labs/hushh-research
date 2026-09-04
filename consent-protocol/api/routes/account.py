@@ -19,17 +19,19 @@ Security:
     Email aliases, delete, and export require VAULT_OWNER token.
 """
 
+import base64
 import hashlib
 import hmac
 import logging
 import os
 import re
 import secrets
+import time
 from typing import Any, Literal
 
-from fastapi import APIRouter, Body, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException
 from fastapi.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_admin import get_firebase_auth_app
@@ -38,10 +40,534 @@ from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
 )
+from hushh_mcp.services.trusted_device_service import (
+    TrustedDeviceError,
+    TrustedDeviceService,
+    trusted_devices_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
+
+
+class TrustedDeviceAuthorizationRequest(BaseModel):
+    redirect_uri: str = Field(min_length=8, max_length=2048)
+    code_challenge: str = Field(min_length=43, max_length=128)
+    code_challenge_method: Literal["S256"] = "S256"
+    device_public_key: str = Field(min_length=80, max_length=2048)
+    device_name: str = Field(min_length=1, max_length=100)
+    platform: Literal["macos"]
+    state: str = Field(min_length=16, max_length=512)
+    replaces_device_id: str | None = Field(default=None, min_length=24, max_length=96)
+    vault_handoff_public_key: str | None = Field(default=None, min_length=40, max_length=64)
+
+    @field_validator("vault_handoff_public_key")
+    @classmethod
+    def validate_vault_handoff_public_key(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("vault_handoff_public_key must be base64.") from exc
+        if len(decoded) != 32:
+            raise ValueError("vault_handoff_public_key must be a 32-byte X25519 key.")
+        return value
+
+
+class TrustedDeviceExchangeRequest(BaseModel):
+    code: str = Field(min_length=20, max_length=256)
+    code_verifier: str = Field(min_length=43, max_length=128)
+
+
+class TrustedDeviceVaultHandoffRequest(BaseModel):
+    vault_handoff_wrapped_key: str = Field(min_length=40, max_length=64)
+    vault_handoff_iv: str = Field(min_length=16, max_length=24)
+    vault_handoff_tag: str = Field(min_length=20, max_length=32)
+    vault_handoff_sender_public_key: str = Field(min_length=40, max_length=64)
+    vault_handoff_alg: Literal["X25519-AES256-GCM"]
+    vault_handoff_vault_key_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
+    vault_handoff_wrapper_id: str = Field(min_length=1, max_length=128)
+    vault_handoff_rp_id: str = Field(min_length=1, max_length=253)
+
+    @field_validator(
+        "vault_handoff_wrapped_key",
+        "vault_handoff_iv",
+        "vault_handoff_tag",
+        "vault_handoff_sender_public_key",
+    )
+    @classmethod
+    def validate_handoff_base64(cls, value: str, info: ValidationInfo) -> str:
+        try:
+            decoded = base64.b64decode(value, validate=True)
+        except (ValueError, TypeError) as exc:
+            raise ValueError("Vault handoff fields must be base64.") from exc
+        expected_lengths = {
+            "vault_handoff_wrapped_key": 32,
+            "vault_handoff_iv": 12,
+            "vault_handoff_tag": 16,
+            "vault_handoff_sender_public_key": 32,
+        }
+        expected_length = expected_lengths.get(info.field_name or "")
+        if expected_length is None or len(decoded) != expected_length:
+            raise ValueError("Vault handoff fields have an invalid byte length.")
+        return value
+
+
+async def _trusted_device_guard(user_id: str | None = None) -> None:
+    # user_id is retained for call-site compatibility; enrollment no longer
+    # depends on per-account rollout membership.
+    del user_id
+    if not trusted_devices_enabled():
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_DISABLED",
+                "message": "Trusted-device authorization is not enabled.",
+            },
+        )
+    # Enrollment is open to every signed-in account once the feature is enabled.
+    # The remaining controls still apply per request: the kill switch above, the
+    # browser-session identity check in _verify_browser_enrollment_identity, the
+    # verified-email requirement enforced at exchange, and the PKCE-bound
+    # one-time code. The former per-account rollout allowlist has been removed.
+    return
+
+
+def _raise_trusted_device_error(exc: TrustedDeviceError) -> None:
+    raise HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": exc.message},
+    ) from exc
+
+
+async def _verify_browser_enrollment_identity(authorization: str | None) -> str:
+    """Reject a device-minted Firebase session from approving another device."""
+    raw_header = str(authorization or "").strip()
+    if not raw_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    raw_token = raw_header.removeprefix("Bearer ").strip()
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        claims = await run_in_threadpool(
+            firebase_auth.verify_id_token,
+            raw_token,
+            app=get_firebase_auth_app(),
+            check_revoked=True,
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token") from exc
+    if str(claims.get("trusted_device_id") or "").strip():
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_BROWSER_APPROVAL_REQUIRED",
+                "message": "Approve a trusted device from your signed-in browser session.",
+            },
+        )
+    return str(claims.get("uid") or claims.get("sub") or "").strip()
+
+
+async def _verified_account_email(user_id: str) -> str:
+    """Return the server-verified display identity for a trusted device.
+
+    Hermes stores this value locally only to make an already-authorized account
+    recognizable.  It is intentionally obtained from Firebase after the
+    one-time code is consumed; a browser query parameter or client-supplied
+    label must never become identity authority.
+    """
+    app = get_firebase_auth_app()
+    if app is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FIREBASE_ADMIN_UNAVAILABLE",
+                "message": "Verified account identity is unavailable.",
+            },
+        )
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        record = await run_in_threadpool(firebase_auth.get_user, user_id, app=app)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_ACCOUNT_LOOKUP_FAILED",
+                "message": "Verified account identity is unavailable.",
+            },
+        ) from exc
+    email = str(getattr(record, "email", "") or "").strip()
+    if not email or not bool(getattr(record, "email_verified", False)):
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_EMAIL_REQUIRED",
+                "message": "A verified email address is required to connect a trusted device.",
+            },
+        )
+    return email
+
+
+async def _verified_account_phone(user_id: str) -> None:
+    """Require the same durable phone admission claim as One's browser flow."""
+    identity = (await ActorIdentityService().get_many([user_id])).get(user_id) or {}
+    if identity.get("phone_verified") is not True:
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_VERIFIED_PHONE_REQUIRED",
+                "message": "A verified phone number is required to connect a trusted device.",
+            },
+        )
+
+
+@router.post("/trusted-device-authorizations")
+async def create_trusted_device_authorization(
+    payload: TrustedDeviceAuthorizationRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Approve a PKCE-bound Hermes installation for the signed-in account."""
+    await _trusted_device_guard(firebase_uid)
+    # Fail before persisting an authorization/device record when the account
+    # cannot later be shown as a verified local identity in Hermes.
+    await _verified_account_email(firebase_uid)
+    await _verified_account_phone(firebase_uid)
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    try:
+        device_authorization = await run_in_threadpool(
+            TrustedDeviceService().create_authorization,
+            user_id=firebase_uid,
+            redirect_uri=payload.redirect_uri,
+            code_challenge=payload.code_challenge,
+            device_public_key=payload.device_public_key,
+            device_name=payload.device_name,
+            platform=payload.platform,
+            state=payload.state,
+            replaces_device_id=payload.replaces_device_id,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+    return {
+        "authorization_id": device_authorization.authorization_id,
+        "device_id": device_authorization.device_id,
+        "redirect_uri": device_authorization.redirect_uri,
+        "redirect_url": device_authorization.redirect_url,
+        "expires_at": device_authorization.expires_at,
+        "replaces_device_id": device_authorization.replaces_device_id,
+        # This public key is validated and echoed from the authenticated
+        # approval request. The browser may use it to seal the locally
+        # unlocked vault key directly to Hermes; the server never receives the
+        # resulting plaintext.
+        "vault_handoff_public_key": payload.vault_handoff_public_key,
+    }
+
+
+@router.post("/trusted-device-authorizations/{authorization_id}/vault-handoff")
+async def attach_trusted_device_vault_handoff(
+    authorization_id: str,
+    payload: TrustedDeviceVaultHandoffRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+    authorization: str | None = Header(None, alias="Authorization"),
+):
+    """Attach ciphertext for atomic delivery through the PKCE exchange."""
+    await _trusted_device_guard(firebase_uid)
+    browser_uid = await _verify_browser_enrollment_identity(authorization)
+    if browser_uid != firebase_uid:
+        raise HTTPException(status_code=401, detail="Invalid Firebase ID token")
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().attach_vault_handoff,
+            authorization_id=authorization_id,
+            user_id=firebase_uid,
+            handoff=payload.model_dump(),
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+    return {"attached": True}
+
+
+@router.post("/trusted-device-authorizations/exchange")
+async def exchange_trusted_device_authorization(payload: TrustedDeviceExchangeRequest):
+    """Consume a one-time PKCE code and mint a Firebase custom token."""
+    await _trusted_device_guard()
+    try:
+        device = await run_in_threadpool(
+            TrustedDeviceService().exchange_authorization,
+            code=payload.code,
+            code_verifier=payload.code_verifier,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+    app = get_firebase_auth_app()
+    if app is None:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "FIREBASE_ADMIN_UNAVAILABLE",
+                "message": "Identity token issuance is unavailable.",
+            },
+        )
+    try:
+        from firebase_admin import auth as firebase_auth
+
+        account_email = await _verified_account_email(str(device["user_id"]))
+        custom_token = await run_in_threadpool(
+            firebase_auth.create_custom_token,
+            device["user_id"],
+            {"trusted_device_id": device["device_id"]},
+            app=app,
+        )
+    except Exception:
+        logger.exception("trusted_device.custom_token_failed")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "code": "TRUSTED_DEVICE_TOKEN_ISSUANCE_FAILED",
+                "message": "The trusted-device identity token could not be issued.",
+            },
+        )
+    token = custom_token.decode("utf-8") if isinstance(custom_token, bytes) else str(custom_token)
+    response: dict[str, Any] = {
+        "firebase_custom_token": token,
+        "device_id": device["device_id"],
+        "user_id": device["user_id"],
+        "account_email": account_email,
+        "replaced_device_id": device.get("replaced_device_id"),
+    }
+    if device.get("vault_handoff"):
+        response.update(
+            authorization_id=device.get("authorization_id"),
+            authorization_expires_at=device.get("authorization_expires_at"),
+            vault_handoff=device.get("vault_handoff"),
+        )
+    return response
+
+
+@router.get("/trusted-devices")
+async def list_trusted_devices(firebase_uid: str = Depends(require_firebase_auth)):
+    # Recovery remains available after rollout is disabled or membership is
+    # removed. The authenticated user can only list their own device records.
+    devices = await run_in_threadpool(TrustedDeviceService().list_devices, user_id=firebase_uid)
+    return {"devices": devices}
+
+
+@router.get("/trusted-devices/{device_id}/status")
+async def trusted_device_status(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Own-device liveness read for the native Hermes runtime.
+
+    Firebase-authed: the device keeps a user-level Firebase session after
+    revoke, so a device-token gate would be unreachable exactly when the answer
+    is 'revoked'. Fail-closed: a DB error is a 503, never a defaulted 'active'.
+    Grants nothing; every vault call still gates on the device-bound owner token
+    re-checked against is_trusted_device_active.
+    """
+    try:
+        status = await run_in_threadpool(
+            TrustedDeviceService().device_status,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    except Exception:
+        logger.exception("trusted_device.status_lookup_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    if status is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_UNKNOWN",
+                "message": "No such trusted device for this account.",
+            },
+        )
+    return {**status, "server_time_ms": int(time.time() * 1000)}
+
+
+@router.post("/trusted-devices/{device_id}/seal-ack")
+async def trusted_device_seal_ack(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Advisory seal confirmation from the native runtime after a remote revoke.
+
+    Firebase-authed only, with NO device signature: the device P-256 key is
+    zeroized during seal, so a post-seal signature is unsatisfiable and a static
+    one would be replayable. The ack is device-reported telemetry, never proof
+    of sealing and never authorization. The server stamps its own sealed_at, can
+    only stamp an already-revoked row, and enforcement never consults sealed_at.
+    """
+    try:
+        result = await run_in_threadpool(
+            TrustedDeviceService().seal_device,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    except Exception:
+        logger.exception("trusted_device.seal_ack_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    if result is None:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_UNKNOWN",
+                "message": "No such trusted device for this account.",
+            },
+        )
+    return result
+
+
+def _heartbeat_snapshot(body: Any) -> dict[str, Any]:
+    """Read the telemetry out of a heartbeat body, flat or wrapped.
+
+    The route deliberately does NOT validate the body with a typed model. The
+    heartbeat is advisory telemetry whose one load-bearing effect is stamping
+    ``last_heartbeat_at``, and the service allow-list (``_safe_heartbeat``)
+    already keeps only known scalar fields, truncates text and drops
+    out-of-range numbers. A typed model with bounds in front of it turned one
+    over-long value into a 422 for the WHOLE beat: a 121-character model id
+    made every push fail, the device read as gone in One while it was healthy,
+    and the failure was silent because telemetry never raises on the device.
+    Sanitising per field costs that field; rejecting per request costs the
+    signal.
+
+    Two body shapes are read. Hermes builds from 2026-08-28 (when the
+    heartbeat first shipped) to 2026-09-03 posted the snapshot wrapped as
+    ``{"heartbeat": {...}}``; later builds post it flat. Top-level keys win
+    over the wrapped block on a shared key, and only one level is unwrapped.
+    A body that is not an object is an empty reading, which still stamps the
+    beat: liveness is the signal, the fields are extras.
+    """
+    if not isinstance(body, dict):
+        return {}
+    wrapped = body.get("heartbeat")
+    inner = (
+        {key: value for key, value in wrapped.items() if key != "heartbeat"}
+        if isinstance(wrapped, dict)
+        else {}
+    )
+    flat = {key: value for key, value in body.items() if key != "heartbeat"}
+    return {**inner, **flat}
+
+
+@router.post("/trusted-devices/{device_id}/heartbeat")
+async def trusted_device_heartbeat(
+    device_id: str,
+    payload: Any = Body(default=None),
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Liveness heartbeat from a running trusted device.
+
+    Answers "is this agent reachable right now?", which last_synced_at cannot:
+    that column only advances when the device pulls the sync channel, so a
+    running-but-idle agent reads as stale.
+
+    Firebase-authed, matching the own-device status read: the device keeps a
+    user-level session, and a heartbeat grants nothing, so it needs no device
+    signature. Purely advisory telemetry -- the server stamps its own timestamp,
+    updates only an active row so a revoked device can never appear live, and
+    enforcement never consults it. Trust stays decided by status and
+    is_trusted_device_active.
+    """
+    snapshot = _heartbeat_snapshot(payload)
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().record_heartbeat,
+            user_id=firebase_uid,
+            device_id=device_id,
+            snapshot=snapshot,
+        )
+    except Exception:
+        logger.exception("trusted_device.heartbeat_failed")
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "TRUSTED_DEVICE_STATUS_UNAVAILABLE",
+                "message": "Trusted-device status is temporarily unavailable.",
+            },
+        ) from None
+    return {"recorded": True, "server_time_ms": int(time.time() * 1000)}
+
+
+@router.post("/trusted-devices/{device_id}/challenge")
+async def create_trusted_device_challenge(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    await _trusted_device_guard(firebase_uid)
+    try:
+        return await run_in_threadpool(
+            TrustedDeviceService().create_challenge,
+            user_id=firebase_uid,
+            device_id=device_id,
+        )
+    except TrustedDeviceError as exc:
+        _raise_trusted_device_error(exc)
+
+
+@router.delete("/trusted-devices/{device_id}")
+async def revoke_trusted_device(
+    device_id: str,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    # Revocation is a recovery operation, not an enrollment operation. Keep it
+    # available even when the feature flag or rollout allowlist is withdrawn.
+    revoked = await run_in_threadpool(
+        TrustedDeviceService().revoke_device,
+        user_id=firebase_uid,
+        device_id=device_id,
+    )
+    if not revoked:
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_FOUND",
+                "message": "The trusted device was not found or was already revoked.",
+            },
+        )
+
+    # Device owner capabilities use a device-specific agent id. Persisting a
+    # newer REVOKED row makes DB-backed token validation fail across instances.
+    from hushh_mcp.consent.token import revoke_token
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    consent_service = ConsentDBService()
+    agent_id = f"device:{device_id}"
+    active_tokens = await consent_service.get_active_internal_tokens(
+        firebase_uid, agent_id=agent_id, scope="vault.owner"
+    )
+    for token_row in active_tokens:
+        token_id = str(token_row.get("token_id") or "")
+        if token_id:
+            revoke_token(token_id)
+            await consent_service.insert_internal_event(
+                user_id=firebase_uid,
+                agent_id=agent_id,
+                scope="vault.owner",
+                action="REVOKED",
+                token_id=token_id,
+                metadata={"reason": "trusted_device_revoked"},
+            )
+    return {"success": True, "device_id": device_id}
 
 
 @router.post("/identity/refresh")
@@ -62,6 +588,87 @@ async def refresh_account_identity(
         "user_id": firebase_uid,
         "identity": identity,
     }
+
+
+class AvatarUploadRequest(BaseModel):
+    image_data_url: str = Field(min_length=32, max_length=600_000)
+
+
+# Client uploads a small, already-resized (~256px) image as a data URL.
+_AVATAR_DATA_URL_PATTERN = re.compile(r"^data:image/(png|jpe?g|webp);base64,")
+_AVATAR_MAX_DECODED_BYTES = 300 * 1024
+
+
+@router.post("/avatar")
+async def upload_account_avatar(
+    request: AvatarUploadRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Store an app-owned avatar override for the signed-in actor.
+
+    The stored data URL takes precedence over the Firebase photo on reads and
+    survives Firebase identity syncs.
+    """
+    data_url = request.image_data_url.strip()
+    if not _AVATAR_DATA_URL_PATTERN.match(data_url):
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "AVATAR_INVALID_DATA_URL",
+                "message": "Avatar must be a PNG, JPEG, or WebP image data URL.",
+            },
+        )
+
+    encoded_payload = data_url.split(",", 1)[1]
+    try:
+        decoded = base64.b64decode(encoded_payload, validate=True)
+    except (ValueError, TypeError) as exc:
+        raise HTTPException(
+            status_code=400,
+            detail={
+                "code": "AVATAR_INVALID_BASE64",
+                "message": "Avatar image data is not valid base64.",
+            },
+        ) from exc
+
+    if len(decoded) > _AVATAR_MAX_DECODED_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail={
+                "code": "AVATAR_TOO_LARGE",
+                "message": "Avatar image exceeds the 300KB limit.",
+            },
+        )
+
+    identity = await ActorIdentityService().set_custom_photo_url(
+        firebase_uid, request.image_data_url
+    )
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AVATAR_PERSISTENCE_UNAVAILABLE",
+                "message": "Avatar was accepted but could not be persisted.",
+            },
+        )
+    return {"success": True, "identity": identity}
+
+
+@router.delete("/avatar")
+async def delete_account_avatar(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Clear the app-owned avatar override, reverting to the Firebase photo."""
+    identity = await ActorIdentityService().set_custom_photo_url(firebase_uid, None)
+    if not identity:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AVATAR_PERSISTENCE_UNAVAILABLE",
+                "message": "Avatar removal could not be persisted.",
+            },
+        )
+    return {"success": True, "identity": identity}
 
 
 class DeleteAccountRequest(BaseModel):
@@ -98,9 +705,16 @@ def _clean_env(name: str) -> str:
     return str(os.getenv(name) or "").strip()
 
 
+def _runtime_environment() -> str:
+    return (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
+
+
+def _is_truthy_env(name: str) -> bool:
+    return _clean_env(name).lower() in {"1", "true", "yes", "on", "enabled"}
+
+
 def _is_uat_environment() -> bool:
-    environment = (_clean_env("ENVIRONMENT") or _clean_env("HUSHH_DEPLOY_ENV")).lower()
-    return environment == "uat"
+    return _runtime_environment() == "uat"
 
 
 def _normalize_phone_number(raw_phone: str) -> str:
@@ -114,8 +728,7 @@ def _normalize_phone_number(raw_phone: str) -> str:
     return cleaned
 
 
-def _configured_uat_phone_test_numbers() -> set[str]:
-    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
+def _parse_phone_test_numbers(raw: str) -> set[str]:
     if not raw:
         return set()
     return {
@@ -125,17 +738,60 @@ def _configured_uat_phone_test_numbers() -> set[str]:
     }
 
 
+def _configured_uat_phone_test_numbers() -> set[str]:
+    raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
+    return _parse_phone_test_numbers(raw)
+
+
+def _configured_prod_phone_test_numbers() -> set[str]:
+    return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
+
+
+def _configured_phone_test_numbers() -> set[str]:
+    environment = _runtime_environment()
+    if environment == "uat":
+        return _configured_uat_phone_test_numbers()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_numbers()
+    return set()
+
+
 def _configured_uat_phone_test_code() -> str:
     return _clean_env("HUSHH_UAT_PHONE_TEST_CODE") or _clean_env("UAT_PHONE_TEST_CODE")
 
 
-def _uat_phone_test_enabled() -> bool:
-    return _is_uat_environment() and bool(
-        _configured_uat_phone_test_numbers() and _configured_uat_phone_test_code()
-    )
+def _configured_prod_phone_test_code() -> str:
+    return _clean_env("HUSHH_PROD_PHONE_TEST_CODE")
 
 
-def _uat_phone_test_challenge_key() -> str:
+def _configured_prod_phone_test_challenge_secret() -> str:
+    return _clean_env("HUSHH_PROD_PHONE_TEST_CHALLENGE_SECRET")
+
+
+def _configured_phone_test_code() -> str:
+    environment = _runtime_environment()
+    if environment == "uat":
+        return _configured_uat_phone_test_code()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_code()
+    return ""
+
+
+def _phone_test_enabled() -> bool:
+    if _runtime_environment() == "production":
+        return bool(
+            _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
+            and _configured_prod_phone_test_numbers()
+            and _configured_prod_phone_test_code()
+            and _configured_prod_phone_test_challenge_secret()
+        )
+    return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
+
+
+def _phone_test_challenge_key() -> str:
+    environment = _runtime_environment()
+    if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
+        return _configured_prod_phone_test_challenge_secret()
     return (
         _clean_env("HUSHH_UAT_PHONE_TEST_CHALLENGE_SECRET")
         or _clean_env("APP_SIGNING_KEY")
@@ -145,7 +801,7 @@ def _uat_phone_test_challenge_key() -> str:
 
 def _create_uat_phone_test_verification_id(phone_number: str) -> str:
     digest = hmac.new(
-        _uat_phone_test_challenge_key().encode("utf-8"),
+        _phone_test_challenge_key().encode("utf-8"),
         phone_number.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
@@ -427,11 +1083,11 @@ async def start_uat_test_phone_verification(
     payload: UatPhoneTestStartRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Start a UAT-only fixed-code phone verification challenge for allowlisted numbers."""
+    """Start an environment-gated fixed-code phone verification challenge."""
     del firebase_uid
     phone_number = _normalize_phone_number(payload.phone_number)
-    enabled = _uat_phone_test_enabled()
-    eligible = enabled and phone_number in _configured_uat_phone_test_numbers()
+    enabled = _phone_test_enabled()
+    eligible = enabled and phone_number in _configured_phone_test_numbers()
 
     if not eligible:
         return {
@@ -452,11 +1108,11 @@ async def confirm_uat_test_phone_verification(
     payload: UatPhoneTestConfirmRequest,
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Persist a UAT-only fixed-code phone verification claim for an allowlisted number."""
+    """Persist an environment-gated fixed-code phone verification claim."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_uat_phone_test_code()
+    configured_code = _configured_phone_test_code()
 
-    if not _uat_phone_test_enabled() or phone_number not in _configured_uat_phone_test_numbers():
+    if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
         raise HTTPException(
             status_code=403,
             detail={

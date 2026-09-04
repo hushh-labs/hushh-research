@@ -15,6 +15,8 @@ from hushh_mcp.onboarding_contract import (
     SETUP_CAPABILITY_IDS,
     SETUP_CAPABILITY_ORDER,
 )
+from hushh_mcp.services.action_gateway import AVAILABLE_ACTION_IDS_CAP
+from hushh_mcp.services.crm_product_availability import crm_product_available
 
 _PHASES = (
     "anonymous_auth",
@@ -133,7 +135,9 @@ class OnboardingJourneyContext(BaseModel):
     root_resolved: bool = False
     return_route: Literal["/one/setup"] = "/one/setup"
     callback_state: Literal["none", "pending", "succeeded", "cancelled", "failed"] = "none"
-    available_action_ids: list[str] = Field(default_factory=list, max_length=18)
+    available_action_ids: list[str] = Field(
+        default_factory=list, max_length=AVAILABLE_ACTION_IDS_CAP
+    )
     setup_capability_ids: list[str] = Field(default_factory=list, max_length=10)
     screen: str = Field(default="unknown", max_length=64)
     assessment: OnboardingAssessmentV1 = Field(default_factory=OnboardingAssessmentV1)
@@ -150,6 +154,9 @@ class OnboardingGoal(BaseModel):
     setup_completed_ids: list[str] = Field(default_factory=list)
     setup_remaining_ids: list[str] = Field(default_factory=list)
     selected_action_id: str | None = None
+    # A generated destination action may be carried only through an explicit
+    # settled journey. It is never executable on the source screen.
+    deferred_action_id: str | None = Field(default=None, max_length=128)
     missing_input: str | None = None
     expected_settlement: Literal[
         "route", "auth_session", "external_redirect", "callback", "local_action", "none"
@@ -171,13 +178,19 @@ def build_onboarding_specialist():
 def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal:
     """Resolve the next allowed onboarding move without side effects."""
     phase = context.phase
+    crm_available = crm_product_available()
+    active_setup_order = tuple(
+        capability
+        for capability in SETUP_CAPABILITY_ORDER
+        if capability != "connected-systems" or crm_available
+    )
     completed_set = set(context.setup_capability_ids)
     setup_progress = {
         "setup_completed_ids": [
-            capability for capability in SETUP_CAPABILITY_ORDER if capability in completed_set
+            capability for capability in active_setup_order if capability in completed_set
         ],
         "setup_remaining_ids": [
-            capability for capability in SETUP_CAPABILITY_ORDER if capability not in completed_set
+            capability for capability in active_setup_order if capability not in completed_set
         ],
     }
     if context.root_resolved:
@@ -194,18 +207,35 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
         phase = "capability_setup"
 
     allowed = _PHASE_ACTIONS[phase]
+    if not crm_available:
+        allowed = {action_id for action_id in allowed if "connected_systems" not in action_id}
     if phase == "capability_setup" and context.active_capability:
         # The active capability is redacted route state, not an inferred intent.
         # It narrows terminal authority before the available visible-action
         # intersection below, so a stale sibling action fails closed.
-        allowed = _CAPABILITY_TERMINAL_ACTIONS.get(context.active_capability, set())
+        allowed = (
+            _CAPABILITY_TERMINAL_ACTIONS.get(context.active_capability, set())
+            if context.active_capability != "connected-systems" or crm_available
+            else set()
+        )
     permitted = [action_id for action_id in context.available_action_ids if action_id in allowed]
     assessment = context.assessment
     candidate = assessment.candidate_action_id
     provider_candidate = (
         f"auth.sign_in_{assessment.provider}" if assessment.provider is not None else None
     )
-    proposal_conflict = bool(candidate and provider_candidate and candidate != provider_candidate)
+    root_claim_with_provider = bool(
+        phase == "anonymous_auth"
+        and context.screen == "one_intro"
+        and candidate == "onboarding.claim_one"
+        and provider_candidate
+    )
+    proposal_conflict = bool(
+        candidate
+        and provider_candidate
+        and candidate != provider_candidate
+        and not root_claim_with_provider
+    )
     if candidate is None:
         candidate = provider_candidate
     action_intent = assessment.intent in {
@@ -249,6 +279,7 @@ def resolve_onboarding_goal(context: OnboardingJourneyContext) -> OnboardingGoal
                 next_route="/login",
                 permitted_action_ids=permitted,
                 selected_action_id="onboarding.claim_one",
+                deferred_action_id=provider_candidate if root_claim_with_provider else None,
                 missing_input=None,
                 expected_settlement="route",
                 return_to_hub=False,

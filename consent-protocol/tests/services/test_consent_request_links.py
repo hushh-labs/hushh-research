@@ -43,7 +43,7 @@ def _parse_path(path: str) -> tuple[str, dict[str, list[str]]]:
 class TestBuildConsentRequestPath:
     def test_default_tab_is_pending(self):
         path, params = _parse_path(build_consent_request_path())
-        assert path == "/consents"
+        assert path == "/one/consent"
         assert params["tab"] == ["pending"]
 
     def test_request_id_included_when_provided(self):
@@ -136,7 +136,7 @@ class TestBuildConsentRequestPath:
 
     def test_result_starts_with_consents_route(self):
         path = build_consent_request_path()
-        assert path.startswith("/consents?")
+        assert path.startswith("/one/consent?")
 
 
 # ---------------------------------------------------------------------------
@@ -158,7 +158,7 @@ class TestBuildConsentRequestUrl:
 
     def test_url_contains_consents_path(self):
         url = self._build()
-        assert "/consents?" in url
+        assert "/one/consent?" in url
 
     def test_url_contains_request_id(self):
         url = self._build(request_id="req-999")
@@ -187,7 +187,7 @@ class TestBuildConsentRequestUrl:
         parsed = urlparse(url)
         params = parse_qs(parsed.query)
         assert parsed.scheme == "https"
-        assert parsed.path == "/consents"
+        assert parsed.path == "/one/consent"
         assert params["requestId"] == ["consent-req-001"]
         assert params["bundleId"] == ["bundle-002"]
 

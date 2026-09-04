@@ -33,7 +33,31 @@ npm run build
 cd "$REPO_ROOT"
 bash "$REPO_ROOT/scripts/ci/no-ria-feature-flags.sh"
 bash "$REPO_ROOT/scripts/ci/runtime-contract-check.sh"
-bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
+
+run_pkm_upgrade_gate="${CI_RUN_PKM_UPGRADE_GATE:-}"
+plan_reason="${CI_VERIFICATION_PLAN_REASON:-}"
+if [ -z "$run_pkm_upgrade_gate" ]; then
+  plan_file="${CI_VERIFICATION_PLAN_FILE:-/tmp/hushh-main-smoke-verification-plan.json}"
+  python3 "$REPO_ROOT/scripts/ci/resolve-uat-verification-plan.py" \
+    --target-sha "${CI_IMPACT_TARGET_SHA:-HEAD}" \
+    --base-sha "${CI_IMPACT_BASE_SHA:-}" \
+    --json-output "$plan_file" >/dev/null
+  read -r run_pkm_upgrade_gate plan_reason < <(
+    python3 - "$plan_file" <<'PY'
+import json
+import sys
+
+payload = json.load(open(sys.argv[1], encoding="utf-8"))
+print(str(bool(payload["run_pkm_upgrade_gate"])).lower(), payload["reason"])
+PY
+  )
+fi
+if [ "$run_pkm_upgrade_gate" = "true" ]; then
+  echo "Running PKM upgrade gate (${plan_reason})."
+  bash "$REPO_ROOT/scripts/ci/pkm-upgrade-gate.sh"
+else
+  echo "Skipping PKM upgrade gate (${plan_reason})."
+fi
 
 cd "$PROTOCOL_DIR"
 "$PROTOCOL_PYTHON" - <<'PY'

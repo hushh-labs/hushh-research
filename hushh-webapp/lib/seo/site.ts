@@ -104,12 +104,16 @@ export const DISALLOWED_PREFIXES = [
   "/pkm",
   "/portfolio",
   "/profile",
+  "/one/profile",
   "/consents",
   "/connected-systems",
   "/gmail",
   "/logout",
   "/register-phone",
   "/labs",
+  // Public Wallet Profile pages are per-person contact details shared by link
+  // and revocable at any time. Never indexed, never trained on.
+  "/c",
 ] as const;
 
 /** Build an absolute URL for a site-relative path. */

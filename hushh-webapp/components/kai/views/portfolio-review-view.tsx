@@ -223,6 +223,13 @@ export interface PortfolioReviewViewProps {
   vaultOwnerToken?: string;
   /** Callback when save completes successfully */
   onSaveComplete: (data: PortfolioData) => void | Promise<void>;
+  /**
+   * Setup-only persistence adapter. It records a reviewed portfolio for the
+   * master Finish setup transaction instead of creating a vault mid-journey.
+   */
+  onStageForFinish?: (data: PortfolioData) => void | Promise<void>;
+  /** Completes the setup capability after local staging without warming PKM caches. */
+  onStageComplete?: () => void | Promise<void>;
   /** Callback to re-import */
   onReimport: () => void;
   /** Callback to go back */
@@ -376,6 +383,9 @@ function inferAnalyzeEligibility(
   holding: Holding,
   isInvestable: boolean,
 ): boolean {
+  if (typeof holding.analyze_eligible === "boolean") {
+    return holding.analyze_eligible;
+  }
   if (!isInvestable) return false;
 
   const listingStatus = String(holding.security_listing_status || "")
@@ -393,7 +403,7 @@ function inferAnalyzeEligibility(
   if (listingStatus === "sec_common_equity") return true;
   if (symbolKind === "us_common_equity_ticker") return true;
 
-  return false;
+  return isInvestable;
 }
 
 function extractSaveErrorMessage(error: unknown, fallback: string): string {
@@ -758,6 +768,8 @@ export function PortfolioReviewView({
   vaultKey,
   vaultOwnerToken,
   onSaveComplete,
+  onStageForFinish,
+  onStageComplete,
   onReimport,
   onBack: _onBack,
   className,
@@ -1320,8 +1332,46 @@ export function PortfolioReviewView({
     });
     if (invalidHolding) {
       toast.error(
-        `Holding ${invalidHolding.symbol || invalidHolding.name || "entry"} has invalid values. Quantity must be non-zero, price must be positive, and market value must be non-zero.`
+        `${invalidHolding.symbol || invalidHolding.name || "That holding"}: quantity, price and value must all be above zero.`
       );
+      return;
+    }
+
+    if (!effectiveVaultKey && onStageForFinish) {
+      const stagedPayload: PortfolioData = {
+        ...initialData,
+        account_info: accountInfo,
+        account_summary: accountSummary,
+        asset_allocation: assetAllocation,
+        holdings: consolidateHoldingsBySymbol(
+          activeHoldings.map((holding) => normalizeHoldingForStorage(holding)) as unknown as Record<
+            string,
+            unknown
+          >[]
+        ) as Holding[],
+        income_summary: incomeSummary,
+        realized_gain_loss: realizedGainLoss,
+      };
+
+      saveInFlightRef.current = true;
+      setIsSaving(true);
+      try {
+        await onStageForFinish(stagedPayload);
+        baselineSnapshotRef.current = serializeEditableState(accountInfo, holdings);
+        if (isMountedRef.current) {
+          setHasUnsavedChanges(false);
+        }
+        toast.success("Portfolio saved. It will be protected when you finish setup.");
+        await Promise.resolve(onStageComplete?.());
+      } catch (error) {
+        console.error("[PortfolioReview] Failed to stage setup portfolio:", error);
+        toast.error("We could not save your portfolio for setup. Try again.");
+      } finally {
+        if (isMountedRef.current) {
+          setIsSaving(false);
+        }
+        saveInFlightRef.current = false;
+      }
       return;
     }
 
@@ -1950,9 +2000,11 @@ export function PortfolioReviewView({
           <div className="px-1">
 	            <h1 className="text-[20px] font-medium tracking-normal">Review Portfolio</h1>
 	            <p className="max-w-[28rem] text-sm leading-snug text-muted-foreground">
-	              {hasVault === false
-	                ? "Review your portfolio, then create your Vault to save it."
-	                : "Review before saving to Vault"}
+	              {onStageForFinish && !effectiveVaultKey
+	                ? "Review now. Your portfolio is protected when setup finishes."
+	                : hasVault === false
+	                  ? "Review your portfolio, then create your Vault to save it."
+	                  : "Review before saving to Vault"}
 	            </p>
 	          </div>
 	        </div>
@@ -2013,9 +2065,9 @@ export function PortfolioReviewView({
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-4 pt-6 border-t border-primary/10">
-                <div className="min-w-0 text-center sm:text-left sm:pl-4">
-                  <p className="text-[1.35rem] font-medium sm:text-[1.5rem]">{activeHoldings.length}</p>
+              <div className="grid grid-cols-1 gap-2 border-t border-primary/10 pt-6 sm:grid-cols-3">
+                <div className="min-w-0 text-left pl-2 sm:pl-4">
+                  <p className="text-lg font-semibold sm:text-xl">{activeHoldings.length}</p>
                   <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Assets</p>
                 </div>
                 <div className="min-w-0 flex flex-col items-center justify-center">
@@ -2032,12 +2084,12 @@ export function PortfolioReviewView({
                   >
                     {riskBucket}
                   </Badge>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-2">Portfolio Risk</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Portfolio Risk</p>
                 </div>
-                <div className="min-w-0 text-center sm:text-right sm:pr-4">
+                <div className="min-w-0 text-right pr-2 sm:pr-4">
                   <p
                     className={cn(
-                      "max-w-full text-[20px] font-medium leading-none tracking-normal tabular-nums whitespace-nowrap sm:text-[22px]",
+                      "max-w-full text-base font-semibold leading-none tracking-normal tabular-nums truncate sm:text-lg",
                       liveCashBalance < 0
                         ? "text-red-500 dark:text-red-400"
                         : "text-foreground"
@@ -2047,7 +2099,7 @@ export function PortfolioReviewView({
                       {formatCurrencyCompact(liveCashBalance)}
                     </span>
                   </p>
-                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Cash</p>
+                  <p className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground mt-1.5">Cash</p>
                 </div>
               </div>
 
@@ -2071,7 +2123,7 @@ export function PortfolioReviewView({
             </div>
           </AccordionTrigger>
           <AccordionContent>
-            <div className="grid grid-cols-2 gap-4 pt-2">
+            <div className="grid grid-cols-1 gap-4 pt-2 sm:grid-cols-2">
               <div>
                 <Label htmlFor="account-holder" className="text-xs">Account Holder</Label>
                 <Input
@@ -2427,6 +2479,8 @@ export function PortfolioReviewView({
                       : isSaving
                         ? "Securing portfolio in Vault..."
                         : "Saving portfolio in background..."
+                    : onStageForFinish && !effectiveVaultKey
+                      ? "Save portfolio"
                     : hasVault === false
                     ? "Create Vault"
                     : "Save to Vault"}

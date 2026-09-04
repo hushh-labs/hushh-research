@@ -10,6 +10,9 @@ const mocks = vi.hoisted(() => ({
     completeConnect: vi.fn(),
     getStatus: vi.fn(),
   },
+  beginGmailOAuthCompletion: vi.fn(),
+  failGmailOAuthCompletion: vi.fn(),
+  primeConnectorStatus: vi.fn(),
   syncOnboardingJourney: vi.fn(),
   bootstrapState: vi.fn(),
 }));
@@ -39,7 +42,9 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
 }));
 
 vi.mock("@/lib/profile/gmail-connector-store", () => ({
-  primeConnectorStatus: vi.fn(),
+  beginGmailOAuthCompletion: mocks.beginGmailOAuthCompletion,
+  failGmailOAuthCompletion: mocks.failGmailOAuthCompletion,
+  primeConnectorStatus: mocks.primeConnectorStatus,
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -69,7 +74,7 @@ vi.mock("@/lib/morphy-ux/button", () => ({
   ),
 }));
 
-import ProfileGmailOAuthReturnPage from "@/app/profile/gmail/oauth/return/page";
+import ProfileGmailOAuthReturnPage from "@/app/one/profile/gmail/oauth/return/page";
 
 describe("ProfileGmailOAuthReturnPage", () => {
   afterEach(() => {
@@ -129,6 +134,7 @@ describe("ProfileGmailOAuthReturnPage", () => {
       expect(mocks.gmailReceiptsService.getStatus).toHaveBeenCalledWith({
         idToken: "token-abc",
         userId: "user-123",
+        force: true,
       });
     });
 
@@ -156,6 +162,50 @@ describe("ProfileGmailOAuthReturnPage", () => {
         state: "live-state-123",
       });
     });
+  });
+
+  it("opens Gmail immediately while a direct OAuth completion continues in memory", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "slow-code";
+      if (key === "state") return "slow-state";
+      return null;
+    });
+    let resolveCompletion:
+      | ((value: {
+          configured: boolean;
+          connected: boolean;
+          status: string;
+          scope_csv: string;
+          last_sync_status: string;
+          auto_sync_enabled: boolean;
+          revoked: boolean;
+        }) => void)
+      | undefined;
+    mocks.gmailReceiptsService.completeConnect.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveCompletion = resolve;
+        }),
+    );
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.beginGmailOAuthCompletion).toHaveBeenCalledWith("user-123");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+
+    expect(mocks.primeConnectorStatus).not.toHaveBeenCalled();
+    resolveCompletion?.({
+      configured: true,
+      connected: true,
+      status: "connected",
+      scope_csv: "gmail.readonly gmail.send",
+      last_sync_status: "queued",
+      auto_sync_enabled: true,
+      revoked: false,
+    });
+    await waitFor(() => expect(mocks.primeConnectorStatus).toHaveBeenCalled());
   });
 
   it("returns a redacted terminal result to the retained Gmail popup opener", async () => {
@@ -235,14 +285,158 @@ describe("ProfileGmailOAuthReturnPage", () => {
         expectedJourneyUpdatedAt: 123,
         expectedCallbackAttemptId: "connector-test",
       });
-      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/setup/gmail");
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
     });
     expect(
       window.sessionStorage.getItem("one_onboarding_connector_intent_v1"),
     ).toBeNull();
   });
 
-  it("does not settle a durable setup journey when the browser correlation is missing", async () => {
+  it("opens Gmail before a slow setup acknowledgement finishes", async () => {
+    window.sessionStorage.setItem(
+      "one_onboarding_connector_intent_v1",
+      JSON.stringify({
+        version: 1,
+        capability: "gmail",
+        returnTo: "/one/setup",
+        correlationId: "connector-slow-setup",
+        startedAt: Date.now(),
+      }),
+    );
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-slow-setup";
+      if (key === "state") return "state-slow-setup";
+      return null;
+    });
+    const pendingJourney = {
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-slow-setup",
+      onboardingJourneyUpdatedAt: 456,
+    };
+    let resolveJourney: ((value: typeof pendingJourney) => void) | undefined;
+    mocks.bootstrapState
+      .mockImplementationOnce(
+        () =>
+          new Promise<typeof pendingJourney>((resolve) => {
+            resolveJourney = resolve;
+          }),
+      )
+      .mockResolvedValue(pendingJourney);
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+    expect(mocks.syncOnboardingJourney).not.toHaveBeenCalled();
+
+    resolveJourney?.(pendingJourney);
+    await waitFor(() => {
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "capability_setup",
+        activeCapability: "gmail",
+        callbackState: "succeeded",
+        expectedJourneyUpdatedAt: 456,
+        expectedCallbackAttemptId: "connector-slow-setup",
+      });
+    });
+  });
+
+  it("recovers setup acknowledgement from the durable journey when the browser correlation is missing", async () => {
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-setup-ios";
+      if (key === "state") return "state-setup-ios";
+      return null;
+    });
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-ios-durable",
+      onboardingJourneyUpdatedAt: 789,
+    });
+
+    render(<ProfileGmailOAuthReturnPage />);
+
+    await waitFor(() => {
+      expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalledWith({
+        idToken: "token-abc",
+        userId: "user-123",
+        code: "code-setup-ios",
+        state: "state-setup-ios",
+      });
+      expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+        userId: "user-123",
+        phase: "capability_setup",
+        activeCapability: "gmail",
+        callbackState: "succeeded",
+        expectedJourneyUpdatedAt: 789,
+        expectedCallbackAttemptId: "connector-ios-durable",
+      });
+      expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+    });
+  });
+
+  it("recovers setup acknowledgement when browser session storage is unavailable", async () => {
+    const sessionStorageDescriptor = Object.getOwnPropertyDescriptor(
+      window,
+      "sessionStorage",
+    );
+    Object.defineProperty(window, "sessionStorage", {
+      configurable: true,
+      get() {
+        throw new Error("sessionStorage unavailable");
+      },
+    });
+    mocks.searchParamsGet.mockImplementation((key: string) => {
+      if (key === "code") return "code-setup-storage-blocked";
+      if (key === "state") return "state-setup-storage-blocked";
+      return null;
+    });
+    mocks.bootstrapState.mockResolvedValue({
+      setupCompleted: false,
+      onboardingPhase: "external_connector",
+      onboardingActiveCapability: "gmail",
+      onboardingCallbackState: "pending",
+      onboardingCallbackAttemptId: "connector-storage-blocked",
+      onboardingJourneyUpdatedAt: 987,
+    });
+
+    try {
+      render(<ProfileGmailOAuthReturnPage />);
+
+      await waitFor(() => {
+        expect(mocks.gmailReceiptsService.completeConnect).toHaveBeenCalledWith(
+          {
+            idToken: "token-abc",
+            userId: "user-123",
+            code: "code-setup-storage-blocked",
+            state: "state-setup-storage-blocked",
+          },
+        );
+        expect(mocks.syncOnboardingJourney).toHaveBeenCalledWith({
+          userId: "user-123",
+          phase: "capability_setup",
+          activeCapability: "gmail",
+          callbackState: "succeeded",
+          expectedJourneyUpdatedAt: 987,
+          expectedCallbackAttemptId: "connector-storage-blocked",
+        });
+        expect(mocks.routerReplace).toHaveBeenCalledWith("/one/gmail");
+      });
+    } finally {
+      if (sessionStorageDescriptor) {
+        Object.defineProperty(window, "sessionStorage", sessionStorageDescriptor);
+      }
+    }
+  });
+
+  it("does not settle setup when no pending Gmail callback exists", async () => {
     mocks.bootstrapState.mockResolvedValue({
       setupCompleted: false,
       onboardingActiveCapability: "gmail",

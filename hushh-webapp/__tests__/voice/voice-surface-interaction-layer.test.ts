@@ -274,9 +274,9 @@ describe("voice surface interaction-layer composition", () => {
       "chrome",
       {
         screenId: "one_kyc",
-        title: "Email",
+        title: "KYC",
         actions: [
-          { id: "route_one_kyc", actionId: "route.one_kyc", label: "Open Email" },
+          { id: "route_one_kyc", actionId: "route.one_kyc", label: "Open KYC" },
         ],
       },
       { role: "chrome", routeKey: "/one/setup/email" },

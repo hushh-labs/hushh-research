@@ -7,12 +7,17 @@ import {
   type LocalOnboardingActionResult,
 } from "@/lib/agent/local-onboarding-actions";
 import { buildConnectedSystemRoute } from "@/lib/navigation/routes";
+import {
+  parseVoiceCard,
+  publishVoiceCard,
+} from "@/lib/voice/voice-action-card";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type { Persona } from "@/lib/services/ria-service";
 import {
   evaluateKaiActionAvailability,
   getKaiActionById,
 } from "@/lib/voice/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -47,6 +52,16 @@ export type ExecuteAgentGatewayActionInput = {
   setAnalysisParams: (params: AnalysisParams | null) => void;
   switchPersona?: (target: Persona) => Promise<unknown>;
   executionContext?: LocalOnboardingActionContext;
+  signal?: AbortSignal;
+  /**
+   * Narrow authorization issued by the generated goal runner. It never makes
+   * an arbitrary off-screen control executable; it only permits the Analysis
+   * preview step after the generated route step has settled on Analysis.
+   */
+  goalAuthorization?: {
+    goalId: string;
+    expectedScreen: string;
+  } | null;
 };
 
 function hasPublishedActionInventory(
@@ -66,6 +81,63 @@ function hasPublishedActionInventory(
 function isActionInActiveInventory(
   input: ExecuteAgentGatewayActionInput,
 ): boolean {
+  const activeLayer = input.surfaceMetadata?.interactionLayer;
+  const routeIsBlockedByActiveLayer = Boolean(
+    activeLayer &&
+      activeLayer.lifecycle !== "closing" &&
+      (activeLayer.blocksUnderlyingActions ||
+        activeLayer.modality === "modal" ||
+        activeLayer.modality === "blocking" ||
+        activeLayer.agentContinuity !== "interactive"),
+  );
+
+  // Navigation is reachable from any screen. Deciding WHICH actions count as
+  // navigation has to match `is_navigation_action` in action_gateway.py
+  // exactly, because the relay offers an action on that basis and the browser
+  // refuses it on this one -- so any gap between the two predicates is an
+  // action One proposes and the app then rejects.
+  //
+  // The union is load-bearing in BOTH directions, and this file has now had it
+  // wrong each way round:
+  //
+  //   - Testing only the NAME missed `location.open_share` and
+  //     `setup.open_finance`, which navigate but are surface-named. That
+  //     blocked a journey's own first step: One escorted someone to Location
+  //     and the browser refused to go.
+  //   - Testing only the PATH then missed the five wired `route.*` actions
+  //     whose path is `kai_command` or `voice_tool` -- route.profile,
+  //     route.consents, route.back, route.analysis_history, route.kai_import.
+  //     Those had worked for months on the name test alone.
+  if (!routeIsBlockedByActiveLayer) {
+    const action = getKaiActionById(input.actionId);
+    if (
+      action &&
+      action.execution_policy === "allow_direct" &&
+      action.execution_target.status === "wired" &&
+      (action.action_id.startsWith("route.") ||
+        action.execution_target.path === "route")
+    ) {
+      return true;
+    }
+  }
+
+  // A goal authorization is honored only when it names THIS action's own
+  // authored journey and the browser is standing on that journey's declared
+  // destination. Both facts come from the generated contract, so the check
+  // cannot be satisfied by a caller inventing a goal id for another action.
+  const authorization = input.goalAuthorization;
+  if (authorization && !routeIsBlockedByActiveLayer) {
+    const journey = resolveNavigationJourney(input.actionId);
+    if (
+      journey &&
+      authorization.goalId === journey.goalId &&
+      authorization.expectedScreen === journey.destinationScreen &&
+      input.appRuntimeState.route.screen === journey.destinationScreen
+    ) {
+      return true;
+    }
+  }
+
   if (input.allowedActionIds) {
     return input.allowedActionIds.includes(input.actionId);
   }
@@ -112,6 +184,16 @@ function buildLocalHandlerResult(input: {
   goalId: string;
   handlerResult: LocalOnboardingActionResult;
 }): AgentActionRuntimeResult {
+  // Every local handler result funnels through here, so this is the one place
+  // that has to know about disambiguation.
+  //
+  // Publishing unconditionally is deliberate, including the null case: a
+  // handler result that carries no candidates means the person has moved on --
+  // most often by tapping a row, which runs this same path and should retire
+  // the card that produced it. Clearing only on success would leave a stale
+  // list of people on screen after the question stopped being live.
+  publishVoiceCard(parseVoiceCard(input.handlerResult.data));
+
   return buildResult({
     status:
       input.handlerResult.status === "started"
@@ -365,11 +447,22 @@ function executeConnectedSystemAgentAction(
   }
 
   const slots = input.slots || {};
-  const systemId = readString(slots.systemId) || "salesforce-fsc-customer0";
+  const systemId = readString(slots.systemId);
+  if (!systemId) {
+    return buildResult({
+      status: "blocked",
+      actionId: input.actionId,
+      label: "Select CRM",
+      routeBefore: routeBefore.pathname,
+      screenBefore: routeBefore.screen,
+      resultSummary: "Select a connected CRM before preparing this action.",
+      reason: "connected_system_selection_required",
+    });
+  }
   const instructionId = storeConnectedSystemInstruction(input.actionId, slots);
-  const target = instructionId
-    ? `${buildConnectedSystemRoute(systemId)}?agentActionId=${encodeURIComponent(instructionId)}`
-    : buildConnectedSystemRoute(systemId);
+  const target = buildConnectedSystemRoute(systemId, {
+    agentActionId: instructionId,
+  });
   input.router.push(target);
   return buildResult({
     status: "started",
@@ -414,7 +507,7 @@ export async function executeAgentGatewayAction(
       actionId: input.actionId,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "Agent could not find that Kai action.",
+      resultSummary: "Agent could not find that action.",
       reason: "missing_action",
     });
   }
@@ -476,7 +569,7 @@ export async function executeAgentGatewayAction(
       resultSummary:
         availability.blocked_guidance ||
         availability.reason ||
-        "That Kai action is not available right now.",
+        "That action is not available right now.",
       reason: availability.status,
     });
   }
@@ -488,7 +581,7 @@ export async function executeAgentGatewayAction(
       label: action.label,
       routeBefore: routeBefore.pathname,
       screenBefore: routeBefore.screen,
-      resultSummary: "That Kai action is not wired for execution yet.",
+      resultSummary: "That action is not wired for execution yet.",
       reason: action.execution_target.status,
     });
   }
@@ -502,7 +595,20 @@ export async function executeAgentGatewayAction(
       routeBefore: routeBefore.pathname,
       routeAfter: action.execution_target.target,
       screenBefore: routeBefore.screen,
-      resultSummary: `${action.label} opened in Kai.`,
+      // The label alone, deliberately -- no destination named.
+      //
+      // This used to say `${label} opened in Finance.` from when this runtime
+      // was Kai-only, so asking for Voice Settings answered "Open Voice
+      // Settings opened in Finance." The action's own `surface_id` is no
+      // better: it names where the action is *authored*, not where it lands,
+      // so route.voice_settings would have claimed "Agents".
+      //
+      // Prefixing instead ("Opened X") does not survive the real labels --
+      // only 39 of 70 route actions start with "Open", and the rest would
+      // read "Opened Share my location" or "Opened Continue". The label is
+      // already an accurate name for what happened, and the card renders it
+      // against a completion tick, which is what supplies the past tense.
+      resultSummary: `${action.label}.`,
       data: {
         target: action.execution_target.target,
         goal_id: action.goal.goal_id,
@@ -511,6 +617,18 @@ export async function executeAgentGatewayAction(
   }
 
   if (action.execution_target.path === "local_handler") {
+    if (input.signal?.aborted) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary: "Action was interrupted.",
+        reason: "execution_aborted",
+      });
+    }
+
     const handler = await waitForLocalOnboardingHandler(action.action_id);
     if (!handler) {
       return buildResult({
@@ -523,8 +641,51 @@ export async function executeAgentGatewayAction(
         reason: "local_handler_not_mounted",
       });
     }
+
     try {
+      // A local handler may begin an external mutation (for example, sending a
+      // connection request). The handler contract has no cancellation signal,
+      // and its backing services do not promise rollback on abort. Racing it
+      // against a local timeout or a later voice utterance would therefore
+      // report a false terminal failure while the request can still succeed.
+      // Once invocation begins, wait for the authoritative handler outcome;
+      // the pre-invocation abort check above still avoids starting new work.
       const handlerResult = await handler(
+        input.slots || {},
+        input.executionContext,
+      );
+
+      return buildLocalHandlerResult({
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore,
+        goalId: action.goal.goal_id,
+        handlerResult,
+      });
+    } catch (error) {
+      return buildResult({
+        status: "failed",
+        actionId: action.action_id,
+        label: action.label,
+        routeBefore: routeBefore.pathname,
+        screenBefore: routeBefore.screen,
+        resultSummary:
+          error instanceof Error && error.message
+            ? error.message
+            : `${action.label} failed to run.`,
+        reason: "local_handler_error",
+      });
+    }
+  }
+
+  // A small number of generated actions are surfaced by native voice tools
+  // and also have a mounted web control (for example Analysis cancel/resume).
+  // The mounted handler is still required by the active inventory gate above;
+  // this is not a fallback to arbitrary DOM or off-screen execution.
+  const mountedHandler = resolveLocalOnboardingHandler(action.action_id);
+  if (mountedHandler) {
+    try {
+      const handlerResult = await mountedHandler(
         input.slots || {},
         input.executionContext,
       );

@@ -7,18 +7,19 @@ import {
   KaiHistoryService,
   type AnalysisHistoryEntry,
 } from "@/lib/services/kai-history-service";
-import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { enforceMinimumRetryDelayMs } from "@/lib/runtime/retry-delay";
 import { getSessionItem, setSessionItem } from "@/lib/utils/session-storage";
 
 const RUN_MANAGER_STORAGE_KEY = "kai_debate_run_manager_v1";
 const RUN_MANAGER_SESSION_KEY = "kai_debate_session_id_v1";
 const RETRY_DELAYS_MS = [750, 2000, 4500].map(enforceMinimumRetryDelayMs);
-const FINANCIAL_WRITE_WAIT_TIMEOUT_MS = 20_000;
-const FINANCIAL_WRITE_POLL_MS = 400;
+const STREAM_RECONNECT_MESSAGE =
+  "Live updates paused. Reopen Analysis to reconnect.";
 
 export type DebateRunStatus = "running" | "completed" | "failed" | "canceled";
-export type DebateTaskPersistenceState = "none" | "pending" | "saved" | "failed";
+export type DebateTaskPersistenceState =
+  "none" | "pending" | "saved" | "failed";
+export type DebateRunStreamState = "connected" | "reconnecting" | "paused";
 
 export interface DebateRunTask {
   runId: string;
@@ -33,6 +34,8 @@ export interface DebateRunTask {
   completedAt: string | null;
   updatedAt: string;
   latestCursor: number;
+  streamState: DebateRunStreamState;
+  streamMessage: string | null;
   persistenceState: DebateTaskPersistenceState;
   persistenceError: string | null;
   dismissedAt: string | null;
@@ -62,7 +65,10 @@ interface RunSecrets {
 
 type StateListener = (state: DebateRunManagerState) => void;
 type RunEnvelopeListener = (envelope: KaiStreamEnvelope) => void;
-type HistoryListener = (entry: AnalysisHistoryEntry, task: DebateRunTask) => void;
+type HistoryListener = (
+  entry: AnalysisHistoryEntry,
+  task: DebateRunTask,
+) => void;
 
 export type EnsureRunResult =
   | { kind: "started"; task: DebateRunTask }
@@ -75,8 +81,6 @@ export interface EnsureDebateRunParams {
   riskProfile: string;
   userContext?: Record<string, unknown> | null;
   pickSource?: string;
-  pickSourceLabel?: string;
-  pickSourceKind?: string;
   vaultOwnerToken: string;
   vaultKey?: string;
 }
@@ -116,14 +120,19 @@ function nowIso(): string {
 }
 
 function createSessionId(): string {
-  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return `debate_session_${crypto.randomUUID()}`;
   }
   return `debate_session_${Math.random().toString(36).slice(2)}_${Date.now()}`;
 }
 
 function toUpperTicker(value: string): string {
-  return String(value || "").trim().toUpperCase();
+  return String(value || "")
+    .trim()
+    .toUpperCase();
 }
 
 function toFiniteNumber(value: unknown, fallback = 0): number {
@@ -151,12 +160,16 @@ function resolveRound(payload: Record<string, unknown>): 1 | 2 {
   const roundValue = payload.round;
   if (roundValue === 2 || roundValue === "2") return 2;
   if (roundValue === 1 || roundValue === "1") return 1;
-  const phase = typeof payload.phase === "string" ? payload.phase.toLowerCase() : "";
-  if (phase === "debate" || phase === "round2" || phase === "decision") return 2;
+  const phase =
+    typeof payload.phase === "string" ? payload.phase.toLowerCase() : "";
+  if (phase === "debate" || phase === "round2" || phase === "decision")
+    return 2;
   return 1;
 }
 
-function cloneRound(round: Record<string, TranscriptAgentState>): Record<string, TranscriptAgentState> {
+function cloneRound(
+  round: Record<string, TranscriptAgentState>,
+): Record<string, TranscriptAgentState> {
   const next: Record<string, TranscriptAgentState> = {};
   for (const [agent, state] of Object.entries(round)) {
     next[agent] = { ...state };
@@ -202,7 +215,10 @@ function buildTranscriptFromEnvelopes(envelopes: KaiStreamEnvelope[]): {
         ...bucket[agent],
         stage: "complete",
         text: String(payload.summary || payload.text || ""),
-        recommendation: typeof payload.recommendation === "string" ? payload.recommendation : undefined,
+        recommendation:
+          typeof payload.recommendation === "string"
+            ? payload.recommendation
+            : undefined,
         confidence: toFiniteNumber(payload.confidence, 0),
         sources: Array.isArray(payload.sources)
           ? payload.sources.map((value) => String(value))
@@ -215,7 +231,10 @@ function buildTranscriptFromEnvelopes(envelopes: KaiStreamEnvelope[]): {
           payload.quant_metrics && typeof payload.quant_metrics === "object"
             ? (payload.quant_metrics as Record<string, unknown>)
             : undefined,
-        businessMoat: typeof payload.business_moat === "string" ? payload.business_moat : undefined,
+        businessMoat:
+          typeof payload.business_moat === "string"
+            ? payload.business_moat
+            : undefined,
         financialResilience:
           typeof payload.financial_resilience === "string"
             ? payload.financial_resilience
@@ -224,15 +243,20 @@ function buildTranscriptFromEnvelopes(envelopes: KaiStreamEnvelope[]): {
           typeof payload.growth_efficiency === "string"
             ? payload.growth_efficiency
             : undefined,
-        bullCase: typeof payload.bull_case === "string" ? payload.bull_case : undefined,
-        bearCase: typeof payload.bear_case === "string" ? payload.bear_case : undefined,
+        bullCase:
+          typeof payload.bull_case === "string" ? payload.bull_case : undefined,
+        bearCase:
+          typeof payload.bear_case === "string" ? payload.bear_case : undefined,
         sentimentScore:
-          typeof payload.sentiment_score === "number" ? payload.sentiment_score : undefined,
+          typeof payload.sentiment_score === "number"
+            ? payload.sentiment_score
+            : undefined,
         keyCatalysts: Array.isArray(payload.key_catalysts)
           ? payload.key_catalysts.map((value) => String(value))
           : undefined,
         valuationMetrics:
-          payload.valuation_metrics && typeof payload.valuation_metrics === "object"
+          payload.valuation_metrics &&
+          typeof payload.valuation_metrics === "object"
             ? (payload.valuation_metrics as Record<string, unknown>)
             : undefined,
         peerComparison:
@@ -250,7 +274,9 @@ function buildTranscriptFromEnvelopes(envelopes: KaiStreamEnvelope[]): {
       bucket[agent] = {
         ...bucket[agent],
         stage: "error",
-        error: String(payload.error || payload.message || "Agent analysis failed"),
+        error: String(
+          payload.error || payload.message || "Agent analysis failed",
+        ),
       };
     }
   }
@@ -301,6 +327,8 @@ class DebateRunManager {
           if (!task.runId || !task.userId || !task.ticker) continue;
           this.tasks.set(task.runId, {
             ...task,
+            streamState: task.streamState || "paused",
+            streamMessage: task.streamMessage || null,
             persistenceState: task.persistenceState || "none",
             persistenceError: task.persistenceError || null,
             dismissedAt: task.dismissedAt || null,
@@ -357,13 +385,21 @@ class DebateRunManager {
     const merged: DebateRunTask = {
       ...existing,
       ...task,
-      persistenceState: task.persistenceState || existing?.persistenceState || "none",
+      streamState: task.streamState || existing?.streamState || "connected",
+      streamMessage:
+        task.streamMessage !== undefined
+          ? task.streamMessage
+          : (existing?.streamMessage ?? null),
+      persistenceState:
+        task.persistenceState || existing?.persistenceState || "none",
       persistenceError:
         task.persistenceError !== undefined
           ? task.persistenceError
           : (existing?.persistenceError ?? null),
       dismissedAt:
-        task.dismissedAt !== undefined ? task.dismissedAt : (existing?.dismissedAt ?? null),
+        task.dismissedAt !== undefined
+          ? task.dismissedAt
+          : (existing?.dismissedAt ?? null),
       finalDecision:
         task.finalDecision !== undefined
           ? task.finalDecision
@@ -378,7 +414,9 @@ class DebateRunManager {
   private makeTaskFromServer(run: Record<string, unknown>): DebateRunTask {
     const statusRaw = String(run.status || "running").toLowerCase();
     const status: DebateRunStatus =
-      statusRaw === "completed" || statusRaw === "failed" || statusRaw === "canceled"
+      statusRaw === "completed" ||
+      statusRaw === "failed" ||
+      statusRaw === "canceled"
         ? (statusRaw as DebateRunStatus)
         : "running";
     return {
@@ -394,16 +432,20 @@ class DebateRunManager {
           : null,
       updatedAt: String(run.updated_at || nowIso()),
       latestCursor: toFiniteNumber(run.latest_cursor, 0),
+      streamState: status === "running" ? "paused" : "connected",
+      streamMessage: status === "running" ? STREAM_RECONNECT_MESSAGE : null,
       pickSource:
         typeof run.pick_source === "string" && run.pick_source.trim().length > 0
           ? run.pick_source.trim()
           : undefined,
       pickSourceLabel:
-        typeof run.pick_source_label === "string" && run.pick_source_label.trim().length > 0
+        typeof run.pick_source_label === "string" &&
+        run.pick_source_label.trim().length > 0
           ? run.pick_source_label.trim()
           : undefined,
       pickSourceKind:
-        typeof run.pick_source_kind === "string" && run.pick_source_kind.trim().length > 0
+        typeof run.pick_source_kind === "string" &&
+        run.pick_source_kind.trim().length > 0
           ? run.pick_source_kind.trim()
           : undefined,
       persistenceState: "none",
@@ -460,10 +502,13 @@ class DebateRunManager {
     };
   }
 
-  getHistoryEntriesForUser(userId: string): Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> {
+  getHistoryEntriesForUser(
+    userId: string,
+  ): Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> {
     const normalizedUserId = String(userId || "").trim();
     if (!normalizedUserId) return [];
-    const items: Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> = [];
+    const items: Array<{ entry: AnalysisHistoryEntry; task: DebateRunTask }> =
+      [];
     for (const task of this.tasks.values()) {
       if (task.userId !== normalizedUserId || task.dismissedAt) continue;
       const existingEntry = this.runHistoryEntries.get(task.runId);
@@ -473,59 +518,67 @@ class DebateRunManager {
       }
       if (task.status !== "completed" || !task.finalDecision) continue;
       const buffer = this.runBuffers.get(task.runId) || [];
-      const decisionEnvelope = [...buffer].reverse().find((event) => event.event === "decision");
+      const decisionEnvelope = [...buffer]
+        .reverse()
+        .find((event) => event.event === "decision");
       const payload =
-        decisionEnvelope?.payload && typeof decisionEnvelope.payload === "object"
+        decisionEnvelope?.payload &&
+        typeof decisionEnvelope.payload === "object"
           ? (decisionEnvelope.payload as Record<string, unknown>)
           : {};
       const rawCard =
         payload.raw_card && typeof payload.raw_card === "object"
-          ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<string, unknown>)
+          ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
+              string,
+              unknown
+            >)
           : {};
       rawCard.debate_run_id = task.runId;
-      if (!rawCard.pick_source && task.pickSource) {
-        rawCard.pick_source = task.pickSource;
-      }
-      if (!rawCard.pick_source_label && task.pickSourceLabel) {
-        rawCard.pick_source_label = task.pickSourceLabel;
-      }
-      if (!rawCard.pick_source_kind && task.pickSourceKind) {
-        rawCard.pick_source_kind = task.pickSourceKind;
-      }
       const transcript = buildTranscriptFromEnvelopes(buffer);
       items.push({
         task,
         entry: {
           ticker: toUpperTicker(String(payload.ticker || task.ticker)),
           timestamp:
-            typeof payload.analysis_updated_at === "string" && payload.analysis_updated_at.trim().length > 0
+            typeof payload.analysis_updated_at === "string" &&
+            payload.analysis_updated_at.trim().length > 0
               ? payload.analysis_updated_at
               : task.completedAt || task.updatedAt || nowIso(),
-          decision: String(payload.decision || task.finalDecision.decision || "hold"),
-          confidence: toFiniteNumber(payload.confidence, task.finalDecision.confidence || 0),
+          decision: String(
+            payload.decision || task.finalDecision.decision || "hold",
+          ),
+          confidence: toFiniteNumber(
+            payload.confidence,
+            task.finalDecision.confidence || 0,
+          ),
           consensus_reached: Boolean(payload.consensus_reached),
           agent_votes:
             payload.agent_votes && typeof payload.agent_votes === "object"
               ? (payload.agent_votes as Record<string, string>)
               : {},
           final_statement: String(
-            payload.final_statement || task.finalDecision.finalStatement || ""
+            payload.final_statement || task.finalDecision.finalStatement || "",
           ),
           raw_card: rawCard as Record<string, any>,
-          debate_transcript: transcript as AnalysisHistoryEntry["debate_transcript"],
+          debate_transcript:
+            transcript as AnalysisHistoryEntry["debate_transcript"],
         },
       });
     }
-    return items.sort((left, right) => Date.parse(right.entry.timestamp) - Date.parse(left.entry.timestamp));
+    return items.sort(
+      (left, right) =>
+        Date.parse(right.entry.timestamp) - Date.parse(left.entry.timestamp),
+    );
   }
 
   subscribeRunEvents(
     runId: string,
     listener: RunEnvelopeListener,
-    options?: { replay?: boolean }
+    options?: { replay?: boolean },
   ): () => void {
     const replay = options?.replay ?? true;
-    const listeners = this.runEventListeners.get(runId) || new Set<RunEnvelopeListener>();
+    const listeners =
+      this.runEventListeners.get(runId) || new Set<RunEnvelopeListener>();
     listeners.add(listener);
     this.runEventListeners.set(runId, listeners);
     if (replay) {
@@ -553,7 +606,10 @@ class DebateRunManager {
     if (!normalized) return null;
     const active = Array.from(this.tasks.values())
       .filter(
-        (task) => task.userId === normalized && task.status === "running" && !task.dismissedAt
+        (task) =>
+          task.userId === normalized &&
+          task.status === "running" &&
+          !task.dismissedAt,
       )
       .sort((a, b) => Date.parse(b.startedAt) - Date.parse(a.startedAt));
     return active[0] || null;
@@ -561,7 +617,10 @@ class DebateRunManager {
 
   private markMissingActiveRun(userId: string): void {
     const staleRunning = Array.from(this.tasks.values()).filter(
-      (task) => task.userId === userId && task.status === "running" && !task.dismissedAt
+      (task) =>
+        task.userId === userId &&
+        task.status === "running" &&
+        !task.dismissedAt,
     );
     for (const stale of staleRunning) {
       this.upsertTask({
@@ -569,7 +628,8 @@ class DebateRunManager {
         status: "failed",
         completedAt: stale.completedAt || nowIso(),
         updatedAt: nowIso(),
-        persistenceError: stale.persistenceError || "Active debate run is no longer available.",
+        persistenceError:
+          stale.persistenceError || "Active debate run is no longer available.",
       });
     }
   }
@@ -592,7 +652,9 @@ class DebateRunManager {
       }
       throw new Error(`Failed to verify active run: HTTP ${response.status}`);
     }
-    const payload = (await response.json()) as { run?: Record<string, unknown> };
+    const payload = (await response.json()) as {
+      run?: Record<string, unknown>;
+    };
     if (!payload.run) {
       this.markMissingActiveRun(userId);
       return null;
@@ -613,24 +675,6 @@ class DebateRunManager {
     return this.getTask(task.runId);
   }
 
-  private async waitForFinancialWritesToSettle(userId: string): Promise<void> {
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < FINANCIAL_WRITE_WAIT_TIMEOUT_MS) {
-      const portfolioSaveRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_save"
-      );
-      const profileSyncRunning = AppBackgroundTaskService.hasRunningTask(
-        userId,
-        "portfolio_postsave_sync"
-      );
-      if (!portfolioSaveRunning && !profileSyncRunning) {
-        return;
-      }
-      await new Promise((resolve) => setTimeout(resolve, FINANCIAL_WRITE_POLL_MS));
-    }
-  }
-
   async resumeActiveRun(params: {
     userId: string;
     vaultOwnerToken: string;
@@ -648,8 +692,6 @@ class DebateRunManager {
       toUpperTicker(params.ticker),
       params.riskProfile,
       params.pickSource || "",
-      params.pickSourceLabel || "",
-      params.pickSourceKind || "",
     ].join("|");
   }
 
@@ -679,15 +721,15 @@ class DebateRunManager {
     }
   }
 
-  private async ensureRunUntracked(params: EnsureDebateRunParams): Promise<EnsureRunResult> {
+  private async ensureRunUntracked(
+    params: EnsureDebateRunParams,
+  ): Promise<EnsureRunResult> {
     const {
       userId,
       ticker,
       riskProfile,
       userContext,
       pickSource,
-      pickSourceKind,
-      pickSourceLabel,
       vaultOwnerToken,
       vaultKey,
     } = params;
@@ -701,20 +743,22 @@ class DebateRunManager {
       if (!verifiedActiveTask) {
         return this.ensureRunUntracked(params);
       }
-      const refreshedActiveTask = this.upsertTask({
-        ...verifiedActiveTask,
-        pickSource: pickSource || verifiedActiveTask.pickSource,
-        pickSourceLabel: pickSourceLabel || verifiedActiveTask.pickSourceLabel,
-        pickSourceKind: pickSourceKind || verifiedActiveTask.pickSourceKind,
+      // Active-run provenance belongs to the server-created run. A later
+      // browser selection cannot relabel a run that already has an authorized
+      // source snapshot.
+      const refreshedActiveTask = this.upsertTask(verifiedActiveTask);
+      this.runSecrets.set(refreshedActiveTask.runId, {
+        vaultOwnerToken,
+        vaultKey,
       });
-      this.runSecrets.set(refreshedActiveTask.runId, { vaultOwnerToken, vaultKey });
       if (refreshedActiveTask.status === "running") {
         await this.connectRunStream(refreshedActiveTask.runId, {
           userId,
           vaultOwnerToken,
           vaultKey,
           cursor: 0,
-          resetBuffer: this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
+          resetBuffer:
+            this.getOrCreateBuffer(refreshedActiveTask.runId).length === 0,
         });
       }
       return { kind: "blocked", task: refreshedActiveTask };
@@ -727,8 +771,6 @@ class DebateRunManager {
       riskProfile,
       userContext: userContext || undefined,
       pickSource,
-      pickSourceLabel,
-      pickSourceKind,
       vaultOwnerToken,
     });
 
@@ -738,14 +780,11 @@ class DebateRunManager {
       };
       const run = conflict.detail?.active_run;
       if (!run) {
-        throw new Error("Active run lock returned without active_run metadata.");
+        throw new Error(
+          "Active run lock returned without active_run metadata.",
+        );
       }
-      const task = this.upsertTask({
-        ...this.makeTaskFromServer(run),
-        pickSource: pickSource || undefined,
-        pickSourceLabel: pickSourceLabel || undefined,
-        pickSourceKind: pickSourceKind || undefined,
-      });
+      const task = this.upsertTask(this.makeTaskFromServer(run));
       this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
       await this.connectRunStream(task.runId, {
         userId,
@@ -761,17 +800,14 @@ class DebateRunManager {
       throw new Error(`Failed to start analyze run: HTTP ${response.status}`);
     }
 
-    const payload = (await response.json()) as { run?: Record<string, unknown> };
+    const payload = (await response.json()) as {
+      run?: Record<string, unknown>;
+    };
     if (!payload.run) {
       throw new Error("Run start response missing run payload.");
     }
 
-    const task = this.upsertTask({
-      ...this.makeTaskFromServer(payload.run),
-      pickSource: pickSource || undefined,
-      pickSourceLabel: pickSourceLabel || undefined,
-      pickSourceKind: pickSourceKind || undefined,
-    });
+    const task = this.upsertTask(this.makeTaskFromServer(payload.run));
     this.runSecrets.set(task.runId, { vaultOwnerToken, vaultKey });
     await this.connectRunStream(task.runId, {
       userId,
@@ -791,7 +827,7 @@ class DebateRunManager {
       vaultKey?: string;
       cursor: number;
       resetBuffer: boolean;
-    }
+    },
   ): Promise<void> {
     if (this.streamControllers.has(runId)) return;
     const task = this.tasks.get(runId);
@@ -805,56 +841,79 @@ class DebateRunManager {
       vaultKey: params.vaultKey,
     });
 
-    const controller = new AbortController();
-    this.streamControllers.set(runId, controller);
+    for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+      const currentTask = this.tasks.get(runId);
+      if (!currentTask || currentTask.status !== "running") return;
 
-    try {
-      const response = await ApiService.streamKaiDebateRun({
-        userId: params.userId,
-        runId,
-        resumeCursor: params.cursor,
-        vaultOwnerToken: params.vaultOwnerToken,
-        signal: controller.signal,
-      });
+      const controller = new AbortController();
+      this.streamControllers.set(runId, controller);
 
-      if (!response.ok) {
-        throw new Error(`Run stream request failed: HTTP ${response.status}`);
-      }
-
-      await consumeCanonicalKaiStream(
-        response,
-        (envelope) => {
-          this.handleEnvelope(runId, envelope);
-        },
-        {
+      try {
+        this.upsertTask({
+          ...currentTask,
+          streamState: "connected",
+          streamMessage: null,
+        });
+        const response = await ApiService.streamKaiDebateRun({
+          userId: params.userId,
+          runId,
+          // Resume only after the latest canonical event already delivered to
+          // this client, even when the caller supplied an older cursor.
+          resumeCursor: Math.max(params.cursor, currentTask.latestCursor),
+          vaultOwnerToken: params.vaultOwnerToken,
           signal: controller.signal,
-          idleTimeoutMs: 360000,
-          requireTerminal: true,
+        });
+
+        if (!response.ok) {
+          // Never rerun a debate with browser-held context. The run owns a
+          // server-authorized source snapshot, and a new inline request could
+          // observe revoked access or accept spoofed source provenance.
+          throw new Error(`Run stream request failed: HTTP ${response.status}`);
         }
-      );
-    } catch (error) {
-      if ((error as Error)?.name === "AbortError") {
+
+        await consumeCanonicalKaiStream(
+          response,
+          (envelope) => {
+            this.handleEnvelope(runId, envelope);
+          },
+          {
+            signal: controller.signal,
+            idleTimeoutMs: 360000,
+            requireTerminal: true,
+          },
+        );
         return;
+      } catch (error) {
+        if ((error as Error)?.name === "AbortError") {
+          return;
+        }
+
+        const latestTask = this.tasks.get(runId);
+        if (!latestTask || latestTask.status !== "running") return;
+        if (attempt >= RETRY_DELAYS_MS.length) {
+          this.upsertTask({
+            ...latestTask,
+            streamState: "paused",
+            streamMessage: STREAM_RECONNECT_MESSAGE,
+            updatedAt: nowIso(),
+          });
+          return;
+        }
+
+        this.upsertTask({
+          ...latestTask,
+          streamState: "reconnecting",
+          streamMessage: "Reconnecting live updates…",
+          updatedAt: nowIso(),
+        });
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAYS_MS[attempt]),
+        );
+      } finally {
+        if (this.streamControllers.get(runId) === controller) {
+          this.streamControllers.delete(runId);
+        }
       }
-      const synthetic: KaiStreamEnvelope = {
-        schema_version: "1.0",
-        stream_id: `run_${runId}`,
-        stream_kind: "stock_analyze",
-        seq: Date.now(),
-        event: "error",
-        terminal: true,
-        payload: {
-          code: "ANALYZE_RUN_STREAM_FAILED",
-          message: (error as Error)?.message || "Run stream failed",
-          run_id: runId,
-          timestamp: nowIso(),
-          phase: "decision",
-          progress_pct: 100,
-        },
-      };
-      this.handleEnvelope(runId, synthetic);
-    } finally {
-      this.streamControllers.delete(runId);
     }
   }
 
@@ -874,6 +933,8 @@ class DebateRunManager {
       ...task,
       updatedAt: nowIso(),
       latestCursor: Math.max(task.latestCursor, envelope.seq),
+      streamState: "connected",
+      streamMessage: null,
     };
 
     if (envelope.terminal) {
@@ -908,7 +969,7 @@ class DebateRunManager {
 
   private async persistDecisionHistory(
     runId: string,
-    task: DebateRunTask
+    task: DebateRunTask,
   ): Promise<void> {
     const secrets = this.runSecrets.get(runId);
     if (!secrets?.vaultKey || !secrets.vaultOwnerToken) {
@@ -921,7 +982,9 @@ class DebateRunManager {
     }
 
     const buffer = this.runBuffers.get(runId) || [];
-    const decisionEnvelope = [...buffer].reverse().find((event) => event.event === "decision");
+    const decisionEnvelope = [...buffer]
+      .reverse()
+      .find((event) => event.event === "decision");
     const payload =
       decisionEnvelope?.payload && typeof decisionEnvelope.payload === "object"
         ? (decisionEnvelope.payload as Record<string, unknown>)
@@ -929,35 +992,38 @@ class DebateRunManager {
     const transcript = buildTranscriptFromEnvelopes(buffer);
     const rawCard =
       payload.raw_card && typeof payload.raw_card === "object"
-        ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<string, unknown>)
+        ? ({ ...(payload.raw_card as Record<string, unknown>) } as Record<
+            string,
+            unknown
+          >)
         : ({} as Record<string, unknown>);
     rawCard.debate_run_id = runId;
-    if (!rawCard.pick_source && task.pickSource) {
-      rawCard.pick_source = task.pickSource;
-    }
-    if (!rawCard.pick_source_label && task.pickSourceLabel) {
-      rawCard.pick_source_label = task.pickSourceLabel;
-    }
-    if (!rawCard.pick_source_kind && task.pickSourceKind) {
-      rawCard.pick_source_kind = task.pickSourceKind;
-    }
 
     const entry: AnalysisHistoryEntry = {
       ticker: toUpperTicker(String(payload.ticker || task.ticker)),
       timestamp:
-        typeof payload.analysis_updated_at === "string" && payload.analysis_updated_at.trim().length > 0
+        typeof payload.analysis_updated_at === "string" &&
+        payload.analysis_updated_at.trim().length > 0
           ? payload.analysis_updated_at
           : nowIso(),
-      decision: String(payload.decision || task.finalDecision?.decision || "hold"),
-      confidence: toFiniteNumber(payload.confidence, task.finalDecision?.confidence || 0),
+      decision: String(
+        payload.decision || task.finalDecision?.decision || "hold",
+      ),
+      confidence: toFiniteNumber(
+        payload.confidence,
+        task.finalDecision?.confidence || 0,
+      ),
       consensus_reached: Boolean(payload.consensus_reached),
       agent_votes:
         payload.agent_votes && typeof payload.agent_votes === "object"
           ? (payload.agent_votes as Record<string, string>)
           : {},
-      final_statement: String(payload.final_statement || task.finalDecision?.finalStatement || ""),
+      final_statement: String(
+        payload.final_statement || task.finalDecision?.finalStatement || "",
+      ),
       raw_card: rawCard as Record<string, any>,
-      debate_transcript: transcript as AnalysisHistoryEntry["debate_transcript"],
+      debate_transcript:
+        transcript as AnalysisHistoryEntry["debate_transcript"],
     };
 
     this.runHistoryEntries.set(runId, entry);
@@ -970,10 +1036,7 @@ class DebateRunManager {
       listener(entry, pendingTask);
     }
 
-    await this.waitForFinancialWritesToSettle(task.userId);
-
     let success = false;
-    let lastError: unknown = null;
     for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt++) {
       try {
         const saved = await KaiHistoryService.saveAnalysis({
@@ -986,11 +1049,14 @@ class DebateRunManager {
           success = true;
           break;
         }
-      } catch (error) {
-        lastError = error;
+      } catch {
+        // Persistence diagnostics can include protected manifest or provider
+        // detail. The durable task stores only a consumer-safe recovery state.
       }
       if (attempt < RETRY_DELAYS_MS.length) {
-        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAYS_MS[attempt]));
+        await new Promise((resolve) =>
+          setTimeout(resolve, RETRY_DELAYS_MS[attempt]),
+        );
       }
     }
 
@@ -1009,9 +1075,7 @@ class DebateRunManager {
     this.upsertTask({
       ...pendingTask,
       persistenceState: "failed",
-      persistenceError:
-        (lastError as Error | undefined)?.message ||
-        "Could not persist analysis history. Retry from task center.",
+      persistenceError: "Analysis is ready, but could not be saved to history.",
     });
   }
 

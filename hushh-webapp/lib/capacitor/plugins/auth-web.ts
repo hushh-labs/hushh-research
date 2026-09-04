@@ -43,6 +43,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         displayName: result.user.displayName || "",
         photoUrl: result.user.photoURL || "",
         emailVerified: result.user.emailVerified,
+        phoneNumber: result.user.phoneNumber,
       };
       
       this.currentUser = user;
@@ -57,6 +58,12 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       console.error("❌ [HushhAuthWeb] Google Sign-in error:", message);
       throw error;
     }
+  }
+
+  async connectGmail(_options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }> {
+    throw new Error("Native Gmail consent is only available in the mobile app.");
   }
 
   async signInWithApple(): Promise<{
@@ -80,6 +87,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
         displayName: result.user.displayName || "",
         photoUrl: result.user.photoURL || "",
         emailVerified: result.user.emailVerified,
+        phoneNumber: result.user.phoneNumber,
       };
       
       this.currentUser = user;
@@ -147,6 +155,7 @@ export class HushhAuthWeb implements HushhAuthPlugin {
       displayName: user.displayName || "",
       photoUrl: user.photoURL || "",
       emailVerified: user.emailVerified,
+      phoneNumber: user.phoneNumber,
     };
   }
 }

@@ -13,12 +13,7 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from hushh_mcp.adk_bridge.contract import (
-    A2AAuthorityRequired,
-    A2ADirective,
-    A2ATask,
-    SpecialistTurnResult,
-)
+from hushh_mcp.adk_bridge.contract import A2ADirective, A2ATask, SpecialistTurnResult
 from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
 from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
@@ -60,33 +55,6 @@ class NavAgent:
             )
 
         message = (task.message or "").strip()
-        if _is_connections_query(message):
-            # Connections is Nav's child. It independently requires exact
-            # attenuated authority; Nav never manufactures it from a broad
-            # consent-review grant.
-            from hushh_mcp.adk_bridge.connections_agent import get_connections_a2a
-
-            try:
-                return await get_connections_a2a().handle(task)
-            except A2AAuthorityRequired:
-                return SpecialistTurnResult(
-                    conversation_id=task.conversation_id or "",
-                    text=(
-                        "Connections needs an exact, approved relationship authority "
-                        "before it can view or change trusted people. Open the Consent "
-                        "Center to approve that request, then try again."
-                    ),
-                    directive=A2ADirective(
-                        kind="prompt",
-                        payload={
-                            "kind": "connection_authority_required",
-                            "agentId": "agent_connections",
-                        },
-                    ),
-                    is_complete=True,
-                    model=DELEGATED_MODEL,
-                    state_changed=False,
-                )
         timezone = _safe_timezone(task.timezone)
         answer_text, directive = await self._answer(
             message, user_id=task.user_id, timezone=timezone
@@ -269,24 +237,6 @@ def _is_previous_consent_query(message: str) -> bool:
     )
 
 
-def _is_connections_query(message: str) -> bool:
-    text = message.lower()
-    return any(
-        word in text
-        for word in (
-            "connection",
-            "connections",
-            "connect",
-            "trusted people",
-            "trusted person",
-            "invite",
-            "accept",
-            "reject",
-            "remove",
-        )
-    )
-
-
 def _entry_label(entry: dict[str, Any]) -> str:
     for key in ("counterpart_label", "counterpart_email", "counterpart_id"):
         value = str(entry.get(key) or "").strip()
@@ -411,6 +361,17 @@ def _parse_datetime(value: str) -> datetime | None:
     try:
         parsed = datetime.fromisoformat(normalized)
     except ValueError:
+        # Some sources of expires_at/issued_at (consent_db.py's audit/token
+        # rows, compared against now_ms throughout that module) carry epoch
+        # milliseconds rather than an ISO string -- already str()'d by the
+        # caller before it ever reaches here. Without this, a value that
+        # failed ISO parsing fell through to being spoken aloud as a raw
+        # number: "until 1785283200000."
+        if normalized.isdigit():
+            try:
+                return datetime.fromtimestamp(int(normalized) / 1000, tz=UTC)
+            except (OverflowError, OSError, ValueError):
+                return None
         return None
     if parsed.tzinfo is None:
         return parsed.replace(tzinfo=UTC)

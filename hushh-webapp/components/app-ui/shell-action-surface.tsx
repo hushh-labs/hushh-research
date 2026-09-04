@@ -16,14 +16,17 @@ import { cn } from "@/lib/utils";
 // carry the muted eyebrow tone on the stroke and warm to full foreground on
 // hover; pill controls add horizontal padding + label text.
 const shellActionSurfaceVariants = cva(
-  "group/shell-action relative isolate inline-flex overflow-hidden rounded-full bg-black/[0.05] transition-[color,background-color,transform] duration-200 hover:bg-black/[0.08] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60 dark:bg-white/[0.07] dark:hover:bg-white/[0.1]",
+  // `touch-manipulation` removes the iOS ~300ms double-tap delay that made the
+  // top-bar back/close controls feel like they needed a second tap. Kept on the
+  // base so every shell control (back, close, theme, profile) gets it.
+  "shell-action-surface group/shell-action relative isolate inline-flex touch-manipulation overflow-hidden rounded-full border border-[color:var(--app-glass-border)] bg-[color:var(--app-glass-surface)] shadow-[var(--app-glass-shadow)] transition-[color,background-color,transform] duration-200 hover:bg-[color:var(--app-shell-surface-bg-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-focus-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-60",
   {
     variants: {
       variant: {
         icon:
           "h-9 w-9 items-center justify-center text-muted-foreground hover:text-foreground active:scale-90",
         pill:
-          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-medium tracking-normal text-[#1d1d1f] active:scale-[0.97] dark:text-[#f5f5f7] sm:gap-2 sm:px-4 sm:text-base",
+          "h-9 min-w-0 max-w-full items-center justify-center gap-1.5 px-3.5 text-[14px] font-semibold tracking-normal text-foreground active:scale-[0.97] sm:gap-2 sm:px-4 sm:text-base",
       },
     },
     defaultVariants: {
@@ -85,7 +88,10 @@ export const ShellActionSurface = React.forwardRef<
       {badge ? (
         <span
           className={cn(
-            "pointer-events-none absolute right-0 top-0 z-20 translate-x-[24%] -translate-y-[22%]",
+            // A fixed corner overlay on the icon's own box, not the wrapper:
+            // the trigger's footprint never changes size when a badge
+            // appears or disappears, so sibling shell actions never shift.
+            "pointer-events-none absolute -right-1 -top-1 z-20",
             badgeClassName
           )}
         >

@@ -51,7 +51,7 @@ TOGAF and ArchiMate terms are supporting enterprise vocabulary only. In this rep
 
 ## Current-State Contract
 
-- Current: One Voice product surface, Kai finance-specialist runtime, Consent Protocol, Developer API, hosted MCP, `@hushh/mcp`, PKM/vault, consent/export, Cloud Run deploy lanes, Firebase identity, Supabase/Postgres data plane, RIA Intelligence provider lane, and governed UAT/production deploy workflows.
+- Current: One Voice product surface, Kai finance-specialist runtime, Consent Protocol, Developer API, hosted MCP, `@hushh/mcp`, PKM/vault, consent/export, Cloud Run deploy lanes, Firebase identity, Cloud SQL/Postgres data plane, RIA Intelligence provider lane, and governed UAT/production deploy workflows.
 - Approved direction with checked-in manifests but not default app runtime everywhere: One, Nav, KYC, delegated specialist handoffs, and memory-agent structure.
 - Future-state only: Salesforce, MuleSoft, Agentforce, Flex Gateway, OpenClaw/local MCP, full One/Nav default runtime, and broad BYOA/on-device private-compute lanes.
 - Partner systems must not be drawn as canonical PKM, vault, key, or durable-memory stores. They may appear only as workflow endpoints that receive consent/audit metadata and narrow approved fields.
@@ -181,7 +181,7 @@ flowchart TB
   end
 
   subgraph data["Storage and provider containers"]
-    relational["Postgres / Supabase<br/>workflow, consent, audit, metadata"]
+    relational["Postgres / Cloud SQL<br/>workflow, consent, audit, metadata"]
     encrypted["PKM encrypted blobs<br/>ciphertext + manifests + scope registry"]
     cache["Provider/reference caches<br/>Plaid, Gmail, market, reference data"]
     firebase["Firebase<br/>auth, FCM"]
@@ -446,7 +446,7 @@ flowchart TB
     main["main"]
     smoke["Main Post-Merge Smoke Gate"]
     uatWorkflow["Deploy to UAT<br/>manual exact green main SHA"]
-    prodWorkflow["Deploy to Production<br/>owner-only exact green main SHA"]
+    prodWorkflow["Deploy to Production<br/>governed exact green main SHA"]
   end
 
   subgraph uat["UAT hosted runtime"]
@@ -466,8 +466,8 @@ flowchart TB
     prodFrontend["Cloud Run service<br/>hushh-webapp"]
     prodBackend["Cloud Run service<br/>consent-protocol"]
     prodApp["App origin<br/>https://one.hushh.ai"]
-    prodBackup["Production logical backup posture<br/>Cloud Run Job + storage bucket"]
-    prodDb["Production Supabase/Postgres path<br/>runtime DB_* contract"]
+    prodBackup["Production backup posture<br/>Cloud SQL automated backups + PITR"]
+    prodDb["Production Cloud SQL/Postgres path<br/>runtime DB_* contract"]
   end
 
   subgraph managed["Managed services and external providers"]

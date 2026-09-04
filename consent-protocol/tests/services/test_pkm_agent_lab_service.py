@@ -1,8 +1,10 @@
 import asyncio
+from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
+from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module
 from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService
 
 
@@ -75,6 +77,269 @@ def _single_segment(message: str):
         "source_agent": "memory_segmentation_agent",
         "contract_version": 1,
     }
+
+
+def test_default_preview_budget_outlives_one_tail_contract_without_unbounded_wait() -> None:
+    assert pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS == 10.0
+    assert pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS == 35.0
+    assert (
+        pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS
+        < pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS * 4
+    )
+
+
+def test_reserved_preview_target_is_rejected_without_a_fallback_domain() -> None:
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="Remember this only in the reserved area.",
+        current_domains=["food"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "preference",
+            "mutation_intent": "create",
+            "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+        },
+        merge_decision={"target_domain": "__quarantine_v1", "merge_mode": "create_entity"},
+        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+        parsed_structure={
+            "candidate_payload": {"preferences": {"note": "must not move to food"}},
+            "structure_decision": {"target_domain": "__quarantine_v1"},
+            "write_mode": "can_save",
+        },
+        fallback_target_domain="food",
+        simulated_state=None,
+    )
+
+    assert preview["write_mode"] == "do_not_save"
+    assert preview["candidate_payload"] == {}
+    assert preview["structure_decision"]["action"] == "reject_reserved_target"
+    assert preview["structure_decision"]["target_domain"] == ""
+    assert preview["validation_hints"] == ["invalid_or_reserved_target_rejected"]
+
+
+def test_auto_save_lane_requires_high_confidence_and_non_destructive_intent() -> None:
+    def preview_for(confidence: float) -> dict:
+        return PKMAgentLabService._normalize_structure_preview(
+            message="I prefer espresso without sugar.",
+            current_domains=["food"],
+            registry_choices=_registry_choices(),
+            intent_frame={
+                "intent_class": "preference",
+                "mutation_intent": "create",
+                "confidence": confidence,
+                "candidate_domain_choices": [{"domain_key": "food", "recommended": True}],
+            },
+            merge_decision={"target_domain": "food", "merge_mode": "create_entity"},
+            financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+            parsed_structure={
+                "candidate_payload": {"preferences": {"drink": "espresso without sugar"}},
+                "structure_decision": {"target_domain": "food", "confidence": confidence},
+                "write_mode": "can_save",
+            },
+            fallback_target_domain="food",
+            simulated_state=None,
+        )
+
+    assert preview_for(0.9)["write_mode"] == "can_save"
+    low_confidence = preview_for(0.4)
+    assert low_confidence["write_mode"] == "confirm_first"
+    assert "auto_save_requires_review" in low_confidence["validation_hints"]
+
+
+def test_managed_client_uses_shared_adc_authority_without_api_key(monkeypatch) -> None:
+    sentinel = object()
+    calls: list[tuple[str, str]] = []
+
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_API_KEY", raising=False)
+    monkeypatch.delenv("GOOGLE_GENAI_API_KEY", raising=False)
+    monkeypatch.setattr(
+        pkm_agent_lab_module,
+        "build_managed_runtime_client",
+        lambda provider, credential="": calls.append((provider, credential)) or sentinel,
+    )
+
+    service = PKMAgentLabService()
+
+    assert service.client is sentinel
+    assert calls == [("gemini", "")]
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_retries_one_timeout_within_preview_budget(monkeypatch):
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(
+        side_effect=[
+            asyncio.TimeoutError,
+            SimpleNamespace(parsed={"status": "ok"}, text=""),
+        ]
+    )
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_TIMEOUT_SECONDS", 0.01)
+    monkeypatch.setattr(pkm_agent_lab_module, "_AGENT_CONTRACT_MAX_ATTEMPTS", 2)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=1.0,
+    )
+
+    assert result == {"status": "ok"}
+    assert generate_content.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_uses_minimal_thinking_for_schema_workers():
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="gemini-3.5-flash"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    config = generate_content.await_args.kwargs["config"]
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "MINIMAL"
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_uses_low_thinking_for_pkm_salience_model():
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(return_value=SimpleNamespace(parsed={"status": "ok"}, text=""))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_memory_segmentation", model="gemini-3.1-pro-preview"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    config = generate_content.await_args.kwargs["config"]
+    assert config.thinking_config is not None
+    assert config.thinking_config.thinking_level == "LOW"
+
+
+def test_segmentation_fails_closed_and_keeps_only_exact_owner_quotes():
+    message = "Thanks for helping with the form. I avoid dairy and run every morning."
+
+    assert PKMAgentLabService._sanitize_segmented_messages(None, message=message) == []
+    assert PKMAgentLabService._sanitize_segmented_messages(
+        {
+            "segments": [
+                {
+                    "source_text": "I avoid dairy",
+                    "confidence": 0.9,
+                    "reason": "Dietary constraint.",
+                },
+                {
+                    "source_text": "The owner is an athlete",
+                    "confidence": 0.9,
+                    "reason": "Invented.",
+                },
+            ]
+        },
+        message=message,
+    ) == [
+        {
+            "source_text": "I avoid dairy",
+            "confidence": 0.9,
+            "reason": "Dietary constraint.",
+        }
+    ]
+
+
+def test_invalid_structure_write_mode_requires_review():
+    preview = PKMAgentLabService._normalize_structure_preview(
+        message="I avoid dairy.",
+        current_domains=["health"],
+        registry_choices=_registry_choices(),
+        intent_frame={
+            "intent_class": "health",
+            "mutation_intent": "create",
+            "confidence": 0.9,
+            "candidate_domain_choices": [{"domain_key": "health", "recommended": True}],
+        },
+        merge_decision={"target_domain": "health", "merge_mode": "create_entity"},
+        financial_guard={"routing_decision": "non_financial_or_ephemeral"},
+        parsed_structure={
+            "candidate_payload": {"dietary_constraints": {"dairy": "avoid"}},
+            "structure_decision": {"target_domain": "health", "confidence": 0.9},
+        },
+        fallback_target_domain="health",
+        simulated_state=None,
+    )
+
+    assert preview["write_mode"] == "confirm_first"
+    assert "invalid_write_mode_requires_review" in preview["validation_hints"]
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_retries_transient_resource_exhausted(monkeypatch):
+    class ResourceExhaustedError(Exception):
+        status_code = 429
+
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(
+        side_effect=[
+            ResourceExhaustedError("RESOURCE_EXHAUSTED"),
+            SimpleNamespace(parsed={"status": "ok"}, text=""),
+        ]
+    )
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(pkm_agent_lab_module.asyncio, "sleep", sleep)
+    monkeypatch.setattr(service, "_provider_retry_delay_seconds", lambda _attempt: 0.5)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result == {"status": "ok"}
+    assert generate_content.await_count == 2
+    sleep.assert_awaited_once_with(0.5)
+
+
+@pytest.mark.asyncio
+async def test_agent_contract_does_not_retry_permission_denied(monkeypatch):
+    class PermissionDeniedError(Exception):
+        status_code = 403
+
+    service = PKMAgentLabService()
+    generate_content = AsyncMock(side_effect=PermissionDeniedError("PERMISSION_DENIED"))
+    service._client = SimpleNamespace(
+        aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate_content))
+    )
+    sleep = AsyncMock()
+    monkeypatch.setattr(pkm_agent_lab_module.asyncio, "sleep", sleep)
+
+    result = await service._run_agent_contract(
+        manifest=SimpleNamespace(id="agent_test", model="test-model"),
+        prompt="Return a valid structured response.",
+        response_schema={"type": "OBJECT"},
+        timeout_seconds=3.0,
+    )
+
+    assert result is None
+    assert generate_content.await_count == 1
+    sleep.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -1026,7 +1291,11 @@ async def test_dynamic_scope_crud_matrix_uses_canonical_targets(
         "_load_domain_registry_choices",
         AsyncMock(return_value=_registry_choices()),
     )
-    monkeypatch.setattr(service, "_run_agent_contract", AsyncMock(return_value=None))
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(side_effect=[_single_segment(message), None, None, None, None]),
+    )
 
     simulated_state = CRUD_MATRIX_STATE
     if message in {"Actually update that preference.", "Remove that old note."}:
@@ -1442,7 +1711,9 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
 
     result = await service.generate_structure_preview(
         user_id="user-7",
-        message="I prefer to go to gym in the morning around 7am and have good breakfast too",
+        message=(
+            "I prefer to go to gym in the morning around 7am. I like to have a good breakfast too."
+        ),
         current_domains=[],
     )
 
@@ -1451,6 +1722,64 @@ async def test_generate_structure_preview_splits_multi_intent_into_cards(monkeyp
     assert result["preview_cards"][0]["target_domain"] == "health"
     assert result["preview_cards"][1]["target_domain"] == "food"
     assert result["context_plan"]["candidate_domains"] == ["health", "food"]
+
+
+def test_fallback_segmentation_supports_eight_distinct_memory_candidates():
+    service = PKMAgentLabService()
+
+    segments = service._fallback_segmented_messages(
+        "I prefer tea and I prefer coffee and I enjoy hiking and I enjoy cycling "
+        "and I like museums and I like beaches and I prefer aisle seats and I read nonfiction"
+    )
+
+    assert len(segments) == 8
+
+
+@pytest.mark.asyncio
+async def test_generate_structure_preview_keeps_eight_segment_imports(monkeypatch):
+    service = PKMAgentLabService()
+    segments = [
+        {
+            "source_text": f"I have durable preference number {index}.",
+            "confidence": 0.9,
+            "reason": "Independent preference.",
+        }
+        for index in range(1, 9)
+    ]
+    monkeypatch.setattr(
+        service,
+        "_run_agent_contract",
+        AsyncMock(return_value={"segments": segments, "contract_version": 1}),
+    )
+    monkeypatch.setattr(
+        service,
+        "_generate_single_structure_preview",
+        AsyncMock(
+            return_value={
+                "routing_decision": "non_financial_or_ephemeral",
+                "intent_frame": {"save_class": "durable", "intent_class": "preference"},
+                "merge_decision": {"merge_mode": "create_entity"},
+                "candidate_payload": {"preferences": {"value": "saved"}},
+                "structure_decision": {"target_domain": "preferences"},
+                "write_mode": "can_save",
+                "primary_json_path": "preferences",
+                "target_entity_scope": "preferences",
+                "manifest_draft": {"domain": "preferences", "segment_ids": []},
+            }
+        ),
+    )
+
+    message = " ".join(segment["source_text"] for segment in segments)
+    result = await service.generate_structure_preview(
+        user_id="user-8",
+        message=message,
+        current_domains=[],
+    )
+
+    assert len(result["preview_cards"]) == 8
+    assert result["preview_summary"]["card_count"] == 8
+    assert result["preview_summary"]["total_segments_detected"] == 8
+    assert result["preview_summary"]["split_recommended"] is False
 
 
 @pytest.mark.asyncio
@@ -1551,3 +1880,51 @@ async def test_generate_structure_preview_dedupes_inflight_requests(monkeypatch)
     assert first["structure_decision"]["target_domain"] == "travel"
     assert second["structure_decision"]["target_domain"] == "travel"
     assert preview_stub.await_count == 1
+
+
+class TestSensitiveSecretRejection:
+    """A card number, security code, credential, or government id never becomes a plain memory."""
+
+    def test_names_the_secret_kind(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        assert S._contains_sensitive_secret("Card on file: 4111 1111 1111 1111") == "card_number"
+        assert S._contains_sensitive_secret("my pin is 4321 for the door") == "card_security_code"
+        assert S._contains_sensitive_secret("Bank login password: hunter2-please") == "credential"
+        assert S._contains_sensitive_secret("api key = sk_test_abcdefghij1234") == "credential"
+        assert S._contains_sensitive_secret("SSN 123-45-6789") == "government_id"
+        assert (
+            S._contains_sensitive_secret("Passport number: X12345678 renew soon") == "government_id"
+        )
+        assert (
+            S._contains_sensitive_secret("routing number: 021000021 for payroll") == "bank_account"
+        )
+
+    def test_ordinary_numbers_and_prose_pass(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        assert S._contains_sensitive_secret("Order 1234567890123456 shipped") is None  # fails Luhn
+        assert S._contains_sensitive_secret("I prefer early breakfasts and aisle seats.") is None
+        assert S._contains_sensitive_secret("Compensation is $118,000 with 1.5% equity") is None
+        assert (
+            S._contains_sensitive_secret("Start date March 3, 2026, phone +1 425 555 0100") is None
+        )
+
+    def test_normalize_rejects_before_any_agent_output_is_trusted(self):
+        from hushh_mcp.services.pkm_agent_lab_service import PKMAgentLabService as S
+
+        preview = S._normalize_structure_preview(
+            message="Card on file for subscriptions: 4111 1111 1111 1111",
+            current_domains=["financial"],
+            registry_choices=[],
+            intent_frame={},
+            merge_decision={"target_domain": "financial"},
+            financial_guard={},
+            parsed_structure={"structure_decision": {"target_domain": "financial"}},
+            fallback_target_domain="financial",
+            simulated_state=None,
+        )
+        assert preview["write_mode"] == "do_not_save"
+        assert preview["structure_decision"]["action"] == "reject_sensitive_secret"
+        assert preview["validation_hints"] == ["sensitive_card_number_rejected"]
+        assert preview["candidate_payload"] == {}

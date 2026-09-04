@@ -12,6 +12,9 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 vi.mock("@/lib/kai/kai-market-home-resource", () => ({
   KaiMarketHomeResourceService: { invalidateUser: vi.fn() },
 }));
+vi.mock("@/lib/kai/kai-market-news-resource", () => ({
+  KaiMarketNewsResourceService: { invalidateUser: vi.fn() },
+}));
 vi.mock("@/lib/services/unlock-warm-orchestrator", () => ({
   UnlockWarmOrchestrator: { invalidateForUser: vi.fn() },
 }));
@@ -22,6 +25,11 @@ import {
   CACHE_KEYS,
   CACHE_TTL,
 } from "@/lib/services/cache-service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import {
+  readLocationWorkspaceMemory,
+  writeLocationWorkspaceMemory,
+} from "@/lib/one-location/location-workspace-memory";
 
 describe("CacheSyncService mutation cascades", () => {
   const userId = "test-user-123";
@@ -73,6 +81,92 @@ describe("CacheSyncService mutation cascades", () => {
     expect(patternArgs).toContain(`ria_clients_${userId}_`);
     expect(patternArgs).toContain(`ria_client_detail_${userId}_`);
     expect(patternArgs).toContain(`ria_workspace_${userId}_`);
+  });
+
+  it("onConnectionCapabilityMutated uses the same consent, RIA, and Market invalidation contract", () => {
+    CacheSyncService.onConnectionCapabilityMutated(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONSENT_CENTER(userId, "all"));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.RIA_HOME(userId));
+    const patternArgs = spyInvalidatePattern.mock.calls.map((c) => c[0]);
+    expect(patternArgs).toContain(`ria_clients_${userId}_`);
+  });
+
+  it("onConnectionCapabilityMutated also settles the incoming-request list", () => {
+    // Answering a request resolves it, so the list it came from is stale too.
+    // That list is a connections cache, not a consent one, so it does not ride
+    // along on the consent cascade — left behind, the request the user just
+    // accepted keeps rendering as though it were still waiting.
+    CacheSyncService.onConnectionCapabilityMutated(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((c) => c[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+  });
+
+  it("onConnectionGraphMutated also invalidates the combined One Location projection", () => {
+    const invalidateLocation = vi.spyOn(OneLocationStateResource, "invalidate");
+    writeLocationWorkspaceMemory(userId, {
+      myLocationPoint: {
+        latitude: 1,
+        longitude: 2,
+        capturedAt: "2026-08-25T00:00:00Z",
+        sourcePlatform: "web",
+      },
+      decryptedPoints: {},
+    });
+
+    CacheSyncService.onConnectionGraphMutated(userId);
+
+    expect(invalidateLocation).toHaveBeenCalledWith(userId);
+    const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.CONNECTIONS_INCOMING(userId));
+    expect(readLocationWorkspaceMemory(userId).myLocationPoint).toBeNull();
+  });
+
+  it("owns optimistic Feed read state and preserves rows above the watermark", () => {
+    cache.set(
+      CACHE_KEYS.FEED_LIST(userId),
+      {
+        items: [
+          { id: "5", read: false },
+          { id: "4", read: false },
+          { id: "3", read: false },
+        ],
+        next_cursor: null,
+        unread_count: 3,
+      },
+      CACHE_TTL.SHORT,
+    );
+
+    CacheSyncService.onFeedReadStarted(userId, "4");
+
+    const list = cache.get<{
+      items: Array<{ id: string; read: boolean }>;
+      unread_count: number;
+    }>(CACHE_KEYS.FEED_LIST(userId));
+    expect(list?.items).toEqual([
+      { id: "5", read: false },
+      { id: "4", read: true },
+      { id: "3", read: true },
+    ]);
+    expect(list?.unread_count).toBe(1);
+    expect(cache.get(CACHE_KEYS.FEED_UNREAD_COUNT(userId))).toBe(1);
+
+    CacheSyncService.onFeedReadSettled(userId);
+    expect(cache.get(CACHE_KEYS.FEED_LIST(userId))).not.toBeNull();
+    expect(cache.get(CACHE_KEYS.FEED_UNREAD_COUNT(userId))).toBeNull();
+  });
+
+  it("invalidates optimistic Feed projections when mark-read fails", () => {
+    cache.set(CACHE_KEYS.FEED_LIST(userId), { items: [] }, CACHE_TTL.SHORT);
+    cache.set(CACHE_KEYS.FEED_UNREAD_COUNT(userId), 0, CACHE_TTL.SHORT);
+
+    CacheSyncService.onFeedReadFailed(userId);
+
+    const invalidatedKeys = spyInvalidate.mock.calls.map((call) => call[0]);
+    expect(invalidatedKeys).toContain(CACHE_KEYS.FEED_LIST(userId));
+    expect(invalidatedKeys).toContain(CACHE_KEYS.FEED_UNREAD_COUNT(userId));
   });
 
   // ---------- 2. onPersonaStateChanged without preservePersonaState ----------
@@ -158,22 +252,101 @@ describe("CacheSyncService mutation cascades", () => {
 
   it("onVaultRekeyed invalidates stale PKM session state and domain prefixes", () => {
     cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PKM_BLOB(userId), { ciphertext: "old" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId), { financial: {} }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"), { ciphertext: "old" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_DATA(userId, "financial"), { holdings: [] }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"), { domain: "financial" }, CACHE_TTL.SESSION);
-    cache.set(CACHE_KEYS.PORTFOLIO_DATA(userId), { holdings: [] }, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.PKM_BLOB(userId),
+      { ciphertext: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PKM_DECRYPTED_BLOB(userId),
+      { financial: {} },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+      { ciphertext: "old" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"),
+      { domain: "financial" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
 
     CacheSyncService.onVaultRekeyed(userId);
 
     expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.PKM_BLOB(userId))).toBeNull();
     expect(cache.get(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId))).toBeNull();
-    expect(cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
-    expect(cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial")),
+    ).toBeNull();
     expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
+  });
+
+  it("onPkmDomainRestored purges coherent-domain, upgrade, finance, and export caches", () => {
+    cache.set(CACHE_KEYS.PKM_METADATA(userId), { userId }, CACHE_TTL.SESSION);
+    cache.set(
+      CACHE_KEYS.PKM_UPGRADE_STATUS(userId),
+      { upgradeStatus: "running" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial"),
+      { ciphertext: "new" },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_DATA(userId, "financial"),
+      { portfolio: {} },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial"),
+      { manifest_version: 7 },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.PORTFOLIO_DATA(userId),
+      { holdings: [] },
+      CACHE_TTL.SESSION,
+    );
+    cache.set(
+      CACHE_KEYS.ANALYSIS_HISTORY(userId),
+      { TEST: [] },
+      CACHE_TTL.SESSION,
+    );
+
+    CacheSyncService.onPkmDomainRestored(userId, "financial");
+
+    expect(cache.get(CACHE_KEYS.PKM_METADATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.PKM_UPGRADE_STATUS(userId))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.ENCRYPTED_DOMAIN_BLOB(userId, "financial")),
+    ).toBeNull();
+    expect(cache.get(CACHE_KEYS.DOMAIN_DATA(userId, "financial"))).toBeNull();
+    expect(
+      cache.get(CACHE_KEYS.DOMAIN_MANIFEST(userId, "financial")),
+    ).toBeNull();
+    expect(cache.get(CACHE_KEYS.PORTFOLIO_DATA(userId))).toBeNull();
+    expect(cache.get(CACHE_KEYS.ANALYSIS_HISTORY(userId))).toBeNull();
+    expect(spyInvalidatePattern).toHaveBeenCalledWith(
+      `consent_export_${userId}_`,
+    );
   });
 
   // ---------- 9. onPkmDomainStored (financial) ----------

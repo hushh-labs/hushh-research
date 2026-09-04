@@ -17,7 +17,12 @@ import {
 } from "@/lib/services/consent-center-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 
-export function useConsentPendingSummaryCount() {
+/**
+ * Returns `null` until the current persona's summary has resolved. Consumers
+ * must treat that as an unknown count, never as zero: zero is a meaningful
+ * statement that there are no pending requests.
+ */
+export function useConsentPendingSummaryCount(): number | null {
   const { user } = useAuth();
   const pathname = usePathname();
   const { activePersona } = usePersonaState();
@@ -80,5 +85,9 @@ export function useConsentPendingSummaryCount() {
     summaryResource.data ??
     (retainedSummary?.key === cacheKey ? retainedSummary.data : null);
 
-  return summaryData?.counts.pending ?? 0;
+  // `counts` is optional-chained too: a partial/error payload from the summary
+  // endpoint would otherwise throw here, and this hook runs in the Navbar --
+  // inside the root shell -- so that throw takes down the entire app rather
+  // than just hiding a pending-consent badge.
+  return summaryData?.counts?.pending ?? null;
 }

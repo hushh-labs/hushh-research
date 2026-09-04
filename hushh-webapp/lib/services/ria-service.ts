@@ -6,6 +6,8 @@ import {
   CACHE_TTL,
 } from "@/lib/services/cache-service";
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
+import { currentRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import {
   trackEvent,
   toEventResult,
@@ -85,16 +87,10 @@ export interface MarketplaceInvestor {
 }
 
 export type MarketplaceInvestorActionName =
-  | "view_more"
-  | "pass"
-  | "shortlist"
-  | "connect_request";
+  "view_more" | "pass" | "shortlist" | "connect_request";
 
 export type MarketplaceInvestorActionStatus =
-  | "viewed"
-  | "passed"
-  | "shortlisted"
-  | "connect_requested";
+  "viewed" | "passed" | "shortlisted" | "connect_requested";
 
 export interface MarketplaceInvestorActionRecord {
   id: string;
@@ -119,13 +115,30 @@ export interface MarketplaceInvestorDeckResponse {
   deck_complete: boolean;
 }
 
+/**
+ * `one_user` is a plain One account matched under the `one_network` scope: it
+ * has no marketplace profile, so only identity fields the account already
+ * published are populated.
+ */
 export interface MarketplaceContactMatch {
   user_id: string;
-  kind: "ria" | "investor";
+  kind: "ria" | "investor" | "one_user";
   display_name: string;
   headline?: string | null;
-  phone_last4?: string | null;
   profile: MarketplaceRia | MarketplaceInvestor;
+}
+
+/** Parsed claim snapshot persisted in `ria_verification_events.reference_metadata`. */
+export interface RiaClaimEventMetadata {
+  provider?: string;
+  claim_type?: string;
+  firm_record?: Record<string, unknown> | null;
+  advisor_record?: Record<string, unknown> | null;
+  satisfied?: string[];
+  missing?: string[];
+  evidence_ledger?: unknown;
+  verification_level?: string | null;
+  [key: string]: unknown;
 }
 
 export interface RiaOnboardingStatus {
@@ -162,6 +175,25 @@ export interface RiaOnboardingStatus {
   business_pin_zip?: string | null;
   business_latitude?: number | null;
   business_longitude?: number | null;
+  /** ISO country of the office, so a bare city name is not globally ambiguous. */
+  business_country_code?: string | null;
+  /**
+   * Where the shown address came from: "profile" when the adviser entered it,
+   * "sec_record" when any shown value was derived from their claimed SEC
+   * filing, null when there is no address at all.
+   */
+  business_location_source?: "profile" | "sec_record" | null;
+  /**
+   * Where the narrative fields (services, fees, min engagement, bio) came from
+   * when the adviser left them blank: "form_adv_part2" when the claimed Form
+   * ADV Part 2 brochure supplied at least one of them, empty/absent when the
+   * adviser wrote everything shown.
+   */
+  profile_source?: string | null;
+  /** The exact brochure PDF the values were read from. */
+  profile_source_url?: string | null;
+  /** The filing date as the SEC states it (e.g. "1/13/2026") — never reparsed. */
+  profile_source_filed_on?: string | null;
   bio?: string | null;
   strategy?: string | null;
   disclosures_url?: string | null;
@@ -172,6 +204,18 @@ export interface RiaOnboardingStatus {
     checked_at: string;
     expires_at?: string | null;
     reference_metadata?: Record<string, unknown>;
+  } | null;
+  /**
+   * The durable `ria_identity_claim` snapshot (provider-filtered server-side so
+   * later refresh-license / onboarding events can't shadow it). Null when the
+   * profile was never claimed by phone. `reference_metadata` also carries raw
+   * phone digits — render selected keys only, never the whole object.
+   */
+  latest_claim_event?: {
+    outcome: string;
+    checked_at: string;
+    expires_at?: string | null;
+    reference_metadata?: RiaClaimEventMetadata;
   } | null;
   latest_advisory_event?: {
     outcome: string;
@@ -197,6 +241,190 @@ export interface RiaNameVerificationResult {
   reason_code?: "query_too_broad" | "no_confident_match";
   suggested_names?: string[];
   provider: string;
+}
+
+export type RiaClaimOutcome =
+  | "single_person"
+  | "few_candidates"
+  | "large_firm"
+  | "ambiguous_firm"
+  | "no_match"
+  | "invalid_phone";
+
+export interface RiaClaimFirm {
+  crd: number | null;
+  name: string | null;
+  dba?: string | null;
+  sec_number?: string | null;
+  registration_status?: string | null;
+  city?: string | null;
+  state?: string | null;
+  phone?: string | null;
+  website?: string | null;
+  advisory_employees?: number | null;
+  aum?: number | null;
+  num_accounts?: number | null;
+  report_url?: string | null;
+}
+
+export interface RiaClaimCandidate {
+  individual_crd: number | null;
+  name: string | null;
+  firm_crd?: number | null;
+  firm_name?: string | null;
+  title?: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  has_disclosures?: boolean | null;
+  profile_url?: string | null;
+  reasons?: string[];
+  claimable?: boolean;
+}
+
+export interface RiaClaimLookupResult {
+  outcome: RiaClaimOutcome | (string & {}) | null;
+  next_step?: string | null;
+  person_next_step?: string | null;
+  confidence?: string | null;
+  phone?: string | null;
+  phone_masked?: string | null;
+  firm: RiaClaimFirm | null;
+  firms: RiaClaimFirm[];
+  candidates: RiaClaimCandidate[];
+  current_adviser_count?: number | null;
+  roster_error?: string | null;
+}
+
+export interface RiaClaimOtpStart {
+  eligible: boolean;
+  delivery: string;
+  verification_id?: string;
+  code_length?: number;
+  reason?: string;
+  phone_masked?: string;
+}
+
+export interface RiaClaimRosterEntry {
+  individual_crd: number | null;
+  name: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  has_disclosures?: boolean | null;
+  profile_url?: string | null;
+}
+
+export interface RiaClaimVerifyResult {
+  claim_ticket: string;
+  claim_type?: string | null;
+  provisional: boolean;
+  profile_verified: boolean;
+  verification_level?: string | null;
+  satisfied?: string[];
+  missing?: string[];
+  explanation?: string | null;
+  roster_unlocked: boolean;
+  roster: RiaClaimRosterEntry[] | null;
+  current_adviser_count?: number | null;
+  firm?: RiaClaimFirm | null;
+  proof_channel?: string;
+}
+
+export interface RiaClaimProfileSummary {
+  ria_profile_id: string;
+  user_id: string;
+  display_name: string;
+  legal_name?: string;
+  crd_number?: string;
+  verification_status: string;
+  claim_type?: string;
+  firm_name?: string | null;
+  firm_id?: string | null;
+}
+
+/** The public regulatory facts a claim pulled in, for display. */
+export interface RiaClaimProfileFacts {
+  crd_number?: string | null;
+  regulator?: string | null;
+  regulator_status?: string | null;
+  registered_since?: string | null;
+  branch_city?: string | null;
+  branch_state?: string | null;
+  exams?: {
+    code?: string | null;
+    name?: string | null;
+    date?: string | null;
+  }[];
+  registered_states?: { state?: string | null; status?: string | null }[];
+  previous_firms?: {
+    firm_name?: string | null;
+    from?: string | null;
+    to?: string | null;
+  }[];
+  notice_filed_states?: string[];
+  aum?: number | null;
+  num_accounts?: number | null;
+  firm_website?: string | null;
+  report_url?: string | null;
+  has_disclosures?: boolean | null;
+}
+
+/** Durable statuses persisted on the background-dossier row. */
+export type RiaDossierStatus =
+  | "queued"
+  | "scanning"
+  | "generated"
+  | "sent"
+  | "scan_failed"
+  | "send_failed"
+  | "blocked_no_email"
+  | "send_blocked_test_unset"
+  | (string & {});
+
+/**
+ * Fire-and-forget dispatch receipt attached to the claim-complete response.
+ * Best-effort by contract: absent on older backends and whenever the dispatch
+ * itself failed — the claim always stands.
+ */
+export interface RiaClaimDossierDispatch {
+  status: "queued" | "skipped" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaDossierMail {
+  status?: string | null;
+  recipient_masked?: string | null;
+}
+
+/** The own-row dossier snapshot served by `GET /ria/dossier` (404 ⇒ none). */
+export interface RiaDossier {
+  status: RiaDossierStatus;
+  summary?: string | null;
+  markdown?: string | null;
+  requested_at?: string | null;
+  completed_at?: string | null;
+  mail?: RiaDossierMail | null;
+}
+
+export interface RiaClaimCompleteResult {
+  status: string;
+  claim_type: string;
+  verification_level: string;
+  profile_verified: boolean;
+  provisional: boolean;
+  profile: RiaClaimProfileSummary;
+  facts?: RiaClaimProfileFacts | null;
+  dossier?: RiaClaimDossierDispatch | null;
+}
+
+export interface RiaClaimEmailStartResult {
+  status: "sent" | "already_verified" | "send_failed" | (string & {});
+  email_masked?: string | null;
+}
+
+export interface RiaClaimEmailConfirmResult {
+  verified: boolean;
+  verification_status: string;
+  verification_level?: string | null;
 }
 
 export interface RiaLicenseVerificationResult {
@@ -592,7 +820,15 @@ export interface RiaPickRow {
   conviction_weight?: number | null;
   recommendation_bias?: string | null;
   investment_thesis?: string | null;
+  advisor_thesis?: RiaAdvisorThesis | null;
   fcf_billions?: number | null;
+}
+
+export interface RiaAdvisorThesis {
+  text: string;
+  authored_by_user_id: string;
+  source: "ria_picks_editor";
+  updated_at: string;
 }
 
 export interface RiaAvoidRow {
@@ -622,6 +858,8 @@ export interface RiaPickPackage {
   avoid_rows: RiaAvoidRow[];
   screening_sections: RiaScreeningSection[];
   package_note?: string | null;
+  /** Advisor-authored, bounded context for an authorized investor's Kai debate. */
+  investor_debate_thesis?: string | null;
 }
 
 export interface RiaPicksRevisionMetadata {
@@ -672,7 +910,7 @@ interface CachedReadOptions {
 }
 
 interface ErrorPayload {
-  detail?: string;
+  detail?: string | unknown[] | { code?: string; message?: string };
   error?: string;
   code?: string;
   hint?: string;
@@ -680,7 +918,67 @@ interface ErrorPayload {
 
 const RIA_PICKS_DOMAIN = "ria";
 const RIA_PICKS_PATH = "advisor_package";
+const RIA_REGULATOR_PROFILE_PATH = "regulator_profile";
 const RIA_PICKS_DOMAIN_SCHEMA_VERSION = 1;
+const RIA_PICK_THESIS_MAX_LENGTH = 2000;
+
+function normalizeRiaPickThesisText(value: unknown): string | null {
+  const text = String(value || "").trim();
+  return text ? text.slice(0, RIA_PICK_THESIS_MAX_LENGTH) : null;
+}
+
+function normalizeRiaAdvisorThesis(
+  row: Partial<RiaPickRow> | null | undefined,
+  fallbackText?: string | null,
+): RiaAdvisorThesis | null {
+  const raw = row?.advisor_thesis;
+  const source = raw && raw.source === "ria_picks_editor" ? raw.source : null;
+  const authoredBy =
+    raw && typeof raw.authored_by_user_id === "string"
+      ? raw.authored_by_user_id.trim()
+      : "";
+  const updatedAt =
+    raw && typeof raw.updated_at === "string" ? raw.updated_at.trim() : "";
+  const text = normalizeRiaPickThesisText(
+    fallbackText !== undefined ? fallbackText : raw?.text,
+  );
+  if (!text || !source || !authoredBy || !updatedAt) return null;
+  return {
+    text,
+    authored_by_user_id: authoredBy,
+    source,
+    updated_at: updatedAt,
+  };
+}
+
+function buildRiaAdvisorThesis(text: string | null, userId: string, updatedAt: string) {
+  if (!text) return null;
+  return {
+    text,
+    authored_by_user_id: userId,
+    source: "ria_picks_editor" as const,
+    updated_at: updatedAt,
+  };
+}
+
+function stampRiaPickPackageTheses(
+  pkg: RiaPickPackage,
+  userId: string,
+  updatedAt: string,
+): RiaPickPackage {
+  const normalizedPackage = normalizePickPackage(pkg);
+  return {
+    ...normalizedPackage,
+    top_picks: normalizedPackage.top_picks.map((row) => {
+      const thesisText = normalizeRiaPickThesisText(row.investment_thesis);
+      return {
+        ...row,
+        investment_thesis: thesisText,
+        advisor_thesis: buildRiaAdvisorThesis(thesisText, userId, updatedAt),
+      };
+    }),
+  };
+}
 
 function emptyRiaPickPackage(): RiaPickPackage {
   return {
@@ -692,6 +990,7 @@ function emptyRiaPickPackage(): RiaPickPackage {
       { section: "the_math", rows: [] },
     ],
     package_note: null,
+    investor_debate_thesis: null,
   };
 }
 
@@ -747,36 +1046,46 @@ function normalizePickPackage(
           .filter(
             (row): row is RiaPickRow => Boolean(row) && typeof row === "object",
           )
-          .map((row) => ({
-            ticker: String(row.ticker || "")
-              .trim()
-              .toUpperCase(),
-            company_name: String(row.company_name || "").trim() || null,
-            sector: String(row.sector || "").trim() || null,
-            tier:
-              String(row.tier || "")
+          .map((row) => {
+            const investmentThesis = normalizeRiaPickThesisText(
+              row.investment_thesis,
+            );
+            const hasInvestmentThesisField =
+              Object.prototype.hasOwnProperty.call(row, "investment_thesis");
+            return {
+              ticker: String(row.ticker || "")
                 .trim()
-                .toUpperCase() || null,
-            tier_rank:
-              typeof row.tier_rank === "number" &&
-              Number.isFinite(row.tier_rank)
-                ? row.tier_rank
-                : null,
-            conviction_weight:
-              typeof row.conviction_weight === "number" &&
-              Number.isFinite(row.conviction_weight)
-                ? row.conviction_weight
-                : null,
-            recommendation_bias:
-              String(row.recommendation_bias || "").trim() || null,
-            investment_thesis:
-              String(row.investment_thesis || "").trim() || null,
-            fcf_billions:
-              typeof row.fcf_billions === "number" &&
-              Number.isFinite(row.fcf_billions)
-                ? row.fcf_billions
-                : null,
-          }))
+                .toUpperCase(),
+              company_name: String(row.company_name || "").trim() || null,
+              sector: String(row.sector || "").trim() || null,
+              tier:
+                String(row.tier || "")
+                  .trim()
+                  .toUpperCase() || null,
+              tier_rank:
+                typeof row.tier_rank === "number" &&
+                Number.isFinite(row.tier_rank)
+                  ? row.tier_rank
+                  : null,
+              conviction_weight:
+                typeof row.conviction_weight === "number" &&
+                Number.isFinite(row.conviction_weight)
+                  ? row.conviction_weight
+                  : null,
+              recommendation_bias:
+                String(row.recommendation_bias || "").trim() || null,
+              investment_thesis: investmentThesis,
+              advisor_thesis: normalizeRiaAdvisorThesis(
+                row,
+                hasInvestmentThesisField ? investmentThesis : undefined,
+              ),
+              fcf_billions:
+                typeof row.fcf_billions === "number" &&
+                Number.isFinite(row.fcf_billions)
+                  ? row.fcf_billions
+                  : null,
+            };
+          })
       : [],
     avoid_rows: Array.isArray(packageValue.avoid_rows)
       ? packageValue.avoid_rows
@@ -800,6 +1109,10 @@ function normalizePickPackage(
         ? screeningSections
         : empty.screening_sections,
     package_note: String(packageValue.package_note || "").trim() || null,
+    investor_debate_thesis:
+      String(packageValue.investor_debate_thesis || "")
+        .trim()
+        .slice(0, 2000) || null,
   };
 }
 
@@ -866,6 +1179,10 @@ function parseRiaPicksDomain(
       : [],
     package_note:
       typeof payload.package_note === "string" ? payload.package_note : null,
+    investor_debate_thesis:
+      typeof payload.investor_debate_thesis === "string"
+        ? payload.investor_debate_thesis
+        : null,
   });
   return {
     package: packageValue,
@@ -879,7 +1196,13 @@ function buildRiaPicksDomainData(params: {
   pkg: RiaPickPackage;
   revision: number;
   updatedAt: string;
+  authoredByUserId: string;
 }): Record<string, unknown> {
+  const normalizedPackage = stampRiaPickPackageTheses(
+    params.pkg,
+    params.authoredByUserId,
+    params.updatedAt,
+  );
   return {
     schema_version: RIA_PICKS_DOMAIN_SCHEMA_VERSION,
     domain_intent: {
@@ -890,7 +1213,7 @@ function buildRiaPicksDomainData(params: {
       updated_at: params.updatedAt,
     },
     [RIA_PICKS_PATH]: {
-      ...normalizePickPackage(params.pkg),
+      ...normalizedPackage,
       revision: params.revision,
       updated_at: params.updatedAt,
     },
@@ -968,13 +1291,45 @@ async function toJsonOrThrow<T>(response: Response): Promise<T> {
           );
         return messages[0] || null;
       }
+      // Object detail {code, message} — how the claim routes report typed
+      // failures (CLAIM_INVALID_CODE, CLAIM_TICKET_INVALID, …).
+      if (payload.detail && typeof payload.detail === "object") {
+        const obj = payload.detail as { message?: unknown };
+        if (typeof obj.message === "string" && obj.message.trim()) {
+          return obj.message;
+        }
+      }
       return null;
     })();
-    const message =
+    const detailObject =
+      payload.detail &&
+      typeof payload.detail === "object" &&
+      !Array.isArray(payload.detail)
+        ? (payload.detail as { code?: unknown })
+        : null;
+    const rawMessage =
       detailMessage ||
       (typeof payload.error === "string" && payload.error) ||
       `Request failed: ${response.status}`;
-    const code = typeof payload.code === "string" ? payload.code : undefined;
+    // slowapi's default 429 body is the limit itself — "Rate limit exceeded:
+    // 12 per 1 minute" — and callers put whatever string they find straight
+    // into a toast. Reading our own rate-limit arithmetic is how a person
+    // learns we wrote no copy for this state.
+    //
+    // The server sends product copy for the routes a human triggers, so this
+    // only fires against a server that has not shipped it yet: an older
+    // deployment mid-rollout, or a rollback. Matched on slowapi's exact shape
+    // rather than on the status alone, so a route with real 429 copy keeps it.
+    const message =
+      response.status === 429 && /^Rate limit exceeded/i.test(rawMessage)
+        ? "You are doing that a little too quickly. Wait a moment and try again."
+        : rawMessage;
+    const code =
+      typeof payload.code === "string"
+        ? payload.code
+        : detailObject && typeof detailObject.code === "string"
+          ? detailObject.code
+          : undefined;
     const hint = typeof payload.hint === "string" ? payload.hint : undefined;
     throw new RiaApiError(message, response.status, code, hint);
   }
@@ -1000,6 +1355,9 @@ async function authFetch(
     signal: options.signal,
   });
 }
+
+export const CONTACT_SYNC_CONSENT_CONTRACT_VERSION =
+  "contact_find_auto_connect_v1" as const;
 
 export class RiaService {
   private static inflight = new Map<string, Promise<unknown>>();
@@ -1052,7 +1410,11 @@ export class RiaService {
     inflightKey: string;
     resourceLabel: string;
     loader: () => Promise<T>;
+    // Optional persistence hook (e.g. native Preferences) run through the SAME
+    // invalidation-epoch guard as the memory/device writes.
+    onPersist?: (value: T) => void;
   }): Promise<T> {
+    const epochAtStart = currentRiaInvalidationEpoch(params.userId);
     const payload = await this.runDeduped(params.inflightKey, async () => {
       this.logRequest("network_fetch", {
         label: params.resourceLabel,
@@ -1062,6 +1424,20 @@ export class RiaService {
       });
       return await params.loader();
     });
+    // Drop the write-back if this user's RIA caches were invalidated (delete /
+    // switch / marketplace) after this fetch was dispatched — otherwise a stale
+    // in-flight response repopulates a just-cleared profile across all tiers.
+    if (
+      params.userId &&
+      currentRiaInvalidationEpoch(params.userId) !== epochAtStart
+    ) {
+      this.logRequest("write_skipped_stale_epoch", {
+        label: params.resourceLabel,
+        cacheKey: params.cacheKey,
+        userId: params.userId,
+      });
+      return payload;
+    }
     if (params.cacheKey) {
       this.writeCached(params.cacheKey, payload, params.ttl);
     }
@@ -1073,6 +1449,7 @@ export class RiaService {
         ttlMs: params.ttl ?? this.DEVICE_TTL_MS,
       });
     }
+    params.onPersist?.(payload);
     return payload;
   }
 
@@ -1085,6 +1462,7 @@ export class RiaService {
     inflightKey: string;
     resourceLabel: string;
     loader: () => Promise<T>;
+    onPersist?: (value: T) => void;
   }): Promise<T> {
     if (params.cacheKey) {
       const snapshot = params.force
@@ -1097,6 +1475,21 @@ export class RiaService {
           cacheKey: params.cacheKey,
           userId: params.userId || null,
         });
+        return snapshot.data;
+      }
+      if (snapshot) {
+        // Stale-but-present memory: serve instantly and revalidate in the
+        // background (SWR), mirroring the device tier below. Avoids a blocking
+        // refetch on warm-but-expired reads (e.g. the regulatory profile once
+        // its TTL lapses) while still refreshing for the next read. `force`
+        // short-circuits `snapshot` to null above, so it still bypasses.
+        this.logRequest("cache_stale", {
+          label: params.resourceLabel,
+          tier: "memory",
+          cacheKey: params.cacheKey,
+          userId: params.userId || null,
+        });
+        void this.refreshCachedResource(params).catch(() => undefined);
         return snapshot.data;
       }
     }
@@ -1192,6 +1585,58 @@ export class RiaService {
     return toJsonOrThrow<{
       user_id: string;
       investor_marketplace_opt_in: boolean;
+    }>(response);
+  }
+
+  /** Explicit combined consent to be found and auto-connected by verified users
+   * who already hold this account's verified phone number. Defaults off.
+   */
+  static async getContactDiscoverability(idToken: string): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
+    const response = await authFetch("/api/iam/contact-discoverability", {
+      method: "GET",
+      idToken,
+    });
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
+    }>(response);
+  }
+
+  static async setContactDiscoverability(
+    idToken: string,
+    enabled: boolean,
+  ): Promise<{
+    user_id: string;
+    contact_discoverable: boolean;
+    contact_sync_consent_enabled_at?: string | null;
+    contact_sync_consent_rule_version?: number;
+    contact_sync_consent_contract_version?: string | null;
+  }> {
+    const response = await authFetch("/api/iam/contact-discoverability", {
+      method: "POST",
+      idToken,
+      body: {
+        enabled,
+        ...(enabled
+          ? { consent_version: CONTACT_SYNC_CONSENT_CONTRACT_VERSION }
+          : {}),
+      },
+    });
+    return toJsonOrThrow<{
+      user_id: string;
+      contact_discoverable: boolean;
+      contact_sync_consent_enabled_at?: string | null;
+      contact_sync_consent_rule_version?: number;
+      contact_sync_consent_contract_version?: string | null;
     }>(response);
   }
 
@@ -1347,6 +1792,12 @@ export class RiaService {
     payload: {
       phone_lookups: Array<{ hash: string; last4: string }>;
       limit?: number;
+      /**
+       * `marketplace` (default) matches publicly discoverable Connect
+       * profiles. `one_network` matches any phone-verified account that has
+       * not turned off contact discoverability.
+       */
+      scope?: "marketplace" | "one_network";
     },
   ): Promise<MarketplaceContactMatch[]> {
     const response = await authFetch("/api/marketplace/contacts/match", {
@@ -1354,7 +1805,9 @@ export class RiaService {
       idToken,
       body: payload,
     });
-    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(response);
+    const parsed = await toJsonOrThrow<{ items: MarketplaceContactMatch[] }>(
+      response,
+    );
     return parsed.items || [];
   }
 
@@ -1444,6 +1897,123 @@ export class RiaService {
     return toJsonOrThrow<RiaNameVerificationResult>(response);
   }
 
+  static async claimLookup(
+    idToken: string,
+    payload: { phone: string },
+    options?: { signal?: AbortSignal },
+  ): Promise<RiaClaimLookupResult> {
+    const response = await authFetch("/api/ria/claim/lookup", {
+      method: "POST",
+      idToken,
+      body: payload,
+      signal: options?.signal,
+    });
+    return toJsonOrThrow<RiaClaimLookupResult>(response);
+  }
+
+  static async claimOtpStart(
+    idToken: string,
+    payload: { phone: string },
+  ): Promise<RiaClaimOtpStart> {
+    const response = await authFetch("/api/ria/claim/otp/start", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimOtpStart>(response);
+  }
+
+  static async claimVerify(
+    idToken: string,
+    payload: {
+      phone: string;
+      claim_type: "individual" | "firm";
+      firm_crd: number;
+      individual_crd?: number | null;
+      verification_id?: string;
+      verification_code?: string;
+      phone_id_token?: string;
+    },
+  ): Promise<RiaClaimVerifyResult> {
+    const response = await authFetch("/api/ria/claim/verify", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimVerifyResult>(response);
+  }
+
+  static async claimComplete(
+    idToken: string,
+    payload: {
+      phone: string;
+      claim_ticket: string;
+      claim_type: "individual" | "firm";
+      firm_crd: number;
+      individual_crd?: number | null;
+    },
+  ): Promise<RiaClaimCompleteResult> {
+    const response = await authFetch("/api/ria/claim/complete", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimCompleteResult>(response);
+  }
+
+  static async claimEmailStart(
+    idToken: string,
+    payload: { email: string },
+  ): Promise<RiaClaimEmailStartResult> {
+    const response = await authFetch("/api/ria/claim/email/start", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    // Mail is best-effort upstream: a queue failure comes back as a 502 with
+    // {status:"send_failed"} and the alias ceremony still stands. Surface it as
+    // a result so the UI can offer Retry instead of a thrown error.
+    if (response.status === 502) {
+      const body = (await response
+        .json()
+        .catch(() => null)) as RiaClaimEmailStartResult | null;
+      if (body?.status === "send_failed") return body;
+      throw new RiaApiError("Couldn't send the code.", 502);
+    }
+    return toJsonOrThrow<RiaClaimEmailStartResult>(response);
+  }
+
+  static async claimEmailConfirm(
+    idToken: string,
+    payload: { email: string; code: string },
+  ): Promise<RiaClaimEmailConfirmResult> {
+    const response = await authFetch("/api/ria/claim/email/confirm", {
+      method: "POST",
+      idToken,
+      body: payload,
+    });
+    return toJsonOrThrow<RiaClaimEmailConfirmResult>(response);
+  }
+
+  static async getDossier(idToken: string): Promise<RiaDossier | null> {
+    const response = await authFetch("/api/ria/dossier", {
+      method: "GET",
+      idToken,
+    });
+    // 404 = no dossier row for this profile (never dispatched) — a normal
+    // state, not an error, so the profile row simply doesn't render.
+    if (response.status === 404) return null;
+    return toJsonOrThrow<RiaDossier>(response);
+  }
+
+  static async retryDossier(idToken: string): Promise<RiaDossier> {
+    const response = await authFetch("/api/ria/dossier/retry", {
+      method: "POST",
+      idToken,
+    });
+    return toJsonOrThrow<RiaDossier>(response);
+  }
+
   static async verifyOnboardingLicense(
     idToken: string,
     payload: {
@@ -1451,15 +2021,56 @@ export class RiaService {
       regulator?: string;
       force_live_verification?: boolean;
     },
-    options?: { signal?: AbortSignal },
+    options?: { signal?: AbortSignal; userId?: string; force?: boolean },
   ): Promise<RiaLicenseVerificationResult> {
+    const normalizedLicense = payload.license_number.trim().toUpperCase();
+    const licenseKey = `${(payload.regulator || "").trim().toUpperCase()}:${normalizedLicense}`;
+    const cacheKey =
+      options?.userId && normalizedLicense
+        ? CACHE_KEYS.RIA_LICENSE_VERIFY(options.userId, licenseKey)
+        : null;
+
+    // Serve a fresh cached "found" result instantly (reopen / stale-prefill
+    // repair) unless the caller explicitly forces a live check — e.g. the user
+    // tapping "Verify licence", which passes force:true.
+    if (cacheKey && !options?.force && !payload.force_live_verification) {
+      const snapshot =
+        CacheService.getInstance().peek<RiaLicenseVerificationResult>(cacheKey);
+      if (snapshot?.isFresh && snapshot.data.status === "found") {
+        this.logRequest("cache_hit", {
+          label: "license_verify",
+          tier: "memory",
+          cacheKey,
+          userId: options?.userId ?? null,
+        });
+        return snapshot.data;
+      }
+    }
+
     const response = await authFetch("/api/ria/onboarding/verify-license", {
       method: "POST",
       idToken,
       body: payload,
       signal: options?.signal,
     });
-    return toJsonOrThrow<RiaLicenseVerificationResult>(response);
+    const result = await toJsonOrThrow<RiaLicenseVerificationResult>(response);
+
+    // Cache successful lookups honoring the server-provided TTL; short-cache
+    // not_found/pending (transient); never cache an error.
+    if (cacheKey && result.status !== "error") {
+      const serverTtlMs =
+        typeof result.cache_ttl_seconds === "number" &&
+        result.cache_ttl_seconds > 0
+          ? result.cache_ttl_seconds * 1000
+          : null;
+      const ttl =
+        result.status === "found"
+          ? (serverTtlMs ?? CACHE_TTL.MEDIUM)
+          : CACHE_TTL.SHORT;
+      CacheService.getInstance().set(cacheKey, result, ttl);
+    }
+
+    return result;
   }
 
   static async refreshLicenseProfile(
@@ -1505,7 +2116,11 @@ export class RiaService {
         ? `ria:onboarding_status:${options.userId}`
         : undefined,
       force: options?.force,
-      ttl: CACHE_TTL.SHORT,
+      // SESSION (30m) to match persona-context's write of the same key; the
+      // regulatory profile changes rarely and SWR (readCachedOrFetch) keeps it
+      // fresh in the background. Paired with device/native invalidation in
+      // cache-sync-service so a delete/switch can't serve a stale profile.
+      ttl: CACHE_TTL.SESSION,
       inflightKey: cacheKey || "ria_onboarding_status",
       resourceLabel: "onboarding_status",
       loader: async () => {
@@ -1515,6 +2130,14 @@ export class RiaService {
         });
         return toJsonOrThrow<RiaOnboardingStatus>(response);
       },
+      // Native persistent write-through for instant cold-start paint (stale hint
+      // only). Runs via refreshCachedResource's epoch guard, so an in-flight
+      // fetch that resolves after a delete/switch can't re-persist exists:true.
+      onPersist: options?.userId
+        ? (status) => {
+            void RiaOnboardingStatusLocalService.save(options.userId!, status);
+          }
+        : undefined,
     });
   }
 
@@ -1959,10 +2582,10 @@ export class RiaService {
 
     if (!params.vaultKey || !params.vaultOwnerToken) {
       const lockedPayload: RiaPicksResponse = {
-        package:
-          bootstrapMetadata.storage_source === "legacy"
-            ? bootstrapPackage
-            : emptyRiaPickPackage(),
+        // Picks are owner-encrypted information. Bootstrap intentionally
+        // carries summary metadata only; never revive a legacy package while
+        // the vault is locked.
+        package: emptyRiaPickPackage(),
         metadata: bootstrapMetadata,
       };
       return this.writeCached(cacheKey, lockedPayload, CACHE_TTL.SHORT);
@@ -1995,17 +2618,94 @@ export class RiaService {
         return this.writeCached(cacheKey, payload, CACHE_TTL.SHORT);
       }
     } catch {
-      // Fall through to bootstrap/legacy seed.
+      // The PKM read is unavailable. Keep the screen truthful rather than
+      // surfacing a legacy or server-provided package as a fallback.
     }
 
     return this.writeCached(
       cacheKey,
       {
-        package: bootstrapPackage,
+        package: emptyRiaPickPackage(),
         metadata: bootstrapMetadata,
       },
       CACHE_TTL.SHORT,
     );
+  }
+
+  /**
+   * Store the regulator facts from a completed claim in the owner's encrypted
+   * "ria" domain, under a `regulator_profile` key beside the picks package.
+   *
+   * Called from the claim done screen after the facts have been shown, so the
+   * confirmation reflects a real owner action on visible data. When the vault
+   * is locked the coordinator returns `blocked_pending_unlock` without
+   * throwing — the server-side staged audit event remains the durable record.
+   */
+  static async saveRegulatorProfile(params: {
+    userId: string;
+    vaultKey?: string | null;
+    vaultOwnerToken?: string | null;
+    facts: RiaClaimProfileFacts;
+  }): Promise<boolean> {
+    if (!params.vaultKey || !params.vaultOwnerToken) {
+      // Locked vault: nothing to do here — the server-side staged audit
+      // event is the durable record until an unlocked session confirms.
+      return false;
+    }
+    const nextUpdatedAt = new Date().toISOString();
+    const currentDomain = await PersonalKnowledgeModelService.loadDomainData({
+      userId: params.userId,
+      domain: RIA_PICKS_DOMAIN,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+    }).catch(() => null);
+    const currentSiblings =
+      currentDomain &&
+      typeof currentDomain === "object" &&
+      !Array.isArray(currentDomain)
+        ? (currentDomain as Record<string, unknown>)
+        : {};
+    const currentPicks = parseRiaPicksDomain(currentSiblings);
+    const result = await PkmWriteCoordinator.saveMergedDomain({
+      userId: params.userId,
+      domain: RIA_PICKS_DOMAIN,
+      vaultKey: params.vaultKey,
+      vaultOwnerToken: params.vaultOwnerToken,
+      confirmation: {
+        confirmedByUser: true,
+        surface: "web",
+        source: "ria_identity_claim_regulator_facts",
+      },
+      build: () => ({
+        domainData: {
+          schema_version: RIA_PICKS_DOMAIN_SCHEMA_VERSION,
+          ...currentSiblings,
+          [RIA_REGULATOR_PROFILE_PATH]: {
+            ...params.facts,
+            updated_at: nextUpdatedAt,
+          },
+          updated_at: nextUpdatedAt,
+        },
+        summary: {
+          domain_contract_version: 1,
+          has_regulator_profile: true,
+          last_updated: nextUpdatedAt,
+          // Keep the picks discovery fields intact when picks exist, since a
+          // domain summary write replaces the whole summary.
+          ...(currentPicks
+            ? {
+                package_revision: currentPicks.revision,
+                top_pick_count: currentPicks.package.top_picks.length,
+                avoid_count: currentPicks.package.avoid_rows.length,
+                screening_row_count: countScreeningRows(
+                  currentPicks.package.screening_sections,
+                ),
+              }
+            : {}),
+        },
+      }),
+    });
+    return result.success;
   }
 
   static async savePickPackage(params: {
@@ -2015,6 +2715,7 @@ export class RiaService {
     vaultOwnerToken?: string | null;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     top_picks?: RiaPickRow[];
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
@@ -2028,6 +2729,7 @@ export class RiaService {
       avoid_rows: params.avoid_rows || [],
       screening_sections: params.screening_sections || [],
       package_note: params.package_note || null,
+      investor_debate_thesis: params.investor_debate_thesis || null,
     });
     const nextUpdatedAt = new Date().toISOString();
     const currentDomain = await PersonalKnowledgeModelService.loadDomainData({
@@ -2044,6 +2746,20 @@ export class RiaService {
         : null,
     );
     const nextRevision = Math.max(1, Number(currentParsed?.revision || 0) + 1);
+    const persistedPackage = stampRiaPickPackageTheses(
+      nextPackage,
+      params.userId,
+      nextUpdatedAt,
+    );
+    // The "ria" domain holds more than picks (e.g. regulator_profile from a
+    // claim). Carry every current key forward so a picks save can never erase
+    // a sibling written by another flow.
+    const currentSiblings =
+      currentDomain &&
+      typeof currentDomain === "object" &&
+      !Array.isArray(currentDomain)
+        ? (currentDomain as Record<string, unknown>)
+        : {};
     const result = await PkmWriteCoordinator.saveMergedDomain({
       userId: params.userId,
       domain: RIA_PICKS_DOMAIN,
@@ -2055,20 +2771,27 @@ export class RiaService {
         source: "ria_picks_package_owner_save",
       },
       build: () => ({
-        domainData: buildRiaPicksDomainData({
-          pkg: nextPackage,
-          revision: nextRevision,
-          updatedAt: nextUpdatedAt,
-        }),
+        domainData: {
+          ...currentSiblings,
+          ...buildRiaPicksDomainData({
+            pkg: persistedPackage,
+            revision: nextRevision,
+            updatedAt: nextUpdatedAt,
+            authoredByUserId: params.userId,
+          }),
+        },
         summary: {
           domain_contract_version: 1,
           package_revision: nextRevision,
-          top_pick_count: nextPackage.top_picks.length,
-          avoid_count: nextPackage.avoid_rows.length,
+          top_pick_count: persistedPackage.top_picks.length,
+          avoid_count: persistedPackage.avoid_rows.length,
           screening_row_count: countScreeningRows(
-            nextPackage.screening_sections,
+            persistedPackage.screening_sections,
           ),
           last_updated: nextUpdatedAt,
+          ...(currentSiblings[RIA_REGULATOR_PROFILE_PATH]
+            ? { has_regulator_profile: true }
+            : {}),
         },
       }),
     });
@@ -2081,19 +2804,20 @@ export class RiaService {
       idToken: params.idToken,
       body: {
         label: params.label,
-        package_note: nextPackage.package_note || undefined,
-        top_picks: nextPackage.top_picks,
-        avoid_rows: nextPackage.avoid_rows,
-        screening_sections: nextPackage.screening_sections,
+        package_note: persistedPackage.package_note || undefined,
+        investor_debate_thesis:
+          persistedPackage.investor_debate_thesis || undefined,
+        top_picks: persistedPackage.top_picks,
+        avoid_rows: persistedPackage.avoid_rows,
+        screening_sections: persistedPackage.screening_sections,
         source_data_version: result.dataVersion,
         source_manifest_revision: undefined,
-        retire_legacy: true,
       },
     });
     const synced = await toJsonOrThrow<RiaPicksResponse>(shareSyncResponse);
     const payload: RiaPicksResponse = {
-      package: nextPackage,
-      metadata: buildRiaPickSummary(nextPackage, {
+      package: persistedPackage,
+      metadata: buildRiaPickSummary(persistedPackage, {
         ...(synced.metadata || {}),
         storage_source: "pkm",
         package_revision: result.dataVersion || nextRevision,
@@ -2116,6 +2840,7 @@ export class RiaService {
     source_filename?: string;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
   }): Promise<RiaPicksResponse> {
@@ -2143,6 +2868,7 @@ export class RiaService {
       vaultOwnerToken: params.vaultOwnerToken,
       label: params.label,
       package_note: parsedPackage.package_note || params.package_note,
+      investor_debate_thesis: params.investor_debate_thesis,
       top_picks: parsedPackage.top_picks,
       avoid_rows: parsedPackage.avoid_rows,
       screening_sections: parsedPackage.screening_sections,
@@ -2158,6 +2884,7 @@ export class RiaService {
     source_filename?: string;
     label?: string;
     package_note?: string;
+    investor_debate_thesis?: string;
     top_picks?: RiaPickRow[];
     avoid_rows?: RiaAvoidRow[];
     screening_sections?: RiaScreeningSection[];
@@ -2172,6 +2899,7 @@ export class RiaService {
         source_filename: params.source_filename,
         label: params.label,
         package_note: params.package_note,
+        investor_debate_thesis: params.investor_debate_thesis,
         avoid_rows: params.avoid_rows,
         screening_sections: params.screening_sections,
       });
@@ -2183,6 +2911,7 @@ export class RiaService {
       vaultOwnerToken: params.vaultOwnerToken,
       label: params.label,
       package_note: params.package_note,
+      investor_debate_thesis: params.investor_debate_thesis,
       top_picks: params.top_picks,
       avoid_rows: params.avoid_rows,
       screening_sections: params.screening_sections,

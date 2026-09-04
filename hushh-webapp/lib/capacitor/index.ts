@@ -51,6 +51,7 @@ export interface AuthUser {
   displayName: string;
   photoUrl: string;
   emailVerified?: boolean;
+  phoneNumber?: string | null;
 }
 
 export interface HushhAuthPlugin {
@@ -62,6 +63,16 @@ export interface HushhAuthPlugin {
     idToken: string;
     accessToken: string;
     user: AuthUser;
+  }>;
+
+  /**
+   * Requests Gmail consent through the platform Google Sign-In SDK.
+   *
+   * The result is a single-use server authorization code. It is handed to the
+   * authenticated backend immediately and is never persisted by the app.
+   */
+  connectGmail(options: { serverClientId: string }): Promise<{
+    serverAuthCode: string;
   }>;
 
   /**
@@ -245,6 +256,7 @@ export interface HushhConsentPlugin {
   revokeConsent(options: {
     userId: string;
     scope: string;
+    requestId?: string;
     vaultOwnerToken?: string;
   }): Promise<{ success: boolean; lockVault?: boolean }>;
 }
@@ -855,7 +867,19 @@ export const HushhLocation = registerPlugin<HushhLocationPlugin>("HushhLocation"
 // Contact-book permission and read-only contact lookup for Connect matching.
 
 export type HushhContactsPermissionState = {
-  state: "granted" | "denied" | "prompt" | "restricted" | "unavailable";
+  /**
+   * `limited` is iOS 17+ partial contact access: the read succeeds but only
+   * returns the subset the user picked, so an empty match is not evidence that
+   * nobody matched. `denied` means the OS will not prompt again and the only
+   * route forward is `openAppSettings`.
+   */
+  state:
+    | "granted"
+    | "limited"
+    | "denied"
+    | "prompt"
+    | "restricted"
+    | "unavailable";
 };
 
 export type HushhContactRecord = {
@@ -865,12 +889,44 @@ export type HushhContactRecord = {
   emailAddresses?: string[];
 };
 
+export type HushhContactsReadResult = {
+  contacts: HushhContactRecord[];
+  /**
+   * Where the contacts came from.
+   *
+   * `google` is not a platform in the Capacitor sense — it is a different
+   * ACCOUNT on the same platform, read in the browser through the People API.
+   * It is a member here because everything downstream keys off this field, and
+   * folding a Google read into `web` would route it to the partial-read remedy
+   * ("Check more"), whose action re-runs the picker and returns the identical
+   * set.
+   */
+  sourcePlatform: "web" | "ios" | "android" | "native" | "google";
+  /**
+   * ISO-3166 alpha-2 region the device believes it is in (SIM, then network,
+   * then locale). National-format contact numbers are meaningless without it —
+   * `9876543210` is a valid mobile in a dozen countries.
+   */
+  defaultRegion?: string | null;
+  /** True when only a user-selected subset of contacts was visible (iOS 17+). */
+  limited?: boolean;
+  /** True when `limit` cut the read short, so matching saw a partial book. */
+  truncated?: boolean;
+  /** Contacts holding at least one phone number, before `limit` was applied. */
+  totalAvailable?: number;
+};
+
 export interface HushhContactsPlugin {
   getPermissionState(): Promise<HushhContactsPermissionState>;
-  readContacts(options?: { limit?: number }): Promise<{
-    contacts: HushhContactRecord[];
-    sourcePlatform: "web" | "ios" | "android" | "native";
-  }>;
+  /**
+   * Prompt for contact access without reading anything. Lets a surface prime
+   * the permission at a moment the user understands, instead of the OS sheet
+   * appearing mid-sync.
+   */
+  requestPermission(): Promise<HushhContactsPermissionState>;
+  /** Open this app's OS settings page — the only recovery from `denied`. */
+  openAppSettings(): Promise<{ opened: boolean }>;
+  readContacts(options?: { limit?: number }): Promise<HushhContactsReadResult>;
 }
 
 export const HushhContacts = registerPlugin<HushhContactsPlugin>("HushhContacts", {

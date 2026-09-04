@@ -31,18 +31,21 @@
   ],
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
-    "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+    "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q",
+    "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
   ],
   "verification_bundles": [
     {
       "id": "iam-consent-governance",
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
-        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/test_granular_scopes.py -q",
-        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q"
+        "cd consent-protocol && python3 -m pytest tests/test_ria_iam_routes.py -q",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ]
     }
   ],
@@ -58,6 +61,7 @@
   ],
   "risk_tags": [
     "consent-scope-drift",
-    "iam-policy-drift"
+    "iam-policy-drift",
+    "object-share-authorization-drift"
   ]
 }

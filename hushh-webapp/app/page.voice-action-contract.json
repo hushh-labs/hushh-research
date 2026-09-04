@@ -46,7 +46,36 @@
       },
       "control_ids": ["onboarding_claim_one"],
       "state_exposure": [],
-      "docs_references": []
+      "docs_references": [],
+      "goal": {
+        "goal_id": "goal.onboarding.claim_one",
+        "slot_schema": {
+          "deferred_action_id": {
+            "type": "string",
+            "enum": ["auth.sign_in_google", "auth.sign_in_apple"]
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "onboarding.claim_one",
+            "label": "Claim your One",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          },
+          {
+            "type": "choice",
+            "label": "Choose a sign-in provider",
+            "failure_behavior": "stop",
+            "action_ids": ["auth.sign_in_google", "auth.sign_in_apple"],
+            "carry_explicit_choice": true,
+            "requires_fresh_context": true
+          }
+        ]
+      }
     }
   ]
 }

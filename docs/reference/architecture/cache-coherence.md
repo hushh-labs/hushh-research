@@ -136,7 +136,59 @@ Do:
 - Use `invalidateUser(userId)` when purging a full user session.
 - Keep domain blob + metadata reconciliation aligned with PKM index semantics.
 - Keep consent-manager summary/list caches memory-only.
-- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/consents`; do not introduce a second browser cache lane just for the top-shell preview.
+- `ConnectedSystemsResourceService` owns Connected Systems caching. L1 memory
+  holds registry, normalized schema, binding status, and live record state. L2
+  device cache holds only safe registry and normalized ready-schema metadata
+  for 24 hours; schema keys include CRM, primary object, and configuration
+  revision. An unavailable mapping is memory-only for one minute. CRM bindings,
+  record IDs, values, intents, and staged edits never enter L2. Auth startup
+  hydrates registry metadata, vault unlock warms one batch of binding statuses,
+  vault lock synchronously clears protected L1 state, and sign-out/account
+  deletion purges both tiers.
+- Use `one:consents` as the canonical cache identity for the default investor
+  consent view. The One dashboard, `/one/consent`, and the top-shell shield inbox
+  must share that summary and pending-page cache; only the RIA persona uses its
+  own `ria:consents` lane.
+- An unresolved consent summary is unknown, not zero. Do not render `0` in
+  consent tabs, badges, or roster metrics until the canonical summary resolves.
+- Keep the first-party consent inbox on the same memory-only `pending page 1` list cache used by `/one/consent`; do not introduce a second browser cache lane just for the top-shell preview.
+- On every successful vault unlock, warm the canonical `one:consents` summary
+  and pending-page cache in the background, regardless of the route that
+  opened the vault. This preserves an immediate same-session render without
+  persisting consent list entries.
+- After every successful vault unlock, the vault runtime starts Agent Chat's
+  protected conversation-history warmup before optional Firebase-authenticated
+  work. `UnlockWarmOrchestrator` starts the redacted PKM working set and joins
+  the same single-flight history resource for route-level warming. Neither
+  warmup blocks the unlock UI; the Agent workspace joins in-flight work or
+  starts a fallback when needed. The working set remains process-memory-only
+  and is cleared synchronously when the vault locks, the user changes, or PKM
+  changes.
+- Agent Chat treats the working-set TTL as a revalidation age, not an eviction
+  deadline. Once decrypted records are loaded in the current unlocked session,
+  the prior bounded projection answers the next turn immediately while one
+  user-scoped refresh checks metadata and reloads ciphertext only when its
+  revision changed. No decrypted working set survives vault lock or process exit.
+- Agent Chat conversation metadata and message history use a separate
+  process-memory-only, user-scoped cache. Vault unlock single-flights a bounded
+  warm of the recent conversation list and latest thread; opening Agent Chat
+  renders the composer first, consumes that warm cache when present, and defers
+  a cold history request to an idle beat. Direct Ask One handoffs never wait for
+  or get overwritten by restoration. Selecting another thread loads only that
+  thread, and vault lock synchronously clears all cached chat text.
+- A loaded Connected Systems record follows the same protected L1 rule: show the
+  current-session record immediately, then re-read it silently after binding and
+  schema authority settle. Record values, binding IDs, and staged changes never
+  enter the device cache; only safe registry and normalized schema metadata may
+  provide a cold-start render. An explicit CRM record refresh may keep the
+  route ready, but its editable field table stays withheld until that read
+  settles so a person never edits values known to be in flight.
+- FCM consent request, resolution, and connection events must invalidate the
+  canonical in-memory consent cache and trigger one retained-data background
+  refresh for an open Consent Center. Cached rows and counts stay visible until
+  that refresh settles; the single top-right refresh control is the only
+  in-page loading signal. When push is unavailable, the visible
+  fallback reconciler uses the same cache keys and event path.
 - Keep passive background refresh copy human-readable:
   - `Getting your portfolio data ready`
   - `Refreshing your profile details`
@@ -194,13 +246,17 @@ The events are metadata-only. They are for UX and reliability decisions; they ar
 ### Setup Journey Admission
 
 The authenticated setup journey uses the redacted pre-vault bootstrap record
-as a session resource. The initial cold entry may wait for that record. Once
-it is present, route changes reuse it synchronously and setup tiles prefetch
-their static target on intent; they must not show a full-page loader or force a
-new bootstrap request on every navigation. Durable settlement, callback
-recovery, explicit retry, and cache invalidation remain the only paths that
-refresh the record authoritatively. Decrypted vault material, OAuth artifacts,
-and OTPs are never part of this cache.
+as a session resource plus a user-scoped, positive-only persistent completion
+hint. The first unresolved entry may wait for the authoritative record. Once
+setup completes, returning sessions may admit synchronously from that one-bit
+hint while route changes reuse the full in-memory record. An authoritative
+incomplete response, sign-out, account deletion, or fixture reset clears the
+hint. Setup tiles prefetch their static target on intent; they must not show a
+full-page loader or force a new bootstrap request on every navigation. Durable
+settlement, callback recovery, explicit retry, and cache invalidation remain
+the only paths that refresh the mutable journey record authoritatively.
+Decrypted vault material, vault-owner tokens, OAuth artifacts, and OTPs are
+never part of either cache.
 
 Load-time admission follows one ordered path: resolve the client host first,
 then use the cached bootstrap record, then join its non-forced single-flight
@@ -212,12 +268,19 @@ This prevents transient localhost policy from bouncing a setup route through
 phone verification and keeps a cold session to one authenticated admission
 request.
 
+The `POST /api/vault/bootstrap-state` BFF is intentionally uncached at the
+server layer. Setup completion and active journey state are mutable admission
+facts; process-local stale-while-revalidate entries cannot be invalidated
+reliably across runtime instances. Client-side single-flight and the
+session-safe bootstrap cache retain the performance benefit without allowing a
+stale server response to admit or block a setup transition.
+
 Nested routes that render one workspace must share one cache contract and still appear as distinct route IDs in the generated screen manifest. Profile settings are the current reference case:
 
-- `/profile/account`, `/profile/preferences`, `/profile/security`, `/profile/my-data`, `/profile/access`, `/profile/connected-systems`, `/profile/gmail`, and `/profile/support` render through the shared profile workspace.
-- Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/profile/my-data/domain?key=<domain_key>` and `/profile/access/connection?id=<connection_id>`.
+- `/one/profile/account`, `/one/profile/preferences`, `/one/profile/security`, `/one/profile/my-data`, `/one/profile/access`, `/one/profile/connected-systems`, `/one/profile/gmail`, and `/one/profile/support` render through the shared profile workspace.
+- Identifier-bearing detail routes stay static-export-safe with query-backed detail keys, for example `/one/profile/my-data/domain?key=<domain_key>` and `/one/profile/access/connection?id=<connection_id>`.
 - All profile nested routes inherit the profile cache posture: vault and PKM readiness gate sensitive panels; stale safe metadata may render while background refresh runs; decrypted PKM and raw cache keys never enter analytics or realtime voice context.
-- Same-session Profile transitions do not use the root generic skeleton: `app/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
+- Same-session Profile transitions do not use the root generic skeleton: `app/one/profile/loading.tsx` preserves the route-transition envelope, and `PhoneMandateGuard` hydrates cached vault and phone-mandate hints before its first paint. A cold or unsafe mandate state still owns its explicit guard feedback.
 - Route splits must regenerate `cache-coherence-screen-manifest.generated.json` and keep route readiness/resource classes aligned with `CacheSyncService` invalidation paths.
 
 The One setup family follows the same retained-surface rule. Its parent
@@ -240,6 +303,23 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
 
 ## Reconciliation Notes
 
+### Cross-route PKM freshness (2026-09-02)
+
+A domain stored on one route (Wallet, the Kai statement import, chat) used to
+reach Memory only if Memory was mounted at that moment: `pkm-domain-changed` is
+a fire-and-forget window event, and the metadata write-through patch reset the
+TTL, so `getMetadata(force=false)` on the next mount served the patch for up to
+five minutes. `lib/cache/pkm-invalidation-epoch.ts` closes that gap:
+
+- `CacheSyncService` bumps the per-owner epoch on every stored / cleared /
+  restored emit, alongside the event.
+- `usePkmDomainChangeRevision` seeds from the epoch, so a screen that mounts
+  after a write starts above zero and forces a fresh read; the listener still
+  covers writes made while it is mounted.
+- Profile my-data applies the same rule through `refreshPkmMetadata(true)`.
+- `audit-cache-coherence.mjs` invariant 0 fails the build if either side of the
+  link is removed.
+
 - Domain metadata patches should preserve canonical summary counters (`attribute_count`, `item_count`, `holdings_count`).
 - Raw `total_value` is not retained in index summary cache patches; numeric values should map to `portfolio_total_value`.
 - If patch inputs are insufficient, invalidate metadata and force a clean re-fetch rather than persisting partial summaries.
@@ -254,6 +334,6 @@ The `audit:cache-coherence` script hard-fails when the screen cache manifest is 
   - first-party readers should treat `projection_mode=replace_all` as canonical for upgraded users
   - current retention stays `3` saved analyses per ticker (newest first)
 - Save compatibility policy:
-  - first-party financial/profile/portfolio/history writes must go through `PkmWriteCoordinator`
+  - first-party financial/one/profile/portfolio/history writes must go through `PkmWriteCoordinator`
   - stale manifests/domains should resume the client-side PKM upgrade before save when the vault is unlocked
   - if the vault is locked and the domain is stale, the UI should surface an upgrade-required/read-only state instead of attempting a legacy plaintext fallback

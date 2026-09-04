@@ -81,7 +81,7 @@ export function AgentSectionDropdown({
           data-testid="top-agent-section-dropdown"
           data-voice-control-id="top_agent_section_dropdown"
           className={cn(
-            "group inline-flex h-9 max-w-[9.75rem] min-w-0 items-center justify-center gap-1.5 rounded-full px-1 text-[14px] font-medium tracking-normal text-[#1d1d1f] transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background dark:text-[#f5f5f7] sm:max-w-[12rem] sm:gap-2 sm:text-base",
+            "group inline-flex h-9 max-w-[9.75rem] min-w-0 items-center justify-center gap-1.5 rounded-full px-1 text-[14px] font-medium tracking-normal text-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:max-w-[12rem] sm:gap-2 sm:text-base",
             className,
           )}
         >
@@ -104,7 +104,7 @@ export function AgentSectionDropdown({
       >
         <Command className="bg-transparent">
           <CommandInput
-            placeholder="Search agents..."
+            placeholder="search agents..."
             data-testid="agent-section-search"
           />
           <CommandList
@@ -112,7 +112,7 @@ export function AgentSectionDropdown({
             className="max-h-[calc(100svh-9rem)] px-1 pb-2"
           >
             <CommandEmpty>No agent found.</CommandEmpty>
-            <CommandGroup heading="Agents">
+            <CommandGroup heading="agents">
               {sections.map((section) => {
                 const active = section.id === currentSection.id;
                 return (

@@ -227,8 +227,17 @@ describe("sanitizeGmailUserMessage", () => {
 
 describe("resolveGmailStatusSummary", () => {
   it("explains the purchase-signal benefit before Gmail is connected", () => {
-    expect(resolveGmailStatusSummary({ status: null }).detail).toContain(
-      "Receipt emails capture purchase interactions.",
+    expect(resolveGmailStatusSummary({ status: null }).detail).toBe(
+      "One syncs purchase receipts into a private shopping summary. You can separately turn on verification-request monitoring after connecting.",
+    );
+  });
+
+  it("does not repeat the call to action already carried by the title and button", () => {
+    // The card states "Gmail not connected" above this line and offers a
+    // "Connect Gmail" button below it, so a third "Connect Gmail to start."
+    // in the body was the same instruction a third time.
+    expect(resolveGmailStatusSummary({ status: null }).detail).not.toContain(
+      "Connect Gmail to start.",
     );
   });
 
@@ -257,6 +266,43 @@ describe("resolveGmailStatusSummary", () => {
       tone: "success",
       title: "Receipts are up to date",
       detail: "Connected to dev@hushh.ai",
+    });
+  });
+
+  it("keeps saved receipts healthy after an interrupted background worker", () => {
+    expect(
+      resolveGmailStatusSummary({
+        status: {
+          configured: true,
+          connected: true,
+          status: "connected",
+          google_email: "dev@hushh.ai",
+          scope_csv: "gmail.readonly",
+          last_sync_status: "failed",
+          last_sync_error:
+            "Gmail sync worker stopped before reporting a final status.",
+          last_sync_at: "2026-04-03T10:00:00.000Z",
+          auto_sync_enabled: true,
+          revoked: false,
+          latest_run: {
+            run_id: "run_interrupted",
+            user_id: "user_123",
+            trigger_source: "auto_reconcile",
+            status: "failed",
+            listed_count: 0,
+            filtered_count: 0,
+            synced_count: 0,
+            extracted_count: 0,
+            duplicates_dropped: 0,
+            extraction_success_rate: 0,
+            error_message:
+              "Gmail sync worker stopped before reporting a final status.",
+          },
+        },
+      }),
+    ).toMatchObject({
+      tone: "success",
+      title: "Receipts are up to date",
     });
   });
 

@@ -56,12 +56,16 @@ It does not own:
 | Build a new agent or operon | [reference/agent-development.md](./reference/agent-development.md) |
 | Publish against the developer API / MCP | [reference/developer-api.md](./reference/developer-api.md) |
 | Understand data encryption and storage | [reference/personal-knowledge-model.md](./reference/personal-knowledge-model.md) |
+| Browse every backend reference doc | [reference/README.md](./reference/README.md) |
+| Configure app-review mode for a store submission | [app-review-mode-config.md](./app-review-mode-config.md) |
 | Learn the 3-agent debate system | [reference/kai-agents.md](./reference/kai-agents.md) |
 | Understand the product-facing One Voice contract | [../../docs/reference/one/one-voice-runtime-architecture.md](../../docs/reference/one/one-voice-runtime-architecture.md) |
 | Understand the current One Voice Kai compatibility runtime | [../../docs/reference/one/one-voice-kai-compatibility-runtime.md](../../docs/reference/one/one-voice-kai-compatibility-runtime.md) |
 | Understand the consent token model | [reference/consent-protocol.md](./reference/consent-protocol.md) |
+| Implement the Hermes trusted-device vault handoff | [reference/trusted-device-vault-handoff.md](./reference/trusted-device-vault-handoff.md) |
 | FCM push notification architecture | [reference/fcm-notifications.md](./reference/fcm-notifications.md) |
 | Understand MCP runtime and contributor-local setup | [mcp-setup.md](./mcp-setup.md) |
+| Implement the MuleSoft trusted connector for Salesforce and Agentforce | [reference/mulesoft-agentforce-secure-relay.md](./reference/mulesoft-agentforce-secure-relay.md) |
 | Integrate into a host monorepo (subtree) | [monorepo-integration.md](./monorepo-integration.md) |
 | Read the Hussh philosophy | [manifesto.md](./manifesto.md) |
 

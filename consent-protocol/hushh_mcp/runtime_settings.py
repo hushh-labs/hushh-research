@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -13,6 +13,13 @@ from dotenv import load_dotenv
 _REPO_ROOT = Path(__file__).resolve().parents[1]
 _DOTENV_PATH = _REPO_ROOT / ".env"
 load_dotenv(_DOTENV_PATH, override=False)
+# Local-only maintainer overlay. Developers keep the reviewer fixture
+# (REVIEWER_UID / REVIEWER_VAULT_PASSPHRASE, hydrated from Secret Manager by
+# bootstrap) and local toggles like APP_REVIEW_MODE in .env.local so agents can
+# review app changes on localhost. This file is absent in deployed environments,
+# so this is a no-op there; override=False keeps the canonical .env authoritative
+# for any shared key.
+load_dotenv(_REPO_ROOT / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
@@ -31,17 +38,41 @@ CONNECTOR_KDF_ITERATIONS_ENV = "CONNECTOR_KDF_ITERATIONS"
 _CONNECTOR_KDF_ITERATIONS_DEFAULT = 65536
 OMNIGATEWAY_CLIENT_ID_ENV = "OMNIGATEWAY_CLIENT_ID"
 OMNIGATEWAY_CLIENT_SECRET_ENV = "OMNIGATEWAY_CLIENT_SECRET"  # noqa: S105
+OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_ID"
+OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV = "OMNIGATEWAY_EXT_CRM_CLIENT_SECRET"  # noqa: S105
 APP_FRONTEND_ORIGIN_ENV = "APP_FRONTEND_ORIGIN"
 FIREBASE_ADMIN_CREDENTIALS_JSON_ENV = "FIREBASE_ADMIN_CREDENTIALS_JSON"
 FIREBASE_SERVICE_ACCOUNT_JSON_ENV = "FIREBASE_SERVICE_ACCOUNT_JSON"
 GMAIL_OAUTH_TOKEN_KEY_ENV = "GMAIL_OAUTH_TOKEN_KEY"  # noqa: S105
 PLAID_ACCESS_TOKEN_KEY_ENV = "PLAID_ACCESS_TOKEN_KEY"  # noqa: S105
+# Apple Wallet pass signing material. The three PEMs arrive as their own Cloud
+# Run secret refs (never inside BACKEND_RUNTIME_CONFIG_JSON) and are read here so
+# that no service reads them from the environment directly.
+WALLET_PASS_CERT_PEM_ENV = "WALLET_PASS_CERT_PEM"  # noqa: S105
+WALLET_PASS_KEY_PEM_ENV = "WALLET_PASS_KEY_PEM"  # noqa: S105
+WALLET_PASS_WWDR_PEM_ENV = "WALLET_PASS_WWDR_PEM"  # noqa: S105
+WALLET_PASS_TEAM_IDENTIFIER_ENV = "WALLET_PASS_TEAM_IDENTIFIER"  # noqa: S105
+WALLET_PASS_TYPE_IDENTIFIER_ENV = "WALLET_PASS_TYPE_IDENTIFIER"  # noqa: S105
+_WALLET_PASS_TYPE_IDENTIFIER_DEFAULT = "pass.com.hushh.app.one"  # noqa: S105
+# Signing provider. ``local`` signs in-process with the PEMs above;
+# ``service`` delegates to the org-owned hushh-wallet-api, which holds its own
+# certificate. Defaults to ``local`` so an unconfigured deployment keeps the
+# behaviour it already had.
+WALLET_PASS_PROVIDER_ENV = "WALLET_PASS_PROVIDER"  # noqa: S105
+WALLET_API_BASE_URL_ENV = "WALLET_API_BASE_URL"  # noqa: S105
+WALLET_API_KEY_ENV = "WALLET_API_KEY"  # noqa: S105
+_WALLET_API_BASE_URL_DEFAULT = "https://hushh-wallet-api-fro3hygenq-uc.a.run.app"
+
 BACKEND_RUNTIME_CONFIG_JSON_ENV = "BACKEND_RUNTIME_CONFIG_JSON"
 VOICE_RUNTIME_CONFIG_JSON_ENV = "VOICE_RUNTIME_CONFIG_JSON"
 
 _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "environment": "ENVIRONMENT",
+    "hushh_genai_auth_mode": "HUSHH_GENAI_AUTH_MODE",
     "google_genai_use_vertexai": "GOOGLE_GENAI_USE_VERTEXAI",
+    "google_cloud_project": "GOOGLE_CLOUD_PROJECT",
+    "google_cloud_location": "GOOGLE_CLOUD_LOCATION",
+    "hushh_vertex_locations": "HUSHH_VERTEX_LOCATIONS",
     "db_host": "DB_HOST",
     "db_port": "DB_PORT",
     "db_name": "DB_NAME",
@@ -52,7 +83,6 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "sync_remote_enabled": "SYNC_REMOTE_ENABLED",
     "developer_api_enabled": "DEVELOPER_API_ENABLED",
     "remote_mcp_enabled": "REMOTE_MCP_ENABLED",
-    "crm_registry_db_enabled": "CRM_REGISTRY_DB_ENABLED",
     "cors_allowed_origins": "CORS_ALLOWED_ORIGINS",
     "obs_data_stale_ratio_threshold": "OBS_DATA_STALE_RATIO_THRESHOLD",
     "passkey_allowed_rp_ids": "PASSKEY_ALLOWED_RP_IDS",
@@ -63,6 +93,57 @@ _BACKEND_RUNTIME_ENV_MAP: dict[str, str] = {
     "plaid_redirect_path": "PLAID_REDIRECT_PATH",
     "plaid_redirect_uri": "PLAID_REDIRECT_URI",
     "plaid_tx_history_days": "PLAID_TX_HISTORY_DAYS",
+    "one_location_read_only_state_enabled": "ONE_LOCATION_READ_ONLY_STATE_ENABLED",
+    # Nearby check-in admission. Both are required to open the flow in
+    # production -- the mode alone leaves it closed -- so that a half-finished
+    # rollout fails safe. See `_nearby_presence_enabled` in the location routes.
+    "one_location_nearby_presence_mode": "ONE_LOCATION_NEARBY_PRESENCE_MODE",
+    "one_location_nearby_presence_cohort": "ONE_LOCATION_NEARBY_PRESENCE_COHORT",
+    "consent_center_summary_v2_enabled": "CONSENT_CENTER_SUMMARY_V2_ENABLED",
+    "db_bulk_batching_enabled": "DB_BULK_BATCHING_ENABLED",
+    "hushh_trusted_device_enabled": "HUSSH_TRUSTED_DEVICE_ENABLED",
+    "hushh_trusted_device_uat_allowlist": "HUSSH_TRUSTED_DEVICE_UAT_ALLOWLIST",
+    # UAT-only Hushh Tech client. Non-secret policy lives in the structured
+    # config; the launch-code pepper remains a direct Secret Manager binding.
+    "hushh_tech_client_enabled": "HUSSH_TECH_CLIENT_ENABLED",
+    "hushh_tech_developer_app_id": "HUSSH_TECH_DEVELOPER_APP_ID",
+    "hushh_tech_allowed_audience": "HUSSH_TECH_ALLOWED_AUDIENCE",
+    "hushh_tech_allowed_redirect_uris": "HUSSH_TECH_ALLOWED_REDIRECT_URIS",
+    "hushh_tech_allowed_consent_scopes": "HUSSH_TECH_ALLOWED_CONSENT_SCOPES",
+    "hushh_tech_uat_firebase_uid_allowlist": "HUSSH_TECH_UAT_FIREBASE_UID_ALLOWLIST",
+    "hushh_tech_shadow_max_age_ms": "HUSSH_TECH_SHADOW_MAX_AGE_MS",
+    "hushh_tech_trusted_proxy_hops": "HUSSH_TECH_TRUSTED_PROXY_HOPS",
+    "hushh_tech_proxy_audience": "HUSSH_TECH_PROXY_AUDIENCE",
+    "hushh_tech_trusted_proxy_service_accounts": ("HUSSH_TECH_TRUSTED_PROXY_SERVICE_ACCOUNTS"),
+    "one_wallet_card_enabled": "ONE_WALLET_CARD_ENABLED",
+    "wallet_pass_team_identifier": "WALLET_PASS_TEAM_IDENTIFIER",
+    "wallet_pass_type_identifier": "WALLET_PASS_TYPE_IDENTIFIER",
+    # Advisor directory base URL. Not a secret, so it travels in this config
+    # blob rather than as another line in the Cloud Build deploy step — that
+    # step's inline script sits close to Cloud Build's 10,000-character arg
+    # ceiling, and every line added there is borrowed against it. The bearer
+    # key is a real secret and stays in --set-secrets.
+    "advisors_api_base_url": "ADVISORS_API_BASE_URL",
+    # Insurance agent directory base URL. Non-secret, same reasoning as
+    # the advisor base URL directly above; the bearer key is a real
+    # secret and is mounted through --set-secrets instead.
+    "insurance_agents_api_base_url": "INSURANCE_AGENTS_API_BASE_URL",
+    # NWS Nearby Intelligence base URL. Non-secret and the same reasoning again;
+    # the X-NWS-API-Key is a real secret and is mounted through --set-secrets.
+    # Unlike the two directories above, this service lives in hushh-tech-prod
+    # rather than the lane project, so its key is mirrored across projects by
+    # scripts/ops/sync_backend_runtime_secrets.py before the deploy runs.
+    "nws_nearby_api_base_url": "NWS_NEARBY_API_BASE_URL",
+    # NWS v4 net-worth contract. The base URL is the same service; the project
+    # id is this lane's registered consumer identity upstream and must differ
+    # between UAT and production, so it is derived from the deploy target rather
+    # than carrying a default that one lane would inherit from another.
+    "nws_nearby_v4_api_base_url": "NWS_NEARBY_V4_API_BASE_URL",
+    "nws_nearby_v4_project_id": "NWS_NEARBY_V4_PROJECT_ID",
+    # Places directory switch. Deliberately its own key rather than reusing the
+    # nearby-presence mode: that flag governs co-presence, and closing
+    # co-presence in production must not also close a business directory.
+    "one_places_directory_enabled": "ONE_PLACES_DIRECTORY_ENABLED",
 }
 
 
@@ -163,6 +244,44 @@ class AppRuntimeSettings:
 
 
 @dataclass(frozen=True)
+class WalletPassSettings:
+    """Apple Wallet pass signing material and pass identifiers.
+
+    Every PEM is ``repr=False`` so private key material can never surface in a
+    log line, an exception repr or a traceback frame dump.
+    """
+
+    team_identifier: str
+    pass_type_identifier: str
+    cert_pem: str = field(repr=False, default="")
+    key_pem: str = field(repr=False, default="")
+    wwdr_pem: str = field(repr=False, default="")
+    provider: str = "local"
+    api_base_url: str = ""
+    api_key: str = field(repr=False, default="")
+
+    @property
+    def uses_service_provider(self) -> bool:
+        return self.provider == "service"
+
+    @property
+    def service_is_complete(self) -> bool:
+        """The service provider needs a reachable base URL and a caller key."""
+        return bool(self.api_base_url.strip() and self.api_key.strip())
+
+    @property
+    def is_complete(self) -> bool:
+        """True only when every value needed to sign a pass is present."""
+        return bool(
+            self.team_identifier
+            and self.pass_type_identifier
+            and self.cert_pem
+            and self.key_pem
+            and self.wwdr_pem
+        )
+
+
+@dataclass(frozen=True)
 class VoiceRuntimeSettings:
     realtime_enabled: bool
     hosted_voice_enabled: bool
@@ -248,15 +367,25 @@ def get_connector_kdf_iterations() -> int:
         return _CONNECTOR_KDF_ITERATIONS_DEFAULT
 
 
-def get_omnigateway_transport_headers() -> tuple[tuple[str, str], ...]:
+def get_omnigateway_transport_headers(
+    credential_profile: str = "shared",
+) -> tuple[tuple[str, str], ...]:
     """Client-ID-Enforcement headers for the MuleSoft OmniGateway transport.
 
     These authenticate Hushh to the gateway. They are separate from the
     encrypted CRM credentials stored in enterprise_crm_registry and forwarded to
     MuleSoft for CRM-side auth.
     """
-    client_id = _clean_env(OMNIGATEWAY_CLIENT_ID_ENV)
-    client_secret = _clean_env(OMNIGATEWAY_CLIENT_SECRET_ENV)
+    if credential_profile == "external_crm":
+        client_id_env = OMNIGATEWAY_EXT_CRM_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_EXT_CRM_CLIENT_SECRET_ENV
+    elif credential_profile == "shared":
+        client_id_env = OMNIGATEWAY_CLIENT_ID_ENV
+        client_secret_env = OMNIGATEWAY_CLIENT_SECRET_ENV
+    else:
+        return ()
+    client_id = _clean_env(client_id_env)
+    client_secret = _clean_env(client_secret_env)
     headers: list[tuple[str, str]] = []
     if client_id:
         headers.append(("client_id", client_id))
@@ -270,6 +399,46 @@ def crm_registry_db_enabled() -> bool:
     registry (decrypting credentials with VAULT_DATA_KEY) instead of the
     hardcoded in-code definition. Defaults off until cutover."""
     return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
+
+
+def kai_analyze_durable_run_store_enabled() -> bool:
+    """Feature flag: persist a coarse terminal checkpoint for resumable Kai
+    analyze ("debate") runs to Postgres so a /stream request that lands on a
+    different Cloud Run instance can replay the final DecisionCard instead of
+    404ing (the multi-instance prod-parity bug). Defaults off; when off the
+    run manager behaves exactly as before with zero durable-store I/O."""
+    return _bool_from_value(_clean_env("KAI_ANALYZE_DURABLE_RUN_STORE"), default=False)
+
+
+def one_wallet_card_enabled() -> bool:
+    """Feature flag: expose the Wallet Profile plane — the ``one_wallet_cards``
+    table, the ``/api/one/wallet-card`` owner routes and the two unauthenticated
+    public surfaces (card resolve and the signed ``.pkpass`` download). Defaults
+    off; while off every wallet-card route answers as if the feature did not
+    exist and no card is ever resolved."""
+    return _bool_from_value(_clean_env("ONE_WALLET_CARD_ENABLED"), default=False)
+
+
+def get_wallet_pass_settings() -> WalletPassSettings:
+    """Signing material for Apple Wallet ``.pkpass`` generation.
+
+    Deliberately uncached: the PEMs are Cloud Run secret refs, so reading them
+    per pass download keeps a rotated certificate live without a redeploy.
+    Missing material yields empty strings, which makes ``is_complete`` False and
+    lets the route degrade to the friendly 503 copy instead of raising.
+    """
+    return WalletPassSettings(
+        team_identifier=_clean_env(WALLET_PASS_TEAM_IDENTIFIER_ENV) or "",
+        pass_type_identifier=(
+            _clean_env(WALLET_PASS_TYPE_IDENTIFIER_ENV) or _WALLET_PASS_TYPE_IDENTIFIER_DEFAULT
+        ),
+        cert_pem=_clean_env(WALLET_PASS_CERT_PEM_ENV) or "",
+        key_pem=_clean_env(WALLET_PASS_KEY_PEM_ENV) or "",
+        wwdr_pem=_clean_env(WALLET_PASS_WWDR_PEM_ENV) or "",
+        provider=(_clean_env(WALLET_PASS_PROVIDER_ENV) or "local").lower(),
+        api_base_url=_clean_env(WALLET_API_BASE_URL_ENV) or _WALLET_API_BASE_URL_DEFAULT,
+        api_key=_clean_env(WALLET_API_KEY_ENV) or "",
+    )
 
 
 @lru_cache(maxsize=1)

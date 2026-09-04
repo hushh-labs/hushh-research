@@ -5,17 +5,19 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { buildPhoneMandateRoute, ROUTES } from "@/lib/navigation/routes";
+import { buildPhoneMandateRoute } from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
   hasVerifiedPhoneNumber,
+  isPhoneMandatePath,
   shouldBypassPhoneMandateForLocalhost,
   shouldRequirePhoneMandate,
 } from "@/lib/services/phone-mandate-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 import { VaultService } from "@/lib/services/vault-service";
 import { useHostname } from "@/lib/hooks/use-hostname";
+import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
 
 function resolveInitialVaultPresence(params: {
   userId: string | null | undefined;
@@ -65,6 +67,7 @@ export function PhoneMandateGuard({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, loading, phoneNumber } = useAuth();
+  useSessionChromeSuppression(loading);
   const hostname = useHostname();
   const hostnameResolved = hostname !== null;
   const localPhoneMandateBypassed = shouldBypassPhoneMandateForLocalhost(hostname);
@@ -159,7 +162,12 @@ export function PhoneMandateGuard({
     }
 
     let cancelled = false;
-    const setVaultPresence = (next: boolean) => {
+    // `boolean | null`, because the bootstrap state now reports "not read
+    // yet" as null instead of flattening it to false. This component already
+    // handles that: null holds the redirect (`hasVault !== null` below) and
+    // renders the loader rather than deciding. Only this setter was narrower
+    // than the value it receives.
+    const setVaultPresence = (next: boolean | null) => {
       if (!cancelled) {
         setHasVault((current) => (current === next ? current : next));
       }
@@ -250,7 +258,7 @@ export function PhoneMandateGuard({
     });
 
   useEffect(() => {
-    if (!shouldRedirect || pathname === ROUTES.PHONE_MANDATE) {
+    if (!shouldRedirect || isPhoneMandatePath(pathname)) {
       redirectTargetRef.current = null;
       return;
     }
@@ -280,7 +288,7 @@ export function PhoneMandateGuard({
     return <HushhLoader label="Checking phone requirement..." />;
   }
 
-  if (shouldRedirect && pathname !== ROUTES.PHONE_MANDATE) {
+  if (shouldRedirect && !isPhoneMandatePath(pathname)) {
     return <HushhLoader label="Opening phone verification..." />;
   }
 

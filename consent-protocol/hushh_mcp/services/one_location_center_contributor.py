@@ -2,7 +2,7 @@
 
 Maps the coordinate-free DTO returned by
 ``OneLocationAgentService.list_state`` into the shared ``ConsentCenterEntry``
-shape consumed by the ``/consents`` Access Manager (Requests / Active Access /
+shape consumed by the ``/one/consent`` Consent Manager (Requests / Active Access /
 History tabs) and the notification bell summary.
 
 Design rules (see docs/future/one-location-consent-center-integration-plan.md):
@@ -42,15 +42,15 @@ _ACTIVE_GRANT_STATUSES = {"active", "approved", "granted"}
 _PENDING_REQUEST_STATUSES = {"pending", "request_pending", "sent"}
 
 # Human-facing labels + scope descriptions per share kind so the Consent Manager
-# can render a "SOS" / "Check-In" / "Share" tag and an accurate one-line
+# can render an "SMS" / "Check-In" / "Share" tag and an accurate one-line
 # description instead of the same generic copy for every location grant.
 _SHARE_KIND_LABEL = {
-    "sos": "SOS",
+    "sos": "SMS",
     "check_in": "Check-In",
     "share": "Share",
 }
 _SHARE_KIND_SCOPE_DESCRIPTION = {
-    "sos": "SOS emergency live location",
+    "sos": "SMS · Save my soul live location",
     "check_in": "Check-in live location",
     "share": "Live location sharing",
 }
@@ -145,6 +145,12 @@ class OneLocationCenterContributor:
                     or "Someone in your One Network",
                 )
             )
+        for invite in state.get("circleMemberInvites") or []:
+            if _safe_str(invite.get("inviteeUserId")) != user_id:
+                continue
+            if _safe_str(invite.get("status")) != "pending":
+                continue
+            entries.append(self._circle_member_invite_entry(invite))
         return entries
 
     def _outgoing_requests(self, state: dict[str, Any], user_id: str) -> list[dict[str, Any]]:
@@ -319,21 +325,55 @@ class OneLocationCenterContributor:
         counterpart_label: str,
     ) -> dict[str, Any]:
         request_id = _safe_str(request.get("id"))
+        # The amount asked for travels with the row, so the Consent Manager can
+        # say "3 hours more" on the same request the popup and the feed are
+        # already naming. An entry that omitted it left the owner approving a
+        # duration only one of the three surfaces had ever mentioned.
+        is_extension = bool(request.get("isExtension")) or bool(
+            _safe_str(request.get("extendsGrantId"))
+        )
+        duration_label = _duration_label(request.get("requestedDurationHours"))
+        until_stopped = _safe_str(request.get("requestedDurationMode")) == "until_stopped"
+        amount = "for as long as they need" if until_stopped else duration_label
         metadata = _coerce_metadata(
             {
                 "request_source": "one_location_access_request",
                 "section": section,
                 "request_id": request_id,
                 "requester_label": counterpart_label,
+                "is_extension": is_extension,
+                **({"requested_duration_label": amount} if amount else {}),
+                **(
+                    {"requested_duration_hours": request.get("requestedDurationHours")}
+                    if request.get("requestedDurationHours") is not None
+                    else {}
+                ),
+                **(
+                    {"requested_duration_mode": _safe_str(request.get("requestedDurationMode"))}
+                    if request.get("requestedDurationMode")
+                    else {}
+                ),
             }
         )
+        if is_extension:
+            scope_description = (
+                f"More live location time requested ({amount})"
+                if amount
+                else "More live location time requested"
+            )
+        else:
+            scope_description = (
+                f"Live location access request ({amount})"
+                if amount
+                else "Live location access request"
+            )
         return {
             "id": f"one_location_request:{request_id}",
             "kind": kind,
             "status": _safe_str(request.get("status")) or "pending",
             "action": "REQUESTED",
             "scope": LOCATION_VIEW_SCOPE,
-            "scope_description": "Live location access request",
+            "scope_description": scope_description,
             "counterpart_type": "investor",
             "counterpart_id": counterpart_id or None,
             "counterpart_label": counterpart_label,
@@ -363,6 +403,49 @@ class OneLocationCenterContributor:
             "counterpart_label": "Public location link",
             "issued_at": invite.get("createdAt") or invite.get("updatedAt"),
             "expires_at": invite.get("expiresAt"),
+            "metadata": metadata,
+        }
+
+    def _circle_member_invite_entry(self, invite: dict[str, Any]) -> dict[str, Any]:
+        """Project membership consent without manufacturing location authority."""
+
+        invite_id = _safe_str(invite.get("id"))
+        circle_id = _safe_str(invite.get("circleId"))
+        circle_name = _safe_str(invite.get("circleName")) or "a Circle"
+        inviter_id = _safe_str(invite.get("inviterUserId"))
+        inviter_label = _safe_str(invite.get("inviterDisplayName")) or "Someone in your One Network"
+        request_url = f"/one/location?tab=people&circleInviteId={invite_id}"
+        metadata = _coerce_metadata(
+            {
+                "request_source": "one_location_circle_member_invite",
+                "workflow_kind": "circle_membership",
+                "section": "people",
+                "invite_id": invite_id,
+                "circle_id": circle_id,
+                "circle_name": circle_name,
+                "circle_kind": _safe_str(invite.get("circleKind")),
+                "requester_label": inviter_label,
+            }
+        )
+        return {
+            "id": f"one_location_circle_member_invite:{invite_id}",
+            # This is intentionally an invite, not a location access request.
+            # It belongs in the contributor's incoming/pending bucket so the
+            # investor Consent Manager can discover it without exposing the
+            # generic Allow/Don't allow location-grant controls.
+            "kind": "invite",
+            "status": "pending",
+            "action": "CIRCLE_MEMBER_INVITED",
+            "scope": None,
+            "scope_description": f"Invitation to join {circle_name}",
+            "counterpart_type": "investor",
+            "counterpart_id": inviter_id or None,
+            "counterpart_label": inviter_label,
+            "request_id": invite_id,
+            "request_url": request_url,
+            "issued_at": invite.get("createdAt"),
+            "expires_at": invite.get("expiresAt"),
+            "reason": f"{inviter_label} invited you to join {circle_name}.",
             "metadata": metadata,
         }
 

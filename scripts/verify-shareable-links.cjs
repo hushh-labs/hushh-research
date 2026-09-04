@@ -7,7 +7,7 @@ const { CONFIG_RESOURCES, resolveWorkspaceAsset, workspaceRoot } = require("./wo
 
 const repoRoot = workspaceRoot;
 const tmpRoot = CONFIG_RESOURCES.tmpDirectory;
-const ignoredDirs = new Set(["node_modules", ".git", ".next"]);
+const ignoredDirs = new Set(["node_modules", ".git", ".next", "DerivedData"]);
 const repoLocalLinkRoots = ["docs", "consent-protocol", "hushh-webapp", "packages", ".codex"];
 const repoishPrefixes = [
   "./",
@@ -46,6 +46,7 @@ function walkShareableFiles() {
   const out = [];
 
   const visit = (dir) => {
+    if (dir !== tmpRoot && fs.existsSync(path.join(dir, ".git"))) return;
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       if (ignoredDirs.has(entry.name)) continue;
       const full = resolveWorkspaceAsset(path.relative(repoRoot, path.join(dir, entry.name)));

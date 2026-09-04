@@ -56,7 +56,14 @@ function copyIfDifferent(sourcePath, destinationPath) {
 export function syncNativeFirebaseConfigs({
   appRoot = resolveAppRoot(),
   monorepoRoot = path.resolve(appRoot, ".."),
+  platform = "all",
 } = {}) {
+  if (!["all", "ios", "android"].includes(platform)) {
+    throw new Error(`Unsupported native Firebase platform: ${platform}`);
+  }
+
+  const includeIos = platform === "all" || platform === "ios";
+  const includeAndroid = platform === "all" || platform === "android";
   const iosSource = firstExisting([
     path.join(monorepoRoot, "GoogleService-Info.plist"),
     path.join(appRoot, "GoogleService-Info.plist"),
@@ -67,24 +74,28 @@ export function syncNativeFirebaseConfigs({
     path.join(appRoot, "google-services.json"),
   ]);
 
-  if (!iosSource) {
+  if (includeIos && !iosSource) {
     throw new Error("Missing root GoogleService-Info.plist for iOS native build.");
   }
-  if (!androidSource) {
+  if (includeAndroid && !androidSource) {
     throw new Error("Missing root google-services.json for Android native build.");
   }
 
-  const bundleId = iosBundleId(iosSource);
+  const bundleId = includeIos ? iosBundleId(iosSource) : "";
   if (bundleId && bundleId !== "com.hushh.app") {
     throw new Error(
       `iOS Firebase config bundle id is ${bundleId}; expected com.hushh.app.`
     );
   }
 
-  const packages = androidPackageNames(androidSource);
-  if (!packages.has("com.hushh.app")) {
+  // Android ships as com.hussh.app; only iOS is com.hushh.app. This check used
+  // the iOS bundle id, so it accepted a google-services.json with no client for
+  // the package Android actually builds as, and Gradle then failed at
+  // processDebugGoogleServices with "No matching client found".
+  const packages = includeAndroid ? androidPackageNames(androidSource) : new Set();
+  if (includeAndroid && !packages.has("com.hussh.app")) {
     throw new Error(
-      "Android Firebase config does not contain package_name com.hushh.app."
+      "Android Firebase config does not contain package_name com.hussh.app."
     );
   }
 
@@ -94,8 +105,8 @@ export function syncNativeFirebaseConfigs({
   );
   const androidDestination = path.join(appRoot, "android/app/google-services.json");
 
-  const iosCopied = copyIfDifferent(iosSource, iosDestination);
-  const androidCopied = copyIfDifferent(androidSource, androidDestination);
+  const iosCopied = includeIos ? copyIfDifferent(iosSource, iosDestination) : false;
+  const androidCopied = includeAndroid ? copyIfDifferent(androidSource, androidDestination) : false;
 
   return {
     iosCopied,
@@ -107,9 +118,11 @@ export function syncNativeFirebaseConfigs({
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   try {
-    const result = syncNativeFirebaseConfigs();
+    const platformIndex = process.argv.indexOf("--platform");
+    const platform = platformIndex >= 0 ? process.argv[platformIndex + 1] : "all";
+    const result = syncNativeFirebaseConfigs({ platform });
     console.log(
-      `Native Firebase configs ready (iOS ${result.iosCopied ? "updated" : "current"}, Android ${
+      `Native Firebase configs ready (${platform}; iOS ${result.iosCopied ? "updated" : "current"}, Android ${
         result.androidCopied ? "updated" : "current"
       }).`
     );

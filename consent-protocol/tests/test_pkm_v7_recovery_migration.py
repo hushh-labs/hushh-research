@@ -1,0 +1,214 @@
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+MIGRATION = ROOT / "db/migrations/098_pkm_v7_recovery_foundation.sql"
+SCOPE_EXPOSURE_MIGRATION = ROOT / "db/migrations/161_atomic_pkm_scope_exposure.sql"
+
+
+def test_recovery_migration_is_registered_and_additive():
+    sql = MIGRATION.read_text()
+    release = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
+    uat = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
+    dev = json.loads((ROOT / "db/contracts/dev_minimum_schema.json").read_text())
+
+    assert MIGRATION.name in release["ordered_migrations"]
+    assert MIGRATION.name in release["groups"]["pkm"]
+    base_versions = [
+        int(migration.split("_", 1)[0])
+        for migration in release["ordered_migrations"]
+        if migration[:3].isdigit()
+    ]
+    uat_versions = base_versions + [
+        int(migration.split("_", 1)[0])
+        for migration in release["environment_overlays"]["uat"]
+        if migration[:3].isdigit()
+    ]
+    assert uat["expected_migration_version"] == max(uat_versions)
+    assert 98 <= dev["expected_migration_version"] <= max(base_versions)
+    assert "DROP FUNCTION commit_pkm_domain_mutation_v2" not in sql
+    assert "DROP FUNCTION commit_pkm_domain_mutation_v3" not in sql
+    assert "ALTER TABLE pkm_manifests" in sql
+    assert "pkm_contract_version TEXT NOT NULL DEFAULT '0.0.0'" in sql
+    assert "readable_projection_version TEXT NOT NULL DEFAULT '0.0.0'" in sql
+
+
+def test_scope_exposure_commit_updates_blob_and_manifest_revisions_together():
+    sql = SCOPE_EXPOSURE_MIGRATION.read_text()
+    release = json.loads((ROOT / "db/release_migration_manifest.json").read_text())
+
+    assert SCOPE_EXPOSURE_MIGRATION.name in release["ordered_migrations"]
+    assert SCOPE_EXPOSURE_MIGRATION.name in release["groups"]["pkm"]
+    assert "commit_pkm_scope_exposure_v1" in sql
+    assert "repair_pkm_scope_exposure_revision_v1" in sql
+    assert "SET manifest_revision = p_next_manifest_revision" in sql
+    assert "archive_pkm_domain_revision_v1" in sql
+    assert "scope_exposure_update" in sql
+
+
+def test_recovery_migration_enforces_zero_loss_boundaries():
+    sql = MIGRATION.read_text()
+
+    for required in (
+        "get_pkm_domain_snapshot_v1",
+        "start_or_resume_pkm_upgrade_v1",
+        "transition_pkm_upgrade_run_v1",
+        "transition_pkm_upgrade_step_v1",
+        "issue_pkm_upgrade_claim_v1",
+        "archive_pkm_domain_revision_v1",
+        "commit_pkm_domain_mutation_v4",
+        "rollback_pkm_domain_revision_v1",
+        "delete_pkm_domain_v2",
+        "prune_expired_pkm_domain_revisions_v1",
+        "prune_expired_pkm_recovery_for_user_v1",
+        "idx_pkm_upgrade_runs_one_active_per_user",
+        "idx_pkm_domain_revisions_one_origin",
+        "pkm_domain_revision_segments",
+        "pkm_domain_commits",
+        "pkm_upgrade_claims",
+        "mixed_pkm_domain_revisions",
+        "incomplete_pkm_preservation_receipt",
+        "pkm_commit_id_binding_mismatch",
+        "invalid_pkm_request_fingerprint",
+        "pkm_rollback_commit_binding_mismatch",
+        "pkm_quarantine_segment_required",
+        "pkm_quarantine_must_be_private",
+        "pkm_revision_not_bound_to_run",
+        "pkm_revision_has_no_ciphertext",
+        "pkm_upgrade_step_has_no_committed_upgrade",
+        "pkm_upgrade_step_revision_mismatch",
+        "idempotent_replay",
+        "FOR UPDATE SKIP LOCKED",
+    ):
+        assert required in sql
+
+    # Scope origin is metadata only. Canonical reserved and dynamic scope
+    # strings are intentionally absent from the migration rewrite surface.
+    assert "REPLACE(scope" not in sql
+    assert "attr." not in sql
+    assert "scope_origin_code = 'd'" in sql
+    assert "__quarantine_v1" in sql
+    assert "SET refresh_status = 'refresh_pending'" in sql
+
+
+def test_snapshot_checks_the_whole_domain_before_applying_segment_filter():
+    sql = MIGRATION.read_text()
+    revision_query = sql.split("IF v_max_content_revision IS NOT NULL", 1)[0]
+
+    assert "segment_id = ANY(p_segment_ids)" not in revision_query
+    assert "pkm_domain_manifest_missing" in sql
+    assert "manifest_version <> v_manifest_revision" in sql
+
+
+def test_recovery_tables_are_part_of_uat_schema_contract():
+    contract = json.loads((ROOT / "db/contracts/uat_integrated_schema.json").read_text())
+
+    for table in (
+        "pkm_domain_revisions",
+        "pkm_domain_revision_segments",
+        "pkm_domain_commits",
+        "pkm_upgrade_claims",
+    ):
+        assert table in contract["required_tables"]
+    for function in (
+        "get_pkm_domain_snapshot_v1",
+        "transition_pkm_upgrade_run_v1",
+        "transition_pkm_upgrade_step_v1",
+        "commit_pkm_domain_mutation_v4",
+        "rollback_pkm_domain_revision_v1",
+    ):
+        assert function in contract["required_functions"]
+
+
+def test_protected_uat_gate_requires_live_recovery_rehearsal():
+    gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
+    rehearsal = (ROOT / "db/verify/pkm_v7_zero_loss_rehearsal.sql").read_text()
+
+    assert "PKM_UPGRADE_POSTGRES_REHEARSAL_URL" in gate
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL" in gate
+    assert "PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL" in gate
+    assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED" in gate
+    assert "pkm-runtime-audit.sh" in gate
+    assert "pkm_v7_zero_loss_rehearsal.sql" in gate
+    assert "primary_method" in rehearsal
+    assert "get_pkm_domain_snapshot_v1" in rehearsal
+    assert "commit_pkm_domain_mutation_v4" in rehearsal
+    assert "rollback_pkm_domain_revision_v1" in rehearsal
+    assert "legacy_full_blob_upgrade_failed" in rehearsal
+    assert "legacy_full_blob_origin_snapshot_missing" in rehearsal
+    assert "legacy_full_blob_rollback_failed" in rehearsal
+    assert "legacy_full_blob_rollback_snapshot_mismatch" in rehearsal
+    assert "rollback_manifest_projection_revision_mismatch" in rehearsal
+    assert "rollback_index_revision_mismatch" in rehearsal
+    assert "transition_pkm_upgrade_run_v1" in rehearsal
+    assert "transition_pkm_upgrade_step_v1" in rehearsal
+    assert "cross_owner_transition_was_not_rejected" in rehearsal
+    assert "uncommitted_step_completion_was_not_rejected" in rehearsal
+    assert "owner_published_projection_changed_during_rollback" in rehearsal
+    assert rehearsal.rstrip().endswith("ROLLBACK;")
+
+
+def test_uat_deploy_runs_protected_pkm_gate_and_reviewer_byok_rehearsal():
+    workflow = (ROOT.parent / ".github/workflows/deploy-uat.yml").read_text()
+    gate = (ROOT.parent / "scripts/ci/pkm-upgrade-gate.sh").read_text()
+    candidate_evaluator = (
+        ROOT.parent / "scripts/ci/run-candidate-pkm-structure-agent-eval.sh"
+    ).read_text()
+
+    assert "PKM_UPGRADE_PROTECTED_UAT=1" in workflow
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED=1" in workflow
+    assert "PKM_UPGRADE_STRUCTURE_AGENT_EVAL_DEFERRED" in gate
+    assert "Verify candidate PKM evaluator in Cloud Run" in workflow
+    assert "Resolve UAT verification plan" in workflow
+    assert "resolve-uat-verification-plan.py" in workflow
+    assert "outputs.pkm_evaluator_runs != '0'" in workflow
+    assert "outputs.run_pkm_upgrade_gate" in workflow
+    assert "Record candidate PKM evaluator warning" in workflow
+    assert "Candidate PKM evaluator warning" in workflow
+    assert 'echo "outcome=failure" >> "$GITHUB_OUTPUT"' in workflow
+    assert "steps.verify-candidate-pkm-evaluator.outputs.outcome == 'failure'" in workflow
+    evaluator_start = workflow.index("- name: Verify candidate PKM evaluator in Cloud Run")
+    evaluator_end = workflow.index("- name: Record candidate PKM evaluator warning")
+    evaluator_step = workflow[evaluator_start:evaluator_end]
+    assert "if ./scripts/ci/run-candidate-pkm-structure-agent-eval.sh; then" in evaluator_step
+    assert "continue-on-error" not in evaluator_step
+    assert "exit 1" not in evaluator_step
+    assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
+        "Deploy frontend using Cloud Build"
+    )
+    assert workflow.index("Verify candidate PKM evaluator in Cloud Run") < workflow.index(
+        "Promote deployed revisions to UAT traffic"
+    )
+    assert "--skip-shadow" in candidate_evaluator
+    assert "--phase,release_chain_24" in candidate_evaluator
+    assert "--fail-fast" in candidate_evaluator
+    assert "--phase,fresh_chain_60" not in candidate_evaluator
+    assert "GOOGLE_API_KEY=GOOGLE_API_KEY:latest" not in candidate_evaluator
+    assert "HUSHH_GENAI_AUTH_MODE=vertex_adc" in candidate_evaluator
+    assert "GOOGLE_GENAI_USE_VERTEXAI=true" in candidate_evaluator
+    assert "GOOGLE_CLOUD_PROJECT=${GCP_PROJECT_ID}" in candidate_evaluator
+    assert "GOOGLE_CLOUD_LOCATION=global" in candidate_evaluator
+    assert "HUSHH_VERTEX_LOCATIONS=global,us,eu" in candidate_evaluator
+    assert "REVIEWER_" not in candidate_evaluator
+    assert "PKM_UPGRADE_RUNTIME_AUDIT_DEFERRED=1" in workflow
+    assert "verify-reviewer-byok" in workflow
+    assert "outputs.run_reviewer_byok == 'true'" in workflow
+    assert "--secret=REVIEWER_UID" in workflow
+    assert "--secret=REVIEWER_VAULT_PASSPHRASE" in workflow
+    # Advisory since #5526: the rehearsal still runs and is still reported, but a
+    # reviewer-fixture gap no longer rolls back a verified release.
+    assert '"reviewer_byok": {' in workflow
+    assert '"advisory": True,' in workflow
+    assert "steps.postdeploy-db-gate.outcome != 'failure'" in workflow
+    assert (
+        workflow.count(
+            "steps.verify-uat-1.outcome == 'success' || steps.verify-uat-2.outcome == 'success'"
+        )
+        == 1
+    )
+    assert '"upstream_authority_failed"' in workflow
+    assert 'semantic_required = db_outcome != "failure"' in workflow
+    assert "REVIEWER_BYOK_REQUIRED" in workflow
+    assert "verify-pkm-runtime-audit" not in workflow
+    assert "PKM_RUNTIME_AUDIT_REQUIRED" not in workflow
+    assert "pkm_runtime_audit_failed" not in workflow

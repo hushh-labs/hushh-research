@@ -30,6 +30,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     private let manager = CLLocationManager()
     private var pendingPermissionCall: CAPPluginCall?
     private var pendingLocationCall: CAPPluginCall?
+    private var pendingLocationTimeout: DispatchWorkItem?
     // Active continuous-tracking watches keyed by the id returned to JS. The
     // CLLocationManager is shared, so a single startUpdatingLocation stream
     // fans out to every saved callback call below. Foreground-only.
@@ -115,6 +116,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         case .authorizedAlways, .authorizedWhenInUse:
             requestOneShotLocation(call)
         case .notDetermined:
+            if
+                let existing = pendingLocationCall,
+                existing.callbackId != call.callbackId
+            {
+                clearPendingLocationCall()?.reject(
+                    "A newer location request replaced this request."
+                )
+            }
             pendingLocationCall = call
             manager.requestWhenInUseAuthorization()
         case .denied, .restricted:
@@ -124,9 +133,86 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         }
     }
 
+    /// How old a cached fix may be before we insist on a fresh one. Matches the
+    /// Android plugin's `getLastKnownLocation` window and the web plugin's
+    /// last-resort reader exactly, and stays well under the 60s the backend
+    /// allows between capture and confirmation — so a fix accepted here still
+    /// passes the server's freshness check and still says where the user is.
+    private static let cachedFixMaxAgeSeconds: TimeInterval = 30
+
     private func requestOneShotLocation(_ call: CAPPluginCall) {
+        if
+            let existing = pendingLocationCall,
+            existing.callbackId != call.callbackId
+        {
+            clearPendingLocationCall()?.reject(
+                "A newer location request replaced this request."
+            )
+        }
+
+        // iOS was the only platform that always waited for a NEW fix. Android
+        // and web both resolve from a recent cached one first, and CoreLocation
+        // is already holding a good position whenever a watch is running or the
+        // app was recently foregrounded -- so `requestLocation()` spent one to
+        // three seconds rediscovering a coordinate we had the whole time.
+        if
+            let cached = manager.location,
+            cached.horizontalAccuracy >= 0,
+            abs(cached.timestamp.timeIntervalSinceNow) <= HushhLocationPlugin.cachedFixMaxAgeSeconds
+        {
+            pendingLocationTimeout?.cancel()
+            pendingLocationTimeout = nil
+            pendingLocationCall = nil
+            call.resolve(locationPayload(cached))
+            return
+        }
+
+        pendingLocationTimeout?.cancel()
         pendingLocationCall = call
+        let timeoutMs = max(3_000, min(call.getInt("timeoutMs") ?? 15_000, 30_000))
+        let callbackId = call.callbackId
+        let timeout = DispatchWorkItem { [weak self] in
+            guard
+                let self,
+                let pending = self.pendingLocationCall,
+                pending.callbackId == callbackId
+            else { return }
+            self.pendingLocationCall = nil
+            self.pendingLocationTimeout = nil
+            pending.reject("Precise location unavailable before timeout.")
+        }
+        pendingLocationTimeout = timeout
+        DispatchQueue.main.asyncAfter(
+            deadline: .now() + .milliseconds(timeoutMs),
+            execute: timeout
+        )
         manager.requestLocation()
+    }
+
+    /// The single shape a CLLocation is handed to JS in. Shared by the cached
+    /// fast path, the one-shot delegate callback, and every active watch, so
+    /// they can never drift apart.
+    private func locationPayload(_ location: CLLocation) -> [String: Any] {
+        // The explicit annotation is load-bearing rather than stylistic: the
+        // `accuracyM` ternary yields Double on one branch and NSNull on the
+        // other, and those only unify once something supplies `Any` as the
+        // contextual type. This is the exact form that already compiles below.
+        let payload: [String: Any] = [
+            "latitude": location.coordinate.latitude,
+            "longitude": location.coordinate.longitude,
+            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
+            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
+            "sourcePlatform": "ios"
+        ]
+        return payload
+    }
+
+    private func clearPendingLocationCall() -> CAPPluginCall? {
+        pendingLocationTimeout?.cancel()
+        pendingLocationTimeout = nil
+        let call = pendingLocationCall
+        pendingLocationCall = nil
+        return call
     }
 
     @objc func watchPosition(_ call: CAPPluginCall) {
@@ -309,42 +395,53 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             }
         }
 
+        // A revocation that lands while a watch is already running answers none
+        // of the pending calls above, so it used to fall straight through the
+        // guard below and return. CoreLocation just stops delivering and JS is
+        // never told: the last known point stays on the map and the Location
+        // switch stays ON for someone the OS has already cut off. Every active
+        // watch has to hear about it, and it has to hear it in the same words
+        // the start path uses so isLocationPermissionDeniedError() matches on
+        // the JS side. failWatches is a no-op when nothing is watching.
+        switch manager.authorizationStatus {
+        case .denied, .restricted:
+            failWatches("Location permission was not granted.")
+        default:
+            break
+        }
+
         guard let call = pendingLocationCall else { return }
 
         switch manager.authorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             requestOneShotLocation(call)
         case .denied, .restricted:
-            pendingLocationCall = nil
-            call.reject("Location permission was not granted.")
+            clearPendingLocationCall()?.reject(
+                "Location permission was not granted."
+            )
         case .notDetermined:
             break
         @unknown default:
-            pendingLocationCall = nil
-            call.reject("Location permission state is unavailable.")
+            clearPendingLocationCall()?.reject(
+                "Location permission state is unavailable."
+            )
         }
     }
 
     public func locationManager(_ manager: CLLocationManager, didUpdateLocations locations: [CLLocation]) {
         guard let location = locations.last else {
             if pendingLocationCall != nil {
-                pendingLocationCall?.reject("Precise location unavailable.")
-                pendingLocationCall = nil
+                clearPendingLocationCall()?.reject(
+                    "Precise location unavailable."
+                )
             }
             return
         }
 
-        let payload: [String: Any] = [
-            "latitude": location.coordinate.latitude,
-            "longitude": location.coordinate.longitude,
-            "accuracyM": location.horizontalAccuracy >= 0 ? location.horizontalAccuracy : NSNull(),
-            "capturedAt": ISO8601DateFormatter().string(from: location.timestamp),
-            "sourcePlatform": "ios"
-        ]
+        let payload = locationPayload(location)
 
         // One-shot getCurrentPosition resolves and clears its single call.
-        if let call = pendingLocationCall {
-            pendingLocationCall = nil
+        if let call = clearPendingLocationCall() {
             call.resolve(payload)
         }
 
@@ -359,9 +456,19 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     public func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
         let message = "Precise location unavailable: \(error.localizedDescription)"
-        if let call = pendingLocationCall {
-            pendingLocationCall = nil
+        if let call = clearPendingLocationCall() {
             call.reject(message)
+        }
+        // kCLErrorLocationUnknown is TRANSIENT. CoreLocation is saying "not
+        // right now", it keeps trying on its own, and Apple's guidance is to
+        // wait it out. Ending the watch on it meant failWatches() released every
+        // saved call and called stopUpdatingLocation(), so a single blip — a
+        // lift, a tunnel, a moment indoors — permanently stopped live sharing
+        // until the person toggled Location off and on again. The one-shot path
+        // above still rejects, because it is bounded by its own timeout.
+        if let locationError = error as? CLError,
+           locationError.code == .locationUnknown {
+            return
         }
         failWatches(message)
     }

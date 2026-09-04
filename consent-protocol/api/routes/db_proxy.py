@@ -13,12 +13,13 @@ All consent protocol logic runs locally on iOS - this only executes SQL operatio
 Security:
 - All routes now require Firebase ID token authentication
 - Only pre-defined operations allowed (no raw SQL)
-- All connections use Supabase session pooler (DB_*); SSL required
+- All connections use Cloud SQL session pooler (DB_*); SSL required
 """
 
 import logging
 import os
 import re
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
@@ -174,13 +175,15 @@ class VaultBootstrapStateResponse(BaseModel):
     setupCompletedAt: int | None = None
     navSetupCompletedAt: int | None = None
     navSetupSkippedAt: int | None = None
-    # Setup capability mirror: ids the user has set up / explored at least once
-    # (e.g. ["email", "location"]). Empty list means nothing set up yet. The
-    # client local store is the source of truth; this is the durable,
-    # cross-device echo.
+    # Root-setup marker set. It contains completed capability ids plus bounded
+    # non-capability prerequisites such as the explicit Connections choice.
+    # Empty means no setup marker has settled yet.
     setupCapabilityIds: list[str] = []
     setupCapabilitiesUpdatedAt: int | None = None
     setupStateUpdatedAt: int | None = None
+    # A strict, non-secret Connections preference. BYOK remains pending until
+    # the person finishes setup and stores the actual key in their vault.
+    oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     # Redacted, resumable onboarding goal. It deliberately contains no voice
     # transcript, credentials, or page content.
     onboardingJourneyVersion: int | None = None
@@ -209,6 +212,7 @@ class VaultPreStateUpdateRequest(BaseModel):
     navSetupSkippedAt: int | None = None
     # Replace the stored setup capability set. None leaves it unchanged.
     setupCapabilityIds: list[str] | None = None
+    oneRuntimeSetupChoice: Literal["hushh_managed_vertex", "byok_pending_vault"] | None = None
     onboardingJourneyVersion: int | None = Field(default=None, ge=1, le=1)
     onboardingPhase: str | None = Field(default=None, max_length=32)
     onboardingActiveCapability: str | None = Field(default=None, max_length=32)
@@ -356,7 +360,12 @@ async def vault_bootstrap_state(
     try:
         service = VaultKeysService()
         state = await service.get_pre_vault_state(user_id)
-        has_vault = await service.check_vault_exists(user_id, ensure_entry=False)
+        # `update_pre_vault_state` already returns the serialized vault row,
+        # including its authoritative status. A second vault/wrapper lookup
+        # added avoidable latency to every setup transition and could make the
+        # native request appear hung. The frontend's bootstrap contract already
+        # defines an active status as a present vault.
+        has_vault = state.get("vaultStatus") == "active"
 
         # Fold the verified-phone claim in from the cached actor-identity shadow
         # (a pure DB read, no Firebase round-trip) so the client can resolve the
@@ -390,6 +399,7 @@ async def vault_bootstrap_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
             onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
             onboardingPhase=state.get("onboardingPhase"),
             onboardingActiveCapability=state.get("onboardingActiveCapability"),
@@ -437,6 +447,7 @@ async def vault_pre_vault_state(
             nav_setup_completed_at=request.navSetupCompletedAt,
             nav_setup_skipped_at=request.navSetupSkippedAt,
             setup_capability_ids=request.setupCapabilityIds,
+            one_runtime_setup_choice=request.oneRuntimeSetupChoice,
             onboarding_journey_version=request.onboardingJourneyVersion,
             onboarding_phase=request.onboardingPhase,
             onboarding_active_capability=request.onboardingActiveCapability,
@@ -463,6 +474,7 @@ async def vault_pre_vault_state(
             setupCapabilityIds=state.get("setupCapabilityIds") or [],
             setupCapabilitiesUpdatedAt=state.get("setupCapabilitiesUpdatedAt"),
             setupStateUpdatedAt=state.get("setupStateUpdatedAt"),
+            oneRuntimeSetupChoice=state.get("oneRuntimeSetupChoice"),
             onboardingJourneyVersion=state.get("onboardingJourneyVersion"),
             onboardingPhase=state.get("onboardingPhase"),
             onboardingActiveCapability=state.get("onboardingActiveCapability"),
@@ -855,7 +867,7 @@ async def validate_vault_owner_token(consent_token: str, user_id: str) -> None:
         logger.warning(f"Token userId mismatch: {token_obj.user_id} != {user_id}")
         raise HTTPException(status_code=403, detail="Token userId does not match requested userId")
 
-    logger.info(f"✅ VAULT_OWNER token validated for {user_id}")
+    logger.info("vault_owner.token_validated")
 
 
 @router.post("/vault/status")

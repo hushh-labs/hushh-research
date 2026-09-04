@@ -1,0 +1,2674 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { toast } from "sonner";
+import {
+  Check,
+  Copy,
+  KeyRound,
+  Loader2,
+  LogOut,
+  Plus,
+  Search,
+  Share2,
+  ShieldCheck,
+  Trash2,
+  UsersRound,
+} from "lucide-react";
+
+import { Button, buttonVariants } from "@/components/ui/button";
+import { INPUT_CLASSNAME } from "@/components/ui/input";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
+import {
+  SheetClose,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
+import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
+import { SectionLabel, TrailingValue } from "@/components/app-ui/typography";
+import {
+  EmptyState,
+  TaskFlowHeader,
+} from "@/components/one-location/redesign/primitives";
+import {
+  CARD_SURFACE,
+  MUTED_TEXT,
+} from "@/components/one-location/redesign/tokens";
+import { roleClasses } from "@/lib/morphy-ux/tokens/semantic-roles";
+import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
+import { ROUTES, buildPersonProfileRoute } from "@/lib/navigation/routes";
+import {
+  CIRCLE_NAME_INPUT_CLASSNAME,
+  CIRCLE_NAME_ROW_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-name-row-layout";
+import {
+  CIRCLE_DETAIL_HEADER_CLASSNAME,
+  CIRCLE_DETAIL_HEADER_COPY_CLASSNAME,
+  CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
+  CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
+  CIRCLE_MEMBER_ACTION_CLASSNAME,
+  CIRCLE_MEMBER_AVATAR_CLASSNAME,
+  CIRCLE_MEMBER_NAME_CLASSNAME,
+  CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
+  CIRCLE_MEMBER_ROW_CLASSNAME,
+  CIRCLE_MEMBER_SECONDARY_CLASSNAME,
+  CIRCLE_MEMBER_TRAILING_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-member-row-layout";
+import { CircleMemberActionsMenu } from "@/components/one-location/redesign/circles/circle-member-actions-menu";
+import {
+  CIRCLE_SHEET_BODY_CLASSNAME,
+  CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_HEADER_CLASSNAME,
+  CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_AREA_CLASSNAME,
+  CIRCLE_SHEET_SCROLL_BODY_CLASSNAME,
+} from "@/components/one-location/redesign/circles/circle-sheet-layout";
+import type {
+  OneLocationCircleDetail,
+  OneLocationCircleEligibleConnection,
+  OneLocationCircleEligibleConnections,
+  OneLocationCircleEligibleConnectionsPage,
+  OneLocationCircleInviteCode,
+  OneLocationCircleInvitePreview,
+  OneLocationCircleKind,
+  OneLocationCircleMember,
+  OneLocationCircleMemberInvite,
+  OneLocationCircleMemberPage,
+  OneLocationCircleOverview,
+  OneLocationCircleSummary,
+} from "@/lib/one-location/types";
+import {
+  filterPeopleByQuery,
+  sortPeopleByName,
+} from "@/lib/one-location/people-search";
+import { sortCircleMembersOwnerFirst } from "@/lib/one-location/circle-member-order";
+import { BLOCKED_CTA } from "@/components/one-location/redesign/circles/blocked-cta";
+import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
+import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
+import { relationshipCta } from "@/lib/connections/relationship-label";
+import { othersCountLabel } from "@/lib/one-location/circle-member-count";
+import { ActionMenu } from "@/components/app-ui/action-menu";
+import { cn } from "@/lib/utils";
+import {
+  CIRCLE_INVITE_BATCH_LIMIT,
+  circleInviteSelectionLimit,
+} from "@/lib/one-location/circle-invite-contract";
+
+const CIRCLES_GROUP_SURFACE =
+  "[--settings-group-radius:17px] !rounded-[17px] !bg-[color:var(--app-primary-surface)] !shadow-none";
+
+const CIRCLES_EMPTY_STATE_WRAPPER =
+  "[&>[data-ui-role=grouped-card]]:rounded-[var(--app-radius-md)] [&>[data-ui-role=grouped-card]]:!bg-[color:var(--app-primary-surface)] [&>[data-ui-role=grouped-card]]:shadow-[var(--app-card-shadow-standard)] dark:[&>[data-ui-role=grouped-card]]:shadow-none";
+
+/**
+ * Leave / Delete circle.
+ *
+ * `variant="outline"` gave these a filled neutral slab with a red hairline and
+ * red label -- a painted button that reads as the loudest control on a screen
+ * whose actual primary action is "Add people". iOS puts a destructive row on
+ * the same card surface as everything else and lets the red label carry it,
+ * which is what this does.
+ */
+const CIRCLE_DESTRUCTIVE_ACTION =
+  "h-12 w-full rounded-full text-[17px] font-semibold text-destructive hover:bg-destructive/10 hover:text-destructive";
+
+/**
+ * A circle is a group of trusted people, so its glyph carries the PEOPLE role
+ * rather than the accent used for things you can DO. The action controls that
+ * sit alongside it (New circle, Join, Share, Add people) stay accent, which is
+ * what keeps "this is a group" and "this is a button" from looking alike.
+ *
+ * Glyph only. The wells this sits in ask for `--app-accent-soft`, a token that
+ * is defined nowhere, so they have always rendered unpainted — giving them a
+ * tint would add painted area rather than recolour it, so the recolour stops
+ * at the icon.
+ *
+ * Used on the two surfaces where the viewer is NOT yet a member (an incoming
+ * invite, a join preview), so the "nobody but you in here" neutral state the
+ * circle LIST applies cannot arise and there is nothing to resolve.
+ */
+const CIRCLE_PEOPLE_GLYPH = roleClasses("people").glyph;
+
+function circleInitials(value: string): string {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .slice(0, 2)
+    .map((part) => part[0])
+    .join("")
+    .toUpperCase();
+}
+
+/**
+ * Subtitle for the "Your circles" list row, e.g. "2 members".
+ *
+ * Counts OTHER members (everyone except the viewer) so it matches the Circle
+ * Detail subtitle, which filters out the current user. The backend
+ * `memberCount` includes the viewer — always a member of a circle shown in
+ * their own list — so subtracting one yields the same number both places.
+ * `Math.max(0, ...)` guards a transient zero.
+ *
+ * The kind used to lead this line — "Family · 0 members". Reported from QA:
+ * the circle created during onboarding is filed under Family by default and
+ * the person was never asked, so the row opened by telling them a category
+ * they had not picked, ahead of the only number on the line that was true.
+ * There are three kinds and nothing on this screen acts on any of them, so
+ * the word was decoration in front of the fact. The count stands alone.
+ */
+/** Re-exported so existing importers keep working; the rule itself now lives
+ *  in `lib/one-location/circle-member-count`, because four other screens were
+ *  rendering the raw server count and disagreeing with this one. */
+export { othersCountLabel };
+
+function circleListPeopleLabel(memberCount: number | null | undefined): string {
+  const others = Math.max(0, Number(memberCount || 0) - 1);
+  if (others <= 0) return "Only you";
+  return `${others} ${others === 1 ? "person" : "people"}`;
+}
+
+type CircleListGroupKey = "owned" | "joined";
+
+type CircleListGroup = {
+  key: CircleListGroupKey;
+  title: string;
+  circles: OneLocationCircleSummary[];
+};
+
+function circleListGroupKey(
+  circle: OneLocationCircleSummary,
+): CircleListGroupKey {
+  return circle.role === "owner" ? "owned" : "joined";
+}
+
+function groupCirclesForPeopleTab(
+  circles: readonly OneLocationCircleSummary[],
+): CircleListGroup[] {
+  const groups: CircleListGroup[] = [
+    { key: "owned", title: "Your circles", circles: [] },
+    { key: "joined", title: "Joined circles", circles: [] },
+  ];
+  const groupByKey = new Map(groups.map((group) => [group.key, group]));
+
+  for (const circle of circles) {
+    groupByKey.get(circleListGroupKey(circle))?.circles.push(circle);
+  }
+
+  return groups.filter((group) => group.circles.length > 0);
+}
+
+function circleDetailMemberCountLabel(count: number): string {
+  if (count <= 1) return "Only you";
+  return `${count} people`;
+}
+
+function CircleSummaryRow({
+  circle,
+  onOpen,
+}: {
+  circle: OneLocationCircleSummary;
+  onOpen: (circleId: string) => void;
+}) {
+  const isSmsCircle = circle.systemKind === "sms";
+  const initials = circleInitials(circle.name);
+  const showInitials =
+    !isSmsCircle && circle.systemKind !== "trusted" && initials;
+
+  return (
+    <SettingsRow
+      leading={
+        <span
+          className={cn(
+            "flex h-9 w-9 shrink-0 items-center justify-center",
+            isSmsCircle
+              ? "rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)]"
+              : "rounded-[10px] bg-[#E5E5EA] text-[13px] font-semibold text-[#6E6E73] dark:bg-[rgba(142,142,147,0.28)] dark:text-[#F2F2F7]",
+          )}
+          data-testid={
+            isSmsCircle
+              ? "one-location-circle-sms-mark"
+              : "one-location-circle-neutral-mark"
+          }
+        >
+          {isSmsCircle ? (
+            <SmsTextIcon className="text-[11px] font-bold tracking-[-0.2px]" />
+          ) : showInitials ? (
+            initials
+          ) : (
+            <UsersRound className="h-[17px] w-[17px]" />
+          )}
+        </span>
+      }
+      title={circle.name}
+      description={
+        isSmsCircle
+          ? `Save My Soul · ${circleListPeopleLabel(circle.memberCount)}`
+          : circleListPeopleLabel(circle.memberCount)
+      }
+      chevron
+      onClick={() => onOpen(circle.id)}
+      className={cn(
+        "[--settings-row-gap:12px] [--settings-row-px:16px] [--settings-row-py:10px]",
+        "[&>button]:min-h-[60px] sm:[&>button]:min-h-16",
+        "[&_[data-slot=settings-row-title]]:!text-[17px] [&_[data-slot=settings-row-title]]:!font-medium [&_[data-slot=settings-row-title]]:!leading-[22px] [&_[data-slot=settings-row-title]]:!tracking-[-0.3px]",
+        "[&_[data-slot=settings-row-description]]:!mt-0.5 [&_[data-slot=settings-row-description]]:!text-[13px] [&_[data-slot=settings-row-description]]:!font-normal [&_[data-slot=settings-row-description]]:!leading-[18px] [&_[data-slot=settings-row-description]]:!tracking-[-0.2px]",
+      )}
+      testId={`one-location-circle-${circle.id}`}
+    />
+  );
+}
+
+function circleFlowErrorMessage(error: unknown, fallback: string): string {
+  return error instanceof Error && error.message.trim()
+    ? error.message
+    : fallback;
+}
+
+export function CirclesSection({
+  circles,
+  incomingInvites,
+  incomingInvitesLoading,
+  incomingInvitesError,
+  focusedInviteId,
+  focusedInviteResolutionReady,
+  inviteBusy,
+  onCreate,
+  onJoin,
+  onOpen,
+  onAcceptInvite,
+  onDeclineInvite,
+  onRetryInvites,
+  onDismissFocusedInvite,
+}: {
+  circles: OneLocationCircleSummary[];
+  incomingInvites: OneLocationCircleMemberInvite[];
+  incomingInvitesLoading: boolean;
+  incomingInvitesError: string | null;
+  focusedInviteId: string | null;
+  focusedInviteResolutionReady: boolean;
+  inviteBusy: boolean;
+  onCreate: () => void;
+  onJoin: () => void;
+  onOpen: (circleId: string) => void;
+  onAcceptInvite: (inviteId: string) => Promise<void>;
+  onDeclineInvite: (inviteId: string) => Promise<void>;
+  onRetryInvites: () => void;
+  onDismissFocusedInvite: () => void;
+}) {
+  const [respondingInviteId, setRespondingInviteId] = useState<string | null>(
+    null,
+  );
+  const responseInFlightRef = useRef(false);
+  const focusedInviteElementRef = useRef<HTMLDivElement | null>(null);
+  const focusedInvite = focusedInviteId
+    ? (incomingInvites.find((invite) => invite.id === focusedInviteId) ?? null)
+    : null;
+
+  const circleGroups = useMemo(
+    () => groupCirclesForPeopleTab(circles),
+    [circles],
+  );
+
+  useEffect(() => {
+    if (
+      !focusedInvite ||
+      incomingInvitesLoading ||
+      !focusedInviteElementRef.current
+    ) {
+      return;
+    }
+    const element = focusedInviteElementRef.current;
+    element.focus({ preventScroll: true });
+    if (typeof element.scrollIntoView === "function") {
+      element.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  }, [focusedInvite, incomingInvitesError, incomingInvitesLoading]);
+
+  const respondToInvite = async (
+    invite: OneLocationCircleMemberInvite,
+    decision: "accept" | "decline",
+  ) => {
+    if (responseInFlightRef.current || inviteBusy) return;
+    responseInFlightRef.current = true;
+    setRespondingInviteId(invite.id);
+    try {
+      if (decision === "accept") {
+        await onAcceptInvite(invite.id);
+      } else {
+        await onDeclineInvite(invite.id);
+      }
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(
+          error,
+          decision === "accept"
+            ? "Could not join this Circle."
+            : "Could not decline this invitation.",
+        ),
+      );
+    } finally {
+      responseInFlightRef.current = false;
+      setRespondingInviteId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-3" data-testid="one-location-named-circles">
+      <div className="flex w-full items-center justify-between gap-4">
+        <h2 className="text-[15px] font-medium leading-5 tracking-[-0.01em] text-[color:var(--app-section-label)]">
+          Circles
+        </h2>
+
+        <div
+          className={cn(
+            "relative flex-none overflow-visible",
+            "[&_[data-radix-popper-content-wrapper]]:!absolute",
+            "[&_[data-radix-popper-content-wrapper]]:!bottom-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!left-auto",
+            "[&_[data-radix-popper-content-wrapper]]:!right-0",
+            "[&_[data-radix-popper-content-wrapper]]:!top-full",
+            "[&_[data-radix-popper-content-wrapper]]:!z-[212]",
+            "[&_[data-radix-popper-content-wrapper]]:!mt-2",
+            "[&_[data-radix-popper-content-wrapper]]:!transform-none",
+          )}
+        >
+          <ActionMenu
+            label="Add Circle"
+            title="Circles"
+            triggerIcon={Plus}
+            testId="one-location-add-circle"
+            items={[
+              {
+                id: "create",
+                label: "Create Circle",
+                icon: Plus,
+                onSelect: onCreate,
+                voiceControlId: "one-location-action-create-circle",
+              },
+              {
+                id: "join",
+                label: "Join with code",
+                icon: KeyRound,
+                onSelect: onJoin,
+                voiceControlId: "one-location-action-join-circle",
+              },
+            ]}
+          />
+        </div>
+      </div>
+
+      {incomingInvitesError ? (
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitations unavailable"
+            description={incomingInvitesError}
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                disabled={incomingInvitesLoading}
+                isLoading={incomingInvitesLoading}
+                onClick={onRetryInvites}
+                className="h-11 rounded-full px-5"
+              >
+                Retry
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
+
+      {incomingInvitesLoading &&
+      !incomingInvites.length &&
+      !incomingInvitesError ? (
+        <div
+          role="status"
+          className="flex min-h-16 items-center justify-center gap-2 rounded-[var(--app-radius-md)] bg-[color:var(--app-primary-surface)] text-sm text-[color:var(--app-secondary-label)] shadow-[var(--app-card-shadow-standard)] dark:shadow-none"
+        >
+          <Loader2 className="h-5 w-5 animate-spin" />
+          Checking Circle invitations…
+        </div>
+      ) : null}
+
+      {incomingInvites.length ? (
+        <SettingsGroup
+          title="Circle invitations"
+          shellClassName={CIRCLES_GROUP_SURFACE}
+          testId="one-location-circle-member-invites"
+        >
+          {incomingInvites.map((invite) => {
+            const responding = respondingInviteId === invite.id;
+            const isFocused = invite.id === focusedInviteId;
+            return (
+              <div
+                key={invite.id}
+                ref={isFocused ? focusedInviteElementRef : undefined}
+                tabIndex={isFocused ? -1 : undefined}
+                className={cn(
+                  "flex min-h-[64px] flex-col gap-3 px-4 py-3 outline-none sm:flex-row sm:items-center",
+                  isFocused &&
+                    "bg-[color:var(--app-accent-soft)] ring-2 ring-inset ring-[color:var(--app-accent-ring)]",
+                )}
+                data-focused={isFocused || undefined}
+                data-testid={`one-location-circle-invite-${invite.id}`}
+              >
+                <span
+                  className={cn(
+                    "flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-[color:var(--app-accent-soft)]",
+                    CIRCLE_PEOPLE_GLYPH,
+                  )}
+                >
+                  <UsersRound className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="whitespace-normal text-[15px] font-semibold text-foreground [overflow-wrap:anywhere]">
+                    {invite.circleName}
+                  </p>
+                  <p className={MUTED_TEXT}>
+                    Invited by {invite.inviterDisplayName}
+                  </p>
+                </div>
+                <div className="grid w-full grid-cols-2 gap-2 sm:w-auto">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={inviteBusy || Boolean(respondingInviteId)}
+                    onClick={() => void respondToInvite(invite, "decline")}
+                    className="h-11 rounded-full px-4"
+                  >
+                    Decline
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={inviteBusy || Boolean(respondingInviteId)}
+                    isLoading={responding}
+                    onClick={() => void respondToInvite(invite, "accept")}
+                    className="h-11 rounded-full px-4"
+                  >
+                    Join
+                  </Button>
+                </div>
+              </div>
+            );
+          })}
+        </SettingsGroup>
+      ) : null}
+
+      {focusedInviteId &&
+      focusedInviteResolutionReady &&
+      !focusedInvite &&
+      !incomingInvitesLoading &&
+      !incomingInvitesError ? (
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="Circle invitation no longer available"
+            description="It may have expired, been cancelled or already been answered."
+            action={
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onDismissFocusedInvite}
+                className="h-11 rounded-full px-5"
+              >
+                Dismiss
+              </Button>
+            }
+          />
+        </div>
+      ) : null}
+
+      {circleGroups.length ? (
+        <div className="space-y-4" data-testid="one-location-circle-list">
+          {circleGroups.map((group) => (
+            <section
+              key={group.key}
+              className="space-y-2"
+              data-testid={`one-location-circle-group-${group.key}`}
+            >
+              <SectionLabel
+                as="h3"
+                className="px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]"
+              >
+                {group.title}
+              </SectionLabel>
+              <SettingsGroup
+                separatorInset
+                shellClassName={CIRCLES_GROUP_SURFACE}
+                testId={`one-location-circle-group-list-${group.key}`}
+              >
+                {group.circles.map((circle) => (
+                  <CircleSummaryRow
+                    key={circle.id}
+                    circle={circle}
+                    onOpen={onOpen}
+                  />
+                ))}
+              </SettingsGroup>
+            </section>
+          ))}
+        </div>
+      ) : (
+        <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+          <EmptyState
+            title="No circles yet"
+            description="Create one for family or friends, or join with a code."
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+const CIRCLE_KIND_OPTIONS: {
+  value: OneLocationCircleKind;
+  label: string;
+}[] = [
+  {
+    value: "family",
+    label: "Family",
+  },
+  {
+    value: "friends",
+    label: "Friends",
+  },
+  {
+    value: "other",
+    label: "Other",
+  },
+];
+
+export function CreateCircleFlow({
+  busy,
+  onSubmit,
+}: {
+  busy: boolean;
+  onSubmit: (name: string, kind: OneLocationCircleKind) => Promise<void>;
+}) {
+  const [name, setName] = useState("");
+  const [nameRequirementActive, setNameRequirementActive] = useState(false);
+  const [nameFocused, setNameFocused] = useState(false);
+  const [kind, setKind] = useState<OneLocationCircleKind>("family");
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  // One typed character is a name. Requiring two silently withheld the button
+  // from anyone naming a circle "A", with nothing on screen saying why.
+  const trimmedName = name.trim();
+  const nameMissing = trimmedName.length < 1;
+  const canSubmit = !nameMissing && !busy;
+  const nameHelpId = "one-location-create-circle-name-help";
+  const showNameError = nameRequirementActive && nameMissing;
+  const showNameCount = nameFocused && !showNameError && name.length >= 64;
+  const nameHelpText = showNameError
+    ? "Enter a Circle name."
+    : showNameCount
+      ? `${name.length} / 80`
+      : "";
+
+  // Held past the caller's `busy` flag on purpose.
+  //
+  // A host that clears busy in a `finally` clears it BEFORE the navigation it
+  // then starts has committed, so there is a guaranteed render with this form
+  // still mounted, the name still in state and the button live again. One
+  // impatient double-tap made two identically-named Circles and two success
+  // toasts. Reset only on failure: after a success this form is on its way off
+  // screen and must not accept another submission on the way.
+  const submittingRef = useRef(false);
+  const submit = async () => {
+    if (submittingRef.current) return;
+    if (nameMissing) {
+      setNameRequirementActive(true);
+      window.requestAnimationFrame(() => nameInputRef.current?.focus());
+      return;
+    }
+    submittingRef.current = true;
+    try {
+      await onSubmit(trimmedName, kind);
+    } catch (error) {
+      submittingRef.current = false;
+      toast.error(
+        circleFlowErrorMessage(error, "Could not create this Circle."),
+      );
+    }
+  };
+
+  return (
+    <div className="space-y-5" data-testid="one-location-create-circle-flow">
+      <h1 className="sr-only">Create a Circle</h1>
+
+      <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
+        Name your Circle. You can add people next.
+      </p>
+
+      <label className="block space-y-2">
+        <span className="text-[15px] font-semibold leading-5 text-foreground">
+          Circle name
+        </span>
+        <input
+          ref={nameInputRef}
+          value={name}
+          onFocus={() => setNameFocused(true)}
+          onBlur={() => {
+            setNameFocused(false);
+            if (nameMissing) setNameRequirementActive(true);
+          }}
+          onChange={(event) => {
+            const next = event.target.value;
+            setName(next);
+            if (next.trim().length > 0) setNameRequirementActive(false);
+          }}
+          aria-describedby={nameHelpText ? nameHelpId : undefined}
+          aria-invalid={showNameError || undefined}
+          maxLength={80}
+          autoComplete="off"
+          spellCheck
+          placeholder="Family, close friends, project team"
+          className={cn(
+            "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
+            showNameError &&
+              "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
+          )}
+        />
+        {nameHelpText ? (
+          <span
+            id={nameHelpId}
+            className={cn(
+              "block text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]",
+              showNameError && "font-medium text-[color:var(--app-destructive)]",
+            )}
+          >
+            {nameHelpText}
+          </span>
+        ) : null}
+      </label>
+
+      <div className="space-y-2">
+        <p
+          id="one-location-create-circle-kind-label"
+          className="text-[15px] font-semibold leading-5 text-foreground"
+        >
+          Circle type
+        </p>
+        <div
+          role="radiogroup"
+          aria-labelledby="one-location-create-circle-kind-label"
+          className="grid grid-cols-1 gap-2 min-[360px]:grid-cols-3"
+          onKeyDown={(event) => {
+            const currentIndex = CIRCLE_KIND_OPTIONS.findIndex(
+              (option) => option.value === kind,
+            );
+            const move = (nextIndex: number) => {
+              event.preventDefault();
+              const next = CIRCLE_KIND_OPTIONS[nextIndex];
+              if (next) {
+                setKind(next.value);
+                if (nameMissing) setNameRequirementActive(true);
+              }
+            };
+            if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+              move((currentIndex + 1) % CIRCLE_KIND_OPTIONS.length);
+            } else if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+              move(
+                (currentIndex - 1 + CIRCLE_KIND_OPTIONS.length) %
+                  CIRCLE_KIND_OPTIONS.length,
+              );
+            } else if (event.key === "Home") {
+              move(0);
+            } else if (event.key === "End") {
+              move(CIRCLE_KIND_OPTIONS.length - 1);
+            }
+          }}
+        >
+          {CIRCLE_KIND_OPTIONS.map((option) => {
+            const selected = kind === option.value;
+            return (
+              <button
+                key={option.value}
+                type="button"
+                role="radio"
+                aria-checked={selected}
+                data-testid={`one-location-circle-kind-${option.value}`}
+                onClick={() => {
+                  setKind(option.value);
+                  if (nameMissing) setNameRequirementActive(true);
+                }}
+                className={cn(
+                  "flex h-12 items-center justify-center rounded-[14px] border px-4 text-[15px] font-semibold leading-5 transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+                  selected
+                    ? "border-transparent bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                    : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] text-[color:var(--app-primary-label)] hover:bg-[color:var(--app-secondary-fill)]",
+                )}
+              >
+                {option.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <Button
+        type="button"
+        disabled={!canSubmit}
+        isLoading={busy}
+        onClick={() => void submit()}
+        className={cn(
+          "h-[52px] w-full rounded-[15px] text-base font-semibold",
+          BLOCKED_CTA,
+        )}
+      >
+        {busy ? "Creating…" : "Create Circle"}
+      </Button>
+    </div>
+  );
+}
+
+function normalizeCodeInput(value: string): string {
+  const upper = value.toUpperCase();
+  const codeAfterMarker = upper.match(
+    /\bCODE\b[^2-9A-HJ-KM-NP-Z]{0,8}([23456789A-HJ-KM-NP-Z]{4})[\s-]*([23456789A-HJ-KM-NP-Z]{4})[\s-]*([23456789A-HJ-KM-NP-Z]{4})/,
+  );
+  const hyphenatedCode = upper.match(
+    /\b([23456789A-HJ-KM-NP-Z]{4})-([23456789A-HJ-KM-NP-Z]{4})-([23456789A-HJ-KM-NP-Z]{4})\b/,
+  );
+  const messageCode = codeAfterMarker ?? hyphenatedCode;
+  const isCodeOnlyInput = /^[\s2-9A-HJ-KM-NP-Z-]*$/.test(upper);
+  const normalized = (
+    messageCode
+      ? messageCode.slice(1, 4).join("")
+      : isCodeOnlyInput
+        ? upper.replace(/[^2-9A-HJ-KM-NP-Z]/g, "")
+        : ""
+  ).slice(0, 12);
+  return normalized.replace(/(.{4})(?=.)/g, "$1-");
+}
+
+export function JoinCircleFlow({
+  busy,
+  onResolve,
+  onJoin,
+  initialCode,
+}: {
+  busy: boolean;
+  onResolve: (code: string) => Promise<OneLocationCircleInvitePreview>;
+  onJoin: (code: string) => Promise<void>;
+  /** Pre-fills the code input when arriving from a `/circle/join?code=` link. */
+  initialCode?: string;
+}) {
+  const [code, setCode] = useState(() => normalizeCodeInput(initialCode ?? ""));
+  const [resolved, setResolved] = useState<{
+    code: string;
+    preview: OneLocationCircleInvitePreview;
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const previewRef = useRef<HTMLDivElement | null>(null);
+  const initialAutoResolvedCodeRef = useRef<string | null>(null);
+  const resolveRequestRef = useRef(0);
+  const preview = resolved?.preview ?? null;
+  const normalizedLength = code.replace(/-/g, "").length;
+
+  const resolve = useCallback(
+    async (candidateCode = code) => {
+      const requestedCode = normalizeCodeInput(candidateCode);
+      if (requestedCode.replace(/-/g, "").length !== 12) return;
+      const requestId = ++resolveRequestRef.current;
+      try {
+        setError(null);
+        const nextPreview = await onResolve(requestedCode);
+        if (requestId !== resolveRequestRef.current) return;
+        setResolved({ code: requestedCode, preview: nextPreview });
+        window.requestAnimationFrame(() => previewRef.current?.focus());
+      } catch (error) {
+        if (requestId !== resolveRequestRef.current) return;
+        setResolved(null);
+        setError(
+          circleFlowErrorMessage(
+            error,
+            "That Circle code is invalid or no longer available.",
+          ),
+        );
+      }
+    },
+    [code, onResolve],
+  );
+
+  useEffect(() => {
+    const initialNormalized = normalizeCodeInput(initialCode ?? "");
+    if (initialNormalized.replace(/-/g, "").length !== 12) return;
+    if (initialAutoResolvedCodeRef.current === initialNormalized) return;
+    initialAutoResolvedCodeRef.current = initialNormalized;
+    setCode(initialNormalized);
+    setResolved(null);
+    setError(null);
+    void resolve(initialNormalized);
+  }, [initialCode, resolve]);
+
+  // Same guard as CreateCircleFlow, for the same reason: joining navigates on
+  // success, and the button comes back before the navigation lands.
+  const joiningRef = useRef(false);
+  const join = async () => {
+    if (!resolved) return;
+    if (joiningRef.current) return;
+    joiningRef.current = true;
+    try {
+      await onJoin(resolved.code);
+    } catch (error) {
+      joiningRef.current = false;
+      setError(circleFlowErrorMessage(error, "Could not join this Circle."));
+    }
+  };
+
+  return (
+    <div className="space-y-5" data-testid="one-location-join-circle-flow">
+      <h1 className="sr-only">Join a Circle</h1>
+
+      <p className="text-[15px] leading-6 text-[color:var(--app-secondary-label)]">
+        Enter or paste the 12-character invite code.
+      </p>
+
+      <label className="block space-y-2">
+        <span className="text-[15px] font-semibold leading-5 text-foreground">
+          Invite code
+        </span>
+        <input
+          ref={inputRef}
+          value={code}
+          onChange={(event) => {
+            resolveRequestRef.current += 1;
+            setCode(normalizeCodeInput(event.target.value));
+            setResolved(null);
+            setError(null);
+          }}
+          inputMode="text"
+          autoCapitalize="characters"
+          autoCorrect="off"
+          spellCheck={false}
+          autoComplete="off"
+          aria-label="Circle invite code"
+          aria-describedby={
+            error ? "one-location-join-circle-error" : undefined
+          }
+          aria-invalid={error ? true : undefined}
+          placeholder="ABCD-EFGH-JKLM"
+          className={cn(
+            "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-center font-mono text-[18px] font-semibold uppercase tracking-[0.12em] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
+            error && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
+          )}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && normalizedLength === 12 && !busy) {
+              event.preventDefault();
+              void resolve();
+            }
+          }}
+        />
+        {error ? (
+          <span
+            id="one-location-join-circle-error"
+            className="block text-[13px] font-medium leading-[18px] text-[color:var(--app-destructive)]"
+          >
+            {error}
+          </span>
+        ) : null}
+      </label>
+
+      {preview ? (
+        <div
+          ref={previewRef}
+          tabIndex={-1}
+          role="status"
+          aria-live="polite"
+          className="rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)] outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] dark:shadow-none"
+        >
+          <div className="flex items-center gap-3">
+            <span
+              className={cn(
+                "flex h-11 w-11 items-center justify-center rounded-[13px] bg-[color:var(--app-accent-soft)]",
+                CIRCLE_PEOPLE_GLYPH,
+              )}
+            >
+              <UsersRound className="h-5 w-5" />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">                {preview.name}
+              </p>
+              <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
+                {preview.ownerDisplayName} ·{" "}
+                {preview.memberCount === 1
+                  ? "1 member"
+                  : `${preview.memberCount} members`}
+              </p>
+            </div>
+          </div>
+          <p className="mt-3 text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
+            Location and SMS stay private until you choose to share.
+          </p>
+        </div>
+      ) : null}
+
+      {preview ? (
+        <div className="space-y-2">
+          <Button
+            type="button"
+            onClick={() => void join()}
+            isLoading={busy}
+            disabled={busy}
+            className="h-[52px] w-full rounded-[15px] text-base font-semibold"
+          >
+            {busy
+              ? preview.alreadyMember
+                ? "Opening…"
+                : "Joining…"
+              : preview.alreadyMember
+                ? "Open Circle"
+                : "Join Circle"}
+          </Button>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={busy}
+            onClick={() => {
+              resolveRequestRef.current += 1;
+              setCode("");
+              setResolved(null);
+              setError(null);
+              window.requestAnimationFrame(() => inputRef.current?.focus());
+            }}
+            className="h-11 w-full rounded-full text-[15px] font-semibold text-[color:var(--app-accent)]"
+          >
+            Use Another Code
+          </Button>
+        </div>
+      ) : (
+        <Button
+          type="button"
+          disabled={normalizedLength !== 12 || busy}
+          isLoading={busy}
+          onClick={() => void resolve()}
+          className={cn(
+            "h-[52px] w-full rounded-[15px] text-base font-semibold",
+            BLOCKED_CTA,
+          )}
+        >
+          {busy ? "Reviewing…" : "Review Circle"}
+        </Button>
+      )}
+    </div>
+  );
+}
+
+/** Ties the visible "Circle name" label to its input without wrapping the
+ *  trailing Save/Edit button in the `<label>` (a wrapped button steals the
+ *  label's activation click and refocuses the field mid-tap). */
+const CIRCLE_NAME_INPUT_ID = "one-location-circle-name-input";
+
+/** Names the roster section for `aria-labelledby`, so the list announces as
+ *  "Members" rather than as an unlabelled region between two cards. */
+const CIRCLE_MEMBERS_HEADING_ID = "one-location-circle-members-heading";
+
+function CircleMemberRow({
+  member,
+  currentUserId,
+  isOwner,
+  busy,
+  onShare,
+  onRemove,
+  onConnect,
+  connecting = false,
+  onCancelRequest,
+  cancelling = false,
+  membersRemovable = true,
+}: {
+  member: OneLocationCircleMember;
+  currentUserId: string | null;
+  isOwner: boolean;
+  busy: boolean;
+  onShare: () => void;
+  onRemove: () => Promise<void>;
+  /** Sends a connection request to this member. Absent when none is possible. */
+  onConnect?: () => Promise<void>;
+  connecting?: boolean;
+  /** Takes back a request this person has not answered yet.
+   *
+   *  Absent on a surface that cannot cancel, where the row falls back to a
+   *  plain "Requested" status. */
+  onCancelRequest?: () => Promise<void>;
+  cancelling?: boolean;
+  /** False where the roster is not the owner's to edit.
+   *
+   *  A Trusted Circle's membership is derived from the connection, so
+   *  `_end_membership` refuses a removal with
+   *  LOCATION_CIRCLE_TRUSTED_FOLLOWS_CONNECTION -- the connection is the thing
+   *  to end. Offering Remove there is offering a control that cannot work. */
+  membersRemovable?: boolean;
+}) {
+  const isCurrentUser = member.userId === currentUserId;
+  const canShare =
+    !isCurrentUser && member.phoneVerified && member.secureLocationReady;
+  const canRemove = isOwner && member.role !== "owner" && membersRemovable;
+
+  const relationship =
+    !isCurrentUser && member.relationship && member.relationship !== "self"
+      ? member.relationship
+      : null;
+  const cta = relationship ? relationshipCta(relationship) : null;
+
+  /**
+   * Only a control the viewer can actually press gets to look like one.
+   *
+   * Every row used to render `relationshipCta` as a button whatever it said,
+   * so a roster of people you already know was a column of grey, dead,
+   * button-shaped "Connected" -- the loudest thing on the screen, repeated
+   * once per member, saying the one thing that is true of a roster by
+   * default. Reported as exactly that: "why is there a need to show the
+   * connected section with their name".
+   *
+   * Connected is now silent (visually -- it stays in the row's accessible
+   * name below, because absence is not something a screen reader can read),
+   * and the two states that are NOT the default keep their own affordance.
+   */
+  const actionCta = cta && cta.action !== "none" ? cta : null;
+  /** Waiting on them.
+   *
+   *  This used to be a status and nothing more, on the reasoning that nothing
+   *  here could act on it. The Connect directory has always been able to --
+   *  it offers Cancel on exactly this state -- so the roster showed the same
+   *  fact with one fewer thing you could do about it. Where a caller can
+   *  cancel, the row does; where it cannot, the status is still the answer. */
+  const pendingLabel =
+    cta && cta.action === "none" && relationship === "pending_outgoing"
+      ? cta.label
+      : null;
+  const canCancelRequest = Boolean(pendingLabel && onCancelRequest);
+
+  const secondaryLine = isCurrentUser
+    ? member.role === "owner"
+      ? "You · Owner"
+      : "You"
+    : member.role === "owner"
+      ? "Owner"
+      : member.secureLocationReady
+        ? "Connected"
+        : "Location setup needed";
+  // The one second line that is asking for something rather than reporting.
+  const secondaryNeedsSetup =
+    member.role !== "owner" && !member.secureLocationReady;
+
+  return (
+    <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
+      <ConnectionPersonAvatar
+        label={member.displayName}
+        photoUrl={member.photoUrl}
+        verified={Boolean(member.isRia)}
+        className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
+      />
+      <div className="min-w-0 flex-1">
+        <p className={CIRCLE_MEMBER_NAME_ROW_CLASSNAME}>
+          <span className={CIRCLE_MEMBER_NAME_CLASSNAME}>
+            {member.displayName}
+          </span>
+          {member.connectedFromContacts ? <ContactSourceBadge /> : null}
+        </p>
+        <p
+          className={cn(
+            MUTED_TEXT,
+            CIRCLE_MEMBER_SECONDARY_CLASSNAME,
+            // The amber pair `WARNING_SURFACE` already uses for caution copy,
+            // not the flat `--app-warning`: that token is the #ff9500 glyph
+            // tone and measures ~2.2:1 on this card, well under the 4.5:1 a
+            // 13px sentence needs.
+            secondaryNeedsSetup && "text-amber-700 dark:text-amber-300",
+          )}
+        >
+          {secondaryLine}
+        </p>
+        {/* Said once, to the accessibility tree only. The visible row drops
+            the default relationship rather than repeating it down the list. */}
+        {cta && !actionCta && !pendingLabel ? (
+          <span className="sr-only">Connected on One</span>
+        ) : null}
+      </div>
+      <div className={CIRCLE_MEMBER_TRAILING_CLASSNAME}>
+        {pendingLabel && !canCancelRequest ? (
+          <span
+            className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
+            data-testid={`circle-member-relationship-${member.userId}`}
+          >
+            {pendingLabel}
+          </span>
+        ) : null}
+        {canCancelRequest ? (
+          // One word, at the width the other actions in this column use. The
+          // directory settled that: "Cancel request" made the widest control
+          // on the screen the one belonging to the least common row state.
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={busy || cancelling}
+            isLoading={cancelling}
+            aria-label={`Cancel your request to ${member.displayName}`}
+            data-testid={`circle-member-cancel-${member.userId}`}
+            className={CIRCLE_MEMBER_ACTION_CLASSNAME}
+            onClick={() => void onCancelRequest?.()}
+          >
+            Cancel
+          </Button>
+        ) : null}
+        {actionCta?.action === "connect" ? (
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || connecting}
+            isLoading={connecting}
+            aria-label={`Connect with ${member.displayName}`}
+            data-testid={`circle-member-connect-${member.userId}`}
+            className={CIRCLE_MEMBER_ACTION_CLASSNAME}
+            onClick={() => void onConnect?.()}
+          >
+            {actionCta.label}
+          </Button>
+        ) : null}
+        {/* `pending_incoming` used to render an ENABLED button whose click
+            handler ran only for `action === "connect"` -- so the one row that
+            had something waiting on it offered a control that did nothing at
+            all. Answering an incoming request lives on Connect, and this is
+            now the link that goes there. */}
+        {actionCta?.action === "respond" ? (
+          <>
+            {/* `Link`, not a bare anchor. An <a href> is a full document
+              load, and the vault key lives only in React state -- so the
+              one control offered here relocked the vault on the way to
+              using it. */}
+            <Link
+              // The consent centre, not `/one/connect`.
+              //
+              // From a Circle hosted ON Connect, a bare `/one/connect` href is
+              // a navigation whose only change is the query string
+              // disappearing -- which this repo has measured the App Router to
+              // refuse -- so the one row with something waiting on it did
+              // nothing at all when tapped. Connect's own Respond goes here
+              // too, and a different pathname works from either host.
+              href={buildConsentCenterHref("pending")}
+              aria-label={`Respond to the connection request from ${member.displayName}`}
+              data-testid={`circle-member-respond-${member.userId}`}
+              className={cn(
+                buttonVariants({ variant: "outline", size: "sm" }),
+                CIRCLE_MEMBER_ACTION_CLASSNAME,
+              )}
+            >
+              {actionCta.label}
+            </Link>
+          </>
+        ) : null}
+        {/* The kebab, its actions and the confirm they lead to -- one module,
+            because which SURFACE carries them depends on the pointer. See
+            `circle-member-actions-menu.tsx`: a phone gets a bottom action
+            sheet headed by this member's own name, a desktop keeps the
+            anchored menu. It also renders the inert 44px spacer on the rows
+            that offer nothing, so the kebab column exists on every row. */}
+        <CircleMemberActionsMenu
+          displayName={member.displayName}
+          profileHref={
+            member.publicPersonRef
+              ? buildPersonProfileRoute(member.publicPersonRef, { from: ROUTES.ONE_LOCATION })
+              : null
+          }
+          initials={circleInitials(member.displayName)}
+          photoUrl={member.photoUrl}
+          verified={Boolean(member.isRia)}
+          secondaryLine={secondaryLine}
+          canShare={canShare}
+          canRemove={canRemove}
+          busy={busy}
+          onShare={onShare}
+          onRemove={onRemove}
+        />
+      </div>
+    </div>
+  );
+}
+
+export function CircleDetailFlow({
+  circleId,
+  currentUserId,
+  busy,
+  onBack,
+  onLoad,
+  onLoadOverview,
+  onLoadMembersPage,
+  onRename,
+  onGenerateCode,
+  onCopyCode,
+  onShareCode,
+  onShareWithMember,
+  onRemoveMember,
+  onConnectMember,
+  onCancelMemberRequest,
+  reloadSignal = 0,
+  onLoadEligibleConnections,
+  onLoadEligibleConnectionsPage,
+  onInviteConnections,
+  onCancelMemberInvite,
+  onLeave,
+  onDelete,
+}: {
+  circleId: string;
+  currentUserId: string | null;
+  busy: boolean;
+  onBack: () => void;
+  onLoad: (circleId: string) => Promise<OneLocationCircleDetail>;
+  /** Bounded read-model path. When both callbacks are present, the complete
+   * legacy detail loader is retained for old callers but is not invoked. */
+  onLoadOverview?: (circleId: string) => Promise<OneLocationCircleOverview>;
+  onLoadMembersPage?: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleMemberPage>;
+  onRename: (
+    circleId: string,
+    name: string,
+  ) => Promise<OneLocationCircleDetail>;
+  onGenerateCode: (
+    circleId: string,
+    rotate?: boolean,
+  ) => Promise<OneLocationCircleInviteCode>;
+  onCopyCode: (code: string) => Promise<void>;
+  onShareCode: (
+    circle: OneLocationCircleOverview,
+    code: string,
+  ) => Promise<void>;
+  onShareWithMember: (circleId: string, userId: string) => void;
+  onRemoveMember: (circleId: string, userId: string) => Promise<void>;
+  /**
+   * Sends a connection request to a co-member.
+   *
+   * Sharing a Circle does not connect two people -- a joiner is paired with
+   * whoever invited them and nobody else -- so the roster is where that
+   * introduction can be asked for explicitly, and answered by the other person.
+   */
+  /** `displayName` and `photoUrl` are passed so a caller can put this person
+   *  in front of the same capability review the Connect directory uses,
+   *  which needs a name to show. Optional so an older caller still compiles. */
+  onConnectMember: (
+    circleId: string,
+    userId: string,
+    person?: { displayName: string | null; photoUrl: string | null },
+  ) => Promise<void>;
+  /** Takes back a request this viewer sent to a co-member. Absent on a
+   *  surface that cannot cancel, where the row shows a plain "Requested". */
+  onCancelMemberRequest?: (circleId: string, userId: string) => Promise<void>;
+  /** Re-read this Circle without disturbing what the person is doing.
+   *
+   *  Bumped by the caller when something outside this screen changed the
+   *  roster -- a request sent, a member added, somebody joining with a code.
+   *  Deliberately NOT a `key` remount: that would close an open add-people
+   *  sheet, clear a half-typed search and drop the selection, which is a
+   *  worse answer than a stale row. */
+  reloadSignal?: number;
+  onLoadEligibleConnections: (
+    circleId: string,
+  ) => Promise<OneLocationCircleEligibleConnections>;
+  onLoadEligibleConnectionsPage?: (
+    circleId: string,
+    options: { page: number; limit: number; query?: string },
+  ) => Promise<OneLocationCircleEligibleConnectionsPage>;
+  onInviteConnections: (
+    circleId: string,
+    inviteeUserIds: string[],
+  ) => Promise<void>;
+  onCancelMemberInvite: (inviteId: string) => Promise<void>;
+  onLeave: (circleId: string) => Promise<void>;
+  onDelete: (circleId: string) => Promise<void>;
+}) {
+  const [loadedCircle, setCircle] = useState<
+    OneLocationCircleDetail | OneLocationCircleOverview | null
+  >(null);
+  const [memberRows, setMemberRows] = useState<OneLocationCircleMember[]>([]);
+  const [memberPage, setMemberPage] = useState(1);
+  const [memberHasMore, setMemberHasMore] = useState(false);
+  const [memberTotalCount, setMemberTotalCount] = useState(0);
+  const [memberLoadingMore, setMemberLoadingMore] = useState(false);
+  const [cancellingUserId, setCancellingUserId] = useState<string | null>(null);
+  const [inviteCode, setInviteCode] =
+    useState<OneLocationCircleInviteCode | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [circleName, setCircleName] = useState("");
+  const [peopleSheetOpen, setPeopleSheetOpen] = useState(false);
+  const [renameSheetOpen, setRenameSheetOpen] = useState(false);
+  const [inviteCodeSheetOpen, setInviteCodeSheetOpen] = useState(false);
+  const [replaceCodeConfirmOpen, setReplaceCodeConfirmOpen] = useState(false);
+  const [codeCopied, setCodeCopied] = useState(false);
+  const [eligibleConnections, setEligibleConnections] = useState<
+    OneLocationCircleEligibleConnection[]
+  >([]);
+  const [pendingInvites, setPendingInvites] = useState<
+    OneLocationCircleMemberInvite[]
+  >([]);
+  const [remainingCapacity, setRemainingCapacity] = useState(0);
+  const selectionLimit = circleInviteSelectionLimit(remainingCapacity);
+  const [peopleSearch, setPeopleSearch] = useState("");
+  const [memberSearch, setMemberSearch] = useState("");
+  const [selectedConnections, setSelectedConnections] = useState<
+    Map<string, OneLocationCircleEligibleConnection>
+  >(() => new Map());
+  const [peoplePage, setPeoplePage] = useState(1);
+  const [peopleHasMore, setPeopleHasMore] = useState(false);
+  const [peopleTotalCount, setPeopleTotalCount] = useState(0);
+  const [peopleLoadingMore, setPeopleLoadingMore] = useState(false);
+  const [peopleLoadError, setPeopleLoadError] = useState<string | null>(null);
+  const [peopleLoading, setPeopleLoading] = useState(false);
+  const [peopleSubmitting, setPeopleSubmitting] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+  const [cancellingInviteId, setCancellingInviteId] = useState<string | null>(
+    null,
+  );
+  const nameInputRef = useRef<HTMLInputElement | null>(null);
+  const loadRequestRef = useRef(0);
+  const memberRequestRef = useRef(0);
+  const peopleRequestRef = useRef(0);
+  const peopleSubmitInFlightRef = useRef(false);
+  const cancelInviteInFlightRef = useRef(false);
+
+  const usesPagedMembers = Boolean(onLoadOverview && onLoadMembersPage);
+
+  const reload = async (): Promise<
+    OneLocationCircleDetail | OneLocationCircleOverview | null
+  > => {
+    const requestId = ++loadRequestRef.current;
+    setLoadError(null);
+    if (!circleId) {
+      setCircle(null);
+      setLoadError("This Circle link is incomplete.");
+      return null;
+    }
+    try {
+      const [nextCircle, nextMembersPage] = usesPagedMembers
+        ? await Promise.all([
+            onLoadOverview!(circleId),
+            onLoadMembersPage!(circleId, {
+              page: 1,
+              limit: 50,
+              query: memberSearch.trim() || undefined,
+            }),
+          ])
+        : [await onLoad(circleId), null];
+      if (requestId !== loadRequestRef.current) return null;
+      setCircle(nextCircle);
+      if (nextMembersPage) {
+        setMemberRows(nextMembersPage.items);
+        setMemberPage(nextMembersPage.page);
+        setMemberHasMore(nextMembersPage.hasMore);
+        setMemberTotalCount(nextMembersPage.totalCount);
+      } else {
+        const completeMembers = (nextCircle as OneLocationCircleDetail).members;
+        setMemberRows(completeMembers);
+        setMemberPage(1);
+        setMemberHasMore(false);
+        setMemberTotalCount(completeMembers.length);
+      }
+      setCircleName(nextCircle.name);
+      setInviteCode(nextCircle.activeInviteCode ?? null);
+      const nextCanInvite =
+        nextCircle.viewerCapabilities?.canInviteMembers ??
+        nextCircle.role === "owner";
+      if (!nextCanInvite) {
+        setPeopleSheetOpen(false);
+        peopleRequestRef.current += 1;
+      }
+      return nextCircle;
+    } catch (error) {
+      if (requestId !== loadRequestRef.current) return null;
+      setLoadError(
+        error instanceof Error ? error.message : "Could not load this Circle.",
+      );
+      return null;
+    }
+  };
+
+  useEffect(() => {
+    setCircle(null);
+    setMemberRows([]);
+    setInviteCode(null);
+    setPeopleSheetOpen(false);
+    setPeopleSearch("");
+    setSelectedConnections(new Map());
+    setMemberSearch("");
+    setSavingName(false);
+    peopleRequestRef.current += 1;
+    void reload();
+    // `onLoad` is a stable page callback. Reload only when the selected id
+    // changes; unrelated page refreshes must not refetch the focused detail.
+    return () => {
+      loadRequestRef.current += 1;
+      memberRequestRef.current += 1;
+      peopleRequestRef.current += 1;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [circleId]);
+
+  // A re-read the caller asked for. Unlike the effect above it resets nothing:
+  // the sheet stays open, the search keeps its text, the selection survives.
+  const lastReloadSignalRef = useRef(reloadSignal);
+  useEffect(() => {
+    if (reloadSignal === lastReloadSignalRef.current) return;
+    lastReloadSignalRef.current = reloadSignal;
+    if (!circleId) return;
+    void reload();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [reloadSignal]);
+
+  const circle = loadedCircle?.id === circleId ? loadedCircle : null;
+  const isOwner = circle?.role === "owner";
+  // Stated by the server rather than inferred here.
+  //
+  // "Owner" and "not the emergency one" stopped being the right test when
+  // Trusted arrived: it is deliberately NOT `is_system`, so it fell through to
+  // the Delete button, which the API and a database trigger both refuse. The
+  // fallbacks reproduce the old inference for a server that does not send the
+  // fields yet.
+  const canDeleteCircle =
+    circle?.viewerCapabilities?.canDeleteCircle ??
+    (isOwner && !circle?.isSystem);
+  const canLeaveCircle = circle?.viewerCapabilities?.canLeaveCircle ?? !isOwner;
+  // Dirty-tracked rename: the trailing control only presents as an explicit
+  // "Save" once the typed name differs from the one every member currently
+  // sees, so an untouched field never offers a no-op write.
+  const trimmedCircleName = circleName.trim();
+  const circleNameDirty = Boolean(circle) && trimmedCircleName !== circle?.name;
+  const canSaveCircleName =
+    circleNameDirty && trimmedCircleName.length >= 1 && !savingName && !busy;
+  const canInviteMembers =
+    circle?.viewerCapabilities?.canInviteMembers ?? Boolean(isOwner);
+  const canViewInviteCode =
+    circle?.viewerCapabilities?.canViewInviteCode ?? Boolean(isOwner);
+  const canRotateInviteCode =
+    circle?.viewerCapabilities?.canRotateInviteCode ?? Boolean(isOwner);
+  const inviteCodeNeedsOwnerRotation = Boolean(
+    circle?.inviteCodeNeedsOwnerRotation,
+  );
+  const members = memberRows;
+  // One request in flight at a time: the roster re-renders from the reloaded
+  // Circle, and two overlapping sends would leave the wrong row spinning.
+  const [connectingUserId, setConnectingUserId] = useState<string | null>(null);
+  // Circle Detail counts the rows it actually renders. The "Your circles" list
+  // still uses the other-member summary helper. When member paging is active,
+  // use the server total rather than pretending the first page is complete.
+  const visibleMemberCount = usesPagedMembers
+    ? Number(circle?.memberCount ?? memberTotalCount)
+    : members.length;
+  const visibleMemberSummary = circleDetailMemberCountLabel(visibleMemberCount);
+
+  // Filters the already-loaded Members list client-side, same as the "Add
+  // people" sheet's connection search — a circle's roster is small enough
+  // that there is no server round trip worth making for this.
+  const locallyFilteredMembers = useMemo(
+    () =>
+      filterPeopleByQuery(
+        sortPeopleByName(members, (member) => member.displayName),
+        memberSearch,
+        (member) => member.displayName,
+      ),
+    [members, memberSearch],
+  );
+  // The owner leads the roster in every kind of Circle, from either source --
+  // but only while the roster is a ROSTER. Once a query is typed the list is
+  // answering that query, and both search paths now rank a name that begins
+  // with what you typed above one that merely contains it (client-side in
+  // `filterPeopleByQuery`, server-side since #6244). Hoisting the owner
+  // through that would put a loose match above an exact one, on the one
+  // screen where the reader has already said who they are looking for.
+  // `circle-member-order.ts` documents why this is a partition rather than a
+  // second key on the A-Z sort.
+  const filteredMembers = useMemo(() => {
+    const rendered = usesPagedMembers ? members : locallyFilteredMembers;
+    return memberSearch.trim()
+      ? rendered
+      : sortCircleMembersOwnerFirst(rendered);
+  }, [usesPagedMembers, members, locallyFilteredMembers, memberSearch]);
+
+  // Beside the "Members" heading. Unfiltered it is the same phrase the screen
+  // title and the "Your circles" row use, so the number never changes wording
+  // between the three places it appears; filtered it reports the match count
+  // against the roster, because that is the list actually on screen.
+  const memberCountLabel = memberSearch.trim()
+    ? usesPagedMembers
+      ? `${memberTotalCount} ${memberTotalCount === 1 ? "match" : "matches"}`
+      : `${filteredMembers.length} of ${members.length}`
+    : visibleMemberSummary;
+  const showMemberSearch =
+    (usesPagedMembers
+      ? Math.max(memberTotalCount, visibleMemberCount)
+      : members.length) >= 8 || memberSearch.trim().length > 0;
+
+  useEffect(() => {
+    if (!usesPagedMembers || !circleId || !onLoadMembersPage) return;
+    const requestId = ++memberRequestRef.current;
+    const timer = window.setTimeout(() => {
+      void onLoadMembersPage(circleId, {
+        page: 1,
+        limit: 50,
+        query: memberSearch.trim() || undefined,
+      })
+        .then((result) => {
+          if (requestId !== memberRequestRef.current) return;
+          setMemberRows(result.items);
+          setMemberPage(result.page);
+          setMemberHasMore(result.hasMore);
+          setMemberTotalCount(result.totalCount);
+        })
+        .catch((error) => {
+          if (requestId !== memberRequestRef.current) return;
+          setLoadError(
+            circleFlowErrorMessage(error, "Could not load Circle members."),
+          );
+        });
+    }, 250);
+    return () => window.clearTimeout(timer);
+  }, [circleId, memberSearch, onLoadMembersPage, usesPagedMembers]);
+
+  const loadMoreMembers = async () => {
+    if (!onLoadMembersPage || !memberHasMore || memberLoadingMore) return;
+    const requestId = ++memberRequestRef.current;
+    setMemberLoadingMore(true);
+    try {
+      const result = await onLoadMembersPage(circleId, {
+        page: memberPage + 1,
+        limit: 50,
+        query: memberSearch.trim() || undefined,
+      });
+      if (requestId !== memberRequestRef.current) return;
+      setMemberRows((current) => {
+        const byUserId = new Map(
+          current.map((member) => [member.userId, member]),
+        );
+        for (const member of result.items) byUserId.set(member.userId, member);
+        return [...byUserId.values()];
+      });
+      setMemberPage(result.page);
+      setMemberHasMore(result.hasMore);
+      setMemberTotalCount(result.totalCount);
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not load more members."),
+      );
+    } finally {
+      if (requestId === memberRequestRef.current) setMemberLoadingMore(false);
+    }
+  };
+
+  const locallyFilteredEligibleConnections = useMemo(
+    () =>
+      // Sorted before filtering, like every other people picker in Location.
+      // These two sheets were rendering whatever order the server returned, so
+      // the same two connections could swap places between two openings and a
+      // long list had nowhere to start looking.
+      filterPeopleByQuery(
+        sortPeopleByName(
+          eligibleConnections,
+          (connection) => connection.displayName,
+        ),
+        peopleSearch,
+        (connection) => connection.displayName,
+      ),
+    [eligibleConnections, peopleSearch],
+  );
+  const filteredEligibleConnections = onLoadEligibleConnectionsPage
+    ? eligibleConnections
+    : locallyFilteredEligibleConnections;
+
+  const loadEligibleConnections = async ({
+    page = 1,
+    append = false,
+    query = peopleSearch,
+  }: { page?: number; append?: boolean; query?: string } = {}) => {
+    if (!circle || !canInviteMembers) return;
+    const requestId = ++peopleRequestRef.current;
+    if (append) setPeopleLoadingMore(true);
+    else setPeopleLoading(true);
+    setPeopleLoadError(null);
+    try {
+      const result = onLoadEligibleConnectionsPage
+        ? await onLoadEligibleConnectionsPage(circle.id, {
+            page,
+            limit: 50,
+            query: query.trim() || undefined,
+          })
+        : await onLoadEligibleConnections(circle.id);
+      if (requestId !== peopleRequestRef.current) return;
+      setEligibleConnections((current) => {
+        if (!append) return result.eligibleConnections;
+        const byUserId = new Map(
+          current.map((connection) => [connection.userId, connection]),
+        );
+        for (const connection of result.eligibleConnections) {
+          byUserId.set(connection.userId, connection);
+        }
+        return [...byUserId.values()];
+      });
+      setPendingInvites(result.pendingInvites);
+      setRemainingCapacity(result.remainingCapacity);
+      const pagedResult = onLoadEligibleConnectionsPage
+        ? (result as OneLocationCircleEligibleConnectionsPage)
+        : null;
+      setPeoplePage(pagedResult?.page ?? 1);
+      setPeopleHasMore(pagedResult?.hasMore ?? false);
+      setPeopleTotalCount(
+        pagedResult?.totalCount ?? result.eligibleConnections.length,
+      );
+      setSelectedConnections(
+        (current) =>
+          new Map(
+            [...current].slice(
+              0,
+              circleInviteSelectionLimit(result.remainingCapacity),
+            ),
+          ),
+      );
+    } catch (error) {
+      if (requestId !== peopleRequestRef.current) return;
+      setPeopleLoadError(
+        circleFlowErrorMessage(error, "Could not load your connections."),
+      );
+    } finally {
+      if (requestId === peopleRequestRef.current) {
+        setPeopleLoading(false);
+        setPeopleLoadingMore(false);
+      }
+    }
+  };
+
+  const openPeopleSheet = () => {
+    if (!circle || !canInviteMembers) return;
+    setPeopleSheetOpen(true);
+    setPeopleSearch("");
+    setSelectedConnections(new Map());
+    void loadEligibleConnections();
+  };
+
+  useEffect(() => {
+    if (!peopleSheetOpen || !onLoadEligibleConnectionsPage || !circle) return;
+    const timer = window.setTimeout(() => {
+      void loadEligibleConnections({ page: 1, query: peopleSearch });
+    }, 250);
+    return () => window.clearTimeout(timer);
+    // The loader intentionally follows the current Circle/sheet/search only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    circle?.id,
+    onLoadEligibleConnectionsPage,
+    peopleSearch,
+    peopleSheetOpen,
+  ]);
+
+  const sendMemberInvites = async () => {
+    if (
+      !circle ||
+      peopleSubmitInFlightRef.current ||
+      !selectedConnections.size
+    ) {
+      return;
+    }
+    const inviteeUserIds = [...selectedConnections.keys()].slice(
+      0,
+      selectionLimit,
+    );
+    if (!inviteeUserIds.length) return;
+    peopleSubmitInFlightRef.current = true;
+    setPeopleSubmitting(true);
+    try {
+      await onInviteConnections(circle.id, inviteeUserIds);
+      toast.success(
+        inviteeUserIds.length === 1
+          ? "Added to the Circle."
+          : `${inviteeUserIds.length} people added to the Circle.`,
+      );
+      // Adding is the sheet's terminal action for any selection size, so close
+      // it and let the toast confirm. Bump the request ref first so a slower
+      // in-flight eligibility load cannot repopulate a dismissed sheet, and
+      // reload the detail behind it to pick up the new members.
+      peopleRequestRef.current += 1;
+      setSelectedConnections(new Map());
+      setPeopleSearch("");
+      setPeopleSheetOpen(false);
+      await reload();
+    } catch (error) {
+      toast.error(circleFlowErrorMessage(error, "Could not add them."));
+      // A capacity/eligibility conflict means this selected set is no longer
+      // authoritative. Clear it before the bounded page refresh; intersecting
+      // with one partial page would incorrectly preserve or discard rows.
+      setSelectedConnections(new Map());
+      // Capacity or eligibility may have changed while the sheet was open.
+      // Reconcile against the server before another tap so stale selections
+      // are trimmed rather than repeatedly submitting a known conflict.
+      const refreshedCircle = await reload();
+      const stillCanInvite =
+        refreshedCircle?.viewerCapabilities?.canInviteMembers ??
+        refreshedCircle?.role === "owner";
+      if (stillCanInvite) {
+        await loadEligibleConnections();
+      } else {
+        setPeopleSheetOpen(false);
+      }
+    } finally {
+      peopleSubmitInFlightRef.current = false;
+      setPeopleSubmitting(false);
+    }
+  };
+
+  const cancelMemberInvite = async (inviteId: string) => {
+    if (cancelInviteInFlightRef.current) return;
+    cancelInviteInFlightRef.current = true;
+    setCancellingInviteId(inviteId);
+    try {
+      await onCancelMemberInvite(inviteId);
+      toast.success("Circle invitation cancelled.");
+      await loadEligibleConnections();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not cancel the invitation."),
+      );
+    } finally {
+      cancelInviteInFlightRef.current = false;
+      setCancellingInviteId(null);
+    }
+  };
+
+  const generateCode = async (rotate = false) => {
+    if (!circle || !canViewInviteCode || (rotate && !canRotateInviteCode)) {
+      return;
+    }
+    try {
+      setInviteCode(await onGenerateCode(circle.id, rotate));
+      setReplaceCodeConfirmOpen(false);
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not create an invite code."),
+      );
+    }
+  };
+
+  const copyInviteCode = async (code: string) => {
+    await onCopyCode(code);
+    setCodeCopied(true);
+    window.setTimeout(() => setCodeCopied(false), 1600);
+  };
+
+  // The rename is written server-side against the shared Circle row, so once it
+  // resolves every member reads the new name on their next load. Reflect it
+  // locally right away (header, delete/leave copy, "Add people to …") instead of
+  // waiting for a refetch.
+  const renameCircle = async (): Promise<boolean> => {
+    const nextName = circleName.trim();
+    if (
+      !circle ||
+      savingName ||
+      nextName.length < 1 ||
+      nextName === circle.name
+    )
+      return false;
+    setSavingName(true);
+    try {
+      const updated = await onRename(circle.id, nextName);
+      setCircle(updated);
+      setCircleName(updated.name);
+      return true;
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not rename this Circle."),
+      );
+      return false;
+    } finally {
+      setSavingName(false);
+    }
+  };
+
+  const removeMember = async (memberUserId: string) => {
+    if (!circle) return;
+    try {
+      await onRemoveMember(circle.id, memberUserId);
+      await reload();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not remove this member."),
+      );
+    }
+  };
+
+  const leaveCircle = async () => {
+    if (!circle) return;
+    try {
+      await onLeave(circle.id);
+      onBack();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not leave this Circle."),
+      );
+    }
+  };
+
+  const deleteCircle = async () => {
+    if (!circle) return;
+    try {
+      await onDelete(circle.id);
+      onBack();
+    } catch (error) {
+      toast.error(
+        circleFlowErrorMessage(error, "Could not delete this Circle."),
+      );
+    }
+  };
+
+  return (
+    // `space-y-5`, and every section below owns its own internal rhythm. The
+    // screen used to pair a 24px stack gap with `SettingsGroup`'s own 28px
+    // heading margin, so the one gap on the page that mattered least -- the
+    // one above "Members" -- was also the largest.
+    <div className="space-y-5" data-testid="one-location-circle-detail-flow">
+      {!circle ? (
+        <TaskFlowHeader title="Circle" description="Loading Circle…" />
+      ) : null}
+
+      {loadError ? (
+        <div
+          role="alert"
+          // Wash and hairline move onto the destructive family; the message
+          // itself keeps `text-destructive`, which is the dark red this size
+          // needs. The flat --app-destructive is the glyph tone and measures
+          // ~3.5:1 here, under the 4.5:1 a 14px sentence requires.
+          className="rounded-2xl border border-[color:var(--app-destructive-border)] bg-[color:var(--app-destructive-tint)] p-4 text-sm text-destructive"
+        >
+          {loadError}
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={() => void reload()}
+            className="ml-2 h-11 rounded-full"
+          >
+            Retry
+          </Button>
+        </div>
+      ) : null}
+
+      {circle ? (
+        <>
+          <div className={CIRCLE_DETAIL_HEADER_CLASSNAME}>
+            <div className={CIRCLE_DETAIL_HEADER_COPY_CLASSNAME}>
+              <TaskFlowHeader
+                title={circle.name}
+                description={visibleMemberSummary}
+              />
+            </div>
+            {isOwner && circle.systemKind !== "trusted" ? (
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => {
+                  setCircleName(circle.name);
+                  setRenameSheetOpen(true);
+                  window.setTimeout(() => nameInputRef.current?.focus(), 80);
+                }}
+                className="h-11 rounded-full px-4 text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
+              >
+                Edit
+              </Button>
+            ) : null}
+          </div>
+
+          {isOwner && circle.systemKind !== "trusted" ? (
+            <Sheet
+              open={renameSheetOpen}
+              onOpenChange={(open) => {
+                setRenameSheetOpen(open);
+                if (!open && circle) setCircleName(circle.name);
+              }}
+            >
+              <SheetContent
+                side="bottom"
+                aria-describedby={undefined}
+                className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
+              >
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+                  <SheetTitle>Rename Circle</SheetTitle>
+                </SheetHeader>
+                <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
+                  <label className="block space-y-2">
+                    <span className="text-[15px] font-semibold leading-5 text-foreground">
+                      Circle name
+                    </span>
+                    <div className={CIRCLE_NAME_ROW_CLASSNAME}>
+                      <input
+                        id={CIRCLE_NAME_INPUT_ID}
+                        ref={nameInputRef}
+                        value={circleName}
+                        onChange={(event) => setCircleName(event.target.value)}
+                        onKeyDown={(event) => {
+                          if (event.key === "Enter") {
+                            event.preventDefault();
+                            void renameCircle();
+                          } else if (event.key === "Escape") {
+                            event.preventDefault();
+                            setRenameSheetOpen(false);
+                            setCircleName(circle.name);
+                          }
+                        }}
+                        maxLength={80}
+                        autoComplete="off"
+                        className={CIRCLE_NAME_INPUT_CLASSNAME}
+                      />
+                    </div>
+                  </label>
+                  {circleNameDirty && trimmedCircleName.length < 1 ? (
+                    <p className="text-sm text-destructive">Enter a name.</p>
+                  ) : null}
+                  <Button
+                    type="button"
+                    disabled={!canSaveCircleName}
+                    isLoading={savingName}
+                    onClick={() =>
+                      void renameCircle().then((saved) => {
+                        if (saved) setRenameSheetOpen(false);
+                      })
+                    }
+                    className={cn(
+                      "h-12 w-full rounded-full text-base font-semibold",
+                      BLOCKED_CTA,
+                    )}
+                    data-testid="one-location-circle-name-save"
+                  >
+                    Save
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setRenameSheetOpen(false);
+                      setCircleName(circle.name);
+                    }}
+                    className="h-11 w-full rounded-full"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </SheetContent>
+            </Sheet>
+          ) : null}
+
+          {canInviteMembers || canViewInviteCode ? (
+            <SettingsGroup
+              title="Invite"
+              separatorInset
+              shellClassName="!rounded-[18px]"
+              testId="one-location-circle-invite-card"
+            >
+              {canInviteMembers ? (
+                <SettingsRow
+                  icon={Plus}
+                  iconTone="accent"
+                  title="Add people"
+                  chevron
+                  onClick={openPeopleSheet}
+                  disabled={busy}
+                  testId="one-location-circle-add-people-row"
+                />
+              ) : null}
+              {canViewInviteCode ? (
+                <SettingsRow
+                  icon={KeyRound}
+                  iconTone="gray"
+                  title="Invite code"
+                  trailing={inviteCode ? "Ready" : "Create"}
+                  chevron
+                  onClick={() => {
+                    setCodeCopied(false);
+                    setInviteCodeSheetOpen(true);
+                  }}
+                  disabled={busy}
+                  testId="one-location-circle-invite-code-row"
+                />
+              ) : null}
+            </SettingsGroup>
+          ) : null}
+
+          {canViewInviteCode ? (
+            <Sheet
+              open={inviteCodeSheetOpen}
+              onOpenChange={(open) => {
+                setInviteCodeSheetOpen(open);
+                if (!open) {
+                  setCodeCopied(false);
+                  setReplaceCodeConfirmOpen(false);
+                }
+              }}
+            >
+              <SheetContent
+                side="bottom"
+                aria-describedby={undefined}
+                onEscapeKeyDown={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
+                onFocusOutside={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
+                onPointerDownOutside={(event) => {
+                  if (replaceCodeConfirmOpen) event.preventDefault();
+                }}
+                className="mx-auto w-full rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:max-w-lg sm:px-6"
+              >
+                <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+                  <SheetTitle>Invite code</SheetTitle>
+                  {!inviteCode && !inviteCodeNeedsOwnerRotation ? (
+                    <SheetDescription>
+                      Create a code to invite someone to this Circle.
+                    </SheetDescription>
+                  ) : null}
+                </SheetHeader>
+                {inviteCode ? (
+                  <div className={CIRCLE_SHEET_BODY_CLASSNAME}>
+                    <div className="rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 text-center shadow-[var(--app-card-shadow-standard)]">
+                      <p className="break-all font-mono text-2xl font-bold tracking-[0.12em] text-foreground">
+                        {inviteCode.code}
+                      </p>
+                      <p className={cn(MUTED_TEXT, "mt-3")}>
+                        Joining does not share location.
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void onShareCode(circle, inviteCode.code)}
+                      className="h-12 w-full rounded-full text-base font-semibold"
+                    >
+                      <Share2 className="mr-2 h-4 w-4" />
+                      Share invite
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={busy}
+                      onClick={() => void copyInviteCode(inviteCode.code)}
+                      className="h-12 w-full rounded-full text-base font-semibold"
+                    >
+                      <Copy className="mr-2 h-4 w-4" />
+                      {codeCopied ? "Copied" : "Copy code"}
+                    </Button>
+                    {canRotateInviteCode ? (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        disabled={busy}
+                        onClick={() => setReplaceCodeConfirmOpen(true)}
+                        className="h-11 w-full rounded-full"
+                      >
+                        Replace code
+                      </Button>
+                    ) : null}
+                  </div>
+                ) : inviteCodeNeedsOwnerRotation && !canRotateInviteCode ? (
+                  <div
+                    className={cn(
+                      CIRCLE_SHEET_BODY_CLASSNAME,
+                      "rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-[var(--app-card-shadow-standard)]",
+                    )}
+                  >
+                    <p className="text-[17px] font-semibold leading-[22px] text-foreground">
+                      Invite code unavailable
+                    </p>
+                    <p className={cn(MUTED_TEXT, "mt-1")}>
+                      Ask the Circle owner for a new code.
+                    </p>
+                  </div>
+                ) : (
+                  <div className={cn(CIRCLE_SHEET_BODY_CLASSNAME, "space-y-3")}>
+                    <Button
+                      type="button"
+                      disabled={busy}
+                      isLoading={busy}
+                      onClick={() =>
+                        void generateCode(inviteCodeNeedsOwnerRotation)
+                      }
+                      className="h-12 w-full rounded-full text-base font-semibold"
+                    >
+                      Create code
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={() => setInviteCodeSheetOpen(false)}
+                      className="h-11 w-full rounded-full"
+                    >
+                      Cancel
+                    </Button>
+                  </div>
+                )}
+              </SheetContent>
+            </Sheet>
+          ) : null}
+
+          {canViewInviteCode && canRotateInviteCode ? (
+            <AlertDialog
+              open={replaceCodeConfirmOpen}
+              onOpenChange={setReplaceCodeConfirmOpen}
+            >
+              <AlertDialogContent
+                size="sm"
+                overlayClassName="z-[713]"
+                className="z-[714]"
+              >
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Replace invite code?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    The current code will stop working.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction
+                    disabled={busy}
+                    onClick={() => void generateCode(true)}
+                  >
+                    Replace code
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+
+          <Sheet
+            open={peopleSheetOpen}
+            onOpenChange={(open) => {
+              if (open && !canInviteMembers) return;
+              setPeopleSheetOpen(open);
+              if (!open) {
+                peopleRequestRef.current += 1;
+                setPeopleSearch("");
+                setSelectedConnections(new Map());
+              }
+            }}
+          >
+            <SheetContent
+              side="bottom"
+              // Swiping down through the results is how a phone scrolls a list
+              // back up. Left on, it drags the sheet away instead and can close
+              // it outright, losing the query and every person already ticked.
+              dragDismiss={false}
+              // The keyboard height MUST stay in this max-height. SheetContent's
+              // default is `max-h-[calc(85dvh-var(--kb-height,0px))]` paired with
+              // `bottom-[var(--kb-height,0px)]`: the sheet lifts above the
+              // keyboard and shrinks by the same amount. A bare dvh max-height
+              // wins the tailwind-merge and drops only the shrink — so the sheet
+              // still lifts, and the title and the search field the person just
+              // tapped slide off the top of the screen. They then type into a
+              // field they cannot see.
+              className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+            >
+              <SheetHeader className={CIRCLE_SHEET_HEADER_CLASSNAME}>
+                <SheetTitle>Add people</SheetTitle>
+                <SheetDescription>Choose connections.</SheetDescription>
+              </SheetHeader>
+
+              <div className={CIRCLE_SHEET_SCROLL_BODY_CLASSNAME}>
+                <label className="relative block">
+                  <span className="sr-only">Search connections</span>
+                  <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <input
+                    value={peopleSearch}
+                    onChange={(event) => setPeopleSearch(event.target.value)}
+                    placeholder="Search people"
+                    className={cn(
+                      LOCATION_SEARCH_INPUT_CLASSNAME,
+                      "h-12 rounded-full bg-muted/40 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-accent/70",
+                    )}
+                  />
+                </label>
+
+                <div className={CIRCLE_SHEET_SCROLL_AREA_CLASSNAME}>
+                  {peopleLoading ? (
+                    <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="h-5 w-5 animate-spin" />
+                      Loading connections…
+                    </div>
+                  ) : peopleLoadError ? (
+                    <div className="space-y-3 rounded-2xl bg-muted/45 p-4">
+                      <p className="text-sm text-muted-foreground">
+                        {peopleLoadError}
+                      </p>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => void loadEligibleConnections()}
+                        className="h-11 rounded-full"
+                      >
+                        Retry
+                      </Button>
+                    </div>
+                  ) : (
+                    <div className="space-y-4">
+                      {remainingCapacity > 0 &&
+                      filteredEligibleConnections.length ? (
+                        <SettingsGroup
+                          title="Your connections"
+                          headingClassName={
+                            CIRCLE_SHEET_FIRST_GROUP_HEADING_CLASSNAME
+                          }
+                          description={
+                            remainingCapacity > CIRCLE_INVITE_BATCH_LIMIT
+                              ? `Add up to ${CIRCLE_INVITE_BATCH_LIMIT} people at a time. ${peopleTotalCount} available; ${remainingCapacity} Circle slots remain.`
+                              : remainingCapacity === 1
+                                ? "You can add 1 more person right now."
+                                : `You can add ${remainingCapacity} more people right now. ${peopleTotalCount} available.`
+                          }
+                          testId="one-location-circle-eligible-connections"
+                        >
+                          {filteredEligibleConnections.map((connection) => {
+                            const selected = selectedConnections.has(
+                              connection.userId,
+                            );
+                            const selectionAtCapacity =
+                              selectedConnections.size >= selectionLimit;
+                            return (
+                              <SettingsRow
+                                key={connection.userId}
+                                leading={
+                                  <ConnectionPersonAvatar
+                                    photoUrl={connection.photoUrl ?? null}
+                                    label={connection.displayName}
+                                    verified={Boolean(connection.isRia)}
+                                  />
+                                }
+                                title={
+                                  <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5">
+                                    <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                                      {connection.displayName}
+                                    </span>
+                                    {connection.connectedFromContacts ? (
+                                      <ContactSourceBadge />
+                                    ) : null}
+                                  </span>
+                                }
+                                ariaPressed={selected}
+                                disabled={!selected && selectionAtCapacity}
+                                trailing={
+                                  <span
+                                    className={cn(
+                                      "flex h-6 w-6 items-center justify-center rounded-full border",
+                                      selected
+                                        ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]"
+                                        : "border-border bg-background",
+                                    )}
+                                  >
+                                    {selected ? (
+                                      <Check className="h-4 w-4" />
+                                    ) : null}
+                                  </span>
+                                }
+                                onClick={() =>
+                                  setSelectedConnections((current) => {
+                                    const next = new Map(current);
+                                    if (next.has(connection.userId)) {
+                                      next.delete(connection.userId);
+                                    } else if (next.size < selectionLimit) {
+                                      next.set(connection.userId, connection);
+                                    }
+                                    return next;
+                                  })
+                                }
+                                testId={`one-location-circle-eligible-${connection.userId}`}
+                              />
+                            );
+                          })}
+                        </SettingsGroup>
+                      ) : (
+                        <EmptyState
+                          title={
+                            remainingCapacity === 0
+                              ? "No room left in this Circle"
+                              : peopleSearch.trim()
+                                ? "No matching connections"
+                                : "No connections to add"
+                          }
+                          description={
+                            remainingCapacity === 0
+                              ? "Circle is full."
+                              : peopleSearch.trim()
+                                ? undefined
+                                : undefined
+                          }
+                          // A sentence pointing at Connect, shown inside a
+                          // sheet that covers Connect, with nothing to press.
+                          // A first-run person reaches this two taps after
+                          // being told "invite people you're connected to",
+                          // having none.
+                          action={
+                            remainingCapacity !== 0 && !peopleSearch.trim() ? (
+                              <SheetClose asChild>
+                                <Link
+                                  href={`${ROUTES.CONNECT}?tab=all`}
+                                  className={cn(
+                                    buttonVariants({
+                                      variant: "outline",
+                                      size: "sm",
+                                    }),
+                                  )}
+                                >
+                                  Find people
+                                </Link>
+                              </SheetClose>
+                            ) : undefined
+                          }
+                        />
+                      )}
+
+                      {peopleHasMore && !peopleLoading ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={peopleLoadingMore}
+                          isLoading={peopleLoadingMore}
+                          onClick={() =>
+                            void loadEligibleConnections({
+                              page: peoplePage + 1,
+                              append: true,
+                            })
+                          }
+                          className="h-11 w-full rounded-full"
+                        >
+                          Load more connections
+                        </Button>
+                      ) : null}
+
+                      {pendingInvites.length ? (
+                        <SettingsGroup
+                          title="Pending"
+                          headingClassName={
+                            CIRCLE_SHEET_NEXT_GROUP_HEADING_CLASSNAME
+                          }
+                        >
+                          {pendingInvites.map((invite) => (
+                            <SettingsRow
+                              key={invite.id}
+                              leading={
+                                <ConnectionPersonAvatar
+                                  label={
+                                    invite.inviteeDisplayName ||
+                                    "One connection"
+                                  }
+                                  photoUrl={invite.inviteePhotoUrl}
+                                  className="h-10 w-10"
+                                />
+                              }
+                              title={
+                                invite.inviteeDisplayName || "One connection"
+                              }
+                              description="Waiting"
+                              trailing={
+                                <Button
+                                  type="button"
+                                  variant="ghost"
+                                  disabled={Boolean(cancellingInviteId)}
+                                  isLoading={cancellingInviteId === invite.id}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    void cancelMemberInvite(invite.id);
+                                  }}
+                                  className="h-11 rounded-full px-3 text-destructive hover:text-destructive"
+                                >
+                                  Cancel
+                                </Button>
+                              }
+                            />
+                          ))}
+                        </SettingsGroup>
+                      ) : null}
+                    </div>
+                  )}
+                </div>
+
+                <Button
+                  type="button"
+                  disabled={
+                    !selectedConnections.size ||
+                    peopleLoading ||
+                    peopleSubmitting ||
+                    Boolean(cancellingInviteId)
+                  }
+                  isLoading={peopleSubmitting}
+                  onClick={() => void sendMemberInvites()}
+                  className={cn(
+                    "h-12 w-full shrink-0 rounded-full text-base font-semibold",
+                    BLOCKED_CTA,
+                  )}
+                >
+                  {selectedConnections.size
+                    ? `Add ${selectedConnections.size} ${
+                        selectedConnections.size === 1 ? "person" : "people"
+                      }`
+                    : "Add people"}
+                </Button>
+              </div>
+            </SheetContent>
+          </Sheet>
+
+          {/* One section, in reading order: what this is, how to narrow it,
+              then the list. The search field used to sit ABOVE the "Members"
+              heading, so the screen offered a way to filter a list it had not
+              introduced yet -- and the heading it belonged to arrived after
+              it, under `SettingsGroup`'s own 28px top margin. */}
+          <section
+            className="space-y-2.5"
+            aria-labelledby={CIRCLE_MEMBERS_HEADING_ID}
+          >
+            <div className="flex items-baseline justify-between gap-3 px-1.5">
+              <SectionLabel
+                id={CIRCLE_MEMBERS_HEADING_ID}
+                role="heading"
+                aria-level={2}
+              >
+                Members
+              </SectionLabel>
+              {/* The count, not "Members connect through this Circle." -- the
+                  invite card two cards up already says how membership works,
+                  and a sentence that repeats it is a line of prose between a
+                  heading and the thing it heads.
+
+                  Under an active query it counts what is ON SCREEN. The same
+                  "3 people" above a filtered list of one is the heading
+                  contradicting the list it heads. */}
+              <TrailingValue>{memberCountLabel}</TrailingValue>
+            </div>
+
+            {showMemberSearch ? (
+              <label className="relative block">
+                <span className="sr-only">Search members</span>
+                <Search className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                {/* The app's own field, so this search box and Connect's are
+                    one control rather than two that resemble each other. */}
+                <input
+                  value={memberSearch}
+                  onChange={(event) => setMemberSearch(event.target.value)}
+                  placeholder="Search members"
+                  autoComplete="off"
+                  className={cn(INPUT_CLASSNAME, "pl-11 pr-3.5")}
+                  data-testid="one-location-circle-member-search"
+                />
+              </label>
+            ) : null}
+
+            {filteredMembers.length ? (
+              <SettingsGroup
+                testId="one-location-circle-members"
+                // A synced Circle can hold up to 100 members (migration 158).
+                // Capping the card's own height and scrolling inside it keeps
+                // "Delete circle" and everything below reachable without
+                // paging through the whole roster first.
+                shellClassName={CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME}
+                contentClassName={CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME}
+              >
+                {filteredMembers.map((member) => (
+                  <CircleMemberRow
+                    key={member.userId}
+                    member={member}
+                    currentUserId={currentUserId}
+                    isOwner={Boolean(isOwner)}
+                    busy={busy}
+                    membersRemovable={circle.systemKind !== "trusted"}
+                    cancelling={cancellingUserId === member.userId}
+                    onCancelRequest={
+                      onCancelMemberRequest
+                        ? async () => {
+                            setCancellingUserId(member.userId);
+                            try {
+                              await onCancelMemberRequest(
+                                circle.id,
+                                member.userId,
+                              );
+                            } finally {
+                              setCancellingUserId(null);
+                            }
+                          }
+                        : undefined
+                    }
+                    onShare={() => onShareWithMember(circle.id, member.userId)}
+                    onRemove={async () => {
+                      await removeMember(member.userId);
+                    }}
+                    connecting={connectingUserId === member.userId}
+                    onConnect={async () => {
+                      if (connectingUserId) return;
+                      setConnectingUserId(member.userId);
+                      try {
+                        await onConnectMember(circle.id, member.userId, {
+                          displayName: member.displayName ?? null,
+                          photoUrl: member.photoUrl ?? null,
+                        });
+                      } finally {
+                        setConnectingUserId(null);
+                      }
+                    }}
+                  />
+                ))}
+              </SettingsGroup>
+            ) : (
+              <div className={CIRCLES_EMPTY_STATE_WRAPPER}>
+                <EmptyState
+                  title="No members found"
+                  description="Try a different name."
+                />
+              </div>
+            )}
+
+            {memberHasMore ? (
+              <Button
+                type="button"
+                variant="outline"
+                disabled={memberLoadingMore}
+                isLoading={memberLoadingMore}
+                onClick={() => void loadMoreMembers()}
+                className="h-11 w-full rounded-full"
+                data-testid="one-location-circle-members-load-more"
+              >
+                Load more members
+              </Button>
+            ) : null}
+          </section>
+
+          {/* A system Circle (today: SMS Contacts) is provisioned by the product
+              and read by SOS, so deleting it would switch emergency alerts off
+              with nothing on screen saying so. Every other owner power stays --
+              rename, invite, remove. The API and a database trigger refuse the
+              delete too; this only keeps the person from being offered
+              something that cannot happen. */}
+          {canDeleteCircle ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
+                >
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete circle
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Delete “{circle.name}”?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    This removes the Circle for everyone. Circle shares will
+                    stop. Direct shares stay unchanged.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="h-11 w-full sm:w-auto">
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() => void deleteCircle()}
+                    className="h-11 w-full sm:w-auto"
+                  >
+                    Delete Circle
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : canLeaveCircle ? (
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={busy}
+                  className={cn(CARD_SURFACE, CIRCLE_DESTRUCTIVE_ACTION)}
+                >
+                  <LogOut className="mr-2 h-4 w-4" />
+                  Leave circle
+                </Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Leave “{circle.name}”?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Circle shares with you will stop. Direct shares stay
+                    unchanged.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel className="h-11 w-full sm:w-auto">
+                    Cancel
+                  </AlertDialogCancel>
+                  <AlertDialogAction
+                    variant="destructive"
+                    disabled={busy}
+                    onClick={() => void leaveCircle()}
+                    className="h-11 w-full sm:w-auto"
+                  >
+                    Leave Circle
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          ) : null}
+        </>
+      ) : !loadError ? (
+        <div className="flex min-h-40 items-center justify-center rounded-[var(--app-card-radius-standard,24px)] bg-muted/35">
+          <ShieldCheck className="h-8 w-8 animate-pulse text-muted-foreground" />
+        </div>
+      ) : null}
+    </div>
+  );
+}

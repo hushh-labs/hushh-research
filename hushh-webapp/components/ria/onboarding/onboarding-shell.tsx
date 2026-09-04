@@ -1,9 +1,10 @@
 "use client";
 
 import type { ReactNode } from "react";
-import { ArrowRight, ChevronLeft, Loader2, User } from "lucide-react";
+import { ChevronLeft, User } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { RiaProgress } from "@/components/ria/ui/ria-primitives";
+import { useScrollReset } from "@/lib/navigation/use-scroll-reset";
+import { Button } from "@/lib/morphy-ux/button";
 
 export function OnboardingShell({
   currentStepIndex,
@@ -14,10 +15,13 @@ export function OnboardingShell({
   canContinue,
   saving,
   isFirstStep,
+  advisoryAccessReady = false,
+  hideTerminal = false,
   allowInvalidPress = false,
   heroImage,
   onBack,
   onContinue,
+  onSkip,
   children,
 }: {
   currentStepIndex: number;
@@ -30,10 +34,11 @@ export function OnboardingShell({
   isFirstStep: boolean;
   isLastStep: boolean;
   advisoryAccessReady: boolean;
-  // Decorative advisor photo for the step. "hero" = full-bleed image above the
-  // eyebrow (Welcome); "accent" = smaller image tucked to the top-right,
-  // overlapping the header (all other steps). Transparent, feather-edged PNGs
-  // that blend into the canvas — purely presentational (empty alt by default).
+  hideTerminal?: boolean;
+  // Decorative advisor photo for the step. "accent" is the shared compact
+  // top-right composition used by every current RIA setup step. "hero" stays
+  // available for a future full-bleed flow, but is not a special Welcome case.
+  // Images are purely presentational (empty alt by default).
   // `badge` renders the circular "ADVISOR" flourish over the accent photo
   // (Verification step).
   heroImage?: {
@@ -51,51 +56,62 @@ export function OnboardingShell({
   // page can still pass it without a visible back control (design has none).
   onBack?: () => void;
   onContinue: () => void;
+  onSkip?: () => void | Promise<void>;
   children: ReactNode;
 }) {
   const continueDisabled = saving || (!canContinue && !allowInvalidPress);
   const isHero = heroImage?.variant === "hero";
   const isAccent = heroImage?.variant === "accent";
+  useScrollReset(currentStepIndex, { enabled: true });
   return (
-    <div className="mx-auto flex w-full max-w-[393px] flex-col px-6 pb-0 pt-1">
+    <div className="mx-auto flex w-full max-w-[54rem] flex-col px-6 pb-[calc(var(--app-bottom-inset)+6rem)]">
       <div className="flex w-full flex-col">
         {/* Progress + step counter share one row (design has no back arrow —
             back/forward is by swipe within the pinned chrome). */}
-        <div className="flex items-center gap-[14px] pt-1">
-          {!isFirstStep && onBack ? (
-            <button
-              type="button"
-              aria-label="Go back to previous onboarding step"
-              onClick={onBack}
-              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full border transition-transform active:scale-95"
-              style={{
-                background: "var(--card)",
-                borderColor: "var(--ria-divider-outer)",
-                boxShadow: "0 4px 14px rgba(62,48,30,0.05)",
-                color: "var(--ria-muted)",
-              }}
-            >
-              <ChevronLeft className="h-4 w-4" strokeWidth={2.2} />
-            </button>
-          ) : null}
-          <RiaProgress
-            total={totalSteps}
-            currentIndex={currentStepIndex}
-            className="min-w-0 flex-1"
-          />
+
+      {/* Hide the progress bar step indicator if the user has already finished RIA onboarding previously */}
+      {!advisoryAccessReady && (
+        <div className="flex w-full items-center min-h-[3.5rem] mb-2 sm:mb-6 gap-4">
+          <div className="flex items-center justify-center h-10 w-10 shrink-0">
+            {!isFirstStep && onBack ? (
+              <button
+                type="button"
+                aria-label="Go back to previous step"
+                onClick={onBack}
+                className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-muted/20 text-muted-foreground transition-all hover:bg-muted/40 active:scale-95"
+              >
+                <ChevronLeft className="h-5 w-5" strokeWidth={2} />
+              </button>
+            ) : null}
+          </div>
+
+          <div className="flex min-w-0 flex-1 items-center gap-1.5" aria-hidden="true">
+            {Array.from({ length: totalSteps }, (_, i) => {
+              const isDone = i < currentStepIndex;
+              const isCurrent = i === currentStepIndex;
+              return (
+                <div
+                  key={i}
+                  className={cn(
+                    "h-1.5 flex-1 rounded-full transition-colors",
+                    isDone ? "bg-[color:var(--app-accent)]" :
+                    isCurrent ? "bg-[color:var(--app-accent)] opacity-60" :
+                    "bg-muted/40"
+                  )}
+                />
+              );
+            })}
+          </div>
+
           <span
             aria-label={`Step ${currentStepIndex + 1} of ${totalSteps}`}
-            className="inline-flex h-9 items-center rounded-[18px] border px-[14px] text-[14px] font-medium tabular-nums"
-            style={{
-              background: "var(--card)",
-              borderColor: "var(--ria-divider-outer)",
-              boxShadow: "0 4px 14px rgba(62,48,30,0.05)",
-              color: "var(--ria-muted)",
-            }}
+            className="flex h-7 items-center justify-center rounded-full bg-muted/20 px-3 text-[13px] font-medium tabular-nums tracking-wide text-muted-foreground"
           >
             {currentStepIndex + 1} / {totalSteps}
           </span>
         </div>
+      )}
+
         <span role="status" aria-atomic="true" className="sr-only">
           {`Step ${currentStepIndex + 1} of ${totalSteps}`}
         </span>
@@ -170,19 +186,19 @@ export function OnboardingShell({
               ) : null}
             </div>
           ) : null}
-          <p className="ria-eyebrow">{eyebrow}</p>
+          <p className="ui-text-section-label mb-2 block px-[6px]">{eyebrow}</p>
           <h1
             className={cn(
               "ria-screen-title",
               isHero && "ria-screen-title--hero",
-              isAccent ? "max-w-[212px]" : "max-w-[18ch]"
+              isAccent ? "max-w-[212px]" : "max-w-[18ch]", "text-3xl font-bold tracking-tight text-foreground sm:text-4xl"
             )}
           >
             {title}
           </h1>
           <p
             className={cn(
-              "text-[16px] leading-[1.4] text-[color:var(--ria-muted)]",
+              "text-[16px] leading-[1.5] text-muted-foreground",
               isAccent ? "max-w-[232px]" : "max-w-[34rem] text-[17px]"
             )}
           >
@@ -192,26 +208,37 @@ export function OnboardingShell({
 
         <div className={cn(isHero ? "mt-[22px]" : "mt-[18px]")}>{children}</div>
 
-        <div className="pb-[var(--ria-onboarding-cta-bottom-clearance)] pt-7">
-          <button
-            type="button"
-            disabled={continueDisabled}
-            onClick={onContinue}
-            className={cn(
-              "ria-cta w-full text-[17px]",
-              continueDisabled && "cursor-not-allowed opacity-40",
-            )}
-          >
-            {saving ? (
-              <Loader2 className="h-5 w-5 animate-spin" />
-            ) : (
-              <>
+        {!hideTerminal ? (
+          <div className="mt-8 space-y-1 pb-[calc(var(--app-bottom-inset)+6rem)]">
+            <div className="mx-auto w-full sm:max-w-[22rem]">
+              <Button
+                type="button"
+                onClick={onContinue}
+                loading={saving}
+                disabled={continueDisabled}
+                variant="blue-gradient"
+                effect="fill"
+                size="lg"
+                fullWidth
+                className="h-12 text-base"
+                data-voice-control-id="ria-onboarding-continue"
+                data-voice-label="Continue"
+                data-voice-purpose="Advance to the next RIA setup step"
+              >
                 Continue
-                <ArrowRight className="h-4 w-4" />
-              </>
-            )}
-          </button>
-        </div>
+              </Button>
+            </div>
+            {onSkip ? (
+              <button
+                type="button"
+                className="mx-auto block min-h-11 px-4 text-sm font-medium text-muted-foreground hover:text-foreground"
+                onClick={() => void onSkip()}
+              >
+                Skip for now
+              </button>
+            ) : null}
+          </div>
+        ) : null}
       </div>
     </div>
   );

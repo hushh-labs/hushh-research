@@ -27,7 +27,8 @@ flowchart LR
   index["pkm_index<br/>PK user_id<br/>available_domains<br/>domain_summaries<br/>total_attributes"]
   events["pkm_events<br/>append-only<br/>operation_type, path_set<br/>metadata"]
   projections["pkm_default_available_projections<br/>safe projection payload<br/>revocable"]
-  upgrades["pkm_migration_state<br/>pkm_upgrade_runs<br/>pkm_upgrade_steps"]
+  upgrades["pkm_migration_state<br/>pkm_upgrade_runs / steps / claims<br/>pkm_domain_commits"]
+  revisions["pkm_domain_revisions<br/>pkm_domain_revision_segments<br/>encrypted before-images"]
 
   user --> blob
   user --> manifest
@@ -40,6 +41,9 @@ flowchart LR
   scopes --> projections
   upgrades --> blob
   upgrades --> manifest
+  blob --> revisions
+  manifest --> revisions
+  revisions -->|owner rollback to new monotonic revision| blob
 ```
 
 ### PKM read/write and cache map
@@ -70,9 +74,9 @@ sequenceDiagram
   alt fresh cache
     Cache-->>UI: decrypted snapshot
   else cache miss
-    UI->>Api: GET /domain-data/{user_id}/{domain}?segment_ids=...
-    Api->>DB: read encrypted pkm_blobs rows
-    Api-->>UI: encrypted_blob only
+    UI->>Api: GET /domain-snapshot/{user_id}/{domain}?segment_ids=...
+    Api->>DB: coherently read encrypted blobs + exact manifest revision
+    Api-->>UI: DomainSnapshotV1 + ETag
     UI->>Vault: decrypt selected segments locally
     UI->>Cache: hydrate memory and secure device cache
   end
@@ -126,6 +130,96 @@ flowchart TB
   Generic client-side PKM upgrade runs for post-cutover schema and readability evolution.
 - `pkm_upgrade_steps`
   Per-domain resumable checkpoints for generic PKM upgrades. No plaintext or key material is stored here.
+- `pkm_upgrade_claims`
+  Short-lived server-issued authority bound to owner, run, domain, source revisions,
+  exact target contracts, commit id, and expiry.
+- `pkm_domain_commits`
+  Idempotent commit receipts and aggregate preservation results. No user values or
+  persistent value hashes are stored here.
+- `pkm_domain_revisions` and `pkm_domain_revision_segments`
+  Immutable encrypted before-images plus the exact manifest/path/scope/index metadata
+  needed to restore the domain without revision rollback or information loss.
+
+## PKM information planes
+
+| Plane | Contains | Excludes |
+| --- | --- | --- |
+| Encrypted core | One canonical copy of owner-authored facts, preferences, goals, relationships, entities, and durable decisions | Parser output, raw documents, debug fields, workflow state, market caches |
+| Encrypted source artifacts | Original statements, normalized extracts, receipts, and immutable source evidence addressed by content id | Agent-ready summaries and duplicate canonical holdings |
+| Derived views | Private-agent memory cards, Kai compatibility views, summaries, embeddings, analytics, and consent projections | New authoritative owner information |
+| Control and audit | Manifests, revisions, scope registry, coarse events, claims, and aggregate upgrade receipts | Plaintext values, prompts, model output, and raw extracts |
+| Recovery and quarantine | Lifetime encrypted origin snapshot, rolling rollback revisions, and uncertain legacy information | Private-agent context, MCP discovery, or public projections |
+
+### Reserved Source Library domain
+
+`source_library` is a fixed, canonical PKM capability boundary owned by the
+Source Library writer. It is not a consent scope, cloud-file catalog, raw-source
+store, or generic user domain. Semantic structure agents cannot select, create,
+redirect, or repurpose it.
+
+The mounted Google Drive, iCloud Drive, or local file remains the authoritative
+blob. Source Library keeps private encrypted `SourceLibraryMemoryV2` semantic
+and control memory for items, collections, reviewed knowledge, relationships,
+and logical roots. Its
+profile-scoped SQLite store is a rebuildable mapping and operations plane: it may
+hold opaque references, revisions, lifecycle state, timestamps, keyed lookup
+tokens, and encrypted device-local locators, but never document bytes, extracted
+text, plaintext paths or titles, recipient emails, provider identifiers, or raw
+content hashes.
+
+Hermes seals that local Source Library state with versioned AES-GCM keys derived
+from the unlocked vault key and a separate local-custody secret. The latter is a
+macOS Data Protection Keychain generic-password item configured for
+`WhenUnlockedThisDeviceOnly` and local user presence; it is cached only for the
+unlocked bridge session and is zeroized on lock, revocation, profile change, or
+disconnect. It is not an enclave-resident `SecKey`: the implementation must not
+claim Secure Enclave storage until a non-exportable `SecKey` adapter and its
+device re-enrollment lifecycle are shipped. Missing local custody with existing
+ciphertext fails closed as recovery/rebuild required rather than rotating a key.
+SQLite uses sealed fields and keyed lookup tokens, not full-page database
+encryption; its opaque mapping state remains rebuildable.
+
+Every `attr.source_library.*` form is non-discoverable, non-requestable, and
+non-authorizing. Source Library manifests expose no top-level consent scopes or
+externalizable paths, and the public-profile projection plane remains disabled.
+Sharing addresses a pinned file revision or reviewed knowledge artifact through
+an opaque `share_ref` and an owner-bound mounted share target. The provider file
+remains the source of truth; a SQLite share row is only local mapping state and
+never proves access, completes publication, or revokes a previously published
+file. Provider ACL administration and verified recipient-email roles are outside
+this mounted-filesystem contract.
+
+No field is deleted because it appears noisy. It must be classified into one of these
+planes. Unknown or conflicting information is preserved in an encrypted, private,
+non-exportable quarantine until deterministic local proof can place or restore it. The
+reserved encrypted segment id is `__quarantine_v1`; it is rejected if any manifest path
+makes it externalizable or any scope registry entry references it.
+
+## Upgrade safety contract
+
+1. Load `DomainSnapshotV1`; decrypt only ciphertext bound to its content and manifest revisions.
+2. Transform locally and classify every JSON occurrence as preserved, moved,
+   equal-value deduplicated, quarantined, or rejected.
+3. Accept only a complete aggregate `PreservationReceiptV1` with zero rejected occurrences.
+4. Obtain `UpgradeClaimV1`; commit with its exact idempotency key before the claim expires.
+5. Archive the active encrypted revision and commit the new active state atomically.
+6. On ambiguous transport failure, succeed only when `latest_upgrade_commit_id` matches
+   the claim commit id.
+7. Rollback restores ciphertext and metadata into a new monotonic revision and refreshes
+   affected encrypted exports. Owner-published public-profile projections are not
+   automatically republished; they remain owner-approved snapshots.
+
+The mandatory gate rehearses synthetic historical versions 0 through 4, heterogeneous
+arrays, sparse and unknown keys, financial statement/Plaid/KYC memory, Gmail-derived
+memory, private scopes, retired aliases, encryption round trips, idempotency, and rollback.
+Protected UAT additionally requires the redacted reviewer shape audit and live PKM/Kai/RIA
+route audit, the chained structure-agent evaluation, and the transaction-rolled-back
+PostgreSQL RPC rehearsal in `db/verify/pkm_v7_zero_loss_rehearsal.sql`. The gate requires
+`PKM_UPGRADE_REVIEWER_SHAPE_AUDIT=1`, `PKM_UPGRADE_STRUCTURE_AGENT_EVAL=1`,
+`PKM_UPGRADE_POSTGRES_REHEARSAL_URL`, and `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` when
+`PKM_UPGRADE_PROTECTED_UAT=1`. Financial v7 readers may ship while the server policy
+remains `off`; v7 writes require explicit cohort eligibility and an inactive kill switch,
+which is rechecked when the commit reaches the API rather than only when a claim is issued.
 
 ## Authority and sync model
 
@@ -146,9 +240,51 @@ Cloud writes to `pkm_index.domain_summaries` must therefore be treated as sync
 projection updates. They should be atomic and repairable, but they must not make
 local saves fail solely because the cloud projection is temporarily unavailable.
 
+## Private-agent automatic memory saving
+
+Automatic memory saving is an **opt-in, per-vault** preference stored only in the
+encrypted internal runtime-settings domain. It defaults to off. When enabled,
+One may save only backend-approved, medium/high-confidence create or extend
+memories with no active sharing recipients. Low-confidence, ambiguous,
+duplicate, new-domain, corrective, deletion, financial-normalization, and
+shared-memory changes remain review-first. Each automatic write carries an
+`owner_auto_save_policy` receipt that records the enabled policy version rather
+than claiming that the owner reviewed that individual memory.
+
+KYC onboarding has a separate first-party owner-confirmed path. It requires an
+unlocked private vault before the identity form is shown; an account without a
+vault is first sent through the vault-create flow. The person's `Save &
+Continue` action may then advance the UI immediately while the client organizes
+the submitted free-form narrative into private encrypted PKM facts in the
+background. It does not persist the raw narrative as an `about_me` value, and
+it never auto-writes a card with active sharing recipients. The action is
+recorded as an individual owner confirmation, not as the per-vault automatic
+memory policy above. The submitted KYC step remains complete even if background
+fact organization needs a retry; a transient PKM failure must never reopen KYC
+and make an owner repeat onboarding.
+
 ## Storage rules
 
 - New writes are PKM-only.
+- Unstructured, user-authored memory from Agent chat and the KYC external-agent
+  import uses the shared `POST /api/pkm/memory/proposals` pipeline before that
+  free-form content is written to PKM. Its Flash segmentation agent proposes independently reviewable
+  facts and dynamic domains (up to eight per proposal chunk); the client rejects a
+  truncated proposal rather than silently dropping details, then encrypts and
+  saves each confirmed candidate through the ordinary PKM write coordinator.
+- Large free-form imports are split client-side below the proposal request
+  limit and recursively narrowed when the segmentation model detects more than
+  eight facts. Diagnostic events carry only a correlation id, chunk index,
+  character count, card count, timing, and status; they never include the
+  imported text, vault key, or owner token.
+  Structured writers
+  (for example, KYC verification fields, portfolio records, workflow state,
+  and runtime settings) stay on their typed contracts and never send decrypted
+  domain data back through this semantic-ingestion path.
+- A scope-exposure update is one atomic metadata commit: the manifest, scope
+  registry, index projection, event, and encrypted blob manifest revision move
+  together. Coherent reads fail closed rather than treating mismatched revisions
+  as an empty profile.
 - Encrypted payloads are segmented by top-level domain and segment id.
 - Payload ciphertext remains opaque:
   - `ciphertext`
@@ -166,6 +302,25 @@ local saves fail solely because the cloud projection is temporarily unavailable.
 - Public profile publishing is an independent owner-controlled projection. It
   does not downgrade vault encryption, expose `pkm.read`, or grant access to
   non-consumer-visible data.
+
+### Private runtime-provider references
+
+Connections-owned Gemini configuration uses the existing encrypted PKM store,
+not a new database table or native secret store. The primary references are
+`pkm:runtime_secrets.llm.credential_mode` and
+`pkm:runtime_secrets.llm.gemini_api_key`. For a `byok` Gemini connection,
+`pkm:runtime_secrets.llm.gemini_transport` selects either `developer_api` or
+`vertex_api_key`; the latter also stores the selected Google Cloud project and
+Vertex location in encrypted runtime configuration references.
+
+The browser resolves a user key only after the canonical vault unlock and uses
+it for the current private-agent turn or the first authenticated voice relay
+bootstrap. The backend may validate or use that in-memory request value but
+never persists it in application state, a relay ticket, logs, telemetry, or a
+model prompt. A user may supply a Google Cloud Vertex API key with an explicit
+project and location; it is routed only to Vertex endpoints and is never
+guessed from key shape. OAuth grants and service-account JSON are not accepted.
+Managed background workflows continue to use Hussh workload identity.
 
 ## Partner and CRM boundary
 
@@ -223,7 +378,7 @@ sequenceDiagram
   participant Exports as consent_exports
 
   Connector->>Connector: generate X25519 keypair locally
-  Connector->>MCP: discover_user_domains(user_id)
+  Connector->>MCP: search_user_scopes(user_identifier)
   MCP->>PKM: read sanitized index/scope registry
   PKM-->>MCP: domains + dynamic scope handles
   Connector->>MCP: request_consent(scope, connector_public_key, key_id, alg)
@@ -239,7 +394,9 @@ sequenceDiagram
   Client->>Client: wrap export key to connector public key with X25519-AES256-GCM
   Client->>Consent: approve request with ciphertext + wrapped_key_bundle
   Consent->>Exports: store encrypted_data, iv, tag, wrapped_key_bundle, revisions
-  Connector->>MCP: get_encrypted_scoped_export(consent_token, expected_scope)
+  Connector->>MCP: check_consent_status(request_ref)
+  MCP-->>Connector: grant_ref after approval
+  Connector->>MCP: get_encrypted_scoped_export(grant_ref, expected_scope)
   MCP->>Exports: read ciphertext package
   Exports-->>MCP: encrypted export only
   MCP-->>Connector: encrypted_data + wrapped_key_bundle

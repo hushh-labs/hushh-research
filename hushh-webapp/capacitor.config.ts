@@ -4,6 +4,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
 import type { KeyboardResize, KeyboardStyle } from "@capacitor/keyboard";
 
 const BACKEND_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
+const WEB_DIR = process.env.NEXT_DIST_DIR?.trim() || "out";
 
 function hostFromUrl(raw: string | undefined): string | null {
   if (!raw) return null;
@@ -40,10 +41,16 @@ const NORMALIZED_BACKEND_URL = (() => {
 const config: CapacitorConfig = {
   appId: "com.hushh.app",
   appName: "Hussh One",
-  webDir: "out",
+  // Next writes static exports into `distDir` when it is overridden. Native
+  // release builds use that override to avoid colliding with a live web dev
+  // server, so Capacitor must consume the same directory.
+  webDir: WEB_DIR,
 
   // iOS-specific configuration
   ios: {
+    // Capacitor's notification router must remain the sole UNUserNotificationCenter
+    // delegate so Firebase Messaging can emit receipt and action events to JS.
+    handleApplicationNotifications: true,
     // SystemBars immersive mode: let app/CSS safe-area handling own spacing.
     contentInset: "never",
     allowsLinkPreview: true,
@@ -68,16 +75,17 @@ const config: CapacitorConfig = {
   },
 
   plugins: {
-    // Keyboard handling: `resize: "native"` (the plugin default) shrinks the
-    // WKWebView frame by the keyboard height, so 100dvh/svh and position:fixed
-    // bottom elements sit above the keyboard on EVERY screen with no per-screen
-    // JS — the standard iOS behavior. `scrollEnabled:false` (ios block) keeps
-    // the native scroll from fighting the frame shrink; all app scrolling is via
-    // inner overflow-y containers. NOTE: the chat popover must NOT also subtract
-    // a manual keyboard-height (that would double-shrink) — its sheet is plain
-    // 100dvh, which now shrinks with the webview.
+    // Keyboard handling — resize:"none" is intentional and load-bearing.
+    // "native" shrinks the whole WKWebView frame on every keyboard-animation
+    // frame, which recomputes every dvh/svh unit ~60x/sec → severe layout
+    // thrashing and vault jank (the reason it was reverted twice). Instead the
+    // frame stays fixed and keyboard AVOIDANCE is done in JS, event-driven:
+    // KeyboardInsetManager (components/keyboard-inset-manager.tsx) publishes the
+    // keyboard height as `--kb-height` once per show/hide, and fixed/bottom
+    // surfaces lift by it. This is jank-free AND covers every input surface.
+    // See mobile-bug-log B21. Do NOT flip this to "native" or "body".
     Keyboard: {
-      resize: "native" as KeyboardResize,
+      resize: "none" as KeyboardResize,
       style: "LIGHT" as KeyboardStyle,
       resizeOnFullScreen: false,
     },
@@ -87,7 +95,9 @@ const config: CapacitorConfig = {
       providers: ["google.com", "phone"],
     },
     FirebaseMessaging: {
-      presentationOptions: ["alert", "badge", "sound"],
+      // Foreground notification content belongs in Feed or the shared emergency
+      // UI. Keep only the badge so iOS does not duplicate banners or sounds.
+      presentationOptions: ["badge"],
     },
     HushhVault: {
       backendUrl: NORMALIZED_BACKEND_URL,

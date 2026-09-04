@@ -27,9 +27,8 @@
     "tests": []
   },
   "deliverables": [
-    "Brief reply",
-    "Detailed reply",
-    "optional firmer reply variant when correction is needed",
+    "one sendable reply",
+    "optional reply variant when explicitly requested",
     "shipped-vs-future distinction",
     "claim classification for material premise corrections",
     "repo-backed GitHub doc citations"
@@ -38,7 +37,7 @@
     "Docs updated",
     "GitHub doc links used",
     "Claim classification used",
-    "Reply variants provided"
+    "Reply is immediately sendable"
   ],
   "handoff_chain": [
     "comms-community",
@@ -50,6 +49,6 @@
     "mixing roadmap with runtime truth",
     "repo-relative paths instead of canonical GitHub doc links",
     "accepting contributor wording as repo truth",
-    "bloated drafted-reply variants beyond Brief/Detailed without need"
+    "unnecessary drafted-reply variants or memo structure"
   ]
 }

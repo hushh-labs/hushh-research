@@ -2,8 +2,14 @@
 
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
+import {
+  describeLocationAsk,
+  formatLocationDurationLabel,
+  locationAskFacts,
+} from "@/lib/one-location/duration-copy";
 
-export const ONE_LOCATION_GRANT_OPENED_EVENT = "hushh:one-location-grant-opened";
+export const ONE_LOCATION_GRANT_OPENED_EVENT =
+  "hushh:one-location-grant-opened";
 export const ONE_LOCATION_NOTIFICATION_OPEN_PARAM = "locationNotification";
 export const ONE_LOCATION_NOTIFICATION_OPEN_VALUE = "opened";
 export const ONE_LOCATION_GRANT_ID_PARAM = "grantId";
@@ -34,12 +40,19 @@ export type OneLocationWorkflowNotificationType =
   | "location_share_created"
   | "location_access_approved"
   | "location_share_revoked"
+  | "location_share_shortened"
+  | "location_share_duration_changed"
   | "location_share_expired"
   | "location_access_request"
   | "location_access_denied"
+  | "location_access_request_withdrawn"
   | "location_referral_invite"
   | "location_public_invite_submitted"
-  | "location_one_network_joined";
+  | "location_one_network_joined"
+  | "location_circle_member_invite"
+  | "location_circle_member_invite_accepted"
+  | "location_circle_member_added"
+  | "location_circle_code_joined";
 
 export type OneLocationNotificationSection =
   | "people"
@@ -65,6 +78,16 @@ const WORKFLOW_COPY: Record<
     title: "Location access removed",
     fallbackDescription: "Location access from a trusted person was removed.",
   },
+  location_share_shortened: {
+    title: "Location access shortened",
+    fallbackDescription: "A location share's remaining time was shortened.",
+  },
+  location_share_duration_changed: {
+    // One entry for both directions, because one event type carries both. The
+    // per-person line below names which way it went.
+    title: "Sharing time changed",
+    fallbackDescription: "A location share's end time changed.",
+  },
   location_share_expired: {
     title: "Location access expired",
     fallbackDescription: "A location share reached its expiry time.",
@@ -77,17 +100,42 @@ const WORKFLOW_COPY: Record<
     title: "Location request denied",
     fallbackDescription: "Your location request was denied.",
   },
+  location_access_request_withdrawn: {
+    title: "Location request taken back",
+    fallbackDescription: "Someone took back location request.",
+  },
   location_referral_invite: {
     title: "Location referral pending",
-    fallbackDescription: "A trusted person referred you into a location request flow.",
+    fallbackDescription:
+      "A trusted person referred you into a location request flow.",
   },
   location_public_invite_submitted: {
     title: "Public location request",
-    fallbackDescription: "Someone requested location access from your public link.",
+    fallbackDescription:
+      "Someone requested location access from your public link.",
   },
   location_one_network_joined: {
     title: "Connected on One",
     fallbackDescription: "A trusted person joined your One Network.",
+  },
+  location_circle_member_invite: {
+    title: "Circle invitation",
+    fallbackDescription: "A connection invited you to join a Circle.",
+  },
+  location_circle_member_invite_accepted: {
+    title: "Circle invitation accepted",
+    fallbackDescription: "Someone accepted your Circle invitation.",
+  },
+  location_circle_member_added: {
+    // There was no card to tap and no decision to make, so this is the only
+    // moment the person learns about it. The fallback still says a human did
+    // it -- "You were added to a Circle" reads as an intrusion by nobody.
+    title: "Added to a Circle",
+    fallbackDescription: "A connection added you to a Circle.",
+  },
+  location_circle_code_joined: {
+    title: "Someone joined your Circle",
+    fallbackDescription: "Someone used your Circle code to join.",
   },
 };
 
@@ -136,13 +184,19 @@ function writeOpenedGrantIds(userId: string, grantIds: string[]): void {
   }
 }
 
-export function isOneLocationGrantOpened(userId: string | null | undefined, grantId: string): boolean {
+export function isOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): boolean {
   const normalizedGrantId = String(grantId || "").trim();
   if (!userId || !normalizedGrantId) return false;
   return readOpenedGrantIds(userId).includes(normalizedGrantId);
 }
 
-export function markOneLocationGrantOpened(userId: string | null | undefined, grantId: string): void {
+export function markOneLocationGrantOpened(
+  userId: string | null | undefined,
+  grantId: string,
+): void {
   const normalizedUserId = String(userId || "").trim();
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedUserId || !normalizedGrantId) return;
@@ -181,9 +235,7 @@ function readSeenNotificationIds(userId: string): Set<string> {
     if (!raw) return new Set();
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed)
-      ? new Set(
-          parsed.map((item) => String(item || "").trim()).filter(Boolean),
-        )
+      ? new Set(parsed.map((item) => String(item || "").trim()).filter(Boolean))
       : new Set();
   } catch {
     return new Set();
@@ -199,7 +251,8 @@ function writeSeenNotificationIds(userId: string, ids: Set<string>): void {
     // Cap the stored history so it can never grow unbounded.
     const MAX_SEEN = 500;
     const all = Array.from(ids).filter(Boolean);
-    const trimmed = all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
+    const trimmed =
+      all.length > MAX_SEEN ? all.slice(all.length - MAX_SEEN) : all;
     storage.setItem(
       seenNotificationsStorageKey(normalizedUserId),
       JSON.stringify(trimmed),
@@ -312,7 +365,9 @@ export function oneLocationGrantTaskId(grantId: string): string {
 export function dismissOneLocationShareNotification(grantId: string): void {
   const normalizedGrantId = String(grantId || "").trim();
   if (!normalizedGrantId) return;
-  AppBackgroundTaskService.dismissTask(oneLocationGrantTaskId(normalizedGrantId));
+  AppBackgroundTaskService.dismissTask(
+    oneLocationGrantTaskId(normalizedGrantId),
+  );
 }
 
 export function oneLocationWorkflowTaskId(
@@ -325,7 +380,10 @@ export function oneLocationWorkflowTaskId(
 export function buildOneLocationNotificationHref(grantId: string): string {
   const params = new URLSearchParams();
   params.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
-  params.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+  params.set(
+    ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+    ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+  );
   params.set(ONE_LOCATION_SECTION_PARAM, "shared");
   return `/one/location?${params.toString()}`;
 }
@@ -365,6 +423,8 @@ export function buildOneLocationWorkflowHref(params: {
   requestId?: string | null;
   referralId?: string | null;
   submissionId?: string | null;
+  circleInviteId?: string | null;
+  circleId?: string | null;
   section?: OneLocationNotificationSection | null;
   openGrant?: boolean;
 }): string {
@@ -373,14 +433,23 @@ export function buildOneLocationWorkflowHref(params: {
   const requestId = String(params.requestId || "").trim();
   const referralId = String(params.referralId || "").trim();
   const submissionId = String(params.submissionId || "").trim();
+  const circleInviteId = String(params.circleInviteId || "").trim();
+  const circleId = String(params.circleId || "").trim();
   const section = String(params.section || "").trim();
   if (grantId) query.set(ONE_LOCATION_GRANT_ID_PARAM, grantId);
   if (requestId) query.set(ONE_LOCATION_REQUEST_ID_PARAM, requestId);
   if (referralId) query.set(ONE_LOCATION_REFERRAL_ID_PARAM, referralId);
   if (submissionId) query.set(ONE_LOCATION_SUBMISSION_ID_PARAM, submissionId);
+  if (circleInviteId) query.set("circleInviteId", circleInviteId);
+  // Same param the hub writes when you open a Circle yourself, so a tap from
+  // a notification or the feed lands on the Circle rather than the list.
+  if (circleId) query.set("circleId", circleId);
   if (section) query.set(ONE_LOCATION_SECTION_PARAM, section);
   if (grantId && params.openGrant) {
-    query.set(ONE_LOCATION_NOTIFICATION_OPEN_PARAM, ONE_LOCATION_NOTIFICATION_OPEN_VALUE);
+    query.set(
+      ONE_LOCATION_NOTIFICATION_OPEN_PARAM,
+      ONE_LOCATION_NOTIFICATION_OPEN_VALUE,
+    );
   }
   const suffix = query.toString();
   return suffix ? `/one/location?${suffix}` : "/one/location";
@@ -393,9 +462,14 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_share_created":
     case "location_access_approved":
     case "location_share_revoked":
+    case "location_share_shortened":
+    case "location_share_duration_changed":
     case "location_share_expired":
       return "shared";
     case "location_access_request":
+    // Goes to the same list the ask itself did. The card there is the thing
+    // that just disappeared, so that is where the owner needs to land.
+    case "location_access_request_withdrawn":
       return "approvals";
     case "location_access_denied":
       return "my_requests";
@@ -404,6 +478,10 @@ export function oneLocationSectionForWorkflowNotificationType(
     case "location_referral_invite":
       return "my_requests";
     case "location_one_network_joined":
+    case "location_circle_member_invite":
+    case "location_circle_member_invite_accepted":
+    case "location_circle_member_added":
+    case "location_circle_code_joined":
       return "people";
     default:
       return "activity";
@@ -419,7 +497,8 @@ export function privacySafeOneLocationNotificationLabel(
   fallback = "A trusted person",
 ): string {
   const normalized = String(value || "").trim();
-  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized)) return fallback;
+  if (!normalized || MASKED_PHONE_ONLY_PATTERN.test(normalized))
+    return fallback;
   return normalized.replace(MASKED_PHONE_SUFFIX_PATTERN, "").trim() || fallback;
 }
 
@@ -435,29 +514,67 @@ export function privacySafeOneLocationNotificationBody(
   return normalized.replace(MASKED_PHONE_BODY_PATTERN, "").trim() || fallback;
 }
 
-export function locationShareNotificationDescription(ownerLabel?: string | null): string {
+export function locationShareNotificationDescription(
+  ownerLabel?: string | null,
+): string {
   const label = privacySafeOneLocationNotificationLabel(ownerLabel);
   return `${label} shared location access with you.`;
 }
 
 /** The share intents a recipient notification can represent. */
 export type OneLocationShareKind = "sos" | "check_in" | "drive_to" | "share";
+export const ONE_LOCATION_SMS_EMERGENCY_PROFILE = "one_location_sms_emergency";
+export const ONE_LOCATION_SMS_EMERGENCY_CATEGORY = "ONE_LOCATION_SMS_EMERGENCY";
+
+export function isOneLocationSmsEmergencyAlert(params: {
+  shareKind?: string | null;
+  notificationProfile?: string | null;
+}): boolean {
+  return (
+    String(params.notificationProfile || "")
+      .trim()
+      .toLowerCase() === ONE_LOCATION_SMS_EMERGENCY_PROFILE ||
+    normalizeOneLocationShareKind(params.shareKind) === "sos"
+  );
+}
 
 export function normalizeOneLocationShareKind(
   value?: string | null,
 ): OneLocationShareKind {
-  const normalized = String(value || "").trim().toLowerCase();
+  const normalized = String(value || "")
+    .trim()
+    .toLowerCase();
   if (normalized === "sos") return "sos";
   if (normalized === "check_in" || normalized === "checkin") return "check_in";
   if (normalized === "drive_to" || normalized === "drive") return "drive_to";
   return "share";
 }
 
-/** Short, human tag per share kind for badges/labels (SOS / Check-In / Share). */
+/**
+ * Whether a grant came from the Save My Soul panic flow -- the lane this UI
+ * calls "SMS".
+ *
+ * The minimum dependency of `lib/one-location/grant-lanes.ts`, which the SOS
+ * grant-lane split introduces: one owner can now hold an ordinary share and an
+ * SMS share at once, and the lanes have to tell them apart. Delegates to the
+ * same normalizer every other share-kind check in this module reads, so a
+ * grant cannot be classified one way here and another by its badge.
+ *
+ * Structural and optional rather than `Pick<OneLocationGrant, "shareKind">`:
+ * on this base `shareKind` is optional on the grant type, so the Pick form
+ * would demand a field every real caller may omit.
+ */
+export function isSmsTriggeredGrant(grant: {
+  shareKind?: string | null;
+}): boolean {
+  return normalizeOneLocationShareKind(grant.shareKind) === "sos";
+}
+
+/** Short, human tag per share kind for badges/labels (SMS / Check-In / Share). */
 export function oneLocationShareKindLabel(kind?: string | null): string {
   switch (normalizeOneLocationShareKind(kind)) {
     case "sos":
-      return "SOS";
+      return "SMS";
     case "check_in":
       return "Check-In";
     case "drive_to":
@@ -469,9 +586,8 @@ export function oneLocationShareKindLabel(kind?: string | null): string {
 
 /**
  * Kind-aware title + description for a received location share so the recipient
- * instantly sees WHAT it is (emergency SOS vs friendly Check-In vs plain share)
- * and WHY. A Check-In note is surfaced verbatim ("<Owner>: <message>"); SOS gets
- * urgent dedicated copy; a plain share keeps the neutral line.
+ * instantly sees WHAT it is (Save My Soul vs friendly Check-In vs plain share)
+ * and WHY. Fixed SMS and Check-In messages are surfaced with the sender label.
  */
 export function locationShareNotificationCopy(params: {
   ownerLabel?: string | null;
@@ -483,8 +599,10 @@ export function locationShareNotificationCopy(params: {
   const kind = normalizeOneLocationShareKind(params.shareKind);
   if (kind === "sos") {
     return {
-      title: "SOS alert",
-      description: `${label} triggered an SOS and is sharing live location with you. Open to view it now.`,
+      title: "SMS · Save my soul",
+      description: message
+        ? `${label}: ${message}`
+        : `${label} sent an SMS and shared live location with you. Open to view it now.`,
     };
   }
   if (kind === "check_in") {
@@ -492,13 +610,13 @@ export function locationShareNotificationCopy(params: {
       title: "Check-in shared",
       description: message
         ? `${label}: ${message}`
-        : `${label} checked in and shared their location with you.`,
+        : `${label} checked in and shared location with you.`,
     };
   }
   if (kind === "drive_to") {
     return {
       title: "Drive shared",
-      description: `${label} started sharing their drive and live ETA with you.`,
+      description: `${label} started sharing drive and live ETA with you.`,
     };
   }
   return {
@@ -507,7 +625,6 @@ export function locationShareNotificationCopy(params: {
   };
 }
 
-
 export function locationWorkflowNotificationCopy(params: {
   type: OneLocationWorkflowNotificationType;
   ownerLabel?: string | null;
@@ -515,6 +632,42 @@ export function locationWorkflowNotificationCopy(params: {
   referringLabel?: string | null;
   visitorLabel?: string | null;
   networkLabel?: string | null;
+  circleName?: string | null;
+  /**
+   * The ask, when this notification is about one. Without these an access
+   * request reads "Someone is asking to view your location" whether they want
+   * fifteen minutes or a day, and an approval reads "approved" without ever
+   * telling the person who asked which number they were given.
+   */
+  requestedDurationHours?: number | string | null;
+  requestedDurationMode?: string | null;
+  isExtension?: boolean;
+  /** Expiry of the share being extended, for "they have 45 more min left". */
+  extendsGrantExpiresAt?: string | null;
+  /** The duration actually granted, for approval copy. */
+  grantedDurationHours?: number | string | null;
+  grantedDurationMode?: string | null;
+  /**
+   * How much time an approved EXTENSION added, as opposed to the new total.
+   *
+   * Approving "30 min more" on a two-hour share leaves two and a half hours
+   * running (#6256), so `grantedDurationHours` is the total and putting it
+   * next to the word "more" reports a thirty-minute top-up as "2 hours 30 min
+   * more". Absent on notifications written before that fix, where the total
+   * really was what the approval granted.
+   */
+  addedDurationHours?: number | string | null;
+  /**
+   * Which lane the notification is about.
+   *
+   * A person can hold an ordinary share and an SMS/Save-My-Soul share with the
+   * same counterpart at once (see grant-lanes), so "your share ended" without
+   * naming the lane is ambiguous exactly when it matters most. `"sos"` is the
+   * emergency lane; anything else is an ordinary share.
+   */
+  shareKind?: string | null;
+  /** Clock injected so a list of notifications agrees on "now". */
+  nowMs?: number;
 }): { title: string; description: string } {
   const copy = WORKFLOW_COPY[params.type];
   const ownerLabel = privacySafeOneLocationNotificationLabel(params.ownerLabel);
@@ -522,21 +675,125 @@ export function locationWorkflowNotificationCopy(params: {
     params.requesterLabel,
     "Someone",
   );
-  const referringLabel = privacySafeOneLocationNotificationLabel(params.referringLabel);
-  const visitorLabel = privacySafeOneLocationNotificationLabel(params.visitorLabel, "Someone");
-  const networkLabel = privacySafeOneLocationNotificationLabel(params.networkLabel);
+  const referringLabel = privacySafeOneLocationNotificationLabel(
+    params.referringLabel,
+  );
+  const visitorLabel = privacySafeOneLocationNotificationLabel(
+    params.visitorLabel,
+    "Someone",
+  );
+  const networkLabel = privacySafeOneLocationNotificationLabel(
+    params.networkLabel,
+  );
+  const nowMs = params.nowMs ?? Date.now();
+  const askFacts = locationAskFacts(
+    {
+      requestedDurationHours:
+        params.requestedDurationHours === null ||
+        params.requestedDurationHours === undefined
+          ? null
+          : Number(params.requestedDurationHours),
+      requestedDurationMode: params.requestedDurationMode ?? null,
+      isExtension: params.isExtension,
+      extendsGrantExpiresAt: params.extendsGrantExpiresAt ?? null,
+    },
+    nowMs,
+  );
+  const grantedLabel =
+    params.grantedDurationMode === "until_stopped"
+      ? "for as long as you need"
+      : formatLocationDurationLabel(params.grantedDurationHours);
+  // The increment an extension added.
+  //
+  // Deliberately NOT falling back to `grantedLabel`. The total and the
+  // increment are different numbers now (#6256), and both delivery paths can
+  // arrive without the increment -- a push written before this shipped, or a
+  // reconciled payload whose two expiries were not both readable. Filling the
+  // gap with the total would announce a thirty-minute top-up of a two-hour
+  // share as "2 hours 30 min more", which is the same class of lie, five times
+  // larger, on the surface most likely to be the only one seen. An extension
+  // with no known increment says so without a number instead.
+  const addedLabel = formatLocationDurationLabel(params.addedDurationHours);
+
+  const revokedViaSms =
+    normalizeOneLocationShareKind(params.shareKind) === "sos";
 
   switch (params.type) {
     case "location_share_created":
+      return {
+        title: copy.title,
+        description: locationShareNotificationDescription(ownerLabel),
+      };
     case "location_access_approved":
+      // Name the number. "Approved" alone left the person who asked for four
+      // hours with no way to learn they had been given one until it ran out.
+      if (
+        askFacts.isExtension &&
+        params.grantedDurationMode === "until_stopped"
+      ) {
+        // An open-ended share cannot be given "more" of anything, and
+        // `grantedLabel` is the phrase "for as long as you need" -- which read
+        // as "gave you for as long as you need more of live location".
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} is now sharing live location until they stop.`,
+        };
+      }
+      if (addedLabel && askFacts.isExtension) {
+        return {
+          title: "More location time approved",
+          description: `${ownerLabel} gave you ${addedLabel} more of live location.`,
+        };
+      }
+      if (askFacts.isExtension) {
+        // Extension, increment unknown. Says the useful, certain thing -- how
+        // long they have now -- rather than dressing the total up as the
+        // amount that was added.
+        return {
+          title: "More location time approved",
+          description: grantedLabel
+            ? `${ownerLabel} gave you more location time. You now have ${grantedLabel}.`
+            : `${ownerLabel} gave you more location time.`,
+        };
+      }
+      if (grantedLabel) {
+        return {
+          title: copy.title,
+          description: `${ownerLabel} shared live location with you ${grantedLabel}.`,
+        };
+      }
       return {
         title: copy.title,
         description: locationShareNotificationDescription(ownerLabel),
       };
     case "location_share_revoked":
+      // "SMS location sharing" is what the recipient calls this -- an SMS alert
+      // is how it reached them. Told only that "location access" was removed,
+      // someone who has never opened an ordinary share is being informed about
+      // something they do not know by that name.
+      if (revokedViaSms) {
+        return {
+          title: "SMS location sharing stopped",
+          description: `${ownerLabel} stopped sharing location with you over SMS.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} removed your location access.`,
+      };
+    case "location_share_shortened":
+      return {
+        title: copy.title,
+        description: `${ownerLabel} shortened your location access.`,
+      };
+    case "location_share_duration_changed":
+      return {
+        title: copy.title,
+        // Deliberately not "gave you more time" / "shortened": which way it
+        // went lives in the event metadata, and this list is built from the
+        // notification alone. Naming the wrong direction is worse than naming
+        // none, and the share itself is one tap away with the real end time.
+        description: `${ownerLabel} changed the end time.`,
       };
     case "location_share_expired":
       return {
@@ -545,13 +802,28 @@ export function locationWorkflowNotificationCopy(params: {
       };
     case "location_access_request":
       return {
-        title: copy.title,
-        description: `${requesterLabel} is asking to view your location.`,
+        title: askFacts.isExtension
+          ? "More location time requested"
+          : copy.title,
+        description: `${requesterLabel} ${describeLocationAsk(askFacts)}`,
       };
     case "location_access_denied":
+      // A refused extension has to say the access already held is untouched.
+      // Read as a bare "denied", it looks like everything just stopped.
+      if (askFacts.isExtension) {
+        return {
+          title: "Extra time declined",
+          description: `${ownerLabel} declined the extra time. Any access you already have is unchanged.`,
+        };
+      }
       return {
         title: copy.title,
         description: `${ownerLabel} denied your location request.`,
+      };
+    case "location_access_request_withdrawn":
+      return {
+        title: copy.title,
+        description: `${requesterLabel} took back location request.`,
       };
     case "location_referral_invite":
       return {
@@ -568,6 +840,36 @@ export function locationWorkflowNotificationCopy(params: {
         title: copy.title,
         description: `${networkLabel} is now connected with you on One.`,
       };
+    case "location_circle_member_invite":
+      return {
+        title: copy.title,
+        description: `${networkLabel} invited you to join a Circle.`,
+      };
+    case "location_circle_member_invite_accepted":
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined your Circle.`,
+      };
+    case "location_circle_member_added": {
+      // Named, always. Nobody accepted anything here, so the only thing that
+      // turns this from an intrusion into an ordinary social act is knowing
+      // whose Circle you are now in -- and, when the payload carries it, which
+      // one.
+      const circleName = String(params.circleName || "").trim();
+      return {
+        title: copy.title,
+        description: circleName
+          ? `${networkLabel} added you to ${circleName}.`
+          : `${networkLabel} added you to a Circle.`,
+      };
+    }
+    case "location_circle_code_joined":
+      // The one signal that a shared code worked. Named rather than generic,
+      // because "someone" is exactly what the sender already knew.
+      return {
+        title: copy.title,
+        description: `${networkLabel} joined using your Circle code.`,
+      };
     default:
       return { title: copy.title, description: copy.fallbackDescription };
   }
@@ -577,14 +879,13 @@ export function locationWorkflowNotificationCopy(params: {
 // Consent-surface routing
 // ---------------------------------------------------------------------------
 // One Location is a CONSENT feature, so its lifecycle events (share, access
-// request, approve, deny, revoke, expire) must surface in the consent
-// notification icon (the shield "Pending consents" dropdown) and the consent
-// manager tabs (Requests / Active Access / History) - NOT the general bell
-// (DebateTaskCenter / AppBackgroundTaskService). Those consent surfaces read
+// request, approve, deny, revoke, expire) must surface in the Consent Center
+// manager tabs (Requests / Active Access / History) and the Feed - NOT the
+// AppBackgroundTaskService task-active surface. Those consent surfaces read
 // from /api/consent/center/*, which now includes One Location rows via the
 // backend OneLocationCenterContributor merge. Dispatching this event nudges the
-// consent inbox + consent manager to refetch so the new row appears promptly
-// instead of waiting for the next poll.
+// consent manager to refetch so the new row appears promptly instead of
+// waiting for the next poll.
 function notifyConsentSurfaceRefresh(
   notificationType: string,
   id: string,
@@ -616,7 +917,8 @@ export function recordOneLocationShareNotification(params: {
 }): boolean {
   const userId = String(params.userId || "").trim();
   const grantId = String(params.grantId || "").trim();
-  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId)) return false;
+  if (!userId || !grantId || isOneLocationGrantOpened(userId, grantId))
+    return false;
   // The recipient explicitly stopped watching this share - never re-notify.
   if (isOneLocationGrantUnwatched(userId, grantId)) return false;
 
@@ -626,12 +928,13 @@ export function recordOneLocationShareNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the recipient's "Shared with me" section, so the
-  // share is reachable from the bell - not only the transient toast. The copy is
-  // kind-aware so the bell entry reads "SOS alert" / "Check-in shared" (with the
+  // Surface via AppBackgroundTaskService (Feed tab spinner + task-active
+  // state) with an "Open" deep-link into the recipient's "Shared with me"
+  // section, so the share is reachable beyond the transient toast. The copy is
+  // kind-aware so the entry reads "SMS · Save my soul" / "Check-in shared" (with the
   // note) / "Location shared" instead of one generic line for every share.
-  const ownerLabel = String(params.ownerLabel || "").trim() || "A trusted person";
+  const ownerLabel =
+    String(params.ownerLabel || "").trim() || "A trusted person";
   const shareKind = normalizeOneLocationShareKind(params.shareKind);
   const { title, description } = locationShareNotificationCopy({
     ownerLabel,
@@ -647,7 +950,7 @@ export function recordOneLocationShareNotification(params: {
     description,
     routeHref: buildOneLocationNotificationHref(grantId),
     visibility: "primary",
-    groupLabel: "Onepoint",
+    groupLabel: "Location",
     autoClearAfterMs: 0,
     metadata: {
       grantId,
@@ -664,7 +967,6 @@ export function recordOneLocationShareNotification(params: {
   notifyConsentSurfaceRefresh("location_share_created", grantId);
   return true;
 }
-
 
 export function recordOneLocationWorkflowNotification(params: {
   userId: string;
@@ -686,9 +988,9 @@ export function recordOneLocationWorkflowNotification(params: {
   if (hasSeenOneLocationNotification(userId, eventId)) return false;
   markOneLocationNotificationSeen(userId, eventId);
 
-  // Surface in the bell (DebateTaskCenter / AppBackgroundTaskService) with an
-  // "Open" deep-link into the relevant One-Location section, so the workflow
-  // event is reachable from the bell - not only the transient toast.
+  // Surface via AppBackgroundTaskService (Feed tab spinner + task-active
+  // state) with an "Open" deep-link into the relevant One-Location section, so
+  // the workflow event is reachable beyond the transient toast.
   const taskId = oneLocationWorkflowTaskId(params.notificationType, id);
   AppBackgroundTaskService.startTask({
     taskId,
@@ -698,7 +1000,7 @@ export function recordOneLocationWorkflowNotification(params: {
     description: params.description,
     routeHref: params.routeHref || "/one/location",
     visibility: "primary",
-    groupLabel: "Onepoint",
+    groupLabel: "Location",
     autoClearAfterMs: 0,
     metadata: {
       notificationType: params.notificationType,
@@ -713,28 +1015,50 @@ export function recordOneLocationWorkflowNotification(params: {
   return true;
 }
 
-
-export function playOneLocationNotificationSound(): void {
+export function playOneLocationNotificationSound(
+  shareKind?: string | null,
+): void {
   if (typeof window === "undefined") return;
+  const isEmergency = normalizeOneLocationShareKind(shareKind) === "sos";
+  if (isEmergency && typeof navigator !== "undefined" && navigator.vibrate) {
+    navigator.vibrate([240, 120, 240, 120, 520]);
+  }
   const audioContextConstructor =
     window.AudioContext ||
-    (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    (window as typeof window & { webkitAudioContext?: typeof AudioContext })
+      .webkitAudioContext;
   if (!audioContextConstructor) return;
 
   try {
     const context = new audioContextConstructor();
     const oscillator = context.createOscillator();
     const gain = context.createGain();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, context.currentTime);
-    oscillator.frequency.exponentialRampToValueAtTime(660, context.currentTime + 0.12);
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.08, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 0.22);
+    const startedAt = context.currentTime;
+    oscillator.type = isEmergency ? "square" : "sine";
+    if (isEmergency) {
+      for (const offset of [0, 0.34, 0.68]) {
+        const pulseStart = startedAt + offset;
+        oscillator.frequency.setValueAtTime(980, pulseStart);
+        oscillator.frequency.exponentialRampToValueAtTime(
+          620,
+          pulseStart + 0.2,
+        );
+        gain.gain.setValueAtTime(0.0001, pulseStart);
+        gain.gain.exponentialRampToValueAtTime(0.1, pulseStart + 0.025);
+        gain.gain.setValueAtTime(0.1, pulseStart + 0.15);
+        gain.gain.exponentialRampToValueAtTime(0.0001, pulseStart + 0.24);
+      }
+    } else {
+      oscillator.frequency.setValueAtTime(880, startedAt);
+      oscillator.frequency.exponentialRampToValueAtTime(660, startedAt + 0.12);
+      gain.gain.setValueAtTime(0.0001, startedAt);
+      gain.gain.exponentialRampToValueAtTime(0.08, startedAt + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, startedAt + 0.22);
+    }
     oscillator.connect(gain);
     gain.connect(context.destination);
     oscillator.start();
-    oscillator.stop(context.currentTime + 0.24);
+    oscillator.stop(startedAt + (isEmergency ? 0.94 : 0.24));
     oscillator.onended = () => {
       void context.close().catch(() => undefined);
     };

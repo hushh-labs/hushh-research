@@ -48,7 +48,7 @@
     "backend",
     "iam-consent-governance",
     "mcp-developer-surface",
-    "kai-voice-governance"
+    "one-voice-governance"
   ],
   "common_failures": [
     "opening with defensive caveats instead of the platform thesis",

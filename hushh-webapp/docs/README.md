@@ -33,6 +33,7 @@ Brand contract: [`docs/reference/operations/brand-and-compatibility-contract.md`
 | -------- | ----- |
 | [plugin-api-reference.md](./plugin-api-reference.md) | Capacitor plugin contracts and parameter parity |
 | [kai-analysis-layout-and-review-mode.md](./kai-analysis-layout-and-review-mode.md) | Kai analysis UI layout and app-review runtime behavior |
+| [one-location-now-and-map.md](./one-location-now-and-map.md) | One Location "now" surface and immersive map behavior |
 | [profile-management-design-rules.md](./profile-management-design-rules.md) | Guardrails for Profile IA, page navigation, and non-analytical summary usage |
 
 ## Source Tree Indexes

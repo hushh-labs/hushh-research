@@ -15,11 +15,42 @@
   },
   "actions": [
     {
+      "action_id": "setup.open_connections",
+      "label": "Choose your AI",
+      "meaning": "Opens the AI access choice so the person can use Hussh's Gemini or add their own Gemini key.",
+      "aliases": [
+        "choose my ai",
+        "set up AI access",
+        "ai access",
+        "choose gemini",
+        "configure one",
+        "use my gemini key"
+      ],
+      "search_keywords": ["AI access", "gemini", "runtime", "key", "setup"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/connections"
+      },
+      "control_ids": ["one_setup_tile_connections"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
       "action_id": "setup.open_gmail",
       "label": "Connect Gmail",
-      "meaning": "Opens Gmail setup so One can understand approved brand affinities and keep a private memory of recent interactions.",
-      "aliases": ["set up gmail", "open gmail setup", "connect gmail"],
-      "search_keywords": ["gmail", "setup", "receipts"],
+      "meaning": "Opens Gmail setup so the person can choose whether to connect receipt sync and purchase memory.",
+      "aliases": ["connect gmail", "set up gmail", "open gmail setup"],
+      "search_keywords": ["gmail", "receipt", "email", "setup"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -35,6 +66,30 @@
         "target": "/one/setup/gmail"
       },
       "control_ids": ["one_setup_tile_gmail"],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "setup.open_calendar",
+      "label": "Connect your calendar",
+      "meaning": "Opens Calendar setup so the person can choose Calendar access for schedule summaries, availability, and confirmed meeting changes.",
+      "aliases": ["connect calendar", "set up calendar", "open calendar setup"],
+      "search_keywords": ["calendar", "schedule", "availability", "meeting", "setup"],
+      "reachability": {
+        "routes": ["/one/setup"],
+        "screens": ["one_setup_hub", "one_setup"],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": ["auth_signed_in"],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/calendar"
+      },
+      "control_ids": ["one_setup_tile_calendar"],
       "state_exposure": [],
       "docs_references": []
     },
@@ -68,16 +123,18 @@
     },
     {
       "action_id": "setup.open_email",
-      "label": "Let One draft for you",
-      "meaning": "Opens drafting setup for approval-gated drafting when One is invoked at one@hushh.ai.",
+      "label": "Identity checks",
+      "meaning": "Opens KYC setup so you can choose whether One prepares responses for approval.",
       "aliases": [
+        "identity checks",
         "kyc",
+        "set up kyc",
+        "open kyc setup",
         "let one draft for me",
-        "set up drafting",
         "set up email",
         "open email setup"
       ],
-      "search_keywords": ["kyc", "email", "draft", "approvals", "one@hushh.ai"],
+      "search_keywords": ["kyc", "email", "draft", "toggle"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],
@@ -98,9 +155,9 @@
     },
     {
       "action_id": "setup.open_finance",
-      "label": "Set up your finances",
+      "label": "Set up your money",
       "meaning": "Opens the Finance capability setup step from the setup hub.",
-      "aliases": ["set up finance", "open finance setup", "set up investing"],
+      "aliases": ["set up finance", "set up my money", "open finance setup", "set up investing"],
       "search_keywords": ["finance", "setup", "investing", "kai"],
       "reachability": {
         "routes": ["/one/setup"],
@@ -122,7 +179,7 @@
     },
     {
       "action_id": "setup.open_ria",
-      "label": "Set up RIA",
+      "label": "Set up your advisor profile",
       "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
       "aliases": ["set up ria", "set up my advisor profile", "open ria setup"],
       "search_keywords": ["ria", "advisor", "profile", "verification", "setup"],
@@ -146,15 +203,16 @@
     },
     {
       "action_id": "setup.open_connected_systems",
-      "label": "Link your record to external systems",
-      "meaning": "Opens external-system setup so the person can choose where One may find or create their record.",
+      "label": "Connect your CRM",
+      "meaning": "Opens CRM setup so the person can find an existing record or review creating one.",
       "aliases": [
         "link my record to external systems",
         "link my record",
         "link my tools",
         "set up connected systems",
         "show crm systems",
-        "connect crm"
+        "connect crm",
+        "connect my crm"
       ],
       "search_keywords": [
         "link tools",
@@ -183,16 +241,13 @@
     },
     {
       "action_id": "setup.hub_master_ack",
-      "label": "Skip or finish setup",
-      "meaning": "Resolves the master setup gate: Skip setup when nothing is set up yet, or Finish setup once at least one capability is ready, then opens One's home.",
+      "label": "Finish setup",
+      "meaning": "Validates the AI access choice, then requires the private vault to be created or unlocked before One opens home.",
       "aliases": [
-        "skip setup",
         "i'm done setting up",
-        "continue to home",
-        "finish setup",
-        "that's all for now"
+        "finish setup"
       ],
-      "search_keywords": ["skip", "continue", "done", "finish setup", "home"],
+      "search_keywords": ["finish", "done", "vault", "protect", "setup"],
       "reachability": {
         "routes": ["/one/setup"],
         "screens": ["one_setup_hub", "one_setup"],

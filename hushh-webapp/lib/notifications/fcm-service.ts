@@ -16,20 +16,52 @@ import { Capacitor } from "@capacitor/core";
 import { ApiService } from "@/lib/services/api-service";
 import { ROUTES } from "@/lib/navigation/routes";
 import { resolveConsentNavigationTarget } from "@/lib/consent/consent-sheet-route";
-import { resolveOneLocationNotificationHref } from "@/lib/one-location/notifications";
 import {
   assignWindowLocation,
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
+import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { resolveOneLocationNotificationHref } from "@/lib/one-location/notifications";
 
 // Event name for FCM messages (both web and native dispatch this)
 export const FCM_MESSAGE_EVENT = "fcm-message";
 const CONSENT_NOTIFICATION_ACTION_REVIEW = "CONSENT_REVIEW";
 const CONSENT_NOTIFICATION_ACTION_APPROVE = "CONSENT_APPROVE";
 const CONSENT_NOTIFICATION_ACTION_DENY = "CONSENT_DENY";
+const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
+const IOS_DEFAULT_NOTIFICATION_ACTION =
+  "com.apple.UNNotificationDefaultActionIdentifier";
+
+export function buildNotificationFeedTarget(
+  data: Record<string, unknown> | undefined,
+): string {
+  if (String(data?.type || "").trim().toLowerCase() !== "consent_request") {
+    return ROUTES.ONE_FEED;
+  }
+  const params = new URLSearchParams();
+  const requestId = String(data?.request_id || "").trim();
+  const bundleId = String(data?.bundle_id || "").trim();
+  if (requestId) params.set("notificationRequestId", requestId);
+  if (bundleId) params.set("notificationBundleId", bundleId);
+  const search = params.toString();
+  return search ? `${ROUTES.ONE_FEED}?${search}` : ROUTES.ONE_FEED;
+}
+
+function resolveNotificationFeedTarget(value: unknown): string {
+  const href = typeof value === "string" ? value.trim() : "";
+  if (!href || /[\r\n]/.test(href)) return ROUTES.ONE_FEED;
+  try {
+    const parsed = new URL(href, "https://hushh.local");
+    if (parsed.pathname !== ROUTES.ONE_FEED) return ROUTES.ONE_FEED;
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return ROUTES.ONE_FEED;
+  }
+}
 
 export type FCMInitStatus =
   | "push_active"
+  | "push_not_requested"
   | "push_blocked"
   | "push_failed"
   | "unsupported";
@@ -38,6 +70,10 @@ export interface FCMInitResult {
   status: FCMInitStatus;
   detail?: string;
 }
+
+export type FCMInitOptions = {
+  requestPermission?: boolean;
+};
 
 let nativeListenersConfigured = false;
 let nativeListenersPromise: Promise<void> | null = null;
@@ -364,15 +400,16 @@ async function clearFirebaseWebPushState(
  */
 export async function initializeFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions = {},
 ): Promise<FCMInitResult> {
   const isNative = Capacitor.isNativePlatform();
   lastKnownSession = { userId, idToken };
 
   if (isNative) {
-    return initializeNativeFCM(userId, idToken);
+    return initializeNativeFCM(userId, idToken, options);
   }
-  return initializeWebFCM(userId, idToken);
+  return initializeWebFCM(userId, idToken, options);
 }
 
 export async function prepareFCMListeners(): Promise<void> {
@@ -400,23 +437,65 @@ function setupWebServiceWorkerBridge(): void {
           title?: string;
           body?: string;
           delivery_id?: string;
+          click_id?: string;
+          url?: string;
           data?: Record<string, string>;
         }
       | undefined;
+    if (message?.type === "hushh:fcm_feed_changed") {
+      // Hidden peer tabs defer work. Their shared Feed hook refreshes the
+      // moment they become visible, avoiding one push fan-out becoming a
+      // separate Feed/count/actionables request burst in every open tab.
+      if (document.visibilityState === "visible") {
+        dispatchFeedStateChanged("action");
+      }
+      return;
+    }
+    if (message?.type === "hushh:fcm_notification_clicked") {
+      dispatchFeedStateChanged("action");
+      requestInternalAppNavigation({
+        href: resolveNotificationFeedTarget(message.url),
+        scroll: false,
+      });
+      if (message.click_id) {
+        const source = event.source as {
+          postMessage?: (value: unknown) => void;
+        } | null;
+        source?.postMessage?.({
+          type: "hushh:fcm_notification_click_ack",
+          click_id: message.click_id,
+        });
+      }
+      return;
+    }
     if (message?.type !== "hushh:fcm_push_received") return;
-    window.dispatchEvent(
-      new CustomEvent(FCM_MESSAGE_EVENT, {
-        detail: {
-          data: message.data || {},
-          notification: {
-            title: message.title || "Notification",
-            body: message.body || "",
-          },
-          source: "service_worker",
-        },
-      }),
-    );
-    if (message.delivery_id) {
+
+    // Visibility can change after the service worker chooses an owner. A tab
+    // that became hidden must not consume the acknowledgement and suppress the
+    // system notification that now owns presentation.
+    if (document.visibilityState !== "visible") {
+      dispatchFeedStateChanged("action");
+      return;
+    }
+    const detail = {
+      data: message.data || {},
+      notification: {
+        title: message.title || "Notification",
+        body: message.body || "",
+      },
+      source: "service_worker",
+      // The authenticated notification consumer flips this synchronously only
+      // after it accepts the payload for the active identity. Merely having a
+      // visible tab is not enough to suppress the worker's system fallback.
+      accepted: false,
+    };
+    window.dispatchEvent(new CustomEvent(FCM_MESSAGE_EVENT, { detail }));
+    // A push IS the server telling us there is new activity. Until this line
+    // the Feed learned about it only from its own 45s timer, so an event that
+    // had already lit up the phone's notification tray could still be missing
+    // from the list the person opened to look at it.
+    dispatchFeedStateChanged("arrived");
+    if (message.delivery_id && detail.accepted) {
       const source = event.source as { postMessage?: (value: unknown) => void } | null;
       source?.postMessage?.({
         type: "hushh:fcm_push_ack",
@@ -432,7 +511,8 @@ function setupWebServiceWorkerBridge(): void {
  */
 async function initializeNativeFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions,
 ): Promise<FCMInitResult> {
   try {
     if (
@@ -453,14 +533,27 @@ async function initializeNativeFCM(
     // notification or tap cannot be lost during native startup.
     await setupNativeListeners();
 
-    // Step 1: Request notification permissions
-    const permissionResult = await FirebaseMessaging.requestPermissions();
+    // Permission prompts are product actions. Normal authentication and app
+    // startup may re-register an already-granted token, but only an explicit
+    // user action (Location permissions or notification settings) can request
+    // authorization for the first time.
+    let permissionResult = await FirebaseMessaging.checkPermissions();
+    if (
+      permissionResult.receive !== "granted" &&
+      options.requestPermission === true &&
+      permissionResult.receive !== "denied"
+    ) {
+      permissionResult = await FirebaseMessaging.requestPermissions();
+    }
     console.log("[FCM] Permission result:", permissionResult);
 
     if (permissionResult.receive !== "granted") {
       console.warn("[FCM] Notification permission not granted");
+      const notRequested =
+        permissionResult.receive === "prompt" ||
+        permissionResult.receive === "prompt-with-rationale";
       return {
-        status: "push_blocked",
+        status: notRequested ? "push_not_requested" : "push_blocked",
         detail: `native_permission_${permissionResult.receive}`,
       };
     }
@@ -517,7 +610,8 @@ async function initializeNativeFCM(
  */
 async function initializeWebFCM(
   userId: string,
-  idToken: string
+  idToken: string,
+  options: FCMInitOptions,
 ): Promise<FCMInitResult> {
   try {
     console.log("[FCM] Initializing for web platform...");
@@ -541,6 +635,12 @@ async function initializeWebFCM(
     }
 
     if (Notification.permission !== "granted") {
+      if (options.requestPermission !== true) {
+        return {
+          status: "push_not_requested",
+          detail: "permission_default",
+        };
+      }
       const permission = await Notification.requestPermission();
       if (permission !== "granted") {
         console.warn("[FCM] Notification permission not granted");
@@ -728,6 +828,7 @@ async function initializeWebFCM(
             detail: payload,
           })
         );
+        dispatchFeedStateChanged("arrived");
       });
       webListenerConfigured = true;
     }
@@ -816,6 +917,7 @@ function setupNativeListeners(): Promise<void> {
               detail: notification,
             })
           );
+          dispatchFeedStateChanged("arrived");
         }),
       );
 
@@ -830,14 +932,41 @@ function setupNativeListeners(): Promise<void> {
             | undefined;
           const actionId = String(action.actionId || "tap").trim();
 
+          if (actionId === "dismiss") {
+            return;
+          }
+
+          // A body tap from outside the active app always enters through Feed.
+          // Explicit consent action buttons retain their confirmation route.
+          if (
+            actionId === "tap" ||
+            actionId === IOS_DEFAULT_NOTIFICATION_ACTION ||
+            actionId === ""
+          ) {
+            dispatchFeedStateChanged("action");
+            requestInternalAppNavigation({
+              href: buildNotificationFeedTarget(data),
+              scroll: false,
+            });
+            return;
+          }
+
+          // The explicit safety action is intentionally more direct than a
+          // routine body tap: it opens the validated live-location surface.
+          if (actionId === ONE_LOCATION_SMS_OPEN_ACTION) {
+            dispatchFeedStateChanged("action");
+            requestInternalAppNavigation({
+              href: resolveOneLocationNotificationHref(data),
+              scroll: false,
+            });
+            return;
+          }
+
           if (
             data &&
             typeof data.type === "string" &&
             data.type === "consent_request"
           ) {
-            if (actionId === "dismiss") {
-              return;
-            }
             const target = buildNativeConsentActionTarget(data, actionId);
             if (target.kind === "internal") {
               requestInternalAppNavigation({
@@ -847,35 +976,10 @@ function setupNativeListeners(): Promise<void> {
             } else {
               assignWindowLocation(target.href || buildConsentTargetPath(data));
             }
-          } else if (
-            data &&
-            typeof data.type === "string" &&
-            data.type === "kai_analysis_complete"
-          ) {
-            requestInternalAppNavigation({
-              href: ROUTES.KAI_DASHBOARD,
-              scroll: false,
-            });
-          } else if (
-            data &&
-            ((typeof data.type === "string" &&
-              data.type.startsWith("location_")) ||
-              (typeof data.notification_category === "string" &&
-                data.notification_category === "ONE_LOCATION"))
-          ) {
-            // One Location pushes (share/access-request/approval/etc). The
-            // backend puts the full in-app deep-link (with section / requestId /
-            // grantId / submissionId query params) in `request_url`; the
-            // redesign hub reads those params to open the correct tab
-            // (inbox / links / people). Fall back to `deep_link` or the hub
-            // root so a tap always lands on One Location, never Home.
-            requestInternalAppNavigation({
-              href: resolveOneLocationNotificationHref(data),
-              scroll: false,
-            });
           } else {
+            dispatchFeedStateChanged("action");
             requestInternalAppNavigation({
-              href: ROUTES.HOME,
+              href: ROUTES.ONE_FEED,
               scroll: false,
             });
           }

@@ -3,7 +3,7 @@
   "role": "owner",
   "owner_family": "subtree-upstream-governance",
   "primary_scope": "subtree-upstream-governance-intake",
-  "description": "Use when changing upstream-first coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.",
+  "description": "Use when changing optional-mirror coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.",
   "owned_paths": [
     "docs/reference/operations/subtree-maintainers.md",
     "scripts/ci/subtree-sync-check.sh",
@@ -26,7 +26,6 @@
     "contributing.md"
   ],
   "required_commands": [
-    "./scripts/ci/subtree-sync-check.sh",
     "python3 scripts/licenses/verify_apache_surface.py",
     "./bin/hushh docs verify"
   ],
@@ -34,12 +33,10 @@
     {
       "id": "subtree-upstream-governance",
       "commands": [
-        "./scripts/ci/subtree-sync-check.sh",
         "python3 scripts/licenses/verify_apache_surface.py",
         "./bin/hushh docs verify"
       ],
       "tests": [
-        "./scripts/ci/subtree-sync-check.sh",
         "./bin/hushh docs verify"
       ]
     }

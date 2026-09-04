@@ -1,59 +1,18 @@
-import pytest
-
-import hushh_mcp.adk_bridge  # noqa: F401  (ensures agent_connections is registered)
-from hushh_mcp.adk_bridge import _register_builtin_specialists
-from hushh_mcp.agents.orchestrator.tools import classify_specialist_domain
+import inspect
 
 
-@pytest.fixture(autouse=True)
-def _ensure_specialists_registered():
-    _register_builtin_specialists()
+def test_connections_require_a_semantic_one_selection() -> None:
+    from google.adk.tools.function_tool import FunctionTool
 
+    from hushh_mcp.one_adk import agent_tree
 
-def test_add_routes_to_connections():
-    assert classify_specialist_domain("add Alice to my trusted connections") == (
-        "connections",
-        "agent_connections",
-    )
+    source = inspect.getsource(agent_tree.ask_consent_agent)
+    assert 'Literal["consent", "connections"]' in source
+    assert "request words" in source
+    assert "agent_connections" in source
 
-
-def test_remove_routes_to_connections():
-    domain, target = classify_specialist_domain("remove Bob from my trusted connections")
-    assert target == "agent_connections"
-
-
-def test_who_do_i_trust_routes_to_connections():
-    domain, target = classify_specialist_domain("who do I trust")
-    assert target == "agent_connections"
-
-
-def test_general_chitchat_stays_general():
-    assert classify_specialist_domain("what's the weather") is None
-
-
-def test_resolve_delegate_target_blocks_unwired_connections():
-    from api.routes.kai.agent_chat import resolve_delegate_target
-
-    # The classifier routes connection phrasings to agent_connections, but on
-    # this branch the specialist stays UNWIRED until its callers construct
-    # ingress-validated A2AAuthorityContext objects (see adk_bridge.__init__:
-    # a raw One invocation token must never reach its ambient user-id service
-    # methods). resolve_delegate_target is fail-closed, so it returns None and
-    # the central planner path runs unchanged.
-    assert resolve_delegate_target("add Alice to my trusted connections") is None
-
-
-@pytest.mark.parametrize(
-    "msg",
-    [
-        "connect me with Priya",
-        "who are my connections",
-        "accept Priya's connection request",
-        "reject Sam's connection request",
-        "remove Alex from my connections",
-        "show my pending connection requests",
-    ],
-)
-def test_connection_phrasings_route_to_connections(msg):
-    domain, target = classify_specialist_domain(msg)
-    assert target == "agent_connections"
+    declaration = FunctionTool(agent_tree.ask_consent_agent)._get_declaration()
+    schema = declaration.parameters_json_schema
+    assert schema is not None
+    assert schema["properties"]["target"]["enum"] == ["consent", "connections"]
+    assert "tool_context" not in schema["properties"]

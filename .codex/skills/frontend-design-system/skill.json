@@ -21,6 +21,7 @@
     "bug-triage"
   ],
   "required_reads": [
+    "docs/reference/quality/design.md",
     "docs/reference/quality/design-system.md",
     "docs/reference/quality/frontend-ui-architecture-map.md",
     "docs/reference/quality/app-surface-design-system.md",

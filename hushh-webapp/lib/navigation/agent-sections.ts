@@ -1,9 +1,13 @@
-import { Briefcase, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { Laptop, LayoutDashboard } from "lucide-react";
 
 import {
   ONE_CAPABILITIES,
+  getOneCapability,
+  isOneCapabilityEnabled,
   type OneCapability,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
+  lucideCapabilityIcon,
 } from "@/lib/onboarding/one-capabilities";
 import { ROUTES } from "@/lib/navigation/routes";
 import type { AppBottomNavScope } from "@/lib/navigation/app-bottom-nav";
@@ -14,7 +18,7 @@ export interface AgentSection {
   id: string;
   label: string;
   href: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   routeFamily: AgentSectionRouteFamily;
   bottomNavScope: AppBottomNavScope;
   screenId: string;
@@ -47,6 +51,11 @@ const AGENT_SECTION_OVERRIDES: Record<
     screenId: "gmail",
     voiceRouteActionId: "route.profile_receipts",
   },
+  calendar: {
+    routeFamily: "one",
+    bottomNavScope: "one",
+    screenId: "calendar",
+  },
   email: {
     routeFamily: "one",
     bottomNavScope: "one",
@@ -75,7 +84,6 @@ const AGENT_SECTION_OVERRIDES: Record<
     routeFamily: "one",
     bottomNavScope: "one",
     screenId: "one_marketplace",
-    voiceRouteActionId: "route.one_marketplace",
   },
   "connected-systems": {
     routeFamily: "one",
@@ -87,9 +95,9 @@ const AGENT_SECTION_OVERRIDES: Record<
 
 const AGENTS_ROOT_SECTION: AgentSection = {
   id: "agents",
-  label: "Agents",
+  label: "One",
   href: ROUTES.ONE_HOME,
-  icon: LayoutDashboard,
+  icon: lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "one",
   bottomNavScope: "one",
   screenId: "one_agents",
@@ -105,14 +113,54 @@ const AGENTS_ROOT_SECTION: AgentSection = {
 const RIA_WORKSPACE_SECTION: AgentSection = {
   id: "ria",
   label: "RIA",
-  href: ROUTES.RIA_HOME,
-  icon: Briefcase,
+  href: ROUTES.RIA_PROFILE,
+  icon: getOneCapability("ria")?.icon ?? lucideCapabilityIcon(LayoutDashboard),
   routeFamily: "ria",
   bottomNavScope: "ria",
   screenId: "ria_home",
   controlId: "top_agent_section_ria",
+  tone: "ria",
   voiceRouteActionId: "route.ria_home",
 };
+
+// Puppy One is the agent running on the owner's own machine. It is authored
+// here rather than in ONE_CAPABILITIES because it has no consent-protocol
+// agent lane: there is no backend specialist to route to, only a local runtime
+// reached over loopback. It earns its own section rather than a mode of the
+// One chat because it is a different agent, with a different model and a
+// different memory, doing its work on hardware the owner owns.
+const PUPPY_WORKSPACE_SECTION: AgentSection = {
+  id: "puppy",
+  label: "Puppy One",
+  href: ROUTES.ONE_PUPPY,
+  icon: lucideCapabilityIcon(Laptop),
+  routeFamily: "one",
+  bottomNavScope: "one",
+  screenId: "one_puppy",
+  controlId: "top_agent_section_puppy",
+  voiceRouteActionId: "route.one_puppy",
+};
+
+// Finance onboarding is still a Finance surface even though its route lives
+// under `/one/setup`. Without these aliases the shared dropdown falls back to
+// the root One selection while a person is completing Finance preferences or
+// choosing a portfolio source.
+const AGENT_SECTION_ROUTE_ALIASES: Readonly<Record<string, readonly string[]>> =
+  {
+    finance: [
+      ROUTES.ONE_SETUP_FINANCE,
+      ROUTES.ONE_SETUP_FINANCE_IMPORT,
+      ROUTES.KAI_PLAID_OAUTH_RETURN,
+    ],
+    gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+    calendar: [
+      ROUTES.ONE_SETUP_CALENDAR,
+      ROUTES.PROFILE_GOOGLE_OAUTH_RETURN,
+    ],
+    // `/ria` remains a compatibility redirect. Keep it selected as RIA during
+    // the redirect rather than briefly falling back to the One root.
+    ria: [ROUTES.RIA_HOME],
+  };
 
 function normalizePathname(value: string | null | undefined): string {
   const raw =
@@ -156,7 +204,10 @@ function toAgentSection(capability: OneCapability): AgentSection {
 
 export function getAgentSections(): readonly AgentSection[] {
   const sections = ONE_CAPABILITIES.filter(
-    (capability) => capability.id !== "ria",
+    (capability) =>
+      capability.id !== "ria" &&
+      capability.isVisibleOnRoster !== false &&
+      isOneCapabilityEnabled(capability),
   ).map(toAgentSection);
   // RIA sits directly after Investor so the two finance personas stay
   // adjacent while remaining standalone top-level agents.
@@ -168,7 +219,11 @@ export function getAgentSections(): readonly AgentSection[] {
   } else {
     sections.push(RIA_WORKSPACE_SECTION);
   }
-  return sections;
+  sections.push(PUPPY_WORKSPACE_SECTION);
+  // One is the relationship-level app and the first destination in the
+  // selector. Specialist apps follow it; the durable internal id stays
+  // `agents` for generated voice/action compatibility.
+  return [AGENTS_ROOT_SECTION, ...sections];
 }
 
 export function getAgentSection(
@@ -188,9 +243,21 @@ export function resolveAgentSectionForPath(
 ): AgentSection | null {
   const normalizedPathname = normalizePathname(pathname);
 
+  if (normalizedPathname === ROUTES.ONE_HOME) {
+    return AGENTS_ROOT_SECTION;
+  }
+
   for (const section of getAgentSections()) {
-    const sectionPathname = normalizeHrefPathname(section.href);
-    if (isRoute(normalizedPathname, sectionPathname)) {
+    if (section.id === AGENTS_ROOT_SECTION.id) continue;
+    const sectionPaths = [
+      section.href,
+      ...(AGENT_SECTION_ROUTE_ALIASES[section.id] || []),
+    ];
+    if (
+      sectionPaths.some((path) =>
+        isRoute(normalizedPathname, normalizeHrefPathname(path)),
+      )
+    ) {
       return section;
     }
   }

@@ -14,8 +14,14 @@ project(':capacitor-firebase-messaging').projectDir = new File('../node_modules/
 include ':capacitor-app'
 project(':capacitor-app').projectDir = new File('../node_modules/@capacitor/app/android')
 
+include ':capacitor-camera'
+project(':capacitor-camera').projectDir = new File('../node_modules/@capacitor/camera/android')
+
 include ':capacitor-filesystem'
 project(':capacitor-filesystem').projectDir = new File('../node_modules/@capacitor/filesystem/android')
+
+include ':capacitor-google-maps'
+project(':capacitor-google-maps').projectDir = new File('../node_modules/@capacitor/google-maps/android')
 
 include ':capacitor-keyboard'
 project(':capacitor-keyboard').projectDir = new File('../node_modules/@capacitor/keyboard/android')

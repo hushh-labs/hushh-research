@@ -54,7 +54,7 @@ Every emitted observability event carries centrally added shared params:
 
 | Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
 | --- | --- | --- | --- | --- | --- |
-| `consent_pending_loaded` | Pending consent load outcome | `result` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health | GA DebugView |
+| `consent_pending_loaded` | Pending consent load outcome | `result`, `load_surface`, `pending_count_bucket` | `hushh-webapp/lib/services/api-service.ts` | consent inbox health; separates an ignored queue from an empty one, and a real screen view from the unlock warm prefetch | GA DebugView |
 | `consent_action_submitted` | Approve / deny / revoke submitted | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action attempts | GA DebugView |
 | `consent_action_result` | Approve / deny / revoke resolved | `action`, `result` | `hushh-webapp/lib/services/api-service.ts` | consent action success/failure outcomes | GA DebugView |
 | `profile_method_switch_result` | Vault/profile method switch outcome | `result` | `hushh-webapp/lib/services/vault-method-service.ts` | vault/profile migration health | GA DebugView |
@@ -144,6 +144,16 @@ These events are metadata-only. They must never include raw user IDs, emails, PK
 | `cache_resource_resolved` | Measures cache hit, stale-hit, miss, locked, or unsafe resolution without exposing cache keys | `resource_class`, `cache_tier`, `freshness`, `result`, `duration_ms_bucket` | Resource services and shared cache wrappers via `hushh-webapp/lib/observability/client.ts` | cache tier health, stale rate, miss rate, footprint trend | `npm run verify:analytics` |
 | `route_refresh_completed` | Measures background refresh outcome after stale render, focus, manual refresh, mutation, or warmup | `route_id`, `resource_class`, `refresh_trigger`, `result`, `duration_ms_bucket` | Route resource hooks and domain services via `hushh-webapp/lib/observability/client.ts` | refresh reliability, retry pressure, loader avoidance | `npm run verify:analytics`, `npm run audit:cache-coherence` |
 | `warmup_completed` | Measures route/resource warmup completion by safe cache tier | `resource_class`, `cache_tier`, `warm_priority`, `result`, `duration_ms_bucket` | Unlock warmup and route-adjacent warmers via `hushh-webapp/lib/observability/client.ts` | warmup usefulness, cold unlock friction, over-warm detection | `npm run verify:analytics` |
+
+## Agent PKM Reliability
+
+These events contain bounded aggregate buckets only. They must never include decrypted PKM facts, domains, scopes, prompts, identifiers, recipient labels, or error messages.
+
+| Event | Business purpose | Required params | Primary emitter | Destination use | Proof path |
+| --- | --- | --- | --- | --- | --- |
+| `agent_pkm_context_resolved` | Proves that an Agent turn received selected local PKM context and reports whether selection clipped or omitted unsafe nodes | `context_mode`, fact-count buckets, `context_clipped`, `inventory_only`, `safety_omitted`, `duration_ms_bucket` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | cold-unlock readiness, retrieval coverage, clipping trend | `npm run verify:analytics` |
+| `agent_pkm_context_unavailable` | Counts turns deliberately stopped before the model receives empty PKM context | `result`, bounded `reason` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | context-free personal-turn prevention | `npm run verify:analytics` |
+| `agent_pkm_save_confirmation_completed` | Measures user-confirmed PKM save completion without identifying what was saved or shared | `result`, saved/failed count buckets, `has_active_recipients` | `hushh-webapp/components/agent/agent-chat-workspace.tsx` | save-confirmation completion and sharing-impact reliability | `npm run verify:analytics` |
 
 ## Declared but Not Currently Emitted
 

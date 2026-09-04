@@ -10,7 +10,15 @@ import {
   useState,
 } from "react";
 import type { User } from "firebase/auth";
-import { Check, Loader2, ShieldCheck } from "lucide-react";
+import {
+  getCountryCallingCode,
+  isSupportedCountry,
+  Metadata,
+  parsePhoneNumberFromString,
+  type CountryCode,
+} from "libphonenumber-js/core";
+import mobilePhoneMetadata from "libphonenumber-js/mobile/metadata";
+import { Loader2, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
 
 import {
@@ -38,7 +46,8 @@ import {
   type CountryPhoneOption,
 } from "@/lib/constants/country-phone-options";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
-import { maskPhoneNumber } from "@/lib/services/phone-mandate-service";
+import { ApiService } from "@/lib/services/api-service";
+import { formatMaskedPhoneNumber } from "@/lib/services/phone-display";
 import { trackEvent } from "@/lib/observability/client";
 import {
   kaiAppCardTitleClassName,
@@ -48,16 +57,38 @@ import { cn } from "@/lib/utils";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
-const E164_PHONE_PATTERN = /^\+[1-9]\d{7,14}$/;
+/**
+ * Firebase reports a number that is verified on a *different* account with one
+ * of these. It is the case where somebody made an account earlier, forgot it,
+ * and is now blocked on a number they own — so the server mails them the
+ * masked address of the account that holds it.
+ */
+const PHONE_TAKEN_ERROR_CODES = new Set([
+  "credential-already-in-use",
+  "phone-number-already-exists",
+]);
+
+function isPhoneTakenByAnotherAccount(error: unknown): boolean {
+  const code = String((error as { code?: unknown })?.code ?? "").replace(
+    /^auth\//,
+    "",
+  );
+  return PHONE_TAKEN_ERROR_CODES.has(code);
+}
+
+// Country metadata owns national-number length and validity.
+const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
+const E164_MAX_DIGITS = 15;
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
 const FLOW_CONTROL_CLASS_NAME =
   "type-callout h-full rounded-[inherit] border-0 bg-transparent px-4 shadow-none focus-visible:border-transparent focus-visible:ring-0 dark:bg-transparent";
 const FLOW_SURFACE_RADIUS_CLASS_NAME = "rounded-[18px]";
-// 10a/11a immersive: solid black pill CTA (inverts to white in dark mode).
+// Theme-aware flat accent pill CTA (follows the accent preference: iOS Blue
+// default, Molten Gold opt-in). No gradient, no decorative shadow.
 const FLOW_CTA_CLASS_NAME =
-  "h-[54px] rounded-full border border-[rgba(214,175,106,0.55)] !bg-[#F4EAD6] !text-[#17130C] shadow-[0_10px_24px_rgba(0,0,0,0.2)] transition-transform hover:!bg-[#EFE2C7] active:scale-[0.99] motion-reduce:active:scale-100 dark:!bg-[#F4EAD6] dark:!text-[#17130C] dark:hover:!bg-[#EFE2C7]";
+  "h-[54px] rounded-full border-0 !bg-[var(--app-accent)] !text-[var(--app-accent-fg)] transition-[background-color,transform] duration-[var(--motion-duration-sm)] ease-[var(--motion-ease-standard)] hover:!bg-[var(--app-accent-hover)] active:scale-[0.99] motion-reduce:transition-none motion-reduce:active:scale-100";
 
 export type PhoneVerificationFlowMode = "link" | "replace";
 
@@ -72,10 +103,13 @@ type PhoneVerificationFlowProps = {
   onCompleted: (user?: User | null) => Promise<void> | void;
   onContinueExisting?: () => Promise<void> | void;
   onCancel?: () => void;
+  sendCodeLabel?: string;
   confirmLabel?: string;
+  primaryActionClassName?: string;
   className?: string;
   helperText?: string;
   style?: CSSProperties;
+  onStepChange?: (step: VerificationStep) => void;
 };
 
 type VerificationStep = "phone" | "code" | "linked";
@@ -89,6 +123,22 @@ type StartVerificationOutcome =
 
 type ConfirmVerificationOutcome = "verified" | "invalid" | "failed" | "busy";
 
+// Offer metadata-backed plans and keep NANP area codes in the national number.
+const PHONE_COUNTRY_OPTIONS: readonly CountryPhoneOption[] =
+  COUNTRY_PHONE_OPTIONS.filter((option) =>
+    isSupportedCountry(option.value as CountryCode, mobilePhoneMetadata),
+  ).map((option) => ({
+    ...option,
+    dialCode: `+${getCountryCallingCode(
+      option.value as CountryCode,
+      mobilePhoneMetadata,
+    )}`,
+  }));
+const DEFAULT_PHONE_COUNTRY_OPTION =
+  PHONE_COUNTRY_OPTIONS.find(
+    (option) => option.value === DEFAULT_COUNTRY_VALUE,
+  ) ?? PHONE_COUNTRY_OPTIONS[0]!;
+
 function getCountryOptionLabel(option: {
   label: string;
   dialCode: string;
@@ -98,15 +148,15 @@ function getCountryOptionLabel(option: {
 
 function getCountryOption(value: string): CountryPhoneOption {
   return (
-    COUNTRY_PHONE_OPTIONS.find((option) => option.value === value) ??
-    COUNTRY_PHONE_OPTIONS[0]!
+    PHONE_COUNTRY_OPTIONS.find((option) => option.value === value) ??
+    DEFAULT_PHONE_COUNTRY_OPTION
   );
 }
 
 function getCountryOptionForPhoneNumber(
   phoneNumber: string,
 ): CountryPhoneOption | undefined {
-  const matchingOptions = COUNTRY_PHONE_OPTIONS.filter((option) =>
+  const matchingOptions = PHONE_COUNTRY_OPTIONS.filter((option) =>
     phoneNumber.startsWith(option.dialCode),
   ).sort((left, right) => right.dialCode.length - left.dialCode.length);
   const firstMatch = matchingOptions[0];
@@ -130,7 +180,60 @@ function sanitizeDialCode(value: string): string {
 }
 
 function sanitizeLocalPhoneNumber(value: string): string {
-  return value.replace(/\D/g, "").slice(0, 15);
+  return value.replace(/\D/g, "");
+}
+
+type MobileNumberTypeMetadata = {
+  possibleLengths: () => number[];
+};
+
+type MobileAwareMetadata = Metadata & {
+  type: (type: "MOBILE") => MobileNumberTypeMetadata | undefined;
+};
+
+const mobileNumberLengthCache = new Map<
+  string,
+  { minimum: number; maximum: number }
+>();
+
+export function getMobileNumberLengthRange(countryValue: string): {
+  minimum: number;
+  maximum: number;
+} {
+  const dialCode = getCountryOption(countryValue).dialCode;
+  const cacheKey = `${countryValue}:${dialCode}`;
+  const cached = mobileNumberLengthCache.get(cacheKey);
+  if (cached) return cached;
+
+  const fallbackMaximum = Math.max(
+    1,
+    E164_MAX_DIGITS - dialCode.replace(/\D/g, "").length,
+  );
+  let range = { minimum: 1, maximum: fallbackMaximum };
+
+  try {
+    const metadata = new Metadata(mobilePhoneMetadata);
+    metadata.selectNumberingPlan(countryValue as CountryCode);
+    // The package exposes this metadata view at runtime but not in its TS API.
+    const mobileType = (metadata as MobileAwareMetadata).type("MOBILE");
+    const possibleLengths = (mobileType?.possibleLengths() ?? [])
+      .filter(
+        (length) =>
+          Number.isInteger(length) && length > 0 && length <= fallbackMaximum,
+      )
+      .sort((left, right) => left - right);
+    if (possibleLengths.length > 0) {
+      range = {
+        minimum: possibleLengths[0]!,
+        maximum: possibleLengths[possibleLengths.length - 1]!,
+      };
+    }
+  } catch {
+    // Invalid programmatic values use the E.164 bound above.
+  }
+
+  mobileNumberLengthCache.set(cacheKey, range);
+  return range;
 }
 
 function composePhoneNumber(
@@ -152,12 +255,20 @@ export function derivePhoneFields(phoneNumber?: string | null): {
     };
   }
 
-  const matchingOption = getCountryOptionForPhoneNumber(normalizedPhone);
+  const parsedPhone = parsePhoneNumberFromString(
+    normalizedPhone,
+    mobilePhoneMetadata,
+  );
+  const parsedCountry = parsedPhone?.country;
+  const matchingOption =
+    (parsedCountry
+      ? PHONE_COUNTRY_OPTIONS.find((option) => option.value === parsedCountry)
+      : undefined) ?? getCountryOptionForPhoneNumber(normalizedPhone);
 
   if (matchingOption) {
     return {
       countryValue: matchingOption.value,
-      localPhoneNumber: sanitizeLocalPhoneNumber(
+      localPhoneNumber: parsedPhone?.nationalNumber ?? sanitizeLocalPhoneNumber(
         normalizedPhone.slice(matchingOption.dialCode.length),
       ),
     };
@@ -169,6 +280,56 @@ export function derivePhoneFields(phoneNumber?: string | null): {
       normalizedPhone.replace(/^\+\d{1,4}/, ""),
     ),
   };
+}
+
+export function getPhoneNumberValidationError(
+  phoneNumber?: string | null,
+  countryValue?: string,
+): string | null {
+  const normalizedPhone = String(phoneNumber ?? "").trim();
+  if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
+    return "Enter a valid country code and phone number.";
+  }
+
+  const fields = derivePhoneFields(normalizedPhone);
+  const resolvedCountry = countryValue ?? fields.countryValue;
+  const countryOption = getCountryOption(resolvedCountry);
+  const nationalNumber = normalizedPhone.startsWith(countryOption.dialCode)
+    ? sanitizeLocalPhoneNumber(
+        normalizedPhone.slice(countryOption.dialCode.length),
+      )
+    : fields.localPhoneNumber;
+  const lengthRange = getMobileNumberLengthRange(resolvedCountry);
+
+  if (nationalNumber.length < lengthRange.minimum) {
+    return `Enter a complete mobile number for ${countryOption.label}.`;
+  }
+  if (nationalNumber.length > lengthRange.maximum) {
+    return `Enter no more than ${lengthRange.maximum} digits for ${countryOption.label}.`;
+  }
+
+  const parsedPhone = parsePhoneNumberFromString(
+    normalizedPhone,
+    mobilePhoneMetadata,
+  );
+  if (parsedPhone?.number !== normalizedPhone) {
+    return `Enter the mobile number without a local leading prefix after ${countryOption.dialCode}.`;
+  }
+  if (!parsedPhone?.isValid()) {
+    return `Enter a valid mobile number for ${countryOption.label}.`;
+  }
+
+  return null;
+}
+
+export function maskPhoneNumberForOtp(
+  phoneNumber?: string | null,
+): string {
+  const localPhoneNumber = derivePhoneFields(phoneNumber).localPhoneNumber;
+  if (!localPhoneNumber) return "";
+  if (localPhoneNumber.length <= 4) return localPhoneNumber;
+
+  return `${"•".repeat(localPhoneNumber.length - 4)} ${localPhoneNumber.slice(-4)}`;
 }
 
 export function resolvePhoneInputChange(value: string): {
@@ -193,10 +354,13 @@ export function PhoneVerificationFlow({
   onCompleted,
   onContinueExisting,
   onCancel,
+  sendCodeLabel,
   confirmLabel,
+  primaryActionClassName,
   className,
   helperText,
   style,
+  onStepChange,
 }: PhoneVerificationFlowProps) {
   const pathname = usePathname();
   const [selectedCountry, setSelectedCountry] = useState(DEFAULT_COUNTRY_VALUE);
@@ -204,6 +368,7 @@ export function PhoneVerificationFlow({
   const [countryComboboxOpen, setCountryComboboxOpen] = useState(false);
   const suppressNextCountryFocusOpenRef = useRef(false);
   const [localPhoneNumber, setLocalPhoneNumber] = useState("");
+  const [phoneNumberError, setPhoneNumberError] = useState<string | null>(null);
   const [submittedPhoneNumber, setSubmittedPhoneNumber] = useState(
     currentPhoneNumber || "",
   );
@@ -212,34 +377,43 @@ export function PhoneVerificationFlow({
     mode === "link" && currentPhoneNumber ? "linked" : "phone",
   );
   const [busy, setBusy] = useState(false);
-  // State updates do not land until after the current event. These refs keep
-  // an Enter keypress and a pointer activation from starting two auth attempts
-  // in the same turn.
-  const startVerificationAttemptRef = useRef(false);
-  const confirmVerificationAttemptRef = useRef(false);
+  // State updates do not land until after the current event. `busy` alone
+  // cannot gate this: two different actions (Verify and Resend) fired in the
+  // same render both read the same stale `busy=false` before either commits
+  // its `setBusy(true)`. One shared ref -- set synchronously the instant an
+  // attempt starts -- closes that cross-action race, not just same-action
+  // double-clicks.
+  const phoneFlowInFlightRef = useRef(false);
 
   useEffect(() => {
     const nextFields = derivePhoneFields(currentPhoneNumber);
     setSelectedCountry(nextFields.countryValue);
     setLocalPhoneNumber(nextFields.localPhoneNumber);
+    setPhoneNumberError(null);
     setSubmittedPhoneNumber(currentPhoneNumber || "");
     setCountryQuery("");
     setVerificationCode("");
     setStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
   }, [currentPhoneNumber, mode]);
 
+  useEffect(() => {
+    onStepChange?.(step);
+  }, [onStepChange, step]);
+
   const maskedPhone = useMemo(
-    () => maskPhoneNumber(currentPhoneNumber),
+    // Same read-back as the Account row that opens this flow, so the number
+    // does not change shape between the two screens.
+    () => formatMaskedPhoneNumber(currentPhoneNumber),
     [currentPhoneNumber],
   );
   const selectedCountryOption = useMemo(
     () =>
-      COUNTRY_PHONE_OPTIONS.find((option) => option.value === selectedCountry),
+      PHONE_COUNTRY_OPTIONS.find((option) => option.value === selectedCountry),
     [selectedCountry],
   );
   const selectedCountryLabel = useMemo(
     () =>
-      getCountryOptionLabel(selectedCountryOption ?? COUNTRY_PHONE_OPTIONS[0]!),
+      getCountryOptionLabel(selectedCountryOption ?? DEFAULT_PHONE_COUNTRY_OPTION),
     [selectedCountryOption],
   );
   const countryInputValue = countryComboboxOpen
@@ -248,10 +422,10 @@ export function PhoneVerificationFlow({
   const filteredCountryOptions = useMemo(() => {
     const normalizedQuery = countryQuery.trim().toLowerCase();
     if (!normalizedQuery) {
-      return COUNTRY_PHONE_OPTIONS;
+      return PHONE_COUNTRY_OPTIONS;
     }
 
-    return COUNTRY_PHONE_OPTIONS.filter((option) => {
+    return PHONE_COUNTRY_OPTIONS.filter((option) => {
       const searchableText = [
         option.label,
         option.dialCode,
@@ -264,12 +438,16 @@ export function PhoneVerificationFlow({
     });
   }, [countryQuery]);
   const activeDialCode = useMemo(
-    () => selectedCountryOption?.dialCode ?? COUNTRY_PHONE_OPTIONS[0]!.dialCode,
+    () => selectedCountryOption?.dialCode ?? DEFAULT_PHONE_COUNTRY_OPTION.dialCode,
     [selectedCountryOption],
   );
   const normalizedPhoneInput = useMemo(
     () => composePhoneNumber(activeDialCode, localPhoneNumber),
     [activeDialCode, localPhoneNumber],
+  );
+  const mobileNumberLengthRange = useMemo(
+    () => getMobileNumberLengthRange(selectedCountry),
+    [selectedCountry],
   );
 
   const handleCountrySelection = useCallback((value: string | null) => {
@@ -277,7 +455,7 @@ export function PhoneVerificationFlow({
       return;
     }
 
-    const nextOption = COUNTRY_PHONE_OPTIONS.find(
+    const nextOption = PHONE_COUNTRY_OPTIONS.find(
       (option) => option.value === value,
     );
     if (!nextOption) {
@@ -285,9 +463,15 @@ export function PhoneVerificationFlow({
     }
 
     setSelectedCountry(nextOption.value);
+    const maximum = getMobileNumberLengthRange(nextOption.value).maximum;
+    setPhoneNumberError(
+      localPhoneNumber.length > maximum
+        ? `Enter no more than ${maximum} digits for ${nextOption.label}.`
+        : null,
+    );
     setCountryQuery("");
     setCountryComboboxOpen(false);
-  }, []);
+  }, [localPhoneNumber.length]);
 
   useLocalOnboardingActionHandler("phone_mandate.select_country", (slots) => {
     const requested = String(
@@ -403,29 +587,66 @@ export function PhoneVerificationFlow({
 
   const handlePhoneNumberChange = useCallback((value: string) => {
     const nextInput = resolvePhoneInputChange(value);
+    const nextCountry = nextInput.countryValue ?? selectedCountry;
+    const nextOption = getCountryOption(nextCountry);
+    const maximum = getMobileNumberLengthRange(nextCountry).maximum;
+    if (nextInput.localPhoneNumber.length > maximum) {
+      // Reject instead of truncating into a different recipient.
+      setPhoneNumberError(
+        `Enter no more than ${maximum} digits for ${nextOption.label}.`,
+      );
+      return;
+    }
     if (nextInput.countryValue) {
-      const nextOption = getCountryOption(nextInput.countryValue);
       setSelectedCountry(nextOption.value);
       setCountryQuery("");
     }
     setLocalPhoneNumber(nextInput.localPhoneNumber);
-  }, []);
+    setPhoneNumberError(null);
+  }, [selectedCountry]);
+
+  const handlePhoneNumberPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLInputElement>) => {
+      const pastedValue = event.clipboardData.getData("text");
+      const selectionStart = event.currentTarget.selectionStart ?? 0;
+      const selectionEnd =
+        event.currentTarget.selectionEnd ?? localPhoneNumber.length;
+      const nextValue = `${localPhoneNumber.slice(0, selectionStart)}${pastedValue}${localPhoneNumber.slice(selectionEnd)}`;
+      // Intercept before maxLength can clip a complete international paste.
+      event.preventDefault();
+      handlePhoneNumberChange(nextValue);
+    },
+    [handlePhoneNumberChange, localPhoneNumber],
+  );
 
   const handleStartVerification = useCallback(
     async (
       resendCode = false,
       phoneNumberOverride?: string,
     ): Promise<StartVerificationOutcome> => {
-      if (busy || startVerificationAttemptRef.current) {
+      if (busy || phoneFlowInFlightRef.current) {
         return "busy";
       }
       const normalizedPhone = (
         phoneNumberOverride ?? normalizedPhoneInput
       ).trim();
-      if (!E164_PHONE_PATTERN.test(normalizedPhone)) {
-        morphyToast.error("Enter a valid country code and phone number.");
+      const validationCountry = phoneNumberOverride
+        ? derivePhoneFields(normalizedPhone).countryValue
+        : selectedCountry;
+      if (!phoneNumberOverride && phoneNumberError) {
+        morphyToast.error(phoneNumberError);
         return "invalid";
       }
+      const validationError = getPhoneNumberValidationError(
+        normalizedPhone,
+        validationCountry,
+      );
+      if (validationError) {
+        setPhoneNumberError(validationError);
+        morphyToast.error(validationError);
+        return "invalid";
+      }
+      setPhoneNumberError(null);
 
       if (currentPhoneNumber && normalizedPhone === currentPhoneNumber) {
         trackEvent("phone_verification_completed", {
@@ -439,7 +660,7 @@ export function PhoneVerificationFlow({
         return "already_linked";
       }
 
-      startVerificationAttemptRef.current = true;
+      phoneFlowInFlightRef.current = true;
       setBusy(true);
       try {
         const result = await startVerification(normalizedPhone, { resendCode });
@@ -462,6 +683,12 @@ export function PhoneVerificationFlow({
         }
 
         setSubmittedPhoneNumber(normalizedPhone);
+        // A resend replaces the verification session outright (auth-context
+        // already discards the previous verificationId before starting this
+        // one). Any digits the user typed against the OLD code are stale the
+        // instant a new one exists -- keeping them invites confirming the
+        // wrong session.
+        setVerificationCode("");
         setStep("code");
         morphyToast.success(
           resendCode
@@ -478,6 +705,11 @@ export function PhoneVerificationFlow({
           action: mode,
           result: "error",
         });
+        if (isPhoneTakenByAnotherAccount(error)) {
+          void ApiService.notifyAuthMail("phone_conflict", {
+            phoneNumber: normalizedPhone,
+          });
+        }
         morphyToast.error(
           error instanceof Error
             ? error.message
@@ -485,7 +717,7 @@ export function PhoneVerificationFlow({
         );
         return "failed";
       } finally {
-        startVerificationAttemptRef.current = false;
+        phoneFlowInFlightRef.current = false;
         setBusy(false);
       }
     },
@@ -494,6 +726,8 @@ export function PhoneVerificationFlow({
       mode,
       normalizedPhoneInput,
       onCompleted,
+      phoneNumberError,
+      selectedCountry,
       startVerification,
       busy,
     ],
@@ -572,11 +806,11 @@ export function PhoneVerificationFlow({
         }
         return "invalid";
       }
-      if (busy || confirmVerificationAttemptRef.current) {
+      if (busy || phoneFlowInFlightRef.current) {
         return "busy";
       }
 
-      confirmVerificationAttemptRef.current = true;
+      phoneFlowInFlightRef.current = true;
       setBusy(true);
       try {
         const verifiedUser = await confirmVerification(normalizedCode);
@@ -600,6 +834,22 @@ export function PhoneVerificationFlow({
           action: mode,
           result: "error",
         });
+        // The link only fails on the code step, so this is where the conflict
+        // usually surfaces.
+        if (isPhoneTakenByAnotherAccount(error) && submittedPhoneNumber) {
+          void ApiService.notifyAuthMail("phone_conflict", {
+            phoneNumber: submittedPhoneNumber,
+          });
+        }
+        // An expired code can never succeed by resubmitting the same digits,
+        // so clear the input and leave the person on the OTP screen with
+        // Resend available. A wrong code stays in place -- it may be a typo
+        // worth fixing, not a dead session -- and no SMS is auto-sent either
+        // way; Resend remains an explicit tap.
+        const errorCode = String((error as { code?: unknown })?.code ?? "");
+        if (errorCode === "code-expired") {
+          setVerificationCode("");
+        }
         if (options.notify) {
           morphyToast.error(
             error instanceof Error
@@ -609,11 +859,11 @@ export function PhoneVerificationFlow({
         }
         return "failed";
       } finally {
-        confirmVerificationAttemptRef.current = false;
+        phoneFlowInFlightRef.current = false;
         setBusy(false);
       }
     },
-    [busy, confirmVerification, mode, onCompleted],
+    [busy, confirmVerification, mode, onCompleted, submittedPhoneNumber],
   );
 
   const handleConfirmVerification = useCallback(async () => {
@@ -727,23 +977,44 @@ export function PhoneVerificationFlow({
                 open={countryComboboxOpen}
                 onOpenChange={(open) => {
                   setCountryComboboxOpen(open);
-                  setCountryQuery("");
+                  // Base UI owns keyboard/input events at the root. Reset the
+                  // query only while opening so the selected country restores
+                  // after a close, rather than competing with the nested
+                  // input's own value on mobile WebViews.
+                  if (open) {
+                    setCountryQuery("");
+                  }
                 }}
                 value={selectedCountry}
                 onValueChange={handleCountrySelection}
+                inputValue={countryInputValue}
+                onInputValueChange={(value, eventDetails) => {
+                  // Selecting an item causes Base UI to report its internal
+                  // value (for example "IN"). That is not a search edit, and
+                  // accepting it would overwrite the selected display label
+                  // or leave the list filtered to an opaque country code.
+                  if (
+                    eventDetails.reason !== "input-change" &&
+                    eventDetails.reason !== "input-clear"
+                  ) {
+                    return;
+                  }
+                  setCountryQuery(value);
+                  if (!countryComboboxOpen) {
+                    setCountryComboboxOpen(true);
+                  }
+                }}
                 items={filteredCountryOptions}
+                // Country filtering is intentionally owned by
+                // `filteredCountryOptions`: it matches country name, ISO code,
+                // and dialing prefix. Base UI's default only sees the item
+                // value, so it cannot find "+33" from a "FR" value.
+                filter={null}
               >
                 <ComboboxInput
                   id="phone-flow-country"
                   data-voice-control-id="phone-flow-country"
                   placeholder="Search country code"
-                  value={countryInputValue}
-                  onChange={(event: React.ChangeEvent<HTMLInputElement>) => {
-                    setCountryQuery(event.target.value);
-                    if (!countryComboboxOpen) {
-                      setCountryComboboxOpen(true);
-                    }
-                  }}
                   onFocus={(event: React.FocusEvent<HTMLInputElement>) => {
                     if (suppressNextCountryFocusOpenRef.current) {
                       suppressNextCountryFocusOpenRef.current = false;
@@ -775,7 +1046,7 @@ export function PhoneVerificationFlow({
                           >
                             <div className="flex w-full items-center justify-between gap-3">
                               <span className="truncate">{item.label}</span>
-                              <span className="shrink-0 text-muted-foreground">
+                              <span className="shrink-0 text-current">
                                 {item.dialCode}
                               </span>
                             </div>
@@ -797,14 +1068,29 @@ export function PhoneVerificationFlow({
                   type="tel"
                   inputMode="tel"
                   autoComplete="tel-national"
+                  maxLength={mobileNumberLengthRange.maximum}
                   value={localPhoneNumber}
+                  aria-invalid={Boolean(phoneNumberError)}
+                  aria-describedby={
+                    phoneNumberError ? "phone-flow-number-error" : undefined
+                  }
                   onChange={(event) =>
                     handlePhoneNumberChange(event.target.value)
                   }
+                  onPaste={handlePhoneNumberPaste}
                   placeholder="6505550101"
                   className={FLOW_CONTROL_CLASS_NAME}
                 />
               </InputGroup>
+              {phoneNumberError ? (
+                <FieldDescription
+                  id="phone-flow-number-error"
+                  role="alert"
+                  className="text-sm font-semibold text-destructive"
+                >
+                  {phoneNumberError}
+                </FieldDescription>
+              ) : null}
             </Field>
           </FieldGroup>
 
@@ -820,12 +1106,16 @@ export function PhoneVerificationFlow({
               effect="fill"
               size="default"
               fullWidth
-              className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+              className={cn(
+                "type-headline",
+                FLOW_CTA_CLASS_NAME,
+                primaryActionClassName,
+              )}
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
-                "Send verification code"
+                sendCodeLabel || "Send verification code"
               )}
             </Button>
             {onCancel ? (
@@ -845,27 +1135,13 @@ export function PhoneVerificationFlow({
         </>
       ) : (
         <>
-          <div className="flex items-start gap-3 rounded-2xl border border-[rgba(18,161,80,0.35)] bg-[rgba(18,161,80,0.08)] p-4 dark:border-[rgba(18,161,80,0.35)] dark:bg-[rgba(18,161,80,0.16)]">
-            <span className="mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full bg-[#12A150] text-white">
-              <Check className="h-3 w-3" aria-hidden />
+          <p className="text-center text-sm leading-6 text-muted-foreground">
+            Enter the code sent to{" "}
+            <span className="font-semibold text-foreground">
+              {maskPhoneNumberForOtp(submittedPhoneNumber)}
             </span>
-            <div className="min-w-0">
-              <p className="text-[15px] font-bold tracking-[-0.2px] text-[#0A0A0A] dark:text-white">
-                Verification code sent
-              </p>
-              <p className="mt-0.5 text-[13.5px] leading-[1.4] text-black/55 dark:text-white/60">
-                We sent a verification code to{" "}
-                <span className="font-semibold text-foreground">
-                  {submittedPhoneNumber}
-                </span>
-                . Enter it to continue.
-              </p>
-              <p className="mt-1 text-[12px] leading-[1.35] text-black/45 dark:text-white/50">
-                You can type the code or say it to One. Spoken codes are
-                processed by the voice service and are not retained by Hussh.
-              </p>
-            </div>
-          </div>
+            .
+          </p>
 
           <Field className="gap-2.5">
             <FieldLabel htmlFor="phone-flow-code">One-time code</FieldLabel>
@@ -921,7 +1197,11 @@ export function PhoneVerificationFlow({
             effect="fill"
             size="default"
             fullWidth
-            className={`type-headline ${FLOW_CTA_CLASS_NAME}`}
+            className={cn(
+              "type-headline",
+              FLOW_CTA_CLASS_NAME,
+              primaryActionClassName,
+            )}
           >
             {busy ? (
               <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />

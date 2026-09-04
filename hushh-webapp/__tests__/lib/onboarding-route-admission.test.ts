@@ -16,10 +16,10 @@ describe("onboarding route admission", () => {
       isCapabilityOnboardingRoute("finance", "/one/kai/plaid/oauth/return"),
     ).toBe(true);
     expect(
-      isCapabilityOnboardingRoute("gmail", "/profile/gmail/oauth/return"),
+      isCapabilityOnboardingRoute("gmail", "/one/profile/gmail/oauth/return"),
     ).toBe(true);
     expect(isCapabilityOnboardingRoute("gmail", "/one/kai/import")).toBe(false);
-    expect(isCapabilityOnboardingRoute("finance", "/profile")).toBe(false);
+    expect(isCapabilityOnboardingRoute("finance", "/one/profile")).toBe(false);
   });
 
   it("maps physical capability routes back to the correct terminal step", () => {
@@ -35,7 +35,11 @@ describe("onboarding route admission", () => {
   it("does not exempt signed-in internal surfaces from unfinished setup", () => {
     expect(isOnboardingAdmissionExemptRoute("/")).toBe(true);
     expect(isOnboardingAdmissionExemptRoute("/login")).toBe(true);
-    expect(isOnboardingAdmissionExemptRoute("/profile")).toBe(false);
+    expect(isOnboardingAdmissionExemptRoute("/one/profile")).toBe(true);
+    expect(isOnboardingAdmissionExemptRoute("/one/profile/security")).toBe(true);
+    expect(isOnboardingAdmissionExemptRoute("/people/person-ref-scoped")).toBe(
+      true,
+    );
     expect(isOnboardingAdmissionExemptRoute("/marketplace")).toBe(false);
     expect(isOnboardingAdmissionExemptRoute("/ria")).toBe(false);
   });

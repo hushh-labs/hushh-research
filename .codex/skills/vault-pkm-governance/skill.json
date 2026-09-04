@@ -3,7 +3,7 @@
   "role": "spoke",
   "owner_family": "security-audit",
   "primary_scope": "vault-pkm-governance",
-  "description": "Use when changing vault boundaries, PKM storage rules, encrypted data handling, or vault/PKM upgrade behavior inside the security-audit owner family.",
+  "description": "Use when changing vault boundaries, PKM storage rules, encrypted information handling, or ordinary vault/PKM persistence behavior inside the security-audit owner family.",
   "owned_paths": [
     "consent-protocol/hushh_mcp/vault",
     "consent-protocol/api/routes/pkm.py",
@@ -33,7 +33,8 @@
   "required_commands": [
     "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
     "cd hushh-webapp && npm run verify:cache",
-    "./bin/hushh codex data-model-audit"
+    "./bin/hushh codex data-model-audit",
+    "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
   ],
   "verification_bundles": [
     {
@@ -41,27 +42,34 @@
       "commands": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
         "cd hushh-webapp && npm run verify:cache",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh codex data-model-audit",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ],
       "tests": [
         "cd consent-protocol && python3 -m pytest tests/test_vault.py -q",
         "cd hushh-webapp && npm run verify:cache",
-        "./bin/hushh codex data-model-audit"
+        "./bin/hushh codex data-model-audit",
+        "cd consent-protocol && python3 -m pytest tests/test_source_library_scope_policy.py -q"
       ]
     }
   ],
   "handoff_targets": [
     "security-audit",
+    "reviewer-app-testing",
+    "pkm-upgrade-rehearsal",
     "iam-consent-governance",
     "backend"
   ],
   "adjacent_skills": [
     "security-audit",
+    "reviewer-app-testing",
+    "pkm-upgrade-rehearsal",
     "backend",
     "iam-consent-governance"
   ],
   "risk_tags": [
     "pkm-boundary-drift",
-    "encrypted-data-drift"
+    "encrypted-data-drift",
+    "source-library-authority-drift"
   ]
 }

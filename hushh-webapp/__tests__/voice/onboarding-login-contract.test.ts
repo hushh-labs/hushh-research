@@ -113,6 +113,21 @@ describe("One Voice Login onboarding contracts", () => {
         target: "onboarding.claim_one",
       },
       control_ids: ["onboarding_claim_one"],
+      goal: {
+        goal_id: "goal.onboarding.claim_one",
+        workflow_steps: [
+          expect.objectContaining({
+            type: "action",
+            action_id: "onboarding.claim_one",
+            settlement_target: { route: "/login", screen: "login" },
+          }),
+          expect.objectContaining({
+            type: "choice",
+            action_ids: ["auth.sign_in_google", "auth.sign_in_apple"],
+            carry_explicit_choice: true,
+          }),
+        ],
+      },
     });
   });
 });

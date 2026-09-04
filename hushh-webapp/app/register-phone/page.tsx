@@ -8,6 +8,7 @@ import { toast } from "sonner";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { NativeRouteMarker } from "@/components/app-ui/native-route-marker";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
+import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import {
   DropdownMenu,
@@ -16,7 +17,11 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAuth } from "@/lib/firebase/auth-context";
-import { ROUTES } from "@/lib/navigation/routes";
+import {
+  buildOneSetupRoute,
+  KAI_MARKET_PATH,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { AccountIdentityService } from "@/lib/services/account-identity-service";
 import {
   setOnboardingFlowActiveCookie,
@@ -24,6 +29,12 @@ import {
 } from "@/lib/services/onboarding-route-cookie";
 import { PostAuthRouteService } from "@/lib/services/post-auth-route-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { RiaService } from "@/lib/services/ria-service";
+import {
+  buildRiaClaimRoute,
+  isClaimableLookupOutcome,
+  resolveVerifiedPhone,
+} from "@/lib/ria/ria-claim-entry";
 import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
@@ -35,8 +46,8 @@ function requiresVaultUnlockForRedirect(path?: string | null): boolean {
   }
 
   return (
-    normalizedPath === ROUTES.KAI_HOME ||
-    normalizedPath.startsWith(`${ROUTES.KAI_HOME}/`) ||
+    normalizedPath === KAI_MARKET_PATH ||
+    normalizedPath.startsWith(`${KAI_MARKET_PATH}/`) ||
     normalizedPath === ROUTES.RIA_HOME ||
     normalizedPath.startsWith(`${ROUTES.RIA_HOME}/`) ||
     normalizedPath === ROUTES.CONSENTS ||
@@ -82,15 +93,10 @@ export function PhoneMandatePageContent() {
       }
 
       const identity = await AccountIdentityService.syncCurrentUser(activeUser);
-      const idToken = await activeUser.getIdToken().catch(() => undefined);
-      const nextPath = await PostAuthRouteService.resolveAfterLogin({
-        userId: activeUser.uid,
-        redirectPath,
-        idToken,
-        phoneNumber: activeUser.phoneNumber,
-        phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
-        hostname: window.location.hostname,
-      });
+      // Phone verification is an onboarding boundary, not a generic post-auth
+      // redirect. Refresh the authoritative root state before resolving a
+      // destination: a stale cached bootstrap result must never let a newly
+      // verified account skip One setup and land in Profile/Home.
       const setupResolved = await PreVaultUserStateService.bootstrapState(
         activeUser.uid,
         {
@@ -105,6 +111,52 @@ export function PhoneMandatePageContent() {
           );
           return false;
         });
+      const idToken = await activeUser.getIdToken().catch(() => undefined);
+
+      // The number they just verified is the trigger for claiming: if the SEC
+      // lists a firm or advisers at it, show that instead of the generic next
+      // screen. Fails open — any error, timeout or miss continues as normal.
+      const claimRoute = await (async () => {
+        // identity.phone_number is the authoritative verified number. The
+        // Firebase user object is null here whenever the phone was confirmed
+        // through the backend test-code path or any non-Firebase channel --
+        // that path returns the unchanged user and only records the phone
+        // server-side, so reading activeUser.phoneNumber skips recognition
+        // exactly when it is needed.
+        const verifiedPhone = resolveVerifiedPhone({
+          identityPhone: identity?.phone_number,
+          contextPhone: phoneNumber,
+          firebasePhone: activeUser.phoneNumber,
+        });
+        if (!idToken || !verifiedPhone) return null;
+        try {
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 12_000);
+          const lookup = await RiaService.claimLookup(
+            idToken,
+            { phone: verifiedPhone },
+            { signal: controller.signal },
+          ).finally(() => clearTimeout(timer));
+          return isClaimableLookupOutcome(lookup)
+            ? buildRiaClaimRoute(verifiedPhone, { returnTo: redirectPath })
+            : null;
+        } catch {
+          return null;
+        }
+      })();
+
+      const nextPath = claimRoute
+        ? claimRoute
+        : setupResolved
+        ? await PostAuthRouteService.resolveAfterLogin({
+            userId: activeUser.uid,
+            redirectPath,
+            idToken,
+            phoneNumber: activeUser.phoneNumber,
+            phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
+            hostname: window.location.hostname,
+          })
+        : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
         userId: activeUser.uid,
         // A destination is never proof that root onboarding resolved. Only the
@@ -120,11 +172,14 @@ export function PhoneMandatePageContent() {
       });
       router.replace(nextPath);
     },
-    [redirectPath, refreshUser, router, user],
+    [redirectPath, refreshUser, router, user, phoneNumber],
   );
 
   const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
     useState(false);
+  const [verificationStep, setVerificationStep] = useState<
+    "phone" | "code" | "linked"
+  >("phone");
   const localBypassNavigationRef = useRef<string | null>(null);
 
   const handleSignOut = useCallback(async () => {
@@ -177,15 +232,52 @@ export function PhoneMandatePageContent() {
           title: "Verify your phone",
           purpose:
             "Adding a phone number keeps your account recoverable and secure before setup continues.",
-          actions: [
-            {
-              id: "phone_mandate.submit_number",
-              label: "Submit phone number",
-              purpose: "Send a verification code to the phone number you say.",
-            },
-          ],
+          // The step is the only verification state published to One. Phone
+          // numbers and OTPs stay inside the input and auth operation.
+          screenMetadata: { phone_verification_step: verificationStep },
+          actions:
+            verificationStep === "phone"
+              ? [
+                  {
+                    id: "phone_mandate.submit_number",
+                    actionId: "phone_mandate.submit_number",
+                    label: "Send verification code",
+                    purpose: "Send a code after the phone form is completed.",
+                  },
+                ]
+              : verificationStep === "code"
+                ? [
+                    {
+                      id: "phone_mandate.submit_code",
+                      actionId: "phone_mandate.submit_code",
+                      label: "Confirm verification code",
+                      purpose: "Confirm the code in the current verification form.",
+                    },
+                  ]
+                : [],
+          controls:
+            verificationStep === "phone"
+              ? [
+                  {
+                    id: "phone-flow-number",
+                    label: "Phone number",
+                    type: "tel",
+                    actionId: "phone_mandate.submit_number",
+                  },
+                ]
+              : verificationStep === "code"
+                ? [
+                    {
+                      id: "phone-flow-code",
+                      label: "Verification code",
+                      type: "text",
+                      actionId: "phone_mandate.submit_code",
+                    },
+                  ]
+                : [],
         }
       : null,
+    { role: "route", routeKey: ROUTES.PHONE_MANDATE },
   );
 
   if (loading || !user) {
@@ -201,36 +293,48 @@ export function PhoneMandatePageContent() {
   }
 
   const shell = (
-    <main className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden bg-[#0A0908] [--phone-mandate-safe-pb:calc(1.5rem+var(--onboarding-agent-bar-clearance))] [--phone-mandate-safe-pt:calc(18px+var(--app-safe-area-top-effective,0px))]">
+    // Inline styles (not Tailwind arbitrary-value classes) for every
+    // computed height/offset here: Tailwind's arbitrary calc() parser
+    // requires escaped whitespace around +/- operators ("18px_+_var(...)");
+    // without it the whole declaration is invalid CSS and silently dropped,
+    // which produced 0px paddings/heights and forced full-page scroll.
+    // The outer app scroll root reserves --app-scroll-bottom-pad below this
+    // element for the fixed onboarding Agent Bar, then re-adds it as its own
+    // padding-bottom, so this element is exactly one viewport minus that
+    // reservation.
+    <main
+      className="relative w-full overflow-hidden"
+      style={{
+        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+      }}
+    >
+      {/* Shared immersive gradient backdrop (welcome / login / phone). */}
+      <OnboardingHeroBackground />
       <NativeRouteMarker
         routeId={ROUTES.PHONE_MANDATE}
         marker="native-route-register-phone"
         authState="authenticated"
         dataState="loaded"
       />
-      {/* Immersive hero glows */}
-      <div
-        aria-hidden
-        className="pointer-events-none absolute inset-x-0 top-0 h-[58%]"
-      >
-        <span
-          className="absolute -top-24 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full"
-          style={{ background: "rgba(212,175,106,0.26)", filter: "blur(80px)" }}
-        />
-        <span
-          className="absolute -right-16 top-16 h-56 w-56 rounded-full"
-          style={{ background: "rgba(212,175,106,0.14)", filter: "blur(80px)" }}
-        />
-      </div>
 
-      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
+      <div
+        className="relative mx-auto flex w-full max-w-[440px] flex-col"
+        style={{
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        }}
+      >
         {/* Top bar: back + account actions */}
-        <div className="flex items-center justify-between px-5 pt-[var(--phone-mandate-safe-pt)]">
+        <div
+          className="flex items-center justify-between px-5"
+          style={{ paddingTop: "calc(18px + var(--app-safe-area-top-effective, 0px))" }}
+        >
           <button
             type="button"
             aria-label="Go back"
             onClick={() => router.back()}
-            className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+            className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
           >
             <ChevronLeft className="h-5 w-5" />
           </button>
@@ -239,7 +343,7 @@ export function PhoneMandatePageContent() {
               <button
                 type="button"
                 aria-label="Account actions"
-                className="grid h-9 w-9 place-items-center rounded-full bg-white/10 text-white/80 transition-colors hover:bg-white/15 active:scale-95"
+                className="grid h-9 w-9 place-items-center rounded-full bg-black/[0.05] text-[#1d1d1f]/70 transition-colors hover:bg-black/[0.08] active:scale-95 dark:bg-white/10 dark:text-white/80 dark:hover:bg-white/15"
               >
                 <MoreHorizontal className="h-5 w-5" />
               </button>
@@ -253,36 +357,31 @@ export function PhoneMandatePageContent() {
           </DropdownMenu>
         </div>
 
-        {/* Dark hero */}
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          <span
-            aria-hidden="true"
-            className="select-none text-[48px] leading-none drop-shadow-[0_8px_18px_rgba(109,67,26,0.28)]"
-          >
-            🤫
-          </span>
+        {/* Verification is a focused task, not a hero. Keep the heading tight
+            so the active field row can clear the native keyboard. */}
+        <div className="px-6 pb-2 pt-7 text-center">
           <h1
             role="heading"
             aria-level={1}
             aria-label="Verify your phone number"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1px] text-[#FAF6EE]"
+            className="font-[family-name:var(--font-app-display)] text-[28px] font-extrabold leading-[1.1] tracking-[-0.9px] text-[#17130C] dark:text-[#FAF6EE]"
           >
             Verify your phone number
           </h1>
-          <p className="mt-3 max-w-[20rem] text-[16px] text-[rgba(250,246,238,0.62)]">
-            Add your phone number to continue.
-          </p>
         </div>
 
-        {/* White form sheet. Its bottom padding reserves both the native safe
-            area and the persistent Voice Bar, so OTP controls and trust copy
-            remain reachable without hiding the voice journey. max-h +
-            overflow-y-auto is a safety net: with
-            Keyboard.resize:"native" the viewport shrinks above the keyboard, and
-            the page root is overflow-hidden, so on a very short screen (iPhone SE)
-            a tall step scrolls WITHIN the sheet instead of clipping. At rest the
-            content is short so no scroll appears — resting look is unchanged. */}
-        <div className="relative max-h-[calc(100dvh-4rem)] overflow-y-auto rounded-t-[34px] bg-white px-6 pt-7 pb-[var(--phone-mandate-safe-pb)] shadow-[0_-16px_50px_rgba(0,0,0,0.45)] dark:bg-[#141416]">
+        {/* The active field group owns the keyboard clearance. The keyboard
+            plugin leaves the WebView frame stable, so padding—not a `dvh`
+            resize—keeps both the number and OTP fields visibly above iOS and
+            Android keyboards. Tiny screens may scroll this one form region. */}
+        <div
+          data-phone-mandate-input-region="true"
+          className="relative mt-3 max-h-[calc(100dvh-7rem)] overflow-y-auto overscroll-contain px-6 pt-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+          style={{
+            paddingBottom:
+              "max(calc(1rem + var(--app-safe-area-bottom-effective, 0px)), calc(1rem + var(--kb-height, 0px)))",
+          }}
+        >
           <PhoneVerificationFlow
             mode="link"
             currentPhoneNumber={phoneNumber}
@@ -290,35 +389,13 @@ export function PhoneMandatePageContent() {
             confirmVerification={confirmPhoneVerification}
             onCompleted={continueToNextRoute}
             onContinueExisting={continueToNextRoute}
-            confirmLabel="Verify and continue"
+            onStepChange={setVerificationStep}
+            sendCodeLabel="Send code"
+            confirmLabel="Verify"
+            primaryActionClassName="mx-auto max-w-[21.5rem]"
             className="gap-5"
           />
-          <div className="mt-4 flex items-center justify-center gap-1.5 text-[13px] text-black/40 dark:text-white/45">
-            <svg
-              width="11"
-              height="12"
-              viewBox="0 0 11 12"
-              fill="none"
-              aria-hidden
-            >
-              <rect
-                x="1.5"
-                y="5"
-                width="8"
-                height="6"
-                rx="1.6"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-              <path
-                d="M3.2 5V3.7a2.3 2.3 0 014.6 0V5"
-                stroke="currentColor"
-                strokeWidth="1.3"
-              />
-            </svg>
-            Used only to secure your vault. Never shared.
-          </div>
-          <div id="recaptcha-container" className="mt-4 min-h-0" />
+          <div id="recaptcha-container" className="mt-3 min-h-0" />
         </div>
       </div>
     </main>

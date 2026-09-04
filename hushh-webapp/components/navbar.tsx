@@ -4,21 +4,24 @@
 "use client";
 
 import React, { useEffect, useMemo, type CSSProperties } from "react";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
+import {
+  Compass as PhosphorCompass,
+  MagnifyingGlass,
+  SquaresFour,
+  type IconProps as PhosphorIconProps,
+} from "@phosphor-icons/react";
 import {
   BriefcaseBusiness,
   ChartSpline,
   ChartCandlestick,
   CircleUserRound,
-  Compass,
   Database,
   FileSpreadsheet,
   FolderSearch,
-  LayoutDashboard,
   Mail,
-  MailCheck,
   MapPin,
-  Search as SearchIcon,
+  Newspaper,
   ShieldCheck,
   Store,
   Users,
@@ -27,23 +30,15 @@ import {
 
 import { useAuth } from "@/hooks/use-auth";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { useConsentPendingSummaryCount } from "@/lib/consent/use-consent-pending-summary-count";
-import { useUnseenLocationShareCount } from "@/lib/one-location/use-unseen-location-share-count";
+import { useFeedUnreadCount } from "@/lib/feed/use-feed-unread-count";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
-  Icon,
-  SegmentedPill,
-  type SegmentedPillOption,
-} from "@/lib/morphy-ux/ui";
-import {
-  snapKaiBottomChromeVisible,
-  useKaiBottomChromeVisibility,
-} from "@/lib/navigation/kai-bottom-chrome-visibility";
-import { ROUTES } from "@/lib/navigation/routes";
+import { SegmentedPill, type SegmentedPillOption } from "@/lib/morphy-ux/ui";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { usePersonaState } from "@/lib/persona/persona-context";
 import { useVault } from "@/lib/vault/vault-context";
 import {
   normalizeBottomNavPathname,
@@ -51,23 +46,23 @@ import {
   resolveBottomNavAction,
   resolveBottomNavigationScope,
   resolveBottomNavOptionKeys,
-  type AppBottomNavScope,
+  resolveBottomNavSpecialistOptionKeys,
   type AppBottomNavKey,
 } from "@/lib/navigation/app-bottom-nav";
 import { resolveAgentNavigationContextForPath } from "@/lib/navigation/agent-sections";
-import {
-  openKaiCommandBar,
-  toggleKaiCommandBar,
-} from "@/lib/navigation/kai-command-bar-events";
+import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
+import { useInteractionIntents } from "@/lib/interaction/interaction-intent-coordinator";
 
-const BOTTOM_NAV_MAX_SLOT_COUNT = 5;
-const BOTTOM_NAV_SLOT_WIDTH_REM = 5.4;
-const BOTTOM_NAV_SEARCH_BUBBLE_WIDTH = "70px";
-const BOTTOM_NAV_EMPTY_GROUP_WIDTH = "58px";
+function FilledSquaresFourIcon(props: PhosphorIconProps) {
+  return <SquaresFour {...props} weight="fill" />;
+}
 
-function resolveBottomNavMaxWidth(count: number): string {
-  const slotCount = Math.min(Math.max(count, 1), BOTTOM_NAV_MAX_SLOT_COUNT);
-  return `${slotCount * BOTTOM_NAV_SLOT_WIDTH_REM}rem`;
+function FilledCompassIcon(props: PhosphorIconProps) {
+  return <PhosphorCompass {...props} weight="fill" />;
+}
+
+function FilledMagnifyingGlassIcon(props: PhosphorIconProps) {
+  return <MagnifyingGlass {...props} weight="fill" />;
 }
 
 const BOTTOM_NAV_OPTION_META: Record<
@@ -77,7 +72,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   dashboard: {
     value: "dashboard",
     label: "One",
-    icon: LayoutDashboard,
+    icon: SquaresFour,
+    activeIcon: FilledSquaresFourIcon,
     dataTourId: "nav-one-dashboard",
   },
   finance: {
@@ -101,7 +97,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   connect: {
     value: "connect",
     label: "Connect",
-    icon: Compass,
+    icon: PhosphorCompass,
+    activeIcon: FilledCompassIcon,
     dataTourId: "nav-connect",
   },
   "ria-home": {
@@ -130,8 +127,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   },
   email: {
     value: "email",
-    label: "Email",
-    icon: MailCheck,
+    label: "KYC",
+    icon: ShieldCheck,
     dataTourId: "nav-one-email",
   },
   location: {
@@ -145,6 +142,12 @@ const BOTTOM_NAV_OPTION_META: Record<
     label: "Consent",
     icon: ShieldCheck,
     dataTourId: "nav-one-consent",
+  },
+  feed: {
+    value: "feed",
+    label: "Feed",
+    icon: Newspaper,
+    dataTourId: "nav-one-feed",
   },
   pkm: {
     value: "pkm",
@@ -167,6 +170,8 @@ const BOTTOM_NAV_OPTION_META: Record<
   search: {
     value: "search",
     label: "Search",
+    icon: MagnifyingGlass,
+    activeIcon: FilledMagnifyingGlassIcon,
     dataTourId: "nav-search",
   },
   profile: {
@@ -179,33 +184,39 @@ const BOTTOM_NAV_OPTION_META: Record<
 
 function navOptionForKey(
   key: AppBottomNavKey,
-  pendingConsents: number,
-  unseenLocationShares: number,
+  pendingConsents: number | null,
+  feedUnreadCount: number | null,
 ): SegmentedPillOption {
   const option = BOTTOM_NAV_OPTION_META[key];
-  // Pending-consent badge home: the dedicated "guardian" tab when it exists
-  // (investor / ria scopes), otherwise the One "dashboard" tab, since consent
-  // now lives as a subroute of the One Agents dashboard.
-  // Location shares someone gave you badge the Location tab so they surface
-  // wherever you are (like other notifications), clearing once you open them.
-  let badge: number | undefined;
-  if ((key === "guardian" || key === "dashboard") && pendingConsents > 0) {
-    badge = pendingConsents;
-  } else if (key === "location" && unseenLocationShares > 0) {
-    badge = unseenLocationShares;
+  // Feed is the single notification home in the persistent navigation. Its
+  // "Needs you" requests and unread feed_events overlap for several domains
+  // but not all of them. Counts alone cannot calculate that union exactly, so
+  // use an honest attention dot instead of double-counting or hiding activity.
+  let badge: "dot" | undefined;
+  if (key === "feed") {
+    if ((pendingConsents ?? 0) > 0 || (feedUnreadCount ?? 0) > 0) {
+      badge = "dot";
+    }
   }
   return { ...option, badge };
 }
 
-export const Navbar = () => {
+export const Navbar = ({
+  shellNavigationHidden = false,
+  layout = "fixed",
+}: {
+  /** Route-derived shell state; keeps route chrome out of individual pages. */
+  shellNavigationHidden?: boolean;
+  /** AppBottomShell owns positioning and motion for the persistent slot. */
+  layout?: "fixed" | "slot";
+}) => {
   const pathname = usePathname();
-  const router = useRouter();
+  const interactionIntents = useInteractionIntents();
   const { isAuthenticated } = useAuth();
   const { isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
-  const { activePersona } = usePersonaState();
   const pendingConsents = useConsentPendingSummaryCount();
-  const unseenLocationShares = useUnseenLocationShareCount();
+  const feedUnreadCount = useFeedUnreadCount();
   const pillRef = React.useRef<HTMLDivElement | null>(null);
   const bottomChromeVarsRef = React.useRef({
     fixedUi: "",
@@ -213,36 +224,12 @@ export const Navbar = () => {
   });
   const chromeState = useMemo(() => getKaiChromeState(pathname), [pathname]);
   const useOnboardingChrome = chromeState.useOnboardingChrome;
-  // The bottom pill + search bubble scroll-hide in reverse of the top app bar:
-  // on scroll-down they translate off the bottom edge (max main-body viewing),
-  // on scroll-up they slide back in. Driven by the same shared visibility store
-  // as the top bar and the bottom fade glass so all chrome stays in lockstep.
-  // Disabled while onboarding chrome is active (that flow owns its own chrome).
-  const allowScrollHide = !useOnboardingChrome;
-  const { hidden: hideBottomChrome, progress: hideBottomChromeProgress } =
-    useKaiBottomChromeVisibility(allowScrollHide);
 
   const busyOperations = useKaiSession((s) => s.busyOperations);
-  const lastAgentNavScope = useKaiSession((s) => s.lastAgentNavScope);
-  const lastAgentSectionId = useKaiSession((s) => s.lastAgentSectionId);
   const setAgentNavigationContext = useKaiSession(
     (s) => s.setAgentNavigationContext,
   );
   const normalizedPathname = normalizeBottomNavPathname(pathname);
-  const navigationScope = useMemo<AppBottomNavScope>(() => {
-    return resolveBottomNavigationScope(normalizedPathname, activePersona, {
-      lastAgentNavScope,
-      lastAgentSectionId,
-    });
-  }, [activePersona, lastAgentNavScope, lastAgentSectionId, normalizedPathname]);
-
-  // RIA sub-agent = Apple-style ALWAYS-PINNED bottom chrome. Pin the value the
-  // pill consumes (progress -> 0) and force the chrome "visible" so the
-  // pointer-events / first-tap-snap guards never disable the visually-pinned
-  // pill on scroll-down. Never edits the shared visibility singleton, so
-  // One/investor scroll-hide is unchanged.
-  const isRiaChrome = navigationScope === "ria";
-  const effectiveHideBottomChrome = isRiaChrome ? false : hideBottomChrome;
 
   useEffect(() => {
     if (!pathname) return;
@@ -251,14 +238,24 @@ export const Navbar = () => {
       setAgentNavigationContext(agentContext);
     }
     if (
-      pathname.startsWith(ROUTES.KAI_HOME) ||
+      pathname.startsWith(KAI_MARKET_PATH) ||
       pathname.startsWith(ROUTES.LEGACY_KAI_HOME)
     ) {
       useKaiSession.getState().setLastKaiPath(pathname);
       return;
     }
     if (pathname.startsWith("/ria")) {
-      useKaiSession.getState().setLastRiaPath(pathname);
+      // Never record the onboarding wizard as the RIA entry path — otherwise an
+      // established advisor who opens onboarding once (e.g. via profile "Edit
+      // licence") gets sent back into the wizard on every later RIA open,
+      // overriding the correct riaEntryRoute (switch → RIA_PROFILE) and causing the
+      // onboarding→profile flash.
+      const isOnboardingRoute =
+        pathname === ROUTES.RIA_ONBOARDING ||
+        pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`);
+      if (!isOnboardingRoute) {
+        useKaiSession.getState().setLastRiaPath(pathname);
+      }
     }
   }, [pathname, setAgentNavigationContext]);
   const agentWindowOpen =
@@ -276,22 +273,17 @@ export const Navbar = () => {
     pathname === ROUTES.BLOG ||
     Boolean(pathname?.startsWith(`${ROUTES.BLOG}/`));
 
+  const bottomNavScope = useMemo(
+    () => resolveBottomNavigationScope(normalizedPathname, null),
+    [normalizedPathname],
+  );
+
   const navOptions = useMemo<SegmentedPillOption[]>(() => {
-    const keys = resolveBottomNavOptionKeys(
-      normalizedPathname,
-      navigationScope,
-      { lastAgentSectionId },
-    );
+    const keys = resolveBottomNavOptionKeys(normalizedPathname, bottomNavScope);
     return keys.map((key) =>
-      navOptionForKey(key, pendingConsents, unseenLocationShares),
+      navOptionForKey(key, pendingConsents, feedUnreadCount),
     );
-  }, [
-    lastAgentSectionId,
-    navigationScope,
-    normalizedPathname,
-    pendingConsents,
-    unseenLocationShares,
-  ]);
+  }, [normalizedPathname, bottomNavScope, pendingConsents, feedUnreadCount]);
 
   React.useLayoutEffect(() => {
     const root = document.documentElement;
@@ -311,8 +303,15 @@ export const Navbar = () => {
     };
 
     // When the bottom nav is genuinely gone for this context (unauthenticated,
-    // onboarding chrome, or no nav options), collapse the reserved height to 0.
-    if (!isAuthenticated || useOnboardingChrome || navOptions.length === 0) {
+    // onboarding chrome, no nav options, or explicitly hidden by the shell),
+    // collapse the reserved height to 0.
+    if (
+      !isAuthenticated ||
+      useOnboardingChrome ||
+      navOptions.length === 0 ||
+      shellNavigationHidden ||
+      hideNavbar
+    ) {
       setBottomChromeVars("0px", "58px");
       return;
     }
@@ -328,7 +327,7 @@ export const Navbar = () => {
       return;
     }
 
-    const BOTTOM_GAP_PX = 14;
+    const BOTTOM_GAP_PX = 4;
 
     const update = () => {
       const rect = el.getBoundingClientRect();
@@ -357,20 +356,45 @@ export const Navbar = () => {
     isAuthenticated,
     navOptions.length,
     useOnboardingChrome,
+    hideNavbar,
+    shellNavigationHidden,
   ]);
 
-  const bottomNavMaxWidth =
-    navOptions.length > 0 ? resolveBottomNavMaxWidth(navOptions.length) : "0px";
   const bottomNavWidth =
     navOptions.length > 0
-      ? `min(calc(100vw - 6rem), ${bottomNavMaxWidth})`
+      ? "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))"
       : "0px";
-  const bottomNavGroupWidth =
-    navOptions.length > 0
-      ? `min(calc(100vw - 2rem), calc(${bottomNavMaxWidth} + ${BOTTOM_NAV_SEARCH_BUBBLE_WIDTH}))`
-      : BOTTOM_NAV_EMPTY_GROUP_WIDTH;
+  const routeActiveNav = resolveBottomNavActiveKey(
+    normalizedPathname,
+    bottomNavScope,
+  );
+  const optimisticNav = useMemo(() => {
+    const pendingTarget = [...interactionIntents]
+      .reverse()
+      .find(
+        (intent) =>
+          intent.kind === "navigation" &&
+          (intent.status === "accepted" || intent.status === "committing") &&
+          intent.target,
+      )?.target;
+    if (!pendingTarget) return null;
+    return (
+      navOptions.find((option) => {
+        const action = resolveBottomNavAction(
+          option.value as AppBottomNavKey,
+          resolveBottomNavSpecialistOptionKeys(bottomNavScope).includes(
+            option.value as AppBottomNavKey,
+          )
+            ? bottomNavScope
+            : "one",
+        );
+        return action.type === "route" && action.href === pendingTarget;
+      })?.value ?? null
+    );
+  }, [bottomNavScope, interactionIntents, navOptions]);
+  const activeNav = (optimisticNav ?? routeActiveNav) as AppBottomNavKey;
 
-  if (hideNavbar) {
+  if (shellNavigationHidden || hideNavbar) {
     return null;
   }
 
@@ -388,11 +412,6 @@ export const Navbar = () => {
   if (navOptions.length === 0) {
     return null;
   }
-
-  const activeNav = resolveBottomNavActiveKey(
-    normalizedPathname,
-    navigationScope,
-  );
 
   const navigateTo = (value: string) => {
     if (busyOperations["portfolio_save"]) {
@@ -413,120 +432,93 @@ export const Navbar = () => {
       return;
     }
 
+    const key = value as AppBottomNavKey;
     const action = resolveBottomNavAction(
-      value as AppBottomNavKey,
-      navigationScope,
+      key,
+      resolveBottomNavSpecialistOptionKeys(bottomNavScope).includes(key)
+        ? bottomNavScope
+        : "one",
     );
     if (action.type === "command") {
       openKaiCommandBar();
       return;
     }
     if (action.type === "route") {
-      const nextAgentContext = resolveAgentNavigationContextForPath(action.href);
+      const nextAgentContext = resolveAgentNavigationContextForPath(
+        action.href,
+      );
       if (nextAgentContext) {
         setAgentNavigationContext(nextAgentContext);
       }
-      router.push(action.href);
+      requestInternalAppNavigation({
+        href: action.href,
+        scroll: false,
+        source: "tap",
+      });
     }
   };
 
   return (
     <nav
       data-app-bottom-nav
+      data-ui-role="bottom-tab-bar"
+      data-ambient-chrome-ignore
       className={cn(
-        "fixed inset-x-0 flex justify-center px-4 transform-gpu",
-        isVaultUnlocked ? "z-[120]" : "z-[505]",
+        layout === "slot"
+          ? "flex w-full justify-center"
+          : "fixed inset-x-0 flex justify-center px-4 transform-gpu",
+        layout === "fixed" && (isVaultUnlocked ? "z-[120]" : "z-[505]"),
+        // No breakpoint gate here. The bottom pill IS the primary navigation on
+        // every viewport — there is no desktop/sidebar nav that takes over at
+        // `lg`, so hiding it above 1024px leaves signed-in users with no way to
+        // reach One / Connect / Feed / Search at all.
         "pointer-events-none",
       )}
       style={
-        {
-          bottom:
-            "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
-          transform:
-            "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)",
-          "--bottom-chrome-progress": isRiaChrome
-            ? "0"
-            : String(hideBottomChromeProgress),
-        } as CSSProperties
+        layout === "fixed"
+          ? ({
+              bottom:
+                "calc(max(var(--app-safe-area-bottom-effective), 0.625rem) + var(--app-bottom-chrome-lift, 0px))",
+            } as CSSProperties)
+          : undefined
       }
     >
       <div
-        className={cn(
-          "relative flex items-stretch justify-center gap-2",
-          "pointer-events-none",
-          effectiveHideBottomChrome && "pointer-events-none",
-        )}
-        style={{ width: bottomNavGroupWidth }}
-        ref={pillRef}
-        // iOS first-tap fix: if the hide/reveal animation is mid-flight when
-        // a finger lands, the buttons translate away before pointerup and the
-        // tap is lost (felt as "need to tap twice"). Snapping the chrome to
-        // its resting position on pointerdown keeps the tap target still.
-        // Skipped in RIA (the pill is already pinned, nothing to snap).
-        onPointerDownCapture={() => {
-          if (!isRiaChrome && hideBottomChromeProgress > 0)
-            snapKaiBottomChromeVisible();
+        data-testid="app-bottom-nav-frame"
+        className="pointer-events-none mx-auto flex w-full justify-center"
+        style={{
+          maxWidth:
+            "min(calc(100vw - 1.5rem), var(--app-bottom-shell-max-width))",
         }}
       >
         <div
-          className="min-w-0 pointer-events-auto"
-          style={{ width: bottomNavWidth }}
-        >
-          <SegmentedPill
-            size="compact"
-            layout="stacked"
-            hitArea="segment"
-            value={activeNav}
-            options={navOptions}
-            onValueChange={navigateTo}
-            ariaLabel="Route navigation"
-            className={cn(
-              "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
-              // Shared bottom chrome surface: flat translucent track, no
-              // route-local glass or ink override. RIA scope = gold identity
-              // (active #EFE7D6 pill + gold label); everywhere else = iOS system
-              // accent-colored active tab (from main).
-              isRiaChrome
-                ? "[&_[aria-checked=true]]:text-accent-strong [&_[aria-checked=true]]:font-semibold"
-                : "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-semibold",
-              isRiaChrome
-                ? "[&_[data-segment-indicator]]:bg-[color:var(--ria-nav-active)] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none"
-                : "[&_[data-segment-indicator]]:bg-black/[0.06] [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none dark:[&_[data-segment-indicator]]:bg-white/[0.1]",
-            )}
-          />
-        </div>
-        <button
-          type="button"
-          aria-label="Search"
-          data-native-voice-control-id="one_voice_open_command_search"
-          data-testid="one-voice-open-command-search"
           className={cn(
-            // A perfect circle matching the stacked pill's 52px min-height.
-            // Explicit equal h/w instead of aspect-square + self-stretch:
-            // WKWebView resolves aspect-ratio against a stretch-derived flex
-            // cross size as indefinite, which rendered this button as an oval
-            // on iOS while web looked fine.
-            "pointer-events-auto relative z-20 inline-flex h-[52px] w-[52px] shrink-0 self-center items-center justify-center overflow-hidden rounded-full",
-            "kai-bottom-search-action",
-            // RIA: soft greige search circle (#F5F2EC) per the mockup.
-            isRiaChrome && "h-[54px] w-[54px] bg-[color:var(--ria-selected-tint)]",
-            "transition-[color,transform,background-color] duration-200 ease-[cubic-bezier(0.25,1,0.5,1)]",
-            // Hover styles behind (hover:hover) so iOS taps never latch a
-            // sticky hover background on the first touch.
-            "[@media(hover:hover)]:hover:bg-black/[0.08] [@media(hover:hover)]:hover:text-[color:var(--app-accent)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-2 focus-visible:ring-offset-background [@media(hover:hover)]:dark:hover:bg-white/[0.1] active:scale-90 chrome-bottom-foreground",
+            "relative flex items-stretch justify-center gap-2",
+            "pointer-events-none",
           )}
-          onClick={() => {
-            if (busyOperations["portfolio_save"]) {
-              toast.info(
-                "Saving to vault. Please wait until encryption completes.",
-              );
-              return;
-            }
-            toggleKaiCommandBar();
-          }}
+          style={{ maxWidth: "calc(100vw - 2rem)" }}
+          ref={pillRef}
         >
-          <Icon icon={SearchIcon} size="md" className="shrink-0" />
-        </button>
+          <div
+            className="min-w-0 pointer-events-auto"
+            style={{ width: bottomNavWidth }}
+          >
+            <SegmentedPill
+              size="default"
+              layout="stacked"
+              hitArea="segment"
+              value={activeNav}
+              options={navOptions}
+              onValueChange={navigateTo}
+              ariaLabel="Route navigation"
+              className={cn(
+                "kai-bottom-nav-pill relative z-10 w-full chrome-bottom-foreground",
+                "[&_[aria-checked=true]]:text-[color:var(--app-accent)] [&_[aria-checked=true]]:font-medium",
+                "[&_[data-segment-indicator]]:bg-transparent [&_[data-segment-indicator]]:shadow-none [&_[data-segment-indicator]]:backdrop-blur-none",
+              )}
+            />
+          </div>
+        </div>
       </div>
     </nav>
   );

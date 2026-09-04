@@ -240,7 +240,7 @@ export function ManagePortfolioView() {
               const rawFinancial = snapshot?.data ?? null;
 
               if (!hasValidFinancialShape(rawFinancial)) {
-                toast.error("Portfolio index exists but financial data is missing. Please re-import your statement.");
+                toast.error("Financial details are missing. Re-import your statement.");
               } else {
                 // Normalize Review-format → Dashboard-format field names
                 parsed = normalizeStoredPortfolio(rawFinancial) as unknown as PortfolioData;
@@ -251,7 +251,7 @@ export function ManagePortfolioView() {
               }
             } catch (decryptError) {
               console.error("[ManagePortfolio] Failed to decrypt the financial PKM domain:", decryptError);
-              toast.error("Unable to decrypt portfolio data. Please re-import your statement.");
+              toast.error("Unable to decrypt portfolio information. Please re-import your statement.");
             }
           }
           
@@ -296,7 +296,7 @@ export function ManagePortfolioView() {
         completeStep();
       } catch (error) {
         console.error("[ManagePortfolio] Error loading portfolio:", error);
-        toast.error("Failed to load portfolio data");
+        toast.error("Failed to load portfolio information");
         completeStep(); // Complete step 2 on error
       } finally {
         setIsLoading(false);

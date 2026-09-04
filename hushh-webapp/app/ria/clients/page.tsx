@@ -2,7 +2,7 @@
 
 import { ChevronRight, Loader2, UserRound } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 
 import {
   AppPageContentRegion,
@@ -10,13 +10,15 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { SurfaceStack } from "@/components/app-ui/surfaces";
 import {
   buildKaiTestClientAccess,
   canShowKaiTestProfile,
   getKaiTestUserId,
   isKaiTestProfileUser,
 } from "@/components/ria/ria-client-test-profile";
-import { SettingsGroup } from "@/components/profile/settings-ui";
+import { NearbyAroundYou } from "@/components/ria/nearby/nearby-around-you";
+import { SettingsGroup, SegmentedTabs } from "@/components/profile/settings-ui";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/hooks/use-auth";
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
@@ -29,6 +31,7 @@ import {
   type RiaClientAccess,
   type RiaClientListResponse,
 } from "@/lib/services/ria-service";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { RIA_TONE_BADGE } from "@/lib/ria/ria-tone";
 import { RIA_COPY } from "@/lib/ria/ria-screen-copy";
@@ -38,6 +41,8 @@ import { RiaCompatibilityState, RiaVerificationGate } from "@/components/ria/ria
 type ClientListItem = RiaClientAccess & {
   isTestProfile?: boolean;
 };
+
+type ClientsView = "connected" | "nearby";
 
 function statusBadgeClass(status?: string | null) {
   switch (status) {
@@ -62,6 +67,9 @@ export default function RiaClientsPage() {
   const { riaCapability, loading: personaLoading } = usePersonaState();
   const allowTestProfiles = canShowKaiTestProfile();
   const kaiTestUserId = getKaiTestUserId();
+  // Session-only: an advisor lands on their roster, and prospecting is a
+  // deliberate second step rather than the default view.
+  const [view, setView] = useState<ClientsView>("connected");
 
   const clientsResource = useStaleResource<RiaClientListResponse>({
     cacheKey: user?.uid ? `ria_clients_connected_${user.uid}` : "ria_clients_guest",
@@ -145,13 +153,22 @@ export default function RiaClientsPage() {
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
+  // Wired in the generated gateway as execution_target.path: "control" --
+  // the segmented Connected/Nearby toggle the person taps directly, not a
+  // route or a named function. The executor already dispatches "control"
+  // through this same handler registry; it just needed one registered.
+  useLocalOnboardingActionHandler("ria.clients.switch_to_nearby", () => {
+    setView("nearby");
+    return { status: "succeeded" as const, summary: "Showing nearby clients." };
+  });
+
   if (personaLoading) return null;
   if (riaCapability === "setup") {
     return (
       <>
         <AppPageShell
           as="main"
-          width="standard"
+          width="agent"
           nativeTest={{
             routeId: "/ria/clients",
             marker: "native-route-ria-clients",
@@ -170,8 +187,7 @@ export default function RiaClientsPage() {
   return (
     <AppPageShell
       as="main"
-      width="expanded"
-      className="pb-24 sm:pb-28"
+      width="agent"
       nativeTest={{
         routeId: "/ria/clients",
         marker: "native-route-ria-clients",
@@ -183,13 +199,13 @@ export default function RiaClientsPage() {
             : "empty-valid",
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow={RIA_COPY.clients.eyebrow}
           title={
             <span className="inline-flex flex-wrap items-center gap-2">
               {RIA_COPY.clients.title}
-              {clientItems.length > 0 ? (
+              {view === "connected" && clientItems.length > 0 ? (
                 <Badge variant="secondary" className="text-[10px]">
                   {clientItems.length}
                 </Badge>
@@ -204,7 +220,25 @@ export default function RiaClientsPage() {
 
       <AppPageContentRegion>
         <RiaVerificationGate>
-        <div className="flex flex-col gap-8">
+        <SurfaceStack className="gap-8">
+          {/* Connected is the roster of investors who already granted access.
+              Around you is prospecting against public records — a different
+              kind of person entirely, which is why they are separate views on
+              one screen rather than one merged list. */}
+          <div data-voice-control-id="ria_clients_view_switch">
+            <SegmentedTabs
+              value={view}
+              onValueChange={(next) => setView(next as ClientsView)}
+              options={[
+                { value: "connected", label: "Connected" },
+                { value: "nearby", label: "Around you" },
+              ]}
+            />
+          </div>
+
+          {view === "nearby" ? (
+            <NearbyAroundYou />
+          ) : (
           <SettingsGroup
             embedded
             title={RIA_COPY.clients.section.title}
@@ -278,7 +312,8 @@ export default function RiaClientsPage() {
               ))
             )}
           </SettingsGroup>
-        </div>
+          )}
+        </SurfaceStack>
         </RiaVerificationGate>
       </AppPageContentRegion>
     </AppPageShell>

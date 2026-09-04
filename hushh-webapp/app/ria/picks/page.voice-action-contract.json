@@ -59,13 +59,14 @@
       "state_exposure": [],
       "docs_references": [
         "hushh-webapp/app/ria/picks/page.tsx",
-        "hushh-webapp/components/ria/layout/ria-route-tabs.tsx"
+        "hushh-webapp/components/app-ui/top-shell-tabs.tsx",
+        "hushh-webapp/lib/navigation/top-shell-tabs.ts"
       ],
       "speaker_persona": "one"
     },
     {
       "action_id": "ria.picks.open_source_kai",
-      "label": "Show Kai Picks Source",
+      "label": "Show Suggested Picks Source",
       "meaning": "Switches the picks route state to Kai's read-only reference list.",
       "aliases": [
         "show kai list",
@@ -471,7 +472,7 @@
     },
     {
       "action_id": "ria.picks.copy_from_kai",
-      "label": "Copy Kai Package Into My List",
+      "label": "Copy Suggested Package Into My List",
       "meaning": "Represents copying Kai reference picks into the advisor draft. Voice can explain it, but the copy stays manual.",
       "aliases": [
         "copy from kai",

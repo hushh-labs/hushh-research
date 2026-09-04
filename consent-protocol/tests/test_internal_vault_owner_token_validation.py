@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import threading
 import time
 
 import pytest
@@ -15,9 +16,15 @@ class _FakeResponse:
 
 
 class _FakeQuery:
-    def __init__(self, table_name: str, response_rows: dict[str, list[dict]]):
+    def __init__(
+        self,
+        table_name: str,
+        response_rows: dict[str, list[dict]],
+        execute_thread_ids: list[int],
+    ):
         self._table_name = table_name
         self._response_rows = response_rows
+        self._execute_thread_ids = execute_thread_ids
 
     def select(self, *_args, **_kwargs):
         return self
@@ -35,23 +42,38 @@ class _FakeQuery:
         return self
 
     def execute(self):
+        self._execute_thread_ids.append(threading.get_ident())
         return _FakeResponse(self._response_rows.get(self._table_name, []))
 
 
-class _FakeSupabase:
+class _FakeDb:
     def __init__(self, response_rows: dict[str, list[dict]]):
         self.response_rows = response_rows
         self.requested_tables: list[str] = []
+        self.execute_thread_ids: list[int] = []
 
     def table(self, table_name: str):
         self.requested_tables.append(table_name)
-        return _FakeQuery(table_name, self.response_rows)
+        return _FakeQuery(table_name, self.response_rows, self.execute_thread_ids)
+
+
+@pytest.mark.asyncio
+async def test_token_validation_does_not_execute_sync_database_io_on_event_loop(monkeypatch):
+    fake_db = _FakeDb({"consent_audit": []})
+    service = ConsentDBService()
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
+
+    event_loop_thread = threading.get_ident()
+    await service.is_token_active("user_test", ConsentScope.PKM_READ.value)
+
+    assert fake_db.execute_thread_ids
+    assert all(thread_id != event_loop_thread for thread_id in fake_db.execute_thread_ids)
 
 
 @pytest.mark.asyncio
 async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
     future_ms = int(time.time() * 1000) + 60_000
-    fake_supabase = _FakeSupabase(
+    fake_db = _FakeDb(
         {
             "internal_access_events": [
                 {
@@ -65,7 +87,7 @@ async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
     )
 
     service = ConsentDBService()
-    monkeypatch.setattr(service, "_get_supabase", lambda: fake_supabase)
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
 
     is_active = await service.is_token_active(
         "user_test",
@@ -75,7 +97,37 @@ async def test_internal_vault_owner_tokens_use_internal_ledger(monkeypatch):
     )
 
     assert is_active is True
-    assert fake_supabase.requested_tables == ["internal_access_events"]
+    assert fake_db.requested_tables == ["internal_access_events"]
+
+
+@pytest.mark.asyncio
+async def test_device_bound_vault_owner_tokens_use_internal_ledger(monkeypatch):
+    future_ms = int(time.time() * 1000) + 60_000
+    fake_db = _FakeDb(
+        {
+            "internal_access_events": [
+                {
+                    "action": "CONSENT_GRANTED",
+                    "expires_at": future_ms,
+                    "issued_at": future_ms - 1_000,
+                    "token_id": "device_token",
+                }
+            ]
+        }
+    )
+
+    service = ConsentDBService()
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
+
+    is_active = await service.is_token_active(
+        "user_test",
+        ConsentScope.VAULT_OWNER.value,
+        agent_id="device:trusted-device-test",
+        token_id="device_token",  # noqa: S106 - synthetic token identity
+    )
+
+    assert is_active is True
+    assert fake_db.requested_tables == ["internal_access_events"]
 
 
 @pytest.mark.asyncio
@@ -86,7 +138,7 @@ async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
         agent_id="self",
         scope=ConsentScope.VAULT_OWNER,
     ).token
-    fake_supabase = _FakeSupabase(
+    fake_db = _FakeDb(
         {
             "internal_access_events": [
                 {
@@ -95,11 +147,11 @@ async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
                     "issued_at": future_ms - 1_000,
                     "token_id": token,
                 }
-            ]
+            ],
         }
     )
 
-    monkeypatch.setattr(ConsentDBService, "_get_supabase", lambda self: fake_supabase)
+    monkeypatch.setattr(ConsentDBService, "_get_db", lambda self: fake_db)
 
     valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
 
@@ -107,13 +159,46 @@ async def test_validate_token_with_db_accepts_active_internal_vault_owner_token(
     assert reason is None
     assert token_obj is not None
     assert token_obj.user_id == "user_test"
-    assert fake_supabase.requested_tables == ["internal_access_events"]
+    assert fake_db.requested_tables == ["internal_access_events"]
+
+
+@pytest.mark.asyncio
+async def test_validate_token_with_db_accepts_active_device_bound_vault_owner_token(monkeypatch):
+    future_ms = int(time.time() * 1000) + 60_000
+    token = issue_token(
+        user_id="user_test",
+        agent_id="device:trusted-device-test",
+        scope=ConsentScope.VAULT_OWNER,
+    ).token
+    fake_db = _FakeDb(
+        {
+            "internal_access_events": [
+                {
+                    "action": "CONSENT_GRANTED",
+                    "expires_at": future_ms,
+                    "issued_at": future_ms - 1_000,
+                    "token_id": token,
+                }
+            ],
+            "trusted_devices": [{"device_id": "trusted-device-test"}],
+        }
+    )
+
+    monkeypatch.setattr(ConsentDBService, "_get_db", lambda self: fake_db)
+
+    valid, reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
+
+    assert valid is True
+    assert reason is None
+    assert token_obj is not None
+    assert token_obj.user_id == "user_test"
+    assert fake_db.requested_tables == ["internal_access_events", "trusted_devices"]
 
 
 @pytest.mark.asyncio
 async def test_external_tokens_still_use_consent_audit(monkeypatch):
     future_ms = int(time.time() * 1000) + 60_000
-    fake_supabase = _FakeSupabase(
+    fake_db = _FakeDb(
         {
             "consent_audit": [
                 {
@@ -127,7 +212,7 @@ async def test_external_tokens_still_use_consent_audit(monkeypatch):
     )
 
     service = ConsentDBService()
-    monkeypatch.setattr(service, "_get_supabase", lambda: fake_supabase)
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
 
     is_active = await service.is_token_active(
         "user_test",
@@ -136,13 +221,13 @@ async def test_external_tokens_still_use_consent_audit(monkeypatch):
     )
 
     assert is_active is True
-    assert fake_supabase.requested_tables == ["consent_audit"]
+    assert fake_db.requested_tables == ["consent_audit"]
 
 
 @pytest.mark.asyncio
 async def test_prior_same_scope_token_is_not_active_after_reapproval(monkeypatch):
     future_ms = int(time.time() * 1000) + 60_000
-    fake_supabase = _FakeSupabase(
+    fake_db = _FakeDb(
         {
             "consent_audit": [
                 {
@@ -161,7 +246,7 @@ async def test_prior_same_scope_token_is_not_active_after_reapproval(monkeypatch
         }
     )
     service = ConsentDBService()
-    monkeypatch.setattr(service, "_get_supabase", lambda: fake_supabase)
+    monkeypatch.setattr(service, "_get_db", lambda: fake_db)
 
     assert (
         await service.is_token_active(

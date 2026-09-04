@@ -136,8 +136,16 @@ async function proxyPkmRequest(
 
   try {
     const backendUrl = `${getPythonApiUrl()}/api/pkm/${pathStr}${query}`;
+    // Ingestion correlation headers make a multi-chunk Memory import traceable
+    // server-side (ingestion id + chunk index); they carry no content.
+    const ingestionId = request.headers.get("x-pkm-ingestion-id");
+    const chunkIndex = request.headers.get("x-pkm-chunk-index");
     const headers = createUpstreamHeaders(requestId, {
       ...(authHeader ? { Authorization: authHeader } : {}),
+      ...(ingestionId && /^[A-Za-z0-9_-]{1,96}$/.test(ingestionId)
+        ? { "X-PKM-Ingestion-Id": ingestionId }
+        : {}),
+      ...(chunkIndex && /^\d{1,4}$/.test(chunkIndex) ? { "X-PKM-Chunk-Index": chunkIndex } : {}),
       ...(method === "POST" || method === "PUT"
         ? { "Content-Type": "application/json" }
         : {}),

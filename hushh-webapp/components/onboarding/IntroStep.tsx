@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useCallback } from "react";
 import { HushhWordmark } from "@/components/app-ui/hushh-wordmark";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
+import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -91,10 +92,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
         <div className={styles.hero}>
-          <span className={styles.eyebrow}>
-            Your private agent
-          </span>
-
           <span
             aria-hidden="true"
             className={styles.emoji}
@@ -133,9 +130,13 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             ))}
           </div>
 
+          {/* Plain words only. "Encrypted" and "consent" are the mechanism and
+              the legal term; "locked" and "your yes" are what a person actually
+              pictures. "Vault" is a code noun and never appears in copy. */}
           <p className={styles.description}>
-            Everything stays encrypted in your vault. Nothing moves without your
-            consent.
+            Everything you save stays locked.
+            <br />
+            Nothing moves without your yes.
           </p>
         </div>
 
@@ -151,17 +152,18 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
             data-voice-control-id="onboarding_claim_one"
             className={styles.cta}
           >
-            <span className="inline-flex items-center gap-2">
+            <span className="relative z-0 inline-flex items-center gap-2">
               Claim your One
               <span aria-hidden>&rarr;</span>
             </span>
+            <MaterialRipple variant="gradient" effect="fill" className="z-10" />
           </button>
 
           {/* Public destinations share the CTA width and use equal hit areas.
               That preserves discoverable navigation on small screens without
               letting the longest label push its siblings out of rhythm. */}
           <nav
-            aria-label="Explore Hushh"
+            aria-label="Explore Hussh"
             className={styles.links}
           >
             <Link

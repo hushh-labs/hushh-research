@@ -23,7 +23,7 @@ The Hussh developer contract is versioned under `/api/v1` and built around one s
 1. Discover the user's scopes at runtime.
 2. Request consent for one discovered scope.
 3. Wait for the user's approval in the first-party app.
-4. Read the encrypted export with `POST /api/v1/scoped-export` or `get_encrypted_scoped_export(...)`.
+4. Read the encrypted export with `POST /api/v1/scoped-export` or `get-encrypted-scoped-export(...)`.
 
 Do not hardcode domain keys. Dynamic scopes are derived from the indexed PKM and domain registry.
 
@@ -40,6 +40,60 @@ Founder-language framing:
 - `Capability Tokens` remain explicit in this doc as `developer token` and `consent_token` because the wire contract requires those exact labels
 - `Cryptographic Primitives` show up here as connector-held private keys, wrapped export keys, and ciphertext-only responses
 
+## Visual Map
+
+Every developer credential, bearer or PKCE or client credentials, collapses into
+one `DeveloperPrincipal` before any `/api/v1` route runs. The approval half of the
+lifecycle sits outside developer control entirely.
+
+```mermaid
+flowchart TB
+  subgraph portal["Self-serve portal, Firebase bearer only"]
+    access["GET/POST/PATCH /api/developer/access<br/>enable, profile, rotate-key"]
+    oauthclient["/api/developer/access/oauth-client<br/>plus redirect-uris"]
+  end
+
+  subgraph authn["Transport auth, api/developer_auth.py"]
+    bearer["Authorization Bearer developer token"]
+    oauth["/oauth/authorize, /oauth/token, /oauth/revoke<br/>PKCE S256, refresh_token, client_credentials"]
+    principal["authenticate_developer_principal<br/>OAuth service then registry service<br/>query-string token rejected with 403"]
+  end
+
+  subgraph v1["developer_api_router, prefix /api/v1"]
+    disc["GET /api/v1, /list-scopes,<br/>/tool-catalog, /user-scopes/USER_ID"]
+    reqc["POST /api/v1/request-consent<br/>rate limited"]
+    stat["GET /api/v1/consent-status<br/>GET /api/v1/consent-events, SSE"]
+    exp["POST /api/v1/scoped-export<br/>encrypted_data + wrapped_key_bundle<br/>+ export_envelope"]
+    mcpproj["/api/v1/mcp/* identifier-free projection"]
+  end
+
+  subgraph firstparty["First-party approval, outside developer control"]
+    audit["consent_audit<br/>REQUESTED then GRANTED or DENIED"]
+    approve["POST /api/consent/pending/approve<br/>VAULT_OWNER token"]
+    exports["consent_exports<br/>ciphertext, iv, tag, wrapped_key_bundle"]
+  end
+
+  readevt["_record_scoped_export_read<br/>metadata-only READ event before ciphertext<br/>fails closed"]
+
+  access --> bearer
+  oauthclient --> oauth
+  bearer --> principal
+  oauth --> principal
+  principal --> disc
+  principal --> reqc
+  principal --> stat
+  principal --> exp
+  principal --> mcpproj
+  mcpproj --> reqc
+  reqc --> audit
+  audit --> approve
+  approve --> audit
+  approve --> exports
+  stat --> audit
+  exp --> readevt
+  readevt --> exports
+```
+
 ---
 
 ## Self-Serve Developer Access
@@ -49,6 +103,7 @@ Developer access is self-serve from `/developers` in the app:
 - Sign in with the same Google or Apple auth flow used by the first-party app.
 - Enable developer access once per user account.
 - Receive one active developer token, revealed only when first issued or rotated.
+- Create an OAuth client and register its exact redirect URIs when the host requires OAuth.
 - Update the app identity users see during consent review.
 
 Portal endpoints:
@@ -59,6 +114,9 @@ Portal endpoints:
 | `POST` | `/api/developer/access/enable` | Firebase bearer token | Create the self-serve app and first active token |
 | `PATCH` | `/api/developer/access/profile` | Firebase bearer token | Update display name, website, support, and policy links |
 | `POST` | `/api/developer/access/rotate-key` | Firebase bearer token | Revoke the current token and issue a replacement |
+| `GET` | `/api/developer/access/oauth-client` | Firebase bearer token | Read OAuth client metadata (never its secret) |
+| `POST` | `/api/developer/access/oauth-client` | Firebase bearer token | Create or rotate an OAuth client secret; reveal it once |
+| `PUT` | `/api/developer/access/oauth-client/redirect-uris` | Firebase bearer token | Register exact HTTPS callback URIs |
 
 The developer token is then sent only in an Authorization header:
 
@@ -66,6 +124,49 @@ The developer token is then sent only in an Authorization header:
 GET /api/v1/user-scopes/{user_id}
 Authorization: Bearer <developer-token>
 ```
+
+### OAuth / PKCE for remote connector hosts
+
+OAuth is an additional transport-authentication option for hosts such as Claude that cannot attach a static bearer header. It does **not** replace the consent lifecycle or grant any personal information access.
+
+- Discovery: `GET /.well-known/oauth-authorization-server`
+- Authorization: `GET /oauth/authorize` with `response_type=code`, a registered `redirect_uri`, and `code_challenge_method=S256`
+- Token and refresh: `POST /oauth/token` with confidential-client authentication and PKCE `code_verifier`
+- Revocation: `POST /oauth/revoke`
+
+Authorization-code and refresh-token grants remain the self-serve interactive
+path. `client_credentials` is available only to an operations-provisioned
+`partner_crm` app with explicit client-credentials enablement. It issues a
+short-lived app-bound access token, never a refresh token or synthetic user
+subject, and authenticates the same v0.4 five-tool catalog as bearer and PKCE.
+Operations-provisioned client credentials may execute the consent lifecycle.
+They authenticate only the partner application and never create a synthetic
+user subject. The supplied user identifier selects the consent subject;
+explicit approval and a valid scoped grant remain mandatory before encrypted
+information delivery. The direct Agentforce profile is catalog-only and returns
+`REQUIRES_SECURE_CONSENT_FLOW` for a personalized call. The selected enterprise
+target is a partner-authorized MuleSoft connector using a dedicated execute app
+and partner-controlled key. It performs the consent lifecycle and decryption
+outside Agentforce, then exposes only the authorized Salesforce record or
+metadata-only delivery status. See [MuleSoft trusted connector for Salesforce
+and Agentforce](./mulesoft-agentforce-secure-relay.md).
+Register an exact
+HTTPS redirect URI for PKCE first; loopback HTTP is permitted solely for local
+development. Client secrets, authorization codes, access tokens, refresh
+tokens, Firebase identifiers, and consent tokens are never returned by
+ordinary portal reads or MCP tools.
+
+### Connector crypto profile boundary
+
+`connector_wrapping_alg` is an exact, allowlisted crypto-profile identifier
+bound to the connector key and consent lifecycle. It is not a request-time
+algorithm negotiation field. The currently enabled `X25519-AES256-GCM` profile
+uses the envelope-v2 X25519 recipient-key exchange and AES-256-GCM payload.
+No Salesforce-named profile is enabled until Salesforce provides an exact
+recipient-key exchange plus a target-org unwrap, decrypt, and tamper-rejection
+test vector. A future profile must use a new authenticated envelope version;
+it cannot widen the current enum or reuse envelope v2 without binding its
+profile and connector key identifier.
 
 ---
 
@@ -79,7 +180,7 @@ Authorization: Bearer <developer-token>
 | `GET` | `/api/v1/user-scopes/{user_id}` | Bearer header | Per-user discovered domains and scopes |
 | `GET` | `/api/v1/consent-status` | Bearer header | App-scoped consent status by scope or request id |
 | `POST` | `/api/v1/request-consent` | Bearer header | Create or reuse consent for one discovered scope |
-| `POST` | `/api/v1/scoped-export` | Bearer header | Return envelope metadata plus an authenticated ciphertext resource link |
+| `POST` | `/api/v1/scoped-export` | Bearer header | Return an encrypted-inline envelope and ciphertext in the response |
 
 ---
 
@@ -131,7 +232,12 @@ Authorization: Bearer <developer-token>
 }
 ```
 
-For the raw HTTP developer API, the connector fields are required. They tell Hussh which public key to use when wrapping the export key for later client-side decryption. MCP callers also provide the same connector bundle fields. Hussh never manages the connector private key.
+For the raw HTTP developer API, the connector fields are required unless the
+developer app has an active registered connector bundle. An unregistered
+standard/flat execute app supplies the complete bundle per request. Registered
+apps may omit it; any supplied bundle must match the app's public key, key ID,
+and wrapping algorithm exactly. This prevents one app from rebinding a grant to
+another connector key. Hussh never manages the connector private key.
 
 ### 3. Poll status
 
@@ -158,7 +264,7 @@ Authorization: Bearer <developer-token>
 }
 ```
 
-The response contains envelope metadata and an authenticated ciphertext resource link:
+The response contains envelope metadata and ciphertext directly in the authenticated response:
 
 ```json
 {
@@ -180,15 +286,18 @@ The response contains envelope metadata and an authenticated ciphertext resource
   "export_revision": 3,
   "export_generated_at": "2026-03-24T18:30:00Z",
   "export_refresh_status": "current",
-  "resource_link": {
-    "uri": "https://api.example.test/api/v1/scoped-export/resources/<export-id>/revisions/3",
-    "mime_type": "application/octet-stream",
-    "auth": "developer_bearer"
-  }
+  "encrypted_data": "<base64-ciphertext>"
 }
 ```
 
-Hussh does not return plaintext user data to developer callers. The external connector fetches the authenticated ciphertext resource outside model context, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`.
+Hussh does not return plaintext user data to developer callers. The external connector receives ciphertext in the authenticated MCP/API response, unwraps the export key locally, decrypts locally, and narrows the export when `granted_scope` is broader than `expected_scope`. No `ResourceLink` follow-up is required.
+
+Before either successful inline route returns ciphertext, Hussh durably records
+a state-neutral metadata-only `READ` event. If audit persistence is unavailable,
+the route fails closed with `EXPORT_AUDIT_UNAVAILABLE`. The event records
+issuance context and never records ciphertext, wrapped keys, complete envelopes,
+credentials, supplied identifiers, or decrypted information. It proves release
+from Hussh, not connector decryption or destination write success.
 
 For the layer-by-layer PKM storage, consent, MCP, connector, and partner handoff
 map, use [Personal Knowledge Model: PKM to MCP encrypted export flow](./personal-knowledge-model.md#pkm-to-mcp-encrypted-export-flow).
@@ -274,15 +383,54 @@ const scopedExport = await fetch("/api/v1/scoped-export", {
   }),
 }).then((response) => response.json());
 
-const ciphertext = await fetch(scopedExport.resource_link.uri, {
-  headers: { "Authorization": "Bearer <developer-token>" },
-}).then((response) => response.arrayBuffer());
+const ciphertext = base64ToBytes(scopedExport.encrypted_data);
 ```
 
-Then unwrap and decrypt locally:
+For a successful hosted MCP equivalent, the envelope is nested in the MCP tool
+result. Prefer `structuredContent`; `content[0].text` is its JSON-string
+mirror for MCP clients that do not expose structured content. An execution
+error uses `isError: true` plus safe text content and deliberately omits
+`structuredContent`, because it cannot satisfy the strict success schema.
+Hosted MCP uses
+`ciphertext`, where the raw HTTP API uses `encrypted_data`:
 
 ```js
-async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey) {
+const scopedExport = toolResult.structuredContent ?? JSON.parse(
+  toolResult.content.find((item) => item.type === "text")?.text ?? "{}"
+);
+const ciphertext = base64ToBytes(scopedExport.ciphertext);
+```
+
+Then unwrap and decrypt locally. Consent export envelope v2 authenticates both
+AES-GCM operations. Do not omit `additionalData`, stringify the envelope
+exactly as shown, or substitute a new key pair after requesting consent.
+
+```js
+function stableValue(value) {
+  if (Array.isArray(value)) return value.map(stableValue);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([left], [right]) => left.localeCompare(right))
+        .map(([key, item]) => [key, stableValue(item)])
+    );
+  }
+  return value;
+}
+
+const canonicalJson = (value) => JSON.stringify(stableValue(value));
+
+async function decryptScopedExport(
+  scopedExport,
+  ciphertext,
+  connectorPrivateKey,
+  connectorKeyId
+) {
+  const envelope = scopedExport.export_envelope;
+  if (envelope?.version !== 2) throw new Error("Expected consent export envelope v2.");
+  if (scopedExport.wrapped_key_bundle.connector_key_id !== connectorKeyId) {
+    throw new Error("This export was wrapped for a different connector key.");
+  }
   const senderPublicKey = await crypto.subtle.importKey(
     "raw",
     base64ToBytes(scopedExport.wrapped_key_bundle.sender_public_key),
@@ -314,6 +462,7 @@ async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey
     {
       name: "AES-GCM",
       iv: base64ToBytes(scopedExport.wrapped_key_bundle.wrapped_key_iv),
+      additionalData: new TextEncoder().encode(canonicalJson(envelope)),
     },
     wrappingKey,
     wrappedKeyCiphertext
@@ -331,7 +480,11 @@ async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey
     base64ToBytes(scopedExport.tag)
   );
   const plaintext = await crypto.subtle.decrypt(
-    { name: "AES-GCM", iv: base64ToBytes(scopedExport.iv) },
+    {
+      name: "AES-GCM",
+      iv: base64ToBytes(scopedExport.iv),
+      additionalData: new TextEncoder().encode(canonicalJson(envelope.aad)),
+    },
     exportKey,
     encryptedPayload
   );
@@ -339,25 +492,42 @@ async function decryptScopedExport(scopedExport, ciphertext, connectorPrivateKey
 }
 ```
 
+The connector private key must correspond to the exact public key and
+`connector_key_id` supplied in the approved consent request. If that private
+key is unavailable, create and securely retain a new connector key pair, then
+request fresh consent and fetch a new export. For the selected MuleSoft target,
+key generation/import happens in the partner-controlled connector/KMS boundary;
+Agentforce and Hussh never receive the private key. Never send a connector
+private key in a request, chat, log, or support ticket.
+
 If `granted_scope` is broader than `expected_scope`, narrow the decrypted JSON locally to the requested subtree before using it.
+
+For a Java 17 connector, use the runnable
+[Java 17/JCA consent-export decryptor](../../examples/java17-jca-export-decryptor/README.md).
+It consumes the flat hosted-MCP fields, validates the authenticated lifecycle
+context, and implements the exact current `X25519-AES256-GCM` envelope without
+adding a Java-specific profile.
 
 ---
 
 ## Developer MCP Surface
 
-Campaign/customer-experience agents should prefer MCP `prepare_campaign_context`.
-It wraps the safe lifecycle: discover, select least-privilege scope, check grant
-reuse, request or reuse pending consent, bounded-poll, and fetch encrypted-export
-metadata. Use the lower-level calls directly only when implementing the
-lifecycle yourself.
+The v0.4 MCP surface is one host-safe projection over this compatible raw HTTP
+API. Bearer, OAuth PKCE, and OAuth client credentials authenticate the same
+developer-app identity and catalog:
 
-The public developer MCP flow is:
+1. `search-user-scopes(user_identifier, query?, domain?, cursor?, limit?)`
+2. `prepare-campaign-context(user_identifier, ...)` for safe offer/context state
+3. `request-consent(user_identifier, scope, purpose, ...)`
+4. bounded `check-consent-status(request_ref)`
+5. `get-encrypted-scoped-export(grant_ref, expected_scope)`
 
-1. `discover_user_domains(user_id)`
-2. `check_consent_status(user_id, discovered_scope)`
-3. `request_consent(user_id, discovered_scope)` only when no active grant exists
-4. bounded `check_consent_status(user_id, discovered_scope, request_id)`
-5. `get_encrypted_scoped_export(user_id, consent_token, expected_scope=discovered_scope)`
+The MCP projection never returns raw HTTP `user_id` or `consent_token` fields.
+It resolves identity, tokens, app binding, and revocation internally. Raw
+`/api/v1` clients continue using the documented HTTP fields above.
+
+The v0.3 underscore names remain accepted inbound until 2026-10-20, but
+`tools/list` publishes only the v0.4 hyphenated names.
 
 Machine-readable references:
 

@@ -22,6 +22,58 @@ _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 
+# A verification code must not outlive the sitting; same 15 minutes the claim
+# ticket uses. Codes were previously valid forever.
+_ALIAS_VERIFICATION_TTL_SECONDS = 15 * 60
+
+
+def resolve_firebase_email(user_record: Any) -> str | None:
+    """The best email Firebase knows for this account.
+
+    The identity shadow used to read `user_record.email` and nothing else, so
+    an account whose top-level email was empty was cached with no address at
+    all. That is not an edge case here: people sign in with Google, with Apple,
+    and with a phone number, and only the first reliably populates the
+    top-level field.
+
+    - Apple, especially with Hide My Email, frequently leaves the top-level
+      email empty while the provider entry carries the relay address.
+    - A phone-first account that later links Google has the address on the
+      provider entry before the top-level field catches up.
+
+    Every downstream feature that needs to reach someone by email inherited
+    that blank -- including the Save my Soul alert, which silently skipped any
+    contact with no address and reported "Emailed 0" without saying why.
+
+    Order: the top-level field, then Google, then Apple, then any provider that
+    has one. Providers are only consulted when the field above is empty, so a
+    verified top-level address always wins.
+
+    Returns None when the account genuinely has no email anywhere -- a
+    phone-only signup. That case is real and cannot be papered over; the caller
+    has to handle "this person is not reachable by mail".
+    """
+    direct = str(getattr(user_record, "email", "") or "").strip()
+    if direct:
+        return direct
+
+    providers = getattr(user_record, "provider_data", None) or []
+    by_provider: dict[str, str] = {}
+    for entry in providers:
+        email = str(getattr(entry, "email", "") or "").strip()
+        if not email or "@" not in email:
+            continue
+        provider_id = str(getattr(entry, "provider_id", "") or "").strip().lower()
+        by_provider.setdefault(provider_id, email)
+
+    for provider_id in ("google.com", "apple.com"):
+        if by_provider.get(provider_id):
+            return by_provider[provider_id]
+
+    for email in by_provider.values():
+        return email
+    return None
+
 
 class ActorIdentityAliasError(RuntimeError):
     def __init__(
@@ -270,6 +322,45 @@ class ActorIdentityService:
             if str(row.get("user_id") or "").strip()
         }
 
+    async def _get_many_without_custom_photo(
+        self, user_ids: list[str]
+    ) -> dict[str, dict[str, Any]]:
+        """Pre-107 projection: drops ONLY custom_photo_url (keeps phone shadow).
+
+        Used when the 047 phone-shadow columns exist but the 107
+        custom_photo_url column does not (the migration gap). Routing that case
+        to ``_get_many_without_phone_shadow`` would wrongly zero phone_verified
+        for every read; this keeps phone-verification state intact and simply
+        falls back to the plain Firebase photo_url (no custom avatar can exist
+        yet, since ``set_custom_photo_url`` needs the column too).
+        """
+        pool = await get_pool()
+        async with pool.acquire() as conn:
+            rows = await conn.fetch(
+                """
+                SELECT
+                  user_id,
+                  display_name,
+                  email,
+                  phone_number,
+                  photo_url,
+                  email_verified,
+                  phone_verified,
+                  source,
+                  last_synced_at,
+                  created_at,
+                  updated_at
+                FROM actor_identity_cache
+                WHERE user_id = ANY($1::text[])
+                """,
+                user_ids,
+            )
+        return {
+            str(row["user_id"]): self._normalize_row(row)
+            for row in rows
+            if str(row.get("user_id") or "").strip()
+        }
+
     @staticmethod
     def _normalize_row(row: Any) -> dict[str, Any]:
         if not row:
@@ -323,7 +414,7 @@ class ActorIdentityService:
                       display_name,
                       email,
                       phone_number,
-                      photo_url,
+                      COALESCE(custom_photo_url, photo_url) AS photo_url,
                       email_verified,
                       phone_verified,
                       source,
@@ -339,8 +430,20 @@ class ActorIdentityService:
             logger.debug("actor_identity_cache missing; using legacy identity fallback")
             return await self._get_many_fallback(normalized_ids)
         except asyncpg.UndefinedColumnError as exc:
-            if "phone_number" not in str(exc) and "phone_verified" not in str(exc):
+            message = str(exc)
+            phone_missing = "phone_number" in message or "phone_verified" in message
+            custom_photo_missing = "custom_photo_url" in message
+            if not phone_missing and not custom_photo_missing:
                 raise
+            # A missing custom_photo_url (pre-107) must NOT route to the
+            # phone-less projection — that would silently zero phone_verified for
+            # EVERY read during the 107 migration gap. Drop only the column that
+            # is actually absent so phone-verification state stays intact.
+            if custom_photo_missing and not phone_missing:
+                logger.debug(
+                    "actor_identity_cache custom_photo_url missing; using pre-107 projection"
+                )
+                return await self._get_many_without_custom_photo(normalized_ids)
             logger.debug("actor_identity_cache phone shadow missing; using pre-047 projection")
             return await self._get_many_without_phone_shadow(normalized_ids)
         return {
@@ -368,77 +471,171 @@ class ActorIdentityService:
         pool = await get_pool()
         try:
             async with pool.acquire() as conn:
+                async with conn.transaction():
+                    await conn.execute(
+                        """
+                        INSERT INTO actor_profiles (
+                          user_id,
+                          personas,
+                          last_active_persona,
+                          investor_marketplace_opt_in,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          ARRAY['investor']::text[],
+                          'investor',
+                          FALSE,
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO NOTHING
+                        """,
+                        normalized_user_id,
+                    )
+                    row = await conn.fetchrow(
+                        """
+                        INSERT INTO actor_identity_cache (
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        )
+                        VALUES (
+                          $1,
+                          $2,
+                          $3,
+                          $4,
+                          $5,
+                          COALESCE($6, FALSE),
+                          COALESCE($7, FALSE),
+                          $8,
+                          NOW(),
+                          NOW(),
+                          NOW()
+                        )
+                        ON CONFLICT (user_id) DO UPDATE SET
+                          display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
+                          email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
+                          phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
+                          photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
+                          email_verified = COALESCE($6, actor_identity_cache.email_verified),
+                          phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
+                          source = CASE
+                            WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
+                            ELSE EXCLUDED.source
+                          END,
+                          last_synced_at = NOW(),
+                          updated_at = NOW()
+                        RETURNING
+                          user_id,
+                          display_name,
+                          email,
+                          phone_number,
+                          COALESCE(custom_photo_url, photo_url) AS photo_url,
+                          email_verified,
+                          phone_verified,
+                          source,
+                          last_synced_at,
+                          created_at,
+                          updated_at
+                        """,
+                        normalized_user_id,
+                        str(display_name or "").strip() or None,
+                        str(email or "").strip().lower() or None,
+                        str(phone_number or "").strip() or None,
+                        str(photo_url or "").strip() or None,
+                        email_verified,
+                        phone_verified,
+                        str(source or "").strip() or "unknown",
+                    )
+        except Exception as exc:
+            logger.error(
+                "actor_identity_cache upsert failed for %s: %s",
+                normalized_user_id,
+                exc,
+                exc_info=True,
+            )
+            return None
+
+        return self._normalize_row(row)
+
+    async def set_custom_photo_url(
+        self,
+        user_id: str,
+        custom_photo_url: str | None,
+    ) -> dict[str, Any] | None:
+        """Set (or clear) the app-owned avatar override for an actor.
+
+        The custom photo takes precedence over the Firebase ``photo_url`` on
+        reads (see the ``COALESCE`` projections) and is never touched by
+        ``upsert_identity``/``sync_from_firebase``, so it survives Firebase
+        identity syncs. Passing ``None`` clears the override, reverting to the
+        Firebase photo.
+        """
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id:
+            return None
+        normalized_custom_photo_url = str(custom_photo_url or "").strip() or None
+
+        update_sql = """
+            UPDATE actor_identity_cache
+            SET custom_photo_url = $2,
+                updated_at = NOW()
+            WHERE user_id = $1
+            RETURNING
+              user_id,
+              display_name,
+              email,
+              phone_number,
+              COALESCE(custom_photo_url, photo_url) AS photo_url,
+              email_verified,
+              phone_verified,
+              source,
+              last_synced_at,
+              created_at,
+              updated_at
+        """
+
+        pool = await get_pool()
+        try:
+            async with pool.acquire() as conn:
                 row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    )
-                    VALUES (
-                      $1,
-                      $2,
-                      $3,
-                      $4,
-                      $5,
-                      COALESCE($6, FALSE),
-                      COALESCE($7, FALSE),
-                      $8,
-                      NOW(),
-                      NOW(),
-                      NOW()
-                    )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      display_name = COALESCE(EXCLUDED.display_name, actor_identity_cache.display_name),
-                      email = COALESCE(EXCLUDED.email, actor_identity_cache.email),
-                      phone_number = COALESCE(EXCLUDED.phone_number, actor_identity_cache.phone_number),
-                      photo_url = COALESCE(EXCLUDED.photo_url, actor_identity_cache.photo_url),
-                      email_verified = COALESCE($6, actor_identity_cache.email_verified),
-                      phone_verified = COALESCE($7, actor_identity_cache.phone_verified),
-                      source = CASE
-                        WHEN EXCLUDED.source IS NULL OR EXCLUDED.source = '' THEN actor_identity_cache.source
-                        ELSE EXCLUDED.source
-                      END,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
+                    update_sql,
                     normalized_user_id,
-                    str(display_name or "").strip() or None,
-                    str(email or "").strip().lower() or None,
-                    str(phone_number or "").strip() or None,
-                    str(photo_url or "").strip() or None,
-                    email_verified,
-                    phone_verified,
-                    str(source or "").strip() or "unknown",
+                    normalized_custom_photo_url,
                 )
+            if row is None:
+                # No identity shadow row yet; create it from Firebase Auth,
+                # then retry the custom-photo write.
+                await self.sync_from_firebase(normalized_user_id, force=True)
+                async with pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        update_sql,
+                        normalized_user_id,
+                        normalized_custom_photo_url,
+                    )
         except Exception as exc:
             logger.debug(
-                "actor_identity_cache upsert skipped for %s: %s",
+                "actor_identity_cache custom photo update skipped for %s: %s",
                 normalized_user_id,
                 exc,
             )
             return None
 
+        if row is None:
+            # Write never landed (no shadow row and the Firebase sync could not
+            # create one). Report failure instead of _normalize_row(None) == {},
+            # which would surface as a false success and clobber the client cache.
+            return None
         return self._normalize_row(row)
 
     async def claim_verified_phone(
@@ -455,6 +652,49 @@ class ActorIdentityService:
             return None
 
         pool = await get_pool()
+
+        # Two fully static SQL literals (no string interpolation/concatenation,
+        # so the query is never dynamically built). They differ only in the
+        # RETURNING photo_url projection: the COALESCE variant preserves a custom
+        # avatar (post-107); the plain-photo_url variant keeps the phone claim
+        # working during the 107 migration gap (no custom avatar can exist yet).
+        claim_insert_with_custom_photo = """
+            INSERT INTO actor_identity_cache (
+              user_id, phone_number, phone_verified, source,
+              last_synced_at, created_at, updated_at
+            )
+            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              phone_number = EXCLUDED.phone_number,
+              phone_verified = TRUE,
+              source = $3,
+              last_synced_at = NOW(),
+              updated_at = NOW()
+            RETURNING
+              user_id, display_name, email, phone_number,
+              COALESCE(custom_photo_url, photo_url) AS photo_url,
+              email_verified, phone_verified, source,
+              last_synced_at, created_at, updated_at
+        """
+        claim_insert_plain_photo = """
+            INSERT INTO actor_identity_cache (
+              user_id, phone_number, phone_verified, source,
+              last_synced_at, created_at, updated_at
+            )
+            VALUES ($1, $2, TRUE, $3, NOW(), NOW(), NOW())
+            ON CONFLICT (user_id) DO UPDATE SET
+              phone_number = EXCLUDED.phone_number,
+              phone_verified = TRUE,
+              source = $3,
+              last_synced_at = NOW(),
+              updated_at = NOW()
+            RETURNING
+              user_id, display_name, email, phone_number,
+              photo_url AS photo_url,
+              email_verified, phone_verified, source,
+              last_synced_at, created_at, updated_at
+        """
+
         try:
             async with pool.acquire() as conn:
                 await conn.execute(
@@ -470,49 +710,26 @@ class ActorIdentityService:
                     normalized_user_id,
                     normalized_phone_number,
                 )
-                row = await conn.fetchrow(
-                    """
-                    INSERT INTO actor_identity_cache (
-                      user_id,
-                      phone_number,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
+                try:
+                    # Preserve a custom avatar in the returned (and client-cached)
+                    # identity, matching get_many/upsert_identity/set_custom_photo_url.
+                    row = await conn.fetchrow(
+                        claim_insert_with_custom_photo,
+                        normalized_user_id,
+                        normalized_phone_number,
+                        normalized_source,
                     )
-                    VALUES (
-                      $1,
-                      $2,
-                      TRUE,
-                      $3,
-                      NOW(),
-                      NOW(),
-                      NOW()
+                except asyncpg.UndefinedColumnError as exc:
+                    if "custom_photo_url" not in str(exc):
+                        raise
+                    # Pre-107 gap: no custom avatar can exist yet, so the plain
+                    # photo_url is equivalent — keep the phone claim working.
+                    row = await conn.fetchrow(
+                        claim_insert_plain_photo,
+                        normalized_user_id,
+                        normalized_phone_number,
+                        normalized_source,
                     )
-                    ON CONFLICT (user_id) DO UPDATE SET
-                      phone_number = EXCLUDED.phone_number,
-                      phone_verified = TRUE,
-                      source = $3,
-                      last_synced_at = NOW(),
-                      updated_at = NOW()
-                    RETURNING
-                      user_id,
-                      display_name,
-                      email,
-                      phone_number,
-                      photo_url,
-                      email_verified,
-                      phone_verified,
-                      source,
-                      last_synced_at,
-                      created_at,
-                      updated_at
-                    """,
-                    normalized_user_id,
-                    normalized_phone_number,
-                    normalized_source,
-                )
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
                 "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
@@ -616,7 +833,16 @@ class ActorIdentityService:
         email: str,
         verification_source: str = "user_verified",
         source_ref: str | None = None,
+        include_plaintext_code: bool = False,
     ) -> dict[str, Any]:
+        """Start (or restart) the alias ceremony for one account-owned email.
+
+        ``include_plaintext_code=True`` adds a route-internal
+        ``verification_code_plaintext`` key so the caller can hand the code to
+        a mail sender. It stays opt-in because at least one existing route
+        serializes this result verbatim; the plaintext must never be added to
+        any HTTP response.
+        """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             raise ActorIdentityAliasError(
@@ -679,11 +905,15 @@ class ActorIdentityService:
                 and existing["verification_status"] == "verified"
                 and existing["revoked_at"] is None
             ):
-                return {
+                already_verified: dict[str, Any] = {
                     "alias": self._normalize_alias_row(existing),
                     "already_verified": True,
                     "review_verification_code": None,
                 }
+                if include_plaintext_code:
+                    # Already verified, so there is no code to send.
+                    already_verified["verification_code_plaintext"] = None
+                return already_verified
 
             verification_code = f"{secrets.randbelow(1_000_000):06d}"
             code_hash = self._hash_alias_verification_code(
@@ -754,13 +984,18 @@ class ActorIdentityService:
                 code_hash,
             )
 
-        return {
+        result: dict[str, Any] = {
             "alias": self._normalize_alias_row(row),
             "already_verified": False,
             "review_verification_code": (
                 verification_code if self._may_return_review_alias_code() else None
             ),
         }
+        if include_plaintext_code:
+            # Route-internal only: the caller pops this and hands it to the
+            # mail sender. It must never be serialized into an HTTP response.
+            result["verification_code_plaintext"] = verification_code
+        return result
 
     async def confirm_email_alias_verification(
         self,
@@ -768,7 +1003,14 @@ class ActorIdentityService:
         user_id: str,
         email: str,
         verification_code: str,
+        accept_without_code: bool = False,
     ) -> dict[str, Any]:
+        """Verify a pending alias.
+
+        ``accept_without_code`` is the caller's assertion that it has already
+        authorised this confirmation by another means (the non-production claim
+        test allowlist). Callers must never derive it from request input.
+        """
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             raise ActorIdentityAliasError(
@@ -818,7 +1060,23 @@ class ActorIdentityService:
                     )
                 if row["verification_status"] == "verified" and row["revoked_at"] is None:
                     return self._normalize_alias_row(row)
-                if row["verification_code_hash"] != expected_hash:
+                # A code with no lifetime is a permanent credential sitting in
+                # an inbox. Expire it on the same 15-minute clock the claim
+                # ticket uses; the caller can always request a fresh one.
+                requested_at = row["verification_requested_at"]
+                if requested_at is not None and not accept_without_code:
+                    age_seconds = (datetime.now(timezone.utc) - requested_at).total_seconds()
+                    if age_seconds > _ALIAS_VERIFICATION_TTL_SECONDS:
+                        raise ActorIdentityAliasError(
+                            "That code expired. Send a new one.",
+                            code="EMAIL_ALIAS_CODE_EXPIRED",
+                            status_code=400,
+                        )
+                stored_hash = str(row["verification_code_hash"] or "")
+                code_matches = bool(stored_hash) and secrets.compare_digest(
+                    stored_hash, expected_hash
+                )
+                if not code_matches and not accept_without_code:
                     raise ActorIdentityAliasError(
                         "Email alias verification code is invalid.",
                         code="EMAIL_ALIAS_CODE_INVALID",
@@ -924,7 +1182,7 @@ class ActorIdentityService:
         updated = await self.upsert_identity(
             user_id=normalized_user_id,
             display_name=getattr(user_record, "display_name", None),
-            email=getattr(user_record, "email", None),
+            email=resolve_firebase_email(user_record),
             phone_number=firebase_phone_number,
             photo_url=getattr(user_record, "photo_url", None),
             email_verified=getattr(user_record, "email_verified", None),

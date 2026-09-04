@@ -7,12 +7,21 @@
  */
 export const ONE_SETUP_CAPABILITY_IDS = [
   "gmail",
+  "calendar",
   "location",
   "email",
   "finance",
   "ria",
   "connected-systems",
 ] as const;
+
+/**
+ * Root-setup prerequisites share the durable setup-state set, but are not
+ * agent capabilities and must never enter the generated action catalog.
+ */
+export const ONE_SETUP_PREREQUISITE_IDS = ["connections"] as const;
+export const ONE_RUNTIME_SETUP_PREREQUISITE_ID =
+  ONE_SETUP_PREREQUISITE_IDS[0];
 
 export type OneSetupCapabilityId = (typeof ONE_SETUP_CAPABILITY_IDS)[number];
 

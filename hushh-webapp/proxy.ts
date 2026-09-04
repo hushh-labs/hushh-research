@@ -4,6 +4,10 @@
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 import { ROUTES, isPublicRoute } from "./lib/navigation/routes";
+import {
+  LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX,
+  PUBLIC_LOCATION_VIEW_PREFIX,
+} from "./lib/one-location/public-invite-url";
 
 // Routes that don't require authentication (VaultLockGuard handles protected routes)
 const PUBLIC_ROUTES = [
@@ -12,27 +16,33 @@ const PUBLIC_ROUTES = [
   ROUTES.LOGIN,
   ROUTES.PHONE_MANDATE,
   ROUTES.LOGOUT,
-  ROUTES.PROFILE,
 ];
 
 // API routes are handled separately
 const API_PREFIX = "/api";
+const LEGACY_PROFILE_ROOT = "/profile";
+const LEGACY_CONNECT_ROOT = "/connect";
 
 const LEGACY_ROUTE_REDIRECTS: Record<string, string> = {
   [ROUTES.LEGACY_KAI_HOME]: ROUTES.KAI_HOME,
+  [ROUTES.LEGACY_ONE_KAI_MARKET]: ROUTES.KAI_HOME,
   [ROUTES.LEGACY_KAI_ANALYSIS]: ROUTES.KAI_ANALYSIS,
   [ROUTES.LEGACY_KAI_IMPORT]: ROUTES.KAI_IMPORT,
-  [ROUTES.LEGACY_KAI_INVESTMENTS]: ROUTES.KAI_INVESTMENTS,
-  [ROUTES.LEGACY_KAI_FUNDING_TRADE]: ROUTES.KAI_FUNDING_TRADE,
+  "/kai/investments": ROUTES.KAI_PORTFOLIO,
+  "/one/kai/investments": ROUTES.KAI_PORTFOLIO,
+  "/kai/funding-trade": ROUTES.KAI_PORTFOLIO,
+  "/one/kai/funding-trade": ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_ONBOARDING]: ROUTES.ONE_SETUP_FINANCE,
   [ROUTES.LEGACY_ONE_KAI_ONBOARDING]: ROUTES.ONE_SETUP_FINANCE,
   [ROUTES.ONE_SETUP_KAI]: ROUTES.ONE_SETUP_FINANCE,
-  [ROUTES.LEGACY_KAI_OPTIMIZE]: ROUTES.KAI_OPTIMIZE,
+  [ROUTES.LEGACY_KAI_OPTIMIZE_COMPAT]: ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_PORTFOLIO]: ROUTES.KAI_PORTFOLIO,
   [ROUTES.LEGACY_KAI_PLAID_OAUTH_RETURN]: ROUTES.KAI_PLAID_OAUTH_RETURN,
   [ROUTES.LEGACY_KAI_ALPACA_OAUTH_RETURN]: ROUTES.KAI_ALPACA_OAUTH_RETURN,
-  "/kai/dashboard": ROUTES.KAI_PORTFOLIO,
+  "/kai/dashboard": ROUTES.KAI_DASHBOARD,
   "/kai/dashboard/analysis": ROUTES.KAI_ANALYSIS,
+  "/one/kai/portfolio": ROUTES.KAI_PORTFOLIO,
+  "/one/kai/analysis": ROUTES.KAI_ANALYSIS,
 };
 
 export function proxy(request: NextRequest) {
@@ -55,7 +65,35 @@ export function proxy(request: NextRequest) {
   const legacyRedirectTarget = LEGACY_ROUTE_REDIRECTS[pathname];
   if (legacyRedirectTarget) {
     const url = request.nextUrl.clone();
-    url.pathname = legacyRedirectTarget;
+    const [targetPath, targetSearch] = legacyRedirectTarget.split("?");
+    url.pathname = targetPath;
+    if (targetSearch) {
+      // The canonical target supplies the default tab, while an explicit
+      // legacy query (for example `/kai?tab=portfolio`) always wins.
+      const defaults = new URLSearchParams(targetSearch);
+      defaults.forEach((value, key) => {
+        if (!url.searchParams.has(key)) url.searchParams.set(key, value);
+      });
+    }
+    return NextResponse.redirect(url);
+  }
+
+  for (const [legacyRoot, canonicalRoot] of [
+    [LEGACY_PROFILE_ROOT, ROUTES.PROFILE],
+    [LEGACY_CONNECT_ROOT, ROUTES.CONNECT],
+    // Public live-location links. The page moved to `/view` because "request"
+    // described the submission form this route used to be, not the location it
+    // shows — but the old path is already inside messages that were sent, so it
+    // redirects rather than 404s. Deliberately a redirect and not a rewrite:
+    // the recipient should SEE the honest path once they arrive, which is the
+    // whole reason for the rename.
+    [LEGACY_PUBLIC_LOCATION_REQUEST_PREFIX, PUBLIC_LOCATION_VIEW_PREFIX],
+  ] as const) {
+    if (pathname !== legacyRoot && !pathname.startsWith(`${legacyRoot}/`)) {
+      continue;
+    }
+    const url = request.nextUrl.clone();
+    url.pathname = `${canonicalRoot}${pathname.slice(legacyRoot.length)}`;
     return NextResponse.redirect(url);
   }
 

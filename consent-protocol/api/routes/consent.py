@@ -18,11 +18,16 @@ from datetime import datetime, timezone
 from typing import Any, Dict
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 from sqlalchemy.exc import OperationalError as SqlalchemyOperationalError
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.consent.connector_crypto_profiles import (
+    X25519_AES256_GCM,
+    get_connector_crypto_profile,
+)
 from hushh_mcp.consent.consent_schemas import ConsentExpiredError
 from hushh_mcp.consent.export_envelope import (
     ConsentExportEnvelopeSubmissionV2,
@@ -32,6 +37,10 @@ from hushh_mcp.consent.export_envelope import (
     scope_handle_for_machine_scope,
     validate_export_envelope_submission,
 )
+from hushh_mcp.consent.pkm_scope_policy import (
+    consent_token_scope_value,
+    is_private_pkm_export_scope,
+)
 from hushh_mcp.consent.scope_helpers import get_scope_description as get_dynamic_scope_description
 from hushh_mcp.consent.scope_helpers import resolve_scope_to_enum
 from hushh_mcp.consent.token import issue_token, revoke_token, validate_token_with_db
@@ -39,10 +48,21 @@ from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_db import ConsentDBService
+from hushh_mcp.services.consent_lifecycle_service import (
+    ConsentLifecycleError,
+    ConsentLifecycleService,
+    identifier_filter_kwargs,
+    owned_consent_identifiers,
+)
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
     RIAIAMService,
+)
+from hushh_mcp.services.trusted_device_service import (
+    TrustedDeviceError,
+    TrustedDeviceService,
+    trusted_devices_enabled,
 )
 
 logger = logging.getLogger(__name__)
@@ -97,7 +117,7 @@ _CONSENT_STORAGE_ERROR_PATTERNS = (
     "timed out",
     "timeout",
 )
-_CONNECTOR_WRAPPING_ALG = "X25519-AES256-GCM"
+_CONNECTOR_WRAPPING_ALG = X25519_AES256_GCM
 _CONSENT_EXPORT_MAX_RAW_BYTES = max(
     1,
     min(
@@ -108,26 +128,11 @@ _CONSENT_EXPORT_MAX_RAW_BYTES = max(
 
 
 async def _owned_consent_identifiers(user_id: str) -> list[str]:
-    try:
-        identifiers = await ActorIdentityService().list_account_identifiers(user_id)
-    except Exception as exc:
-        logger.debug(
-            "consent.identifier_expansion_skipped user_id=%s error=%s",
-            user_id,
-            exc,
-        )
-        identifiers = []
-    return identifiers or [user_id]
+    return await owned_consent_identifiers(user_id)
 
 
 def _identifier_filter_kwargs(user_id: str, identifiers: list[str]) -> dict[str, list[str]]:
-    normalized_user_id = str(user_id or "").strip()
-    normalized_identifiers = [
-        str(item or "").strip() for item in identifiers if str(item or "").strip()
-    ]
-    if set(normalized_identifiers) <= {normalized_user_id}:
-        return {}
-    return {"user_ids": normalized_identifiers}
+    return identifier_filter_kwargs(user_id, identifiers)
 
 
 def _clean_text(value: object | None) -> str:
@@ -188,10 +193,22 @@ def _build_verified_wrapped_key_bundle(
         raise HTTPException(status_code=400, detail="Connector key id does not match request.")
     normalized_alg = _clean_text(wrapping_alg) or _expected_connector_wrapping_alg(metadata)
     expected_alg = _expected_connector_wrapping_alg(metadata)
-    if normalized_alg != expected_alg or normalized_alg != _CONNECTOR_WRAPPING_ALG:
+    if normalized_alg != expected_alg:
         raise HTTPException(
             status_code=400,
             detail="Connector wrapping algorithm does not match request.",
+        )
+    try:
+        profile = get_connector_crypto_profile(normalized_alg)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=400,
+            detail="Connector wrapping algorithm is not enabled.",
+        ) from exc
+    if profile.envelope_version != 2:
+        raise HTTPException(
+            status_code=400,
+            detail="Connector wrapping algorithm does not match export envelope version.",
         )
     return {
         "wrapped_export_key": wrapped_export_key,
@@ -432,7 +449,7 @@ async def lookup_pending_consents(
             request_id_value,
             **_identifier_filter_kwargs(userId, owned_identifiers),
         )
-        if pending:
+        if pending and not is_private_pkm_export_scope(str(pending.get("scope") or "")):
             items.append(pending)
         else:
             missing_request_ids.append(request_id_value)
@@ -634,6 +651,14 @@ async def approve_consent(
 
     # Issue consent token - map scope to ConsentScope enum using centralized resolver
     requested_scope = pending_request["scope"]
+    if is_private_pkm_export_scope(requested_scope):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This PKM scope is not externally shareable.",
+            },
+        )
     try:
         _consent_scope = resolve_scope_to_enum(requested_scope)
     except Exception as e:
@@ -760,17 +785,6 @@ async def approve_consent(
             expires_at=existing_token.get("expires_at"),
             metadata=reuse_metadata,
         )
-        try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=requestId,
-                action="CONSENT_GRANTED",
-            )
-        except Exception:
-            logger.exception(
-                "ria.relationship_sync_failed action=CONSENT_GRANTED reused_token=true"
-            )
-
         return {
             "status": "approved",
             "message": f"Consent granted to {developer_label} (Existing)",
@@ -1059,15 +1073,6 @@ async def approve_consent(
             requested_scope,
             superseded_scopes,
         )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_GRANTED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_GRANTED")
-
     return {
         "status": "approved",
         "message": f"Consent granted to {developer_label}",
@@ -1096,44 +1101,13 @@ async def deny_consent(
         raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
     logger.info("consent.deny_requested")
-
-    # Get pending request from database
-    service = ConsentDBService()
-    owned_identifiers = await _owned_consent_identifiers(userId)
-    pending_request = await service.get_pending_by_request_id(
-        userId,
-        requestId,
-        **_identifier_filter_kwargs(userId, owned_identifiers),
-    )
-
-    if not pending_request:
-        raise HTTPException(status_code=404, detail="Consent request not found")
-    subject_user_id = str(pending_request.get("user_id") or userId).strip() or userId
-
-    metadata = pending_request.get("metadata", {})
-    developer_label = (
-        metadata.get("developer_app_display_name") if isinstance(metadata, dict) else None
-    ) or pending_request["developer"]
-
-    # Log CONSENT_DENIED to database
-    await service.insert_event(
-        user_id=subject_user_id,
-        agent_id=pending_request["developer"],
-        scope=pending_request["scope"],
-        action="CONSENT_DENIED",
-        request_id=requestId,
-    )
-    logger.info("consent.denied_event_saved")
     try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=userId,
-            request_id=requestId,
-            action="CONSENT_DENIED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CONSENT_DENIED")
-
-    return {"status": "denied", "message": f"Consent denied to {developer_label}"}
+        return await ConsentLifecycleService(
+            consent_db=ConsentDBService(), identifiers_resolver=_owned_consent_identifiers
+        ).deny_pending_request(userId, requestId)
+    except ConsentLifecycleError as exc:
+        detail = "Consent request not found" if exc.status_code == 404 else exc.message
+        raise HTTPException(status_code=exc.status_code, detail=detail) from exc
 
 
 @router.post("/cancel")
@@ -1176,15 +1150,6 @@ async def cancel_consent(
         request_id=payload.requestId,
         scope_description=pending_request.get("scope_description"),
     )
-    try:
-        await RIAIAMService().sync_relationship_from_consent_action(
-            user_id=payload.userId,
-            request_id=payload.requestId,
-            action="CANCELLED",
-        )
-    except Exception:
-        logger.exception("ria.relationship_sync_failed action=CANCELLED")
-
     return {"status": "cancelled", "requestId": payload.requestId}
 
 
@@ -1301,6 +1266,132 @@ async def disconnect_relationship(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
+async def _issue_or_reuse_vault_owner_token(
+    *, user_id: str, agent_id: str = "self", expires_in_ms: int = 24 * 60 * 60 * 1000
+) -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    service = ConsentDBService()
+    active_tokens = await service.get_active_internal_tokens(
+        user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER.value,
+    )
+    for token_row in active_tokens:
+        expires_at = int(token_row.get("expires_at") or 0)
+        if expires_at <= now_ms + min(60 * 60 * 1000, expires_in_ms // 4):
+            continue
+        candidate_token = str(token_row.get("token_id") or "")
+        if not candidate_token:
+            continue
+        is_valid, _reason, payload = await validate_token_with_db(
+            candidate_token, ConsentScope.VAULT_OWNER
+        )
+        if is_valid and payload:
+            return {
+                "token": candidate_token,
+                "expiresAt": expires_at,
+                "scope": ConsentScope.VAULT_OWNER.value,
+            }
+
+    token_obj = issue_token(
+        user_id=user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER,
+        expires_in_ms=expires_in_ms,
+    )
+    await service.insert_internal_event(
+        user_id=user_id,
+        agent_id=agent_id,
+        scope=ConsentScope.VAULT_OWNER.value,
+        action="CONSENT_GRANTED",
+        token_id=token_obj.token,
+        expires_at=token_obj.expires_at,
+        scope_description=(
+            "Trusted device vault owner session"
+            if agent_id.startswith("device:")
+            else "Vault owner session"
+        ),
+    )
+    return {
+        "token": token_obj.token,
+        "expiresAt": token_obj.expires_at,
+        "scope": ConsentScope.VAULT_OWNER.value,
+    }
+
+
+class TrustedDeviceVaultOwnerRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=128)
+    device_id: str = Field(min_length=20, max_length=128)
+    challenge_id: str = Field(min_length=20, max_length=128)
+    nonce: str = Field(min_length=20, max_length=256)
+    signature: str = Field(min_length=40, max_length=2048)
+
+
+@router.post("/vault-owner-token/device")
+async def issue_trusted_device_vault_owner_token(
+    payload: TrustedDeviceVaultOwnerRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Issue a short-lived owner capability after device proof-of-possession."""
+    if not trusted_devices_enabled():
+        raise HTTPException(status_code=404, detail="Trusted-device authorization is disabled")
+    if firebase_uid != payload.user_id:
+        raise HTTPException(status_code=403, detail="Cannot access another user's vault")
+    try:
+        await run_in_threadpool(
+            TrustedDeviceService().verify_challenge,
+            user_id=firebase_uid,
+            device_id=payload.device_id,
+            challenge_id=payload.challenge_id,
+            nonce=payload.nonce,
+            signature_b64=payload.signature,
+        )
+    except TrustedDeviceError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": exc.message},
+        ) from exc
+    result = await _issue_or_reuse_vault_owner_token(
+        user_id=firebase_uid,
+        agent_id=f"device:{payload.device_id}",
+        expires_in_ms=15 * 60 * 1000,
+    )
+    still_active = await run_in_threadpool(
+        TrustedDeviceService().is_active_device,
+        user_id=firebase_uid,
+        device_id=payload.device_id,
+    )
+    if not still_active:
+        # Close the race where revocation lands after proof verification but
+        # before capability persistence. If revocation lands after this check,
+        # the revocation route sees the already-persisted token and revokes it.
+        revoke_token(result["token"])
+        await ConsentDBService().insert_internal_event(
+            user_id=firebase_uid,
+            agent_id=f"device:{payload.device_id}",
+            scope=ConsentScope.VAULT_OWNER.value,
+            action="REVOKED",
+            token_id=result["token"],
+            metadata={"reason": "trusted_device_revoked_during_issuance"},
+        )
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "TRUSTED_DEVICE_NOT_ACTIVE",
+                "message": "The trusted device is not active.",
+            },
+        )
+    await run_in_threadpool(
+        TrustedDeviceService().audit_event,
+        user_id=firebase_uid,
+        device_id=payload.device_id,
+        event_type="owner_capability_issued",
+        metadata={"expires_at": result["expiresAt"], "scope": result["scope"]},
+    )
+    logger.info("trusted_device.vault_owner_issued")
+    return result
+
+
 @router.post("/vault-owner-token")
 async def issue_vault_owner_token(request: Request):
     """
@@ -1341,73 +1432,9 @@ async def issue_vault_owner_token(request: Request):
                 status_code=403, detail="Cannot issue VAULT_OWNER token for another user"
             )
 
-        # Check for existing active VAULT_OWNER token in the internal ledger
-        now_ms = int(time.time() * 1000)
-        service = ConsentDBService()
-        active_tokens = await service.get_active_internal_tokens(
-            user_id,
-            agent_id="self",
-            scope=ConsentScope.VAULT_OWNER.value,
-        )
-
-        for t in active_tokens:
-            # Match scope = vault.owner and agent = self
-            if t.get("scope") == ConsentScope.VAULT_OWNER.value and t.get("agent_id") == "self":
-                # Check if token has > 1 hour left
-                expires_at = t.get("expires_at", 0)
-                if expires_at > now_ms + (60 * 60 * 1000):  # 1 hour buffer
-                    # REUSE existing token (only if it still validates)
-                    #
-                    # NOTE: In older deployments, some systems stored a non-token identifier in `token_id`.
-                    # If we blindly reuse it, downstream calls fail with "Invalid signature".
-                    candidate_token = t.get("token_id")
-                    if not candidate_token:
-                        logger.warning("vault_owner.reuse_missing_token_id")
-                        break
-
-                    is_valid, reason, payload = await validate_token_with_db(
-                        candidate_token, ConsentScope.VAULT_OWNER
-                    )
-                    if not is_valid or not payload:
-                        logger.warning(
-                            "vault_owner.stored_token_invalid reason=%s",
-                            reason,
-                        )
-                        break
-
-                    logger.info("vault_owner.token_reused expires_at=%s", expires_at)
-                    return {
-                        "token": candidate_token,
-                        "expiresAt": expires_at,
-                        "scope": ConsentScope.VAULT_OWNER.value,
-                    }
-
-        # No valid token found - issue new one
-        logger.info("vault_owner.issue_new_token")
-
-        # Issue new token (24-hour expiry)
-        token_obj = issue_token(
-            user_id=user_id,
-            agent_id="self",  # Vault owner accessing their own data
-            scope=ConsentScope.VAULT_OWNER,
-            expires_in_ms=24 * 60 * 60 * 1000,  # 24 hours
-        )
-
-        # Store in the internal ledger so self-session churn stays out of the investor consent feed.
-        service = ConsentDBService()
-        await service.insert_internal_event(
-            user_id=user_id,
-            agent_id="self",
-            scope="vault.owner",
-            action="CONSENT_GRANTED",
-            token_id=token_obj.token,
-            expires_at=token_obj.expires_at,
-            scope_description="Vault owner session",
-        )
-
-        logger.info("vault_owner.token_issued")
-
-        return {"token": token_obj.token, "expiresAt": token_obj.expires_at, "scope": "vault.owner"}
+        result = await _issue_or_reuse_vault_owner_token(user_id=user_id)
+        logger.info("vault_owner.token_issued_or_reused")
+        return result
 
     except HTTPException:
         raise
@@ -1425,16 +1452,14 @@ async def revoke_consent(
     User revokes an active consent token.
 
     SECURITY: Requires VAULT_OWNER token. User can only revoke their own consent.
-
     This removes access for the app that was previously granted consent.
     For VAULT_OWNER tokens, this effectively locks the vault.
     """
     try:
-        from hushh_mcp.consent.token import revoke_token
-
         body = await request.json()
         userId = body.get("userId")
         scope = body.get("scope")
+        request_id_filter = str(body.get("requestId") or "").strip() or None
 
         if not userId or not scope:
             raise HTTPException(status_code=400, detail="userId and scope are required")
@@ -1444,82 +1469,22 @@ async def revoke_consent(
             raise HTTPException(status_code=403, detail="User ID does not match authenticated user")
 
         logger.info("consent.revoke_requested scope=%s", scope)
-
-        # Get the active token for this scope from the correct ledger.
-        service = ConsentDBService()
-        owned_identifiers = await _owned_consent_identifiers(userId)
-        active_tokens = await service.get_active_tokens(
-            userId,
-            **_identifier_filter_kwargs(userId, owned_identifiers),
-        )
-        internal_tokens = await service.get_active_internal_tokens(userId)
-        all_active_tokens = [*internal_tokens, *active_tokens]
-        logger.info("consent.revoke_active_token_count=%s", len(all_active_tokens))
-
-        token_to_revoke = None
-        for token in all_active_tokens:
-            if token.get("scope") == scope:
-                token_to_revoke = token
-                break
-
-        if not token_to_revoke:
-            raise HTTPException(
-                status_code=404, detail="No active consent found for the requested scope"
-            )
-
-        # CRITICAL: Add the actual token to in-memory revocation set
-        # This ensures validate_token() will reject it immediately
-        original_token = token_to_revoke.get("token_id")
-        if original_token and not original_token.startswith("REVOKED_"):
-            revoke_token(original_token)
-            logger.info("🔒 Token added to in-memory revocation set")
-
-            # Also delete any associated export data
-            await service.delete_consent_export(original_token)
-            if original_token in _consent_exports:
-                del _consent_exports[original_token]
-            logger.info("🗑️ Deleted associated export data")
-
-        # Generate a NEW unique token_id for the REVOKED event
-        # (Cannot reuse original token_id due to UNIQUE constraint on consent_audit table)
-        import time
-
-        revoke_token_id = f"REVOKED_{int(time.time() * 1000)}_{scope}"
-        agent_id = token_to_revoke.get("agent_id") or token_to_revoke.get("developer") or "Unknown"
-        request_id = token_to_revoke.get("request_id")
-
-        logger.info("consent.revoke_persist_event")
-
-        # Log REVOKED event to database (link to original request_id for trail)
-        subject_user_id = str(token_to_revoke.get("user_id") or userId).strip() or userId
-        await service.insert_event(
-            user_id=subject_user_id,
-            agent_id=agent_id,
-            scope=scope,
-            action="REVOKED",
-            token_id=revoke_token_id,
-            request_id=request_id,
-            scope_description="Vault owner session" if agent_id == "self" else None,
-        )
-        logger.info("consent.revoked_event_saved scope=%s", scope)
         try:
-            await RIAIAMService().sync_relationship_from_consent_action(
-                user_id=userId,
-                request_id=request_id,
-                action="REVOKED",
-                agent_id=agent_id,
+            result = await ConsentLifecycleService(
+                consent_db=ConsentDBService(), identifiers_resolver=_owned_consent_identifiers
+            ).revoke_active_grant(
+                userId,
                 scope=scope,
+                request_id=request_id_filter,
+                export_cache=_consent_exports,
             )
-        except Exception:
-            logger.exception("ria.relationship_sync_failed action=REVOKED")
-
+        except ConsentLifecycleError as exc:
+            raise HTTPException(status_code=exc.status_code, detail=exc.message) from exc
         # Return special flag for VAULT_OWNER revocation so client knows to lock vault
-        is_vault_owner = scope == "vault.owner" or scope == "VAULT_OWNER"
-
         return {
-            "status": "revoked",
-            "message": f"Consent for {scope} has been revoked",
-            "lockVault": is_vault_owner,  # Signal client to lock vault
+            "status": result["status"],
+            "message": result["message"],
+            "lockVault": result["lockVault"],  # Signal client to lock vault
         }
 
     except HTTPException:
@@ -1563,10 +1528,26 @@ async def get_consent_export_data(
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid:
         logger.warning("consent.export_invalid_token reason=%s", reason)
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error_code": "SCOPE_RETIRED",
+                    "message": "This export is no longer available.",
+                },
+            )
         raise HTTPException(
             status_code=401,
             detail="Invalid token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if token_obj is not None and is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This export is no longer available.",
+            },
         )
 
     # Database is the only freshness and authorization source. Process-local
@@ -1577,6 +1558,14 @@ async def get_consent_export_data(
     if not export_data:
         logger.warning("No active export data found for token")
         raise HTTPException(status_code=404, detail="No export data for this token")
+    if is_private_pkm_export_scope(str(export_data.get("scope") or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={
+                "error_code": "SCOPE_RETIRED",
+                "message": "This export is no longer available.",
+            },
+        )
     if not export_data.get("is_strict_zero_knowledge"):
         raise HTTPException(
             status_code=410,
@@ -1655,6 +1644,8 @@ async def list_export_refresh_jobs(
         active = active_by_token.get(consent_token)
         if not active:
             continue
+        if is_private_pkm_export_scope(str(active.get("scope") or job.get("granted_scope") or "")):
+            continue
         metadata = active.get("metadata") if isinstance(active.get("metadata"), dict) else {}
         export_metadata_raw = await service.get_consent_export_metadata(consent_token)
         export_metadata = export_metadata_raw if isinstance(export_metadata_raw, dict) else {}
@@ -1722,10 +1713,23 @@ async def upload_refreshed_export(
     valid, reason, token_obj = await validate_token_with_db(consent_token)
     if not valid or token_obj is None:
         logger.warning("consent.export_refresh.token_invalid reason=%s", reason)
+        if reason == "SCOPE_RETIRED":
+            raise HTTPException(
+                status_code=410,
+                detail={
+                    "error_code": "SCOPE_RETIRED",
+                    "message": "This export cannot be refreshed.",
+                },
+            )
         raise HTTPException(
             status_code=401,
             detail="Invalid or expired consent token",
             headers={"WWW-Authenticate": "Bearer"},
+        )
+    if is_private_pkm_export_scope(consent_token_scope_value(token_obj)):
+        raise HTTPException(
+            status_code=410,
+            detail={"error_code": "SCOPE_RETIRED", "message": "This export cannot be refreshed."},
         )
     if str(token_obj.user_id) != request.userId:
         raise HTTPException(status_code=403, detail="Consent token user mismatch")
@@ -1733,6 +1737,11 @@ async def upload_refreshed_export(
     existing_export = await service.get_consent_export(consent_token)
     if not existing_export:
         raise HTTPException(status_code=404, detail="Consent export no longer exists")
+    if is_private_pkm_export_scope(str(existing_export.get("scope") or "")):
+        raise HTTPException(
+            status_code=410,
+            detail={"error_code": "SCOPE_RETIRED", "message": "This export cannot be refreshed."},
+        )
     if existing_export.get("refresh_policy") != "continuous_until_expiry":
         raise HTTPException(
             status_code=409,

@@ -5,19 +5,24 @@ import { ROUTES } from "@/lib/navigation/routes";
 export type ProfilePanel =
   | "account"
   | "my-data"
-  | "access"
   | "connected-systems"
   | "preferences"
   | "security"
+  | "referrals"
   | "support"
   | "gmail";
 
 export type ProfileDetail =
   | `domain:${string}`
   | `connection:${string}`
+  | "sharing"
   | "phone"
   | "kai-preferences"
+  | "gemini"
   | "device"
+  | "voice"
+  | "voice-changelog"
+  | "voice-examples"
   | "vault"
   | "session"
   | "gmail-connection"
@@ -41,16 +46,22 @@ const TRANSIENT_PROFILE_QUERY_KEYS = [
   "filter",
   "page",
   "redirect",
+  // The origin the Profile hub was opened from. Preserved across panel/detail
+  // drilling so the shared top-bar back control can always retrace to the
+  // screen the user came from (avatar tap) instead of defaulting to One home.
+  "from",
 ] as const;
 
-export function normalizeProfilePanel(value: string | null): ProfilePanel | null {
+export function normalizeProfilePanel(
+  value: string | null,
+): ProfilePanel | null {
   if (
     value === "account" ||
     value === "my-data" ||
-    value === "access" ||
     value === "connected-systems" ||
     value === "preferences" ||
     value === "security" ||
+    value === "referrals" ||
     value === "support" ||
     value === "gmail"
   ) {
@@ -59,7 +70,9 @@ export function normalizeProfilePanel(value: string | null): ProfilePanel | null
   return null;
 }
 
-function normalizeSupportMessageKind(value: string | null): SupportMessageKind | null {
+function normalizeSupportMessageKind(
+  value: string | null,
+): SupportMessageKind | null {
   if (
     value === "bug_report" ||
     value === "support_request" ||
@@ -80,15 +93,25 @@ export function normalizeProfileDetail(
   if (panel === "my-data" && detail.startsWith("domain:")) {
     return detail as ProfileDetail;
   }
-  if (panel === "access" && detail.startsWith("connection:")) {
+  // Sharing (formerly the standalone "Access & sharing" panel) and its
+  // per-connection detail are now sub-views of the unified Memory panel.
+  if (panel === "my-data" && detail.startsWith("connection:")) {
     return detail as ProfileDetail;
+  }
+  if (panel === "my-data" && detail === "sharing") {
+    return detail;
   }
   if (panel === "account" && detail === "phone") {
     return detail;
   }
   if (
     panel === "preferences" &&
-    (detail === "kai-preferences" || detail === "device")
+    (detail === "kai-preferences" ||
+      detail === "gemini" ||
+      detail === "device" ||
+      detail === "voice" ||
+      detail === "voice-changelog" ||
+      detail === "voice-examples")
   ) {
     return detail;
   }
@@ -116,7 +139,9 @@ export function normalizeProfileDetail(
 
 function normalizeLegacyTab(value: string | null): ProfilePanel | null {
   if (value === "my-data") return "my-data";
-  if (value === "access" || value === "privacy") return "access";
+  // "access"/"privacy" were the standalone Access & sharing panel; it is now
+  // the Sharing sub-view of the unified Memory panel.
+  if (value === "access" || value === "privacy") return "my-data";
   if (value === "connected-systems" || value === "systems") {
     return "connected-systems";
   }
@@ -190,20 +215,64 @@ export function buildProfileRoute(params?: {
 
   if (panel === "preferences") {
     if (detail === "kai-preferences") {
-      return appendQuery(ROUTES.PROFILE_PREFERENCES_KAI, {}, params?.searchParams);
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_KAI,
+        {},
+        params?.searchParams,
+      );
+    }
+    if (detail === "gemini") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_GEMINI,
+        {},
+        params?.searchParams,
+      );
     }
     if (detail === "device") {
-      return appendQuery(ROUTES.PROFILE_PREFERENCES_DEVICE, {}, params?.searchParams);
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_DEVICE,
+        {},
+        params?.searchParams,
+      );
+    }
+    if (detail === "voice") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_VOICE,
+        {},
+        params?.searchParams,
+      );
+    }
+    if (detail === "voice-changelog") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG,
+        {},
+        params?.searchParams,
+      );
+    }
+    if (detail === "voice-examples") {
+      return appendQuery(
+        ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES,
+        {},
+        params?.searchParams,
+      );
     }
     return appendQuery(ROUTES.PROFILE_PREFERENCES, {}, params?.searchParams);
   }
 
   if (panel === "security") {
     if (detail === "vault") {
-      return appendQuery(ROUTES.PROFILE_SECURITY_VAULT, {}, params?.searchParams);
+      return appendQuery(
+        ROUTES.PROFILE_SECURITY_VAULT,
+        {},
+        params?.searchParams,
+      );
     }
     if (detail === "session") {
-      return appendQuery(ROUTES.PROFILE_SECURITY_SESSION, {}, params?.searchParams);
+      return appendQuery(
+        ROUTES.PROFILE_SECURITY_SESSION,
+        {},
+        params?.searchParams,
+      );
     }
     return appendQuery(ROUTES.PROFILE_SECURITY, {}, params?.searchParams);
   }
@@ -216,10 +285,8 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
-    return appendQuery(ROUTES.PROFILE_MY_DATA, {}, params?.searchParams);
-  }
-
-  if (panel === "access") {
+    // Sharing and its per-connection detail keep the legacy
+    // /one/profile/access URLs so existing deep links stay valid.
     if (detail?.startsWith("connection:")) {
       return appendQuery(
         ROUTES.PROFILE_ACCESS_CONNECTION,
@@ -227,24 +294,35 @@ export function buildProfileRoute(params?: {
         params?.searchParams,
       );
     }
-    return appendQuery(ROUTES.PROFILE_ACCESS, {}, params?.searchParams);
+    if (detail === "sharing") {
+      return appendQuery(ROUTES.PROFILE_ACCESS, {}, params?.searchParams);
+    }
+    return appendQuery(ROUTES.PROFILE_MY_DATA, {}, params?.searchParams);
   }
 
   if (panel === "connected-systems") {
-    return appendQuery(ROUTES.PROFILE_CONNECTED_SYSTEMS, {}, params?.searchParams);
+    return appendQuery(
+      ROUTES.PROFILE_CONNECTED_SYSTEMS,
+      {},
+      params?.searchParams,
+    );
   }
 
   if (panel === "gmail") {
     return appendQuery(ROUTES.GMAIL, {}, params?.searchParams);
   }
 
+  if (panel === "referrals") {
+    return appendQuery(ROUTES.PROFILE_REFERRALS, {}, params?.searchParams);
+  }
+
   if (panel === "support") {
     if (detail === "support-routing") {
-      return appendQuery(ROUTES.PROFILE_SUPPORT_ROUTING, {}, params?.searchParams);
+      return appendQuery(ROUTES.PROFILE_SUPPORT, {}, params?.searchParams);
     }
     if (detail?.startsWith("support-compose:")) {
       return appendQuery(
-        ROUTES.PROFILE_SUPPORT_COMPOSE,
+        ROUTES.PROFILE_SUPPORT,
         { kind: detail.slice("support-compose:".length) },
         params?.searchParams,
       );
@@ -261,6 +339,8 @@ export function resolveProfileRouteStateFromSearchParams(
   const query = toSearchParams(searchParams);
   const panel =
     normalizeProfilePanel(query.get("panel")) ??
+    // Legacy ?panel=access / ?panel=privacy deep links fold into Memory.
+    normalizeLegacyTab(query.get("panel")) ??
     normalizeLegacyTab(query.get("tab"));
 
   return {
@@ -297,8 +377,20 @@ export function resolveProfileRouteState(
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_KAI) {
     return { panel: "preferences", detail: "kai-preferences" };
   }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_GEMINI) {
+    return { panel: "preferences", detail: "gemini" };
+  }
   if (normalizedPath === ROUTES.PROFILE_PREFERENCES_DEVICE) {
     return { panel: "preferences", detail: "device" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE) {
+    return { panel: "preferences", detail: "voice" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_CHANGELOG) {
+    return { panel: "preferences", detail: "voice-changelog" };
+  }
+  if (normalizedPath === ROUTES.PROFILE_PREFERENCES_VOICE_EXAMPLES) {
+    return { panel: "preferences", detail: "voice-examples" };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SECURITY) {
@@ -323,13 +415,13 @@ export function resolveProfileRouteState(
   }
 
   if (normalizedPath === ROUTES.PROFILE_ACCESS) {
-    return { panel: "access", detail: null };
+    return { panel: "my-data", detail: "sharing" };
   }
   if (normalizedPath === ROUTES.PROFILE_ACCESS_CONNECTION) {
     const connectionId = query.get("id");
     return {
-      panel: "access",
-      detail: connectionId ? `connection:${connectionId}` : null,
+      panel: "my-data",
+      detail: connectionId ? `connection:${connectionId}` : "sharing",
     };
   }
 
@@ -345,6 +437,10 @@ export function resolveProfileRouteState(
   }
   if (normalizedPath === ROUTES.PROFILE_GMAIL_ACTIONS) {
     return { panel: "gmail", detail: "gmail-actions" };
+  }
+
+  if (normalizedPath === ROUTES.PROFILE_REFERRALS) {
+    return { panel: "referrals", detail: null };
   }
 
   if (normalizedPath === ROUTES.PROFILE_SUPPORT) {

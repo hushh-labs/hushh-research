@@ -6,12 +6,17 @@ Provides cached, provider-backed market overview data with graceful degradation.
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
+import json
 import logging
+import math
 import os
 import secrets
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from time import time
 from typing import Annotated, Any
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 import httpx
@@ -24,6 +29,7 @@ from hushh_mcp.operons.kai.fetchers import (
     fetch_market_data_batch,
     fetch_market_news,
 )
+from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
 from hushh_mcp.services.market_cache_store import get_market_cache_store_service
 from hushh_mcp.services.market_insights_cache import market_insights_cache
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
@@ -49,6 +55,8 @@ SECTORS_FRESH_TTL_SECONDS = 600
 SECTORS_STALE_TTL_SECONDS = 1800
 NEWS_FRESH_TTL_SECONDS = 600
 NEWS_STALE_TTL_SECONDS = 1800
+SPARKLINES_FRESH_TTL_SECONDS = 600
+SPARKLINES_STALE_TTL_SECONDS = 1800
 RECOMMENDATION_FRESH_TTL_SECONDS = 600
 RECOMMENDATION_STALE_TTL_SECONDS = 1800
 FINANCIAL_SUMMARY_FRESH_TTL_SECONDS = 600
@@ -64,6 +72,11 @@ QUOTE_SYMBOL_ALIASES: dict[str, str] = {
 WATCHLIST_MAX = 8
 NEWS_SYMBOL_MAX = 3
 NEWS_ROWS_MAX = 12
+NEWS_ROWS_PER_SYMBOL_MAX = 2
+NEWS_FEED_ROWS_MAX = 75
+NEWS_FEED_PAGE_DEFAULT = 12
+NEWS_FEED_PAGE_MAX = 20
+NEWS_FEED_CURSOR_MAX_LENGTH = 512
 QUOTE_FANOUT_CONCURRENCY = 4
 RECOMMENDATION_FANOUT_CONCURRENCY = 4
 NEWS_FANOUT_CONCURRENCY = 2
@@ -175,12 +188,14 @@ MARKET_PRICE_SENSITIVE_PREFIXES = (
     "movers:",
     "sectors:",
     "macro:",
+    "sparklines:",
     "market_status:",
     "market-status:",
 )
 # Modules that should stay relatively static and never tighten on the open.
 MARKET_LOW_VOLATILITY_PREFIXES = (
     "news:",
+    "news_feed:",
     "recommendation:",
     "financial_summary:",
 )
@@ -403,11 +418,11 @@ def _market_home_cache_key(
     exchange_suffix = "" if exchange_code == DEFAULT_EXCHANGE else f":x={exchange_code}"
     if not personalized:
         return (
-            f"home:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
+            f"home:v2:baseline:{canonical_watchlist_key}:{days_back}:{DEFAULT_PICK_SOURCE_ID}"
             f"{exchange_suffix}"
         )
     return (
-        f"home:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
+        f"home:v2:{user_id}:{canonical_watchlist_key}:{days_back}:{active_pick_source}:"
         f"{roster_signature}{exchange_suffix}"
     )
 
@@ -421,10 +436,11 @@ async def _resolve_pick_source_rows(
     renaissance_service = get_renaissance_service()
     default_rows = await renaissance_service.get_all_investable()
     sources = [_default_pick_source()]
+    ria_iam = RIAIAMService()
 
     if ria_sources is None:
         try:
-            ria_sources = await RIAIAMService().list_investor_pick_sources(user_id)
+            ria_sources = await ria_iam.list_investor_pick_sources(user_id)
         except Exception as exc:
             logger.debug("[Kai Market] investor pick sources unavailable for %s: %s", user_id, exc)
             ria_sources = []
@@ -434,9 +450,22 @@ async def _resolve_pick_source_rows(
 
     if active_pick_source != DEFAULT_PICK_SOURCE_ID:
         try:
-            ria_rows = await RIAIAMService().get_pick_rows_for_source(user_id, active_pick_source)
-            if ria_rows:
-                return ria_rows, sources, active_pick_source
+            resolved = await ria_iam.resolve_investor_pick_source(user_id, active_pick_source)
+            package = resolved.get("package") if resolved else None
+            ria_rows = package.get("top_picks") if isinstance(package, dict) else None
+            if isinstance(ria_rows, list) and resolved:
+                canonical_source = {
+                    key: value
+                    for key, value in resolved.items()
+                    if key not in {"package", "snapshot"}
+                }
+                sources = [
+                    source
+                    for source in sources
+                    if str(source.get("id") or "") != canonical_source["id"]
+                ]
+                sources.append(canonical_source)
+                return ria_rows, sources, str(canonical_source["id"])
         except Exception as exc:
             logger.debug(
                 "[Kai Market] pick source %s unavailable for %s: %s",
@@ -473,6 +502,21 @@ def _safe_float(value: Any) -> float | None:
         return float(text)
     except Exception:
         return None
+
+
+def _parse_percent_points(value: Any) -> float | None:
+    """Parse a provider percentage expressed in percentage points.
+
+    FMP's mover endpoints can return either a JSON number (``1.25``) or a
+    percent-suffixed string (``"1.25%"``). The public ``change_pct`` contract
+    is always percentage points, never a ratio and never a currency delta.
+    """
+    if isinstance(value, str):
+        value = value.strip().replace(",", "")
+        if value.endswith("%"):
+            value = value[:-1].strip()
+    parsed = _safe_float(value)
+    return parsed if parsed is not None and math.isfinite(parsed) else None
 
 
 def _safe_int(value: Any) -> int | None:
@@ -696,6 +740,284 @@ def _normalize_symbols(raw: str | None) -> list[str]:
         if len(out) >= WATCHLIST_MAX:
             break
     return out or DEFAULT_SYMBOLS
+
+
+def _select_news_symbols(raw_symbols: str | None) -> list[str]:
+    """Return the bounded, provider-safe symbol set for a public news bundle."""
+    symbol_master = get_symbol_master_service()
+    selected: list[str] = []
+    for raw_symbol in _normalize_symbols(raw_symbols):
+        classification = symbol_master.classify(raw_symbol)
+        if not classification.tradable:
+            continue
+        symbol = str(classification.symbol or "").strip().upper()
+        if symbol and symbol not in selected:
+            selected.append(symbol)
+        if len(selected) >= NEWS_SYMBOL_MAX:
+            break
+    return selected or DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX]
+
+
+def _market_news_feed_cache_key(symbols: list[str], days_back: int) -> str:
+    canonical_symbols = ",".join(sorted(set(symbols)))
+    return f"news_feed:v2:{canonical_symbols}:{days_back}"
+
+
+def _market_news_snapshot_id(rows: list[dict[str, Any]]) -> str:
+    encoded = json.dumps(
+        rows,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+    ).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()[:24]
+
+
+def _encode_market_news_cursor(snapshot_id: str, offset: int) -> str:
+    payload = json.dumps(
+        {"v": 1, "s": snapshot_id, "o": max(0, int(offset))},
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return base64.urlsafe_b64encode(payload).decode("ascii").rstrip("=")
+
+
+def _decode_market_news_cursor(cursor: str | None) -> tuple[str, int] | None:
+    value = str(cursor or "").strip()
+    if not value:
+        return None
+    if len(value) > NEWS_FEED_CURSOR_MAX_LENGTH:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        )
+    try:
+        padded = value + ("=" * (-len(value) % 4))
+        decoded = base64.urlsafe_b64decode(padded.encode("ascii")).decode("utf-8")
+        payload = json.loads(decoded)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        ) from exc
+    if (
+        not isinstance(payload, dict)
+        or payload.get("v") != 1
+        or not isinstance(payload.get("s"), str)
+        or not isinstance(payload.get("o"), int)
+        or int(payload["o"]) < 0
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Invalid cursor",
+        )
+    return str(payload["s"]), int(payload["o"])
+
+
+def _normalize_market_news_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbol: str,
+) -> list[dict[str, Any]]:
+    normalized: list[dict[str, Any]] = []
+    for article in rows:
+        if not isinstance(article, dict):
+            continue
+        title = str(article.get("title") or "").strip()
+        url = str(article.get("url") or "").strip()
+        if not title or not url:
+            continue
+        source = article.get("source")
+        source_name = str(source.get("name") or "").strip() if isinstance(source, dict) else ""
+        normalized.append(
+            {
+                "symbol": symbol,
+                "title": title,
+                "summary": str(article.get("description") or "").strip() or None,
+                "url": url,
+                "published_at": str(article.get("publishedAt") or _now_iso()),
+                "source_name": source_name or "Market news",
+                "provider": str(article.get("provider") or "unknown"),
+                "sentiment_hint": None,
+                "degraded": False,
+            }
+        )
+    return normalized
+
+
+def _canonical_market_news_url(raw_url: str) -> str:
+    """Normalize only tracking noise; preserve the publisher and article path."""
+    try:
+        parts = urlsplit(raw_url.strip())
+    except ValueError:
+        return raw_url.strip()
+    query = urlencode(
+        sorted(
+            (key, value)
+            for key, value in parse_qsl(parts.query, keep_blank_values=True)
+            if not key.lower().startswith("utm_") and key.lower() not in {"fbclid", "gclid"}
+        )
+    )
+    return urlunsplit(
+        (parts.scheme.lower(), parts.netloc.lower(), parts.path.rstrip("/"), query, "")
+    )
+
+
+def _round_robin_market_news_rows(
+    rows: list[dict[str, Any]],
+    *,
+    symbols: list[str],
+    limit: int,
+    per_symbol_cap: int | None = None,
+) -> tuple[list[dict[str, Any]], int]:
+    """Deduplicate public stories and fairly interleave the requested symbols."""
+    buckets: dict[str, list[dict[str, Any]]] = {symbol: [] for symbol in symbols}
+    seen_urls: set[str] = set()
+    seen_headlines: set[str] = set()
+    duplicate_count = 0
+    for row in sorted(
+        rows,
+        key=lambda item: str(item.get("published_at") or ""),
+        reverse=True,
+    ):
+        symbol = str(row.get("symbol") or "").strip().upper()
+        title = " ".join(str(row.get("title") or "").lower().split())
+        url = _canonical_market_news_url(str(row.get("url") or ""))
+        if not symbol or symbol not in buckets or not title or not url:
+            continue
+        if title in seen_headlines or url in seen_urls:
+            duplicate_count += 1
+            continue
+        seen_headlines.add(title)
+        seen_urls.add(url)
+        buckets[symbol].append({**row, "url": url})
+
+    # The visible viewport may show only three cards. Ordering buckets by each
+    # symbol's newest valid story prevents the first holdings in a portfolio
+    # from permanently owning those slots while preserving round-robin caps.
+    ordered_symbols = sorted(
+        symbols,
+        key=lambda symbol: str((buckets.get(symbol) or [{}])[0].get("published_at") or ""),
+        reverse=True,
+    )
+    selected: list[dict[str, Any]] = []
+    depth = 0
+    while len(selected) < limit:
+        added = False
+        for symbol in ordered_symbols:
+            bucket = buckets.get(symbol) or []
+            if per_symbol_cap is not None and depth >= per_symbol_cap:
+                continue
+            if depth >= len(bucket):
+                continue
+            selected.append(bucket[depth])
+            added = True
+            if len(selected) >= limit:
+                break
+        if not added:
+            break
+        depth += 1
+    return selected, duplicate_count
+
+
+async def _get_market_news_feed_page(
+    *,
+    user_id: str,
+    symbols: list[str],
+    days_back: int,
+    cursor: str | None,
+    limit: int,
+    consent_token: str | None,
+) -> dict[str, Any]:
+    """Slice one cached public-news snapshot. Provider work never happens per page."""
+    cache_key = _market_news_feed_cache_key(symbols, days_back)
+
+    async def fetch_news_bundle() -> dict[str, Any]:
+        statuses: dict[str, str] = {}
+        rows: list[dict[str, Any]] = []
+        semaphore = asyncio.Semaphore(NEWS_FANOUT_CONCURRENCY)
+
+        async def fetch_symbol_news(
+            symbol: str,
+        ) -> tuple[str, list[dict[str, Any]], str]:
+            async with semaphore:
+                try:
+                    articles = await fetch_market_news(
+                        symbol,
+                        user_id,
+                        consent_token,
+                        days_back=days_back,
+                    )
+                    return symbol, articles or [], ("ok" if articles else "partial")
+                except Exception as exc:
+                    logger.debug(
+                        "[Kai Market] paginated news failed for %s: %s",
+                        symbol,
+                        exc,
+                    )
+                    return symbol, [], _provider_status_from_exception(exc)
+
+        for symbol, articles, status_value in await asyncio.gather(
+            *(fetch_symbol_news(symbol) for symbol in symbols)
+        ):
+            statuses[f"news:{symbol}"] = status_value
+            rows.extend(_normalize_market_news_rows(articles, symbol=symbol))
+
+        deduped, duplicate_count = _round_robin_market_news_rows(
+            rows,
+            symbols=symbols,
+            limit=NEWS_FEED_ROWS_MAX,
+        )
+        return {
+            "rows": deduped,
+            "provider_status": statuses,
+            "generated_at": _now_iso(),
+            "coverage": {
+                "requested_symbol_count": len(symbols),
+                "represented_symbol_count": len({str(row.get("symbol") or "") for row in deduped}),
+                "duplicate_count": duplicate_count,
+            },
+        }
+
+    news_value, stale, age_seconds, cache_tier, cache_hit = await _get_or_refresh_public_module(
+        key=cache_key,
+        fresh_ttl_seconds=NEWS_FRESH_TTL_SECONDS,
+        stale_ttl_seconds=NEWS_STALE_TTL_SECONDS,
+        fetcher=fetch_news_bundle,
+        warm_source="request",
+    )
+    bundle = news_value if isinstance(news_value, dict) else {}
+    rows = bundle.get("rows") if isinstance(bundle.get("rows"), list) else []
+    snapshot_id = _market_news_snapshot_id(rows)
+    decoded_cursor = _decode_market_news_cursor(cursor)
+    offset = 0
+    if decoded_cursor:
+        cursor_snapshot_id, offset = decoded_cursor
+        if cursor_snapshot_id != snapshot_id:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Market news refreshed. Start again to see the latest headlines.",
+            )
+
+    page_limit = min(max(1, int(limit)), NEWS_FEED_PAGE_MAX)
+    items = rows[offset : offset + page_limit]
+    next_offset = offset + len(items)
+    has_more = next_offset < len(rows)
+    return {
+        "items": items,
+        "next_cursor": (_encode_market_news_cursor(snapshot_id, next_offset) if has_more else None),
+        "has_more": has_more,
+        "snapshot_id": snapshot_id,
+        "generated_at": str(bundle.get("generated_at") or _now_iso()),
+        "stale": bool(stale),
+        "cache": {
+            "tier": cache_tier,
+            "age_seconds": max(0, int(age_seconds)),
+            "hit": bool(cache_hit),
+        },
+        "provider_status": (
+            bundle.get("provider_status") if isinstance(bundle.get("provider_status"), dict) else {}
+        ),
+    }
 
 
 def _provider_status_from_exception(exc: Exception) -> str:
@@ -981,6 +1303,7 @@ async def _fetch_vix_signal() -> dict[str, Any]:
                 "https://financialmodelingprep.com/stable/quote",
                 params={"symbol": "^VIX", "apikey": pmp_key},
             )
+            record_fmp_call(endpoint="/stable/quote:^VIX", status_code=res.status_code)
             if not res.is_success:
                 cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                 if cooldown_seconds > 0:
@@ -1133,6 +1456,9 @@ async def _fetch_recommendation(symbol: str, quote_price: float | None) -> dict[
                     "https://financialmodelingprep.com/stable/price-target-consensus",
                     params={"symbol": symbol, "apikey": pmp_key},
                 )
+                record_fmp_call(
+                    endpoint="/stable/price-target-consensus", status_code=res.status_code
+                )
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
@@ -1281,6 +1607,7 @@ async def _fetch_pmp_json(paths: list[str], params: dict[str, Any]) -> list[dict
             req_params = {**params, "apikey": key}
             try:
                 res = await client.get(url, params=req_params)
+                record_fmp_call(endpoint=path, status_code=res.status_code)
                 if not res.is_success:
                     cooldown_seconds = _provider_cooldown_seconds(res.status_code)
                     if cooldown_seconds > 0:
@@ -1325,21 +1652,80 @@ def _normalize_mover_row(row: dict[str, Any], source: str) -> dict[str, Any] | N
     if not symbol:
         return None
 
+    # `changes` is a currency delta on FMP mover payloads, not a percentage.
+    # Do not ever coerce it into `change_pct`: downstream UI deliberately
+    # renders this field with `%`, so that fallback turns a $ move into a false
+    # return. Keep the public contract percentage-only and omit an unavailable
+    # percentage rather than inventing one.
+    change_pct = next(
+        (
+            parsed
+            for key in ("changesPercentage", "changePercentage", "change_percent")
+            if (parsed := _parse_percent_points(row.get(key))) is not None
+        ),
+        None,
+    )
+
     return {
         "symbol": symbol,
         "company_name": str(row.get("name") or row.get("companyName") or symbol),
         "price": _safe_float(row.get("price")),
-        "change_pct": _safe_float(
-            row.get("changesPercentage")
-            or row.get("changePercentage")
-            or row.get("change_percent")
-            or row.get("changes")
-        ),
+        "change_pct": change_pct,
         "volume": _safe_int(row.get("volume")),
         "source_tags": [source],
         "degraded": False,
         "as_of": None,
     }
+
+
+async def _fetch_symbol_price_series(symbol: str) -> list[float] | None:
+    """Short recent daily close series for a single symbol via FMP's light
+    EOD chart endpoint. Returns None (never a fabricated shape) when the
+    provider has no data, is in cooldown, or the key is unavailable."""
+    rows = await _fetch_pmp_json(
+        ["/stable/historical-price-eod/light"],
+        {"symbol": symbol},
+    )
+    if not rows:
+        return None
+    closes: list[tuple[str, float]] = []
+    for row in rows:
+        price = _safe_float(row.get("price") or row.get("close"))
+        date_value = str(row.get("date") or "")
+        if price is None or not date_value:
+            continue
+        closes.append((date_value, price))
+    if not closes:
+        return None
+    closes.sort(key=lambda item: item[0])
+    return [price for _, price in closes[-20:]]
+
+
+async def _fetch_symbol_series_batch(symbols: list[str]) -> dict[str, list[float]]:
+    """Bounded-concurrency fan-out of `_fetch_symbol_price_series` across a
+    small symbol set (index benchmarks + current mover rows). Never issues
+    one request per row sequentially; capped in-flight requests instead."""
+    unique_symbols = sorted(
+        {str(symbol).strip().upper() for symbol in symbols if str(symbol).strip()}
+    )
+    if not unique_symbols:
+        return {}
+
+    semaphore = asyncio.Semaphore(6)
+    results: dict[str, list[float]] = {}
+
+    async def fetch_one(symbol: str) -> None:
+        async with semaphore:
+            try:
+                series = await _fetch_symbol_price_series(symbol)
+            except Exception as exc:
+                logger.debug("[Kai Market] price series unavailable for %s: %r", symbol, exc)
+                series = None
+            if series:
+                results[symbol] = series
+
+    await asyncio.gather(*(fetch_one(symbol) for symbol in unique_symbols))
+    return results
 
 
 async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
@@ -1377,12 +1763,23 @@ async def _fetch_movers_from_fmp() -> tuple[dict[str, Any], dict[str, str]]:
 
 
 async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
-    rows = await _fetch_pmp_json(
-        [
-            "/stable/sector-performance-snapshot",
-        ],
-        {},
-    )
+    # FMP's /stable/sector-performance-snapshot requires a `date` query param
+    # (confirmed against the official docs); the endpoint returns an empty/
+    # error payload without it. The snapshot lags real time (no data yet for
+    # the current session on some days, none at all on weekends/holidays), so
+    # walk back a few calendar days until one returns rows.
+    rows: list[dict[str, Any]] = []
+    resolved_date: str | None = None
+    today = datetime.now(timezone.utc).date()
+    for days_back in range(4):
+        candidate_date = (today - timedelta(days=days_back)).isoformat()
+        rows = await _fetch_pmp_json(
+            ["/stable/sector-performance-snapshot"],
+            {"date": candidate_date},
+        )
+        if rows:
+            resolved_date = candidate_date
+            break
 
     out: list[dict[str, Any]] = []
     for row in rows:
@@ -1393,9 +1790,12 @@ async def _fetch_sector_rotation_from_fmp() -> tuple[list[dict[str, Any]], str]:
             {
                 "sector": sector,
                 "change_pct": _safe_float(
-                    row.get("changesPercentage") or row.get("changePercentage") or row.get("change")
+                    row.get("changesPercentage")
+                    or row.get("changePercentage")
+                    or row.get("averageChange")
+                    or row.get("change")
                 ),
-                "as_of": None,
+                "as_of": resolved_date,
                 "source_tags": ["PMP/FMP"],
                 "degraded": False,
             }
@@ -1562,9 +1962,14 @@ def _fallback_sector_rotation_from_watchlist(
 def _build_market_overview(
     spy_quote: dict[str, Any] | None,
     qqq_quote: dict[str, Any] | None,
+    dia_quote: dict[str, Any] | None,
+    iwm_quote: dict[str, Any] | None,
     vix_payload: dict[str, Any],
     status_payload: dict[str, Any],
+    sparklines: dict[str, list[float]] | None = None,
 ) -> list[dict[str, Any]]:
+    sparklines = sparklines or {}
+
     def metric_from_quote(
         label: str, symbol: str, quote: dict[str, Any] | None, degraded: bool
     ) -> dict[str, Any]:
@@ -1578,11 +1983,14 @@ def _build_market_overview(
             "as_of": quote.get("fetched_at") if isinstance(quote.get("fetched_at"), str) else None,
             "source": str(quote.get("source") or "Unavailable"),
             "degraded": degraded,
+            "sparkline": sparklines.get(symbol) or None,
         }
 
     out = [
         metric_from_quote("S&P 500", "SPY", spy_quote, degraded=not bool(spy_quote)),
         metric_from_quote("NASDAQ 100", "QQQ", qqq_quote, degraded=not bool(qqq_quote)),
+        metric_from_quote("DOW 30", "DIA", dia_quote, degraded=not bool(dia_quote)),
+        metric_from_quote("Russell 2000", "IWM", iwm_quote, degraded=not bool(iwm_quote)),
         {
             "id": "volatility",
             "label": vix_payload["label"],
@@ -1766,10 +2174,18 @@ def _market_refresh_enabled() -> bool:
 def _market_refresh_interval_seconds() -> int:
     raw = str(os.getenv("KAI_MARKET_REFRESH_INTERVAL_SECONDS", "600")).strip()
     try:
-        value = int(raw)
-        return max(120, value)
+        base_interval = max(120, int(raw))
     except ValueError:
-        return 600
+        base_interval = 600
+    # Same open/closed split as _market_aware_fresh_ttl: refresh more often
+    # while the market is actually moving, back off the background loop cadence
+    # (not just individual TTLs) when it is closed, since there is nothing new
+    # to warm outside regular hours. This is the loop-level half of the
+    # market-hours-aware call budget; the fresh/stale TTLs above are the
+    # per-module half.
+    if _us_market_is_open():
+        return base_interval
+    return max(base_interval, MARKET_CLOSED_FRESH_TTL_SECONDS)
 
 
 def _market_startup_warm_timeout_seconds() -> float:
@@ -1783,6 +2199,16 @@ def _market_startup_warm_timeout_seconds() -> float:
 
 async def _refresh_public_market_modules_once() -> None:
     refresh_summary: list[str] = []
+
+    if is_budget_critical():
+        # Preserve remaining daily FMP quota for real user requests: skip this
+        # proactive background warm cycle entirely once we are down to the
+        # last ~10% of the daily call budget. Real requests still fall back to
+        # cache/stale-serving as usual; they are never blocked by this check.
+        logger.warning(
+            "[Kai Market] background warm refresh skipped - FMP daily call budget critical"
+        )
+        return
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
@@ -1801,7 +2227,9 @@ async def _refresh_public_market_modules_once() -> None:
 
     try:
         _, stale, age_seconds, tier, cache_hit = await _get_or_refresh_public_module(
-            key="movers:us",
+            # v2 separates cached payloads created before ``changes`` was
+            # correctly treated as a currency delta rather than a percent.
+            key="movers:v2:us",
             fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
             stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
             fetcher=_fetch_movers_from_fmp,
@@ -2007,7 +2435,10 @@ async def _get_market_insights_payload(
             if str(item.get("quote_symbol") or "").strip()
         ]
 
-        core_symbols = ["SPY", "QQQ"]
+        # ETFs provide the available, liquid quote proxies for these benchmark
+        # indices through the same provider contract as the existing SPY/QQQ
+        # tiles. Keeping them in this cached bundle avoids per-tile fetches.
+        core_symbols = ["SPY", "QQQ", "DIA", "IWM"]
         symbol_set = sorted({*watchlist_symbols, *core_symbols, *renaissance_symbols})
         quotes_key = f"quotes:{','.join(symbol_set)}"
 
@@ -2157,7 +2588,9 @@ async def _get_market_insights_payload(
             safe_public_module(
                 "movers",
                 _get_or_refresh_public_module(
-                    key="movers:us",
+                    # Keep this in lockstep with the proactive warmer above.
+                    # Existing v1 entries can contain false percentage values.
+                    key="movers:v2:us",
                     fresh_ttl_seconds=MOVERS_FRESH_TTL_SECONDS,
                     stale_ttl_seconds=MOVERS_STALE_TTL_SECONDS,
                     fetcher=_fetch_movers_from_fmp,
@@ -2196,6 +2629,8 @@ async def _get_market_insights_payload(
         aggregated_cache_hit = aggregated_cache_hit and quotes_cache_hit
         spy_quote = quote_map.get("SPY") if isinstance(quote_map, dict) else None
         qqq_quote = quote_map.get("QQQ") if isinstance(quote_map, dict) else None
+        dia_quote = quote_map.get("DIA") if isinstance(quote_map, dict) else None
+        iwm_quote = quote_map.get("IWM") if isinstance(quote_map, dict) else None
         quoted_watchlist_symbols = [
             s
             for s in watchlist_symbols
@@ -2451,7 +2886,7 @@ async def _get_market_insights_payload(
         ][:NEWS_SYMBOL_MAX]
         if not news_symbols:
             news_symbols = watchlist_symbols_for_cards[:NEWS_SYMBOL_MAX]
-        news_key = f"news:{','.join(news_symbols)}:{days_back}"
+        news_key = f"news:v2:{','.join(news_symbols)}:{days_back}"
 
         async def fetch_news_bundle() -> dict[str, Any]:
             rows: list[dict[str, Any]] = []
@@ -2504,17 +2939,23 @@ async def _get_market_insights_payload(
                     ", ".join(degraded_news[:6]),
                 )
 
-            deduped: list[dict[str, Any]] = []
-            seen: set[str] = set()
-            for row in rows:
-                key = f"{row.get('title')}::{row.get('url')}"
-                if not row.get("title") or not row.get("url") or key in seen:
-                    continue
-                seen.add(key)
-                deduped.append(row)
-
-            deduped.sort(key=lambda item: str(item.get("published_at") or ""), reverse=True)
-            return {"rows": deduped[:NEWS_ROWS_MAX], "provider_status": statuses}
+            deduped, duplicate_count = _round_robin_market_news_rows(
+                rows,
+                symbols=news_symbols,
+                limit=NEWS_ROWS_MAX,
+                per_symbol_cap=NEWS_ROWS_PER_SYMBOL_MAX,
+            )
+            return {
+                "rows": deduped,
+                "provider_status": statuses,
+                "coverage": {
+                    "requested_symbol_count": len(news_symbols),
+                    "represented_symbol_count": len(
+                        {str(row.get("symbol") or "") for row in deduped}
+                    ),
+                    "duplicate_count": duplicate_count,
+                },
+            }
 
         (
             news_value,
@@ -2531,6 +2972,9 @@ async def _get_market_insights_payload(
         )
         news_bundle = news_value if isinstance(news_value, dict) else {}
         news_tape = news_bundle.get("rows") if isinstance(news_bundle.get("rows"), list) else []
+        news_coverage = (
+            news_bundle.get("coverage") if isinstance(news_bundle.get("coverage"), dict) else {}
+        )
         provider_status.update(
             {str(k): str(v) for k, v in (news_bundle.get("provider_status") or {}).items()}
         )
@@ -2548,7 +2992,53 @@ async def _get_market_insights_payload(
                 continue
             news_by_symbol[symbol] = news
 
-        market_overview = _build_market_overview(spy_quote, qqq_quote, vix_payload, status_payload)
+        mover_symbols = [
+            str(row.get("symbol") or "").strip().upper()
+            for bucket in ("gainers", "losers", "active")
+            for row in (movers_payload.get(bucket) or [])
+            if isinstance(row, dict) and str(row.get("symbol") or "").strip()
+        ]
+        sparkline_symbol_set = sorted({"SPY", "QQQ", "DIA", "IWM", *mover_symbols})
+        # Movers itself is cached (key "movers:v2:us"), so this symbol set is
+        # stable for the lifetime of that cache entry. Cache the batch series
+        # fetch the same way instead of hitting FMP on every request - this is
+        # the single highest-volume call site on this page (up to ~26 symbols)
+        # and must not bypass the shared L1/L2 cache like the rest of the file.
+        sparkline_cache_key = f"sparklines:{','.join(sparkline_symbol_set)}"
+        (
+            symbol_series_raw,
+            _sparklines_stale,
+            _sparklines_age,
+            sparklines_tier,
+            sparklines_cache_hit,
+        ) = await _get_or_refresh_public_module(
+            key=sparkline_cache_key,
+            fresh_ttl_seconds=SPARKLINES_FRESH_TTL_SECONDS,
+            stale_ttl_seconds=SPARKLINES_STALE_TTL_SECONDS,
+            fetcher=lambda: _fetch_symbol_series_batch(sparkline_symbol_set),
+            warm_source=warm_source,
+            serve_stale_while_revalidate=True,
+        )
+        symbol_series = symbol_series_raw if isinstance(symbol_series_raw, dict) else {}
+        aggregated_cache_tier = _merge_cache_tier(aggregated_cache_tier, sparklines_tier)
+        aggregated_cache_hit = aggregated_cache_hit and sparklines_cache_hit
+        if symbol_series:
+            for bucket in ("gainers", "losers", "active"):
+                for row in movers_payload.get(bucket) or []:
+                    if not isinstance(row, dict):
+                        continue
+                    series = symbol_series.get(str(row.get("symbol") or "").strip().upper())
+                    row["sparkline"] = series or None
+
+        market_overview = _build_market_overview(
+            spy_quote,
+            qqq_quote,
+            dia_quote,
+            iwm_quote,
+            vix_payload,
+            status_payload,
+            sparklines=symbol_series,
+        )
 
         sparkline_points, sparkline_degraded, sparkline_sources = await _build_sparkline_points(
             spy_quote
@@ -2692,6 +3182,7 @@ async def _get_market_insights_payload(
                     "accepted_count": len(watchlist_symbols),
                     "filtered_count": len(filtered_symbols) + len(hidden_pick_symbols),
                 },
+                "news_coverage": news_coverage,
                 "filtered_symbols": [*filtered_symbols, *hidden_pick_symbols],
             },
             # Backward compatibility fields.
@@ -2871,6 +3362,75 @@ async def get_market_insights(
     )
 
 
+@router.get("/market/news/baseline/{user_id}")
+async def get_market_news_baseline(
+    user_id: _UserId,
+    days_back: int = Query(default=7, ge=1, le=14),
+    cursor: str | None = Query(
+        default=None,
+        max_length=NEWS_FEED_CURSOR_MAX_LENGTH,
+    ),
+    limit: int = Query(
+        default=NEWS_FEED_PAGE_DEFAULT,
+        ge=1,
+        le=NEWS_FEED_PAGE_MAX,
+    ),
+    firebase_uid: str = Depends(require_firebase_auth),
+) -> dict[str, Any]:
+    """Read one page from the shared baseline news snapshot without vault access."""
+    verify_user_id_match(firebase_uid, user_id)
+    return await _get_market_news_feed_page(
+        user_id=user_id,
+        symbols=DEFAULT_SYMBOLS[:NEWS_SYMBOL_MAX],
+        days_back=days_back,
+        cursor=cursor,
+        limit=limit,
+        consent_token=None,
+    )
+
+
+@router.get("/market/news/{user_id}")
+async def get_market_news(
+    user_id: _UserId,
+    symbols: str | None = Query(
+        default=None,
+        max_length=512,
+        description="CSV list of symbols used for the private market feed, max 3",
+    ),
+    days_back: int = Query(default=7, ge=1, le=14),
+    cursor: str | None = Query(
+        default=None,
+        max_length=NEWS_FEED_CURSOR_MAX_LENGTH,
+    ),
+    limit: int = Query(
+        default=NEWS_FEED_PAGE_DEFAULT,
+        ge=1,
+        le=NEWS_FEED_PAGE_MAX,
+    ),
+    token_data: dict = Depends(require_vault_owner_token),
+) -> dict[str, Any]:
+    """Read one cursor page from a vault-owner's bounded market-news snapshot."""
+    if token_data["user_id"] != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="User ID does not match token",
+        )
+    consent_token = _coerce_consent_token(token_data.get("token"))
+    if not consent_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing or invalid consent token",
+        )
+    return await _get_market_news_feed_page(
+        user_id=user_id,
+        symbols=_select_news_symbols(symbols),
+        days_back=days_back,
+        cursor=cursor,
+        limit=limit,
+        consent_token=consent_token,
+    )
+
+
 @router.get("/stock-preview/{user_id}")
 async def get_stock_preview(
     user_id: _UserId,
@@ -2895,7 +3455,6 @@ async def get_stock_preview(
     classification = get_symbol_master_service().classify(repaired_symbol)
     normalized_symbol = classification.symbol
     active_pick_source = _normalize_pick_source(pick_source)
-    selected_pick_source = active_pick_source
     pick_rows_source, pick_sources, resolved_pick_source = await _resolve_pick_source_rows(
         user_id,
         active_pick_source,
@@ -2904,7 +3463,7 @@ async def get_stock_preview(
         (
             source
             for source in pick_sources
-            if str(source.get("id") or "").strip() == selected_pick_source
+            if str(source.get("id") or "").strip() == resolved_pick_source
         ),
         None,
     )
@@ -2943,10 +3502,11 @@ async def get_stock_preview(
         break
 
     advisor_summary: dict[str, Any] | None = None
-    if selected_pick_source.startswith("ria:"):
-        ria_package = await RIAIAMService().get_pick_package_for_source(
-            user_id, selected_pick_source
+    if resolved_pick_source.startswith("ria:"):
+        resolved_ria_source = await RIAIAMService().resolve_investor_pick_source(
+            user_id, resolved_pick_source
         )
+        ria_package = (resolved_ria_source or {}).get("package") or {}
         top_picks = ria_package.get("top_picks") if isinstance(ria_package, dict) else []
         avoid_rows = ria_package.get("avoid_rows") if isinstance(ria_package, dict) else []
         screening_sections = (
@@ -2981,7 +3541,7 @@ async def get_stock_preview(
         elif has_screening_rows:
             ticker_status = "screened"
         advisor_summary = {
-            "source_id": selected_pick_source,
+            "source_id": resolved_pick_source,
             "source_label": str((selected_source_meta or {}).get("label") or "Advisor list"),
             "kind": "ria",
             "state": selected_state,
@@ -2995,7 +3555,7 @@ async def get_stock_preview(
             "ticker_status": ticker_status,
             "avoid_reason": str(_pick_row_value(matched_avoid_row, "reason", "") or "").strip()
             or None,
-            "resolved_with_fallback": resolved_pick_source != selected_pick_source,
+            "resolved_with_fallback": resolved_pick_source != active_pick_source,
         }
 
     quote_price = _safe_float(quote_payload.get("price"))

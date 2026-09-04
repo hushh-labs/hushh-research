@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 import re
 from dataclasses import dataclass, replace
 from datetime import datetime
@@ -20,12 +19,20 @@ from google.genai import types as genai_types
 
 from db.db_client import get_db
 from hushh_mcp.hushh_adk.manifest import AgentModelConfig, ManifestLoader
+from hushh_mcp.one_adk.text_runtime import (
+    OneTextEmptyResponseError,
+    OneTextStreamEvent,
+    stream_one_text_turn,
+)
 from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
     build_managed_runtime_client,
     build_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.runtime_settings import get_core_security_settings
-from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+from hushh_mcp.services.action_gateway import get_action_gateway_action
+from hushh_mcp.services.model_preference_service import resolve_text_model_name
 from hushh_mcp.types import EncryptedPayload
 from hushh_mcp.vault.encrypt import decrypt_data, encrypt_data
 from hussh_sdk import (
@@ -37,16 +44,16 @@ from hussh_sdk import (
 
 logger = logging.getLogger(__name__)
 
-AGENT_CHAT_MODEL_ENV = "AGENT_GEMINI_MODEL"
-DEFAULT_AGENT_CHAT_MODEL = "gemini-3.5-flash"
+GEMINI_BYOK_CREDENTIAL_REF = "pkm:runtime_secrets.llm.gemini_api_key"
 KAI_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "kai" / "agent.yaml"
+ONE_AGENT_MANIFEST_PATH = Path(__file__).resolve().parents[1] / "agents" / "one" / "agent.yaml"
 AGENT_SYSTEM_PROMPT = """You are One, the top private agent inside Hussh.
 
 You hold the relationship layer with the user, clarify intent, and delegate specialist work (finance to Kai, privacy to Nav, identity/KYC to KYC). Until a specialist surface is engaged, answer directly within the capability boundary below.
 
 Current capability boundary:
 - Focus on markets, portfolio context, stock analysis, Kai workflows, consent/privacy surfaces, and how the Hussh app works.
-- Use the provided PKM context when it is relevant, especially when the user asks what Kai knows about them or shares preferences.
+- Use the provided PKM context when it is relevant, especially when the user asks what One knows about them or shares preferences.
 - The PKM context may contain decrypted session-only details supplied by the frontend after vault unlock. Treat it as user-authorized memory for this turn, not as exhaustive truth. Do not invent personal facts outside that context and the current conversation.
 - If PKM context is present and the user asks to show, summarize, or reason over PKM, answer from that context. Do not claim One cannot access PKM.
 - When the user explicitly asks to save, remember, or add durable personal context to PKM, use the frontend PKM tool. Do not say One cannot save to PKM.
@@ -54,7 +61,6 @@ Current capability boundary:
 - When the stream includes a planned frontend app action, keep the reply to a short receipt. The frontend owns the actual navigation/action state.
 - For Connected Systems CRM, read/create/update requests require explicit user approval. Delete is blocked in v1.
 - Destructive, account-changing, trading, approval, revocation, and manual-only actions must be blocked and explained safely.
-- "Marketplace" is ambiguous: there are TWO. The Information Marketplace is where the user publishes and prices their own personal-data slices (what they've published, potential earnings). Kai's Market Home is the markets/investing surface. If the user says just "marketplace" without qualifying which, ask a short clarifying question — "Do you mean your Information Marketplace (your personal data slices) or Kai's Market Home (markets)?" — before answering or navigating. Once qualified (e.g. "information marketplace", "data marketplace", or "market home"), proceed to the right one.
 - Keep answers concise, practical, and clear. Financial answers are educational, not personalized investment advice.
 """
 
@@ -80,10 +86,7 @@ When unsure, do not call a function.
 """
 
 # Curated allowlist of surfaces the chat action planner may open. The KEYS
-# are a deliberate product decision (the Information Marketplace is
-# intentionally absent: the planner opens surfaces too eagerly, so
-# marketplace navigation stays deterministic in _plan_marketplace_navigation
-# and marketplace questions go to the delegated specialist). The VALUES
+# are a deliberate product decision. The VALUES
 # (action id validity, label, policy) are governed by the generated action
 # gateway manifest: _resolved_app_surface_actions() drops any entry whose
 # contract disappeared or stopped being allow_direct, so this map can never
@@ -95,7 +98,6 @@ _APP_SURFACE_ACTION_IDS: dict[str, str] = {
     "portfolio_import": "route.kai_import",
     "portfolio_dashboard": "route.kai_dashboard",
     "analysis_history": "route.analysis_history",
-    "optimize": "route.kai_optimize",
     "market_home": "route.kai_home",
     "connected_systems": "route.profile_connected_systems",
 }
@@ -109,11 +111,11 @@ def _resolved_app_surface_actions() -> dict[str, tuple[str, str]]:
     no longer allow_direct is dropped (and logged) instead of letting the
     planner open a surface the contract no longer permits.
     """
-    from hushh_mcp.services.voice_action_manifest import get_voice_manifest_action
+    from hushh_mcp.services.action_gateway import get_action_gateway_action
 
     resolved: dict[str, tuple[str, str]] = {}
     for surface, action_id in _APP_SURFACE_ACTION_IDS.items():
-        entry = get_voice_manifest_action(action_id)
+        entry = get_action_gateway_action(action_id)
         if entry is None:
             logger.error(
                 "agent_chat.surface_action_missing_from_manifest surface=%s action_id=%s",
@@ -140,6 +142,10 @@ MessageStatus = Literal["complete", "interrupted", "error"]
 AgentActionExecution = Literal["frontend", "blocked"]
 AgentRuntimeCredentialMode = Literal["byok", "hushh_managed_vertex"]
 DEFAULT_AGENT_RUNTIME_CREDENTIAL_MODE: AgentRuntimeCredentialMode = "hushh_managed_vertex"
+GeminiByokTransport = Literal["developer_api", "vertex_api_key"]
+DEFAULT_GEMINI_BYOK_TRANSPORT: GeminiByokTransport = "developer_api"
+_VERTEX_PROJECT_RE = re.compile(r"^[a-z][a-z0-9-]{4,28}[a-z0-9]$")
+_VERTEX_LOCATION_RE = re.compile(r"^(?:global|[a-z]+-[a-z]+[0-9]+)$")
 
 _STOCK_ALIAS_TO_TICKER = {
     "alphabet": "GOOGL",
@@ -224,27 +230,6 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
     ),
     (
         re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to|start|run)\b.*\b(?:optimize|optimise|rebalance)\b",
-            re.IGNORECASE,
-        ),
-        "route.kai_optimize",
-        "Open Optimize Surface",
-    ),
-    (
-        # Must precede the "market"/kai-home pattern: "marketplace" contains
-        # "market". Cues are QUALIFIED (information/data marketplace, data slices)
-        # so a bare "open marketplace" is left for One to disambiguate rather than
-        # silently opening the wrong surface.
-        re.compile(
-            r"\b(?:open|go to|show|take me to|navigate to)\b.*"
-            r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
-            re.IGNORECASE,
-        ),
-        "route.one_marketplace",
-        "Open Information Marketplace",
-    ),
-    (
-        re.compile(
             r"\b(?:open|go to|show|take me to|navigate to)\b.*\b(?:market home|kai market|kai home|home)\b",
             re.IGNORECASE,
         ),
@@ -260,15 +245,6 @@ _NAVIGATION_ACTION_PATTERNS: list[tuple[re.Pattern[str], str, str]] = [
         "Open Connected Systems",
     ),
 ]
-
-# Deterministic Information Marketplace navigation: only a QUALIFIED open-intent
-# ("open/take me to the information/data marketplace", "open my slices"). A bare
-# "marketplace" deliberately does NOT match so One can disambiguate.
-_INFO_MARKETPLACE_NAV_RE = re.compile(
-    r"\b(?:open|go to|show|take me to|navigate to|bring up|launch)\b.*"
-    r"\b(?:information marketplace|data marketplace|data slices?|my slices)\b",
-    re.IGNORECASE,
-)
 
 _CRM_READ_PATTERNS = [
     re.compile(
@@ -400,6 +376,9 @@ class AgentChatActionPlan:
 class AgentRuntimeContract:
     mode: AgentRuntimeCredentialMode
     credential_supplied: bool
+    gemini_byok_transport: GeminiByokTransport
+    vertex_project: str | None
+    vertex_location: str | None
 
 
 @dataclass(frozen=True)
@@ -408,6 +387,9 @@ class PreparedAgentRuntime:
     provider: str
     model: str
     credential_ref: str | None
+    gemini_byok_transport: GeminiByokTransport
+    vertex_project: str | None
+    vertex_location: str | None
     client: Any
     evidence: dict[str, Any]
 
@@ -422,6 +404,7 @@ class KaiAgentCredentialPolicy:
 class KaiAgentRuntimeManifest:
     model: AgentModelConfig
     credential_policy: KaiAgentCredentialPolicy
+    system_instruction: str = ""
 
 
 class AgentRuntimeContractError(ValueError):
@@ -468,10 +451,25 @@ def _parse_credential_mode(value: str | None) -> AgentRuntimeCredentialMode:
     )
 
 
-def _load_kai_agent_manifest_data() -> dict[str, Any]:
-    with KAI_AGENT_MANIFEST_PATH.open("r", encoding="utf-8") as handle:
+def _parse_gemini_byok_transport(value: str | None) -> GeminiByokTransport:
+    transport = (value or DEFAULT_GEMINI_BYOK_TRANSPORT).strip()
+    if transport in {"developer_api", "vertex_api_key"}:
+        return transport  # type: ignore[return-value]
+    raise AgentRuntimeContractError(
+        error_code="AGENT_RUNTIME_TRANSPORT_INVALID",
+        message="Gemini runtime transport is invalid.",
+    )
+
+
+def _load_agent_manifest_data(path: Path) -> dict[str, Any]:
+    with path.open("r", encoding="utf-8") as handle:
         data = yaml.safe_load(handle)
     return data if isinstance(data, dict) else {}
+
+
+def _load_kai_agent_manifest_data() -> dict[str, Any]:
+    """Compatibility loader for callers that explicitly inspect Kai."""
+    return _load_agent_manifest_data(KAI_AGENT_MANIFEST_PATH)
 
 
 def _credential_policy_from_manifest(data: dict[str, Any]) -> KaiAgentCredentialPolicy:
@@ -500,19 +498,45 @@ def load_kai_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
     return KaiAgentRuntimeManifest(
         model=manifest.model_config_for_runtime(),
         credential_policy=_credential_policy_from_manifest(data),
+        system_instruction=manifest.system_instruction,
     )
 
 
-def create_runtime_client(runtime_provider: str, user_key: str):
+@lru_cache(maxsize=1)
+def load_one_agent_runtime_manifest() -> KaiAgentRuntimeManifest:
+    """Load One's authored runtime contract for the Agent Chat surface."""
+    data = _load_agent_manifest_data(ONE_AGENT_MANIFEST_PATH)
+    manifest = ManifestLoader.load_from_dict(data, source=str(ONE_AGENT_MANIFEST_PATH))
+    return KaiAgentRuntimeManifest(
+        model=manifest.model_config_for_runtime(),
+        credential_policy=_credential_policy_from_manifest(data),
+        system_instruction=manifest.system_instruction,
+    )
+
+
+def create_runtime_client(
+    runtime_provider: str,
+    user_key: str,
+    *,
+    gemini_byok_transport: GeminiByokTransport = "developer_api",
+    vertex_project: str | None = None,
+    vertex_location: str | None = None,
+):
     """BYOK runtime client for the chosen provider (Gemini, Anthropic, OpenAI, Grok)."""
 
-    return build_runtime_client(runtime_provider, user_key)
+    return build_runtime_client(
+        runtime_provider,
+        user_key,
+        gemini_byok_transport=gemini_byok_transport,
+        vertex_project=vertex_project,
+        vertex_location=vertex_location,
+    )
 
 
-def create_managed_runtime_client(runtime_provider: str, user_key: str):
-    """Hushh-managed runtime client for the chosen provider."""
+def create_managed_runtime_client(runtime_provider: str, managed_credential: str = ""):
+    """Hussh-managed runtime client for the chosen provider."""
 
-    return build_managed_runtime_client(runtime_provider, user_key)
+    return build_managed_runtime_client(runtime_provider, managed_credential)
 
 
 def _redacted_runtime_evidence(evidence: dict[str, Any]) -> dict[str, Any]:
@@ -568,9 +592,9 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
     detail: dict[str, Any] = {
         "error_type": error.__class__.__name__,
     }
-    if error.__class__.__name__ == "DefaultCredentialsError":
+    if error.__class__.__name__ in {"DefaultCredentialsError", "RefreshError"}:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
-        detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
+        detail["operator_hint"] = "Check Hussh managed Gemini credentials for this runtime."
         return detail
     status_code = getattr(error, "code", None) or getattr(error, "status_code", None)
     if status_code is not None:
@@ -602,7 +626,7 @@ def _classify_gemini_error(error: Exception) -> dict[str, Any]:
         "ACCESS_TOKEN_SCOPE_INSUFFICIENT",
     }:
         detail["likely_issue"] = "managed_google_credentials_unavailable"
-        detail["operator_hint"] = "Check Hushh managed Gemini credentials for this runtime."
+        detail["operator_hint"] = "Check Hussh managed Gemini credentials for this runtime."
     elif status_code in {401, 403}:
         detail["likely_issue"] = "credential_not_authorized"
         detail["operator_hint"] = "Check the runtime credential and model access."
@@ -705,14 +729,14 @@ def _runtime_provider_error_code(detail: dict[str, Any]) -> str:
 def _runtime_provider_user_message(error_code: str) -> str:
     if error_code == "AGENT_RUNTIME_CREDENTIAL_INVALID":
         return (
-            "Your saved Gemini key could not be used. Update it in Profile > Runtime keys "
-            "or switch Kai to Hushh managed Gemini."
+            "Your saved Gemini key could not be used. Update it in Connections settings "
+            "or switch to Hussh managed Gemini."
         )
     if error_code == "AGENT_RUNTIME_MANAGED_CREDENTIALS_UNAVAILABLE":
-        return "Hushh managed Gemini is not available in this environment."
+        return "Hussh managed Gemini is not available in this environment."
     if error_code == "AGENT_RUNTIME_MODEL_UNAVAILABLE":
-        return "Kai's configured Gemini model is not available for this runtime."
-    return "Kai could not reach the configured Gemini runtime."
+        return "One's configured Gemini model is not available for this runtime."
+    return "One could not reach the configured Gemini runtime."
 
 
 def _runtime_provider_error_from_exception(
@@ -778,7 +802,7 @@ def _enrich_plan_with_manifest(
     """
     if plan.execution != "frontend" or not plan.action_id:
         return plan
-    manifest_action = get_voice_manifest_action(plan.action_id)
+    manifest_action = get_action_gateway_action(plan.action_id)
     if manifest_action is None:
         return plan
 
@@ -1000,9 +1024,30 @@ class AgentChatService:
         self._db = db
         self._client = None
         self._settings = None
-        self.runtime_manifest = load_kai_agent_runtime_manifest()
-        self.model = (model or self.runtime_manifest.model.name or DEFAULT_AGENT_CHAT_MODEL).strip()
+        self.runtime_manifest = load_one_agent_runtime_manifest()
+        # The lane default. It is the floor for a turn whose owner is unknown, never the
+        # answer for one whose owner is: this service is a process-wide singleton, so a
+        # model pinned here would outlive every person's choice until the next restart.
+        self.model = (model or resolve_fleet_model_name(self.runtime_manifest.model.name)).strip()
+        if not self.model:
+            raise ValueError("Agent Chat manifest must declare a runtime model")
+        self._model_pinned = bool(model)
         self._vault_key_hex = vault_key_hex
+
+    async def model_for_user(self, user_id: str | None) -> str:
+        """The model this person's turn runs on, resolved per turn.
+
+        An explicitly constructed service (tests, a pinned caller) keeps its model; every
+        other turn asks the preference chain, so a person's choice takes effect on their
+        next message rather than on the next deploy.
+        """
+        if self._model_pinned:
+            return self.model
+        try:
+            return await resolve_text_model_name(user_id)
+        except Exception:
+            logger.warning("agent_chat_model_resolution_failed user=%s", user_id, exc_info=True)
+            return self.model
 
     @property
     def settings(self):
@@ -1023,12 +1068,8 @@ class AgentChatService:
     @property
     def client(self):
         if self._client is None:
-            api_key = self.settings.google_api_key or os.getenv("GOOGLE_API_KEY", "").strip()
-            if not api_key:
-                raise RuntimeError("Gemini API key is not configured")
             self._client = create_managed_runtime_client(
                 runtime_provider=self.runtime_manifest.model.provider,
-                user_key=api_key,
             )
         return self._client
 
@@ -1037,6 +1078,9 @@ class AgentChatService:
         *,
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
+        runtime_credential_transport: str | None = None,
+        runtime_vertex_project: str | None = None,
+        runtime_vertex_location: str | None = None,
     ) -> AgentRuntimeContract:
         mode = _parse_credential_mode(
             runtime_credential_mode or self.runtime_manifest.credential_policy.default
@@ -1048,18 +1092,37 @@ class AgentChatService:
             )
 
         secret = (runtime_credential or "").strip()
+        transport = _parse_gemini_byok_transport(runtime_credential_transport)
+        project = (runtime_vertex_project or "").strip()
+        location = (runtime_vertex_location or "").strip()
         if mode == "byok" and not secret:
             raise AgentRuntimeContractError(
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
-                    "Kai needs your Gemini key to continue. Add or update it in "
-                    "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+                    "One needs your Gemini key to continue. Add or update it in "
+                    "Connections settings, or switch to Hussh managed Gemini."
                 ),
+            )
+        if mode == "byok" and transport == "vertex_api_key":
+            if not _VERTEX_PROJECT_RE.fullmatch(project) or not _VERTEX_LOCATION_RE.fullmatch(
+                location
+            ):
+                raise AgentRuntimeContractError(
+                    error_code="AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID",
+                    message="Google Cloud Vertex requires a valid project ID and location.",
+                )
+        if mode == "byok" and transport == "developer_api" and (project or location):
+            raise AgentRuntimeContractError(
+                error_code="AGENT_RUNTIME_VERTEX_CONFIGURATION_INVALID",
+                message="Google AI Studio credentials cannot include Vertex project settings.",
             )
 
         return AgentRuntimeContract(
             mode=mode,
             credential_supplied=bool(secret),
+            gemini_byok_transport=transport,
+            vertex_project=project or None,
+            vertex_location=location or None,
         )
 
     async def prepare_agent_runtime(
@@ -1067,15 +1130,30 @@ class AgentChatService:
         *,
         runtime_credential: str | None = None,
         runtime_credential_mode: str | None = None,
+        runtime_credential_transport: str | None = None,
+        runtime_vertex_project: str | None = None,
+        runtime_vertex_location: str | None = None,
     ) -> PreparedAgentRuntime:
         contract = self.prepare_runtime_contract(
             runtime_credential=runtime_credential,
             runtime_credential_mode=runtime_credential_mode,
+            runtime_credential_transport=runtime_credential_transport,
+            runtime_vertex_project=runtime_vertex_project,
+            runtime_vertex_location=runtime_vertex_location,
         )
         model_config = self.runtime_manifest.model
         provider = model_config.provider.strip().lower()
-        model_name = (model_config.name or self.model or DEFAULT_AGENT_CHAT_MODEL).strip()
-        credential_ref = model_config.credential_ref
+        model_name = (model_config.name or self.model).strip()
+        if not model_name:
+            raise ValueError("Agent Chat runtime model is missing")
+        # Managed manifests never point at a key. BYOK is a turn-local override
+        # whose encrypted PKM reference belongs to the runtime configuration,
+        # not to the authored agent identity.
+        credential_ref = (
+            model_config.credential_ref
+            if contract.mode == "hushh_managed_vertex"
+            else GEMINI_BYOK_CREDENTIAL_REF
+        )
 
         if contract.mode == "hushh_managed_vertex":
             evidence = {
@@ -1095,14 +1173,11 @@ class AgentChatService:
                 provider=provider,
                 model=model_name,
                 credential_ref=credential_ref,
+                gemini_byok_transport=contract.gemini_byok_transport,
+                vertex_project=None,
+                vertex_location=None,
                 client=self.client,
                 evidence=evidence,
-            )
-
-        if not credential_ref:
-            raise AgentRuntimeContractError(
-                error_code="AGENT_RUNTIME_CREDENTIAL_REF_MISSING",
-                message="Kai BYOK runtime is missing a PKM credential reference.",
             )
 
         runtime = runtime_config(
@@ -1127,8 +1202,8 @@ class AgentChatService:
             raise AgentRuntimeContractError(
                 error_code="AGENT_RUNTIME_CREDENTIAL_MISSING",
                 message=(
-                    "Kai needs your Gemini key to continue. Add or update it in "
-                    "Profile > Runtime keys, or switch Kai to Hushh managed Gemini."
+                    "One needs your Gemini key to continue. Add or update it in "
+                    "Connections settings, or switch to Hussh managed Gemini."
                 ),
             )
 
@@ -1144,7 +1219,13 @@ class AgentChatService:
             client=create_runtime_client(
                 runtime_provider=runtime.model.provider,
                 user_key=bundle.credential.secret,
+                gemini_byok_transport=contract.gemini_byok_transport,
+                vertex_project=contract.vertex_project,
+                vertex_location=contract.vertex_location,
             ),
+            gemini_byok_transport=contract.gemini_byok_transport,
+            vertex_project=contract.vertex_project,
+            vertex_location=contract.vertex_location,
             evidence=bundle.evidence,
         )
 
@@ -1232,7 +1313,7 @@ class AgentChatService:
                 "title_iv": encrypted_title.iv,
                 "title_tag": encrypted_title.tag,
                 "title_algorithm": encrypted_title.algorithm,
-                "model": self.model,
+                "model": await self.model_for_user(user_id),
             },
         )
         return self._conversation_from_row((result.data or [])[0])
@@ -1305,25 +1386,131 @@ class AgentChatService:
         message: str,
         conversation_id: str | None = None,
     ) -> PreparedAgentChatTurn:
-        conversation = await self.get_or_create_conversation(
-            user_id=user_id,
-            conversation_id=conversation_id,
-            first_message=message,
+        # One Postgres statement owns conversation lookup/create, the bounded
+        # history snapshot, current-message insert, and conversation counters.
+        # Data-modifying CTEs share the statement snapshot, so `recent_rows`
+        # deliberately excludes the newly inserted current message.
+        created_conversation_id = str(uuid4())
+        user_message_id = str(uuid4())
+        encrypted_title = self._encrypt_text(_trim_title(message))
+        encrypted_message = self._encrypt_text(message)
+        result = await self._execute_raw(
+            """
+            WITH requested AS MATERIALIZED (
+              SELECT *
+              FROM agent_chat_conversations
+              WHERE :requested_conversation_id IS NOT NULL
+                AND id = CAST(:requested_conversation_id AS UUID)
+                AND user_id = :user_id
+              LIMIT 1
+              FOR UPDATE
+            ),
+            created AS (
+              INSERT INTO agent_chat_conversations (
+                id, user_id, title_ciphertext, title_iv, title_tag,
+                title_algorithm, model, message_count, last_message_at
+              )
+              SELECT
+                CAST(:created_conversation_id AS UUID), :user_id,
+                :title_ciphertext, :title_iv, :title_tag,
+                :title_algorithm, :model, 1, now()
+              WHERE NOT EXISTS (SELECT 1 FROM requested)
+              RETURNING *
+            ),
+            selected AS MATERIALIZED (
+              SELECT requested.*, FALSE AS was_created FROM requested
+              UNION ALL
+              SELECT created.*, TRUE AS was_created FROM created
+              LIMIT 1
+            ),
+            recent_rows AS MATERIALIZED (
+              SELECT messages.*
+              FROM agent_chat_messages AS messages
+              JOIN selected ON selected.id = messages.conversation_id
+              WHERE messages.user_id = :user_id
+              ORDER BY messages.created_at DESC
+              LIMIT 20
+            ),
+            recent AS (
+              SELECT COALESCE(
+                jsonb_agg(to_jsonb(ordered_rows) ORDER BY ordered_rows.created_at ASC),
+                '[]'::jsonb
+              ) AS history
+              FROM (
+                SELECT * FROM recent_rows ORDER BY created_at ASC
+              ) AS ordered_rows
+            ),
+            inserted_message AS (
+              INSERT INTO agent_chat_messages (
+                id, conversation_id, user_id, role, status,
+                content_ciphertext, content_iv, content_tag, content_algorithm,
+                completed_at
+              )
+              SELECT
+                CAST(:user_message_id AS UUID), selected.id, :user_id,
+                'user', 'complete', :content_ciphertext, :content_iv,
+                :content_tag, :content_algorithm, now()
+              FROM selected
+              RETURNING *
+            ),
+            updated_existing AS (
+              UPDATE agent_chat_conversations AS conversations
+              SET updated_at = now(), last_message_at = now(),
+                  message_count = conversations.message_count + 1
+              FROM selected
+              WHERE conversations.id = selected.id
+                AND selected.was_created = FALSE
+              RETURNING conversations.id
+            )
+            SELECT
+              to_jsonb(selected) - 'was_created' AS conversation,
+              recent.history,
+              to_jsonb(inserted_message) AS user_message
+            FROM selected
+            CROSS JOIN recent
+            CROSS JOIN inserted_message
+            """,
+            {
+                "requested_conversation_id": conversation_id,
+                "created_conversation_id": created_conversation_id,
+                "user_message_id": user_message_id,
+                "user_id": user_id,
+                "title_ciphertext": encrypted_title.ciphertext,
+                "title_iv": encrypted_title.iv,
+                "title_tag": encrypted_title.tag,
+                "title_algorithm": encrypted_title.algorithm,
+                "model": self.model,
+                "content_ciphertext": encrypted_message.ciphertext,
+                "content_iv": encrypted_message.iv,
+                "content_tag": encrypted_message.tag,
+                "content_algorithm": encrypted_message.algorithm,
+            },
         )
-        history = await self.get_recent_messages(conversation.id, user_id=user_id, limit=20)
-        user_message = await self.add_message(
-            conversation_id=conversation.id,
-            user_id=user_id,
-            role="user",
-            content=message,
-            status="complete",
-            model=None,
-        )
+        rows = result.data or []
+        if not rows:
+            raise RuntimeError("Agent chat turn transaction returned no row")
+        row = rows[0]
+        conversation_row = row.get("conversation")
+        message_row = row.get("user_message")
+        history_rows = row.get("history") or []
+        if isinstance(history_rows, str):
+            history_rows = json.loads(history_rows)
+        if not isinstance(conversation_row, dict) or not isinstance(message_row, dict):
+            raise RuntimeError("Agent chat turn transaction returned an invalid shape")
+        if not isinstance(history_rows, list):
+            raise RuntimeError("Agent chat turn history returned an invalid shape")
+        conversation = self._conversation_from_row(conversation_row)
+        user_message = self._message_from_row(message_row)
+        history = [
+            self._message_from_row(history_row)
+            for history_row in history_rows
+            if isinstance(history_row, dict)
+        ]
         return PreparedAgentChatTurn(
             conversation_id=conversation.id,
             user_message_id=user_message.id,
             history=history,
-            model=self.model,
+            model=await self.model_for_user(user_id),
         )
 
     async def add_message(
@@ -1487,8 +1674,10 @@ class AgentChatService:
             action_plan=action_plan,
             pkm_context=pkm_context,
         )
-        config = genai_types.GenerateContentConfig(
-            system_instruction=AGENT_SYSTEM_PROMPT,
+        config = build_generate_content_config(
+            genai_types,
+            runtime_model,
+            system_instruction=self.runtime_manifest.system_instruction,
             temperature=0.7,
             max_output_tokens=4096,
         )
@@ -1525,6 +1714,59 @@ class AgentChatService:
                 raise provider_error from error
             raise
 
+    async def stream_one_turn(
+        self,
+        *,
+        user_id: str,
+        consent_token: str,
+        conversation_id: str,
+        message: str,
+        history: list[AgentChatMessage],
+        timezone: str | None,
+        screen_context: dict[str, Any] | None,
+        pkm_context: str | None,
+        runtime: PreparedAgentRuntime,
+        runtime_credential: str | None,
+        runtime_credential_transport: GeminiByokTransport,
+        runtime_vertex_project: str | None,
+        runtime_vertex_location: str | None,
+    ) -> AsyncGenerator[OneTextStreamEvent, None]:
+        """Run typed Agent Chat through One's canonical ADK semantic head."""
+        try:
+            async for event in stream_one_text_turn(
+                user_id=user_id,
+                consent_token=consent_token,
+                conversation_id=conversation_id,
+                message=message,
+                history=history,
+                timezone=timezone,
+                screen_context=screen_context,
+                pkm_context=pkm_context,
+                runtime_provider=runtime.provider,
+                runtime_model=runtime.model,
+                runtime_mode=runtime.mode,
+                # Managed Vertex relies on turn-local workload ADC. BYOK stays
+                # explicitly supplied and is never persisted or replaced by a
+                # backend credential.
+                runtime_credential=(runtime_credential if runtime.mode == "byok" else None),
+                runtime_credential_transport=runtime_credential_transport,
+                runtime_vertex_project=runtime_vertex_project,
+                runtime_vertex_location=runtime_vertex_location,
+            ):
+                yield event
+        except OneTextEmptyResponseError as error:
+            raise AgentRuntimeProviderError(
+                error_code="AGENT_RUNTIME_EMPTY_RESPONSE",
+                message="One did not receive a response from the configured model. Please try again.",
+                detail={"phase": "text_stream"},
+            ) from error
+        except genai_errors.APIError as error:
+            raise _runtime_provider_error_from_exception(error) from error
+        except Exception as error:
+            if _is_google_provider_runtime_error(error):
+                raise _runtime_provider_error_from_exception(error) from error
+            raise
+
     async def plan_action_with_gemini(
         self,
         *,
@@ -1547,13 +1789,6 @@ class AgentChatService:
         if deterministic_block is not None:
             return deterministic_block
 
-        # Deterministic Information Marketplace navigation (qualified open-intent
-        # only), decided BEFORE the LLM planner so questions and a bare
-        # "marketplace" are never auto-navigated by the model.
-        marketplace_nav = self._plan_marketplace_navigation(user_message)
-        if marketplace_nav is not None:
-            return _enrich_plan_with_manifest(marketplace_nav, current_screen=current_screen)
-
         try:
             # Action planning is a non-streaming, idempotent call, so a short
             # jittered retry on transient 429/503 is safe (unlike the token
@@ -1566,7 +1801,9 @@ class AgentChatService:
                         history=history,
                         pkm_context=pkm_context,
                     ),
-                    config=genai_types.GenerateContentConfig(
+                    config=build_generate_content_config(
+                        genai_types,
+                        runtime_model,
                         system_instruction=AGENT_ACTION_PLANNER_PROMPT,
                         temperature=0.0,
                         max_output_tokens=256,
@@ -1664,22 +1901,6 @@ class AgentChatService:
                     message=f"{label} in the app.",
                 )
         return None
-
-    def _plan_marketplace_navigation(self, user_message: str) -> AgentChatActionPlan | None:
-        """Deterministic navigation to the Information Marketplace on a QUALIFIED
-        open-intent. Bare "marketplace" and questions return None (One handles them:
-        disambiguation for bare, delegated answer for questions)."""
-        message = " ".join(str(user_message or "").split())
-        if not message or not _INFO_MARKETPLACE_NAV_RE.search(message):
-            return None
-        return AgentChatActionPlan(
-            call_id=_tool_call_id(),
-            action_id="route.one_marketplace",
-            label="Open Information Marketplace",
-            execution="frontend",
-            slots={},
-            message="Open Information Marketplace in the app.",
-        )
 
     def _plan_crm_action(self, user_message: str) -> AgentChatActionPlan | None:
         message = " ".join(str(user_message or "").split())
@@ -1988,7 +2209,9 @@ class AgentChatService:
                 action_id="pkm.add",
                 label="Add to PKM",
                 execution="frontend",
-                slots={},
+                # The model scopes what gets structured; the browser falls
+                # back to the whole turn only when this is absent.
+                slots={"source_text": memory_text[:50_000]},
                 message="Checking PKM and saving what fits.",
                 reason=reason[:160] if reason else None,
             )

@@ -1,5 +1,8 @@
+import threading
+
 import pytest
 
+from db.db_client import DatabaseExecutionError
 from hushh_mcp.services.vault_keys_service import VaultKeysService
 
 
@@ -18,22 +21,52 @@ class _FakeSQLResult:
 
 
 class _FakeSQLConnection:
-    def __init__(self, supabase):
-        self._supabase = supabase
+    def __init__(self, db):
+        self._db = db
 
     def execute(self, statement, params):
         sql = " ".join(str(statement).strip().split()).lower()
-        db = self._supabase.db
+        db = self._db.db
 
-        if "select vault_status, vault_key_hash from vault_keys" in sql:
+        if "select vault_status, vault_key_hash" in sql and "from vault_keys" in sql:
             rows = [
                 {
                     "vault_status": row.get("vault_status"),
                     "vault_key_hash": row.get("vault_key_hash"),
+                    "primary_method": row.get("primary_method"),
+                    "primary_wrapper_id": row.get("primary_wrapper_id"),
+                    "recovery_encrypted_vault_key": row.get("recovery_encrypted_vault_key"),
+                    "recovery_salt": row.get("recovery_salt"),
+                    "recovery_iv": row.get("recovery_iv"),
                 }
                 for row in db["vault_keys"]
                 if row.get("user_id") == params["user_id"]
             ]
+            return _FakeSQLResult(rows=rows, rowcount=len(rows))
+
+        if (
+            "select method, wrapper_id, encrypted_vault_key, salt, iv" in sql
+            and "from vault_key_wrappers" in sql
+        ):
+            fields = (
+                "method",
+                "wrapper_id",
+                "encrypted_vault_key",
+                "salt",
+                "iv",
+                "passkey_credential_id",
+                "passkey_prf_salt",
+                "passkey_rp_id",
+                "passkey_provider",
+                "passkey_device_label",
+                "passkey_last_used_at",
+            )
+            rows = [
+                {field: row.get(field) for field in fields}
+                for row in db["vault_key_wrappers"]
+                if row.get("user_id") == params["user_id"]
+            ]
+            rows.sort(key=lambda row: (row.get("method") or "", row.get("wrapper_id") or ""))
             return _FakeSQLResult(rows=rows, rowcount=len(rows))
 
         if "select vault_key_hash, primary_method, primary_wrapper_id from vault_keys" in sql:
@@ -157,7 +190,7 @@ class _FakeSQLConnection:
 
         if "insert into vault_key_wrappers" in sql:
             incoming = dict(params)
-            if incoming["method"] in self._supabase.fail_wrapper_methods:
+            if incoming["method"] in self._db.fail_wrapper_methods:
                 raise RuntimeError(f"forced wrapper insert failure: {incoming['method']}")
 
             existing_index = next(
@@ -195,20 +228,20 @@ class _FakeSQLConnection:
 
 
 class _FakeTransactionContext:
-    def __init__(self, supabase):
-        self._supabase = supabase
+    def __init__(self, db):
+        self._db = db
         self._snapshot = None
 
     def __enter__(self):
         self._snapshot = {
             table: [dict(row) for row in rows] if isinstance(rows, list) else rows
-            for table, rows in self._supabase.db.items()
+            for table, rows in self._db.db.items()
         }
-        return _FakeSQLConnection(self._supabase)
+        return _FakeSQLConnection(self._db)
 
     def __exit__(self, exc_type, exc, _tb):
         if exc_type is not None:
-            self._supabase.db = {
+            self._db.db = {
                 table: [dict(row) for row in rows] if isinstance(rows, list) else rows
                 for table, rows in self._snapshot.items()
             }
@@ -216,11 +249,11 @@ class _FakeTransactionContext:
 
 
 class _FakeEngine:
-    def __init__(self, supabase):
-        self._supabase = supabase
+    def __init__(self, db):
+        self._db = db
 
     def begin(self):
-        return _FakeTransactionContext(self._supabase)
+        return _FakeTransactionContext(self._db)
 
 
 class _FakeResponse:
@@ -333,7 +366,7 @@ class _FakeQuery:
         return _FakeResponse([])
 
 
-class _FakeSupabase:
+class _FakeDb:
     def __init__(self):
         self.db = {
             "vault_keys": [],
@@ -349,7 +382,7 @@ class _FakeSupabase:
 
 @pytest.mark.asyncio
 async def test_get_vault_state_returns_multi_wrapper_payload():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -386,7 +419,7 @@ async def test_get_vault_state_returns_multi_wrapper_payload():
     ]
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     result = await service.get_vault_state("user-1")
 
@@ -403,9 +436,9 @@ async def test_get_vault_state_returns_multi_wrapper_payload():
 
 @pytest.mark.asyncio
 async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     await service.setup_vault_state(
         user_id="user-1",
@@ -448,8 +481,46 @@ async def test_setup_vault_state_persists_passphrase_required_wrapper_set():
 
 
 @pytest.mark.asyncio
+async def test_setup_vault_state_offloads_blocking_transaction(monkeypatch):
+    service = VaultKeysService()
+    caller_thread_id = threading.get_ident()
+    worker_thread_id = None
+
+    def fake_setup_sync(**kwargs):
+        nonlocal worker_thread_id
+        worker_thread_id = threading.get_ident()
+        assert kwargs["user_id"] == "user-1"
+        return True
+
+    monkeypatch.setattr(service, "_setup_vault_state_sync", fake_setup_sync)
+
+    result = await service.setup_vault_state(
+        user_id="user-1",
+        vault_key_hash="vault-hash",
+        primary_method="passphrase",
+        recovery_encrypted_vault_key="recovery-enc",
+        recovery_salt="recovery-salt",
+        recovery_iv="recovery-iv",
+        primary_wrapper_id="default",
+        wrappers=[
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    )
+
+    assert result is True
+    assert worker_thread_id is not None
+    assert worker_thread_id != caller_thread_id
+
+
+@pytest.mark.asyncio
 async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -474,7 +545,7 @@ async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
     )
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(ValueError, match="Active vault already exists"):
         await service.setup_vault_state(
@@ -510,11 +581,75 @@ async def test_setup_vault_state_refuses_active_vault_key_hash_replacement():
     ]
 
 
+@pytest.mark.asyncio
+async def test_setup_vault_state_accepts_exact_active_vault_replay():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    setup = {
+        "user_id": "user-1",
+        "vault_key_hash": "vault-hash",
+        "primary_method": "passphrase",
+        "recovery_encrypted_vault_key": "recovery-enc",
+        "recovery_salt": "recovery-salt",
+        "recovery_iv": "recovery-iv",
+        "primary_wrapper_id": "default",
+        "wrappers": [
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    }
+
+    assert await service.setup_vault_state(**setup) is True
+    first_wrapper = dict(fake.db["vault_key_wrappers"][0])
+    assert await service.setup_vault_state(**setup) is True
+
+    assert fake.db["vault_key_wrappers"] == [first_wrapper]
+
+
+@pytest.mark.asyncio
+async def test_setup_vault_state_rejects_same_hash_wrapper_replacement():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
+    setup = {
+        "user_id": "user-1",
+        "vault_key_hash": "vault-hash",
+        "primary_method": "passphrase",
+        "recovery_encrypted_vault_key": "recovery-enc",
+        "recovery_salt": "recovery-salt",
+        "recovery_iv": "recovery-iv",
+        "primary_wrapper_id": "default",
+        "wrappers": [
+            {
+                "method": "passphrase",
+                "wrapperId": "default",
+                "encryptedVaultKey": "enc-pass",
+                "salt": "salt-pass",
+                "iv": "iv-pass",
+            }
+        ],
+    }
+    assert await service.setup_vault_state(**setup) is True
+
+    replacement = {**setup, "wrappers": [dict(setup["wrappers"][0])]}
+    replacement["wrappers"][0]["encryptedVaultKey"] = "different-enc-pass"
+    with pytest.raises(ValueError, match="non-idempotent wrapper replacement"):
+        await service.setup_vault_state(**replacement)
+
+    assert fake.db["vault_key_wrappers"][0]["encrypted_vault_key"] == "enc-pass"
+
+
 def test_ensure_actor_profile_repairs_existing_vault_user():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append({"user_id": "user-1"})
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     assert service.ensure_actor_profile("user-1") is True
     assert service.ensure_actor_profile("user-1") is True
@@ -528,9 +663,9 @@ async def test_setup_vault_state_allows_multiple_wrappers_for_same_method(monkey
         "localhost,hushh-webapp-1006304528804.us-central1.run.app,app.hushh.ai",
     )
 
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     await service.setup_vault_state(
         user_id="user-1",
@@ -612,9 +747,9 @@ def test_allowed_passkey_rp_ids_prefer_explicit_allowlist(monkeypatch):
 
 @pytest.mark.asyncio
 async def test_setup_vault_state_rejects_duplicate_method_wrapper_pairs():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(
         ValueError, match="Duplicate wrapper method \\+ wrapperId pairs are not allowed"
@@ -648,7 +783,7 @@ async def test_setup_vault_state_rejects_duplicate_method_wrapper_pairs():
 
 @pytest.mark.asyncio
 async def test_upsert_wrapper_rejects_vault_key_hash_mismatch():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -662,7 +797,7 @@ async def test_upsert_wrapper_rejects_vault_key_hash_mismatch():
     )
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(ValueError, match="vaultKeyHash mismatch"):
         await service.upsert_wrapper(
@@ -677,9 +812,9 @@ async def test_upsert_wrapper_rejects_vault_key_hash_mismatch():
 
 @pytest.mark.asyncio
 async def test_setup_vault_state_requires_passphrase_wrapper():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(ValueError, match="Passphrase wrapper is mandatory"):
         await service.setup_vault_state(
@@ -707,7 +842,7 @@ async def test_setup_vault_state_requires_passphrase_wrapper():
 
 @pytest.mark.asyncio
 async def test_delete_wrapper_removes_primary_passkey_and_falls_back_to_passphrase():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -742,7 +877,7 @@ async def test_delete_wrapper_removes_primary_passkey_and_falls_back_to_passphra
     ]
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     result = await service.delete_wrapper(
         user_id="user-1",
@@ -759,7 +894,7 @@ async def test_delete_wrapper_removes_primary_passkey_and_falls_back_to_passphra
 
 @pytest.mark.asyncio
 async def test_delete_wrapper_accepts_minimal_delete_response_after_verify():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["_delete_returns_none"] = True
     fake.db["vault_keys"].append(
         {
@@ -792,7 +927,7 @@ async def test_delete_wrapper_accepts_minimal_delete_response_after_verify():
     ]
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     result = await service.delete_wrapper(
         user_id="user-1",
@@ -807,7 +942,7 @@ async def test_delete_wrapper_accepts_minimal_delete_response_after_verify():
 
 @pytest.mark.asyncio
 async def test_delete_wrapper_rolls_back_primary_when_delete_fails():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["_delete_raises"] = True
     fake.db["vault_keys"].append(
         {
@@ -837,7 +972,7 @@ async def test_delete_wrapper_rolls_back_primary_when_delete_fails():
     ]
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(RuntimeError, match="forced wrapper delete failure"):
         await service.delete_wrapper(
@@ -857,7 +992,7 @@ async def test_delete_wrapper_rolls_back_primary_when_delete_fails():
 
 @pytest.mark.asyncio
 async def test_delete_wrapper_rejects_passphrase_removal():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -868,7 +1003,7 @@ async def test_delete_wrapper_rejects_passphrase_removal():
     )
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(ValueError, match="Passphrase wrapper cannot be removed"):
         await service.delete_wrapper(
@@ -881,7 +1016,7 @@ async def test_delete_wrapper_rejects_passphrase_removal():
 
 @pytest.mark.asyncio
 async def test_delete_wrapper_rejects_stale_vault_key_hash():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-1",
@@ -892,7 +1027,7 @@ async def test_delete_wrapper_rejects_stale_vault_key_hash():
     )
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(ValueError, match="vaultKeyHash mismatch"):
         await service.delete_wrapper(
@@ -905,10 +1040,10 @@ async def test_delete_wrapper_rejects_stale_vault_key_hash():
 
 @pytest.mark.asyncio
 async def test_setup_vault_state_rolls_back_when_wrapper_insert_fails():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.fail_wrapper_methods.add("generated_default_native_biometric")
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     with pytest.raises(RuntimeError, match="forced wrapper insert failure"):
         await service.setup_vault_state(
@@ -943,9 +1078,9 @@ async def test_setup_vault_state_rolls_back_when_wrapper_insert_fails():
 
 @pytest.mark.asyncio
 async def test_ensure_user_entry_creates_placeholder_row():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     state = await service.ensure_user_entry("user-placeholder")
 
@@ -956,6 +1091,31 @@ async def test_ensure_user_entry_creates_placeholder_row():
     assert row["vault_status"] == "placeholder"
     assert row["vault_key_hash"] is None
     assert row["recovery_encrypted_vault_key"] is None
+
+
+@pytest.mark.asyncio
+async def test_ensure_user_entry_recovers_from_concurrent_placeholder_insert():
+    fake = _FakeDb()
+
+    class _ConcurrentInsertQuery(_FakeQuery):
+        def execute(self):
+            if self.table_name == "vault_keys" and self._op == "insert":
+                self.db["vault_keys"].append(dict(self._insert_data))
+                raise DatabaseExecutionError(
+                    table_name="vault_keys",
+                    operation="insert",
+                    details=('duplicate key value violates unique constraint "vault_keys_pkey"'),
+                )
+            return super().execute()
+
+    fake.table = lambda name: _ConcurrentInsertQuery(fake.db, name)
+    service = VaultKeysService()
+    service._db = fake
+
+    state = await service.ensure_user_entry("user-race")
+
+    assert state["vaultStatus"] == "placeholder"
+    assert len(fake.db["vault_keys"]) == 1
 
 
 def test_pre_vault_serialization_drops_retired_setup_capabilities():
@@ -972,10 +1132,43 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
 
 
 @pytest.mark.asyncio
-async def test_pre_vault_update_rejects_retired_active_capability():
-    fake = _FakeSupabase()
+async def test_pre_vault_update_accepts_calendar_active_capability():
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
+
+    state = await service.update_pre_vault_state(
+        user_id="user-calendar-capability",
+        onboarding_phase="capability_setup",
+        onboarding_active_capability="calendar",
+    )
+
+    assert state["onboardingActiveCapability"] == "calendar"
+
+
+def test_pre_vault_serialization_keeps_only_strict_non_secret_runtime_choices():
+    valid = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-runtime-choice",
+            "one_runtime_setup_choice": "byok_pending_vault",
+        }
+    )
+    invalid = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-runtime-choice-invalid",
+            "one_runtime_setup_choice": "a-gemini-key-must-never-be-here",
+        }
+    )
+
+    assert valid["oneRuntimeSetupChoice"] == "byok_pending_vault"
+    assert invalid["oneRuntimeSetupChoice"] is None
+
+
+@pytest.mark.asyncio
+async def test_pre_vault_update_rejects_retired_active_capability():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
 
     with pytest.raises(ValueError, match="invalid onboarding active capability"):
         await service.update_pre_vault_state(
@@ -986,10 +1179,23 @@ async def test_pre_vault_update_rejects_retired_active_capability():
 
 
 @pytest.mark.asyncio
-async def test_check_vault_exists_false_for_placeholder_and_true_for_active_with_passphrase():
-    fake = _FakeSupabase()
+async def test_pre_vault_update_rejects_unknown_runtime_choice():
+    fake = _FakeDb()
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
+
+    with pytest.raises(ValueError, match="invalid one runtime setup choice"):
+        await service.update_pre_vault_state(
+            user_id="user-invalid-runtime-choice",
+            one_runtime_setup_choice="not-a-runtime-choice",
+        )
+
+
+@pytest.mark.asyncio
+async def test_check_vault_exists_false_for_placeholder_and_true_for_active_with_passphrase():
+    fake = _FakeDb()
+    service = VaultKeysService()
+    service._db = fake
 
     assert await service.check_vault_exists("user-a") is False
 
@@ -1016,7 +1222,7 @@ async def test_check_vault_exists_false_for_placeholder_and_true_for_active_with
 
 @pytest.mark.asyncio
 async def test_get_vault_state_returns_none_for_placeholder():
-    fake = _FakeSupabase()
+    fake = _FakeDb()
     fake.db["vault_keys"].append(
         {
             "user_id": "user-ghost",
@@ -1033,7 +1239,7 @@ async def test_get_vault_state_returns_none_for_placeholder():
     )
 
     service = VaultKeysService()
-    service._supabase = fake
+    service._db = fake
 
     result = await service.get_vault_state("user-ghost")
     assert result is None

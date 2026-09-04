@@ -30,7 +30,7 @@
       "reachability": {
         "routes": [
           "/ria/requests",
-          "/consents"
+          "/one/consent"
         ],
         "screens": [
           "ria_requests_compat"

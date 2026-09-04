@@ -33,6 +33,7 @@
     "docs/reference/operations/README.md",
     "docs/reference/operations/ci.md",
     "docs/reference/operations/branch-governance.md",
+    ".codex/skills/repo-operations/references/admin-release-sop.md",
     ".codex/skills/repo-operations/references/branch-runtime-ops.md",
     ".codex/skills/repo-operations/references/maintainer-branch-freshness.md",
     ".codex/skills/repo-operations/references/agent-trigger-policy.md",

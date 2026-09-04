@@ -5,102 +5,21 @@
 
 export { ONE_SETUP_CAPABILITY_IDS } from "@/lib/onboarding/setup-capability-ids";
 
-export const ROUTES = {
-  HOME: "/",
-  ONE_HOME: "/one",
-  DEVELOPERS: "/developers",
-  RESEARCH: "/research",
-  RESEARCH_PROTOCOL: "/research/protocol",
-  BLOG: "/blog",
-  LOGIN: "/login",
-  GETTING_STARTED: "/getting-started",
-  LOGOUT: "/logout",
-  PHONE_MANDATE: "/register-phone",
-  PROFILE: "/profile",
-  PROFILE_ACCOUNT: "/profile/account",
-  PROFILE_ACCOUNT_PHONE: "/profile/account/phone",
-  PROFILE_PREFERENCES: "/profile/preferences",
-  PROFILE_PREFERENCES_KAI: "/profile/preferences/kai",
-  PROFILE_PREFERENCES_DEVICE: "/profile/preferences/device",
-  PROFILE_SECURITY: "/profile/security",
-  PROFILE_SECURITY_VAULT: "/profile/security/vault",
-  PROFILE_SECURITY_SESSION: "/profile/security/session",
-  PROFILE_MY_DATA: "/profile/my-data",
-  PROFILE_MY_DATA_DOMAIN: "/profile/my-data/domain",
-  PROFILE_ACCESS: "/profile/access",
-  PROFILE_ACCESS_CONNECTION: "/profile/access/connection",
-  PROFILE_CONNECTED_SYSTEMS: "/profile/connected-systems",
-  PROFILE_GMAIL: "/profile/gmail",
-  PROFILE_GMAIL_CONNECTION: "/profile/gmail/connection",
-  PROFILE_GMAIL_ACTIONS: "/profile/gmail/actions",
-  PROFILE_SUPPORT: "/profile/support",
-  PROFILE_SUPPORT_ROUTING: "/profile/support/routing",
-  PROFILE_SUPPORT_COMPOSE: "/profile/support/compose",
-  PROFILE_PKM: "/profile/pkm",
-  PROFILE_PKM_AGENT_LAB: "/profile/pkm-agent-lab",
-  PROFILE_RECEIPTS: "/profile/receipts",
-  PROFILE_GMAIL_OAUTH_RETURN: "/profile/gmail/oauth/return",
-  ONE_SETUP: "/one/setup",
-  ONE_SETUP_FINANCE: "/one/setup/finance",
-  ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
-  ONE_SETUP_KAI: "/one/setup/kai",
-  ONE_SETUP_GMAIL: "/one/setup/gmail",
-  ONE_SETUP_LOCATION: "/one/setup/location",
-  ONE_SETUP_EMAIL: "/one/setup/email",
-  ONE_SETUP_RIA: "/one/setup/ria",
-  ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
-  GMAIL: "/one/gmail",
-  PKM: "/one/pkm",
-  ONE_MARKETPLACE: "/one/marketplace",
-  CONNECTED_SYSTEMS: "/one/connected-systems",
-  CONSENTS: "/consents",
-  AGENT: "/agent",
-  CONNECT: "/connect",
-  MARKETPLACE: "/marketplace",
-  MARKETPLACE_CONNECTIONS: "/marketplace/connections",
-  MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
-  ONE_KYC: "/one/kyc",
-  ONE_LOCATION: "/one/location",
-  LEGACY_GMAIL: "/gmail",
-  LEGACY_PKM: "/pkm",
-  LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
-  LEGACY_KAI_HOME: "/kai",
-  LEGACY_KAI_ONBOARDING: "/kai/onboarding",
-  LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
-  LEGACY_KAI_IMPORT: "/kai/import",
-  LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
-  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
-  LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
-  LEGACY_KAI_INVESTMENTS: "/kai/investments",
-  LEGACY_KAI_FUNDING_TRADE: "/kai/funding-trade",
-  LEGACY_KAI_ANALYSIS: "/kai/analysis",
-  LEGACY_KAI_OPTIMIZE: "/kai/optimize",
-  RIA_HOME: "/ria",
-  RIA_ONBOARDING: "/ria/onboarding",
-  RIA_CLIENTS: "/ria/clients",
-  RIA_WORKSPACE: "/ria/workspace",
-  RIA_REQUESTS: "/ria/requests",
-  RIA_PICKS: "/ria/picks",
-  RIA_SETTINGS: "/ria/settings",
-  RIA_PROFILE: "/ria/profile",
-  KAI_HOME: "/one/kai",
-  KAI_SETUP: "/one/setup/finance",
-  KAI_IMPORT: "/one/kai/import",
-  KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
-  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
-  KAI_PORTFOLIO: "/one/kai/portfolio",
-  KAI_INVESTMENTS: "/one/kai/investments",
-  KAI_FUNDING_TRADE: "/one/kai/funding-trade",
-  KAI_DASHBOARD: "/one/kai/portfolio",
-  KAI_ANALYSIS: "/one/kai/analysis",
-  KAI_OPTIMIZE: "/one/kai/optimize",
-} as const;
+/** The Finance workspace is a One-owned query-tabbed route, not a nested market page. */
+export const KAI_MARKET_PATH = "/one/kai";
+/** Browser-only Firebase handoff; never part of signed-in app navigation. */
+export const HUSHH_TECH_LAUNCH_PATH = "/products/hushh-tech/launch";
+
+export type KaiMarketTab = "market" | "portfolio" | "analysis";
+export type KaiPortfolioSection =
+  "holdings" | "allocation" | "performance" | "sources";
 
 function withQuery(
   pathname: string,
   entries: Record<string, string | null | undefined>,
 ) {
-  const params = new URLSearchParams();
+  const [basePath = pathname, existingQuery = ""] = pathname.split("?", 2);
+  const params = new URLSearchParams(existingQuery);
 
   for (const [key, value] of Object.entries(entries)) {
     const normalized = String(value ?? "").trim();
@@ -110,8 +29,207 @@ function withQuery(
   }
 
   const query = params.toString();
-  return query ? `${pathname}?${query}` : pathname;
+  return query ? `${basePath}?${query}` : basePath;
 }
+
+/** Build every canonical Finance workspace URL from one path and explicit tab. */
+export function buildKaiMarketRoute(
+  tab: KaiMarketTab,
+  entries: Record<string, string | null | undefined> = {},
+) {
+  const { tab: _ignoredTab, ...safeEntries } = entries;
+  return withQuery(KAI_MARKET_PATH, { tab, ...safeEntries });
+}
+
+export function buildKaiPortfolioSectionRoute(
+  section: KaiPortfolioSection,
+): string {
+  return `${KAI_MARKET_PATH}/portfolio/${section}`;
+}
+
+export function financeRoutePathname(value: string | null | undefined): string {
+  return String(value || "").split("?", 1)[0] || "";
+}
+
+export function isKaiMarketPathname(value: string | null | undefined): boolean {
+  return financeRoutePathname(value) === KAI_MARKET_PATH;
+}
+
+export function buildPersonProfileRoute(
+  personRef: string,
+  entries?: { from?: string | null },
+): string {
+  const normalized = String(personRef || "").trim();
+  if (!normalized) throw new Error("A public person reference is required.");
+  return withQuery(`/people/${encodeURIComponent(normalized)}`, {
+    from: normalizeInternalRouteHref(entries?.from),
+  });
+}
+
+export function resolvePersonRefFromProfilePathname(
+  pathname: string | null | undefined,
+): string | null {
+  const match = String(pathname || "").match(/^\/people\/([^/?#]+)/);
+  const rawRef = match?.[1]?.trim();
+  if (!rawRef) return null;
+  try {
+    return decodeURIComponent(rawRef);
+  } catch {
+    return rawRef;
+  }
+}
+
+export const ROUTES = {
+  HOME: "/",
+  PERSON_PROFILE: "/people/[personRef]",
+  /** Canonical public knowledge workspace; root remains anonymous onboarding. */
+  WELCOME: "/welcome",
+  ONE_HOME: "/one",
+  DEVELOPERS: "/developers",
+  RESEARCH: "/research",
+  RESEARCH_PROTOCOL: "/research/protocol",
+  BLOG: "/blog",
+  LOGIN: "/login",
+  GETTING_STARTED: "/getting-started",
+  LOGOUT: "/logout",
+  PHONE_MANDATE: "/register-phone",
+  PROFILE: "/one/profile",
+  PROFILE_REGULATORY: "/one/profile/regulatory",
+  PROFILE_ACCOUNT: "/one/profile/account",
+  PROFILE_ACCOUNT_PHONE: "/one/profile/account/phone",
+  PROFILE_PREFERENCES: "/one/profile/preferences",
+  PROFILE_PREFERENCES_KAI: "/one/profile/preferences/kai",
+  PROFILE_PREFERENCES_GEMINI: "/one/profile/preferences/gemini",
+  PROFILE_PREFERENCES_DEVICE: "/one/profile/preferences/device",
+  PROFILE_PREFERENCES_VOICE: "/one/profile/preferences/voice",
+  PROFILE_PREFERENCES_VOICE_CHANGELOG:
+    "/one/profile/preferences/voice/changelog",
+  PROFILE_PREFERENCES_VOICE_EXAMPLES:
+    "/one/profile/preferences/voice/examples",
+  PROFILE_SECURITY: "/one/profile/security",
+  PROFILE_SECURITY_VAULT: "/one/profile/security/vault",
+  PROFILE_SECURITY_SESSION: "/one/profile/security/session",
+  PROFILE_SECURITY_DEVICES: "/one/profile/security/devices",
+  PROFILE_SECURITY_DEVICE_AUTHORIZE: "/one/profile/security/devices/authorize",
+  PROFILE_MY_DATA: "/one/profile/my-data",
+  PROFILE_MY_DATA_DOMAIN: "/one/profile/my-data/domain",
+  PROFILE_ACCESS: "/one/profile/access",
+  PROFILE_ACCESS_CONNECTION: "/one/profile/access/connection",
+  PROFILE_CONNECTED_SYSTEMS: "/one/profile/connected-systems",
+  PROFILE_GMAIL: "/one/profile/gmail",
+  PROFILE_GMAIL_CONNECTION: "/one/profile/gmail/connection",
+  PROFILE_GMAIL_ACTIONS: "/one/profile/gmail/actions",
+  PROFILE_REFERRALS: "/one/profile/referrals",
+  PROFILE_SUPPORT: "/one/profile/support",
+  PROFILE_SUPPORT_ROUTING: "/one/profile/support/routing",
+  PROFILE_SUPPORT_COMPOSE: "/one/profile/support/compose",
+  PROFILE_PKM: "/one/profile/pkm",
+  PROFILE_PKM_AGENT_LAB: "/one/profile/pkm-agent-lab",
+  PROFILE_RECEIPTS: "/one/profile/receipts",
+  PROFILE_GMAIL_OAUTH_RETURN: "/one/profile/gmail/oauth/return",
+  /** Compatibility redirect only; Calendar now has its own agent workspace. */
+  PROFILE_INTEGRATIONS: "/one/profile/integrations",
+  PROFILE_GOOGLE_OAUTH_RETURN: "/one/profile/google/oauth/return",
+  OAUTH_AUTHORIZE: "/oauth/authorize",
+  ONE_SETUP: "/one/setup",
+  ONE_SETUP_FINANCE: "/one/setup/finance",
+  ONE_SETUP_FINANCE_IMPORT: "/one/setup/finance/import",
+  ONE_SETUP_KAI: "/one/setup/kai",
+  ONE_SETUP_GMAIL: "/one/setup/gmail",
+  ONE_SETUP_CALENDAR: "/one/setup/calendar",
+  ONE_SETUP_LOCATION: "/one/setup/location",
+  ONE_SETUP_EMAIL: "/one/setup/email",
+  ONE_SETUP_RIA: "/one/setup/ria",
+  ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
+  ONE_SETUP_CONNECTIONS: "/one/setup/connections",
+  GMAIL: "/one/gmail",
+  EMAIL_AGENT: "/one/email",
+  CALENDAR: "/one/calendar",
+  PKM: "/one/pkm",
+  PKM_RECENT: "/one/pkm/recent",
+  ONE_MARKETPLACE: "/one/marketplace",
+  /** Owner setup and management for the Apple Wallet profile pass. */
+  ONE_WALLET_CARD: "/one/wallet-card",
+  ONE_WALLET: "/one/wallet",
+  /** Puppy One: the agent running on the owner's own machine. */
+  ONE_PUPPY: "/one/puppy",
+  CONNECTED_SYSTEMS: "/one/connected-systems",
+  /** Canonical One workspace for consent review and access management. */
+  CONSENTS: "/one/consent",
+  /** Cross-domain activity feed: consent, location, Kai, KYC, connected systems, connections. */
+  ONE_FEED: "/one/feed",
+  /** Compatibility-only access manager route. Preserve inbound partner links. */
+  LEGACY_CONSENTS: "/consents",
+  AGENT: "/agent",
+  CONNECT: "/one/connect",
+  CONNECT_SETTINGS: "/one/connect/settings",
+  MARKETPLACE: "/marketplace",
+  MARKETPLACE_CONNECTIONS: "/marketplace/connections",
+  MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
+  ONE_KYC: "/one/kyc",
+  ONE_LOCATION: "/one/location",
+  /** Immersive, consented multi-person Location map. */
+  ONE_LOCATION_MAP: "/one/location/map",
+  /**
+   * Nearby check-in. Its own destination, not a drawer over the map: the map
+   * shows people who already share with you, while check-in makes you briefly
+   * discoverable to opted-in people at a place. They were one screen and read
+   * as the same feature.
+   */
+  ONE_LOCATION_CHECK_IN: "/one/location/check-in",
+  /**
+   * Eligibility-gated hotel online check-in. Hidden unless a supported stay is
+   * returned by the hotel-check-in provider seam.
+   */
+  ONE_LOCATION_HOTEL_CHECK_IN: "/one/location/check-in/hotel",
+  /**
+   * Recipient landing for a shared Circle join link. An entry point from
+   * outside the app, like LOGIN — the destination is the reason the person
+   * opened the app at all, so it must render before setup is checked.
+   */
+  CIRCLE_JOIN: "/circle/join",
+  LEGACY_GMAIL: "/gmail",
+  LEGACY_PKM: "/pkm",
+  LEGACY_CONNECTED_SYSTEMS: "/connected-systems",
+  /** Compatibility-only Finance root. Canonical navigation stays under One. */
+  LEGACY_KAI_HOME: "/kai",
+  LEGACY_ONE_KAI_MARKET: "/one/kai/market",
+  LEGACY_KAI_ONBOARDING: "/kai/onboarding",
+  LEGACY_ONE_KAI_ONBOARDING: "/one/kai/onboarding",
+  LEGACY_KAI_IMPORT: "/kai/import",
+  LEGACY_KAI_PLAID_OAUTH_RETURN: "/kai/plaid/oauth/return",
+  LEGACY_KAI_ALPACA_OAUTH_RETURN: "/kai/alpaca/oauth/return",
+  LEGACY_KAI_PORTFOLIO: "/kai/portfolio",
+  LEGACY_KAI_ANALYSIS: "/kai/analysis",
+  /** One-release redirect only. Optimize is no longer a product surface. */
+  LEGACY_KAI_OPTIMIZE_COMPAT: "/kai/optimize",
+  /** Compatibility redirect only; new RIA entry points use the profile tab. */
+  RIA_HOME: "/ria",
+  RIA_ONBOARDING: "/ria/onboarding",
+  RIA_CLAIM: "/ria/claim",
+  RIA_CLIENTS: "/ria/clients",
+  RIA_WORKSPACE: "/ria/workspace",
+  RIA_REQUESTS: "/ria/requests",
+  RIA_PICKS: "/ria/picks",
+  RIA_SETTINGS: "/ria/settings",
+  RIA_PROFILE: "/ria/profile",
+  KAI_HOME: buildKaiMarketRoute("market"),
+  /** Finite Market workspace. This is not a fourth Finance tab. */
+  KAI_NEWS: "/one/kai/news",
+  KAI_SETUP: "/one/setup/finance",
+  KAI_IMPORT: "/one/kai/import",
+  KAI_PLAID_OAUTH_RETURN: "/one/kai/plaid/oauth/return",
+  KAI_ALPACA_OAUTH_RETURN: "/one/kai/alpaca/oauth/return",
+  KAI_PORTFOLIO: buildKaiMarketRoute("portfolio"),
+  KAI_PORTFOLIO_HOLDINGS: "/one/kai/portfolio/holdings",
+  KAI_PORTFOLIO_ALLOCATION: "/one/kai/portfolio/allocation",
+  KAI_PORTFOLIO_PERFORMANCE: "/one/kai/portfolio/performance",
+  KAI_PORTFOLIO_SOURCES: "/one/kai/portfolio/sources",
+  KAI_DASHBOARD: buildKaiMarketRoute("portfolio"),
+  KAI_ANALYSIS: buildKaiMarketRoute("analysis"),
+  /** One-release redirect only. Optimize is no longer a product surface. */
+  KAI_OPTIMIZE_COMPAT: "/one/kai/optimize",
+} as const;
 
 export function buildMarketplaceRiaProfileRoute(riaId?: string | null) {
   return withQuery(ROUTES.MARKETPLACE_RIA_PROFILE, { riaId });
@@ -141,8 +259,15 @@ export function normalizeInternalRouteHref(
   const href = String(value ?? "").trim();
   if (!href) return null;
   if (!href.startsWith("/") || href.startsWith("//")) return null;
-  if (/[\r\n]/.test(href)) return null;
-  return href;
+  if (/[\\\u0000-\u001f\u007f]/.test(href) || /%5c/i.test(href)) return null;
+  try {
+    const parsed = new URL(href, "https://one.local");
+    if (parsed.origin !== "https://one.local") return null;
+    const canonical = `${parsed.pathname}${parsed.search}${parsed.hash}`;
+    return canonical === href ? canonical : null;
+  } catch {
+    return null;
+  }
 }
 
 export function resolveInternalRouteHref(
@@ -183,6 +308,7 @@ export function buildOneSetupCapabilityFinishRoute(
 /** Static setup workspaces. This is intentionally exact rather than a prefix. */
 export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   gmail: ROUTES.ONE_SETUP_GMAIL,
+  calendar: ROUTES.ONE_SETUP_CALENDAR,
   location: ROUTES.ONE_SETUP_LOCATION,
   email: ROUTES.ONE_SETUP_EMAIL,
   finance: ROUTES.ONE_SETUP_FINANCE,
@@ -190,10 +316,21 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
   "connected-systems": ROUTES.ONE_SETUP_CONNECTED_SYSTEMS,
 };
 
+/**
+ * Setup-owned routes that configure the root private agent but are not agent
+ * capabilities. Keep these out of `SETUP_CAPABILITY_ROUTES`: they must be
+ * admitted by the root journey without inventing capability completion or a
+ * generated voice action.
+ */
+export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  ROUTES.ONE_SETUP_CONNECTIONS,
+];
+
 /** Normal (post-setup) destinations; never use these to admit unresolved setup. */
 export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
   finance: ROUTES.KAI_HOME,
   gmail: ROUTES.GMAIL,
+  calendar: ROUTES.CALENDAR,
   email: ROUTES.ONE_KYC,
   location: ROUTES.ONE_LOCATION,
   ria: ROUTES.RIA_ONBOARDING,
@@ -202,6 +339,41 @@ export const CAPABILITY_HANDOFF_TARGETS: Readonly<Record<string, string>> = {
 
 export function resolveCapabilityHandoffTarget(capabilityId: string): string {
   return CAPABILITY_HANDOFF_TARGETS[capabilityId] ?? ROUTES.ONE_SETUP;
+}
+
+export type CompletedSetupCapabilityEntry =
+  | { kind: "continue" }
+  | { kind: "acknowledge"; target: string }
+  | { kind: "redirect"; target: string };
+
+/**
+ * Resolve a durable completion before a capability setup body mounts.
+ *
+ * Location is the only capability with a first-run flow that can finish while
+ * the root setup hub remains active. Re-entering that completed row briefly
+ * acknowledges the saved result and returns to the hub; it must never replay
+ * permissions, contacts, or the circle confirmation. Once root setup itself
+ * is resolved, the canonical Location workspace remains the handoff target.
+ */
+export function resolveCompletedSetupCapabilityEntry({
+  capabilityId,
+  completedCapabilityIds,
+  rootSetupResolved,
+}: {
+  capabilityId: string;
+  completedCapabilityIds: readonly string[];
+  rootSetupResolved: boolean;
+}): CompletedSetupCapabilityEntry {
+  if (
+    capabilityId !== "location" ||
+    !completedCapabilityIds.includes(capabilityId)
+  ) {
+    return { kind: "continue" };
+  }
+
+  return rootSetupResolved
+    ? { kind: "redirect", target: ROUTES.ONE_LOCATION }
+    : { kind: "acknowledge", target: ROUTES.ONE_SETUP };
 }
 
 /**
@@ -239,9 +411,17 @@ export const CAPABILITY_ONBOARDING_ROUTE_PREFIXES: Readonly<
     ROUTES.KAI_PLAID_OAUTH_RETURN,
   ],
   gmail: [ROUTES.ONE_SETUP_GMAIL, ROUTES.PROFILE_GMAIL_OAUTH_RETURN],
+  calendar: [ROUTES.ONE_SETUP_CALENDAR, ROUTES.PROFILE_GOOGLE_OAUTH_RETURN],
   email: [ROUTES.ONE_SETUP_EMAIL],
   location: [ROUTES.ONE_SETUP_LOCATION],
-  ria: [ROUTES.ONE_SETUP_RIA],
+  // RIA_CLAIM belongs to the ria capability: recognising an adviser from their
+  // filed number routes here from setup, and the journey guard must admit it
+  // or the redirect is bounced straight back to the hub.
+  // RIA_PROFILE too: the claim done screen offers "View profile", and the RIA
+  // onboarding page redirects established advisers there. Without admission the
+  // guard bounces that redirect to the onboarding page, which redirects back to
+  // the profile — an infinite loop while setup is unresolved.
+  ria: [ROUTES.ONE_SETUP_RIA, ROUTES.RIA_CLAIM, ROUTES.RIA_PROFILE],
   "connected-systems": [ROUTES.ONE_SETUP_CONNECTED_SYSTEMS],
 };
 
@@ -251,8 +431,9 @@ export function isCapabilityOnboardingRoute(
   pathname: string,
 ): boolean {
   if (!capabilityId) return false;
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (CAPABILITY_ONBOARDING_ROUTE_PREFIXES[capabilityId] || []).some(
-    (route) => pathname === route,
+    (route) => normalizedPathname === route,
   );
 }
 
@@ -260,36 +441,69 @@ export function isCapabilityOnboardingRoute(
 export function resolveOnboardingCapabilityForRoute(
   pathname: string,
 ): string | null {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   for (const [capabilityId, prefixes] of Object.entries(
     CAPABILITY_ONBOARDING_ROUTE_PREFIXES,
   )) {
-    if (prefixes.some((route) => pathname === route)) {
+    if (prefixes.some((route) => normalizedPathname === route)) {
       return capabilityId;
     }
   }
   return null;
 }
 
+/** True when completed Location setup owns the requested workspace route. */
+export function isCompletedLocationWorkspaceRoute(
+  completedCapabilityIds: readonly string[] | null | undefined,
+  pathname: string,
+): boolean {
+  if (!completedCapabilityIds?.includes("location")) {
+    return false;
+  }
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === ROUTES.ONE_LOCATION ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/`)
+  );
+}
+
 /**
- * Anonymous/editorial and prerequisite routes that never participate in the
- * authenticated root-setup admission decision. `/profile` is intentionally
- * not exempt: once signed in it is an internal surface and must not bypass an
- * explicitly incomplete setup journey.
+ * Anonymous/editorial, prerequisite, and account-recovery routes that never
+ * participate in the authenticated root-setup admission decision. Profile is
+ * deliberately exempt so a failed setup/bootstrap dependency can never trap a
+ * signed-in user away from sign-out or account deletion.
  */
 export function isOnboardingAdmissionExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    normalizedPathname === ROUTES.LOGIN ||
+    isFirebaseSessionOnlyRoute(normalizedPathname) ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    // Reached straight from the phone mandate when the number the adviser just
+    // verified is on an SEC filing, before any capability is active.
+    normalizedPathname === ROUTES.RIA_CLAIM ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.PROFILE ||
+    normalizedPathname.startsWith(`${ROUTES.PROFILE}/`) ||
+    normalizedPathname.startsWith("/people/") ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === ROUTES.CIRCLE_JOIN
   );
+}
+
+/** Routes that require Firebase identity, but no setup or private-place state. */
+export function isFirebaseSessionOnlyRoute(pathname: string): boolean {
+  const pathOnly = String(pathname || "/").split(/[?#]/, 1)[0] || "/";
+  return normalizeStaticExportPathname(pathOnly) === HUSHH_TECH_LAUNCH_PATH;
 }
 
 /**
@@ -327,10 +541,18 @@ export function buildMarketplaceConnectionsRoute(entries?: {
   });
 }
 
-export function buildConnectedSystemRoute(systemId?: string | null) {
+export function buildConnectedSystemRoute(
+  systemId?: string | null,
+  entries?: { agentActionId?: string | null },
+) {
   const normalized = String(systemId ?? "").trim();
   if (!normalized) return ROUTES.CONNECTED_SYSTEMS;
-  return `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`;
+  return withQuery(
+    `${ROUTES.CONNECTED_SYSTEMS}/${encodeURIComponent(normalized)}`,
+    {
+      agentActionId: entries?.agentActionId,
+    },
+  );
 }
 
 export function buildMarketplaceConnectionPortfolioRoute(
@@ -422,7 +644,22 @@ export function buildKaiAnalysisPreviewRoute(entries?: {
  * lives at `/one/setup/finance`.
  */
 export function isOneSetupRoute(pathname: string): boolean {
-  return pathname === ROUTES.ONE_SETUP;
+  return normalizeStaticExportPathname(pathname) === ROUTES.ONE_SETUP;
+}
+
+/**
+ * Capacitor uses Next's static export, which represents directory routes with
+ * a trailing slash (and may expose the backing index document while settling
+ * a WebView navigation). Route admission must compare the logical app route,
+ * not that transport-specific pathname shape.
+ */
+export function normalizeStaticExportPathname(pathname: string): string {
+  const withoutIndexDocument = String(pathname || "/").replace(
+    /\/index\.html$/i,
+    "",
+  );
+  const withoutTrailingSlash = withoutIndexDocument.replace(/\/+$/, "");
+  return withoutTrailingSlash || "/";
 }
 
 /**
@@ -435,7 +672,15 @@ export function isOneSetupRoute(pathname: string): boolean {
  * reserved wizard and compatibility sub-paths are unaffected.
  */
 export function isOneSetupCapabilityRoute(pathname: string): boolean {
-  return Object.values(SETUP_CAPABILITY_ROUTES).includes(pathname);
+  return Object.values(SETUP_CAPABILITY_ROUTES).includes(
+    normalizeStaticExportPathname(pathname),
+  );
+}
+
+export function isOneSetupNavigationRoute(pathname: string): boolean {
+  return SETUP_NAVIGATION_ROUTES.includes(
+    normalizeStaticExportPathname(pathname),
+  );
 }
 
 /**
@@ -447,10 +692,11 @@ export function isOneSetupCapabilityRoute(pathname: string): boolean {
  * the capability handoff is a transient redirector.
  */
 export function isOneSetupWizardRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.ONE_SETUP_FINANCE ||
-    pathname === ROUTES.ONE_SETUP_FINANCE_IMPORT ||
-    pathname === ROUTES.ONE_SETUP_KAI
+    normalizedPathname === ROUTES.ONE_SETUP_FINANCE ||
+    normalizedPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT ||
+    normalizedPathname === ROUTES.ONE_SETUP_KAI
   );
 }
 
@@ -464,25 +710,59 @@ export function isOneSetupWizardRoute(pathname: string): boolean {
 export function isOneSetupSurfaceRoute(pathname: string): boolean {
   return (
     isOneSetupRoute(pathname) ||
+    isOneSetupNavigationRoute(pathname) ||
     isOneSetupCapabilityRoute(pathname) ||
     isOneSetupWizardRoute(pathname)
   );
 }
 
+/**
+ * Public Wallet Profile prefix. Deliberately a module-local constant rather
+ * than a ROUTES entry: `/c` is a token namespace with no page of its own, so it
+ * needs neither a native-route-inventory classification nor a ROUTES-derived
+ * app-route-layout entry. Precedent: the location public-invite prefix is
+ * likewise not a ROUTES value.
+ */
+const WALLET_CARD_PUBLIC_PREFIX = "/c";
+
 export function isPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.LOGIN ||
-    pathname === ROUTES.GETTING_STARTED ||
-    pathname === ROUTES.PHONE_MANDATE ||
-    pathname === ROUTES.LOGOUT ||
-    pathname === ROUTES.PROFILE ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`) ||
-    pathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.LOGIN ||
+    normalizedPathname === ROUTES.GETTING_STARTED ||
+    normalizedPathname === ROUTES.PHONE_MANDATE ||
+    normalizedPathname === ROUTES.LOGOUT ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`) ||
+    // Both prefixes. `/view/` is where public live-location links point now;
+    // `/request/` is what every link minted before the rename carries, and it
+    // has to stay public or those land on /login instead of on the forwarder
+    // that would have taken them to the right page.
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/view/`) ||
+    normalizedPathname.startsWith(`${ROUTES.ONE_LOCATION}/request/`) ||
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
+  );
+}
+
+/**
+ * Routes that must emit no analytics at all (Wallet Profile contract §7).
+ *
+ * A visitor scanning someone's Wallet Profile QR never agreed to anything with
+ * us — they are not a user, they arrived from a stranger's printed code, and we
+ * do not get to measure them. Deliberately much narrower than `isPublicRoute`:
+ * the marketing and auth routes there are ours to instrument.
+ */
+export function isAnalyticsExemptRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
+  return (
+    normalizedPathname === WALLET_CARD_PUBLIC_PREFIX ||
+    normalizedPathname.startsWith(`${WALLET_CARD_PUBLIC_PREFIX}/`)
   );
 }
 
@@ -492,26 +772,31 @@ export function isPublicRoute(pathname: string): boolean {
  * phone, and public invite routes have their own security/UI contracts.
  */
 export function isFoundationPublicRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.HOME ||
-    pathname === ROUTES.DEVELOPERS ||
-    pathname === ROUTES.RESEARCH ||
-    pathname.startsWith(`${ROUTES.RESEARCH}/`) ||
-    pathname === ROUTES.BLOG ||
-    pathname.startsWith(`${ROUTES.BLOG}/`)
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.WELCOME ||
+    normalizedPathname === ROUTES.DEVELOPERS ||
+    normalizedPathname === ROUTES.RESEARCH ||
+    normalizedPathname.startsWith(`${ROUTES.RESEARCH}/`) ||
+    normalizedPathname === ROUTES.BLOG ||
+    normalizedPathname.startsWith(`${ROUTES.BLOG}/`)
   );
 }
 
 export function isRiaRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_HOME || pathname.startsWith(`${ROUTES.RIA_HOME}/`)
+    normalizedPathname === ROUTES.RIA_HOME ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_HOME}/`)
   );
 }
 
 export function isRiaOnboardingRoute(pathname: string): boolean {
+  const normalizedPathname = normalizeStaticExportPathname(pathname);
   return (
-    pathname === ROUTES.RIA_ONBOARDING ||
-    pathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
+    normalizedPathname === ROUTES.RIA_ONBOARDING ||
+    normalizedPathname.startsWith(`${ROUTES.RIA_ONBOARDING}/`)
   );
 }
 

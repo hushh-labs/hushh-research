@@ -18,3 +18,4 @@ Produce a shareable PDF-style artifact that follows the docs-home, founder-langu
 1. local paths in public artifacts
 2. future-state claims presented as implementation truth
 3. diagram or PDF output accepted without rendered verification
+4. hard-wrapped Markdown emitted as individual paragraphs or detached list continuations

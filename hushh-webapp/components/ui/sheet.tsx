@@ -6,11 +6,47 @@ import { Dialog as SheetPrimitive } from "radix-ui"
 
 import { cn } from "@/lib/utils"
 
+type SheetRootProps = React.ComponentProps<typeof SheetPrimitive.Root>
+
+type SheetContextValue = {
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+const SheetContext = React.createContext<SheetContextValue | null>(null)
+
 function Sheet({
   modal = false,
+  open: controlledOpen,
+  defaultOpen,
+  onOpenChange,
   ...props
-}: React.ComponentProps<typeof SheetPrimitive.Root>) {
-  return <SheetPrimitive.Root data-slot="sheet" modal={modal} {...props} />
+}: SheetRootProps) {
+  const [uncontrolledOpen, setUncontrolledOpen] = React.useState(defaultOpen ?? false)
+  const isControlled = typeof controlledOpen === "boolean"
+  const open = isControlled ? controlledOpen : uncontrolledOpen
+
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (!isControlled) {
+        setUncontrolledOpen(nextOpen)
+      }
+      onOpenChange?.(nextOpen)
+    },
+    [isControlled, onOpenChange],
+  )
+
+  return (
+    <SheetContext.Provider value={{ open, onOpenChange: handleOpenChange }}>
+      <SheetPrimitive.Root
+        data-slot="sheet"
+        modal={modal}
+        open={open}
+        onOpenChange={handleOpenChange}
+        {...props}
+      />
+    </SheetContext.Provider>
+  )
 }
 
 function SheetTrigger({
@@ -40,7 +76,7 @@ function SheetOverlay({
       data-slot="sheet-overlay"
       className={cn(
         // Blur/scrim rides the Radix overlay lifecycle so it fades OUT on close.
-        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)]",
+        "data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-[711] touch-none bg-black/22 backdrop-blur-[8px] [-webkit-backdrop-filter:blur(8px)] data-[state=closed]:duration-[180ms] data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-[240ms] data-[state=open]:ease-[cubic-bezier(0.2,0,0,1)]",
         className
       )}
       {...props}
@@ -48,38 +84,204 @@ function SheetOverlay({
   )
 }
 
-function SheetContent({
-  className,
-  children,
-  side = "right",
-  showCloseButton = true,
-  ...props
-}: React.ComponentProps<typeof SheetPrimitive.Content> & {
-  side?: "top" | "right" | "bottom" | "left"
-  showCloseButton?: boolean
-}) {
+/**
+ * The pointer handlers that make an element behave as the sheet's grabber.
+ *
+ * Exposed through context so a sheet whose header ALREADY carries a grabber --
+ * or something standing in for one, like a slide indicator -- can be dragged
+ * by that row instead of stacking a second 44px handle above it. Attach all
+ * four to the SAME element: the drag takes pointer capture on the element it
+ * started from and releases it on the same one.
+ */
+type SheetDragHandleProps = {
+  onPointerDown: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerMove: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerUp: (event: React.PointerEvent<HTMLDivElement>) => void
+  onPointerCancel: (event: React.PointerEvent<HTMLDivElement>) => void
+}
+
+const SheetDragHandleContext = React.createContext<SheetDragHandleProps | null>(
+  null,
+)
+
+/** Null unless the surrounding sheet is a draggable bottom sheet. */
+function useSheetDragHandle(): SheetDragHandleProps | null {
+  return React.useContext(SheetDragHandleContext)
+}
+
+type SheetContentProps =
+  React.ComponentPropsWithoutRef<typeof SheetPrimitive.Content> & {
+    side?: "top" | "right" | "bottom" | "left"
+    showCloseButton?: boolean
+    /**
+     * Enables the native-style downward drag dismissal used by mobile bottom
+     * sheets. Bottom sheets opt in by default; other sides are unaffected.
+     */
+    dragDismiss?: boolean
+    /**
+     * Lets a downward drag that starts anywhere in the sheet body dismiss it.
+     *
+     * On by default, because most sheets ARE their own scroll box: the drag
+     * only engages once that box is already scrolled to the top, so it cannot
+     * steal a scroll. A sheet that is a fixed frame with its own inner
+     * scroller has no such guard -- the outer surface never scrolls, so its
+     * `scrollTop` is permanently 0 and every downward drag inside the body
+     * would engage and `preventDefault()` the scroll it was trying to make.
+     * Those sheets pass `false` and keep the handle as the only drag surface.
+     */
+    contentDragDismiss?: boolean
+    /** Renders the accessible drag affordance above a draggable bottom sheet. */
+    showDragHandle?: boolean
+    /** Optional surface-specific scrim treatment for a semantic app sheet. */
+    overlayClassName?: string
+    /**
+     * Renders the full-screen scrim behind the sheet. On by default, because a
+     * sheet normally IS the whole task and everything behind it should be
+     * inert.
+     *
+     * A sheet anchored to a live surface is the exception, and it is not a
+     * cosmetic one: the scrim is `fixed inset-0 z-[711] touch-none`, so it
+     * covers -- and swallows every tap on -- anything the host screen keeps
+     * on top, no matter how the host layers it. On the Location map that meant
+     * the close X, Locate and Check-in controls stayed fully visible through a
+     * 22%-black blur and did nothing when pressed, which reads to anyone
+     * holding the phone as "the cross is broken". Such a sheet passes
+     * `showOverlay={false}` (with `modal={false}`) so the surface behind it
+     * stays both readable and operable.
+     */
+    showOverlay?: boolean
+  }
+
+function SheetContent(
+  {
+    className,
+    children,
+    side = "right",
+    showCloseButton = true,
+    showOverlay = true,
+    dragDismiss = true,
+    contentDragDismiss = true,
+    showDragHandle,
+    overlayClassName,
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    onPointerCancel,
+    ...props
+  }: SheetContentProps,
+) {
+  const sheet = React.useContext(SheetContext)
+  const {
+    setSheetContentRef,
+    onHandlePointerDown,
+    onHandlePointerMove,
+    onHandlePointerEnd,
+    onContentPointerDown,
+    onContentPointerMove,
+    onContentPointerEnd,
+  } = useBottomSheetDragDismiss({
+    enabled: side === "bottom" && dragDismiss,
+    open: sheet?.open ?? false,
+    onOpenChange: sheet?.onOpenChange ?? (() => undefined),
+  })
+  const shouldShowDragHandle =
+    side === "bottom" && dragDismiss && (showDragHandle ?? true)
+  const dragEnabled = side === "bottom" && dragDismiss
+  const dragHandleProps = React.useMemo<SheetDragHandleProps | null>(
+    () =>
+      dragEnabled
+        ? {
+            onPointerDown: onHandlePointerDown,
+            onPointerMove: onHandlePointerMove,
+            onPointerUp: onHandlePointerEnd,
+            onPointerCancel: onHandlePointerEnd,
+          }
+        : null,
+    [dragEnabled, onHandlePointerDown, onHandlePointerMove, onHandlePointerEnd],
+  )
+
   return (
     <SheetPortal>
-      <SheetOverlay />
+      {showOverlay ? <SheetOverlay className={overlayClassName} /> : null}
       <SheetPrimitive.Content
+        ref={setSheetContentRef}
         data-slot="sheet-content"
         className={cn(
-          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[712] flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition ease-in-out data-[state=closed]:duration-300 data-[state=open]:duration-500",
+          "data-[state=open]:animate-in data-[state=closed]:animate-out fixed z-[712] flex flex-col gap-4 border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-feature)] transition data-[state=closed]:duration-[180ms] data-[state=closed]:ease-[cubic-bezier(0.4,0,1,1)] data-[state=open]:duration-[240ms] data-[state=open]:ease-[cubic-bezier(0.2,0,0,1)]",
           side === "right" &&
             "data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right inset-y-0 right-0 h-full w-3/4 border-l sm:max-w-sm sm:rounded-l-[var(--app-card-radius-feature)]",
           side === "left" &&
             "data-[state=closed]:slide-out-to-left data-[state=open]:slide-in-from-left inset-y-0 left-0 h-full w-3/4 border-r sm:max-w-sm sm:rounded-r-[var(--app-card-radius-feature)]",
           side === "top" &&
             "data-[state=closed]:slide-out-to-top data-[state=open]:slide-in-from-top inset-x-0 top-0 h-auto border-b rounded-b-[var(--app-card-radius-feature)]",
+          // bottom sheet lifts above the on-screen keyboard by --kb-height
+          // (KeyboardInsetManager; 0 on desktop → inert), max-h shrinks to match.
           side === "bottom" &&
-            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-0 h-auto max-h-[85dvh] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] border-t rounded-t-[var(--app-card-radius-feature)]",
+            "data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom inset-x-0 bottom-[var(--kb-height,0px)] h-auto max-h-[calc(85dvh-var(--kb-height,0px))] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch] border-t rounded-t-[var(--app-card-radius-feature)]",
           className
         )}
+        onPointerDown={(event) => {
+          if (contentDragDismiss) onContentPointerDown(event)
+          onPointerDown?.(event)
+        }}
+        onPointerMove={(event) => {
+          if (contentDragDismiss) onContentPointerMove(event)
+          onPointerMove?.(event)
+        }}
+        onPointerUp={(event) => {
+          if (contentDragDismiss) onContentPointerEnd(event)
+          onPointerUp?.(event)
+        }}
+        onPointerCancel={(event) => {
+          if (contentDragDismiss) onContentPointerEnd(event)
+          onPointerCancel?.(event)
+        }}
         {...props}
       >
-        {children}
+        {shouldShowDragHandle ? (
+          <div
+            data-slot="sheet-drag-handle"
+            className="sticky top-0 z-[5] flex h-11 shrink-0 touch-none select-none items-center justify-center bg-[color:var(--app-card-surface-default-solid)] sm:hidden"
+            role="button"
+            tabIndex={0}
+            aria-label="Drag down to close"
+            onPointerDown={onHandlePointerDown}
+            onPointerMove={onHandlePointerMove}
+            onPointerUp={onHandlePointerEnd}
+            onPointerCancel={onHandlePointerEnd}
+            onKeyDown={(event) => {
+              if (event.key === "Escape" || event.key === "Enter" || event.key === " ") {
+                event.preventDefault()
+                sheet?.onOpenChange(false)
+              }
+            }}
+          >
+            <span
+              className="h-1.5 w-12 rounded-full bg-muted-foreground/35"
+              aria-hidden="true"
+            />
+          </div>
+        ) : null}
+        <SheetDragHandleContext.Provider value={dragHandleProps}>
+          {children}
+        </SheetDragHandleContext.Provider>
+        {/*
+          The visible circle stays exactly 32px (p-2 + size-4) so no sheet
+          changes appearance. `after:-inset-1.5` extends only the HIT region to
+          44x44, the platform minimum -- at 32px in a screen corner, next to a
+          drag-dismiss region, this was a genuinely hard target to hit on a
+          phone, and a close button that needs two or three tries is
+          indistinguishable from one that does not work.
+
+          `z-10` finishes that job. The 44px hit region reaches up to y=10,
+          and the drag handle above it is a full-width `z-[5] touch-none` band
+          occupying y=0..44 -- so on every bottom sheet that shows both, the
+          handle was painted over three quarters of the close target and
+          swallowed its taps. Sitting the close button above the handle leaves
+          the handle draggable everywhere except the corner it never owned.
+        */}
         {showCloseButton && (
-          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
+          <SheetPrimitive.Close className="ring-offset-background focus:ring-ring absolute top-4 right-4 z-10 rounded-full border border-transparent bg-[color:var(--app-card-surface-compact)] p-2 opacity-70 transition-opacity after:absolute after:-inset-1.5 after:content-[''] hover:opacity-100 focus:ring-2 focus:ring-offset-2 focus:outline-hidden disabled:pointer-events-none">
             <XIcon className="size-4" />
             <span className="sr-only">Close</span>
           </SheetPrimitive.Close>
@@ -87,6 +289,198 @@ function SheetContent({
       </SheetPrimitive.Content>
     </SheetPortal>
   )
+}
+
+SheetContent.displayName = SheetPrimitive.Content.displayName
+
+type BottomSheetDragState = {
+  startY: number
+  lastY: number
+  lastT: number
+  fromContent?: boolean
+  engaged: boolean
+}
+
+/**
+ * Keeps the physical bottom-sheet contract next to the shadcn primitive.
+ * The thresholds and transform lifecycle match the proven Search Console
+ * mobile sheet: small moves remain taps, content can dismiss only from its
+ * scroll origin, and a cancelled pull settles without replaying the entry keyframe.
+ */
+function useBottomSheetDragDismiss({
+  enabled,
+  open,
+  onOpenChange,
+}: {
+  enabled: boolean
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const sheetContentRef = React.useRef<HTMLDivElement | null>(null)
+  const dragRef = React.useRef<BottomSheetDragState | null>(null)
+  const setSheetContentRef = React.useCallback((node: HTMLDivElement | null) => {
+    sheetContentRef.current = node
+  }, [])
+
+  React.useEffect(() => {
+    if (!enabled || !open) return
+    const surface = sheetContentRef.current
+    if (!surface) return
+    surface.style.transform = ""
+    surface.style.transition = ""
+    surface.style.animation = ""
+    surface.style.willChange = ""
+  }, [enabled, open])
+
+  const finishDrag = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      const surface = sheetContentRef.current
+      dragRef.current = null
+      if (!enabled || !drag || !surface) return
+
+      try {
+        event.currentTarget.releasePointerCapture(event.pointerId)
+      } catch {
+        // Pointer capture is best-effort on embedded and native web views.
+      }
+
+      if (!drag.engaged) return
+
+      const distance = event.clientY - drag.startY
+      const elapsed = Math.max(1, event.timeStamp - drag.lastT)
+      const velocity = (event.clientY - drag.lastY) / elapsed
+      surface.style.transition = "transform 240ms cubic-bezier(0.32,0.72,0,1)"
+
+      if (distance > 96 || velocity > 0.5) {
+        // Keep the direct transform until Radix begins its close lifecycle.
+        // Clearing it first lets the completed entry animation flash back in.
+        surface.style.transform = "translate3d(0, 100%, 0)"
+        window.setTimeout(() => onOpenChange(false), 220)
+        return
+      }
+
+      surface.style.transform = "translate3d(0, 0, 0)"
+      window.setTimeout(() => {
+        surface.style.transform = ""
+        surface.style.transition = ""
+        surface.style.willChange = ""
+        // Preserve the settled open state rather than replaying the entry animation.
+        surface.style.animation = "none"
+      }, 260)
+    },
+    [enabled, onOpenChange],
+  )
+
+  const onHandlePointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!enabled) return
+      dragRef.current = {
+        startY: event.clientY,
+        lastY: event.clientY,
+        lastT: event.timeStamp,
+        engaged: false,
+      }
+    },
+    [enabled],
+  )
+
+  const onHandlePointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      const surface = sheetContentRef.current
+      if (!enabled || !drag || !surface) return
+
+      const delta = Math.max(0, event.clientY - drag.startY)
+      if (!drag.engaged) {
+        if (delta < 4) return
+        drag.engaged = true
+        surface.style.animation = "none"
+        surface.style.transition = "none"
+        surface.style.willChange = "transform"
+        try {
+          event.currentTarget.setPointerCapture(event.pointerId)
+        } catch {
+          // Pointer capture is best-effort on embedded and native web views.
+        }
+      }
+
+      drag.lastY = event.clientY
+      drag.lastT = event.timeStamp
+      surface.style.transform = `translate3d(0, ${delta}px, 0)`
+    },
+    [enabled],
+  )
+
+  const onContentPointerDown = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (!enabled || event.button !== 0 || dragRef.current?.engaged) return
+      dragRef.current = {
+        startY: event.clientY,
+        lastY: event.clientY,
+        lastT: event.timeStamp,
+        fromContent: true,
+        engaged: false,
+      }
+    },
+    [enabled],
+  )
+
+  const onContentPointerMove = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      const surface = sheetContentRef.current
+      if (!enabled || !drag || !surface || !drag.fromContent) return
+
+      if (!drag.engaged) {
+        const movedDown = event.clientY - drag.startY
+        if (surface.scrollTop <= 0 && movedDown > 6) {
+          drag.engaged = true
+          drag.startY = event.clientY
+          surface.style.animation = "none"
+          surface.style.transition = "none"
+          surface.style.willChange = "transform"
+          try {
+            event.currentTarget.setPointerCapture(event.pointerId)
+          } catch {
+            // Pointer capture is best-effort on embedded and native web views.
+          }
+        } else {
+          return
+        }
+      }
+
+      event.preventDefault()
+      const delta = Math.max(0, event.clientY - drag.startY)
+      drag.lastY = event.clientY
+      drag.lastT = event.timeStamp
+      surface.style.transform = `translate3d(0, ${delta}px, 0)`
+    },
+    [enabled],
+  )
+
+  const onContentPointerEnd = React.useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      const drag = dragRef.current
+      if (!enabled || !drag || !drag.fromContent) return
+      if (!drag.engaged) {
+        dragRef.current = null
+        return
+      }
+      finishDrag(event)
+    },
+    [enabled, finishDrag],
+  )
+
+  return {
+    setSheetContentRef,
+    onHandlePointerDown,
+    onHandlePointerMove,
+    onHandlePointerEnd: finishDrag,
+    onContentPointerDown,
+    onContentPointerMove,
+    onContentPointerEnd,
+  }
 }
 
 function SheetHeader({ className, ...props }: React.ComponentProps<"div">) {
@@ -144,4 +538,5 @@ export {
   SheetFooter,
   SheetTitle,
   SheetDescription,
+  useSheetDragHandle,
 }

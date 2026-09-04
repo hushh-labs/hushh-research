@@ -118,6 +118,10 @@ def main() -> int:
     }
 
     failures: list[str] = []
+    # Checks that failed because an EXTERNAL provider is unavailable, not because
+    # this release is bad. They are reported, never hidden, but they must not
+    # block: a Google billing hold is not a reason to withhold healthy code.
+    degraded: list[str] = []
 
     backend_probe = _http_probe(f"{args.backend_url.rstrip('/')}/health")
     report["checks"].append({"name": "backend_health", **backend_probe})
@@ -164,29 +168,30 @@ def main() -> int:
             _record_exception(report, failures, name="gmail_status", exc=exc)
 
         try:
-            voice_capability = smoke._request(  # noqa: SLF001
+            relay_session = smoke._request(  # noqa: SLF001
                 "POST",
-                "/api/kai/voice/capability",
-                headers=smoke._vault_headers(),  # noqa: SLF001
-                json_body={"user_id": smoke.user_id},
+                "/api/one/adk/relay-session",
+                headers=smoke._firebase_auth_headers(),  # noqa: SLF001
                 expected=200,
             ).json()
-            voice_capability_ok = bool(
-                voice_capability.get("voice_enabled") and voice_capability.get("realtime_enabled")
+            relay_session_ok = bool(
+                isinstance(relay_session.get("relay_ticket"), str)
+                and relay_session.get("relay_ticket")
+                and isinstance(relay_session.get("expires_at"), int)
+                and relay_session.get("expires_at") > 0
             )
             report["checks"].append(
                 {
-                    "name": "voice_capability",
-                    "ok": voice_capability_ok,
-                    "voice_enabled": bool(voice_capability.get("voice_enabled")),
-                    "execution_allowed": bool(voice_capability.get("execution_allowed")),
-                    "realtime_enabled": bool(voice_capability.get("realtime_enabled")),
+                    "name": "voice_relay_session",
+                    "ok": relay_session_ok,
+                    "model": relay_session.get("model"),
+                    "tier": relay_session.get("tier"),
                 }
             )
-            if not voice_capability_ok:
-                failures.append("voice_capability")
+            if not relay_session_ok:
+                failures.append("voice_relay_session")
         except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_capability", exc=exc)
+            _record_exception(report, failures, name="voice_relay_session", exc=exc)
 
         try:
             ria_stage1 = smoke._request(  # noqa: SLF001
@@ -215,33 +220,18 @@ def main() -> int:
                 }
             )
             if not ria_stage1_ok:
-                failures.append("ria_stage1_query_only")
+                # The backend already distinguishes "the provider is down" from
+                # "this advisor is not verified" -- ria_verification.py emits
+                # provider_unavailable for a 5xx/denied upstream and not_verified
+                # for a genuine negative. Until now that distinction was recorded
+                # in the check and then thrown away here, so an upstream Gemini
+                # outage read as a release regression.
+                if str(ria_stage1.get("status") or "") == "provider_unavailable":
+                    degraded.append("ria_stage1_query_only")
+                else:
+                    failures.append("ria_stage1_query_only")
         except Exception as exc:  # pragma: no cover - exercised in live verification
             _record_exception(report, failures, name="ria_stage1_query_only", exc=exc)
-
-        try:
-            realtime_session = smoke._request(  # noqa: SLF001
-                "POST",
-                "/api/kai/voice/realtime/session",
-                headers=smoke._vault_headers(),  # noqa: SLF001
-                json_body={"user_id": smoke.user_id, "voice": "alloy"},
-                expected=200,
-            ).json()
-            realtime_ok = bool(realtime_session.get("client_secret")) and bool(
-                realtime_session.get("session_id")
-            )
-            report["checks"].append(
-                {
-                    "name": "voice_realtime_session",
-                    "ok": realtime_ok,
-                    "model": realtime_session.get("model"),
-                    "voice": realtime_session.get("voice"),
-                }
-            )
-            if not realtime_ok:
-                failures.append("voice_realtime_session")
-        except Exception as exc:  # pragma: no cover - exercised in live verification
-            _record_exception(report, failures, name="voice_realtime_session", exc=exc)
 
     if args.include_signed_in_routes:
         route_results = []
@@ -267,9 +257,16 @@ def main() -> int:
             }
         )
 
+    # Three states, not two. A release whose own code is healthy but whose
+    # provider is down is neither "healthy" (AI does not work) nor "blocked"
+    # (nothing is wrong with the build) -- reporting either one is a lie.
+    report["degraded"] = degraded
     if failures:
         report["status"] = "blocked"
         report["failures"] = failures
+    elif degraded:
+        report["status"] = "degraded"
+        report["failures"] = []
 
     report_path = Path(args.report_path)
     report_path.parent.mkdir(parents=True, exist_ok=True)

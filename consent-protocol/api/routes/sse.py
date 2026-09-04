@@ -38,8 +38,9 @@ def _env_truthy(name: str, fallback: str = "false") -> bool:
 
 
 def _consent_sse_enabled() -> bool:
-    if _env_truthy("CONSENT_WEB_FALLBACK_ENABLED", "true"):
-        return True
+    web_fallback = os.getenv("CONSENT_WEB_FALLBACK_ENABLED")
+    if web_fallback is not None:
+        return _env_truthy("CONSENT_WEB_FALLBACK_ENABLED")
 
     explicit = os.getenv("CONSENT_SSE_ENABLED")
     if explicit is not None:
@@ -88,6 +89,8 @@ def _payload_string(value: object | None) -> str:
 
 
 def _sse_payload_from_event_payload(payload: dict[str, object]) -> dict[str, object]:
+    if str(payload.get("type") or "").strip() == "connection_request":
+        return payload
     metadata = _payload_map(payload.get("metadata"))
     request_id = _payload_string(payload.get("request_id"))
     bundle_id = _payload_string(payload.get("bundle_id")) or _payload_string(

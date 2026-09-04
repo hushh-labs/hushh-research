@@ -1,0 +1,389 @@
+import { describe, expect, it } from "vitest";
+
+import {
+  getKaiActionById,
+  listKaiActions,
+} from "@/lib/voice/kai-action-gateway";
+import {
+  firstMissingRequiredSlot,
+  resolveJourneyPlan,
+  resolveJourneyPlanForGoal,
+  resolveJourneySlots,
+  resolveNavigationJourney,
+} from "@/lib/voice/navigation-journey";
+
+/**
+ * The browser half of the navigate-then-execute journey. It used to be a
+ * literal `analysis.start` in four places, so the app could walk exactly one
+ * cross-screen journey however many the contracts declared.
+ */
+describe("navigation journeys", () => {
+  it("resolves the analysis journey entirely from its contract", () => {
+    expect(resolveNavigationJourney("analysis.start")).toEqual({
+      goalId: "goal.analysis.start_debate",
+      destinationRoute: "/one/kai?tab=analysis",
+      destinationScreen: "kai_analysis",
+      navigationActionId: "route.kai_analysis",
+      label: "Open stock analysis preview",
+    });
+  });
+
+  it("stays in lockstep with the relay's own predicate", () => {
+    // Both halves read the same generated contract. If this set ever differs
+    // from the backend's, one side offers a journey the other refuses -- so
+    // this list must be changed together with the relay's
+    // `_navigation_journey_definition`, and the same set is asserted there.
+    //
+    // The setup entries appeared once the route resolver stopped requiring a
+    // `route.` name prefix. Nothing named `route.*` opens /one/setup/location;
+    // `setup.open_location` does, and it navigates exactly the same way. While
+    // the prefix was the test, every setup screen looked unreachable and every
+    // action on one looked like a dead end.
+    const journeys = listKaiActions()
+      .map((action) => action.action_id)
+      .filter((actionId) => resolveNavigationJourney(actionId) !== null)
+      .sort();
+
+    // Location's acting actions joined the set when they were authored with a
+    // settlement_target. They are the journeys whose destination action changes
+    // device state rather than opening a preview. `location.share_selected` is
+    // deliberately left out, because escorting a share would mean arriving at
+    // the composer and firing it at whoever was still selected in it.
+    expect(journeys).toEqual([
+      "analysis.start",
+      // Connect's pending-request lifecycle: accept/reject resolve one exact
+      // request from the person's own incoming list, the same shape
+      // cancel_request already uses for outgoing ones. All three are
+      // confirm_required -- accepting and cancelling each commit the other
+      // person to something, and removing ends the connection Location
+      // sharing depends on.
+      "connect.accept_request",
+      "connect.cancel_request",
+      "connect.open_nearby",
+      "connect.open_people",
+      "connect.reject_request",
+      "connect.remove_connection",
+      "connect.search_people",
+      "connect.send_request",
+      // Circle invitations. Accepting starts sharing with the circle's
+      // members; declining closes the invitation without sharing anything.
+      // Both resolve one invitation off the person's own pending list.
+      "location.accept_circle_invite",
+      // Emergency contacts. Adding resolves against people ELIGIBLE to
+      // receive an SOS -- someone who has not finished Location
+      // setup cannot receive one, and adding them would build a list that
+      // quietly does not work when it is needed. Removing resolves only
+      // against the list itself, because matching the wider connection list
+      // would let "remove Sarah" report success about somebody who was never
+      // on it.
+      "location.add_emergency_contact",
+      // Circles. Escorted for the same reason as everything else here: the
+      // person asks from wherever they are, and the handler that does the work
+      // only exists on Location. Adding is an invitation the other person has
+      // to accept, which is why it settles rather than reporting done.
+      "location.add_to_circle",
+      // Per-item share management (approve/decline a request, stop or
+      // re-time a named share, pick who to ask). Escorted for the same
+      // reason as everything else: the handler that acts on a specific
+      // grant/request only exists on Location itself.
+      "location.approve_request",
+      "location.change_share_duration",
+      "location.create_circle",
+      "location.decline_circle_invite",
+      "location.decline_request",
+      // Deleting a circle is owner-only and takes it away from every member,
+      // not just the caller -- unlike leaving, which only affects the caller.
+      "location.delete_circle",
+      "location.delete_saved_location",
+      "location.leave_circle",
+      // The nearby check-in resolve step: finds nearby places from wherever
+      // the person is and navigates to Check-In to show them, the same shape
+      // as select_share_recipient. confirm_nearby_check_in is deliberately
+      // absent for the same reason share_selected is: arriving and checking
+      // in unattended is the thing that must not happen.
+      "location.nearby_check_in",
+      "location.pause_updates",
+      "location.remove_emergency_contact",
+      "location.remove_from_circle",
+      "location.rename_circle",
+      "location.resume_updates",
+      // Saving reads wherever the device currently is, so there is nothing to
+      // arrive at on Location's screen itself -- the escort exists only so
+      // the local handler that does the write is reachable from anywhere.
+      "location.save_current_location",
+      "location.select_ask_recipient",
+      // Escorted because selecting someone sends nothing. Asked from another
+      // screen it was simply unavailable, which broke "share my location with
+      // Sarah" from anywhere but Location. `location.share_selected` is still
+      // deliberately absent: arriving and FIRING is the thing that must not
+      // happen unattended.
+      "location.select_share_recipient",
+      "location.send_request",
+      // Two settings-shaped actions whose handlers already existed on the
+      // screen with no way to reach them by speaking. Both are
+      // confirm_required: stopping an SOS ends a live emergency broadcast,
+      // and automatic sharing decides whether approved people keep receiving
+      // updates without you doing anything.
+      "location.set_auto_share",
+      // A bare emergency phrase ("save me", "sos") resolves per the
+      // person's own stored default -- open the screen, or go straight to
+      // trigger_sos's own confirm card below. Escorted for the same reason
+      // trigger_sos is: said from wherever the person is, not just Location.
+      "location.sos_default",
+      "location.stop_share",
+      "location.stop_sos",
+      // The highest-consequence action on this surface. Escorted the same
+      // way stopping is: the person can say "send an SOS" from wherever
+      // they are, and the explicit tap-confirmation card -- not this
+      // journey -- is what actually gates it from firing unattended.
+      "location.trigger_sos",
+      "setup.connect_gmail",
+      "setup.finish_calendar",
+      "setup.finish_connections",
+      "setup.finish_email",
+      "setup.finish_finance",
+      "setup.finish_gmail",
+      "setup.finish_location",
+      "setup.finish_ria",
+      "setup.skip_calendar",
+      "setup.skip_email",
+      "setup.skip_finance",
+      "setup.skip_gmail",
+      "setup.skip_location",
+      "setup.skip_ria",
+    ]);
+  });
+
+  it("never turns a route action into a journey to itself", () => {
+    expect(resolveNavigationJourney("route.kai_analysis")).toBeNull();
+  });
+
+  it("walks to Connect before performing a local Connect action", () => {
+    const journey = resolveNavigationJourney("connect.search_people");
+    expect(journey).toMatchObject({
+      goalId: "goal.connect.search_people",
+      destinationRoute: "/one/connect",
+      destinationScreen: "connect",
+    });
+    expect(
+      getKaiActionById(journey!.navigationActionId)?.execution_target.path,
+    ).toBe("route");
+  });
+
+  it("keeps a connection request as its own confirmed journey step", () => {
+    const journey = resolveNavigationJourney("connect.send_request");
+    expect(journey).toMatchObject({
+      goalId: "goal.connect.send_request",
+      destinationRoute: "/one/connect",
+      destinationScreen: "connect",
+    });
+    expect(getKaiActionById("connect.send_request")?.execution_policy).toBe(
+      "confirm_required",
+    );
+  });
+
+  it("never turns a route-executing action into a journey to itself", () => {
+    // `location.open_now` navigates to /one/location, which `route.one_location`
+    // also opens -- so the naive lookup paired them into a journey that walks
+    // to the destination and then runs the action that walks there. The name
+    // prefix is not what disqualifies an action; executing by navigation is.
+    const action = getKaiActionById("location.open_now");
+    expect(action?.execution_target).toMatchObject({
+      path: "route",
+      target: "/one/location",
+    });
+    expect(resolveNavigationJourney("location.open_now")).toBeNull();
+  });
+
+  it("refuses a destination with no wired navigation action", () => {
+    // setup.open_email authors the shape, but no route.* action opens
+    // /one/setup/email -- One would have no generated way to walk it.
+    expect(resolveNavigationJourney("setup.open_email")).toBeNull();
+  });
+
+  it("carries only contract-declared slots, normalized by the named resolver", () => {
+    const action = getKaiActionById("analysis.start");
+    expect(action).toBeTruthy();
+
+    expect(
+      resolveJourneySlots(action!, { symbol: " nvda ", smuggled: "ignore me" }),
+    ).toEqual({ symbol: "NVDA", pickSource: "default" });
+  });
+
+  it("prompts with the contract's own wording for a missing required slot", () => {
+    const action = getKaiActionById("analysis.start");
+
+    expect(firstMissingRequiredSlot(action!, {})).toEqual({
+      slot: "symbol",
+      prompt: "Which stock should I analyze?",
+    });
+    // pickSource declares a default, so it is never treated as missing.
+    expect(firstMissingRequiredSlot(action!, { symbol: "NVDA" })).toBeNull();
+  });
+});
+
+/**
+ * Batch approval: a journey's steps are all known before it starts, so the
+ * person approves a named list once instead of tapping through it step by
+ * step. What the approval may cover is the part that has to stay honest.
+ */
+describe("journey approval plans", () => {
+  it("enumerates every step before anything runs", () => {
+    const plan = resolveJourneyPlan("analysis.start");
+
+    expect(plan).toBeTruthy();
+    expect(plan!.goalId).toBe("goal.analysis.start_debate");
+    expect(plan!.steps.map((step) => step.actionId)).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+    // Shown as labels, because a list nobody can read is worse security with
+    // better ergonomics.
+    expect(plan!.steps.every((step) => step.label.length > 0)).toBe(true);
+  });
+
+  it("covers only the steps that can honestly be approved in advance", () => {
+    const plan = resolveJourneyPlan("analysis.start");
+
+    expect(plan!.batchableActionIds).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+  });
+
+  it("never pre-approves an action that needs its own confirmation", () => {
+    // confirm_required exists to make someone look at that action, and
+    // trusted_activation_required needs a real gesture at the moment it runs.
+    // Neither can be satisfied by a promise made earlier.
+    const risky = listKaiActions().filter(
+      (action) =>
+        action.execution_policy !== "allow_direct" ||
+        action.activation_policy === "trusted_activation_required",
+    );
+    expect(risky.length).toBeGreaterThan(0);
+
+    const preApproved = new Set(
+      listKaiActions().flatMap(
+        (action) =>
+          resolveJourneyPlan(action.action_id)?.batchableActionIds ?? [],
+      ),
+    );
+
+    risky.forEach((action) => {
+      expect(preApproved.has(action.action_id)).toBe(false);
+    });
+  });
+
+  it("finds the plan from the goal, not from the step it is currently on", () => {
+    // The relay's FIRST directive for a journey is its navigation step, so it
+    // arrives as goal.analysis.start_debate carrying route.kai_analysis. A
+    // route action is never a journey in its own right, so resolving by that
+    // action id found nothing and the card showed a single step instead of
+    // the plan -- the batch approval silently degraded to the old behaviour.
+    expect(resolveJourneyPlan("route.kai_analysis")).toBeNull();
+
+    const plan = resolveJourneyPlanForGoal("goal.analysis.start_debate");
+    expect(plan).toBeTruthy();
+    expect(plan!.steps.map((step) => step.actionId)).toEqual([
+      "route.kai_analysis",
+      "analysis.start",
+    ]);
+  });
+
+  it("has no plan for an unknown goal", () => {
+    expect(resolveJourneyPlanForGoal("goal.does.not.exist")).toBeNull();
+    expect(resolveJourneyPlanForGoal("")).toBeNull();
+  });
+
+  it("has no plan for an action that is not a journey", () => {
+    expect(resolveJourneyPlan("route.kai_analysis")).toBeNull();
+    expect(resolveJourneyPlan("analysis.confirm_preview")).toBeNull();
+  });
+});
+
+/**
+ * The escort's own first step has to be runnable from wherever the person is
+ * standing, or the journey is blocked before it starts.
+ */
+describe("the action that walks someone to a journey's destination", () => {
+  it("is admitted from any screen because it navigates, whatever it is named", () => {
+    // The browser exempted navigation from the screen-inventory check by NAME
+    // (`actionId.startsWith("route.")`), while the relay exempts it by
+    // BEHAVIOUR (`execution_target.path == "route"`). Location's escort is
+    // `location.open_share`, which is not named `route.*` -- so the browser
+    // refused the journey's own first step as "not available on this screen",
+    // and "share my location with <name>" died on the launch pad with the
+    // person still on /one.
+    const escort = resolveNavigationJourney("location.select_share_recipient");
+    expect(escort?.navigationActionId).toBe("location.open_share");
+    expect(escort!.navigationActionId.startsWith("route.")).toBe(false);
+
+    const action = getKaiActionById(escort!.navigationActionId);
+    // Everything the browser's exemption now tests, and nothing about naming.
+    expect(action?.execution_target.path).toBe("route");
+    expect(action?.execution_target.status).toBe("wired");
+    expect(action?.execution_policy).toBe("allow_direct");
+    expect(action?.action_id.startsWith("route.")).toBe(false);
+  });
+
+  it("holds for every journey's escort, not just Location's", () => {
+    // Any escort that fails these is unrunnable off its own screen, which
+    // makes its whole journey unreachable from anywhere else -- the exact
+    // failure this pins, generalised.
+    const escorts = listKaiActions()
+      .map((entry) => resolveNavigationJourney(entry.action_id))
+      .filter(
+        (journey): journey is NonNullable<typeof journey> => journey !== null,
+      )
+      .map((journey) => journey.navigationActionId);
+    expect(escorts.length).toBeGreaterThan(0);
+
+    escorts.forEach((actionId) => {
+      const action = getKaiActionById(actionId);
+      expect(action?.execution_target.path, actionId).toBe("route");
+      expect(action?.execution_target.status, actionId).toBe("wired");
+      expect(action?.execution_policy, actionId).toBe("allow_direct");
+    });
+  });
+
+  it("admits BOTH shapes of navigation, matching the relay's own predicate", () => {
+    // `is_navigation_action` in action_gateway.py accepts a wired allow_direct
+    // action that is EITHER named `route.*` OR executes by path "route". The
+    // browser has now had this wrong in each direction, and either way the
+    // relay offers an action the app then refuses:
+    //
+    //   name-only -- missed `location.open_share` and `setup.open_finance`,
+    //     which navigate but are surface-named, so a journey's own first step
+    //     was blocked and "share my location with <name>" never left /one.
+    //   path-only -- missed the five wired `route.*` actions whose path is
+    //     kai_command or voice_tool (route.profile, route.consents,
+    //     route.back, route.analysis_history, route.kai_import), which had
+    //     worked for months on the name test alone.
+    //
+    // Both sets are non-empty, which is precisely why neither test alone is
+    // sufficient and why this asserts the union rather than either half.
+    const wiredDirect = listKaiActions().filter(
+      (action) =>
+        action.execution_target.status === "wired" &&
+        action.execution_policy === "allow_direct",
+    );
+    const nameOnly = wiredDirect.filter(
+      (a) =>
+        a.action_id.startsWith("route.") && a.execution_target.path !== "route",
+    );
+    const pathOnly = wiredDirect.filter(
+      (a) =>
+        !a.action_id.startsWith("route.") &&
+        a.execution_target.path === "route",
+    );
+
+    expect(nameOnly.length).toBeGreaterThan(0);
+    expect(pathOnly.length).toBeGreaterThan(0);
+    expect(nameOnly.map((a) => a.action_id)).toEqual(
+      expect.arrayContaining(["route.profile", "route.consents", "route.back"]),
+    );
+    expect(pathOnly.map((a) => a.action_id)).toEqual(
+      expect.arrayContaining(["location.open_share"]),
+    );
+  });
+});

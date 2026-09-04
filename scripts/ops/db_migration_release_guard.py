@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import Counter
 import json
 import os
 import re
@@ -24,6 +25,7 @@ from typing import Any
 from urllib.parse import quote_plus
 
 import asyncpg
+from dotenv import load_dotenv
 
 
 SCRIPT_PATH = Path(__file__).resolve()
@@ -32,8 +34,13 @@ DEFAULT_MIGRATIONS_DIR = REPO_ROOT / "consent-protocol" / "db" / "migrations"
 DEFAULT_CONTRACT_FILE = (
     REPO_ROOT / "consent-protocol" / "db" / "contracts" / "prod_core_schema.json"
 )
+DEFAULT_MANIFEST_FILE = (
+    REPO_ROOT / "consent-protocol" / "db" / "release_migration_manifest.json"
+)
+load_dotenv(REPO_ROOT / "consent-protocol" / ".env")
 MIGRATION_PATTERN = re.compile(r"^(?P<version>\d{3})_[a-z0-9_]+\.sql$")
 VALID_VERSION_POLICIES = {"exact", "minimum"}
+RELEASE_ENVIRONMENTS = {"production", "uat"}
 
 
 @dataclass(frozen=True)
@@ -47,7 +54,9 @@ def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-def _parse_migration_files(migrations_dir: Path) -> tuple[list[MigrationFile], list[str]]:
+def _parse_migration_files(
+    migrations_dir: Path,
+) -> tuple[list[MigrationFile], list[str]]:
     violations: list[str] = []
     if not migrations_dir.exists():
         return [], [f"migrations_dir_missing:{migrations_dir}"]
@@ -94,7 +103,10 @@ def _load_contract(contract_file: Path) -> tuple[dict[str, Any], list[str]]:
     if not isinstance(expected_version, int):
         violations.append("contract_expected_migration_version_missing_or_invalid")
     version_policy = payload.get("migration_version_policy", "exact")
-    if not isinstance(version_policy, str) or version_policy not in VALID_VERSION_POLICIES:
+    if (
+        not isinstance(version_policy, str)
+        or version_policy not in VALID_VERSION_POLICIES
+    ):
         violations.append("contract_migration_version_policy_invalid")
     required_functions = payload.get("required_functions", [])
     if required_functions:
@@ -124,6 +136,101 @@ def _load_contract(contract_file: Path) -> tuple[dict[str, Any], list[str]]:
     return payload, violations
 
 
+def _load_release_lane(
+    manifest_file: Path,
+    *,
+    release_environment: str,
+    migration_files: list[MigrationFile],
+) -> tuple[list[str], dict[str, Any], list[str]]:
+    """Load one governed lane and verify the canonical base/overlay union."""
+    if not manifest_file.exists():
+        return [], {}, [f"release_manifest_missing:{manifest_file}"]
+    try:
+        payload = json.loads(manifest_file.read_text(encoding="utf-8"))
+    except json.JSONDecodeError as exc:
+        return [], {}, [f"release_manifest_json_invalid:{exc}"]
+
+    violations: list[str] = []
+    base = payload.get("ordered_migrations")
+    overlays = payload.get("environment_overlays")
+    groups = payload.get("groups")
+    if not isinstance(base, list) or not base:
+        violations.append("release_manifest_ordered_migrations_missing_or_invalid")
+        base = []
+    if not isinstance(overlays, dict):
+        violations.append("release_manifest_environment_overlays_missing_or_invalid")
+        overlays = {}
+    if set(overlays) != {"uat"}:
+        violations.append("release_manifest_environment_overlays_must_define_only_uat")
+    uat_overlay = overlays.get("uat")
+    if not isinstance(uat_overlay, list) or not uat_overlay:
+        violations.append("release_manifest_uat_overlay_missing_or_invalid")
+        uat_overlay = []
+
+    base_names = [str(name).strip() for name in base if str(name).strip()]
+    overlay_names = [str(name).strip() for name in uat_overlay if str(name).strip()]
+    canonical_names = sorted(
+        base_names + overlay_names,
+        key=lambda name: int(name.split("_", 1)[0]),
+    )
+    duplicates = sorted(
+        name for name, count in Counter(canonical_names).items() if count != 1
+    )
+    if duplicates:
+        violations.append("release_manifest_duplicate_entries:" + ",".join(duplicates))
+
+    available_names = {item.filename for item in migration_files}
+    for name in canonical_names:
+        if name not in available_names:
+            violations.append(f"release_manifest_missing_file:{name}")
+
+    if migration_files and migration_files[-1].filename not in set(canonical_names):
+        violations.append(
+            f"release_manifest_repo_head_unaccounted:{migration_files[-1].filename}"
+        )
+
+    base_set = set(base_names)
+    if not isinstance(groups, dict):
+        violations.append("release_manifest_groups_missing_or_invalid")
+    else:
+        for group_name, entries in groups.items():
+            if not isinstance(entries, list):
+                violations.append(f"release_manifest_group_invalid:{group_name}")
+                continue
+            outside_base = sorted(set(entries) - base_set)
+            if outside_base:
+                violations.append(
+                    f"release_manifest_group_outside_base:{group_name}:"
+                    + ",".join(outside_base)
+                )
+
+    selected_names = base_names
+    if release_environment == "uat":
+        selected_names = canonical_names
+    selected_versions: list[int] = []
+    for name in selected_names:
+        match = MIGRATION_PATTERN.match(name)
+        if match is None:
+            violations.append(f"release_manifest_invalid_filename:{name}")
+            continue
+        selected_versions.append(int(match.group("version")))
+    if selected_versions != sorted(selected_versions) or len(selected_versions) != len(
+        set(selected_versions)
+    ):
+        violations.append(f"release_manifest_non_monotonic_lane:{release_environment}")
+
+    metadata = {
+        "path": str(manifest_file),
+        "release_environment": release_environment,
+        "base_count": len(base_names),
+        "uat_overlay_count": len(overlay_names),
+        "canonical_count": len(canonical_names),
+        "selected_count": len(selected_names),
+        "selected_head": max(selected_versions) if selected_versions else None,
+    }
+    return selected_names, metadata, violations
+
+
 def _build_database_url_from_env() -> str:
     db_user = os.getenv("DB_USER", "").strip()
     db_password = os.getenv("DB_PASSWORD", "").strip()
@@ -147,11 +254,8 @@ def _build_database_url_from_env() -> str:
 
 
 def _database_ssl_from_env() -> str | None:
-    if os.getenv("DB_UNIX_SOCKET"):
-        return None
-    db_host = os.getenv("DB_HOST", "")
-    if "supabase.com" in db_host or "pooler.supabase" in db_host:
-        return "require"
+    # Cloud SQL is reached over the Auth Proxy (loopback) or the Unix socket,
+    # both already secured, so no explicit sslmode is required.
     return None
 
 
@@ -167,7 +271,9 @@ async def _fetch_columns(conn: asyncpg.Connection, table_name: str) -> set[str]:
     return {str(row["column_name"]) for row in rows}
 
 
-async def _run_db_contract_check(contract: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
+async def _run_db_contract_check(
+    contract: dict[str, Any],
+) -> tuple[dict[str, Any], list[str]]:
     required_tables: dict[str, list[str]] = contract["required_tables"]
     required_functions: list[str] = contract.get("required_functions", [])
     violations: list[str] = []
@@ -179,7 +285,9 @@ async def _run_db_contract_check(contract: dict[str, Any]) -> tuple[dict[str, An
     conn = await asyncpg.connect(db_url, ssl=ssl)
     try:
         for table_name, required_columns in required_tables.items():
-            regclass = await conn.fetchval("SELECT to_regclass($1)", f"public.{table_name}")
+            regclass = await conn.fetchval(
+                "SELECT to_regclass($1)", f"public.{table_name}"
+            )
             if regclass is None:
                 violations.append(f"missing_table:{table_name}")
                 table_results[table_name] = {
@@ -193,7 +301,9 @@ async def _run_db_contract_check(contract: dict[str, Any]) -> tuple[dict[str, An
                 [column for column in required_columns if column not in actual_columns]
             )
             if missing_columns:
-                violations.append(f"missing_columns:{table_name}:{','.join(missing_columns)}")
+                violations.append(
+                    f"missing_columns:{table_name}:{','.join(missing_columns)}"
+                )
 
             table_results[table_name] = {
                 "exists": True,
@@ -226,31 +336,56 @@ async def _run_db_contract_check(contract: dict[str, Any]) -> tuple[dict[str, An
 def _run(args: argparse.Namespace) -> int:
     migrations_dir = Path(args.migrations_dir).resolve()
     contract_file = Path(args.contract_file).resolve()
+    manifest_file = Path(args.manifest_file).resolve()
     started_at = datetime.now(timezone.utc)
 
     migration_files, violations = _parse_migration_files(migrations_dir)
+    selected_migrations, manifest_metadata, manifest_violations = _load_release_lane(
+        manifest_file,
+        release_environment=args.release_environment,
+        migration_files=migration_files,
+    )
+    violations.extend(manifest_violations)
     contract_payload, contract_violations = _load_contract(contract_file)
     violations.extend(contract_violations)
 
-    highest_local_version = migration_files[-1].version if migration_files else None
+    selected_versions = [
+        int(match.group("version"))
+        for name in selected_migrations
+        if (match := MIGRATION_PATTERN.match(name)) is not None
+    ]
+    selected_lane_head = max(selected_versions) if selected_versions else None
+    highest_repo_version = migration_files[-1].version if migration_files else None
     expected_contract_version = contract_payload.get("expected_migration_version")
     version_policy = contract_payload.get("migration_version_policy", "exact")
-    if isinstance(highest_local_version, int) and isinstance(expected_contract_version, int):
-        if version_policy == "exact" and highest_local_version != expected_contract_version:
+    if isinstance(selected_lane_head, int) and isinstance(
+        expected_contract_version, int
+    ):
+        if (
+            version_policy == "exact"
+            and selected_lane_head != expected_contract_version
+        ):
             violations.append(
                 "contract_version_mismatch:"
-                f"policy=exact:highest_local={highest_local_version:03d}:expected={expected_contract_version:03d}"
+                f"policy=exact:selected_lane={selected_lane_head:03d}:"
+                f"expected={expected_contract_version:03d}"
             )
-        elif version_policy == "minimum" and highest_local_version < expected_contract_version:
+        elif (
+            version_policy == "minimum"
+            and selected_lane_head < expected_contract_version
+        ):
             violations.append(
                 "contract_version_mismatch:"
-                f"policy=minimum:highest_local={highest_local_version:03d}:expected_min={expected_contract_version:03d}"
+                f"policy=minimum:selected_lane={selected_lane_head:03d}:"
+                f"expected_min={expected_contract_version:03d}"
             )
 
     db_check_results: dict[str, Any] | None = None
     if not args.skip_db_check and not contract_violations:
         try:
-            db_check_results, db_violations = asyncio.run(_run_db_contract_check(contract_payload))
+            db_check_results, db_violations = asyncio.run(
+                _run_db_contract_check(contract_payload)
+            )
             violations.extend(db_violations)
         except Exception as exc:  # noqa: BLE001
             violations.append(f"db_contract_check_failed:{exc}")
@@ -261,14 +396,20 @@ def _run(args: argparse.Namespace) -> int:
         "policy": {
             "skip_db_check": bool(args.skip_db_check),
             "migrations_dir": str(migrations_dir),
+            "manifest_file": str(manifest_file),
+            "release_environment": args.release_environment,
             "contract_file": str(contract_file),
             "migration_version_policy": version_policy,
         },
+        "release_manifest": manifest_metadata,
         "migrations": {
             "count": len(migration_files),
             "versions": [item.version for item in migration_files],
             "files": [item.filename for item in migration_files],
-            "highest_local_version": highest_local_version,
+            "highest_local_version": highest_repo_version,
+            "highest_repo_version": highest_repo_version,
+            "selected_lane_count": len(selected_migrations),
+            "selected_lane_head": selected_lane_head,
             "expected_contract_version": expected_contract_version,
         },
         "db_contract": db_check_results,
@@ -304,6 +445,20 @@ def _parse_args() -> argparse.Namespace:
         "--contract-file",
         default=str(DEFAULT_CONTRACT_FILE),
         help=f"Path to schema contract JSON (default: {DEFAULT_CONTRACT_FILE}).",
+    )
+    parser.add_argument(
+        "--manifest-file",
+        default=str(DEFAULT_MANIFEST_FILE),
+        help=f"Path to release migration manifest (default: {DEFAULT_MANIFEST_FILE}).",
+    )
+    parser.add_argument(
+        "--release-environment",
+        choices=sorted(RELEASE_ENVIRONMENTS),
+        default="production",
+        help=(
+            "Select the manifest lane used for the contract version check. "
+            "Defaults to the production-safe base lane."
+        ),
     )
     parser.add_argument(
         "--skip-db-check",

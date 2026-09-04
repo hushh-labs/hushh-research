@@ -14,10 +14,7 @@ Draft short public or community responses grounded in shipped repo truth and cur
 4. Run the required commands first, then the verification bundle.
 5. Capture every field listed in `impact_fields` before calling the work complete.
 6. Escalate through `handoff_chain` when the task crosses domain boundaries.
-7. For drafted reply/Q&A requests, default to:
-   - `Brief reply`
-   - `Detailed reply`
-   - `Firmer reply` only when correction is materially useful or explicitly requested
+7. For drafted reply/Q&A requests, default to one sendable reply. Add a variant only when an alternative tone, more depth, or a sharper correction is explicitly requested.
 8. When citing maintained docs, use full GitHub `blob/main` links, not repo-relative paths.
 
 ## Common Drift Risks

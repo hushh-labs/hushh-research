@@ -4,6 +4,7 @@ import base64
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
@@ -15,6 +16,7 @@ from hushh_mcp.consent.export_envelope import (
     ciphertext_digest_from_base64,
     digest_bytes,
 )
+from hushh_mcp.services.consent_db import ConsentDBService
 
 _CLAIM_ID = "123e4567-e89b-12d3-a456-426614174111"
 _EXPORT_ID = "123e4567-e89b-12d3-a456-426614174000"
@@ -135,6 +137,20 @@ def test_job_claim_response_never_returns_consent_token(monkeypatch):
     assert "must_not_leave_backend" not in response.text
 
 
+@pytest.mark.asyncio
+async def test_refresh_job_claim_uses_executed_rpc_result() -> None:
+    class _FakeDb:
+        def rpc(self, function_name: str, params: dict):
+            assert function_name == "claim_consent_export_refresh_jobs_v2"
+            assert params["p_user_id"] == "user_123"
+            return SimpleNamespace(data=[{"claim_id": _CLAIM_ID}])
+
+    service = ConsentDBService()
+    service._get_db = lambda: _FakeDb()  # type: ignore[method-assign]
+
+    assert await service.claim_consent_export_refresh_jobs("user_123") == [{"claim_id": _CLAIM_ID}]
+
+
 def test_refresh_upload_rejects_snapshot_before_commit(monkeypatch):
     class _FakeService:
         async def get_claimed_consent_export_refresh_job(self, **_kwargs):
@@ -157,6 +173,39 @@ def test_refresh_upload_rejects_snapshot_before_commit(monkeypatch):
 
     assert response.status_code == 409
     assert response.json()["detail"]["error_code"] == "SNAPSHOT_EXPORT_IMMUTABLE"
+
+
+def test_refresh_upload_rejects_nonshareable_source_library_scope(monkeypatch):
+    class _FakeService:
+        async def get_claimed_consent_export_refresh_job(self, **_kwargs):
+            return {
+                "consent_token": "consent_demo",
+                "expected_export_revision": 1,
+            }
+
+        async def get_consent_export(self, _token: str):
+            raise AssertionError("policy must reject before export retrieval")
+
+    async def _validate(_token: str):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user_123",
+                scope="pkm.read",
+                scope_str="attr.source_library.knowledge.*",
+            ),
+        )
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeService)
+    monkeypatch.setattr(consent, "validate_token_with_db", _validate)
+    response = TestClient(_build_app()).post(
+        "/api/consent/export-refresh/upload",
+        json=_upload_payload(),
+    )
+
+    assert response.status_code == 410
+    assert response.json()["detail"]["error_code"] == "SCOPE_RETIRED"
 
 
 def test_refresh_revision_cas_conflict_fails_closed(monkeypatch):

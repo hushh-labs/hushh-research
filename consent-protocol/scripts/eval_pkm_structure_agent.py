@@ -11,11 +11,12 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import importlib.metadata
 import json
 import os
 import sys
 import time
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ MONOREPO_ROOT = CONSENT_PROTOCOL_ROOT.parent
 if str(CONSENT_PROTOCOL_ROOT) not in sys.path:
     sys.path.insert(0, str(CONSENT_PROTOCOL_ROOT))
 
+from hushh_mcp.services import pkm_agent_lab_service as pkm_agent_lab_module  # noqa: E402
 from hushh_mcp.services.domain_contracts import CANONICAL_DOMAIN_REGISTRY  # noqa: E402
 from hushh_mcp.services.personal_knowledge_model_service import (  # noqa: E402
     PersonalKnowledgeModelService,
@@ -34,15 +36,24 @@ from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service  
 
 DEFAULT_ENV_FILE = CONSENT_PROTOCOL_ROOT / ".env"
 DEFAULT_REPORT_PATH = CONSENT_PROTOCOL_ROOT / "artifacts" / "pkm_structure_agent_eval_latest.json"
-DEFAULT_PRIMARY_MODEL = "gemini-3.5-flash"
+DEFAULT_PRIMARY_MODEL = "gemini-3.7-flash"
 DEFAULT_SECONDARY_MODEL = ""
 DEFAULT_REFERENCE_MODEL = ""
+# The evaluator must outlive the runtime preview's 35-second deadline so it
+# records the service result instead of manufacturing an earlier timeout.
+DEFAULT_PER_PROMPT_TIMEOUT_SECONDS = 40.0
 DEFAULT_SHADOW_USERS = [
     "UWHGeUyfUAbmEl5xwIPoWJ7Cyft2",
     "s3xmA4lNSAQFrIaOytnSGAOzXlL2",
 ]
-PHASE_ORDER = ("fresh_random_120", "fresh_chain_60", "fresh_chain_120")
+PHASE_ORDER = (
+    "release_chain_24",
+    "fresh_random_120",
+    "fresh_chain_60",
+    "fresh_chain_120",
+)
 PHASE_PROMPT_LIMIT = {
+    "release_chain_24": 24,
     "fresh_random_120": 120,
     "fresh_chain_60": 60,
     "fresh_chain_120": 120,
@@ -53,9 +64,41 @@ DEFAULT_GATE_THRESHOLDS = {
     "mutation_ok_rate": 0.90,
     "intent_ok_rate": 0.90,
     "fallback_rate": 0.10,
-    "fragmentation_score_min": 0.80,
-    "fragmentation_score_max": 1.20,
+    "durable_domain_coverage_rate": 0.95,
 }
+# Latency is measured on every run but gated only when a ceiling is supplied:
+# the same harness runs against Vertex and against a local model whose tail is
+# an order of magnitude apart, so a baked-in ceiling would be wrong for one.
+DEFAULT_MAX_P95_LATENCY_MS: float | None = None
+DEFAULT_REPS = 1
+# Release coverage keeps one coherent chain across every storage decision class
+# and every canonical domain without repeating the long-form research matrix.
+_RELEASE_CHAIN_INDICES = (
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    22,
+    27,
+    28,
+    33,
+    34,
+)
 _GENERAL_DOMAIN_KEY = "general"
 _FINANCIAL_HINTS = {
     "stock",
@@ -207,12 +250,89 @@ class EvaluationResult:
     timed_out: bool
     finance_contamination: bool
     unresolved_domain: bool
+    inner_timeout_count: int
+    inner_budget_exhausted_count: int
+    inner_failure_count: int
     save_class_ok: bool
     intent_ok: bool
     mutation_ok: bool
     domain_ok: bool
     confirmation_ok: bool
     schema_ok: bool
+    # Populated only when the preview returns an execution trace. Defaulting to
+    # empty keeps every caller that runs without the trace unchanged.
+    stage_latencies_ms: dict[str, float] = field(default_factory=dict)
+    stage_totals_ms: dict[str, float] = field(default_factory=dict)
+    # Repetition index within a --reps run. Rep 0 pays one-time costs such as a
+    # local model load, so it is summarized apart from the warm repetitions.
+    rep: int = 0
+
+
+def pct(values: list[float], quantile: float) -> float:
+    """Return the linearly interpolated percentile of ``values``.
+
+    The nearest-rank form this replaces returns a real sample rather than the
+    percentile, so on a 24-prompt release chain a "p95" landed two samples
+    below the tail it claimed to describe.
+    """
+
+    if not values:
+        return 0.0
+    ordered = sorted(float(value) for value in values)
+    if len(ordered) == 1:
+        return ordered[0]
+    position = (len(ordered) - 1) * min(max(quantile, 0.0), 1.0)
+    lower = int(position)
+    upper = min(lower + 1, len(ordered) - 1)
+    return ordered[lower] + (ordered[upper] - ordered[lower]) * (position - lower)
+
+
+def _latency_block(latencies: list[float]) -> dict[str, Any]:
+    if not latencies:
+        # Null, not 0.0. A single-rep run has no warm samples at all, and a
+        # block of zeros reads as a measured zero-millisecond tail -- the most
+        # flattering possible number for something that was never measured.
+        return {
+            "count": 0,
+            "avg_ms": None,
+            "p50_ms": None,
+            "p95_ms": None,
+            "p99_ms": None,
+            "min_ms": None,
+            "max_ms": None,
+        }
+    return {
+        "count": len(latencies),
+        "avg_ms": round(sum(latencies) / len(latencies), 2),
+        "p50_ms": round(pct(latencies, 0.50), 2),
+        "p95_ms": round(pct(latencies, 0.95), 2),
+        "p99_ms": round(pct(latencies, 0.99), 2),
+        "min_ms": round(min(latencies), 2),
+        "max_ms": round(max(latencies), 2),
+    }
+
+
+def _stage_latency_summary(
+    results: list[EvaluationResult],
+    *,
+    attribute: str,
+) -> dict[str, dict[str, Any]]:
+    """Roll per-prompt stage timings up into a slowest-first tail report."""
+
+    buckets: dict[str, list[float]] = {}
+    for item in results:
+        for stage, value in (getattr(item, attribute) or {}).items():
+            buckets.setdefault(str(stage), []).append(float(value))
+    return {
+        stage: {
+            "count": len(values),
+            "avg": round(sum(values) / len(values), 2),
+            "p50": round(pct(values, 0.50), 2),
+            "p95": round(pct(values, 0.95), 2),
+            "p99": round(pct(values, 0.99), 2),
+        }
+        for stage, values in sorted(buckets.items(), key=lambda entry: -pct(entry[1], 0.95))
+    }
 
 
 PERSONA_SEEDS: tuple[PersonaSeed, ...] = (
@@ -385,7 +505,10 @@ def parse_args() -> argparse.Namespace:
         "--phase",
         choices=PHASE_ORDER,
         default="fresh_random_120",
-        help="Benchmark phase: 120 fresh single-turn prompts, 60 chained prompts, or 120 chained prompts.",
+        help=(
+            "Benchmark phase: 24-case release chain, 120 fresh single-turn prompts, "
+            "60 chained prompts, or 120 chained prompts."
+        ),
     )
     parser.add_argument(
         "--env-file",
@@ -415,8 +538,18 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--per-prompt-timeout-seconds",
         type=float,
-        default=25.0,
+        default=DEFAULT_PER_PROMPT_TIMEOUT_SECONDS,
         help="Per-prompt live model timeout in seconds.",
+    )
+    parser.add_argument(
+        "--reps",
+        type=int,
+        default=DEFAULT_REPS,
+        help=(
+            "Repeat the synthetic prompt set N times for latency sampling. "
+            "Rep 0 is reported as cold, later reps as warm. Shadow replay "
+            "always runs once so a benchmark never multiplies UAT reads."
+        ),
     )
     parser.add_argument(
         "--skip-shadow",
@@ -444,6 +577,11 @@ def parse_args() -> argparse.Namespace:
         help="Exit nonzero when PKM determinism quality gates fail.",
     )
     parser.add_argument(
+        "--fail-fast",
+        action="store_true",
+        help="Stop the release chain on a zero-tolerance infrastructure or schema failure.",
+    )
+    parser.add_argument(
         "--min-schema-ok-rate",
         type=float,
         default=DEFAULT_GATE_THRESHOLDS["schema_ok_rate"],
@@ -469,14 +607,15 @@ def parse_args() -> argparse.Namespace:
         default=DEFAULT_GATE_THRESHOLDS["fallback_rate"],
     )
     parser.add_argument(
-        "--min-fragmentation-score",
+        "--min-durable-domain-coverage-rate",
         type=float,
-        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_min"],
+        default=DEFAULT_GATE_THRESHOLDS["durable_domain_coverage_rate"],
     )
     parser.add_argument(
-        "--max-fragmentation-score",
+        "--max-p95-latency-ms",
         type=float,
-        default=DEFAULT_GATE_THRESHOLDS["fragmentation_score_max"],
+        default=DEFAULT_MAX_P95_LATENCY_MS,
+        help="Optional p95 latency ceiling in ms. Unset leaves latency ungated.",
     )
     return parser.parse_args()
 
@@ -2881,7 +3020,11 @@ def build_phase_personas(
         ], False
 
     chain_seed = PERSONA_SEEDS[0]
-    chain_prompts = _build_fresh_chain(chain_seed)[:prompt_limit]
+    full_chain = _build_fresh_chain(chain_seed)
+    if phase == "release_chain_24":
+        chain_prompts = [full_chain[index] for index in _RELEASE_CHAIN_INDICES][:prompt_limit]
+    else:
+        chain_prompts = full_chain[:prompt_limit]
     return [
         {
             "persona_id": chain_seed.persona_id,
@@ -2989,6 +3132,7 @@ async def _evaluate_case(
     strict_small_model: bool,
     per_prompt_timeout_seconds: float,
     domain_registry_override: list[dict[str, Any]],
+    rep: int = 0,
 ) -> EvaluationResult:
     started_at = time.perf_counter()
     timed_out = False
@@ -3002,6 +3146,7 @@ async def _evaluate_case(
                 model_override=model_override,
                 strict_small_model=strict_small_model,
                 domain_registry_override=domain_registry_override,
+                capture_execution_trace=True,
             ),
             timeout=per_prompt_timeout_seconds,
         )
@@ -3028,6 +3173,20 @@ async def _evaluate_case(
         bool(frame.get("requires_confirmation")) or actual_write_mode == "confirm_first"
     )
     validation_hints = list(result.get("validation_hints") or [])
+    performance = result.get("performance") or {}
+    execution_trace = performance.get("agent_execution") or []
+    trace_statuses = [
+        str(item.get("status") or "") for item in execution_trace if isinstance(item, dict)
+    ]
+    stage_latencies_ms = _agent_latencies_ms(execution_trace)
+    stage_totals_ms = _stage_totals_ms(performance.get("stage_latencies_ms"))
+    inner_timeout_count = trace_statuses.count("timeout")
+    inner_budget_exhausted_count = trace_statuses.count("budget_exhausted")
+    inner_failure_count = sum(
+        1
+        for status in trace_statuses
+        if status in {"client_unavailable", "invalid_response", "error"}
+    )
     finance_contamination = (
         actual_domain == "financial"
         and "financial" not in case.expected_domains
@@ -3063,15 +3222,53 @@ async def _evaluate_case(
         timed_out=timed_out,
         finance_contamination=finance_contamination,
         unresolved_domain=unresolved_domain,
+        inner_timeout_count=inner_timeout_count,
+        inner_budget_exhausted_count=inner_budget_exhausted_count,
+        inner_failure_count=inner_failure_count,
         save_class_ok=str(frame.get("save_class") or "") == case.expected_save_class,
         intent_ok=str(frame.get("intent_class") or "") == case.expected_intent_class,
         mutation_ok=str(frame.get("mutation_intent") or "") == case.expected_mutation_intent,
         domain_ok=domain_ok,
         confirmation_ok=requires_confirmation == case.expect_confirmation,
         schema_ok=_schema_ok(result),
+        stage_latencies_ms=stage_latencies_ms,
+        stage_totals_ms=stage_totals_ms,
+        rep=rep,
     )
     _apply_preview_to_state(state, result, case.message)
     return evaluation
+
+
+def _agent_latencies_ms(execution_trace: list[Any]) -> dict[str, float]:
+    """Keep the per-agent timing the preview already paid to measure."""
+
+    latencies: dict[str, float] = {}
+    for item in execution_trace:
+        if not isinstance(item, dict):
+            continue
+        agent_id = str(item.get("agent_id") or "").strip()
+        if not agent_id:
+            continue
+        try:
+            latency_ms = float(item.get("latency_ms") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        # One message can fan out into several preview cards, so the same agent
+        # appears more than once. Accumulate its total work for the prompt.
+        latencies[agent_id] = round(latencies.get(agent_id, 0.0) + latency_ms, 2)
+    return latencies
+
+
+def _stage_totals_ms(stage_latencies: Any) -> dict[str, float]:
+    if not isinstance(stage_latencies, dict):
+        return {}
+    totals: dict[str, float] = {}
+    for stage, value in stage_latencies.items():
+        try:
+            totals[str(stage)] = float(value)
+        except (TypeError, ValueError):
+            continue
+    return totals
 
 
 async def _run_synthetic_mode(
@@ -3083,32 +3280,49 @@ async def _run_synthetic_mode(
     strict_small_model: bool,
     chain_state: bool,
     per_prompt_timeout_seconds: float,
+    fail_fast: bool = False,
+    reps: int = DEFAULT_REPS,
 ) -> dict[str, Any]:
     registry_override = _registry_override()
     persona_reports = []
     all_results: list[EvaluationResult] = []
+    rep_count = max(1, reps)
     for persona in personas:
         state = _blank_state()
         persona_results = []
-        for case in persona["prompts"]:
-            case_state = state if chain_state else _blank_state(domains=list(state["domains"]))
-            evaluation = await _evaluate_case(
-                service=service,
-                case=case,
-                state=case_state,
-                user_id="synthetic-benchmark-user",
-                model_override=model_override,
-                strict_small_model=strict_small_model,
-                per_prompt_timeout_seconds=per_prompt_timeout_seconds,
-                domain_registry_override=registry_override,
-            )
-            persona_results.append(evaluation)
-            all_results.append(evaluation)
+        for rep in range(rep_count):
+            # Each repetition replays the whole chain from a blank state.
+            # Re-sending one prompt into a state that already holds it would
+            # turn a create into a no_op and corrupt the accuracy rates, so a
+            # repetition is a fresh pass rather than a repeated prompt.
+            state = _blank_state()
+            for case in persona["prompts"]:
+                case_state = state if chain_state else _blank_state(domains=list(state["domains"]))
+                evaluation = await _evaluate_case(
+                    service=service,
+                    case=case,
+                    state=case_state,
+                    user_id="synthetic-benchmark-user",
+                    model_override=model_override,
+                    strict_small_model=strict_small_model,
+                    per_prompt_timeout_seconds=per_prompt_timeout_seconds,
+                    domain_registry_override=registry_override,
+                    rep=rep,
+                )
+                persona_results.append(evaluation)
+                all_results.append(evaluation)
+                if fail_fast:
+                    decisive_failure = _decisive_release_failure(evaluation)
+                    if decisive_failure:
+                        raise RuntimeError(
+                            f"PKM release evaluator stopped at {case.case_id}: {decisive_failure}"
+                        )
         persona_reports.append(
             {
                 "persona_id": persona["persona_id"],
                 "name": persona["name"],
                 "prompt_count": len(persona_results),
+                "rep_count": rep_count,
                 "final_domains": sorted(state["domains"]),
                 "active_memory_count": sum(
                     1 for entry in state["memories"] if entry.get("active", True)
@@ -3120,10 +3334,36 @@ async def _run_synthetic_mode(
         "mode": mode_name,
         "model_override": model_override or "",
         "strict_small_model": strict_small_model,
-        "synthetic_prompt_count": len(all_results),
+        # Runs, not prompts: with --reps this is prompts x reps. The top-level
+        # report carries `synthetic_prompt_count` meaning distinct prompts, so
+        # reusing that name here made the same key mean two different things
+        # depending on nesting depth.
+        "evaluated_run_count": len(all_results),
+        "synthetic_prompt_count": sum(len(persona["prompts"]) for persona in personas),
+        "reps": reps,
         "personas": persona_reports,
         "summary": _summarize_results(all_results),
     }
+
+
+def _decisive_release_failure(result: EvaluationResult) -> str:
+    """Return only failures whose accepted count is always zero."""
+
+    if result.timed_out:
+        return "outer_timeout"
+    if not result.schema_ok:
+        return "schema_invalid"
+    if result.inner_timeout_count:
+        return "inner_timeout"
+    if result.inner_budget_exhausted_count:
+        return "inner_budget_exhausted"
+    if result.inner_failure_count:
+        return "inner_agent_failure"
+    if result.finance_contamination:
+        return "finance_contamination"
+    if result.unresolved_domain:
+        return "unresolved_domain"
+    return ""
 
 
 def _shadow_prompt_chain() -> list[PromptCase]:
@@ -3254,7 +3494,7 @@ async def _load_shadow_state(
     user_id: str,
 ) -> dict[str, Any]:
     manifests = (
-        service.supabase.table("pkm_manifests")
+        service.db.table("pkm_manifests")
         .select("domain,top_level_scope_paths,summary_projection,path_count,manifest_version")
         .eq("user_id", user_id)
         .order("domain")
@@ -3322,6 +3562,18 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
     if total == 0:
         return {
             "prompt_count": 0,
+            # Null, not 0.0, for the same reason as _latency_block: nothing was
+            # timed, and zero milliseconds is a measurement claim.
+            "average_latency_ms": None,
+            "p50_latency_ms": None,
+            "p95_latency_ms": None,
+            "p99_latency_ms": None,
+            "min_latency_ms": None,
+            "max_latency_ms": None,
+            "latency_cold": _latency_block([]),
+            "latency_warm": _latency_block([]),
+            "stage_latency_summary": {},
+            "stage_total_latency_summary": {},
             "schema_ok_rate": 0.0,
             "save_class_ok_rate": 0.0,
             "intent_ok_rate": 0.0,
@@ -3330,9 +3582,12 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
             "confirmation_ok_rate": 0.0,
             "fallback_rate": 0.0,
             "timeout_count": 0,
+            "inner_timeout_count": 0,
+            "inner_budget_exhausted_count": 0,
+            "inner_failure_count": 0,
             "finance_contamination_count": 0,
             "unresolved_domain_count": 0,
-            "fragmentation_score": 0.0,
+            "durable_domain_coverage_rate": 0.0,
             "drift_flag_counts": {},
         }
 
@@ -3340,29 +3595,17 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         hits = sum(1 for item in results if getattr(item, attr))
         return round(hits / total, 4)
 
-    latencies = sorted(item.latency_ms for item in results)
-    average_latency_ms = round(sum(latencies) / total, 2)
-    p95_index = min(total - 1, max(0, int(total * 0.95) - 1))
-    p95_latency_ms = round(latencies[p95_index], 2)
+    latencies = [item.latency_ms for item in results]
+    overall_latency = _latency_block(latencies)
+    # Rep 0 carries every one-time cost (model load, first client handshake),
+    # so folding it into the warm numbers would hide the steady-state tail.
+    cold_latency = _latency_block([item.latency_ms for item in results if item.rep == 0])
+    warm_latency = _latency_block([item.latency_ms for item in results if item.rep > 0])
 
     fallback_rate = round(sum(1 for item in results if item.used_fallback) / total, 4)
     finance_contamination_count = sum(1 for item in results if item.finance_contamination)
     unresolved_domain_count = sum(1 for item in results if item.unresolved_domain)
-    actual_domains = {
-        item.actual_domain
-        for item in results
-        if item.actual_domain and item.actual_write_mode != "do_not_save"
-    }
-    expected_domains = {
-        domain
-        for item in results
-        for domain in item.expected_domains
-        if domain and domain != _GENERAL_DOMAIN_KEY
-    }
-    fragmentation_score = round(
-        len(actual_domains) / max(1, len(expected_domains)),
-        4,
-    )
+    durable_domain_coverage_rate = _durable_domain_coverage_rate(results)
     drift_flag_counts: dict[str, int] = {}
     for item in results:
         for flag, enabled in item.drift_flags.items():
@@ -3370,8 +3613,16 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
                 drift_flag_counts[flag] = drift_flag_counts.get(flag, 0) + 1
     return {
         "prompt_count": total,
-        "average_latency_ms": average_latency_ms,
-        "p95_latency_ms": p95_latency_ms,
+        "average_latency_ms": overall_latency["avg_ms"],
+        "p50_latency_ms": overall_latency["p50_ms"],
+        "p95_latency_ms": overall_latency["p95_ms"],
+        "p99_latency_ms": overall_latency["p99_ms"],
+        "min_latency_ms": overall_latency["min_ms"],
+        "max_latency_ms": overall_latency["max_ms"],
+        "latency_cold": cold_latency,
+        "latency_warm": warm_latency,
+        "stage_latency_summary": _stage_latency_summary(results, attribute="stage_latencies_ms"),
+        "stage_total_latency_summary": _stage_latency_summary(results, attribute="stage_totals_ms"),
         "schema_ok_rate": _rate("schema_ok"),
         "save_class_ok_rate": _rate("save_class_ok"),
         "intent_ok_rate": _rate("intent_ok"),
@@ -3380,11 +3631,39 @@ def _summarize_results(results: list[EvaluationResult]) -> dict[str, Any]:
         "confirmation_ok_rate": _rate("confirmation_ok"),
         "fallback_rate": fallback_rate,
         "timeout_count": sum(1 for item in results if item.timed_out),
+        "inner_timeout_count": sum(item.inner_timeout_count for item in results),
+        "inner_budget_exhausted_count": sum(item.inner_budget_exhausted_count for item in results),
+        "inner_failure_count": sum(item.inner_failure_count for item in results),
         "finance_contamination_count": finance_contamination_count,
         "unresolved_domain_count": unresolved_domain_count,
-        "fragmentation_score": fragmentation_score,
+        "durable_domain_coverage_rate": durable_domain_coverage_rate,
         "drift_flag_counts": drift_flag_counts,
     }
+
+
+def _durable_domain_coverage_rate(
+    results: list[EvaluationResult],
+) -> float:
+    """Measure valid domain coverage for each durable case.
+
+    A case may intentionally allow more than one canonical domain. Comparing
+    the set of emitted domains with the union of every allowed domain makes a
+    valid alternative look like missing coverage. Count each durable case once
+    instead: its output must remain durable, write-eligible, and within that
+    case's allowed domain set.
+    """
+
+    durable_cases = [item for item in results if item.expected_save_class == "durable"]
+    if not durable_cases:
+        return 1.0
+    covered_cases = sum(
+        item.actual_save_class == "durable"
+        and item.actual_write_mode != "do_not_save"
+        and item.actual_domain != _GENERAL_DOMAIN_KEY
+        and item.actual_domain in item.expected_domains
+        for item in durable_cases
+    )
+    return round(covered_cases / len(durable_cases), 4)
 
 
 def _contract_signature(record: dict[str, Any]) -> tuple[str, str, str, str, str]:
@@ -3463,20 +3742,21 @@ def _manual_kpi_summary(
             "recommended_fast_path_model": synthetic_reports[0]["model_override"]
             if synthetic_reports
             else "",
-            "selection_rule": "single-model minimal-thinking run on gemini-3.5-flash",
+            "selection_rule": f"single-model minimal-thinking run on {DEFAULT_PRIMARY_MODEL}",
         },
     }
 
 
-def _gate_thresholds(args: argparse.Namespace) -> dict[str, float]:
+def _gate_thresholds(args: argparse.Namespace) -> dict[str, float | None]:
+    max_p95_latency_ms = getattr(args, "max_p95_latency_ms", DEFAULT_MAX_P95_LATENCY_MS)
     return {
         "schema_ok_rate": float(args.min_schema_ok_rate),
         "domain_ok_rate": float(args.min_domain_ok_rate),
         "mutation_ok_rate": float(args.min_mutation_ok_rate),
         "intent_ok_rate": float(args.min_intent_ok_rate),
         "fallback_rate": float(args.max_fallback_rate),
-        "fragmentation_score_min": float(args.min_fragmentation_score),
-        "fragmentation_score_max": float(args.max_fragmentation_score),
+        "durable_domain_coverage_rate": float(args.min_durable_domain_coverage_rate),
+        "max_p95_latency_ms": float(max_p95_latency_ms) if max_p95_latency_ms is not None else None,
     }
 
 
@@ -3484,7 +3764,7 @@ def _gate_failures_for_summary(
     *,
     label: str,
     summary: dict[str, Any],
-    thresholds: dict[str, float],
+    thresholds: dict[str, float | None],
 ) -> list[str]:
     failures: list[str] = []
     minimum_checks = (
@@ -3503,31 +3783,77 @@ def _gate_failures_for_summary(
     max_fallback = float(thresholds["fallback_rate"])
     if fallback_rate > max_fallback:
         failures.append(f"{label}:fallback {fallback_rate:.4f} > {max_fallback:.4f}")
-    fragmentation_score = float(summary.get("fragmentation_score") or 0.0)
-    min_fragmentation = float(thresholds["fragmentation_score_min"])
-    max_fragmentation = float(thresholds["fragmentation_score_max"])
-    if fragmentation_score < min_fragmentation:
+    durable_domain_coverage_rate = float(summary.get("durable_domain_coverage_rate") or 0.0)
+    min_durable_domain_coverage_rate = float(thresholds["durable_domain_coverage_rate"])
+    if durable_domain_coverage_rate < min_durable_domain_coverage_rate:
         failures.append(
-            f"{label}:fragmentation {fragmentation_score:.4f} < {min_fragmentation:.4f}"
+            f"{label}:durable_domain_coverage "
+            f"{durable_domain_coverage_rate:.4f} < "
+            f"{min_durable_domain_coverage_rate:.4f}"
         )
-    if fragmentation_score > max_fragmentation:
-        failures.append(
-            f"{label}:fragmentation {fragmentation_score:.4f} > {max_fragmentation:.4f}"
-        )
+    max_p95_latency_ms = thresholds.get("max_p95_latency_ms")
+    if max_p95_latency_ms is not None:
+        p95_latency_ms = summary.get("p95_latency_ms")
+        if p95_latency_ms is None:
+            # No samples is not a pass. Coercing an absent p95 to 0.0 would
+            # clear any threshold, so a run that timed nothing would report the
+            # latency gate as satisfied.
+            failures.append(f"{label}:p95_latency_ms not measured (no samples)")
+        elif float(p95_latency_ms) > float(max_p95_latency_ms):
+            failures.append(
+                f"{label}:p95_latency_ms {float(p95_latency_ms):.2f} > "
+                f"{float(max_p95_latency_ms):.2f}"
+            )
     if int(summary.get("finance_contamination_count") or 0) > 0:
         failures.append(
             f"{label}:finance_contamination {summary.get('finance_contamination_count')}"
         )
     if int(summary.get("unresolved_domain_count") or 0) > 0:
         failures.append(f"{label}:unresolved_domain {summary.get('unresolved_domain_count')}")
+    for key, display_name in (
+        ("timeout_count", "outer_timeout"),
+        ("inner_timeout_count", "inner_timeout"),
+        ("inner_budget_exhausted_count", "inner_budget_exhausted"),
+        ("inner_failure_count", "inner_agent_failure"),
+    ):
+        count = int(summary.get(key) or 0)
+        if count > 0:
+            failures.append(f"{label}:{display_name} {count}")
     return failures
+
+
+def _execution_context(args: argparse.Namespace) -> dict[str, Any]:
+    """Return reproducibility evidence without recording credentials or prompts."""
+
+    try:
+        genai_sdk_version = importlib.metadata.version("google-genai")
+    except importlib.metadata.PackageNotFoundError:
+        genai_sdk_version = "not-installed"
+    return {
+        "model": str(args.model or "").strip(),
+        "strict_small_model": True,
+        "reps": max(1, int(getattr(args, "reps", DEFAULT_REPS))),
+        "per_prompt_timeout_seconds": float(args.per_prompt_timeout_seconds),
+        "runtime_preview_budget_seconds": pkm_agent_lab_module._PREVIEW_TOTAL_BUDGET_SECONDS,
+        "agent_contract_timeout_seconds": pkm_agent_lab_module._AGENT_CONTRACT_TIMEOUT_SECONDS,
+        "agent_contract_max_attempts": pkm_agent_lab_module._AGENT_CONTRACT_MAX_ATTEMPTS,
+        "google_genai_sdk_version": genai_sdk_version,
+        "credential_mode": str(os.getenv("HUSHH_GENAI_AUTH_MODE") or "vertex_adc").strip(),
+        "vertex_project_configured": bool(
+            str(os.getenv("GOOGLE_CLOUD_PROJECT") or os.getenv("GCP_PROJECT") or "").strip()
+        ),
+        "vertex_location": str(os.getenv("GOOGLE_CLOUD_LOCATION") or "global").strip(),
+        "github_actions": os.getenv("GITHUB_ACTIONS") == "true",
+        "deployment_environment": str(os.getenv("ENVIRONMENT") or os.getenv("DEPLOY_ENV") or ""),
+        "shadow_replay_enabled": not bool(args.skip_shadow),
+    }
 
 
 def _build_quality_gate(
     *,
     synthetic_reports: list[dict[str, Any]],
     shadow_reports: list[dict[str, Any]],
-    thresholds: dict[str, float],
+    thresholds: dict[str, float | None],
 ) -> dict[str, Any]:
     failures: list[str] = []
     for report in synthetic_reports:
@@ -3563,7 +3889,10 @@ async def main() -> int:
     report_path.parent.mkdir(parents=True, exist_ok=True)
 
     service = get_pkm_agent_lab_service()
-    pkm_service = PersonalKnowledgeModelService()
+    # A synthetic-only rehearsal must not initialize the PKM database path.
+    # Besides keeping the job read-only, this lets the no-traffic Cloud Run
+    # candidate run with only its model credential.
+    pkm_service = PersonalKnowledgeModelService() if not args.skip_shadow else None
     personas, chain_state = build_phase_personas(
         phase=args.phase,
         max_prompts_per_persona=args.max_prompts_per_persona,
@@ -3585,9 +3914,13 @@ async def main() -> int:
                 strict_small_model=strict_small_model,
                 chain_state=chain_state,
                 per_prompt_timeout_seconds=args.per_prompt_timeout_seconds,
+                fail_fast=bool(getattr(args, "fail_fast", False)),
+                reps=max(1, int(getattr(args, "reps", DEFAULT_REPS))),
             )
         )
         if not args.skip_shadow:
+            if pkm_service is None:
+                raise RuntimeError("Shadow replay requires a PKM service instance")
             shadow_reports.append(
                 await _run_shadow_mode(
                     service=service,
@@ -3610,6 +3943,7 @@ async def main() -> int:
         "duration_seconds": round(time.time() - started_at, 2),
         "env_file": str(env_file) if env_file else "",
         "phase": args.phase,
+        "execution_context": _execution_context(args),
         "shadow_users": shadow_users,
         "synthetic_persona_count": len(personas),
         "synthetic_prompt_count": sum(len(persona["prompts"]) for persona in personas),

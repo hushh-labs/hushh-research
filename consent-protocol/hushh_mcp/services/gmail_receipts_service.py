@@ -33,6 +33,8 @@ from google.oauth2 import id_token as google_id_token
 
 from db.connection import get_pool
 from db.db_client import get_db
+from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.runtime_settings import (
     APP_SIGNING_KEY_ENV,
     GMAIL_OAUTH_TOKEN_KEY_ENV,
@@ -62,7 +64,11 @@ _GMAIL_MESSAGES_URL = "https://gmail.googleapis.com/gmail/v1/users/me/messages"
 _GMAIL_THREADS_URL = "https://gmail.googleapis.com/gmail/v1/users/me/threads"
 _GMAIL_HISTORY_URL = "https://gmail.googleapis.com/gmail/v1/users/me/history"
 _GMAIL_WATCH_URL = "https://gmail.googleapis.com/gmail/v1/users/me/watch"
-_GMAIL_OAUTH_RETURN_PATH = "/profile/gmail/oauth/return"
+# The origin remains environment-derived. Receipt sync and approved delivery
+# share this one callback and canonical token store.
+_GMAIL_OAUTH_RETURN_PATH = "/one/profile/gmail/oauth/return"
+_GMAIL_READONLY_SCOPE = "https://www.googleapis.com/auth/gmail.readonly"
+_GMAIL_SEND_SCOPE = "https://www.googleapis.com/auth/gmail.send"
 
 # Bounds for the inbox scan behind "Needs a reply" nudges: how far back to look,
 # how many recent threads to inspect, and how many cards to return.
@@ -78,6 +84,11 @@ _NUDGE_BODY_MEETING_QUERY = (
     'zoom OR "google meet" OR "schedule a call" OR "schedule a meeting")'
 )
 _NUDGE_MAX_MEETINGS = 20
+_NUDGE_MEETING_FETCH_CONCURRENCY = 5
+# Meeting cards are supplementary to the inbox reply cards. Keep their live
+# Gmail work bounded so a mailbox with many calendar invitations never turns
+# the whole nudge response into a failed screen load.
+_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS = 8.0
 
 _RECEIPT_SUBJECT_RE = re.compile(
     r"\b(receipt|invoice|order(?:\s+confirmation)?|payment|transaction|purchase|paid)\b",
@@ -119,6 +130,7 @@ _MERCHANT_HINTS = {
 _RUN_CANCELED_MESSAGE = "Gmail sync canceled because the connection was disconnected."
 _RUN_STALE_MESSAGE = "Gmail sync expired before completion. Please start a new sync."
 _RUN_ORPHANED_MESSAGE = "Gmail sync worker stopped before reporting a final status."
+_RUN_INTERRUPTED_MESSAGE = "Gmail sync stopped before completion. You can start another sync."
 _RUN_PREEMPTED_MESSAGE = "Older Gmail backfill was paused so a newer sync could run."
 _RUN_HISTORY_GAP_MESSAGE = (
     "Gmail history cursor expired. Starting a recovery sync to rebuild the mailbox snapshot."
@@ -131,6 +143,7 @@ class GmailApiError(RuntimeError):
     message: str
     status_code: int = 500
     payload: dict[str, Any] | None = None
+    code: str | None = None
 
     def __str__(self) -> str:
         return self.message
@@ -679,6 +692,53 @@ class GmailReceiptsService:
             },
         )
 
+    def _clear_interrupted_connection_sync_state(self, *, user_id: str) -> None:
+        """Keep a server restart from becoming a permanent Gmail health error."""
+
+        self.db.execute_raw(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = :user_id
+            """,
+            {"user_id": user_id},
+        )
+
+    @staticmethod
+    async def _clear_interrupted_connection_sync_state_in_tx(*, conn: Any, user_id: str) -> None:
+        await conn.execute(
+            """
+            UPDATE kai_gmail_connections
+            SET last_sync_status = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN 'idle'
+                    ELSE last_sync_status
+                END,
+                last_sync_error = CASE
+                    WHEN last_sync_status IN ('queued', 'running') THEN NULL
+                    ELSE last_sync_error
+                END,
+                bootstrap_state = CASE
+                    WHEN bootstrap_state IN ('queued', 'running') THEN 'idle'
+                    ELSE bootstrap_state
+                END,
+                updated_at = NOW()
+            WHERE user_id = $1
+            """,
+            user_id,
+        )
+
     async def _recover_active_run_in_tx(self, *, conn: Any, run: dict[str, Any]) -> bool:
         run_id = _clean_text(run.get("run_id"))
         user_id = _clean_text(run.get("user_id"))
@@ -693,8 +753,8 @@ class GmailReceiptsService:
                 cancelled_fn = getattr(task, "cancelled", None)
                 if callable(cancelled_fn):
                     cancelled = bool(cancelled_fn())
-                status = "canceled" if cancelled else "failed"
-                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                status = "canceled"
+                error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
@@ -709,24 +769,16 @@ class GmailReceiptsService:
                     status,
                     error_message,
                 )
-                if status == "failed":
-                    await conn.execute(
-                        """
-                        UPDATE kai_gmail_connections
-                        SET last_sync_status = 'failed',
-                            last_sync_error = $2,
-                            updated_at = NOW()
-                        WHERE user_id = $1
-                        """,
-                        user_id,
-                        error_message,
-                    )
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
+                )
                 return True
             if self._is_stale_active_run(run):
                 await conn.execute(
                     """
                     UPDATE kai_gmail_sync_runs
-                    SET status = 'failed',
+                    SET status = 'canceled',
                         error_message = $2,
                         completed_at = COALESCE(completed_at, NOW()),
                         updated_at = NOW()
@@ -736,16 +788,9 @@ class GmailReceiptsService:
                     run_id,
                     _RUN_STALE_MESSAGE,
                 )
-                await conn.execute(
-                    """
-                    UPDATE kai_gmail_connections
-                    SET last_sync_status = 'failed',
-                        last_sync_error = $2,
-                        updated_at = NOW()
-                    WHERE user_id = $1
-                    """,
-                    user_id,
-                    _RUN_STALE_MESSAGE,
+                await self._clear_interrupted_connection_sync_state_in_tx(
+                    conn=conn,
+                    user_id=user_id,
                 )
                 self._cancel_local_sync_task(run_id)
                 return True
@@ -757,7 +802,7 @@ class GmailReceiptsService:
         await conn.execute(
             """
             UPDATE kai_gmail_sync_runs
-            SET status = 'failed',
+            SET status = 'canceled',
                 error_message = $2,
                 completed_at = COALESCE(completed_at, NOW()),
                 updated_at = NOW()
@@ -767,16 +812,9 @@ class GmailReceiptsService:
             run_id,
             _RUN_STALE_MESSAGE,
         )
-        await conn.execute(
-            """
-            UPDATE kai_gmail_connections
-            SET last_sync_status = 'failed',
-                last_sync_error = $2,
-                updated_at = NOW()
-            WHERE user_id = $1
-            """,
-            user_id,
-            _RUN_STALE_MESSAGE,
+        await self._clear_interrupted_connection_sync_state_in_tx(
+            conn=conn,
+            user_id=user_id,
         )
         return True
 
@@ -807,50 +845,37 @@ class GmailReceiptsService:
                     cancelled_fn = getattr(task, "cancelled", None)
                     if callable(cancelled_fn):
                         cancelled = bool(cancelled_fn())
-                    status = "canceled" if cancelled else "failed"
-                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_ORPHANED_MESSAGE
+                    status = "canceled"
+                    error_message = _RUN_CANCELED_MESSAGE if cancelled else _RUN_INTERRUPTED_MESSAGE
                     self._mark_run_terminal(
                         run_id=current_run_id,
                         status=status,
                         error_message=error_message,
                     )
-                    if status == "failed":
-                        self._update_connection_sync_status(
-                            user_id=user_id,
-                            status="failed",
-                            error_message=error_message,
-                        )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                 elif self._is_stale_active_run(current):
                     self._mark_run_terminal(
                         run_id=current_run_id,
-                        status="failed",
+                        status="canceled",
                         error_message=_RUN_STALE_MESSAGE,
                     )
-                    self._update_connection_sync_status(
-                        user_id=user_id,
-                        status="failed",
-                        error_message=_RUN_STALE_MESSAGE,
-                    )
+                    self._clear_interrupted_connection_sync_state(user_id=user_id)
                     self._cancel_local_sync_task(current_run_id)
                 continue
             if not self._is_stale_active_run(current):
                 continue
             self._mark_run_terminal(
                 run_id=current_run_id,
-                status="failed",
+                status="canceled",
                 error_message=_RUN_STALE_MESSAGE,
             )
-            self._update_connection_sync_status(
-                user_id=user_id,
-                status="failed",
-                error_message=_RUN_STALE_MESSAGE,
-            )
+            self._clear_interrupted_connection_sync_state(user_id=user_id)
 
     def _llm_fallback_enabled(self) -> bool:
         return _to_bool(os.getenv("GMAIL_RECEIPT_LLM_FALLBACK_ENABLED"), False)
 
     def _llm_model(self) -> str:
-        return _clean_text(os.getenv("GMAIL_RECEIPT_LLM_MODEL"), "gemini-3.1-flash-lite")
+        return str(GEMINI_MODEL)
 
     def _build_state_token(self, *, user_id: str, redirect_uri: str) -> str:
         payload = {
@@ -1040,7 +1065,8 @@ class GmailReceiptsService:
                 "openid",
                 "email",
                 "profile",
-                "https://www.googleapis.com/auth/gmail.readonly",
+                _GMAIL_READONLY_SCOPE,
+                _GMAIL_SEND_SCOPE,
             ]
         )
 
@@ -1076,6 +1102,22 @@ class GmailReceiptsService:
             "state": state,
             "redirect_uri": resolved_redirect,
             "expires_at": (_utcnow() + timedelta(minutes=10)).isoformat().replace("+00:00", "Z"),
+        }
+
+    async def start_native_connect(self) -> dict[str, Any]:
+        """Return the public server client ID for native Google Sign-In.
+
+        Native clients obtain a short-lived ``serverAuthCode`` through the
+        platform Google SDK. They never receive the client secret or durable
+        Gmail credentials.
+        """
+
+        if not self.is_configured():
+            raise GmailApiError("Gmail OAuth is not configured", status_code=503)
+        self._resolve_oauth_redirect_uri(None)
+        return {
+            "configured": True,
+            "server_client_id": self._oauth_client_id(),
         }
 
     async def _exchange_code(self, *, code: str, redirect_uri: str) -> dict[str, Any]:
@@ -1229,6 +1271,49 @@ class GmailReceiptsService:
             return "needs_reauth"
         return "not_connected"
 
+    @staticmethod
+    def _granted_scopes(row: dict[str, Any] | None) -> set[str]:
+        """Normalize provider scopes without assuming legacy rows can send."""
+
+        if not row:
+            return set()
+        return {value for value in re.split(r"[\s,]+", _clean_text(row.get("scope_csv"))) if value}
+
+    def _send_permission_granted(self, row: dict[str, Any] | None) -> bool:
+        return self._derive_connection_state(
+            row
+        ) == "connected" and _GMAIL_SEND_SCOPE in self._granted_scopes(row)
+
+    async def assert_send_ready(self, *, user_id: str) -> None:
+        """Check provider delivery admission without refreshing or returning tokens."""
+
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        if not row or self._derive_connection_state(row) != "connected":
+            raise GmailApiError(
+                "Gmail is not connected for this user",
+                status_code=409,
+                code="GMAIL_NOT_CONNECTED",
+            )
+        if _GMAIL_SEND_SCOPE not in self._granted_scopes(row):
+            raise GmailApiError(
+                "Reconnect Gmail to grant email sending permission.",
+                status_code=409,
+                code="GMAIL_SEND_PERMISSION_REQUIRED",
+            )
+        if not _to_bool(row.get("send_enabled"), False):
+            raise GmailApiError(
+                "Turn on Gmail sending before One can deliver an email.",
+                status_code=409,
+                code="GMAIL_SEND_DISABLED",
+            )
+
+    async def get_send_access_token(self, *, user_id: str) -> str:
+        """Use the canonical receipt connector token only after provider admission."""
+
+        await self.assert_send_ready(user_id=user_id)
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        return access_token
+
     def _derive_sync_state(
         self, *, row: dict[str, Any] | None, latest_run: dict[str, Any] | None
     ) -> str:
@@ -1278,6 +1363,8 @@ class GmailReceiptsService:
             "google_email": (_clean_text(row.get("google_email")) or None) if row else None,
             "google_sub": (_clean_text(row.get("google_sub")) or None) if row else None,
             "scope_csv": _clean_text(row.get("scope_csv")) if row else "",
+            "send_permission_granted": self._send_permission_granted(row),
+            "send_reconnect_required": connected and not self._send_permission_granted(row),
             "last_sync_at": row.get("last_sync_at") if row else None,
             "last_sync_status": _clean_text(row.get("last_sync_status"), "idle") if row else "idle",
             "last_sync_error": (_clean_text(row.get("last_sync_error")) or None) if row else None,
@@ -1311,7 +1398,49 @@ class GmailReceiptsService:
         resolved_redirect = self._resolve_oauth_redirect_uri(redirect_uri)
         self._verify_state_token(state=state, user_id=user_id, redirect_uri=resolved_redirect)
 
-        token_payload = await self._exchange_code(code=code, redirect_uri=resolved_redirect)
+        return await self._complete_authorized_connect(
+            user_id=user_id,
+            code=code,
+            redirect_uri=resolved_redirect,
+        )
+
+    async def complete_native_connect(
+        self,
+        *,
+        user_id: str,
+        server_auth_code: str,
+    ) -> dict[str, Any]:
+        """Store a native Google Sign-In grant for an authenticated owner.
+
+        Google binds this single-use server authorization code to the configured
+        confidential Gmail client. The caller's Firebase identity remains the
+        user binding; unlike web OAuth, no browser callback state is involved.
+        """
+
+        if not self.is_configured():
+            raise GmailApiError("Gmail OAuth is not configured", status_code=503)
+
+        code = _clean_text(server_auth_code)
+        if not code:
+            raise GmailApiError("Missing native Gmail authorization code", status_code=400)
+
+        return await self._complete_authorized_connect(
+            user_id=user_id,
+            code=code,
+            # Google documents an empty redirect URI for native serverAuthCode
+            # exchange when the app does not have a browser callback of its own.
+            redirect_uri="",
+        )
+
+    async def _complete_authorized_connect(
+        self,
+        *,
+        user_id: str,
+        code: str,
+        redirect_uri: str,
+    ) -> dict[str, Any]:
+
+        token_payload = await self._exchange_code(code=code, redirect_uri=redirect_uri)
         access_token = _clean_text(token_payload.get("access_token"))
         refresh_token = _clean_text(token_payload.get("refresh_token"))
         scope_csv = _clean_text(token_payload.get("scope"))
@@ -1631,7 +1760,7 @@ class GmailReceiptsService:
         return _clean_text(result.data[0].get("status")) in {"queued", "running"}
 
     async def _ensure_access_token(self, *, user_id: str) -> tuple[str, dict[str, Any]]:
-        row = self._fetch_connection_row(user_id=user_id)
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not row:
             raise GmailApiError("Gmail is not connected for this user", status_code=404)
 
@@ -1655,7 +1784,11 @@ class GmailReceiptsService:
         )
         if not refresh_token:
             message = "Stored Gmail refresh token is missing. Reconnect Gmail to continue."
-            self._mark_connection_needs_reauth(user_id=user_id, message=message)
+            await asyncio.to_thread(
+                self._mark_connection_needs_reauth,
+                user_id=user_id,
+                message=message,
+            )
             raise GmailApiError(message, status_code=401)
 
         try:
@@ -1666,7 +1799,11 @@ class GmailReceiptsService:
                     _clean_text(exc.message)
                     or "Gmail token refresh failed. Reconnect Gmail to continue."
                 )
-                self._mark_connection_needs_reauth(user_id=user_id, message=message)
+                await asyncio.to_thread(
+                    self._mark_connection_needs_reauth,
+                    user_id=user_id,
+                    message=message,
+                )
                 raise GmailApiError(message, status_code=401, payload=exc.payload) from exc
             raise
         next_access = _clean_text(refreshed.get("access_token"))
@@ -1674,14 +1811,18 @@ class GmailReceiptsService:
         next_refresh = _clean_text(refreshed.get("refresh_token")) or refresh_token
         if not next_access:
             message = "Gmail token refresh did not return an access token. Reconnect Gmail."
-            self._mark_connection_needs_reauth(user_id=user_id, message=message)
+            await asyncio.to_thread(
+                self._mark_connection_needs_reauth,
+                user_id=user_id,
+                message=message,
+            )
             raise GmailApiError(message, status_code=401)
 
         access_env = self._encrypt_token(next_access)
         refresh_env = self._encrypt_token(next_refresh)
         expires_value = _utcnow() + timedelta(seconds=max(60, next_expires))
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
             SET access_token_ciphertext = :access_token_ciphertext,
@@ -1708,7 +1849,8 @@ class GmailReceiptsService:
             },
         )
 
-        latest = self._fetch_connection_row(user_id=user_id) or row
+        latest = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
+        latest = latest or row
         return next_access, latest
 
     def _build_receipt_query(
@@ -1895,11 +2037,12 @@ class GmailReceiptsService:
         # (best-effort — never fail the whole nudge response over meeting parsing).
         # Invite events are listed first so they win the per-thread de-dupe.
         try:
-            invite_events = await self._fetch_meeting_events(
-                access_token=access_token, limit=bounded_limit
-            )
-            body_events = await self._fetch_body_meeting_events(
-                access_token=access_token, limit=bounded_limit
+            invite_events, body_events = await asyncio.wait_for(
+                asyncio.gather(
+                    self._fetch_meeting_events(access_token=access_token, limit=bounded_limit),
+                    self._fetch_body_meeting_events(access_token=access_token, limit=bounded_limit),
+                ),
+                timeout=_NUDGE_MEETING_FETCH_TIMEOUT_SECONDS,
             )
             meetings = derive_upcoming_meeting_nudges(
                 invite_events + body_events, limit=bounded_limit
@@ -1986,30 +2129,34 @@ class GmailReceiptsService:
             if len(message_ids) >= scan:
                 break
 
-        events: list = []
-        for message_id in message_ids:
+        semaphore = asyncio.Semaphore(_NUDGE_MEETING_FETCH_CONCURRENCY)
+
+        async def fetch_event(message_id: str):
             try:
-                message = await self._get_message_full(
-                    access_token=access_token, gmail_message_id=message_id
-                )
-                ics_text = await self._extract_ics_text(access_token=access_token, message=message)
+                async with semaphore:
+                    message = await self._get_message_full(
+                        access_token=access_token, gmail_message_id=message_id
+                    )
+                    ics_text = await self._extract_ics_text(
+                        access_token=access_token, message=message
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning(
                     "gmail.nudges.meeting_fetch_failed id=%s reason=%s",
                     message_id,
                     str(exc)[:200],
                 )
-                continue
+                return None
             if not ics_text:
-                continue
-            event = parse_ics_event(
+                return None
+            return parse_ics_event(
                 ics_text,
                 message_id=message_id,
                 thread_id=_clean_text(message.get("threadId")),
             )
-            if event is not None:
-                events.append(event)
-        return events
+
+        events = await asyncio.gather(*(fetch_event(message_id) for message_id in message_ids))
+        return [event for event in events if event is not None]
 
     async def _fetch_body_meeting_events(self, *, access_token: str, limit: int) -> list:
         """Scan recent meeting-language emails (no .ics) and build meeting events.
@@ -2116,6 +2263,189 @@ class GmailReceiptsService:
             )
         return summaries
 
+    async def list_personal_inbox_messages_for_monitoring(
+        self, *, user_id: str, limit: int = 25
+    ) -> list[dict[str, Any]]:
+        """Return full messages only to an explicitly opted-in in-process monitor.
+
+        This is intentionally not a general inbox-read API.  The personal
+        information-request monitor consumes the returned values transiently,
+        persists only its metadata-only workflow record, and is responsible for
+        checking the owner's monitor preference before calling this method.
+        Receipt sync must never call this path.
+        """
+
+        messages, _next_page_token = await self.list_personal_inbox_monitor_page(
+            user_id=user_id,
+            limit=limit,
+        )
+        return messages
+
+    async def list_personal_inbox_monitor_page(
+        self, *, user_id: str, page_token: str | None = None, limit: int = 25
+    ) -> tuple[list[dict[str, Any]], str | None]:
+        """Return one bounded inbox page for the opt-in monitor only.
+
+        The opaque Gmail page token remains monitor metadata. Callers must not
+        expose it to a browser or reuse it for receipt sync.
+        """
+
+        bounded_limit = max(1, min(int(limit or 25), 25))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        listing = await self._list_messages(
+            access_token=access_token,
+            query_text="in:inbox newer_than:30d -category:promotions -category:social",
+            page_token=page_token,
+            max_results=bounded_limit,
+        )
+        raw_entries = listing.get("messages")
+        message_ids: list[str] = []
+        for entry in raw_entries if isinstance(raw_entries, list) else []:
+            if not isinstance(entry, dict):
+                continue
+            message_id = _clean_text(entry.get("id"))
+            if message_id:
+                message_ids.append(message_id)
+        if not message_ids:
+            return [], None
+        results = await asyncio.gather(
+            *[
+                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
+                for message_id in message_ids
+            ],
+            return_exceptions=True,
+        )
+        messages: list[dict[str, Any]] = []
+        for message_id, result in zip(message_ids, results, strict=False):
+            if isinstance(result, Exception):
+                logger.warning(
+                    "gmail.personal_monitor.message_fetch_failed gmail_message_id=%s error=%s",
+                    message_id,
+                    type(result).__name__,
+                )
+                continue
+            if isinstance(result, dict):
+                messages.append(result)
+        next_page_token = _clean_text(listing.get("nextPageToken")) or None
+        return messages, next_page_token
+
+    async def capture_personal_inbox_monitor_history_id(self, *, user_id: str) -> str:
+        """Capture a forward-only Gmail History checkpoint for a new opt-in."""
+
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        profile = await self._http_get_json(_GMAIL_PROFILE_URL, token=access_token)
+        history_id = _history_id_text(profile.get("historyId"))
+        if not history_id:
+            raise GmailApiError(
+                "Gmail could not establish a monitoring starting point. Try again.",
+                status_code=503,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        return history_id
+
+    async def list_personal_inbox_monitor_history_page(
+        self,
+        *,
+        user_id: str,
+        start_history_id: str,
+        page_token: str | None = None,
+        message_offset: int = 0,
+        limit: int = 25,
+    ) -> tuple[list[dict[str, Any]], str | None, str | None, int | None]:
+        """Return inbox messages added after a monitor's saved history checkpoint.
+
+        This never falls back to an inbox search. A missing or expired history
+        cursor is handled by the caller by capturing a new checkpoint without
+        reading existing email.
+        """
+
+        checkpoint = _history_id_text(start_history_id)
+        if not checkpoint:
+            raise GmailApiError(
+                "Gmail monitoring needs a valid starting point.",
+                status_code=409,
+                code="GMAIL_MONITOR_HISTORY_UNAVAILABLE",
+            )
+        bounded_limit = max(1, min(int(limit or 25), 25))
+        bounded_offset = max(0, int(message_offset or 0))
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        history = await self._list_history(
+            access_token=access_token,
+            start_history_id=checkpoint,
+            page_token=page_token,
+            max_results=bounded_limit,
+            history_types=("messageAdded",),
+        )
+        # Gmail's ``maxResults`` bounds History records, not the number of
+        # messages nested in those records.  Carry a private offset through a
+        # History page so one unusually dense record cannot fan out to an
+        # unbounded number of message fetches or silently skip its tail.
+        message_ids = self._message_ids_from_history(history)
+        page_message_ids = message_ids[bounded_offset : bounded_offset + bounded_limit]
+        results = await asyncio.gather(
+            *[
+                self._get_message_full(access_token=access_token, gmail_message_id=message_id)
+                for message_id in page_message_ids
+            ],
+            return_exceptions=True,
+        )
+        messages: list[dict[str, Any]] = []
+        for _message_id, result in zip(page_message_ids, results, strict=False):
+            if isinstance(result, Exception):
+                # Do not advance the monitor checkpoint if even one source
+                # message could not be read. The caller retries the same
+                # bounded slice instead of permanently dropping that email.
+                raise GmailApiError(
+                    "Gmail could not read a new monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            if not isinstance(result, dict):
+                raise GmailApiError(
+                    "Gmail returned an invalid monitored message. Try again.",
+                    status_code=503,
+                    code="GMAIL_MONITOR_MESSAGE_FETCH_FAILED",
+                )
+            labels = {
+                _clean_text(label).upper()
+                for label in result.get("labelIds", [])
+                if _clean_text(label)
+            }
+            # Personal-information monitoring is deliberately narrower than
+            # receipt sync: after its opt-in History checkpoint it considers
+            # only messages that are still unread in the Inbox. A message read
+            # before this bounded scan is intentionally skipped rather than
+            # searched or backfilled later.
+            if "INBOX" in labels and "UNREAD" in labels and "SENT" not in labels:
+                messages.append(result)
+        return (
+            messages,
+            _clean_text(history.get("nextPageToken")) or None,
+            _history_id_text(history.get("historyId")),
+            bounded_offset + len(page_message_ids)
+            if bounded_offset + len(page_message_ids) < len(message_ids)
+            else None,
+        )
+
+    async def get_personal_inbox_message_for_monitoring(
+        self, *, user_id: str, gmail_message_id: str
+    ) -> dict[str, Any]:
+        """Fetch one original message for a source-bound personal-email action.
+
+        Only the personal information-request service may use this method after
+        it has checked the owner's monitoring preference and workflow source
+        binding.  The message is not a cache record and must not be persisted.
+        """
+
+        message_id = _clean_text(gmail_message_id)
+        if not message_id:
+            raise GmailApiError("Gmail message is unavailable", status_code=404)
+        access_token, _row = await self._ensure_access_token(user_id=user_id)
+        return await self._get_message_full(
+            access_token=access_token,
+            gmail_message_id=message_id,
+        )
+
     async def _list_history(
         self,
         *,
@@ -2123,11 +2453,12 @@ class GmailReceiptsService:
         start_history_id: str,
         page_token: str | None,
         max_results: int = 100,
+        history_types: tuple[str, ...] = ("messageAdded", "labelAdded"),
     ) -> dict[str, Any]:
         params: dict[str, Any] = {
             "startHistoryId": start_history_id,
             "maxResults": max_results,
-            "historyTypes": ["messageAdded", "labelAdded"],
+            "historyTypes": list(history_types),
         }
         if _clean_text(page_token):
             params["pageToken"] = _clean_text(page_token)
@@ -2269,12 +2600,8 @@ class GmailReceiptsService:
     async def _llm_extract_candidate(self, candidate: ReceiptCandidate) -> dict[str, Any] | None:
         if not self._llm_fallback_enabled():
             return None
-        api_key = _clean_text(os.getenv("GOOGLE_API_KEY"))
-        if not api_key:
-            return None
 
         try:
-            from google import genai  # type: ignore
             from google.genai import types as genai_types  # type: ignore
         except Exception:
             return None
@@ -2290,7 +2617,7 @@ class GmailReceiptsService:
         )
 
         try:
-            client = genai.Client(api_key=api_key)
+            client = build_managed_runtime_client("gemini")
             response = await client.aio.models.generate_content(
                 model=self._llm_model(),
                 contents=prompt,
@@ -2585,7 +2912,7 @@ class GmailReceiptsService:
     async def reconcile_connection(
         self, *, user_id: str, allow_queue_catchup: bool = False
     ) -> dict[str, Any]:
-        row = self._fetch_connection_row(user_id=user_id)
+        row = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if row is None:
             return await self.get_status(user_id=user_id)
 
@@ -2601,7 +2928,8 @@ class GmailReceiptsService:
         if self._should_renew_watch(row) or watch_status in {"failed", "expired", "unknown"}:
             try:
                 watch_state = await self._register_watch(access_token=access_token)
-                self._update_watch_snapshot(
+                await asyncio.to_thread(
+                    self._update_watch_snapshot,
                     user_id=user_id,
                     watch_status=_clean_text(watch_state.get("watch_status"), "active"),
                     watch_expiration_at=_parse_iso(watch_state.get("watch_expiration_at"))
@@ -2610,7 +2938,7 @@ class GmailReceiptsService:
                 )
             except GmailApiError as exc:
                 message = _clean_text(exc.message) or "Gmail watch renewal failed."
-                self.db.execute_raw(
+                await self._execute_raw_async(
                     """
                     UPDATE kai_gmail_connections
                     SET watch_status = 'failed',
@@ -2622,7 +2950,7 @@ class GmailReceiptsService:
                     {"user_id": user_id, "message": message},
                 )
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
             SET status_refreshed_at = NOW(),
@@ -2633,7 +2961,11 @@ class GmailReceiptsService:
         )
 
         if allow_queue_catchup:
-            refreshed_row = self._fetch_connection_row(user_id=user_id) or row
+            refreshed_row = await asyncio.to_thread(
+                self._fetch_connection_row,
+                user_id=user_id,
+            )
+            refreshed_row = refreshed_row or row
             last_sync_at = _parse_iso(refreshed_row.get("last_sync_at"))
             last_notification_at = _parse_iso(refreshed_row.get("last_notification_at"))
             stale_threshold = _utcnow() - timedelta(hours=self._watch_notification_stale_hours())

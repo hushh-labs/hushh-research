@@ -1,0 +1,57 @@
+{
+  "id": "puppy-one-harness",
+  "role": "spoke",
+  "owner_family": "backend",
+  "primary_scope": "puppy-one-harness",
+  "description": "Use when running, grading, or extending the on-device model harness for Puppy One, including the review-queue judge handoff, capability probing, and the evolution ledger.",
+  "owned_paths": [
+    ".codex/agents/local_model_judge.toml",
+    ".codex/skills/puppy-one-harness/references/judging-contract.md"
+  ],
+  "non_owned_paths": [
+    "consent-protocol",
+    "hushh-webapp",
+    "backend"
+  ],
+  "task_types": [
+    "puppy-one-harness",
+    "local-model-evaluation"
+  ],
+  "required_reads": [
+    ".codex/skills/puppy-one-harness/references/judging-contract.md",
+    ".codex/agents/local_model_judge.toml"
+  ],
+  "required_commands": [
+    "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+    "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+  ],
+  "verification_bundles": [
+    {
+      "id": "puppy-one-harness",
+      "commands": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py",
+        "python3 .codex/skills/codex-skill-authoring/scripts/skill_lint.py"
+      ],
+      "tests": [
+        "python3 .codex/skills/agent-orchestration-governance/scripts/agent_orchestration_check.py"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "backend",
+    "backend-runtime-governance",
+    "vault-pkm-governance",
+    "quality-contracts"
+  ],
+  "adjacent_skills": [
+    "backend",
+    "backend-runtime-governance",
+    "quality-contracts",
+    "agent-orchestration-governance"
+  ],
+  "risk_tags": [
+    "eval-integrity-drift",
+    "judge-self-grading",
+    "ledger-comparability-drift"
+  ]
+}

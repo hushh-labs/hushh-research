@@ -1,4 +1,4 @@
-"""Strict PKM v5 scope descriptors and user-confirmed mutation plans."""
+"""Strict PKM v6 scope descriptors and user-confirmed mutation plans."""
 
 from __future__ import annotations
 
@@ -13,14 +13,16 @@ from hushh_mcp.services.domain_contracts import (
 )
 
 PKM_MUTATION_PLAN_VERSION = 2
+PKM_MAX_AFFECTED_SHARING_IDS = 10_000
 
 _HANDLE_PATTERN = r"^(?:s|scope|pending)_[A-Za-z0-9_-]{6,128}$"
 _OPAQUE_ID_PATTERN = r"^pkm_[A-Za-z0-9_-]{12,128}$"
 _MACHINE_SCOPE_PATTERN = r"^attr\.[a-z][a-z0-9_]*\.[a-z][a-z0-9_.]*\.\*$"
+_MACHINE_PROVENANCE_ID_PATTERN = r"^[a-z][a-z0-9_.:-]{0,127}$"
 
 
 class PkmConfirmationReceiptV2(BaseModel):
-    """Client receipt proving that the authenticated owner saw and confirmed a plan."""
+    """Owner-authorized receipt for an individual review or enabled auto-save policy."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 
@@ -33,6 +35,9 @@ class PkmConfirmationReceiptV2(BaseModel):
     displayed_domain: str = Field(..., min_length=1, max_length=64)
     displayed_scope: str = Field(..., min_length=1, max_length=128)
     sharing_impact_acknowledged: bool = False
+    authorization_mode: Literal["owner_confirmed", "owner_auto_save_policy"] = "owner_confirmed"
+    auto_save_policy_version: Literal[1] | None = None
+    auto_save_policy_enabled_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_timestamp(self) -> PkmConfirmationReceiptV2:
@@ -45,6 +50,18 @@ class PkmConfirmationReceiptV2(BaseModel):
             raise ValueError("confirmation_timestamp_in_future")
         if normalized < now - timedelta(days=7):
             raise ValueError("confirmation_receipt_expired")
+        if self.authorization_mode == "owner_auto_save_policy":
+            if self.auto_save_policy_version != 1 or self.auto_save_policy_enabled_at is None:
+                raise ValueError("auto_save_policy_receipt_incomplete")
+            if self.auto_save_policy_enabled_at.tzinfo is None:
+                raise ValueError("auto_save_policy_timestamp_requires_timezone")
+            if self.sharing_impact_acknowledged:
+                raise ValueError("auto_save_cannot_acknowledge_sharing")
+        elif (
+            self.auto_save_policy_version is not None
+            or self.auto_save_policy_enabled_at is not None
+        ):
+            raise ValueError("owner_confirmation_cannot_include_auto_save_policy")
         return self
 
 
@@ -101,10 +118,18 @@ class PkmMutationPlanV2(BaseModel):
     friendly_scope_name: str = Field(..., min_length=1, max_length=128)
     confidence: float = Field(..., ge=0.0, le=1.0)
     explanation: str = Field(..., min_length=1, max_length=1_000)
-    affected_grant_ids: list[str] = Field(default_factory=list, max_length=1_000)
-    affected_export_ids: list[str] = Field(default_factory=list, max_length=1_000)
+    affected_grant_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
+    affected_export_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
     sharing_impact: SharingImpactV2 = Field(default_factory=SharingImpactV2)
     semantic_contract_version: str = CURRENT_PKM_CONTRACT_VERSION
+    writer_id: str = Field(default="owner_confirmed_write", pattern=_MACHINE_PROVENANCE_ID_PATTERN)
+    structure_agent_id: str = Field(
+        default="pkm_structure_agent", pattern=_MACHINE_PROVENANCE_ID_PATTERN
+    )
     source_revision: int = Field(default=0, ge=0, le=10_000_000)
     confirmation_receipt: PkmConfirmationReceiptV2
 
@@ -125,6 +150,11 @@ class PkmMutationPlanV2(BaseModel):
             raise ValueError(f"{self.operation}_requires_source_scope_handle")
         if self.operation in {"update", "move", "merge"} and not self.target_scope_handle:
             raise ValueError(f"{self.operation}_requires_target_scope_handle")
+        if self.confirmation_receipt.authorization_mode == "owner_auto_save_policy":
+            if self.operation == "delete":
+                raise ValueError("auto_save_delete_not_allowed")
+            if self.sharing_impact.active_recipient_count > 0:
+                raise ValueError("auto_save_with_active_recipients_not_allowed")
         if (
             self.sharing_impact.active_recipient_count > 0
             and not self.confirmation_receipt.sharing_impact_acknowledged

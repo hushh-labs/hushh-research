@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import pathlib
 import re
 from pathlib import Path
 
 import pytest
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST_ROOT = ROOT / "hushh_mcp" / "agents"
@@ -62,3 +65,82 @@ def test_kyc_owns_strict_zero_knowledge_formatter_contract() -> None:
     assert formatter["contract_id"] == "agent_kyc.approved_disclosure_formatter.v1"
     assert formatter["strict_client_zk"] is True
     assert formatter["backend_plaintext_allowed"] is False
+
+
+def test_connected_systems_schema_mapper_is_manifest_owned_and_toolless() -> None:
+    manifest = load("connected_systems")
+    mapper = next(child for child in manifest.subagents if child.id == "crm_schema_mapper")
+    assert mapper.model.name == "gemini-default"
+    assert resolve_fleet_model_name(mapper.model.name) == GEMINI_MODEL
+    assert mapper.runtime.adk_mode == "single_turn"
+    assert mapper.runtime.transport == ["in_process"]
+    assert mapper.privacy.plaintext_telemetry is False
+    assert mapper.rollout.kill_switch == "CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED"
+    assert "credential" in mapper.system_instruction.lower()
+    assert "record" in mapper.system_instruction.lower()
+
+
+def test_gemini_model_matrix_uses_current_workload_equivalents() -> None:
+    agentic_manifests = (
+        "connections",
+        "connected_systems",
+        "email",
+        "financial_guard",
+        "gmail",
+        "kai",
+        "kyc",
+        "location",
+        "memory_merge",
+        "nav",
+        "onboarding",
+        "personal_information",
+        "pkm_structure",
+        "portfolio_import",
+    )
+    for name in agentic_manifests:
+        assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
+
+    # Founder directive 2026-09-02: every text agent runs the switched Flash model. The
+    # reducer and the memory chain's salience workers no longer carry their own pins
+    # (gemini-3.1-flash-lite and gemini-3.1-pro-preview), so one switch moves the fleet.
+    for name in ("summary_reducer", "memory_intent", "memory_segmentation"):
+        assert load(name).model_config_for_runtime().name == GEMINI_MODEL, name
+    one = load("one")
+    assert one.model_config_for_runtime().name == GEMINI_MODEL
+    assert one.capabilities["heads"] == {
+        "text": "gemini-default",
+        "specialist_text": "gemini-default",
+        "live": "gemini-3.1-flash-live-preview",
+    }
+
+
+def test_one_live_is_the_only_interactive_audio_backend() -> None:
+    assert not (ROOT / "api" / "routes" / "kai" / "agent_voice.py").exists()
+    assert not (ROOT / "hushh_mcp" / "services" / "agent_voice_service.py").exists()
+    kai_routes = (ROOT / "api" / "routes" / "kai" / "__init__.py").read_text()
+    assert "/agent/voice/stt" not in kai_routes
+    assert "/agent/voice/tts" not in kai_routes
+
+
+def test_every_declared_kill_switch_is_actually_read_in_code() -> None:
+    """A kill switch nobody reads is worse than none.
+
+    It advertises a control an operator would reach for during an incident and find
+    inert. Three were declared and unread (CALENDAR_AGENT_DISABLED,
+    HUSHH_INVESTOR_AGENT_DISABLED, HUSHH_RIA_AGENT_DISABLED) before the field was made
+    optional on 2026-09-02; declare one only when the runtime honours it.
+    """
+    protocol_root = pathlib.Path(__file__).resolve().parents[1]
+    searchable: list[str] = []
+    for directory in ("hushh_mcp", "api"):
+        for path in (protocol_root / directory).rglob("*.py"):
+            searchable.append(path.read_text(encoding="utf-8"))
+    haystack = "\n".join(searchable)
+
+    unread: list[str] = []
+    for path in sorted((protocol_root / "hushh_mcp" / "agents").glob("*/agent.yaml")):
+        for match in re.finditer(r"^\s*kill_switch:\s*([A-Z0-9_]+)\s*$", path.read_text(), re.M):
+            switch = match.group(1)
+            if switch not in haystack:
+                unread.append(f"{path.parent.name}: {switch}")
+    assert unread == [], f"declared kill switches that no code reads: {unread}"

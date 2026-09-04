@@ -2,6 +2,11 @@
 
 set -euo pipefail
 
+if [[ "${HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT:-}" != "true" ]]; then
+  echo "ios:device:ui:test uses the reviewer fixture and is disabled by default. Use the normal app session for continuity checks, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true for an intentional cold audit." >&2
+  exit 2
+fi
+
 PROJECT="ios/App/App.xcodeproj"
 SCHEME="App"
 DERIVED_DATA_PATH="${IOS_DERIVED_DATA_PATH:-ios/App/build/DerivedData}"
@@ -97,8 +102,8 @@ run_xcodebuild_with_log() {
     sleep 1
   done
 
-  local status=0
-  wait "$cmd_pid" 2>/dev/null || status=$?
+  local exit_code=0
+  wait "$cmd_pid" 2>/dev/null || exit_code=$?
 
   if [[ -f "$log_path" ]] && grep -q "Test Suite 'Selected tests' passed" "$log_path"; then
     return 0
@@ -106,17 +111,29 @@ run_xcodebuild_with_log() {
   if [[ -f "$log_path" ]] && grep -q "Test Suite 'Selected tests' failed" "$log_path"; then
     return 1
   fi
-  return "$status"
+  if [[ -f "$log_path" ]] && grep -q '\*\* TEST BUILD FAILED \*\*' "$log_path"; then
+    return 1
+  fi
+  return "$exit_code"
 }
 
 echo "==> prepare UAT native build + UI flow artifacts"
 node ./scripts/native/prepare-ios-ui-test-build.mjs
 
 echo "==> build-for-testing on connected iPhone"
-run_xcodebuild_with_log /tmp/ios-device-ui-build.log xcodebuild "${COMMON_FLAGS[@]}" build-for-testing
+run_xcodebuild_with_log /tmp/ios-device-ui-build.log env \
+  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$HUSHH_UI_TEST_REVIEWER_UID" \
+  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="$HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE" \
+  TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
+  xcodebuild "${COMMON_FLAGS[@]}" \
+  build-for-testing
 
 echo "==> XCUITest UI interaction flows on device ($TEST_FILTER)"
-run_xcodebuild_with_log /tmp/ios-device-ui-test.log xcodebuild "${COMMON_FLAGS[@]}" \
+run_xcodebuild_with_log /tmp/ios-device-ui-test.log env \
+  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_UID="$HUSHH_UI_TEST_REVIEWER_UID" \
+  TEST_RUNNER_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE="$HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE" \
+  TEST_RUNNER_REVIEWER_VAULT_PASSPHRASE="$REVIEWER_VAULT_PASSPHRASE" \
+  xcodebuild "${COMMON_FLAGS[@]}" \
   -only-testing:"$TEST_FILTER" \
   test-without-building
 

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { LogOut, Phone } from "lucide-react";
@@ -6,15 +6,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   SettingsDetailPanel,
+  SettingsGroup,
+  SettingsPresentationProvider,
   SettingsRow,
-  SettingsSegmentedTabs,
+  SegmentedTabs,
 } from "@/components/profile/settings-ui";
 
 describe("SettingsRow", () => {
   it("wraps both primary action and trailing in a single interactive row", () => {
     const handleOpen = vi.fn();
     const handleTrailing = vi.fn();
-    render(
+    const { container } = render(
       <SettingsRow
         title="Open privacy"
         description="Manage vault controls"
@@ -40,6 +42,7 @@ describe("SettingsRow", () => {
     // Both handlers fire (trailing click propagation stopped, so only trailing fires)
     expect(handleOpen).toHaveBeenCalledTimes(1);
     expect(handleTrailing).toHaveBeenCalledTimes(1);
+    expect(container.querySelector("button button")).toBeNull();
   });
 
   it("keeps a trailing switch accessible within the unified row", () => {
@@ -89,7 +92,7 @@ describe("SettingsRow", () => {
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
-    expect(rowShell?.className).toContain("[--settings-row-py:0.5rem]");
+    expect(rowShell?.className).toContain("[--settings-row-py:10px]");
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
@@ -99,8 +102,8 @@ describe("SettingsRow", () => {
     );
 
     const title = container.querySelector('[data-slot="settings-row-title"]');
-    expect(title?.className).toContain("text-[15px]");
-    expect(title?.className).toContain("font-normal");
+    expect(title?.className).toContain("ui-text-row-label");
+    expect(title?.getAttribute("data-ui-role")).toBe("body");
     expect(title?.className).not.toContain("font-semibold");
   });
 
@@ -111,8 +114,43 @@ describe("SettingsRow", () => {
     );
 
     expect(globalsCss).toContain('[data-slot="settings-row-title"] {');
-    expect(globalsCss).toContain("font-size: 0.9375rem !important;");
-    expect(globalsCss).toContain("font-weight: 400 !important;");
+    expect(globalsCss).toContain(
+      "font-size: var(--type-row-label-size) !important;",
+    );
+    expect(globalsCss).toContain(
+      "font-weight: var(--type-row-label-weight) !important;",
+    );
+  });
+
+  it("keeps row descriptions visually subordinate to page subtitles and body text", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-page-subtitle-size: 15px;");
+    expect(globalsCss).toContain("--type-page-subtitle-line: 20px;");
+    expect(globalsCss).toContain("--type-row-label-size: 17px;");
+    expect(globalsCss).toContain("--type-row-label-line: 22px;");
+    expect(globalsCss).toContain("--type-row-description-size: 13px;");
+    expect(globalsCss).toContain("--type-row-description-line: 18px;");
+    expect(globalsCss).toMatch(
+      /:is\(\.ui-text-row-description\)\s*\{\s*color:\s*var\(--app-tertiary-label\)\s*!important;/,
+    );
+  });
+
+  it("uses Inter as the product UI font family", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain(
+      '--font-family-product: "InterVariable", "Inter", system-ui, sans-serif;',
+    );
+    expect(globalsCss).not.toContain(
+      '--font-family-product:\n    -apple-system, BlinkMacSystemFont, "InterVariable"',
+    );
   });
 
   it("publishes semantic icon tone while destructive actions retain red", () => {
@@ -124,13 +162,7 @@ describe("SettingsRow", () => {
       container.querySelector('[data-slot="settings-row-icon"]'),
     ).toBeNull();
 
-    rerender(
-      <SettingsRow
-        icon={Phone}
-        iconTone="blue"
-        title="Account"
-      />,
-    );
+    rerender(<SettingsRow icon={Phone} iconTone="blue" title="Account" />);
     expect(
       container
         .querySelector('[data-slot="settings-row-icon"]')
@@ -152,6 +184,70 @@ describe("SettingsRow", () => {
     ).toBe("red");
   });
 
+  it("uses square iOS-style icon wells, shared inset-group radius, and standard card depth", () => {
+    const { container } = render(
+      <SettingsGroup>
+        <SettingsRow icon={Phone} title="Phone number" />
+      </SettingsGroup>,
+    );
+
+    const group = container.querySelector('[data-slot="settings-group-shell"]');
+    const icon = container.querySelector('[data-slot="settings-row-icon"]');
+
+    expect(group?.className).toContain("--app-card-radius-standard");
+    expect(group?.className).toContain(
+      "shadow-[var(--app-card-shadow-standard)]",
+    );
+    expect(icon?.className).toContain("rounded-[10px]");
+    expect(icon?.className).not.toContain("rounded-2xl");
+  });
+
+  it("aligns inset separators to actual leading visuals", () => {
+    const { container, rerender } = render(
+      <SettingsGroup separatorInset>
+        <SettingsRow title="Plain row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+
+    expect(
+      container.querySelector('[data-testid="settings-row"]')?.className,
+    ).toContain("after:left-0");
+
+    rerender(
+      <SettingsGroup separatorInset>
+        <SettingsRow icon={Phone} title="Icon row" />
+        <SettingsRow title="Last row" />
+      </SettingsGroup>,
+    );
+
+    expect(
+      container.querySelector('[data-testid="settings-row"]')?.className,
+    ).toContain("after:left-[62px]");
+  });
+
+  it("inherits route-family separator and density defaults", () => {
+    const { container } = render(
+      <SettingsPresentationProvider separatorInset density="compact">
+        <SettingsGroup>
+          <SettingsRow icon={Phone} title="Phone number" />
+          <SettingsRow title="Sign-in provider" />
+        </SettingsGroup>
+      </SettingsPresentationProvider>,
+    );
+
+    const group = container.querySelector(
+      '[data-slot="settings-group-shell"] > div',
+    );
+    const rows = container.querySelectorAll('[data-testid="settings-row"]');
+
+    expect(group?.getAttribute("data-inset-separators")).toBe("true");
+    expect(rows[0]?.className).toContain("[--settings-row-py:10px]");
+    expect(
+      rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
+    ).not.toContain("sm:h-10");
+  });
+
   it("supports asChild rows without losing row content", () => {
     render(
       <SettingsRow
@@ -159,7 +255,7 @@ describe("SettingsRow", () => {
         title="Open profile"
         description="Go to privacy workspace"
       >
-        <a href="/profile" data-testid="profile-link" />
+        <a href="/one/profile" data-testid="profile-link" />
       </SettingsRow>,
     );
 
@@ -171,11 +267,11 @@ describe("SettingsRow", () => {
   });
 });
 
-describe("SettingsSegmentedTabs", () => {
+describe("SegmentedTabs", () => {
   it("keeps the active tab selected and switches tabs through user interaction", () => {
     const handleValueChange = vi.fn();
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="my"
         onValueChange={handleValueChange}
         options={[
@@ -185,13 +281,13 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const active = screen.getByRole("button", { name: "My list" });
-    const inactive = screen.getByRole("button", { name: "Kai list" });
+    const active = screen.getByRole("tab", { name: "My list" });
+    const inactive = screen.getByRole("tab", { name: "Kai list" });
 
     expect(active.getAttribute("data-state")).toBe("active");
-    expect(active.getAttribute("aria-pressed")).toBe("true");
+    expect(active.getAttribute("aria-selected")).toBe("true");
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
 
     fireEvent.click(active);
     expect(handleValueChange).not.toHaveBeenCalled();
@@ -201,7 +297,7 @@ describe("SettingsSegmentedTabs", () => {
   });
   it("preserves inactive segmented tab accessibility state", () => {
     render(
-      <SettingsSegmentedTabs
+      <SegmentedTabs
         value="kai"
         onValueChange={() => {}}
         options={[
@@ -211,10 +307,78 @@ describe("SettingsSegmentedTabs", () => {
       />,
     );
 
-    const inactive = screen.getByRole("button", { name: "My list" });
+    const inactive = screen.getByRole("tab", { name: "My list" });
+    const active = screen.getByRole("tab", { name: "Kai list" });
 
     expect(inactive.getAttribute("data-state")).toBe("inactive");
-    expect(inactive.getAttribute("aria-pressed")).toBe("false");
+    expect(inactive.getAttribute("aria-selected")).toBe("false");
+    expect(inactive.className).toContain(
+      "[@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
+    );
+    expect(inactive.className).not.toContain("hover:text");
+    expect(active.className).not.toContain("press-scale");
+  });
+
+  it("uses the shared quiet segmented geometry", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="kai"
+        onValueChange={() => {}}
+        options={[
+          { value: "kai", label: "Kai list" },
+          { value: "my", label: "My list" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Kai list" });
+
+    expect(root?.className).toContain("rounded-[14px]");
+    expect(root?.className).not.toContain("rounded-full");
+    expect(active.className).toContain("rounded-[12px]");
+    expect(active.className).not.toContain("press-scale");
+
+    // One segmented material, shared with the Location strip: a recessed grey
+    // track with no border, and a RAISED pill rather than an outlined one.
+    // The track used to borrow `--app-card-surface-compact` behind a card
+    // border, which put a near-white bordered box around a near-white pill --
+    // the same control as Location's, reading as a different component on the
+    // very next page.
+    expect(root?.className).toContain(
+      "bg-[color:var(--app-segmented-track-surface)]",
+    );
+    expect(root?.className).toContain("border-0");
+    expect(root?.className).not.toContain("var(--app-card-surface-compact)");
+
+    expect(active.className).toContain(
+      "shadow-[var(--app-segmented-active-shadow)]",
+    );
+    expect(active.className).toContain("border-transparent");
+    // Semibold, matching the Location strip's active label. The weight is the
+    // second half of "this one is selected"; the pill is the first.
+    expect(active.className).toContain("font-semibold");
+    expect(active.className).not.toContain("font-normal");
+  });
+
+  it("disables the whole segmented control while its selection is settling", () => {
+    const handleValueChange = vi.fn();
+    render(
+      <SegmentedTabs
+        value="statement"
+        onValueChange={handleValueChange}
+        disabled
+        options={[
+          { value: "statement", label: "Statement" },
+          { value: "plaid", label: "Brokerage" },
+        ]}
+      />,
+    );
+
+    const brokerage = screen.getByRole("tab", { name: "Brokerage" });
+    expect(brokerage).toBeDisabled();
+    fireEvent.click(brokerage);
+    expect(handleValueChange).not.toHaveBeenCalled();
   });
 });
 
@@ -247,6 +411,49 @@ describe("SettingsDetailPanel", () => {
 
     expect(screen.getByRole("dialog", { name: "Settings" })).toBeTruthy();
     expect(screen.getByText("Settings dialog")).toBeTruthy();
+    expect(
+      document
+        .querySelector('[data-slot="dialog-header"]')
+        ?.className.includes("bg-[var(--activeGlassColor)]"),
+    ).toBe(true);
+  });
+
+  it("places supplied identity media before the detail title", () => {
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: false,
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        leading={<span data-testid="detail-identity">Logo</span>}
+        title="Nvidia"
+        description="NVDA • Semiconductors"
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    const dialog = screen.getByRole("dialog", { name: "Nvidia" });
+    const identity = screen.getByTestId("detail-identity");
+    const title = screen.getByRole("heading", { name: "Nvidia" });
+
+    expect(
+      identity.compareDocumentPosition(title) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(dialog.textContent).toContain("NVDA • Semiconductors");
   });
 
   it("closes from the explicit close button", () => {
@@ -281,5 +488,47 @@ describe("SettingsDetailPanel", () => {
     );
 
     expect(handleOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("uses the shared physics-enabled bottom sheet when requested", async () => {
+    Object.defineProperty(window, "innerWidth", {
+      configurable: true,
+      value: 390,
+    });
+    Object.defineProperty(window, "matchMedia", {
+      writable: true,
+      value: vi.fn().mockImplementation((query: string) => ({
+        matches: query.includes("max-width"),
+        media: query,
+        onchange: null,
+        addEventListener: vi.fn(),
+        removeEventListener: vi.fn(),
+        addListener: vi.fn(),
+        removeListener: vi.fn(),
+        dispatchEvent: vi.fn(),
+      })),
+    });
+
+    render(
+      <SettingsDetailPanel
+        open
+        onOpenChange={() => {}}
+        title="Decision"
+        mobilePresentation="sheet"
+        showCloseButton={false}
+      >
+        <div>Content</div>
+      </SettingsDetailPanel>,
+    );
+
+    await waitFor(() => {
+      expect(
+        document.querySelector('[data-slot="sheet-content"]'),
+      ).toBeTruthy();
+      expect(
+        document.querySelector('[data-slot="sheet-drag-handle"]'),
+      ).toBeTruthy();
+    });
+    expect(screen.queryByRole("button", { name: "Close" })).toBeNull();
   });
 });

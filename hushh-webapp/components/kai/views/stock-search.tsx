@@ -23,7 +23,7 @@ import {
   searchTickerUniverse,
   type TickerUniverseRow,
 } from "@/lib/kai/ticker-universe-cache";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 // Top popular stocks for instant suggestion (offline fallback)
 const TOP_STOCKS = [
@@ -215,7 +215,7 @@ export function StockSearch({
     // If we have the universe loaded, require the ticker to exist.
     if (knownTickerSet.size > 0 && !knownTickerSet.has(ticker)) {
       setError("Ticker not found");
-      toast.error("Ticker not found", { description: "Please enter a valid stock symbol." });
+      toast.error("Ticker not found. Please enter a valid stock symbol.");
       return;
     }
 
@@ -232,7 +232,7 @@ export function StockSearch({
 
     // Fallback: navigate to analysis route.
     // Note: analysis start is driven by Zustand in KaiFlow; query param is only a fallback.
-    router.push(`${ROUTES.KAI_ANALYSIS}?ticker=${ticker}`);
+    router.push(buildKaiMarketRoute("analysis", { ticker }));
   };
 
   const items: StockSearchItem[] = React.useMemo(() => {

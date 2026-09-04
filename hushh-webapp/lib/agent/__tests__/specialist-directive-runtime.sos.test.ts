@@ -76,6 +76,7 @@ function makeStateWithRecipients(
     publicInvites: [],
     publicInviteSubmissions: [],
     capabilityScopes: [],
+    smsContactUserIds: recipients.map((recipient) => recipient.userId),
   };
 }
 
@@ -106,8 +107,8 @@ describe("runLocationDirective sos_panic", () => {
     vi.clearAllMocks();
   });
 
-  it("calls createGrant with reason:'sos_panic' and durationHours 8 ONLY for connected+ready recipients, stores one envelope per recipient, returns status:'completed'", async () => {
-    // "me" is connected to userA and userB (both share-ready)
+  it("creates grants only for selected, connected, ready SMS contacts", async () => {
+    // "me" selected and is connected to userA and userB (both share-ready)
     // userC is in the recipients list but NOT a network connection — must be excluded
     getStateMock.mockResolvedValueOnce(
       makeStateWithRecipients(

@@ -73,6 +73,11 @@ export const viewport: Viewport = {
   maximumScale: 1,
   userScalable: false,
   viewportFit: "cover",
+  // Mobile web keeps its layout viewport stable while the on-screen keyboard
+  // resizes the visual viewport. KeyboardInsetManager owns that overlap and
+  // publishes it once as --kb-height; resizes-content would double-reserve
+  // space in chat and the command palette.
+  interactiveWidget: "resizes-visual",
   themeColor: [
     { media: "(prefers-color-scheme: light)", color: "#ffffff" },
     { media: "(prefers-color-scheme: dark)", color: "#1c1c1e" },
@@ -97,18 +102,20 @@ export default function RootLayout({
         {/* Accent no-FOUC: apply the persisted accent preference before first
             paint (default iOS Blue needs no attribute; gold sets data-accent).
             Body mirrors ACCENT_NO_FOUC_SCRIPT in lib/theme/accent.ts. */}
-        <script
+        <Script
+          id="accent-no-fouc"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: `try{var a=localStorage.getItem("hushh.app.accent.v1");if(a==="gold"){document.documentElement.setAttribute("data-accent","gold");}}catch(e){}`,
           }}
         />
-        <style>{`
-          html.dark body,
-          html.dark .morphy-app-bg {
-            background-color: rgb(28 28 30) !important;
-            background-image: none !important;
-          }
-        `}</style>
+        <Script
+          id="native-ios-class"
+          strategy="beforeInteractive"
+          dangerouslySetInnerHTML={{
+            __html: `try{var c=window.Capacitor;if(c&&typeof c.getPlatform==="function"&&c.getPlatform()==="ios"){document.documentElement.classList.add("native-ios");}}catch(e){}`,
+          }}
+        />
         {loadWebAnalyticsScripts && analyticsMeasurementId ? (
           <>
             <Script
@@ -139,7 +146,7 @@ export default function RootLayout({
         suppressHydrationWarning
         className="font-sans antialiased min-h-[100dvh] flex flex-col overflow-x-hidden"
       >
-        <ThemeProvider attribute="class" defaultTheme="light" enableSystem>
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
           <RootLayoutClient fontClasses="">
             <NetworkStatusBanner />
             {children}

@@ -78,8 +78,19 @@ def _function_declarations(types: Any) -> list:
     return [
         types.FunctionDeclaration(
             name="list_my_connections",
-            description="List the user's active connections (connectionId, userId, displayName). Read-only.",
-            parameters=schema(type=kind.OBJECT, properties={}, required=[]),
+            description=(
+                "List or search one bounded page of the user's active connections. "
+                "Returns items, page, hasMore, and totalCount. Read-only."
+            ),
+            parameters=schema(
+                type=kind.OBJECT,
+                properties={
+                    "query": schema(type=kind.STRING, description="Optional name fragment"),
+                    "page": schema(type=kind.INTEGER, description="1-based page"),
+                    "limit": schema(type=kind.INTEGER, description="Page size, maximum 100"),
+                },
+                required=[],
+            ),
         ),
         types.FunctionDeclaration(
             name="list_pending_requests",
@@ -244,7 +255,10 @@ class ConnectionsChatService:
         self, *, user_id: str, contents: list
     ) -> tuple[str, bool, dict | None]:
         types = self._types
-        config = types.GenerateContentConfig(
+        from hushh_mcp.operons.kai.llm import build_kai_generation_config
+
+        config = build_kai_generation_config(
+            types,
             system_instruction=_SYSTEM_PROMPT,
             tools=[types.Tool(function_declarations=_function_declarations(types))],
             temperature=0.2,
@@ -299,8 +313,13 @@ class ConnectionsChatService:
     def _build_tools(self, user_id: str) -> dict[str, Callable]:
         service = self._service
 
-        def list_my_connections() -> dict:
-            return {"items": service.list_connections(user_id)}
+        def list_my_connections(query: str = "", page: int = 1, limit: int = 25) -> dict:
+            return service.list_connections_page(
+                user_id,
+                query=query,
+                page=max(1, int(page or 1)),
+                limit=max(1, min(int(limit or 25), 100)),
+            )
 
         def list_pending_requests(direction: str = "incoming") -> dict:
             direction = "outgoing" if str(direction).lower() == "outgoing" else "incoming"

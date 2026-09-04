@@ -17,6 +17,8 @@ flowchart TD
   kyc["KYC<br/>agent_kyc"]
   support["Location, Email, Connections,<br/>Connected Systems, Personal Info"]
   memory["World Model agents<br/>PKM structure + memory reducers"]
+  source["Hermes-local Source Library Steward<br/>bounded product leaf"]
+  sourceplane["Mounted provider files<br/>private PKM + local SQLite"]
   operons["Tools + operons"]
   services["Services + encrypted PKM/vault"]
   consent["Consent tokens, encrypted exports,<br/>TrustLinks, device capability tokens"]
@@ -29,6 +31,7 @@ flowchart TD
   one --> nav_tool
   one --> agenttools
   one --> a2a
+  one -.local host delegation.-> source
   a2a --> kai
   a2a --> nav
   a2a --> kyc
@@ -39,6 +42,7 @@ flowchart TD
   kyc --> operons
   support --> operons
   memory --> operons
+  source --> sourceplane
   operons --> services
   consent --> one
   consent --> a2a
@@ -60,21 +64,30 @@ This page is current-state implementation truth. It does not rename runtime iden
 | Onboarding policy adjudicator | `agent_onboarding` | Validates One's typed semantic assessment against redacted journey and current-screen action state; keeps capability messaging and verified completion boundaries aligned; never a second semantic router | No tools, scopes, vault access, speaking authority, or standing authority |
 | Legacy alias | `agent_orchestrator` | Compatibility package and manifest alias for One | Must resolve to One semantics |
 | Finance specialist | `agent_kai` | Finance, portfolio, markets; RIA (advisor workspace) and Investor (personal investing) are its subagents | `agent.kai.analyze` plus finance PKM gates |
+| Wallet specialist | `agent_wallet` | Wallet (payment cards) conversation over client-executed actions (`wallet.list`, `wallet.add`, `wallet.reveal`); an AgentTool child of One, roster-gated on `ONE_WALLET_ENABLED`, with no server-side tools, no PKM context injection, and no A2A transport. Card secrets live in the reserved `wallet` PKM domain and decrypt only in the owner's browser | `agent.wallet.manage` invocation only; data leaves the vault solely through owner-approved `attr.wallet.summary.*` / `attr.wallet.secrets.*` grants |
 | Consent Center parent | `agent_nav` | Consent, scope review, vault friction, deletion, revocation; parent of Connections | `agent.nav.review` |
 | Identity specialist | `agent_kyc` | KYC workflow state, approved disclosure formatter, structured PKM writeback | `agent.kyc.process` and approved optional scopes |
 | Location specialist | `agent_location` | Trusted-people live location workflow | Exact location capability and data authority per flow |
-| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist for relationship write proposals | Exact specialist and `attr.*` authority per hop |
+| Connections subagent | `agent_connections` | Nav's trusted-connection graph specialist; the Connections UI owns private runtime configuration | Exact specialist and `attr.*` authority per hop; never receives provider credentials |
 | Connected systems | `agent_connected_systems` | CRM and connected-system workflow planning | Exact specialist and `attr.*` authority per hop |
-| Email specialist | `agent_email` | Inbox and Gmail task planning behind One | Exact specialist and `attr.*` authority per hop |
-| Gmail specialist | `agent_gmail` | Synced purchase receipts and receipt-sync health (read-only) | Exact specialist and `attr.*` authority per hop |
-| Personal information | `agent_personal_information` | Information marketplace and data-slice workflows | Exact specialist and `attr.*` authority per hop |
+| Email specialist | `agent_email` | Inbox, approval-draft, and client-request planning behind One | Exact specialist and `attr.*` authority per hop |
+| Gmail specialist | `agent_gmail` | Active read-only receipt-sync and purchase-memory specialist under One | Dedicated Gmail workspace and generated navigation only; canonical One chat remains unwired until it receives explicit scoped Gmail authority |
+| Personal information | `agent_personal_information` | Information Marketplace and consented information-slice workflows | `cap.pkm.marketplace.view` plus exact per-hop information authority |
+| Information Marketplace | standalone product | Separate consent-first Marketplace routes and APIs | Not admitted to One Voice, Agent Chat, or command discovery |
 | World Model agents | `agent_memory_intent`, `agent_memory_segmentation`, `agent_memory_merge`, `agent_pkm_structure`, `agent_summary_reducer` | Semantic memory shaping and summary reduction | Must stay under vault/PKM consent and redaction boundaries |
+| Hermes-local product leaf | Source Library Steward | Query, virtual organization, revision-pinned file management, synchronization, and mounted-target sharing | Exact local `hussh_one_sources` tools only; no terminal, generic filesystem, credentials, vault keys, provider APIs, shared memory, or delegation |
 
 `agent_one` and `agent_orchestrator` are not two product heads. The orchestrator path is a compatibility implementation namespace for One.
 
+`agent_nav` is the Consent Center runtime; `consent.chat.turn` resolves to it
+directly. There is no separate `agent_consent` product head or roster entry.
+`agent_connections` is Nav's declared child and is reached only through Nav's
+authority boundary. This prevents a consent review grant from being mistaken
+for trusted-connection information or mutation authority.
+
 ## Wiring Modes
 
-The hierarchy has three current wiring modes. Do not collapse them into one claim.
+The hierarchy has four current wiring modes. Do not collapse them into one claim.
 
 Official A2A v1 Tasks remain a release gate. The contained One invocation preview
 and the legacy Kai compatibility server are not advertised as official v1.
@@ -92,22 +105,38 @@ and the legacy Kai compatibility server are not advertised as official v1.
 | `agent_kyc` | `agent.kyc.process` |
 | `agent_connections` | Exact per-hop authority; no One-wide standing scope |
 | `agent_location` | Exact location capability and grant references |
-| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop data authority |
 | `agent_email` | Exact per-hop authority; no One-wide standing scope |
-| `agent_gmail` | Exact per-hop authority; no One-wide standing scope |
+| `agent_gmail` | Dormant: no active One admission or generated discovery |
+| `agent_personal_information` | `cap.pkm.marketplace.view` plus exact per-hop information authority |
 
 ### In-process dispatch registry
 
-The in-process `dispatch` table currently wires `agent_location`, `agent_nav`, and `agent_personal_information`. Email, Gmail, Connections, and Connected Systems adapters remain authority-ingress-only; Nav owns the Connections delegation boundary.
+The in-process `dispatch` table wires `agent_location`, `agent_nav`, and `agent_personal_information`; the Marketplace remains a standalone product and One Voice and Agent Chat never admit it. Email, Connections, and Connected Systems adapters remain authority-ingress-only; Nav owns the Connections delegation boundary. Gmail is a disabled child of Connections and is not in One's active tool roster or generated discovery.
 
 Kai has a dedicated A2A server in `adk_bridge/kai_agent.py`. KYC is manifest/service-backed through One Email KYC and approved disclosure formatting; it is scope-gated but not an in-process dispatch handler today.
 
 Therefore, not every scope-gated specialist is registered in the in-process dispatch table.
 
+### Hermes-local bounded product leaf
+
+The Source Library Steward is composed inside `hushh-one-hermes`, below the
+local One parent. It is not authored in the Research `AgentManifestV2`
+registry, advertised as an A2A service, admitted to hosted MCP, or represented
+by an `attr.source_library.*` scope. The parent may delegate a bounded source
+task, but the leaf receives only its dedicated toolset and bounded untrusted
+source text. Deterministic services—not the model—perform an approved mutation
+after revision and containment revalidation.
+
+The mounted provider file remains the authoritative blob. Private encrypted PKM
+holds semantic/control memory, and profile-scoped SQLite is a rebuildable
+mapping and operations plane. Sharing publishes a pinned file or reviewed
+knowledge artifact through an owner-bound mounted target; it never shares the
+PKM capability boundary or claims provider ACL administration.
+
 ## Execution Stack
 
 1. One Voice (ADK `run_live` through `/api/one/adk/live`) or typed Agent Chat captures intent and active app state.
-2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
+2. Voice: One's root `LlmAgent` in `hushh_mcp/one_adk/agent_tree.py` decides conversation vs tool call inside ADK's flow. Its tools are `google_search`, the allowlist-governed `open_screen`, the Finance `AgentTool` (whose subagents are RIA and Investor), and dispatch-backed specialist turn functions. Gmail is intentionally absent. Chat: the delegation gate in `agent_chat.py` routes wired specialists through the same dispatch.
 3. Specialist turn tools build an `A2ATask` from governed session state (user id + consent token from the `app_context` frame) and fail closed without it.
 4. A2A entry points validate the caller token against `SPECIALIST_A2A_SCOPE_MAP`.
 5. Tools expose callable surfaces and re-check their own scope.
@@ -131,6 +160,13 @@ One may delegate; it does not widen authority.
 Codex subagents are engineering evidence lanes, not app runtime agents. They inspect code, docs, tests, and contracts; they do not become `agent_one`, Kai, Nav, KYC, or operons.
 
 Use the repo-scoped subagent budget from [Coding Agent MCP](../operations/coding-agent-mcp.md): `max_threads = 6`, `max_depth = 1`, one reserved recovery slot, and two read-only evidence lanes by default.
+
+Structural maintenance follows the generated
+[Runtime Topology Maintenance](../architecture/runtime-topology-maintenance.md)
+index and its deterministic coverage profiles. Profiles select existing
+engineering evidence lanes for One, finance, privacy/connections, or
+information/identity changes; they do not create a persona-triggered runtime
+agent, receive user information, or gain action authority.
 
 ## Change Contract
 

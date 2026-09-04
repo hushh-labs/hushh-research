@@ -6,14 +6,17 @@ SECURITY: Uses validate_token_with_db for cross-instance revocation consistency.
 This ensures tokens revoked on one Cloud Run instance are rejected on all instances.
 """
 
+import base64
+import binascii
 import json
 import logging
 import os
 
 import httpx
 from cryptography.exceptions import InvalidTag
-from mcp.types import ResourceLink, TextContent
+from mcp.types import TextContent
 
+from hushh_mcp.consent.connector_projection import normalize_financial_statement_bundle
 from hushh_mcp.consent.export_projection import (
     decrypt_scoped_export_package,
     narrow_decrypted_export,
@@ -22,9 +25,11 @@ from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.services.local_mcp_keypair_service import get_or_create_local_connector_keypair
 from mcp_modules.config import FASTAPI_URL
 from mcp_modules.developer_context import get_developer_api_headers
+from mcp_modules.flat_contract import LOCAL_INFORMATION_JSON_MAX_CHARS
 from mcp_modules.transport_context import is_local_stdio_transport
 
 logger = logging.getLogger("hushh-mcp-server")
+
 
 # The local stdio server decrypts+narrows locally before this ever reaches the
 # LLM, so the result is plain decrypted JSON, not base64 ciphertext - roughly
@@ -37,9 +42,16 @@ logger = logging.getLogger("hushh-mcp-server")
 # fraction of a full attr.financial.* export (~1.35MB raw ciphertext).
 # Raising this only affects the decrypted_local success path; the raw
 # ciphertext fallback (decrypt failure, remote transport, raw=true) is
-DECRYPTED_LOCAL_MAX_JSON_CHARS = int(
-    os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "") or "120000"
-)
+def _local_decrypt_result_limit() -> int:
+    raw = str(os.environ.get("HUSHH_MCP_LOCAL_DECRYPT_MAX_JSON_CHARS", "")).strip()
+    try:
+        configured = int(raw) if raw else LOCAL_INFORMATION_JSON_MAX_CHARS
+    except ValueError:
+        configured = LOCAL_INFORMATION_JSON_MAX_CHARS
+    return max(1, min(configured, LOCAL_INFORMATION_JSON_MAX_CHARS))
+
+
+DECRYPTED_LOCAL_MAX_JSON_CHARS = _local_decrypt_result_limit()
 
 
 async def resolve_user_identifier_to_uid(
@@ -121,42 +133,7 @@ async def _fetch_encrypted_export_package(
         }
 
 
-async def _fetch_resource_bytes(resource_uri: str) -> tuple[bytes | None, dict | None]:
-    developer_headers = get_developer_api_headers()
-    if not developer_headers:
-        return None, {
-            "status": "error",
-            "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
-            "error": "Developer bearer authentication is not configured.",
-        }
-    try:
-        async with httpx.AsyncClient() as client:
-            response = await client.get(resource_uri, headers=developer_headers, timeout=30.0)
-        if response.status_code >= 400:
-            try:
-                detail = response.json().get("detail")
-            except Exception:
-                detail = None
-            return None, {
-                "status": "error",
-                "error_code": (detail or {}).get("error_code")
-                if isinstance(detail, dict)
-                else "RESOURCE_FETCH_FAILED",
-                "error": (detail or {}).get("message")
-                if isinstance(detail, dict)
-                else "Encrypted export resource fetch failed.",
-            }
-        return response.content, None
-    except Exception as exc:
-        logger.warning("Encrypted export resource fetch failed: %s", type(exc).__name__)
-        return None, {
-            "status": "error",
-            "error_code": "RESOURCE_FETCH_FAILED",
-            "error": "Encrypted export resource fetch failed.",
-        }
-
-
-async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | ResourceLink]:
+async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent]:
     """
     Get the encrypted wrapped-key export package for any approved consent token.
 
@@ -190,7 +167,7 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | R
                         "error": f"Consent validation failed: {reason}",
                         **({"required_scope": expected_scope} if expected_scope else {}),
                         "privacy_notice": "Hussh requires explicit scoped consent before accessing personal data.",
-                        "remedy": "Call discover_user_domains first, then request_consent with one of the discovered scopes.",
+                        "remedy": "Call search_user_scopes first, then request_consent with one of the returned scopes.",
                     }
                 ),
             )
@@ -250,46 +227,35 @@ async def handle_get_encrypted_scoped_export(args: dict) -> list[TextContent | R
             return [TextContent(type="text", text=json.dumps(decrypted_response))]
         return [TextContent(type="text", text=json.dumps(local_error or {}))]
 
-    resource = export_payload.get("resource_link")
-    resource_uri = str((resource or {}).get("uri") or "").strip()
-    if not resource_uri:
+    encrypted_data = str(export_payload.get("encrypted_data") or "").strip()
+    if not encrypted_data:
         return [
             TextContent(
                 type="text",
                 text=json.dumps(
                     {
                         "status": "error",
-                        "error_code": "RESOURCE_LINK_MISSING",
-                        "error": "The encrypted export resource link is unavailable.",
+                        "error_code": "ENCRYPTED_EXPORT_MISSING",
+                        "error": "The encrypted export bytes are unavailable.",
                     }
                 ),
             )
         ]
     metadata = {
         **base_fields,
-        "delivery": "resource_link",
-        "resource_link": resource,
+        "delivery": "encrypted_inline",
+        "encrypted_data": encrypted_data,
         "iv": export_payload.get("iv"),
         "tag": export_payload.get("tag"),
         "wrapped_key_bundle": export_payload.get("wrapped_key_bundle"),
         "export_envelope": export_payload.get("export_envelope"),
         "privacy_note": (
-            "Fetch ciphertext with developer bearer authentication and decrypt in the connector "
-            "process. Never place ciphertext in model context."
+            "Decrypt the MCP-delivered ciphertext in the connector process. Never place "
+            "plaintext in model context."
         ),
         "zero_knowledge": True,
     }
-    return [
-        TextContent(type="text", text=json.dumps(metadata)),
-        ResourceLink(
-            type="resource_link",
-            name=str((resource or {}).get("name") or "Hussh encrypted scoped export"),
-            uri=resource_uri,
-            description="Bearer-authenticated ciphertext; decrypt outside model context.",
-            mimeType="application/octet-stream",
-            size=(resource or {}).get("size"),
-        ),
-    ]
+    return [TextContent(type="text", text=json.dumps(metadata))]
 
 
 async def _try_build_local_decrypted_response(
@@ -307,19 +273,24 @@ async def _try_build_local_decrypted_response(
     """
     wrapped_key_bundle = export_payload.get("wrapped_key_bundle")
     export_envelope = export_payload.get("export_envelope")
-    resource_uri = str((export_payload.get("resource_link") or {}).get("uri") or "").strip()
+    inline_ciphertext = str(export_payload.get("encrypted_data") or "").strip()
     iv = export_payload.get("iv")
     tag = export_payload.get("tag")
-    if not (resource_uri and wrapped_key_bundle and export_envelope and iv and tag):
+    if not (inline_ciphertext and wrapped_key_bundle and export_envelope and iv and tag):
         return None, {
             "status": "error",
             "error_code": "CONNECTOR_CRYPTO_UNSUPPORTED",
-            "error": "Envelope v2 resource metadata is incomplete.",
+            "error": "Envelope v2 MCP payload is incomplete.",
         }
 
-    ciphertext, fetch_error = await _fetch_resource_bytes(resource_uri)
-    if ciphertext is None:
-        return None, fetch_error
+    try:
+        ciphertext = base64.b64decode(inline_ciphertext, validate=True)
+    except (binascii.Error, ValueError):
+        return None, {
+            "status": "error",
+            "error_code": "INVALID_EXPORT_AAD",
+            "error": "Inline encrypted export bytes are invalid.",
+        }
 
     try:
         local_keypair = get_or_create_local_connector_keypair()
@@ -339,6 +310,8 @@ async def _try_build_local_decrypted_response(
             export_envelope=export_envelope,
         )
         narrowed = narrow_decrypted_export(decrypted_payload, expected_scope)
+        if expected_scope == "attr.financial.documents.*":
+            narrowed = normalize_financial_statement_bundle(narrowed)
         # __export_metadata carries internal bookkeeping (e.g. every scope path
         # ever approved for this user's whole export manifest) that can dwarf
         # the actual narrowed data and is not meant for the LLM; the tool
@@ -346,7 +319,10 @@ async def _try_build_local_decrypted_response(
         # revision fields at the top level.
         narrowed.pop("__export_metadata", None)
     except (InvalidTag, KeyError, ValueError, TypeError) as exc:
-        logger.warning("Local auto-decrypt unavailable for this grant: %s", exc)
+        logger.warning(
+            "Local auto-decrypt unavailable for this grant error_type=%s",
+            type(exc).__name__,
+        )
         return None, {
             "status": "error",
             "error_code": "INVALID_EXPORT_AAD",

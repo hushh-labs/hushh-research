@@ -1,5 +1,6 @@
 import gateway from "@/contracts/kai/kai-action-gateway.vnext.json";
 import gmailSetupContract from "@/app/one/setup/gmail/page.voice-action-contract.json";
+import calendarSetupContract from "@/app/one/setup/calendar/page.voice-action-contract.json";
 import hubContract from "@/components/onboarding/setup/one-setup-hub.voice-action-contract.json";
 import routeLayoutContract from "@/lib/navigation/app-route-layout.contract.json";
 import {
@@ -21,6 +22,7 @@ describe("setup catalog voice parity", () => {
 
     expect(ONE_SETUP_CAPABILITY_IDS).toEqual([
       "gmail",
+      "calendar",
       "location",
       "email",
       "finance",
@@ -33,17 +35,36 @@ describe("setup catalog voice parity", () => {
       CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
     ).toEqual([
       "Connect Gmail",
+      "Connect your calendar",
       "Set up location",
-      "Let One draft for you",
-      "Set up your finances",
-      "Set up RIA",
-      "Link your record to external systems",
+      "Identity checks",
+      "Set up your money",
+      "Set up your advisor profile",
+    ]);
+    const visibleSetupActionIds = new Set([
+      "setup.open_connections",
+      ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);
     expect(
       hubContract.actions
-        .filter((action) => action.action_id.startsWith("setup.open_"))
+        .filter((action) => visibleSetupActionIds.has(action.action_id))
         .map((action) => action.label),
-    ).toEqual(CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle));
+    ).toEqual([
+      "Choose your AI",
+      ...CAPABILITY_SETUP_COPY.map((capability) => capability.setupTitle),
+    ]);
+    expect(
+      hubContract.actions.some(
+        (action) => action.action_id === "setup.open_connected_systems",
+      ),
+    ).toBe(true);
+    expect(
+      actions.get("setup.open_connections")?.execution_target,
+    ).toMatchObject({
+      status: "wired",
+      path: "route",
+      target: "/one/setup/connections",
+    });
     for (const capability of ONE_SETUP_CAPABILITIES) {
       const action = actions.get(capability.setupActionId);
       expect(action, capability.id).toBeDefined();
@@ -60,27 +81,44 @@ describe("setup catalog voice parity", () => {
     const orderedActionIds = ONE_SETUP_CAPABILITIES.map(
       (capability) => capability.setupActionId,
     );
+    const orderedHubActionIds = ["setup.open_connections", ...orderedActionIds];
     expect(
       hubContract.actions
         .map((action) => action.action_id)
-        .filter((actionId) => actionId.startsWith("setup.open_")),
-    ).toEqual(orderedActionIds);
+        .filter((actionId) => orderedHubActionIds.includes(actionId)),
+    ).toEqual(orderedHubActionIds);
 
     const setupRoute = routeLayoutContract.find(
       (entry) => entry.route === "/one/setup",
     );
-    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe("setup.open_gmail");
-    expect(setupRoute?.voicePlaybook?.happyPathActionIds).toEqual([
-      ...orderedActionIds,
-      "setup.hub_master_ack",
-    ]);
+    expect(setupRoute?.voicePlaybook?.primaryActionId).toBe(
+      "setup.open_connections",
+    );
+    expect(
+      setupRoute?.voicePlaybook?.happyPathActionIds.filter(
+        (actionId) =>
+          actionId === "setup.hub_master_ack" ||
+          orderedHubActionIds.includes(actionId),
+      ),
+    ).toEqual([...orderedHubActionIds, "setup.hub_master_ack"]);
 
-    const connectAction = gmailSetupContract.actions.find(
+    const gmailConnectAction = gmailSetupContract.actions.find(
       (action) => action.action_id === "setup.connect_gmail",
     );
-    expect(connectAction?.reachability.routes).toEqual(["/one/setup/gmail"]);
-    expect(connectAction?.control_ids).toContain("open_gmail_connector");
-    expect(connectAction?.execution_target).toMatchObject({
+    expect(gmailConnectAction?.reachability.routes).toEqual([
+      "/one/setup/gmail",
+    ]);
+    expect(gmailConnectAction?.execution_target).toMatchObject({
+      status: "wired",
+      path: "local_handler",
+    });
+    const calendarConnectAction = calendarSetupContract.actions.find(
+      (action) => action.action_id === "setup.connect_calendar",
+    );
+    expect(calendarConnectAction?.reachability.routes).toEqual([
+      "/one/setup/calendar",
+    ]);
+    expect(calendarConnectAction?.execution_target).toMatchObject({
       status: "wired",
       path: "local_handler",
     });

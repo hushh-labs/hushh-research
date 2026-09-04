@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
@@ -11,15 +11,19 @@ import {
   type CapabilitySetupInputs,
 } from "@/lib/services/capability-setup-state-service";
 import { GmailReceiptsService } from "@/lib/services/gmail-receipts-service";
+import { GoogleCalendarService } from "@/lib/services/google-calendar-service";
 import { KaiProfileService, type KaiProfileV2 } from "@/lib/services/kai-profile-service";
 import {
   PreVaultUserStateService,
   type PreVaultUserState,
 } from "@/lib/services/pre-vault-user-state-service";
+import { ApiService } from "@/lib/services/api-service";
 import { AuthService } from "@/lib/services/auth-service";
 import { CapabilityTourService } from "@/lib/services/capability-tour-service";
 import { OneLocationService } from "@/lib/one-location/service";
+import { RiaService } from "@/lib/services/ria-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { isOneCapabilityEnabled } from "@/lib/onboarding/one-capabilities";
 
 /**
  * useCapabilitySetupStates — the single hook that feeds the resolver from live
@@ -30,7 +34,7 @@ import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
  *   mirror, and the live pending-consent count. This is all the `/one`
  *   dashboard needs and costs at most one already-cached bootstrap call.
  * - OPT-IN (expensive, accurate): the decrypted Kai profile and OAuth
- *   connection status (Gmail, Connected Systems). The `/one/setup` flow opts
+ *   connection status (Gmail and Calendar). The `/one/setup` flow opts
  *   into these via `enrichVault` / `enrichOauth` so it can make honest
  *   skip-vs-continue decisions; the dashboard does not pay that cost.
  *
@@ -41,8 +45,10 @@ import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 export interface UseCapabilitySetupStatesOptions {
   /** Resolve real vault-backed state (decrypts the Kai profile). Default false. */
   enrichVault?: boolean;
-  /** Resolve OAuth connection status (Gmail, Connected Systems). Default false. */
+  /** Resolve OAuth connection status (Gmail and Calendar). Default false. */
   enrichOauth?: boolean;
+  /** Resolve whether an RIA profile is onboarded (getOnboardingStatus). Default false. */
+  enrichRia?: boolean;
 }
 
 export interface UseCapabilitySetupStatesResult {
@@ -63,7 +69,9 @@ export interface UseCapabilitySetupStatesResult {
 export function useCapabilitySetupStates(
   options: UseCapabilitySetupStatesOptions = {}
 ): UseCapabilitySetupStatesResult {
-  const { enrichVault = false, enrichOauth = false } = options;
+  const { enrichVault = false, enrichOauth = false, enrichRia = false } = options;
+  // Last reported "<uid>:<connected ids>" so an unchanged set is not re-posted.
+  const reportedConnectedRef = useRef<string>("");
 
   const { user } = useAuth();
   const { isVaultUnlocked, getVaultKey, getVaultOwnerToken } = useVault();
@@ -79,12 +87,20 @@ export function useCapabilitySetupStates(
   const [bootstrapResolved, setBootstrapResolved] = useState(
     () => cachedPreVaultState !== null,
   );
+  const [bootstrapOwnerId, setBootstrapOwnerId] = useState<string | null>(
+    () => (cachedPreVaultState ? userId : null),
+  );
   const [kaiProfile, setKaiProfile] = useState<KaiProfileV2 | null>(null);
   const [oauthConnections, setOauthConnections] = useState<
     Partial<Record<string, boolean>>
   >({});
-  const [enrichingVault, setEnrichingVault] = useState(false);
-  const [enrichingOauth, setEnrichingOauth] = useState(false);
+  // Opted-in enrichment starts unresolved. Initializing these to `false`
+  // briefly published coarse statuses as final, which made completed setup
+  // tiles jump from Remaining to Complete after the first effects ran.
+  const [enrichingVault, setEnrichingVault] = useState(enrichVault);
+  const [enrichingOauth, setEnrichingOauth] = useState(enrichOauth);
+  const [enrichingRia, setEnrichingRia] = useState(enrichRia);
+  const [enrichingLocation, setEnrichingLocation] = useState(false);
   const [exploredIds, setExploredIds] = useState<ReadonlySet<string>>(
     () => new Set<string>()
   );
@@ -92,12 +108,17 @@ export function useCapabilitySetupStates(
   const [locationRecipientKeyReady, setLocationRecipientKeyReady] = useState<
     boolean | undefined
   >(undefined);
+  // RIA onboarded: undefined until we've fetched (or when not opted in).
+  const [riaOnboarded, setRiaOnboarded] = useState<boolean | undefined>(
+    undefined
+  );
 
   // ---- ALWAYS: coarse pre-vault mirror ------------------------------------
   useEffect(() => {
     if (!userId) {
       setPreVaultState(null);
       setBootstrapResolved(false);
+      setBootstrapOwnerId(null);
       return;
     }
     let cancelled = false;
@@ -108,13 +129,18 @@ export function useCapabilitySetupStates(
     if (cached) {
       setPreVaultState(cached);
       setBootstrapResolved(true);
+      setBootstrapOwnerId(userId);
     } else {
       setPreVaultState(null);
       setBootstrapResolved(false);
+      setBootstrapOwnerId(null);
     }
     PreVaultUserStateService.bootstrapState(userId)
       .then((state) => {
-        if (!cancelled) setPreVaultState(state);
+        if (!cancelled) {
+          setPreVaultState(state);
+          setBootstrapOwnerId(userId);
+        }
       })
       .catch(() => {
         // Leave preVaultState null → resolver yields `unknown`, never a
@@ -122,7 +148,13 @@ export function useCapabilitySetupStates(
         if (!cancelled) setPreVaultState(null);
       })
       .finally(() => {
-        if (!cancelled) setBootstrapResolved(true);
+        if (!cancelled) {
+          // The snapshot belongs to this account even when the request failed.
+          // Publishing the owner lets the resolver expose an honest `unknown`
+          // state instead of trapping the setup hub in a permanent loader.
+          setBootstrapOwnerId(userId);
+          setBootstrapResolved(true);
+        }
       });
     const unsubscribe = cache.subscribe((event) => {
       if (event.type === "set" && event.key === cacheKey) {
@@ -131,6 +163,7 @@ export function useCapabilitySetupStates(
         if (!cancelled && next) {
           setPreVaultState(next);
           setBootstrapResolved(true);
+          setBootstrapOwnerId(userId);
         }
       }
     });
@@ -189,11 +222,13 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!enrichVault || !userId || !isVaultUnlocked) {
       setKaiProfile(null);
+      setEnrichingVault(false);
       return;
     }
     const vaultKey = getVaultKey();
     if (!vaultKey) {
       setKaiProfile(null);
+      setEnrichingVault(false);
       return;
     }
     let cancelled = false;
@@ -222,6 +257,7 @@ export function useCapabilitySetupStates(
   useEffect(() => {
     if (!enrichOauth || !userId) {
       setOauthConnections({});
+      setEnrichingOauth(false);
       return;
     }
     let cancelled = false;
@@ -230,11 +266,20 @@ export function useCapabilitySetupStates(
       const next: Partial<Record<string, boolean>> = {};
       try {
         const idToken = await AuthService.getIdToken();
-        if (idToken) {
+        if (idToken && isOneCapabilityEnabled("gmail")) {
           const gmail = await GmailReceiptsService.getStatus({ idToken, userId }).catch(
             () => null
           );
           if (gmail) next.gmail = gmail.connected === true && gmail.revoked !== true;
+        }
+        if (idToken && isOneCapabilityEnabled("calendar")) {
+          const calendar = await GoogleCalendarService.status(idToken, userId).catch(
+            () => null,
+          );
+          if (calendar) {
+            next.calendar =
+              calendar.connected === true && calendar.status !== "needs_reauth";
+          }
         }
       } catch {
         // Absent key → resolver reports `blocked` on oauth (honest, actionable).
@@ -248,20 +293,23 @@ export function useCapabilitySetupStates(
   }, [enrichOauth, userId]);
 
   // ---- WHEN UNLOCKED: location recipient-key readiness --------------------
-  // One lightweight `getState` once the vault is unlocked, so the Onepoint tile
+  // One lightweight `getState` once the vault is unlocked, so the Location tile
   // reads "Ready" vs "Set up location" instead of a generic "Unlock to view".
   // Locked → leave undefined so the resolver keeps the honest "Unlock to view".
   useEffect(() => {
     if (!userId || !isVaultUnlocked) {
       setLocationRecipientKeyReady(undefined);
+      setEnrichingLocation(false);
       return;
     }
     const token = getVaultOwnerToken();
     if (!token) {
       setLocationRecipientKeyReady(undefined);
+      setEnrichingLocation(false);
       return;
     }
     let cancelled = false;
+    setEnrichingLocation(true);
     OneLocationService.getState(token)
       .then((state) => {
         if (!cancelled) {
@@ -271,11 +319,52 @@ export function useCapabilitySetupStates(
       .catch(() => {
         // Leave undefined → resolver yields "Checking…", never a fabricated state.
         if (!cancelled) setLocationRecipientKeyReady(undefined);
+      })
+      .finally(() => {
+        if (!cancelled) setEnrichingLocation(false);
       });
     return () => {
       cancelled = true;
     };
   }, [userId, isVaultUnlocked, getVaultOwnerToken]);
+
+  // ---- OPT-IN: RIA onboarded status ---------------------------------------
+  // One lightweight, cached `getOnboardingStatus` so the RIA tile reads "Ready"
+  // (→ Complete) once an RIA profile exists — mirroring how location auto-
+  // completes from its recipient key. Not vault-gated (the profile exists
+  // regardless of unlock). Any failure leaves `undefined` so the resolver falls
+  // back to the honest vault-gated state instead of fabricating one.
+  useEffect(() => {
+    if (!enrichRia || !userId) {
+      setRiaOnboarded(undefined);
+      setEnrichingRia(false);
+      return;
+    }
+    let cancelled = false;
+    setEnrichingRia(true);
+    (async () => {
+      try {
+        const idToken = await AuthService.getIdToken();
+        if (!idToken) {
+          if (!cancelled) setRiaOnboarded(undefined);
+          return;
+        }
+        const status = await RiaService.getOnboardingStatus(idToken, {
+          userId,
+        }).catch(() => null);
+        if (!cancelled) {
+          setRiaOnboarded(status ? status.exists === true : undefined);
+        }
+      } catch {
+        if (!cancelled) setRiaOnboarded(undefined);
+      } finally {
+        if (!cancelled) setEnrichingRia(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [enrichRia, userId]);
 
   const markExplored = useCallback(
     async (capabilityId: string) => {
@@ -309,10 +398,14 @@ export function useCapabilitySetupStates(
       isVaultUnlocked,
       preVaultState: preVaultState ?? cachedPreVaultState,
       kaiProfile,
-      pendingConsents,
+      // A cold consent summary is unknown, not zero. The setup-state resolver
+      // intentionally accepts only a number, so retain its conservative
+      // no-attention fallback until the shared summary resolves.
+      pendingConsents: pendingConsents ?? 0,
       oauthConnections,
       exploredCapabilityIds: exploredIds,
       locationRecipientKeyReady,
+      riaOnboarded,
     }),
     [
       userId,
@@ -324,6 +417,7 @@ export function useCapabilitySetupStates(
       oauthConnections,
       exploredIds,
       locationRecipientKeyReady,
+      riaOnboarded,
     ]
   );
 
@@ -335,11 +429,74 @@ export function useCapabilitySetupStates(
     return map;
   }, [statuses]);
 
+  // "unknown" means this pass could not resolve the capability — the dashboard
+  // does not enrich OAuth, so Gmail reads unknown there. Reporting it as
+  // not-connected would later make a months-old link look brand new.
+  const observedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state !== "unknown")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedIds = useMemo(
+    () =>
+      statuses
+        .filter((status) => status.state === "completed")
+        .map((status) => status.id)
+        .sort(),
+    [statuses]
+  );
+
+  const connectedSignature = useMemo(
+    () => `${observedIds.join(",")}|${connectedIds.join(",")}`,
+    [observedIds, connectedIds]
+  );
+
+  const isSettled =
+    Boolean(userId) &&
+    bootstrapOwnerId === userId &&
+    (bootstrapResolved || Boolean(cachedPreVaultState)) &&
+    !enrichingVault &&
+    !enrichingOauth &&
+    !enrichingRia &&
+    !enrichingLocation;
+
+  /**
+   * Report the connected set so the server can mail about anything newly
+   * connected.
+   *
+   * Reporting a set beats firing an event per link: there are nine ways to
+   * connect something and hooking each one means the one added next year is
+   * silently missed. The server owns the diff and the durable record, so this
+   * side stays a plain observation with no memory of its own beyond avoiding a
+   * repeat post of an unchanged set.
+   *
+   * Only while settled — a partially enriched pass reports a smaller set, which
+   * is harmless because the server only ever adds, but posting it is noise.
+   */
+  useEffect(() => {
+    if (!isSettled || !userId) return;
+    const key = `${userId}:${connectedSignature}`;
+    if (reportedConnectedRef.current === key) return;
+    reportedConnectedRef.current = key;
+    void ApiService.notifyAuthMail("capabilities_linked", {
+      observed: observedIds,
+      capabilities: connectedIds,
+    });
+  }, [connectedIds, connectedSignature, isSettled, observedIds, userId]);
+
   return {
     statuses,
     byId,
-    isLoading: Boolean(userId) && !bootstrapResolved && !cachedPreVaultState,
-    isEnriching: enrichingVault || enrichingOauth,
+    isLoading:
+      Boolean(userId) &&
+      (bootstrapOwnerId !== userId ||
+        (!bootstrapResolved && !cachedPreVaultState)),
+    isEnriching:
+      enrichingVault || enrichingOauth || enrichingRia || enrichingLocation,
     markExplored,
   };
 }

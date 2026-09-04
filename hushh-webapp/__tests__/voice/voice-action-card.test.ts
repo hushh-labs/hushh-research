@@ -1,0 +1,378 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import {
+  VOICE_DISAMBIGUATION_DATA_KEY,
+  clearVoiceCard,
+  parseToolTraceCard,
+  parseVoiceCard,
+  parseVoiceConfirm,
+  publishVoiceCard,
+  readVoiceCard,
+  subscribeToVoiceCard,
+} from "@/lib/voice/voice-action-card";
+
+function payload(overrides: Record<string, unknown> = {}) {
+  return {
+    [VOICE_DISAMBIGUATION_DATA_KEY]: {
+      actionId: "connect.send_request",
+      resolveSlot: "userId",
+      slots: { person: "Ankit Kumar Singh" },
+      prompt: "2 people are called Ankit Kumar Singh.",
+      candidates: [
+        {
+          id: "user-1",
+          name: "Ankit Kumar Singh",
+          detail: "a***t@hushh.ai",
+          actionLabel: "Connect",
+        },
+        {
+          id: "user-2",
+          name: "Ankit Kumar Singh",
+          detail: "a***3@gmail.com",
+          actionLabel: "Requested",
+          disabledReason: "Waiting on them",
+        },
+      ],
+      ...overrides,
+    },
+  };
+}
+
+describe("parseVoiceCard", () => {
+  it("reads a well-formed payload", () => {
+    const parsed = parseVoiceCard(payload());
+    expect(parsed).not.toBeNull();
+    expect(parsed?.actionId).toBe("connect.send_request");
+    expect(parsed?.resolveSlot).toBe("userId");
+    expect(parsed?.slots).toEqual({ person: "Ankit Kumar Singh" });
+    expect(parsed?.candidates).toHaveLength(2);
+  });
+
+  it("keeps each candidate's own button, because duplicates differ in state", () => {
+    // The screenshot that prompted this feature had one row offering Connect
+    // and the other showing a request already sent. A single shared label
+    // would hand one of these people an action guaranteed to be refused.
+    const parsed = parseVoiceCard(payload());
+    expect(parsed?.candidates[0]?.actionLabel).toBe("Connect");
+    expect(parsed?.candidates[0]?.disabledReason).toBeNull();
+    expect(parsed?.candidates[1]?.actionLabel).toBe("Requested");
+    expect(parsed?.candidates[1]?.disabledReason).toBe("Waiting on them");
+  });
+
+  it("keeps the detail line, which is the only thing telling the rows apart", () => {
+    const parsed = parseVoiceCard(payload());
+    expect(parsed?.candidates[0]?.detail).toBe("a***t@hushh.ai");
+    expect(parsed?.candidates[1]?.detail).toBe("a***3@gmail.com");
+  });
+
+  it("returns null for anything that is not a real choice", () => {
+    // Fewer than two candidates means the resolver should have answered
+    // instead of asking. Rendering a card here would replace a working answer
+    // with a pointless tap.
+    expect(parseVoiceCard(payload({ candidates: [] }))).toBeNull();
+    expect(
+      parseVoiceCard(
+        payload({ candidates: [{ id: "user-1", name: "Solo", actionLabel: "Connect" }] }),
+      ),
+    ).toBeNull();
+    expect(parseVoiceCard(undefined)).toBeNull();
+    expect(parseVoiceCard({})).toBeNull();
+  });
+
+  it("refuses a malformed payload so the spoken refusal survives", () => {
+    // An empty card is a worse dead end than the one being fixed: a list with
+    // nothing in it and no sentence explaining why. Falling back to the normal
+    // blocked summary at least tells the person something.
+    expect(parseVoiceCard(payload({ actionId: "" }))).toBeNull();
+    expect(parseVoiceCard(payload({ resolveSlot: "" }))).toBeNull();
+    expect(parseVoiceCard(payload({ candidates: "not-an-array" }))).toBeNull();
+    expect(
+      parseVoiceCard({ [VOICE_DISAMBIGUATION_DATA_KEY]: "nonsense" }),
+    ).toBeNull();
+  });
+
+  it("drops candidates with no identity, since nothing could be run for them", () => {
+    const parsed = parseVoiceCard(
+      payload({
+        candidates: [
+          { id: "user-1", name: "Ankit", actionLabel: "Connect" },
+          { id: "", name: "Ankit", actionLabel: "Connect" },
+          { id: "user-3", name: "Ankit", actionLabel: "Connect" },
+        ],
+      }),
+    );
+    expect(parsed?.candidates.map((c) => c.id)).toEqual(["user-1", "user-3"]);
+  });
+
+  it("fills in safe text rather than rendering a blank row", () => {
+    const parsed = parseVoiceCard(
+      payload({
+        prompt: "",
+        candidates: [
+          { id: "user-1", name: "", actionLabel: "" },
+          { id: "user-2", name: "", actionLabel: "" },
+        ],
+      }),
+    );
+    expect(parsed?.prompt).toBe("Which one did you mean?");
+    expect(parsed?.candidates[0]?.name).toBe("Someone");
+    expect(parsed?.candidates[0]?.actionLabel).toBe("Choose");
+    expect(parsed?.candidates[0]?.detail).toBeNull();
+  });
+});
+
+describe("the disambiguation store", () => {
+  beforeEach(() => {
+    clearVoiceCard();
+  });
+
+  it("publishes and clears, notifying subscribers", () => {
+    const listener = vi.fn();
+    const unsubscribe = subscribeToVoiceCard(listener);
+
+    const parsed = parseVoiceCard(payload());
+    publishVoiceCard(parsed);
+    expect(readVoiceCard()).toBe(parsed);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    clearVoiceCard();
+    expect(readVoiceCard()).toBeNull();
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    unsubscribe();
+    publishVoiceCard(parsed);
+    expect(listener).toHaveBeenCalledTimes(2);
+    clearVoiceCard();
+  });
+
+  it("does not notify when clearing an already-empty store", () => {
+    // useSyncExternalStore re-renders on every emit, and the runtime clears on
+    // every local handler result -- almost all of which carry no candidates.
+    const listener = vi.fn();
+    const unsubscribe = subscribeToVoiceCard(listener);
+    clearVoiceCard();
+    expect(listener).not.toHaveBeenCalled();
+    unsubscribe();
+  });
+});
+
+describe("parseVoiceConfirm", () => {
+  function confirmPayload(overrides: Record<string, unknown> = {}) {
+    return {
+      confirm: {
+        actionId: "connect.remove_connection",
+        slots: { person: "Rashid", connectionId: "c-1" },
+        prompt: "Remove your connection with Rashid?",
+        subject: { name: "Rashid", detail: "r***d@gmail.com" },
+        consequence: "They stop being someone you can share things with.",
+        confirmLabel: "Remove",
+        ...overrides,
+      },
+    };
+  }
+
+  it("reads a well-formed destructive confirmation", () => {
+    const parsed = parseVoiceConfirm(confirmPayload());
+    expect(parsed?.actionId).toBe("connect.remove_connection");
+    expect(parsed?.confirmLabel).toBe("Remove");
+    expect(parsed?.subject?.name).toBe("Rashid");
+    expect(parsed?.subject?.detail).toBe("r***d@gmail.com");
+    expect(parsed?.slots).toEqual({ person: "Rashid", connectionId: "c-1" });
+  });
+
+  it("refuses to render a destructive button with no label or no question", () => {
+    // There are no safe defaults here. An unlabelled destructive button is one
+    // someone presses without knowing what it does, and a card with no prompt
+    // asks nothing while still offering to delete something.
+    expect(parseVoiceConfirm(confirmPayload({ confirmLabel: "" }))).toBeNull();
+    expect(parseVoiceConfirm(confirmPayload({ prompt: "" }))).toBeNull();
+    expect(parseVoiceConfirm(confirmPayload({ actionId: "" }))).toBeNull();
+    expect(parseVoiceConfirm(undefined)).toBeNull();
+    expect(parseVoiceConfirm({ confirm: "nonsense" })).toBeNull();
+  });
+
+  it("drops a subject with no name rather than rendering an empty row", () => {
+    const parsed = parseVoiceConfirm(
+      confirmPayload({ subject: { name: "", detail: "x" } }),
+    );
+    expect(parsed).not.toBeNull();
+    expect(parsed?.subject).toBeNull();
+  });
+});
+
+describe("parseVoiceCard", () => {
+  it("prefers the destructive question when a handler somehow sends both", () => {
+    // Asking "which one" and "are you sure" at once means the destructive half
+    // is the one that must not be skipped.
+    const both = {
+      confirm: {
+        actionId: "connect.remove_connection",
+        prompt: "Remove Rashid?",
+        confirmLabel: "Remove",
+      },
+      disambiguation: {
+        actionId: "connect.send_request",
+        resolveSlot: "userId",
+        candidates: [
+          { id: "a", name: "A", actionLabel: "Connect" },
+          { id: "b", name: "B", actionLabel: "Connect" },
+        ],
+      },
+    };
+    expect(parseVoiceCard(both)?.kind).toBe("confirm");
+  });
+
+  it("tags each shape so the card knows which to render", () => {
+    expect(parseVoiceCard(payload())?.kind).toBe("choice");
+    expect(parseVoiceCard(undefined)).toBeNull();
+  });
+});
+
+describe("parseToolTraceCard", () => {
+  it("turns a people_list trace into a list-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "people_list",
+      payload: {
+        heading: "Your connections",
+        items: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim" },
+        ],
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Your connections",
+      shape: "list",
+      list: {
+        items: [
+          { id: "cx1", name: "Sarah Chen", detail: "s***n@example.com", photoUrl: "https://x/y.jpg" },
+          { id: "cx2", name: "Alex Kim", detail: null, photoUrl: null },
+        ],
+      },
+    });
+  });
+
+  it("falls back to a generic heading when the payload omits one", () => {
+    const peopleCard = parseToolTraceCard({
+      kind: "people_list",
+      payload: { items: [{ id: "cx1", name: "Sarah Chen" }] },
+    });
+    expect(peopleCard?.heading).toBe("People");
+
+    const circlesCard = parseToolTraceCard({
+      kind: "circles_list",
+      payload: { items: [{ id: "c1", name: "Family" }] },
+    });
+    expect(circlesCard?.heading).toBe("Your circles");
+  });
+
+  it("drops a people_list or circles_list trace with no usable rows", () => {
+    expect(parseToolTraceCard({ kind: "people_list", payload: { items: [] } })).toBeNull();
+    expect(
+      parseToolTraceCard({ kind: "people_list", payload: { items: [{ name: "No id" }] } }),
+    ).toBeNull();
+    expect(parseToolTraceCard({ kind: "circles_list", payload: { items: [] } })).toBeNull();
+  });
+
+  it("turns a pkm_domain_summary trace into a summary-shaped data card", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: {
+        domain: "financial",
+        label: "Financial",
+        summary: { holdings_count: 12, portfolio_value_bucket: "100k-250k", empty_field: "" },
+      },
+    });
+    expect(card).toEqual({
+      kind: "data",
+      heading: "Financial",
+      shape: "summary",
+      summary: {
+        fields: [
+          { label: "Holdings Count", value: "12" },
+          { label: "Portfolio Value Bucket", value: "100k-250k" },
+        ],
+        breakdowns: [],
+      },
+    });
+  });
+
+  it("turns an asset_allocation_pct-shaped field into a breakdown, rescaled from a fraction", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: {
+        label: "Financial",
+        summary: {
+          holdings_count: 4,
+          asset_allocation_pct: { cash: 0.0452, equities: 0.3821, bonds: 0.1204, other: 0.4523 },
+        },
+      },
+    });
+    expect(card?.kind === "data" && card.shape === "summary" ? card.summary : null).toEqual({
+      fields: [{ label: "Holdings Count", value: "4" }],
+      breakdowns: [
+        {
+          label: "Asset Allocation",
+          items: [
+            { label: "Other", value: "45.2%" },
+            { label: "Equities", value: "38.2%" },
+            { label: "Bonds", value: "12%" },
+            { label: "Cash", value: "4.5%" },
+          ],
+        },
+      ],
+    });
+  });
+
+  it("leaves an already-0-100-scaled breakdown as-is rather than rescaling it again", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { spend_pct: { groceries: 62, dining: 38 } } },
+    });
+    const items =
+      card?.kind === "data" && card.shape === "summary" ? card.summary.breakdowns[0]?.items : null;
+    expect(items).toEqual([
+      { label: "Groceries", value: "62%" },
+      { label: "Dining", value: "38%" },
+    ]);
+  });
+
+  it("drops an empty-object breakdown candidate instead of showing a blank group", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { holdings_count: 1, asset_allocation_pct: {} } },
+    });
+    expect(card?.kind === "data" && card.shape === "summary" ? card.summary.breakdowns : null).toEqual(
+      [],
+    );
+  });
+
+  it("drops a breakdown candidate that mixes in a non-numeric value", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { asset_allocation_pct: { cash: 0.5, note: "manual override" } } },
+    });
+    expect(card).toBeNull();
+  });
+
+  it("returns a card for a breakdown alone, with no scalar fields at all", () => {
+    const card = parseToolTraceCard({
+      kind: "pkm_domain_summary",
+      payload: { summary: { asset_allocation_pct: { cash: 1 } } },
+    });
+    expect(card).not.toBeNull();
+  });
+
+  it("drops a pkm_domain_summary trace with nothing worth showing", () => {
+    expect(
+      parseToolTraceCard({ kind: "pkm_domain_summary", payload: { summary: {} } }),
+    ).toBeNull();
+  });
+
+  it("ignores an unknown trace kind and a missing trace", () => {
+    expect(parseToolTraceCard({ kind: "something_new", payload: {} })).toBeNull();
+    expect(parseToolTraceCard(null)).toBeNull();
+    expect(parseToolTraceCard(undefined)).toBeNull();
+  });
+});

@@ -105,7 +105,7 @@ export function SegmentedControl({
             onClick={() => onValueChange(option.value)}
             className={cn(
               // Base styles
-              "relative flex items-center justify-center gap-2 rounded-md",
+              "press-scale relative flex items-center justify-center gap-2 rounded-md",
               "transition-all duration-500 ease-[cubic-bezier(0.25,1,0.5,1)]",
               "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2",
               "overflow-hidden",
@@ -152,12 +152,12 @@ export function SegmentedControl({
                     : "w-0 max-w-0 opacity-0"
                 )}
               >
-                <span className="font-medium whitespace-nowrap">
+                <span className="whitespace-nowrap">
                   {option.label}
                 </span>
               </div>
             ) : (
-              <span className="font-medium whitespace-nowrap">
+              <span className="whitespace-nowrap">
                 {option.label}
               </span>
             )}

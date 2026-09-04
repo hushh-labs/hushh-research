@@ -2,13 +2,15 @@
 
 import { useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { CheckCircle2, type LucideIcon } from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 
 import {
   getCapabilityStatusDisplay,
-  type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
-import { type OneCapabilityTone } from "@/lib/onboarding/one-capabilities";
+import {
+  type OneCapabilityIcon,
+  type OneCapabilityTone,
+} from "@/lib/onboarding/one-capabilities";
 import {
   isCapabilitySetupComplete,
   type CapabilityStatus,
@@ -16,6 +18,7 @@ import {
 import { SettingsRow } from "@/components/app-ui/settings-ui";
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import { cn } from "@/lib/utils";
+import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 /**
  * CapabilitySetupTile: the shared setup row used by the `/one/setup` hub.
@@ -29,12 +32,6 @@ import { cn } from "@/lib/utils";
  * silently drop cloned `<Link>` taps; press feedback is SettingsRow's built-in
  * wash.
  */
-const STATUS_TEXT_CLASS_BY_TONE: Record<CapabilityStatusTone, string> = {
-  ready: "text-muted-foreground",
-  action: "font-medium text-foreground",
-  attention: "font-medium text-foreground",
-  muted: "text-muted-foreground",
-};
 
 export interface CapabilitySetupTileProps {
   capabilityId: string;
@@ -47,7 +44,7 @@ export interface CapabilitySetupTileProps {
   resumeActionLabel: string;
   href: string;
   voiceControlId: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   status: CapabilityStatus;
   /** Explore-only capability — its badge reads "Explore"/"Explored". */
@@ -55,6 +52,123 @@ export interface CapabilitySetupTileProps {
   /** Mark the tile active when it is the current step in a guided sequence. */
   isCurrent?: boolean;
   className?: string;
+}
+
+/**
+ * A setup row that opens a route but does not represent a tracked capability.
+ *
+ * Connections configures how One's private agent runs; it must therefore not
+ * fabricate a capability completion state. It still uses the exact same row,
+ * icon well, prefetch, press feedback, and native-safe navigation mechanics as
+ * a tracked setup capability.
+ */
+export interface SetupNavigationTileProps {
+  id: string;
+  title: string;
+  description: string;
+  href: string;
+  voiceControlId: string;
+  icon: OneCapabilityIcon;
+  tone: OneCapabilityTone;
+  statusLabel?: string;
+  /**
+   * How the trailing label reads. `required` is the mandatory step that blocks
+   * the exit: it takes the accent pill so it cannot be mistaken for the same
+   * quiet grey status every other row carries.
+   */
+  statusTone?: "muted" | "required";
+  isComplete?: boolean;
+  /** Mark the row as the current step in a guided sequence. */
+  isCurrent?: boolean;
+  className?: string;
+}
+
+export function SetupNavigationTile({
+  id,
+  title,
+  description,
+  href,
+  voiceControlId,
+  icon,
+  tone,
+  statusLabel,
+  statusTone = "muted",
+  isComplete = false,
+  isCurrent = false,
+  className,
+}: SetupNavigationTileProps) {
+  const router = useRouter();
+  const didPrefetch = useRef(false);
+  const prefetchRoute = useCallback(() => {
+    if (didPrefetch.current) return;
+    didPrefetch.current = true;
+    router.prefetch(href);
+  }, [href, router]);
+  const handleOpen = useCallback(() => {
+    const requested = requestInternalAppNavigation({
+      href,
+      scroll: false,
+      source: "tap",
+      transitionMode: "full",
+    });
+    if (!requested) router.push(href, { scroll: false });
+  }, [href, router]);
+
+  return (
+    <SettingsRow
+      asChild
+      leading={
+        <AgentSectionIcon
+          id={id}
+          icon={icon}
+          tone={tone}
+          isActive={isComplete}
+          size="setup"
+        />
+      }
+      title={title}
+      description={
+        <div className="line-clamp-2 md:line-clamp-none">{description}</div>
+      }
+      trailing={
+        statusLabel ? (
+          <span
+            data-setup-status-tone={statusTone}
+            className={cn(
+              "shrink-0 text-xs font-medium",
+              isComplete
+                ? "text-[var(--tone-green)]"
+                : statusTone === "required"
+                  ? "rounded-full bg-[var(--app-accent-tint)] px-2 py-0.5 font-semibold text-[var(--app-accent-deep)]"
+                  : "text-muted-foreground",
+            )}
+          >
+            {statusLabel}
+          </span>
+        ) : undefined
+      }
+      chevron
+      className={className}
+    >
+      <button
+        type="button"
+        onClick={handleOpen}
+        onPointerEnter={prefetchRoute}
+        onFocus={prefetchRoute}
+        onTouchStart={prefetchRoute}
+        aria-label={
+          statusLabel ? `${title}: ${statusLabel}` : title
+        }
+        aria-current={isCurrent ? "step" : undefined}
+        data-href={href}
+        data-voice-control-id={voiceControlId}
+        className={cn(
+          "[&]:focus-visible:ring-2 [&]:focus-visible:ring-ring [&]:focus-visible:ring-inset",
+          className,
+        )}
+      />
+    </SettingsRow>
+  );
 }
 
 export function CapabilitySetupTile({
@@ -65,7 +179,7 @@ export function CapabilitySetupTile({
   resumeActionLabel,
   href,
   voiceControlId,
-  icon: Icon,
+  icon,
   tone,
   status,
   isExploreOnly = false,
@@ -86,7 +200,13 @@ export function CapabilitySetupTile({
     router.prefetch(href);
   }, [href, router]);
   const handleOpen = useCallback(() => {
-    router.push(href, { scroll: false });
+    const requested = requestInternalAppNavigation({
+      href,
+      scroll: false,
+      source: "tap",
+      transitionMode: "full",
+    });
+    if (!requested) router.push(href, { scroll: false });
   }, [href, router]);
 
   return (
@@ -95,30 +215,30 @@ export function CapabilitySetupTile({
       leading={
         <AgentSectionIcon
           id={capabilityId}
-          icon={Icon}
+          icon={icon}
           tone={tone}
-          size="menu"
+          isActive={isCapabilitySetupComplete(status)}
+          size="setup"
         />
       }
       title={title}
-      description={description}
+      description={
+        <div className="line-clamp-2 md:line-clamp-none">
+          {description}
+        </div>
+      }
       chevron
+      className={cn(
+        isComplete && "bg-emerald-500/10 dark:bg-emerald-400/10",
+        className
+      )}
       trailing={
         isComplete ? (
           <CheckCircle2
             className="h-[18px] w-[18px] shrink-0 text-emerald-600 dark:text-emerald-300"
             aria-hidden
           />
-        ) : (
-          <span
-            className={cn(
-              "type-footnote whitespace-nowrap",
-              STATUS_TEXT_CLASS_BY_TONE[display.tone],
-            )}
-          >
-            {display.label}
-          </span>
-        )
+        ) : null
       }
     >
       <button

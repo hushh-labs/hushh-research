@@ -31,6 +31,12 @@ function printUsage() {
   console.log("  hushh-mcp --print-config");
   console.log("  hushh-mcp --print-codex-toml");
   console.log("  hushh-mcp --print-remote-config");
+  console.log("  hushh-mcp --print-client-credentials-config");
+  console.log("  hushh-mcp --print-gateway-manifest");
+  console.log("  hushh-mcp --print-agentforce-manifest");
+  console.log("  hushh-mcp --print-salesforce-agentexchange-handoff");
+  console.log("  hushh-mcp --print-mulesoft-exchange-manifest");
+  console.log("  hushh-mcp --print-mulesoft-agentforce-handoff");
   console.log("");
   console.log("Environment:");
   console.log("  HUSHH_MCP_ENV_FILE      Optional path to a consent-protocol style .env file");
@@ -39,6 +45,9 @@ function printUsage() {
   console.log("  HUSHH_MCP_PYTHON        Optional base Python interpreter for bootstrap");
   console.log("  CONSENT_API_URL         Backend origin for stdio bridge consent API calls");
   console.log("  HUSHH_DEVELOPER_TOKEN   Self-serve developer token used by stdio MCP");
+  console.log("  HUSHH_OAUTH_CLIENT_ID   Operations-provisioned OAuth client ID for stdio MCP");
+  console.log("  HUSHH_OAUTH_CLIENT_SECRET  Matching OAuth client secret; never combine with developer token");
+  console.log("  HUSHH_OAUTH_TOKEN_URL   Optional OAuth token endpoint override");
   console.log("  HUSHH_MCP_SKIP_BOOTSTRAP  Set to 1 to skip venv creation and pip install");
 }
 
@@ -90,6 +99,36 @@ function printRemoteConfig() {
       2,
     ),
   );
+}
+
+function printClientCredentialsConfig() {
+  console.log(
+    JSON.stringify(
+      {
+        mcpServers: {
+          "hushh-consent": {
+            command: "npx",
+            args: ["-y", "@hushh/mcp"],
+            env: {
+              CONSENT_API_URL: promotedApiOrigin,
+              HUSHH_OAUTH_CLIENT_ID: "<operations-provisioned-client-id>",
+              HUSHH_OAUTH_CLIENT_SECRET: "<operations-provisioned-client-secret>",
+            },
+          },
+        },
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+function printGatewayManifest(filename) {
+  const manifestPath = path.join(packageDir, "gateway", filename);
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged gateway manifest is unavailable.");
+  }
+  process.stdout.write(`${fs.readFileSync(manifestPath, "utf8").trim()}\n`);
 }
 
 function fatal(message) {
@@ -337,6 +376,19 @@ function buildEnv(runtimeDir) {
   return merged;
 }
 
+function validateAuthConfiguration(env) {
+  const developerToken = String(env.HUSHH_DEVELOPER_TOKEN || "").trim();
+  const clientId = String(env.HUSHH_OAUTH_CLIENT_ID || "").trim();
+  const clientSecret = String(env.HUSHH_OAUTH_CLIENT_SECRET || "").trim();
+
+  if (developerToken && (clientId || clientSecret)) {
+    fatal("Configure either HUSHH_DEVELOPER_TOKEN or OAuth client credentials, never both.");
+  }
+  if (Boolean(clientId) !== Boolean(clientSecret)) {
+    fatal("OAuth client-credentials mode requires both HUSHH_OAUTH_CLIENT_ID and HUSHH_OAUTH_CLIENT_SECRET.");
+  }
+}
+
 if (args.includes("--help") || args.includes("-h")) {
   printUsage();
   process.exit(0);
@@ -357,10 +409,65 @@ if (args.includes("--print-remote-config")) {
   process.exit(0);
 }
 
+if (args.includes("--print-client-credentials-config")) {
+  printClientCredentialsConfig();
+  process.exit(0);
+}
+
+if (args.includes("--print-gateway-manifest")) {
+  printGatewayManifest("hushh-mcp-gateway.json");
+  process.exit(0);
+}
+
+if (args.includes("--print-agentforce-manifest")) {
+  printGatewayManifest("hushh-agentforce-mcp-manifest.json");
+  process.exit(0);
+}
+
+if (args.includes("--print-mulesoft-exchange-manifest")) {
+  printGatewayManifest("hushh-mulesoft-exchange-mcp-schema.json");
+  process.exit(0);
+}
+
+if (args.includes("--print-mulesoft-agentforce-handoff")) {
+  const manifestPath = path.join(
+    packageDir,
+    "gateway",
+    "hushh-agentforce-mcp-manifest.json",
+  );
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged Agentforce MCP manifest is unavailable.");
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!manifest.mulesoftAgentforceHandoff) {
+    fatal("The packaged MuleSoft Agentforce handoff is unavailable.");
+  }
+  process.stdout.write(`${JSON.stringify(manifest.mulesoftAgentforceHandoff, null, 2)}\n`);
+  process.exit(0);
+}
+
+if (args.includes("--print-salesforce-agentexchange-handoff")) {
+  const manifestPath = path.join(
+    packageDir,
+    "gateway",
+    "hushh-agentforce-mcp-manifest.json",
+  );
+  if (!fs.existsSync(manifestPath)) {
+    fatal("The packaged Salesforce AgentExchange handoff is unavailable.");
+  }
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+  if (!manifest.salesforceAgentExchangeHandoff) {
+    fatal("The packaged Salesforce AgentExchange handoff is unavailable.");
+  }
+  process.stdout.write(`${JSON.stringify(manifest.salesforceAgentExchangeHandoff, null, 2)}\n`);
+  process.exit(0);
+}
+
 const runtimeDir = resolveRuntimeDir();
 const python = ensureBootstrap(runtimeDir);
 const serverPath = path.join(runtimeDir, "mcp_server.py");
 const childEnv = buildEnv(runtimeDir);
+validateAuthConfiguration(childEnv);
 
 const child = spawn(python.command, [...python.args, serverPath], {
   cwd: runtimeDir,

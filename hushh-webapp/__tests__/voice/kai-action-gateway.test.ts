@@ -10,7 +10,9 @@ import {
 } from "@/lib/voice/kai-action-gateway";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
-function makeRuntimeState(overrides: Partial<AppRuntimeState> = {}): AppRuntimeState {
+function makeRuntimeState(
+  overrides: Partial<AppRuntimeState> = {},
+): AppRuntimeState {
   return {
     auth: {
       signed_in: true,
@@ -70,12 +72,26 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
-  "agent_gmail",
   "agent_location",
-  "agent_personal_information",
 ];
 
 describe("kai-action-gateway", () => {
+  it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
+    for (const actionId of ["email.chat.turn", "connections.chat.turn"]) {
+      expect(getKaiActionById(actionId)?.execution_target.status).toBe(
+        "unwired",
+      );
+    }
+    expect(getKaiActionById("connected_systems.chat.turn")).toBeNull();
+
+    for (const actionId of ["location.chat.turn", "consent.chat.turn"]) {
+      expect(getKaiActionById(actionId)?.execution_target.status).toBe("wired");
+    }
+    expect(getKaiActionById("marketplace.information.chat.turn")).toBeNull();
+    expect(getKaiActionById("gmail.chat.turn")).toBeNull();
+    expect(getKaiActionById("route.profile_gmail_panel")).toBeNull();
+  });
+
   it("loads the generated gateway with stable action identity", () => {
     expect(KAI_ACTION_GATEWAY.schema_version).toBe("kai.action_gateway.vnext");
     const ids = KAI_ACTION_GATEWAY.actions.map((action) => action.action_id);
@@ -85,32 +101,35 @@ describe("kai-action-gateway", () => {
     expect(ids.every((id) => !id.startsWith(reservedNavPrefix))).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every((action) =>
-        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona)
-      )
+        ["one", "kai", "nav", "kyc"].includes(action.speaker_persona),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.delegate_agent_id === null ||
-          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id)
-      )
+          ALLOWED_DELEGATE_AGENT_IDS.includes(action.delegate_agent_id),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
           action.goal.goal_id === `goal.${action.action_id}` ||
-          action.goal.goal_id.startsWith("goal.")
-      )
+          action.goal.goal_id.startsWith("goal."),
+      ),
     ).toBe(true);
     expect(
       KAI_ACTION_GATEWAY.actions.every(
         (action) =>
-          action.goal.entrypoint_support.includes("voice") &&
-          action.goal.entrypoint_support.includes("chat") &&
-          action.goal.workflow_steps.length >= 1
-      )
+          action.execution_target.status !== "wired" ||
+          (action.goal.entrypoint_support.includes("voice") &&
+            action.goal.entrypoint_support.includes("chat") &&
+            action.goal.workflow_steps.length >= 1),
+      ),
     ).toBe(true);
-    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe("kai");
+    expect(getKaiActionById("route.kai_dashboard")?.speaker_persona).toBe(
+      "kai",
+    );
     expect(getKaiActionById("route.consents")?.speaker_persona).toBe("nav");
     expect(getKaiActionById("route.profile")?.speaker_persona).toBe("one");
     expect(getKaiActionById("route.one_agents")).toMatchObject({
@@ -122,12 +141,12 @@ describe("kai-action-gateway", () => {
       },
       control_ids: ["top_agent_section_dropdown"],
     });
-    expect(getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id).toBe(
-      "route.kai_home"
-    );
+    expect(
+      getKaiActionsForControlId("top_agent_section_finance")[0]?.action_id,
+    ).toBe("route.kai_home");
   });
 
-  it("keeps analysis.start as the reference multi-step goal contract", () => {
+  it("keeps analysis.start as the generated preview-first goal contract", () => {
     const action = getKaiActionById("analysis.start");
     expect(action?.goal).toEqual(
       expect.objectContaining({
@@ -147,9 +166,9 @@ describe("kai-action-gateway", () => {
           cancel_action_id: "analysis.cancel_active",
         }),
         result_contract: expect.objectContaining({
-          summary_mode: "decision_summary",
+          summary_mode: "preview_ready",
         }),
-      })
+      }),
     );
     expect(action?.goal.workflow_steps).toEqual(
       expect.arrayContaining([
@@ -157,17 +176,18 @@ describe("kai-action-gateway", () => {
           type: "action",
           action_id: "analysis.start",
         }),
-        expect.objectContaining({
-          type: "service",
-          service: "kai_debate.ensure_run",
-        }),
-      ])
+      ]),
     );
+    expect(action?.goal.workflow_steps).toHaveLength(1);
   });
 
   it("maps control ids and authored workflows back to canonical actions", () => {
-    const activeAnalysisActions = getKaiActionsForControlId("analysis_open_active");
-    expect(activeAnalysisActions.map((action) => action.action_id)).toContain("analysis.resume_active");
+    const activeAnalysisActions = getKaiActionsForControlId(
+      "analysis_open_active",
+    );
+    expect(activeAnalysisActions.map((action) => action.action_id)).toContain(
+      "analysis.resume_active",
+    );
 
     const riaHome = getKaiActionById("route.ria_home");
     expect(riaHome).not.toBeNull();
@@ -185,7 +205,7 @@ describe("kai-action-gateway", () => {
     ]);
   });
 
-  it("resolves duplicate voice_tool targets by authored params", () => {
+  it("does not expose localhost-only PKM Lab actions", () => {
     expect(
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
@@ -193,23 +213,23 @@ describe("kai-action-gateway", () => {
           mode: "preview",
           message: "preview this",
         },
-      })?.action_id
-    ).toBe("profile.pkm.preview_capture");
+      }),
+    ).toBeNull();
 
-    const save = getKaiActionById("profile.pkm.save_capture");
-    expect(save?.execution_policy).toBe("manual_only");
-    expect(save?.execution_target.status).toBe("unwired");
+    expect(getKaiActionById("profile.pkm.save_capture")).toBeNull();
     expect(
       getKaiActionByVoiceToolCall({
         tool_name: "capture_pkm_memory",
         args: { mode: "direct_save", message: "save this" },
-      })
+      }),
     ).toBeNull();
   });
 
   it("maps the RIA flow with direct navigation and guarded manual actions", () => {
     const riaActions = KAI_ACTION_GATEWAY.actions.filter(
-      (action) => action.surface_id.startsWith("ria_") || action.action_id.includes(".ria.")
+      (action) =>
+        action.surface_id.startsWith("ria_") ||
+        action.action_id.includes(".ria."),
     );
     expect(riaActions.map((action) => action.action_id)).toEqual(
       expect.arrayContaining([
@@ -217,14 +237,12 @@ describe("kai-action-gateway", () => {
         "route.ria_onboarding",
         "route.ria_clients",
         "route.ria_picks",
-        "route.ria_marketplace_connect",
         "ria.picks.open_source_kai",
         "ria.picks.open_source_my",
         "ria.picks.save_package",
         "ria.client_workspace.open_access_tab",
         "ria.client_workspace.request_access",
-        "marketplace.ria.request_advisory",
-      ])
+      ]),
     );
 
     const riaHome = getKaiActionById("route.ria_home");
@@ -241,7 +259,7 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/ria",
         },
-      })
+      }),
     );
     expect(riaHome?.reachability).toEqual(
       expect.objectContaining({
@@ -250,14 +268,15 @@ describe("kai-action-gateway", () => {
         hidden_navigable: true,
         active_personas: ["ria"],
         requires_persona_switch_confirmation: true,
-      })
+      }),
     );
     expect(riaHome?.workflow).toEqual(
       expect.objectContaining({
         workflow_id: "route.ria_home.entry",
         confirmation_required: true,
-        blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
-      })
+        blocked_guidance:
+          "Complete or unlock RIA setup before entering the RIA workspace.",
+      }),
     );
 
     expect(getKaiActionById("route.ria_clients")).toEqual(
@@ -269,9 +288,11 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/ria/clients",
         },
-      })
+      }),
     );
-    expect(getKaiActionById("ria.picks.open_source_kai")?.execution_target).toEqual({
+    expect(
+      getKaiActionById("ria.picks.open_source_kai")?.execution_target,
+    ).toEqual({
       status: "wired",
       path: "route",
       target: "/ria/picks?source=kai",
@@ -283,16 +304,7 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
-    );
-    expect(getKaiActionById("marketplace.ria.request_advisory")).toEqual(
-      expect.objectContaining({
-        risk_level: "high",
-        execution_policy: "manual_only",
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
-      })
+      }),
     );
   });
 
@@ -316,7 +328,8 @@ describe("kai-action-gateway", () => {
       status: "requires_persona_switch",
       reason: "Switch to RIA workspace first.",
       target_persona: "ria",
-      blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      blocked_guidance:
+        "Complete or unlock RIA setup before entering the RIA workspace.",
     });
   });
 
@@ -365,7 +378,8 @@ describe("kai-action-gateway", () => {
       status: "blocked",
       reason: "RIA actions stay locked until you finish RIA setup.",
       target_persona: "ria",
-      blocked_guidance: "Complete or unlock RIA setup before entering the RIA workspace.",
+      blocked_guidance:
+        "Complete or unlock RIA setup before entering the RIA workspace.",
     });
   });
 
@@ -392,7 +406,7 @@ describe("kai-action-gateway", () => {
 
   it("projects One KYC route and draft actions with explicit safety policies", () => {
     const kycActions = KAI_ACTION_GATEWAY.actions.filter(
-      (action) => action.surface_id === "one_kyc"
+      (action) => action.surface_id === "one_kyc",
     );
 
     expect(kycActions.map((action) => action.action_id)).toEqual([
@@ -406,8 +420,10 @@ describe("kai-action-gateway", () => {
     ]);
     expect(
       kycActions.every(
-        (action) => action.speaker_persona === "kyc" && action.delegate_agent_id === "agent_kyc"
-      )
+        (action) =>
+          action.speaker_persona === "kyc" &&
+          action.delegate_agent_id === "agent_kyc",
+      ),
     ).toBe(true);
 
     expect(getKaiActionById("route.one_kyc")).toEqual(
@@ -420,8 +436,8 @@ describe("kai-action-gateway", () => {
           path: "route",
           target: "/one/kyc",
         },
-        guard_ids: ["auth_required"],
-      })
+        guard_ids: ["auth_required", "vault_unlocked"],
+      }),
     );
     expect(getKaiActionById("kyc.draft.approve_send")).toEqual(
       expect.objectContaining({
@@ -431,15 +447,18 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
+      }),
     );
     expect(getKaiActionById("kyc.draft.request_redraft")).toEqual(
       expect.objectContaining({
         execution_policy: "confirm_required",
-        execution_target: expect.objectContaining({
-          status: "unwired",
-        }),
-      })
+        guard_ids: ["auth_required", "vault_unlocked"],
+        execution_target: {
+          status: "wired",
+          path: "local_handler",
+          target: "one_kyc_redraft",
+        },
+      }),
     );
     expect(getKaiActionById("kyc.draft.reject")).toEqual(
       expect.objectContaining({
@@ -447,7 +466,7 @@ describe("kai-action-gateway", () => {
         execution_target: expect.objectContaining({
           status: "unwired",
         }),
-      })
+      }),
     );
   });
 
@@ -472,15 +491,18 @@ describe("kai-action-gateway", () => {
         },
       }),
     });
-    expect(riaResults.some((entry) => entry.action.action_id === "route.ria_home")).toBe(true);
     expect(
-      riaResults.find((entry) => entry.action.action_id === "route.ria_home")?.availability.status
+      riaResults.some((entry) => entry.action.action_id === "route.ria_home"),
+    ).toBe(true);
+    expect(
+      riaResults.find((entry) => entry.action.action_id === "route.ria_home")
+        ?.availability.status,
     ).toBe("requires_persona_switch");
   });
 
   it("orders executable commands before vault-locked unavailable commands", () => {
     const results = searchKaiActions({
-      query: "profile",
+      query: "analysis",
       appRuntimeState: makeRuntimeState({
         vault: {
           unlocked: false,
@@ -488,28 +510,42 @@ describe("kai-action-gateway", () => {
           token_valid: false,
         },
         route: {
-          pathname: "/profile",
-          screen: "profile_account",
+          pathname: "/one/kai/analysis",
+          screen: "kai_analysis",
           subview: null,
+        },
+        runtime: {
+          analysis_active: true,
+          analysis_ticker: "NVDA",
+          analysis_run_id: "run_1",
+          import_active: false,
+          import_run_id: null,
+          busy_operations: [],
         },
       }),
       limit: 40,
     });
-    const unavailableStatuses = new Set(["blocked", "dead", "manual_only", "unwired"]);
+    const unavailableStatuses = new Set([
+      "blocked",
+      "dead",
+      "manual_only",
+      "unwired",
+    ]);
     const firstUnavailableIndex = results.findIndex((entry) =>
-      unavailableStatuses.has(entry.availability.status)
+      unavailableStatuses.has(entry.availability.status),
     );
 
     expect(firstUnavailableIndex).toBeGreaterThan(0);
     expect(
       results.some(
-        (entry) => entry.availability.reason === "Unlock the vault to use this action."
-      )
+        (entry) =>
+          entry.availability.reason === "Unlock the vault to use this action.",
+      ),
     ).toBe(true);
     expect(
       results
         .slice(firstUnavailableIndex + 1)
-        .some((entry) => !unavailableStatuses.has(entry.availability.status))
+        .some((entry) => !unavailableStatuses.has(entry.availability.status)),
     ).toBe(false);
   });
 });

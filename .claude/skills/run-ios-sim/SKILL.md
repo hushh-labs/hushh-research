@@ -1,11 +1,8 @@
 ---
 name: run-ios-sim
-description: Build the hushh One webapp, sync it into the native iOS shell, and launch it on the iPhone 16 simulator (UDID B46FD09B-E0BC-400E-821B-5CE3D575ECAB) against the UAT backend. Use when the user asks to run/launch/build the app on the simulator, take a screenshot on device, or verify a change in the real native app. Wraps the mobile build gotchas (UAT backend override, Node 22, 8 GB heap, /tmp DerivedData) into one command.
+description: Build the hushh One webapp, sync it into the native iOS shell, and launch it on an iPhone simulator against the UAT backend. Use when the user asks to run/launch/build the app on the simulator, take a screenshot on device, or verify a change in the real native app. Wraps the mobile build gotchas (UAT backend override, Node 22, 8 GB heap, /tmp DerivedData) into one command.
 argument-hint: "[optional: simulator UDID to override the default iPhone 16]"
 allowed-tools: Bash, Read
-paths:
-  - .claude/skills/run-ios-sim/**
-  - hushh-webapp/**
 ---
 
 # Run hushh One on the iOS simulator
@@ -19,10 +16,13 @@ every recurring build gotcha from [[mobile-bug-log]] so you don't rediscover the
 .claude/skills/run-ios-sim/launch.sh
 ```
 
-Optional: pass a different simulator UDID as `$1` (default is the iPhone 16
-below). Find UDIDs with `xcrun simctl list devices`.
+Optional: pass a specific simulator UDID as `$1`. With no argument the script
+resolves one itself: an already-booted iPhone if there is one, otherwise the
+newest available iPhone. List them with `xcrun simctl list devices available`.
 
-- **Default simulator:** iPhone 16 — `B46FD09B-E0BC-400E-821B-5CE3D575ECAB`
+- **Simulator:** resolved at run time, never pinned. Xcode updates retire device
+  types, so a hardcoded UDID eventually points at a simulator that no longer
+  exists and the run fails only after a full web build.
 - **App:** `com.hushh.app` (scheme `App`, `ios/App/App.xcodeproj`)
 - **Backend baked in:** UAT (`https://consent-protocol-f2gsa4kfsq-uc.a.run.app`)
 
@@ -46,12 +46,13 @@ Autonomous agents cannot pass this gate — a human does the login.
 
 Diagnose runtime issues with the WKWebView + native log:
 ```bash
-xcrun simctl spawn B46FD09B-E0BC-400E-821B-5CE3D575ECAB log show --last 120s --predicate 'process == "App"'
+UDID="$(xcrun simctl list devices booted | sed -n 's/.*(\([0-9A-F-]\{36\}\)).*/\1/p' | head -1)"
+xcrun simctl spawn "$UDID" log show --last 120s --predicate 'process == "App"'
 ```
 
 Screenshot the current simulator screen:
 ```bash
-xcrun simctl io B46FD09B-E0BC-400E-821B-5CE3D575ECAB screenshot /tmp/onepoint-sim.png
+xcrun simctl io booted screenshot /tmp/onepoint-sim.png
 ```
 
 ## Gotchas (don't relearn these)

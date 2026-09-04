@@ -2,11 +2,8 @@
 name: frontend-design-system
 description: Use when changing Hussh UI architecture, shared components, shell chrome, or styling rules inside the frontend owner family.
 ---
-
 # Hussh Frontend Design System Skill
-
 ## Purpose and Trigger
-
 - Primary scope: `frontend-design-system`
 - Trigger on shared UI architecture, reusable surface primitives, shell chrome, styling rules, and design-system policy changes.
 - Avoid overlap with `frontend-architecture` and `frontend-surface-placement`.
@@ -43,11 +40,12 @@ Non-owned surfaces:
 
 ## Read First
 
-1. `docs/reference/quality/design-system.md`
-2. `docs/reference/quality/frontend-ui-architecture-map.md`
-3. `docs/reference/quality/app-surface-design-system.md`
-4. `docs/reference/quality/frontend-pattern-catalog.md`
-5. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
+1. `docs/reference/quality/design.md`
+2. `docs/reference/quality/design-system.md`
+3. `docs/reference/quality/frontend-ui-architecture-map.md`
+4. `docs/reference/quality/app-surface-design-system.md`
+5. `docs/reference/quality/frontend-pattern-catalog.md`
+6. `.codex/skills/frontend-design-system/references/design-review-kernel.md`
 
 ## Workflow
 
@@ -55,7 +53,7 @@ Non-owned surfaces:
 2. Decide the owning layer first: stock UI, Morphy UX, or app-ui.
 3. Keep route-container ownership with shared shells.
 4. Update docs or verification commands when the design rule itself changes.
-5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership. For One consent/vault copy, frame user-held knowledge/information as safewords and avoid generic `your information` onboarding language. Onboarding is One-first with downstream sub-onboardings (Kai/RIA/KYC): model every flow via the registry in `hushh-webapp/lib/navigation/onboarding-registry.ts` (One is the only account-scoped gate, reappearing only on reset/delete; subs are surface-scoped, independently re-enterable), gate on the authoritative store not the deprecated `kai_onboarding_required` cookie, and await server completion sync before navigating. See `docs/reference/quality/one-onboarding-architecture.md`.
+5. Keep persona-facing labels plain-language and route action ids aligned to One/Kai/Nav ownership. For One consent/vault copy, frame user-held knowledge/information as safewords and avoid generic `your information` onboarding language. Onboarding is One-first with downstream sub-onboardings (Kai/RIA/KYC): model every flow via the registry in `hushh-webapp/lib/navigation/onboarding-registry.ts` (One is the only account-scoped gate, reappearing only on reset/delete; subs are surface-scoped, independently re-enterable), gate on the authoritative store not the deprecated `kai_onboarding_required` cookie, and await server completion sync before navigating. See `docs/reference/quality/one-onboarding-architecture.md`. Follow *Shell and navigation ownership* in `docs/reference/quality/app-surface-design-system.md`: a `standard` route declares a breadcrumb, which is what mints its back control.
 6. Keep consumer notifications, Email Helper rows, and background-task rows free of implementation diagnostics. Do not show `PKM`, manifests, schemas, tokens, thread ids, workflow ids, consent ids, hashes, timings, correlation ids, route names, raw errors, or dummy-save language outside developer-only surfaces.
 7. For signed-in route shell, header, search/filter, or hover changes, verify shared `AppPageShell`, `PageHeader`, `KaiCommandBarGlobal`, and app-ui interaction contracts before adding route-local chrome.
 8. Use shadcn Sonner for transient success/error/loading feedback and shadcn AlertDialog for destructive confirmation. Do not add route-local inline error banners for row actions, saves, deletes, refreshes, or short-lived failures; reserve inline errors for stable page-blocking states. For async actionables that wait for a backend ack/status (deletes, resets, disconnects, sends), use the branded `morphyToast.promise` from `@/lib/morphy-ux/morphy` tied to the real action promise so one toast morphs loading -> success/error in place; never pair a manual loading toast with a separate success/error toast or fire success before the promise resolves. Confirmation buttons (`AlertDialogAction`/`AlertDialogCancel`) carry the shared Material ripple from `components/ui/alert-dialog.tsx`; do not swap them to the plain `@/components/ui/button` or strip the ripple host. See the Consumer Copy Contract and Ripple Ownership and Clipping sections in `app-surface-design-system.md`.
@@ -65,10 +63,13 @@ Non-owned surfaces:
 12. Profile sharing controls must present the three visibility postures as plain language: `Private`, `Ask first`, and `Available by default`. Do not show `visibility_posture`, `default_available`, `scope`, `manifest`, `registry`, or `non-consented export` in consumer copy.
 13. Review composition, hierarchy, responsive layout, interaction, form geometry, copy, and contrast through `design-review-kernel.md`; challenge incomplete, vague, asymmetric, or noisy UI before shipping the obvious weaker version.
 14. Match all standalone buttons, pill triggers, and icon controls to the gold-standard flat-control recipe owned by the agent bar, bottom nav, and top-app-bar buttons. Reuse `ShellActionSurface` (`SHELL_ICON_BUTTON_CLASSNAME` / `SHELL_PILL_TRIGGER_CLASSNAME`) rather than re-deriving `rounded-full` + `bg-black/[0.05] dark:bg-white/[0.07]` + flat hover/press per surface. Sibling controls in one group must share one `morphy-ux` effect (do not mix `glass` and `fade`). See the Control Surface Contract in `app-surface-design-system.md`.
-15. Enforce pixel-grid symmetry for repeated visual systems. Section headings, app-icon launchers, tabs, progress strips, and first visual cells must share stable start lines. Use fixed cell widths/tracks and `justify-start` for launcher grids; do not stretch a small set of icons across a wide card, and do not duplicate a top selector when the page body already shows the same launcher. See the Pixel Grid And Symmetry Contract in `app-surface-design-system.md`.
-16. Give every modal floating surface the shared backdrop thump. Dialogs/sheets/drawers/command palette/vault dialog inherit it from `DialogOverlay`; modal popovers opt in with `PopoverContent withBackdrop` (renders `data-slot="popover-scrim"` animated by the shared `overlay-scrim-*` keyframes). Do not hand-roll per-surface scrim opacity, blur, or duration. Bottom navigation is a FIXED per-scope set: subroutes collapse onto their parent top-level tab (finance is the reference) through `lib/navigation/app-bottom-nav.ts`; never inject a per-subroute tab into the bar. There is exactly ONE app-wide route transition (uniform exit->enter crossfade): `useRouteTransition` (mounted once in `app/providers.tsx`) intercepts `<a>` clicks AND patches the History API once, so every `router.push`/`router.replace` inherits the crossfade with zero per-site code — never add a parallel navigation animation (framer-motion `template.tsx`, View Transitions, per-route motion); a hard-cut screen bypassed `router`/`<a>`, so route it through `router`, and keep `EXIT_MS`/`ENTER_MS` in `lib/morphy-ux/hooks/use-route-transition.ts` synced with `--motion-route-exit/enter-duration`. See the Overlay Backdrop Contract and Bottom Navigation Contract in `app-surface-design-system.md` and the Route transitions section in `lib/morphy-ux/README.md`.
+15. Enforce pixel-grid symmetry for repeated visual systems. Section headings, app-icon launchers, tabs, progress strips, and first visual cells must share stable start lines. Use fixed cell widths/tracks and `justify-start` for launcher grids; route headers use the lean shared `PageHeader`, and `SettingsGroup`/`SettingsRow` own responsive inset rows; do not stretch a small set of icons across a wide card or duplicate route chrome. See the Pixel Grid And Symmetry Contract in `app-surface-design-system.md`.
+16. Give every modal floating surface the shared backdrop thump. Dialogs/sheets/drawers/command palette/vault dialog inherit it from `DialogOverlay`; modal popovers opt in with `PopoverContent withBackdrop` (renders `data-slot="popover-scrim"` animated by the shared `overlay-scrim-*` keyframes). Do not hand-roll per-surface scrim opacity, blur, or duration. Bottom navigation centers the primary `One`, `Connect`, and `Search` group, with Search as a segment; Finance/RIA contextual tabs are route-driven inside the unified top shell, never route-local or bottom-navigation tabs. Profile is the rightmost signed-in top-bar control with the shared image/generic fallback. There is exactly ONE app-wide route transition (uniform exit->enter crossfade): `useRouteTransition` (mounted once in `app/providers.tsx`) intercepts `<a>` clicks AND patches the History API once, so every `router.push`/`router.replace` inherits the crossfade with zero per-site code — never add a parallel navigation animation (framer-motion `template.tsx`, View Transitions, per-route motion); a hard-cut screen bypassed `router`/`<a>`, so route it through `router`, and keep `EXIT_MS`/`ENTER_MS` in `lib/morphy-ux/hooks/use-route-transition.ts` synced with `--motion-route-exit/enter-duration`. See the Overlay Backdrop Contract and Bottom Navigation Contract in `app-surface-design-system.md` and the Route transitions section in `lib/morphy-ux/README.md`.
 17. Agent Chat and portfolio import streaming surfaces use `components/app-ui/stream-progress-panel.tsx` as the shared primitive. Active assistant stream panels must be full-width, progress/thinking/response sections must stay distinct, marketplace opportunity accordions must be preloaded by the workspace when possible, and mobile chat history drawers must use shared glass chrome rather than flat white desktop panes. See the Agent Chat Stream Surface Contract in `app-surface-design-system.md`.
 18. In-page step/tab enters use the shared `.motion-step-enter` utility (`app/globals.css`, motion tokens, reduced-motion safe) - never ad-hoc `animate-in fade-in slide-in-* duration-N`. Dark chrome tints (bar glass, chrome-glass-surface, morphy-app-bg, route palettes like `--one-bg`/`--one-card`) derive from `color-mix(in oklab, var(--background) N%, transparent)`, never hardcoded `rgb(28,28,30)`/`#1c1c1e` (lighter than true `--background` = milky band / "double card" partition). Visualizations are honest: sparklines only from real series scaled to their own min/max, degraded rows get a `Delayed` chip + flat dashed baseline, never invented always-green paths. Drawer flows (vault unlock) keep ONE surface: no opaque card inside `DrawerContent` (morphy `Card effect="fill"` needs `!bg-transparent`).
+19. Initial source/import decisions are short task selectors, not dashboards: use `PageHeader` plus one `SettingsGroup`/`SettingsRow` list at the reading measure. The first mobile viewport must contain the choices and deferral action; do not add badge clusters, drag-and-drop panels, duplicate CTA buttons, or a setup-terminal action until the user completes or defers a source choice.
+20. Ambient shell material has one owner: `AmbientChromeMask` and `lib/morphy-ux/ambient-chrome.ts`; both edges render on desktop/mobile with no route gradients or second engine. The top mask spans resolved shell height, stays solid through the `bar-with-tabs` underline, then uses a short tail that ends before the first bounded route surface. Use the route-layout body-offset contract for additional reading space; never add a second mask or route-local gradient.
+21. Finance is one query-tabbed One workspace: Profile's `AppPageShell width="reading"` owns the gutter and the top shell owns tabs; render one primary `PageHeader`, never route-local tabs, second fixed headers, or a wider dashboard canvas.
 ## Handoff Rules
 1. Broad or ambiguous frontend work routes back to `frontend`.
 2. Route contracts or verification ownership route to `frontend-architecture`.
@@ -76,7 +77,6 @@ Non-owned surfaces:
 4. Cross-domain scans start with `repo-context`.
 
 ## Required Checks
-
 ```bash
 cd hushh-webapp && npm run verify:design-system
 cd hushh-webapp && npm run verify:cache

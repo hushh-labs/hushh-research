@@ -23,17 +23,6 @@ export function RootLayoutClient({
   fontClasses: _fontClasses,
 }: RootLayoutClientProps) {
   return (
-    <>
-      {/* Fixed app background surface (oversized to prevent mobile gaps). */}
-      <div
-        className="fixed top-[-10vh] left-0 w-full h-[120vh] -z-20 morphy-app-bg pointer-events-none"
-        style={{
-          backgroundColor: "var(--background)",
-          backgroundImage: "none",
-        }}
-      />
-
-      <Providers>{children}</Providers>
-    </>
+    <Providers>{children}</Providers>
   );
 }

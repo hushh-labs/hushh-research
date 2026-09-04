@@ -41,6 +41,7 @@ class ModelEntry:
     supports_function_calling: bool = True
     supports_native_realtime: bool = False
     supports_prompt_caching: bool = False
+    supported_vertex_locations: tuple[str, ...] = field(default_factory=tuple)
     aliases: tuple[str, ...] = field(default_factory=tuple)
 
 
@@ -48,17 +49,58 @@ class ModelEntry:
 OPENAI_REALTIME_PROVIDERS: tuple[ProviderId, ...] = ("gemini", "openai")
 
 _MODELS: tuple[ModelEntry, ...] = (
-    # Gemini -- runs on the real google-genai client; native realtime via Live API.
+    # Gemini text models use generateContent and are not valid Live transports.
+    # Native realtime is model-specific; never infer it from the provider.
     ModelEntry(
         provider="gemini",
         model=GEMINI_MODEL,
-        supports_native_realtime=True,
         supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
         aliases=("gemini-default", "default"),
     ),
-    ModelEntry(provider="gemini", model="gemini-3.5-flash", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-3.1-pro-preview", supports_native_realtime=True),
-    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite", supports_native_realtime=True),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.8-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.7-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.6-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.5-flash",
+        supports_prompt_caching=True,
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.1-pro-preview",
+        supported_vertex_locations=("global",),
+    ),
+    ModelEntry(provider="gemini", model="gemini-3.1-flash-lite"),
+    ModelEntry(
+        provider="gemini",
+        model="gemini-live-2.5-flash-native-audio",
+        supports_native_realtime=True,
+    ),
+    # Canonical live model since 2026-08-21. Developer API transport only
+    # (not published on Vertex), so no supported_vertex_locations contract;
+    # the endpoint decision lives in GEMINI_LIVE_COMPATIBILITY (agent_tree).
+    ModelEntry(
+        provider="gemini",
+        model="gemini-3.1-flash-live-preview",
+        supports_native_realtime=True,
+    ),
     # Anthropic -- native SDK adapter; chained-only voice (no native realtime API).
     ModelEntry(
         provider="anthropic",

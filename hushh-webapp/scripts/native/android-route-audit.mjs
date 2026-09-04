@@ -9,6 +9,19 @@ import {
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { syncNativeFirebaseConfigs } from "./sync-native-firebase-configs.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeRawStatusForReport,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
+import {
+  isCompleteNativeRouteAuditStatus,
+  isSettledNativeRouteAuditSurface,
+  nativeRouteAuditProgressKey,
+  parseNativeRouteAuditStatus,
+} from "./native-route-status.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -35,6 +48,17 @@ const googleServicesCandidates = [
   path.join(androidDir, "app/src/Debug/google-services.json"),
 ];
 const timeoutMs = Number(process.env.ANDROID_ROUTE_AUDIT_TIMEOUT_MS || "120000");
+const noProgressTimeoutMs = Math.min(
+  timeoutMs,
+  Math.max(
+    1_000,
+    Number(process.env.ANDROID_ROUTE_AUDIT_NO_PROGRESS_TIMEOUT_MS || "20000"),
+  ),
+);
+const maxConsecutiveFailures = Math.max(
+  1,
+  Number(process.env.ANDROID_ROUTE_AUDIT_MAX_CONSECUTIVE_FAILURES || "3"),
+);
 const emulatorBootTimeoutMs = Number(
   process.env.ANDROID_EMULATOR_BOOT_TIMEOUT_MS || "180000"
 );
@@ -52,12 +76,24 @@ const reinstallRouteSet = new Set(
     .map((route) => route.trim())
     .filter(Boolean)
 );
+let activeAuditSerial = "";
+let startedEmulator = false;
+let startedEmulatorSerial = "";
+
+assertDestructiveNativeAuditAllowed();
 
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir }),
 });
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
+
+function assertDestructiveNativeAuditAllowed() {
+  if (process.env.HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT === "true") return;
+  throw new Error(
+    "This is a destructive cold-start route audit: it force-stops and can clear or reinstall the Android app. It cannot prove vault or route continuity. Use npm run android:continuity:local for a normal-session check, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true only for an intentional cold audit.",
+  );
+}
 
 function run(cmd, args, options = {}) {
   const output = execFileSync(cmd, args, {
@@ -101,6 +137,26 @@ function tryRunAdb(serial, args, options = {}) {
   } catch {
     return "";
   }
+}
+
+function cleanupAuditProcess() {
+  const serial = activeAuditSerial;
+  if (serial) {
+    tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], {
+      stdio: "ignore",
+    });
+  }
+  activeAuditSerial = "";
+  if (serial && startedEmulatorSerial === serial) {
+    tryRunAdb(serial, ["emu", "kill"], { stdio: "ignore" });
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    cleanupAuditProcess();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
 }
 
 function sleep(ms) {
@@ -150,6 +206,7 @@ function bootEmulatorIfNeeded() {
     stdio: "ignore",
   });
   child.unref();
+  startedEmulator = true;
 }
 
 function waitForBootedDevice() {
@@ -176,19 +233,6 @@ function waitForBootedDevice() {
     `Android emulator did not become boot-ready within ${emulatorBootTimeoutMs}ms${
       lastSerial ? ` (last device: ${lastSerial})` : ""
     }.`
-  );
-}
-
-function parseStatus(raw) {
-  return Object.fromEntries(
-    raw
-      .trim()
-      .split(";")
-      .filter(Boolean)
-      .map((part) => {
-        const [key, ...rest] = part.split("=");
-        return [key, rest.join("=")];
-      })
   );
 }
 
@@ -238,7 +282,11 @@ function resolveAdbDevice() {
 
   if (devices.length === 0) {
     bootEmulatorIfNeeded();
-    devices = [waitForBootedDevice()];
+    const serial = waitForBootedDevice();
+    if (startedEmulator) {
+      startedEmulatorSerial = serial;
+    }
+    devices = [serial];
   }
   return devices[0];
 }
@@ -273,6 +321,7 @@ function ensureNativeTestBuildEnv() {
     NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
+    NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
@@ -365,9 +414,6 @@ function launchRoute(serial, route) {
     "--ez",
     "HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN",
     route.autoReviewerLogin ? "true" : "false",
-    "--ez",
-    "HUSHH_NATIVE_TEST_RESET_APP_STATE",
-    "false",
     "--es",
     "HUSHH_NATIVE_TEST_VAULT_PASSPHRASE",
     reviewerVaultPassphrase,
@@ -397,12 +443,27 @@ function waitForStatus(serial, route) {
   const startedAt = Date.now();
   let lastRaw = "";
   let lastParsed = {};
+  let lastProgressKey = "";
+  let lastProgressAt = startedAt;
+  let settledMismatchKey = "";
+  let settledMismatchAt = 0;
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
-      lastRaw = readStatus(serial).trim();
-      if (lastRaw) {
-        lastParsed = parseStatus(lastRaw);
+      const rawStatus = readStatus(serial).trim();
+      const parsedStatus = parseNativeRouteAuditStatus(rawStatus);
+      if (
+        isCompleteNativeRouteAuditStatus(parsedStatus, {
+          requiresVaultBootstrap: route.expectedAuth === "authenticated",
+        })
+      ) {
+        lastRaw = rawStatus;
+        lastParsed = parsedStatus;
+        const progressKey = nativeRouteAuditProgressKey(lastParsed);
+        if (progressKey !== lastProgressKey) {
+          lastProgressKey = progressKey;
+          lastProgressAt = Date.now();
+        }
         const readyOk = (lastParsed.ready || "") === "1";
         const foundOk = (lastParsed.found || "") === "1";
         const markerOk = (lastParsed.marker || "") === route.expectedMarker;
@@ -416,9 +477,41 @@ function waitForStatus(serial, route) {
             raw: lastRaw,
           };
         }
+
+        if (
+          isSettledNativeRouteAuditSurface(lastParsed, route) &&
+          (!markerOk || !routeOk)
+        ) {
+          const mismatchKey = `${lastParsed.route}|${lastParsed.marker}|${lastParsed.routeok}`;
+          if (
+            mismatchKey === settledMismatchKey &&
+            Date.now() - settledMismatchAt >= 1_000
+          ) {
+            return {
+              ok: false,
+              status: lastParsed,
+              raw: lastRaw,
+              errorClass: "route_mismatch",
+            };
+          }
+          settledMismatchKey = mismatchKey;
+          settledMismatchAt = Date.now();
+        } else {
+          settledMismatchKey = "";
+          settledMismatchAt = 0;
+        }
       }
     } catch {
       // The app may still be booting or the debug package may not have created the file.
+    }
+
+    if (Date.now() - lastProgressAt >= noProgressTimeoutMs) {
+      return {
+        ok: false,
+        status: lastParsed,
+        raw: lastRaw,
+        errorClass: "stalled",
+      };
     }
 
     sleep(1000);
@@ -438,9 +531,12 @@ function main() {
     .filter((route) => !routeFilter || route.route === routeFilter);
 
   console.log(`==> native Android route audit (${auditedRoutes.length} routes)`);
+  console.log(`==> failure circuit breaker: ${maxConsecutiveFailures} consecutive route failures`);
+  fs.rmSync(reportPath, { force: true });
 
   buildApp();
   const serial = resolveAdbDevice();
+  activeAuditSerial = serial;
   console.log(`==> device: ${serial}`);
 
   if (!fs.existsSync(apkPath)) {
@@ -450,6 +546,8 @@ function main() {
   reinstallApp(serial);
 
   const results = [];
+  let consecutiveFailures = 0;
+  let auditComplete = true;
 
   for (const route of auditedRoutes) {
     process.stdout.write(`   - ${route.route} ... `);
@@ -464,20 +562,22 @@ function main() {
           route: route.route,
           ok: false,
           expected: route,
-          observed: result.status,
-          raw: result.raw,
+          observed: sanitizeStatusForReport(result.status),
+          raw: sanitizeRawStatusForReport(result.raw),
+          errorClass: result.errorClass || undefined,
         });
-        continue;
+        consecutiveFailures += 1;
+      } else {
+        console.log("OK");
+        results.push({
+          route: route.route,
+          ok: true,
+          expected: route,
+          observed: sanitizeStatusForReport(result.status),
+          raw: sanitizeRawStatusForReport(result.raw),
+        });
+        consecutiveFailures = 0;
       }
-
-      console.log("OK");
-      results.push({
-        route: route.route,
-        ok: true,
-        expected: route,
-        observed: result.status,
-        raw: result.raw,
-      });
     } catch (error) {
       console.log("FAIL");
       clearStatus(serial);
@@ -487,8 +587,15 @@ function main() {
         expected: route,
         observed: {},
         raw: "",
-        error: error instanceof Error ? error.message : String(error),
+        errorClass: errorClass(error),
       });
+      consecutiveFailures += 1;
+    }
+
+    if (consecutiveFailures >= maxConsecutiveFailures) {
+      auditComplete = false;
+      console.log(`==> stopping after ${consecutiveFailures} consecutive route failures`);
+      break;
     }
   }
 
@@ -496,16 +603,21 @@ function main() {
     generated_at: new Date().toISOString(),
     device: serial,
     audited_routes: auditedRoutes.length,
+    completed_routes: results.length,
+    audit_complete: auditComplete && results.length === auditedRoutes.length,
+    max_consecutive_failures: maxConsecutiveFailures,
     passed_routes: results.filter((result) => result.ok).length,
     failed_routes: results.filter((result) => !result.ok).length,
     results,
   };
 
-  fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
+  const sanitizedSummary = sanitizeNativeArtifact(summary);
+  assertNativeArtifactSafe(sanitizedSummary, [reviewerUid, reviewerVaultPassphrase]);
+  fs.writeFileSync(reportPath, `${JSON.stringify(sanitizedSummary, null, 2)}\n`);
   console.log(`==> report: ${path.relative(repoRoot, reportPath)}`);
 
-  if (summary.failed_routes > 0) {
-    process.exit(1);
+  if (!summary.audit_complete || summary.failed_routes > 0) {
+    process.exitCode = 1;
   }
 }
 
@@ -513,5 +625,7 @@ try {
   main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
-  process.exit(1);
+  process.exitCode = 1;
+} finally {
+  cleanupAuditProcess();
 }

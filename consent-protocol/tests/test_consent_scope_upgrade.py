@@ -21,17 +21,24 @@ _CONNECTOR_PUBLIC_KEY = "AAECAwQFBgcICQoLDA0ODxAREhMUFRYXGBkaGxwdHh8="
 _SCOPE_HANDLE = "s_scope_demo_123"
 
 
-def _developer_export_payload(*, request_id: str, scope: str) -> dict:
+def _developer_export_payload(
+    *,
+    request_id: str,
+    scope: str,
+    app_id: str = "app_demo_123",
+    scope_handle: str = _SCOPE_HANDLE,
+    expiry_hours: int = 24,
+) -> dict:
     encrypted_data = base64.b64encode(b"ciphertext").decode()
     aad = ConsentExportAadV2(
-        app_id="app_demo_123",
+        app_id=app_id,
         grant_id=request_id,
         export_id="123e4567-e89b-12d3-a456-426614174000",
         revision=1,
         machine_scope=scope,
-        scope_handle=_SCOPE_HANDLE,
+        scope_handle=scope_handle,
         recipient_key_fingerprint=connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
-        expires_at_ms=int(time.time() * 1000) + 24 * 60 * 60 * 1000,
+        expires_at_ms=int(time.time() * 1000) + expiry_hours * 60 * 60 * 1000,
     )
     ciphertext_sha256, ciphertext_bytes = ciphertext_digest_from_base64(encrypted_data)
     envelope = ConsentExportEnvelopeSubmissionV2(
@@ -155,11 +162,6 @@ def test_approve_consent_supersedes_narrower_tokens(monkeypatch):
         lambda **_kwargs: SimpleNamespace(token=issued_grant, expires_at=123456789),
     )
     monkeypatch.setattr(consent, "revoke_token", lambda token: revoked_tokens.append(token))
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -218,11 +220,6 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
         "issue_token",
         lambda **_kwargs: SimpleNamespace(token="grant_failure", expires_at=123456789),  # noqa: S106
     )
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -239,6 +236,93 @@ def test_approve_consent_fails_when_export_persistence_fails(monkeypatch):
 
     assert response.status_code == 500
     assert response.json()["detail"] == "Failed to store encrypted consent export"
+
+
+def test_person_request_approval_uses_strict_envelope_without_developer_token(monkeypatch):
+    request_id = "one_person_request_demo"
+    person_principal = "one_person:22222222-2222-4222-8222-222222222222"
+    scope = "attr.identity.legal_name"
+    scope_handle = "s_person_scope_demo_123"
+    stored_exports: list[dict] = []
+    events: list[dict] = []
+    issued: list[dict] = []
+
+    class _FakeConsentDBService:
+        async def get_pending_by_request_id(self, user_id: str, requested_id: str, **_kwargs):
+            assert user_id == "user_123"
+            assert requested_id == request_id
+            return {
+                "request_id": request_id,
+                "developer": person_principal,
+                "scope": scope,
+                "metadata": {
+                    "request_source": "one_person_profile",
+                    "requester_actor_type": "person",
+                    "requester_entity_id": "22222222-2222-4222-8222-222222222222",
+                    "requester_label": "Requester",
+                    "developer_app_id": "agent_one",
+                    "scope_handle": scope_handle,
+                    "scope_contract_version": 2,
+                    "expiry_hours": 168,
+                    "connector_public_key": _CONNECTOR_PUBLIC_KEY,
+                    "connector_key_id": "connector_demo",
+                    "connector_wrapping_alg": "X25519-AES256-GCM",
+                    "recipient_key_fingerprint": connector_key_fingerprint(_CONNECTOR_PUBLIC_KEY),
+                },
+            }
+
+        async def find_covering_active_token(self, *_args, **_kwargs):
+            return None
+
+        async def store_consent_export(self, **kwargs):
+            stored_exports.append(kwargs)
+            return True
+
+        async def insert_event(self, **kwargs):
+            events.append(kwargs)
+            return len(events)
+
+        async def get_superseded_active_tokens(self, *_args, **_kwargs):
+            return []
+
+    def _issue_token(**kwargs):
+        issued.append(kwargs)
+        return SimpleNamespace(
+            token="person_grant_token",  # noqa: S106
+            expires_at=kwargs["expires_at_ms"],
+        )
+
+    monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
+    monkeypatch.setattr(consent, "issue_token", _issue_token)
+
+    response = TestClient(_build_app()).post(
+        "/api/consent/pending/approve",
+        json={
+            "userId": "user_123",
+            "requestId": request_id,
+            "durationHours": 168,
+            **_developer_export_payload(
+                request_id=request_id,
+                scope=scope,
+                app_id="agent_one",
+                scope_handle=scope_handle,
+                expiry_hours=168,
+            ),
+        },
+    )
+
+    assert response.status_code == 200, response.json()
+    assert response.json()["consent_token"] == "person_grant_token"
+    assert issued[0]["agent_id"] == person_principal
+    assert issued[0]["scope"] == scope
+    assert stored_exports[0]["app_id"] == "agent_one"
+    assert stored_exports[0]["grant_id"] == request_id
+    assert stored_exports[0]["scope_handle"] == scope_handle
+    assert stored_exports[0]["recipient_key_fingerprint"] == connector_key_fingerprint(
+        _CONNECTOR_PUBLIC_KEY
+    )
+    assert events[0]["agent_id"] == person_principal
+    assert events[0]["metadata"]["requester_actor_type"] == "person"
 
 
 def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
@@ -289,11 +373,6 @@ def test_approve_consent_does_not_reuse_broken_developer_token(monkeypatch):
 
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
     monkeypatch.setattr(consent, "issue_token", _issue_token)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -356,11 +435,6 @@ def test_approve_consent_reused_developer_token_records_current_request(monkeypa
             return len(events)
 
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        lambda self, **_kwargs: None,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -506,8 +580,7 @@ def test_approve_consent_rejects_incomplete_encrypted_export_payload(monkeypatch
     assert response.json()["detail"] == "encryptedIv is required."
 
 
-def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
-    sync_calls: list[dict] = []
+def test_retired_ria_attr_scope_cannot_reuse_a_legacy_consent_token(monkeypatch):
     events: list[dict] = []
 
     class _FakeConsentDBService:
@@ -536,15 +609,7 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
             events.append(kwargs)
             return len(events)
 
-    async def _mock_sync(self, **kwargs):  # noqa: ANN001
-        sync_calls.append(kwargs)
-
     monkeypatch.setattr(consent, "ConsentDBService", _FakeConsentDBService)
-    monkeypatch.setattr(
-        consent.RIAIAMService,
-        "sync_relationship_from_consent_action",
-        _mock_sync,
-    )
 
     client = TestClient(_build_app())
     response = client.post(
@@ -555,14 +620,8 @@ def test_approve_consent_reused_token_still_syncs_ria_relationship(monkeypatch):
         },
     )
 
-    assert response.status_code == 200
-    assert response.json()["consent_token"] == "existing_ria_token"  # noqa: S105
-    assert events[0]["action"] == "CONSENT_GRANTED"
-    assert events[0]["request_id"] == "req_ria_reuse"
-    assert sync_calls == [
-        {
-            "user_id": "user_123",
-            "request_id": "req_ria_reuse",
-            "action": "CONSENT_GRANTED",
-        }
-    ]
+    assert response.status_code == 410
+    assert response.json()["detail"]["error_code"] == "SCOPE_RETIRED"
+    # A reused token is not a back door around the explicit bilateral proposal
+    # contract, and no generic consent event may activate a relationship.
+    assert events == []

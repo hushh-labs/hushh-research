@@ -6,7 +6,7 @@ description: Semantic onboarding adjudicator and deterministic journey-policy sp
 status: active
 owner: backend
 parent: agent_one
-model: gemini-3.5-flash
+model: gemini-default
 credential_policy:
   default: hushh_managed_vertex
   allowed:

@@ -19,7 +19,12 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const webDir = path.resolve(__dirname, "..", "..");
 const repoRoot = path.resolve(webDir, "..");
-const contractPath = path.join(webDir, "lib", "navigation", "app-route-layout.contract.json");
+const contractPath = path.join(
+  webDir,
+  "lib",
+  "navigation",
+  "app-route-layout.contract.json",
+);
 const webEnvPath = path.join(webDir, ".env.local");
 const protocolEnvPath = path.join(repoRoot, "consent-protocol", ".env");
 
@@ -41,8 +46,12 @@ const appOrigin = (
   process.env.NEXT_PUBLIC_APP_URL ||
   "http://localhost:3000"
 ).replace(/\/$/, "");
-const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "").trim().toLowerCase();
-const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "").trim().toLowerCase();
+const routeFilter = String(process.env.HUSHH_ROUTE_FILTER || "")
+  .trim()
+  .toLowerCase();
+const viewportFilter = String(process.env.HUSHH_VIEWPORT_FILTER || "")
+  .trim()
+  .toLowerCase();
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot, webDir }),
 });
@@ -57,16 +66,22 @@ const VIEWPORTS = [
 ];
 const NAVIGATION_TIMEOUT_MS = 120000;
 const CLIENT_NAVIGATION_CONTEXT_KEY = "__hushhSignedInRouteContextProbe";
-const INTERNAL_APP_NAVIGATION_REQUEST_EVENT = "app-internal-navigation-requested";
+const INTERNAL_APP_NAVIGATION_REQUEST_EVENT =
+  "app-internal-navigation-requested";
 const REVIEWER_BOOTSTRAP_ROUTE = "/ria";
+const REVIEWER_BOOTSTRAP_ROUTE_IDS = [
+  REVIEWER_BOOTSTRAP_ROUTE,
+  "/ria/onboarding",
+];
 const SAME_SESSION_SHELL_ROUTES = new Set([
   "/agent",
   "/one",
   "/one/gmail",
+  "/one/feed",
   "/one/pkm",
   "/one/connected-systems",
-  "/profile",
-  "/profile/pkm-agent-lab",
+  "/one/profile",
+  "/one/profile/pkm-agent-lab",
   "/one/kyc",
   "/ria",
   "/ria/clients",
@@ -74,14 +89,14 @@ const SAME_SESSION_SHELL_ROUTES = new Set([
   "/ria/clients/[userId]/accounts/[accountId]",
   "/ria/picks",
   "/marketplace",
-  "/consents",
+  "/one/consent",
   "/one/kai",
   "/one/kai/portfolio",
   "/one/kai/import",
   "/one/kai/analysis",
 ]);
 const PROFILE_DIRECT_ENTRY_ROUTES = new Set([
-  "/profile/gmail/oauth/return",
+  "/one/profile/gmail/oauth/return",
 ]);
 
 const TERMINAL_DATA_STATES = new Set([
@@ -100,9 +115,7 @@ const TRANSIENT_BACKGROUND_FETCH_ERRORS = [
   "[KaiHistory] Failed to get history: TypeError: Failed to fetch",
   "Failed to load profile manager data: TypeError: Failed to fetch",
 ];
-const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [
-  "/api/kai/voice/capability :: net::ERR_FAILED",
-];
+const TRANSIENT_BACKGROUND_REQUEST_FAILURES = [];
 const TRANSIENT_BACKGROUND_RESPONSE_FAILURES = [
   "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
   "/api/connected-systems/salesforce-fsc-customer0/records/search",
@@ -151,14 +164,37 @@ const DYNAMIC_ROUTE_FIXTURES = {
   },
 };
 
+const KAI_ONBOARDING_COMPATIBILITY_PATHNAMES = [
+  "/one/setup/finance",
+  "/one/setup/kai",
+  "/one",
+  "/one/kai",
+];
+const KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS = [
+  "/one/setup/kai",
+  "/one",
+  "/one/kai",
+];
+
 const ROUTE_OVERRIDES = {
+  // Gmail remains addressable for compatibility, but the authored capability
+  // registry currently marks it paused. Its client page intentionally settles
+  // on One instead of mounting a disabled workspace.
+  "/one/gmail": {
+    allowedPathnames: ["/one"],
+    allowedRouteIds: ["/one"],
+  },
+  "/kai/onboarding": {
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
+  },
   "/one/kai/onboarding": {
-    allowedPathnames: ["/one/kai/onboarding", "/one/kai"],
-    allowedRouteIds: ["/one/kai/onboarding", "/one/kai"],
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
   "/one/setup/kai": {
-    allowedPathnames: ["/one/setup/kai", "/one"],
-    allowedRouteIds: ["/one/setup/kai", "/one"],
+    allowedPathnames: KAI_ONBOARDING_COMPATIBILITY_PATHNAMES,
+    allowedRouteIds: KAI_ONBOARDING_COMPATIBILITY_ROUTE_IDS,
   },
   "/ria/onboarding": {
     allowedPathnames: ["/ria/onboarding", "/ria"],
@@ -174,8 +210,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/gmail": {
     path: "/gmail",
-    expectedPathname: "/one/gmail",
-    allowedRouteIds: ["/one/gmail"],
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
   },
   "/pkm": {
     path: "/pkm",
@@ -214,13 +250,15 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/investments": {
     path: "/kai/investments",
-    expectedPathname: "/one/kai/investments",
-    allowedRouteIds: ["/one/kai/investments"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/funding-trade": {
     path: "/kai/funding-trade",
-    expectedPathname: "/one/kai/funding-trade",
-    allowedRouteIds: ["/one/kai/funding-trade"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/onboarding": {
     path: "/kai/onboarding",
@@ -234,8 +272,9 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/kai/optimize": {
     path: "/kai/optimize",
-    expectedPathname: "/one/kai/optimize",
-    allowedRouteIds: ["/one/kai/optimize"],
+    expectedPathname: "/one/kai",
+    expectedQueryIncludes: ["tab=portfolio"],
+    allowedRouteIds: ["/one/kai"],
   },
   "/kai/plaid/oauth/return": {
     path: "/kai/plaid/oauth/return",
@@ -259,8 +298,8 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/marketplace/connections": {
     path: "/marketplace/connections",
-    expectedPathname: "/consents",
-    allowedRouteIds: ["/consents"],
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
   },
   "/marketplace/connections/portfolio": {
     path: "/marketplace/connections/portfolio",
@@ -269,24 +308,24 @@ const REDIRECT_EXPECTATIONS = {
   },
   "/ria/requests": {
     path: "/ria/requests",
-    expectedPathname: "/consents",
-    allowedRouteIds: ["/consents"],
+    expectedPathname: "/one/consent",
+    allowedRouteIds: ["/one/consent"],
   },
   "/ria/settings": {
     path: "/ria/settings",
-    expectedPathname: "/profile",
-    allowedRouteIds: ["/profile"],
+    expectedPathname: "/one/profile",
+    allowedRouteIds: ["/one/profile"],
   },
-  "/profile/pkm": {
-    path: "/profile/pkm",
+  "/one/profile/pkm": {
+    path: "/one/profile/pkm",
     expectedPathname: "/one/pkm",
     allowedRouteIds: ["/one/pkm"],
     requiresColdEntry: true,
   },
-  "/profile/receipts": {
-    path: "/profile/receipts",
-    expectedPathname: "/one/gmail",
-    allowedRouteIds: ["/one/gmail"],
+  "/one/profile/receipts": {
+    path: "/one/profile/receipts",
+    expectedPathname: "/one",
+    allowedRouteIds: ["/one"],
     requiresColdEntry: true,
   },
   "/ria/workspace": {
@@ -311,7 +350,7 @@ async function installNativeTestBridge(page) {
     {
       expectedUserId: smokeUserId,
       vaultPassphrase: reviewerPassphrase,
-    }
+    },
   );
 }
 
@@ -351,7 +390,7 @@ function splitRoutesByVerificationLane(routes) {
 function isSameSessionShellRoute(route) {
   if (SAME_SESSION_SHELL_ROUTES.has(route)) return true;
   if (PROFILE_DIRECT_ENTRY_ROUTES.has(route)) return false;
-  return route === "/profile" || route.startsWith("/profile/");
+  return route === "/one/profile" || route.startsWith("/one/profile/");
 }
 
 function isSetupGatedOneRoute(route) {
@@ -390,7 +429,7 @@ function httpStatus(url) {
       (response) => {
         response.resume();
         resolve(response.statusCode || 0);
-      }
+      },
     );
     request.on("error", reject);
     request.end();
@@ -431,9 +470,23 @@ function startDevServerIfNeeded() {
         return null;
       }
 
+      const origin = new URL(appOrigin);
+      const isLocalOrigin =
+        origin.hostname === "localhost" || origin.hostname === "127.0.0.1";
+      if (!isLocalOrigin) {
+        throw new Error(
+          `Cannot start a local route verifier server for non-local origin ${origin.origin}.`,
+        );
+      }
+      // The test must launch the web server at the origin it subsequently
+      // probes. In a full local stack the backend owns 8000, so inheriting a
+      // shell-level PORT made Next listen there while this verifier waited for
+      // localhost:3000 forever.
+      const port = origin.port || "3000";
+
       child = spawn("npm", ["run", "dev"], {
         cwd: webDir,
-        env: { ...process.env },
+        env: { ...process.env, PORT: port },
         stdio: "pipe",
       });
 
@@ -464,19 +517,28 @@ function routeSpec(route) {
     if (!expectation) {
       throw new Error(`Missing redirect expectation for ${route.route}`);
     }
+    const override = ROUTE_OVERRIDES[route.route];
     return {
       kind: "redirect",
       route: route.route,
-      allowedPathnames: [expectation.expectedPathname],
-      expectedQueryIncludes: expectation.expectedQueryIncludes || [],
       ...expectation,
+      allowedPathnames:
+        override?.allowedPathnames ||
+        expectation.allowedPathnames ||
+        [expectation.expectedPathname].filter(Boolean),
+      allowedRouteIds: override?.allowedRouteIds ||
+        expectation.allowedRouteIds || [route.route],
+      expectedQueryIncludes: expectation.expectedQueryIncludes || [],
     };
   }
 
   const fixture = DYNAMIC_ROUTE_FIXTURES[route.route];
   const override = ROUTE_OVERRIDES[route.route];
-  const allowedPathnames = override?.allowedPathnames || [fixture?.expectedPathname || route.route];
-  const allowedRouteIds = override?.allowedRouteIds || fixture?.allowedRouteIds || [route.route];
+  const allowedPathnames = override?.allowedPathnames || [
+    fixture?.expectedPathname || route.route,
+  ];
+  const allowedRouteIds = override?.allowedRouteIds ||
+    fixture?.allowedRouteIds || [route.route];
   return {
     kind: route.mode,
     route: route.route,
@@ -497,10 +559,12 @@ async function ensureReviewerSession(page) {
   process.stdout.write(`→ bootstrap reviewer session\n`);
   await page.goto(
     `${appOrigin}/login?redirect=${encodeURIComponent(REVIEWER_BOOTSTRAP_ROUTE)}`,
-    { waitUntil: "domcontentloaded" }
+    { waitUntil: "domcontentloaded" },
   );
 
-  const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
+  const reviewerButton = page.getByRole("button", {
+    name: /continue as reviewer/i,
+  });
   await page.waitForFunction(
     () => {
       const bridge = window.__HUSHH_NATIVE_TEST__;
@@ -520,11 +584,11 @@ async function ensureReviewerSession(page) {
         return true;
       }
       return Array.from(document.querySelectorAll("button")).some((button) =>
-        /continue as reviewer/i.test((button.textContent || "").trim())
+        /continue as reviewer/i.test((button.textContent || "").trim()),
       );
     },
     {},
-    { timeout: 60_000 }
+    { timeout: 60_000 },
   );
 
   if (await reviewerButton.isVisible().catch(() => false)) {
@@ -537,18 +601,20 @@ async function ensureReviewerSession(page) {
       (url) =>
         url.pathname === REVIEWER_BOOTSTRAP_ROUTE ||
         url.pathname.startsWith(`${REVIEWER_BOOTSTRAP_ROUTE}/`),
-      { timeout: NAVIGATION_TIMEOUT_MS }
+      { timeout: NAVIGATION_TIMEOUT_MS },
     );
   } catch (error) {
     const diagnostics = await captureRouteDiagnostics(page);
     throw new Error(
       `Reviewer session login timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-      { cause: error }
+      { cause: error },
     );
   }
 
   const unlockInput = page.locator("#unlock-passphrase");
-  await unlockInput.waitFor({ state: "visible", timeout: 10_000 }).catch(() => {});
+  await unlockInput
+    .waitFor({ state: "visible", timeout: 10_000 })
+    .catch(() => {});
   if (await unlockInput.isVisible().catch(() => false)) {
     process.stdout.write(`→ unlock vault with passphrase\n`);
     process.stdout.write(`→ fill passphrase\n`);
@@ -559,13 +625,16 @@ async function ensureReviewerSession(page) {
       .first();
     await page.waitForFunction(
       () => {
-        const button = Array.from(document.querySelectorAll("button")).find((candidate) =>
-          /unlock with passphrase/i.test((candidate.textContent || "").trim())
+        const button = Array.from(document.querySelectorAll("button")).find(
+          (candidate) =>
+            /unlock with passphrase/i.test(
+              (candidate.textContent || "").trim(),
+            ),
         );
         return button instanceof HTMLButtonElement && !button.disabled;
       },
       {},
-      { timeout: 5_000 }
+      { timeout: 5_000 },
     );
     process.stdout.write(`→ dispatch unlock click\n`);
     await unlockButton.click({ noWaitAfter: true });
@@ -575,7 +644,7 @@ async function ensureReviewerSession(page) {
     if (await unlockInput.isVisible().catch(() => false)) {
       const diagnostics = await captureRouteDiagnostics(page);
       throw new Error(
-        `Reviewer vault unlock timed out.\n${JSON.stringify(diagnostics, null, 2)}`
+        `Reviewer vault unlock timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
       );
     }
     process.stdout.write(`→ vault unlock submitted\n`);
@@ -583,12 +652,12 @@ async function ensureReviewerSession(page) {
 
   process.stdout.write(`→ wait for reviewer route beacon\n`);
   try {
-    await waitForRouteBeacon(page, [REVIEWER_BOOTSTRAP_ROUTE]);
+    await waitForRouteBeacon(page, REVIEWER_BOOTSTRAP_ROUTE_IDS);
   } catch (error) {
     const diagnostics = await captureRouteDiagnostics(page);
     throw new Error(
       `Reviewer session route did not stabilize.\n${JSON.stringify(diagnostics, null, 2)}`,
-      { cause: error }
+      { cause: error },
     );
   }
   process.stdout.write(`→ align reviewer persona to ria\n`);
@@ -624,7 +693,12 @@ async function hasNavTourId(page, tourId) {
   const locator = page.locator(`[data-tour-id="${tourId}"]`);
   const count = await locator.count().catch(() => 0);
   for (let index = 0; index < count; index += 1) {
-    if (await locator.nth(index).isVisible().catch(() => false)) {
+    if (
+      await locator
+        .nth(index)
+        .isVisible()
+        .catch(() => false)
+    ) {
       return true;
     }
   }
@@ -632,7 +706,9 @@ async function hasNavTourId(page, tourId) {
 }
 
 async function waitForVisibleNavTourId(page, tourId, timeout = 15_000) {
-  const navLocator = await firstVisible(page.locator(`[data-tour-id="${tourId}"]`));
+  const navLocator = await firstVisible(
+    page.locator(`[data-tour-id="${tourId}"]`),
+  );
   return navLocator
     .waitFor({ state: "visible", timeout })
     .then(() => true)
@@ -681,7 +757,9 @@ async function switchPersonaViaBridge(page, persona) {
   const alreadyAligned = await page
     .evaluate((target) => {
       const bridge = window.__HUSHH_NATIVE_TEST__;
-      return bridge?.activePersona === target || bridge?.primaryNavPersona === target;
+      return (
+        bridge?.activePersona === target || bridge?.primaryNavPersona === target
+      );
     }, persona)
     .catch(() => false);
   if (alreadyAligned) {
@@ -700,7 +778,10 @@ async function switchPersonaViaBridge(page, persona) {
     return false;
   }
 
-  await page.evaluate((target) => window.__HUSHH_NATIVE_TEST__?.switchPersona?.(target), persona);
+  await page.evaluate(
+    (target) => window.__HUSHH_NATIVE_TEST__?.switchPersona?.(target),
+    persona,
+  );
   await page.waitForFunction(
     (target) => {
       const bridge = window.__HUSHH_NATIVE_TEST__;
@@ -739,7 +820,7 @@ async function ensurePersona(page, persona) {
       return;
     }
     await clickBottomNav(page, "Profile");
-    await waitForRouteBeacon(page, ["/profile"]);
+    await waitForRouteBeacon(page, ["/one/profile"]);
   }
 
   const stayInRiaWorkspace = page.getByRole("button", {
@@ -752,7 +833,10 @@ async function ensurePersona(page, persona) {
     name: /switch to investor workspace/i,
   });
 
-  if (persona === "ria" && (await stayInRiaWorkspace.isVisible().catch(() => false))) {
+  if (
+    persona === "ria" &&
+    (await stayInRiaWorkspace.isVisible().catch(() => false))
+  ) {
     await stayInRiaWorkspace.click();
     await page.waitForTimeout(1500);
     return;
@@ -789,22 +873,29 @@ async function ensurePersona(page, persona) {
       await acceptInvestorScopedRoutePrompt(page);
       await page.waitForTimeout(1500);
       titleTrigger = await visibleTopAppBarTitle(page);
-      const titleText = (await titleTrigger?.textContent().catch(() => "")) || "";
-      if (titleText.includes("Investor") && (await waitForVisibleNavTourId(page, "nav-market"))) {
+      const titleText =
+        (await titleTrigger?.textContent().catch(() => "")) || "";
+      if (
+        titleText.includes("Investor") &&
+        (await waitForVisibleNavTourId(page, "nav-market"))
+      ) {
         return;
       }
-      if (!titleTrigger && (await waitForVisibleNavTourId(page, "nav-market"))) {
+      if (
+        !titleTrigger &&
+        (await waitForVisibleNavTourId(page, "nav-market"))
+      ) {
         return;
       }
     }
     if (!titleTrigger) {
       await clickBottomNav(page, "Profile");
-      await waitForRouteBeacon(page, ["/profile"]);
+      await waitForRouteBeacon(page, ["/one/profile"]);
       titleTrigger = await visibleTopAppBarTitle(page);
     }
     if (!titleTrigger) {
       throw new Error(
-        `Cannot align reviewer persona to ${persona}: top app bar persona trigger is not visible on ${pathname} or /profile`
+        `Cannot align reviewer persona to ${persona}: top app bar persona trigger is not visible on ${pathname} or /one/profile`,
       );
     }
   }
@@ -820,7 +911,10 @@ async function ensurePersona(page, persona) {
     }
   }
   await titleTrigger.click({ force: true });
-  await page.getByRole("menuitem", { name: new RegExp(label, "i") }).first().click();
+  await page
+    .getByRole("menuitem", { name: new RegExp(label, "i") })
+    .first()
+    .click();
   await page.waitForTimeout(1500);
   if (
     persona === "investor" &&
@@ -837,13 +931,15 @@ async function ensurePersona(page, persona) {
     .locator("[data-tour-id]")
     .evaluateAll((nodes) =>
       nodes
-        .filter((node) => node instanceof HTMLElement && node.offsetParent !== null)
+        .filter(
+          (node) => node instanceof HTMLElement && node.offsetParent !== null,
+        )
         .map((node) => node.getAttribute("data-tour-id"))
-        .filter(Boolean)
+        .filter(Boolean),
     )
     .catch(() => []);
   throw new Error(
-    `Cannot align reviewer persona to ${persona}. Visible tour ids: ${visibleTourIds.join(", ")}`
+    `Cannot align reviewer persona to ${persona}. Visible tour ids: ${visibleTourIds.join(", ")}`,
   );
 }
 
@@ -880,19 +976,25 @@ async function clickBottomNav(page, label) {
     }
   }
 
-  const button = await firstVisible(page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }));
+  const button = await firstVisible(
+    page.getByRole("button", { name: new RegExp(`^${label}$`, "i") }),
+  );
   if (await button.isVisible().catch(() => false)) {
     await button.click();
     return;
   }
 
-  const link = await firstVisible(page.getByRole("link", { name: new RegExp(`^${label}$`, "i") }));
+  const link = await firstVisible(
+    page.getByRole("link", { name: new RegExp(`^${label}$`, "i") }),
+  );
   if (await link.isVisible().catch(() => false)) {
     await link.click();
     return;
   }
 
-  const radio = page.getByRole("radio", { name: new RegExp(`^${label}$`, "i") }).first();
+  const radio = page
+    .getByRole("radio", { name: new RegExp(`^${label}$`, "i") })
+    .first();
   if (await radio.isVisible().catch(() => false)) {
     await radio.evaluate((node) => {
       if (node instanceof HTMLElement) {
@@ -902,7 +1004,9 @@ async function clickBottomNav(page, label) {
     return;
   }
 
-  const tab = page.getByRole("tab", { name: new RegExp(`^${label}$`, "i") }).first();
+  const tab = page
+    .getByRole("tab", { name: new RegExp(`^${label}$`, "i") })
+    .first();
   if (await tab.isVisible().catch(() => false)) {
     await tab.evaluate((node) => {
       if (node instanceof HTMLElement) {
@@ -913,7 +1017,12 @@ async function clickBottomNav(page, label) {
   }
 
   const text = page.getByText(new RegExp(`^${label}$`, "i")).first();
-  if (await text.waitFor({ state: "visible", timeout: 2500 }).then(() => true).catch(() => false)) {
+  if (
+    await text
+      .waitFor({ state: "visible", timeout: 2500 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
     await text.click({ force: true });
     return;
   }
@@ -922,13 +1031,15 @@ async function clickBottomNav(page, label) {
     .locator("[data-tour-id]")
     .evaluateAll((nodes) =>
       nodes
-        .filter((node) => node instanceof HTMLElement && node.offsetParent !== null)
+        .filter(
+          (node) => node instanceof HTMLElement && node.offsetParent !== null,
+        )
         .map((node) => node.getAttribute("data-tour-id"))
-        .filter(Boolean)
+        .filter(Boolean),
     )
     .catch(() => []);
   throw new Error(
-    `Cannot find bottom navigation item "${label}" on ${page.url()}. Visible tour ids: ${visibleTourIds.join(", ")}`
+    `Cannot find bottom navigation item "${label}" on ${page.url()}. Visible tour ids: ${visibleTourIds.join(", ")}`,
   );
 }
 
@@ -949,7 +1060,7 @@ async function waitForCurrentUrl(page, href) {
       expectedPathname: expected.pathname,
       expectedSearch: expected.search,
     },
-    { timeout: NAVIGATION_TIMEOUT_MS }
+    { timeout: NAVIGATION_TIMEOUT_MS },
   );
 }
 
@@ -962,13 +1073,13 @@ async function requestAppNavigation(page, href) {
             href: targetHref,
             scroll: false,
           },
-        })
+        }),
       );
     },
     {
       eventName: INTERNAL_APP_NAVIGATION_REQUEST_EVENT,
       targetHref: href,
-    }
+    },
   );
 }
 
@@ -995,11 +1106,14 @@ async function navigateViaShell(page, spec) {
     case "/marketplace":
       await requestNativeTestRoute(page, "/marketplace", ["/marketplace"]);
       return true;
-    case "/profile":
-      await requestAppNavigation(page, "/profile");
+    case "/one/profile":
+      await requestAppNavigation(page, "/one/profile");
       return true;
     case "/one/gmail":
       await requestAppNavigation(page, "/one/gmail");
+      return true;
+    case "/one/feed":
+      await requestAppNavigation(page, "/one/feed");
       return true;
     case "/one/pkm":
       await requestAppNavigation(page, "/one/pkm");
@@ -1007,14 +1121,14 @@ async function navigateViaShell(page, spec) {
     case "/one/connected-systems":
       await requestAppNavigation(page, "/one/connected-systems");
       return true;
-    case "/profile/pkm-agent-lab":
-      await requestAppNavigation(page, "/profile/pkm-agent-lab");
+    case "/one/profile/pkm-agent-lab":
+      await requestAppNavigation(page, "/one/profile/pkm-agent-lab");
       return true;
     case "/one/kyc":
       await requestAppNavigation(page, "/one/kyc");
       return true;
-    case "/consents":
-      await requestAppNavigation(page, "/consents?tab=pending");
+    case "/one/consent":
+      await requestAppNavigation(page, "/one/consent?tab=pending");
       return true;
     case "/ria/clients/[userId]":
       await requestNativeTestRoute(page, spec.path, spec.allowedRouteIds);
@@ -1028,17 +1142,29 @@ async function navigateViaShell(page, spec) {
       await requestNativeTestRoute(page, "/one/kai", spec.allowedRouteIds);
       return true;
     case "/one/kai/portfolio":
-      await requestNativeTestRoute(page, "/one/kai/portfolio", spec.allowedRouteIds);
+      await requestNativeTestRoute(
+        page,
+        "/one/kai/portfolio",
+        spec.allowedRouteIds,
+      );
       return true;
     case "/one/kai/import":
-      await requestNativeTestRoute(page, "/one/kai/import", spec.allowedRouteIds);
+      await requestNativeTestRoute(
+        page,
+        "/one/kai/import",
+        spec.allowedRouteIds,
+      );
       return true;
     case "/one/kai/analysis":
-      await requestNativeTestRoute(page, "/one/kai/analysis", spec.allowedRouteIds);
+      await requestNativeTestRoute(
+        page,
+        "/one/kai/analysis",
+        spec.allowedRouteIds,
+      );
       return true;
     default:
       if (
-        spec.route.startsWith("/profile/") &&
+        spec.route.startsWith("/one/profile/") &&
         !PROFILE_DIRECT_ENTRY_ROUTES.has(spec.route)
       ) {
         await requestAppNavigation(page, spec.path);
@@ -1053,11 +1179,11 @@ async function waitForRouteBeacon(page, allowedRouteIds) {
     ({ routeIds, terminalStates }) => {
       const routeSignals = Array.from(
         document.querySelectorAll(
-          "[data-native-test-beacon='true'], [data-native-route-marker='true']"
-        )
+          "[data-native-test-beacon='true'], [data-native-route-marker='true']",
+        ),
       );
       const signal = routeSignals.find((node) =>
-        routeIds.includes(node.getAttribute("data-native-route-id") || "")
+        routeIds.includes(node.getAttribute("data-native-route-id") || ""),
       );
       if (!signal) {
         return false;
@@ -1072,7 +1198,7 @@ async function waitForRouteBeacon(page, allowedRouteIds) {
       routeIds: allowedRouteIds,
       terminalStates: [...TERMINAL_DATA_STATES],
     },
-    { timeout: NAVIGATION_TIMEOUT_MS }
+    { timeout: NAVIGATION_TIMEOUT_MS },
   );
 }
 
@@ -1082,19 +1208,24 @@ async function installClientNavigationContextProbe(page) {
     ({ key, value }) => {
       window[key] = value;
     },
-    { key: CLIENT_NAVIGATION_CONTEXT_KEY, value: marker }
+    { key: CLIENT_NAVIGATION_CONTEXT_KEY, value: marker },
   );
   return marker;
 }
 
-async function assertClientNavigationContextPreserved(page, marker, route, viewport) {
+async function assertClientNavigationContextPreserved(
+  page,
+  marker,
+  route,
+  viewport,
+) {
   const currentMarker = await page
     .evaluate((key) => window[key] || null, CLIENT_NAVIGATION_CONTEXT_KEY)
     .catch(() => null);
   if (currentMarker !== marker) {
     throw new Error(
       `[${viewport}] ${route} triggered a full document navigation. ` +
-        "Signed-in shell routes must use Next client navigation so memory-only vault and VAULT_OWNER state survive."
+        "Signed-in shell routes must use Next client navigation so memory-only vault and VAULT_OWNER state survive.",
     );
   }
 }
@@ -1136,7 +1267,9 @@ function collectPageIssues(page) {
     const status = response.status();
     if (status < 400) return;
     const request = response.request();
-    issues.responseFailures.push(`${status} ${request.method()} ${response.url()}`);
+    issues.responseFailures.push(
+      `${status} ${request.method()} ${response.url()}`,
+    );
   };
 
   page.on("console", onConsole);
@@ -1161,24 +1294,28 @@ function assertNoIssues(route, viewport, issues) {
     if (TRANSIENT_BROWSER_CONSOLE_ERRORS.includes(value)) {
       return false;
     }
-    if (TRANSIENT_BACKGROUND_FETCH_ERRORS.some((pattern) => value.includes(pattern))) {
-      return false;
-    }
     if (
-      value.includes("/api/kai/voice/capability") &&
-      value.includes("has been blocked by CORS policy")
+      TRANSIENT_BACKGROUND_FETCH_ERRORS.some((pattern) =>
+        value.includes(pattern),
+      )
     ) {
       return false;
     }
-    if (value.includes("Failed to load resource: the server responded with a status of 409")) {
+    if (
+      value.includes(
+        "Failed to load resource: the server responded with a status of 409",
+      )
+    ) {
       return false;
     }
     if (
-      value.includes("Failed to load resource: the server responded with a status of 502") &&
+      value.includes(
+        "Failed to load resource: the server responded with a status of 502",
+      ) &&
       issues.responseFailures.some((failure) =>
         TRANSIENT_BACKGROUND_RESPONSE_FAILURES.some((pattern) =>
-          failure.includes(pattern)
-        )
+          failure.includes(pattern),
+        ),
       )
     ) {
       return false;
@@ -1186,7 +1323,9 @@ function assertNoIssues(route, viewport, issues) {
     if (
       value === "Failed to load resource: net::ERR_FAILED" &&
       issues.requestFailures.some((failure) =>
-        TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => failure.includes(pattern))
+        TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) =>
+          failure.includes(pattern),
+        ),
       )
     ) {
       return false;
@@ -1209,20 +1348,24 @@ function assertNoIssues(route, viewport, issues) {
     ...issues.requestFailures
       .filter(
         (value) =>
-          !TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) => value.includes(pattern))
+          !TRANSIENT_BACKGROUND_REQUEST_FAILURES.some((pattern) =>
+            value.includes(pattern),
+          ),
       )
       .map((value) => `requestfailed:${value}`),
     ...issues.responseFailures
       .filter(
         (value) =>
           !TRANSIENT_BACKGROUND_RESPONSE_FAILURES.some((pattern) =>
-            value.includes(pattern)
-          )
+            value.includes(pattern),
+          ),
       )
       .map((value) => `response:${value}`),
   ];
   if (failures.length > 0) {
-    throw new Error(`[${viewport}] ${route} browser health failure:\n${failures.join("\n")}`);
+    throw new Error(
+      `[${viewport}] ${route} browser health failure:\n${failures.join("\n")}`,
+    );
   }
 }
 
@@ -1230,16 +1373,24 @@ function assertUrl(spec, finalUrl) {
   const current = new URL(finalUrl);
   if (!spec.allowedPathnames.includes(current.pathname)) {
     throw new Error(
-      `${spec.route} resolved to ${current.pathname}${current.search}, expected ${spec.allowedPathnames.join(" or ")}`
+      `${spec.route} resolved to ${current.pathname}${current.search}, expected ${spec.allowedPathnames.join(" or ")}`,
     );
   }
   for (const requiredQuery of spec.expectedQueryIncludes || []) {
     if (!current.search.includes(requiredQuery)) {
-      throw new Error(`${spec.route} missing expected query fragment "${requiredQuery}" in ${current.search}`);
+      throw new Error(
+        `${spec.route} missing expected query fragment "${requiredQuery}" in ${current.search}`,
+      );
     }
   }
-  if (spec.expectedPathname && current.pathname !== spec.expectedPathname && spec.kind === "redirect") {
-    throw new Error(`${spec.route} did not redirect to ${spec.expectedPathname}. Final URL was ${finalUrl}`);
+  if (
+    spec.expectedPathname &&
+    current.pathname !== spec.expectedPathname &&
+    spec.kind === "redirect"
+  ) {
+    throw new Error(
+      `${spec.route} did not redirect to ${spec.expectedPathname}. Final URL was ${finalUrl}`,
+    );
   }
 }
 
@@ -1248,7 +1399,9 @@ async function captureRouteDiagnostics(page) {
     url: window.location.href,
     readyState: document.readyState,
     bodySnippet: (document.body?.innerText || "").trim().slice(0, 500),
-    beacons: Array.from(document.querySelectorAll("[data-native-test-beacon='true']")).map((node) => ({
+    beacons: Array.from(
+      document.querySelectorAll("[data-native-test-beacon='true']"),
+    ).map((node) => ({
       routeId: node.getAttribute("data-native-route-id") || "",
       dataState: node.getAttribute("data-native-data-state") || "",
       marker: node.getAttribute("data-testid") || "",
@@ -1275,7 +1428,9 @@ async function verifyRoute(page, viewport, spec) {
   const { issues, dispose } = collectPageIssues(page);
   try {
     if (spec.requiresColdEntry) {
-      process.stdout.write(`↷ [${viewport}] ${spec.route} requires cold-entry verification; skipping from signed-in sweep\n`);
+      process.stdout.write(
+        `↷ [${viewport}] ${spec.route} requires cold-entry verification; skipping from signed-in sweep\n`,
+      );
       return;
     }
 
@@ -1286,7 +1441,7 @@ async function verifyRoute(page, viewport, spec) {
     if (!usedShellNav) {
       if (isSameSessionShellRoute(spec.route)) {
         throw new Error(
-          `${spec.route} must be proven through reviewer login plus Next client navigation. Add a shell navigation mapping instead of using page.goto(...).`
+          `${spec.route} must be proven through reviewer login plus Next client navigation. Add a shell navigation mapping instead of using page.goto(...).`,
         );
       }
       const targetUrl = `${appOrigin}${spec.path}`;
@@ -1297,7 +1452,7 @@ async function verifyRoute(page, viewport, spec) {
       await page.waitForFunction(
         (expectedPathname) => window.location.pathname === expectedPathname,
         spec.expectedPathname,
-        { timeout: NAVIGATION_TIMEOUT_MS }
+        { timeout: NAVIGATION_TIMEOUT_MS },
       );
     }
 
@@ -1312,16 +1467,23 @@ async function verifyRoute(page, viewport, spec) {
       const diagnostics = await captureRouteDiagnostics(page);
       throw new Error(
         `${spec.route} route beacon timed out.\n${JSON.stringify(diagnostics, null, 2)}`,
-        { cause: error }
+        { cause: error },
       );
     }
     assertUrl(spec, page.url());
     if (contextProbe) {
-      await assertClientNavigationContextPreserved(page, contextProbe, spec.route, viewport);
+      await assertClientNavigationContextPreserved(
+        page,
+        contextProbe,
+        spec.route,
+        viewport,
+      );
     }
 
     if (spec.requireBackButton) {
-      await page.getByLabel(/go back/i).waitFor({ state: "visible", timeout: 15000 });
+      await page
+        .getByLabel(/go back/i)
+        .waitFor({ state: "visible", timeout: 15000 });
     }
 
     assertNoIssues(spec.route, viewport, issues);
@@ -1339,14 +1501,16 @@ function personaForRouteSpec(spec) {
   ].filter(Boolean);
   if (
     routeLikeValues.some(
-      (value) => value.startsWith("/one/kai/onboarding") || value.startsWith("/kai/onboarding")
+      (value) =>
+        value.startsWith("/one/kai/onboarding") ||
+        value.startsWith("/kai/onboarding"),
     )
   ) {
     return null;
   }
   if (
     routeLikeValues.some(
-      (value) => value.startsWith("/one/kai") || value.startsWith("/kai")
+      (value) => value.startsWith("/one/kai") || value.startsWith("/kai"),
     )
   ) {
     return "investor";
@@ -1363,14 +1527,30 @@ async function verifyRiaWorkspaceFlow(page, viewport) {
     const contextProbe = await installClientNavigationContextProbe(page);
     await openRiaWorkspace(page);
 
-    await requestAppNavigation(page, `/ria/clients/${smokeUserId}?tab=access&test_profile=1`);
-    await waitForCurrentUrl(page, `/ria/clients/${smokeUserId}?tab=access&test_profile=1`);
+    await requestAppNavigation(
+      page,
+      `/ria/clients/${smokeUserId}?tab=access&test_profile=1`,
+    );
+    await waitForCurrentUrl(
+      page,
+      `/ria/clients/${smokeUserId}?tab=access&test_profile=1`,
+    );
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
-    await page.getByTestId("ria-client-workspace-access").waitFor({ state: "visible", timeout: 15000 });
-    await page.getByRole("link", { name: /open access/i }).first().click();
-    await waitForRouteBeacon(page, ["/consents"]);
+    await page
+      .getByTestId("ria-client-workspace-access")
+      .waitFor({ state: "visible", timeout: 15000 });
+    await page
+      .getByRole("link", { name: /open access/i })
+      .first()
+      .click();
+    await waitForRouteBeacon(page, ["/one/consent"]);
 
-    await assertClientNavigationContextPreserved(page, contextProbe, "ria-workspace-flow", viewport);
+    await assertClientNavigationContextPreserved(
+      page,
+      contextProbe,
+      "ria-workspace-flow",
+      viewport,
+    );
     assertNoIssues("ria-workspace-flow", viewport, issues);
   } finally {
     dispose();
@@ -1383,20 +1563,29 @@ async function verifyMarketplaceFlow(page, viewport) {
     const contextProbe = await installClientNavigationContextProbe(page);
     await requestNativeTestRoute(page, "/marketplace", ["/marketplace"]);
 
-    const openWorkspace = page.getByRole("button", { name: /open workspace/i }).first();
+    const openWorkspace = page
+      .getByRole("button", { name: /open workspace/i })
+      .first();
     const hasWorkspaceCard = await openWorkspace
       .waitFor({ state: "visible", timeout: 15000 })
       .then(() => true)
       .catch(() => false);
     if (!hasWorkspaceCard) {
-      process.stdout.write(`↷ [${viewport}] marketplace workspace flow skipped; no eligible workspace card\n`);
+      process.stdout.write(
+        `↷ [${viewport}] marketplace workspace flow skipped; no eligible workspace card\n`,
+      );
       assertNoIssues("marketplace-workspace-flow", viewport, issues);
       return;
     }
     await openWorkspace.click();
     await waitForRouteBeacon(page, ["/ria/clients/[userId]"]);
 
-    await assertClientNavigationContextPreserved(page, contextProbe, "marketplace-workspace-flow", viewport);
+    await assertClientNavigationContextPreserved(
+      page,
+      contextProbe,
+      "marketplace-workspace-flow",
+      viewport,
+    );
     assertNoIssues("marketplace-workspace-flow", viewport, issues);
   } finally {
     dispose();
@@ -1424,7 +1613,7 @@ async function runViewportSweep(viewport, contract) {
       } catch (error) {
         bootstrapError = error;
         process.stderr.write(
-          `bootstrap attempt ${attempt} failed for ${viewport.name}: ${error instanceof Error ? error.message : String(error)}\n`
+          `bootstrap attempt ${attempt} failed for ${viewport.name}: ${error instanceof Error ? error.message : String(error)}\n`,
         );
         await context.close().catch(() => {});
         await browser.close().catch(() => {});
@@ -1435,15 +1624,21 @@ async function runViewportSweep(viewport, contract) {
     }
 
     if (!page || bootstrapError) {
-      throw bootstrapError || new Error(`Failed to bootstrap reviewer session for ${viewport.name}`);
+      throw (
+        bootstrapError ||
+        new Error(`Failed to bootstrap reviewer session for ${viewport.name}`)
+      );
     }
 
     const includedRoutes = contract.filter(shouldIncludeRoute);
-    const { sameSession, coldEntry } = splitRoutesByVerificationLane(includedRoutes);
+    const { sameSession, coldEntry } =
+      splitRoutesByVerificationLane(includedRoutes);
 
     for (const route of sameSession) {
       const spec = routeSpec(route);
-      process.stdout.write(`→ [${viewport.name}] ${route.route} (same-session shell)\n`);
+      process.stdout.write(
+        `→ [${viewport.name}] ${route.route} (same-session shell)\n`,
+      );
       await verifyRoute(page, viewport.name, spec);
       process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }
@@ -1459,7 +1654,9 @@ async function runViewportSweep(viewport, contract) {
 
     for (const route of coldEntry) {
       const spec = routeSpec(route);
-      process.stdout.write(`→ [${viewport.name}] ${route.route} (cold-entry/direct)\n`);
+      process.stdout.write(
+        `→ [${viewport.name}] ${route.route} (cold-entry/direct)\n`,
+      );
       await verifyRoute(page, viewport.name, spec);
       process.stdout.write(`✓ [${viewport.name}] ${route.route}\n`);
     }
@@ -1480,7 +1677,9 @@ async function main() {
   const selectedViewports = includedViewports();
 
   if (selectedViewports.length === 0) {
-    throw new Error(`No viewport matched HUSHH_VIEWPORT_FILTER=${viewportFilter}`);
+    throw new Error(
+      `No viewport matched HUSHH_VIEWPORT_FILTER=${viewportFilter}`,
+    );
   }
 
   try {
@@ -1488,19 +1687,22 @@ async function main() {
       await runViewportSweep(viewport, contract);
     }
     const includedRoutes = contract.filter(shouldIncludeRoute);
-    const { sameSession, coldEntry } = splitRoutesByVerificationLane(includedRoutes);
+    const { sameSession, coldEntry } =
+      splitRoutesByVerificationLane(includedRoutes);
     process.stdout.write(
       JSON.stringify(
         {
           ok: true,
           origin: appOrigin,
           viewports: selectedViewports.map((viewport) => viewport.name),
-          sameSessionShellRoutesCovered: sameSession.map((route) => route.route),
+          sameSessionShellRoutesCovered: sameSession.map(
+            (route) => route.route,
+          ),
           coldEntryRoutesCovered: coldEntry.map((route) => route.route),
         },
         null,
-        2
-      ) + "\n"
+        2,
+      ) + "\n",
     );
   } finally {
     if (startedChild) {

@@ -6,19 +6,21 @@ import {
   resolveRequestId,
   withRequestIdJson,
 } from "@/app/api/_utils/request-id";
-import { bootstrapStateHotCache as hotPost } from "@/app/api/vault/_utils/bootstrap-state-hot-cache";
 import { validateFirebaseToken } from "@/lib/auth/validate";
 import { isDevelopment } from "@/lib/config";
-import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import {
+  isRequestTimeoutError,
+  resolveSlowRequestTimeoutMs,
+} from "@/lib/utils/request-timeouts";
 
 export const dynamic = "force-dynamic";
 
 const PYTHON_API_URL = getPythonApiUrl();
 const UPSTREAM_TIMEOUT_MS = resolveSlowRequestTimeoutMs(20_000);
+const BOOTSTRAP_RETRY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000);
 
 export async function POST(request: NextRequest) {
   const requestId = resolveRequestId(request);
-  let hotCacheKey: string | null = null;
 
   try {
     const body = (await request.json().catch(() => ({}))) as { userId?: string };
@@ -43,75 +45,58 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    hotCacheKey = authHeader ? `${body.userId || "self"}:${authHeader}` : null;
-    if (hotCacheKey) {
-      const cached = hotPost.read(hotCacheKey);
-      if (cached) {
-        return withRequestIdJson(requestId, cached.payload, { status: cached.status });
-      }
-
-      const existing = hotPost.getInflight(hotCacheKey);
-      if (existing) {
-        const deduped = await existing;
-        return withRequestIdJson(requestId, deduped.payload, { status: deduped.status });
-      }
-    }
-
-    const load = (async () => {
-      const response = await fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
+    // Setup admission is mutable security state. A process-local cache cannot
+    // be invalidated reliably across server instances, so it must never answer
+    // this endpoint with a stale grant or stale incomplete journey. The client
+    // owns single-flight/session caching and explicitly refreshes on settlement.
+    const attempt = (timeoutMs: number) =>
+      fetch(`${PYTHON_API_URL}/db/vault/bootstrap-state`, {
         method: "POST",
         headers: createUpstreamHeaders(requestId, {
           "Content-Type": "application/json",
           ...(authHeader ? { Authorization: authHeader } : {}),
         }),
-        signal: AbortSignal.timeout(UPSTREAM_TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         body: JSON.stringify({
           ...(body.userId ? { userId: body.userId } : {}),
         }),
       });
 
-      const payload = await response.json().catch(() => ({}));
-      return {
-        status: response.status,
-        payload: response.ok
-          ? payload
-          : {
-              error: payload?.error || payload?.detail || "Backend error",
-              ...(typeof payload?.code === "string" ? { code: payload.code } : {}),
-              ...(typeof payload?.hint === "string" ? { hint: payload.hint } : {}),
-            },
-      };
-    })();
-
-    if (hotCacheKey) {
-      hotPost.setInflight(hotCacheKey, load);
-    }
-
-    const result = await load;
-    if (hotCacheKey && result.status < 500) {
-      hotPost.write(hotCacheKey, result);
-    }
-
-    if (hotCacheKey && result.status >= 500) {
-      const stale = hotPost.read(hotCacheKey, { allowStale: true });
-      if (stale) {
-        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
+    // Setup admission must always read the backend; it cannot use a stale
+    // process cache. A single retry instead absorbs a cold local proxy/DB
+    // connection without leaving the user on a permanent setup error screen.
+    let response: Response;
+    try {
+      response = await attempt(UPSTREAM_TIMEOUT_MS);
+      if (response.status >= 500) {
+        console.warn(
+          `[API] request_id=${requestId} vault_bootstrap_state backend ${response.status}; retrying with extended timeout`,
+        );
+        response = await attempt(BOOTSTRAP_RETRY_TIMEOUT_MS);
       }
+    } catch (error) {
+      if (!isRequestTimeoutError(error)) throw error;
+      console.warn(
+        `[API] request_id=${requestId} vault_bootstrap_state timed out after ${UPSTREAM_TIMEOUT_MS}ms; retrying with extended timeout`,
+      );
+      response = await attempt(BOOTSTRAP_RETRY_TIMEOUT_MS);
     }
+
+    const payload = await response.json().catch(() => ({}));
+    const result = {
+      status: response.status,
+      payload: response.ok
+        ? payload
+        : {
+            error: payload?.error || payload?.detail || "Backend error",
+            ...(typeof payload?.code === "string" ? { code: payload.code } : {}),
+            ...(typeof payload?.hint === "string" ? { hint: payload.hint } : {}),
+          },
+    };
 
     return withRequestIdJson(requestId, result.payload, { status: result.status });
   } catch (error) {
     console.error(`[API] request_id=${requestId} vault_bootstrap_state error:`, error);
-    if (hotCacheKey) {
-      const stale = hotPost.read(hotCacheKey, { allowStale: true });
-      if (stale) {
-        return withRequestIdJson(requestId, stale.payload, { status: stale.status });
-      }
-    }
     return withRequestIdJson(requestId, { error: "Internal server error" }, { status: 500 });
-  } finally {
-    if (hotCacheKey) {
-      hotPost.clearInflight(hotCacheKey);
-    }
   }
 }

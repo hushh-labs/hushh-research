@@ -11,8 +11,15 @@ import {
   PkmWriteCoordinator,
   type PkmWriteCoordinatorResult,
 } from "@/lib/services/pkm-write-coordinator";
-import type { PkmUserConfirmation } from "@/lib/personal-knowledge-model/mutation-plan";
-import { AgentPkmContextStore } from "@/lib/agent/agent-pkm-context-store";
+import {
+  isOwnerAutoSaveAuthorization,
+  type PkmUserConfirmation,
+  type PkmWriteAuthorization,
+} from "@/lib/personal-knowledge-model/mutation-plan";
+import {
+  AgentPkmContextStore,
+  type AgentPkmContextCoverage,
+} from "@/lib/agent/agent-pkm-context-store";
 
 export type AgentPkmDomainChoice = {
   domain_key: string;
@@ -90,6 +97,7 @@ export type AgentPkmContext = {
   detailCount?: number;
   source?: "metadata" | "decrypted_session_pkm";
   mode?: "summary" | "relevant" | "broad";
+  coverage?: AgentPkmContextCoverage;
 };
 
 export type AgentPkmSaveResult = {
@@ -100,11 +108,27 @@ export type AgentPkmSaveResult = {
   results: Array<{
     cardId: string;
     domain: string;
+    scope: string | null;
+    sharingPosture: string;
     success: boolean;
     message?: string;
     result?: PkmWriteCoordinatorResult;
   }>;
 };
+
+export class AgentPkmContextNotReadyError extends Error {
+  readonly code = "AGENT_PKM_CONTEXT_NOT_READY";
+
+  constructor(message = "Your private memory is not ready yet.") {
+    super(message);
+    this.name = "AgentPkmContextNotReadyError";
+  }
+}
+
+// The unlock orchestrator may warm this private-memory working set after the
+// owner unlocks. It stays process-memory-only, user-scoped, and coalesced with
+// any fallback warmup started by the Agent workspace.
+const agentPkmWarmups = new Map<string, Promise<void>>();
 
 function toRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -165,7 +189,22 @@ export function getPkmConfirmationCards(
   cards: readonly AgentPkmPreviewCard[]
 ): AgentPkmPreviewCard[] {
   return cards.filter(
-    (card) => card.write_mode === "can_save" || card.write_mode === "confirm_first"
+    (card) =>
+      !isReservedPkmCard(card) &&
+      (card.write_mode === "confirm_first" ||
+        (card.write_mode === "can_save" &&
+          (card.sharing_impact?.active_recipient_count || 0) > 0))
+  );
+}
+
+export function getPkmAutoSaveCards(
+  cards: readonly AgentPkmPreviewCard[]
+): AgentPkmPreviewCard[] {
+  return cards.filter(
+    (card) =>
+      !isReservedPkmCard(card) &&
+      card.write_mode === "can_save" &&
+      (card.sharing_impact?.active_recipient_count || 0) === 0
   );
 }
 
@@ -173,28 +212,90 @@ export function getIgnoredPkmCards(cards: readonly AgentPkmPreviewCard[]): Agent
   return cards.filter((card) => card.write_mode === "do_not_save");
 }
 
+export function isReservedPkmCard(card: AgentPkmPreviewCard): boolean {
+  const decision = toRecord(card.structure_decision);
+  const action = readString(decision.action).toLowerCase();
+  const hints = (card.validation_hints || []).map((hint) => readString(hint).toLowerCase());
+
+  return (
+    card.write_mode === "do_not_save" ||
+    action === "reject_reserved_target" ||
+    action === "reserved_target" ||
+    action === "reserved" ||
+    hints.some((hint) => hint.includes("reserved"))
+  );
+}
+
+export function isAgentPkmDependentRequest(message: string): boolean {
+  const text = String(message || "").trim().toLowerCase();
+  if (!text) return false;
+
+  return (
+    /\b(?:read|show|list|summari[sz]e|remember|recall|know)\b[^.?!]{0,80}\b(?:my|pkm|memory|vault|profile)\b/.test(
+      text
+    ) ||
+    /\bmy\s+(?:pkm|memory|vault|profile|preferences?|favo(?:u)?rites?|food|drinks?|games?|hobbies|interests?)\b/.test(
+      text
+    ) ||
+    /\b(?:what|which|who)\b[^.?!]{0,80}\b(?:i|my)\b[^.?!]{0,80}\b(?:prefer|like|saved|remember)\b/.test(
+      text
+    )
+  );
+}
+
 export async function previewAgentPkmMemory(params: {
   userId: string;
   message: string;
   currentDomains: string[];
+  /** Existing domain manifests: with them the structurer lands facts in scopes that already exist. */
+  currentManifests?: unknown[];
   vaultOwnerToken: string;
+  ingestionId?: string;
+  chunkIndex?: number;
 }): Promise<AgentPkmPreviewResponse & { cards: AgentPkmPreviewCard[] }> {
-  const response = await ApiService.apiFetch("/api/pkm/agent-lab/structure", {
+  const response = await ApiService.apiFetch("/api/pkm/memory/proposals", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
       Authorization: `Bearer ${params.vaultOwnerToken}`,
+      ...(params.ingestionId
+        ? { "X-PKM-Ingestion-Id": params.ingestionId }
+        : {}),
+      ...(typeof params.chunkIndex === "number"
+        ? { "X-PKM-Chunk-Index": String(params.chunkIndex) }
+        : {}),
     },
     body: JSON.stringify({
       user_id: params.userId,
       message: params.message,
       current_domains: params.currentDomains,
+      current_manifests: (params.currentManifests || []).filter(Boolean).slice(0, 256),
     }),
   });
 
   if (!response.ok) {
-    const detail = await response.text().catch(() => "");
-    throw new Error(detail || `PKM memory preview failed with ${response.status}`);
+    let errorCode = `http_${response.status}`;
+    try {
+      const payload = await response.json() as {
+        detail?: { type?: unknown; code?: unknown } | Array<{ type?: unknown; code?: unknown }>;
+      };
+      const detail = Array.isArray(payload?.detail) ? payload.detail[0] : payload?.detail;
+      if (detail && typeof detail === "object") {
+        const candidate = detail.code || detail.type;
+        if (typeof candidate === "string" && candidate.trim()) {
+          errorCode = candidate.trim();
+        }
+      }
+    } catch {
+      // Error bodies can contain the rejected source text. Never surface or log them.
+    }
+    console.error("[PKM_INGEST] proposal_failed", {
+      ingestion_id: params.ingestionId || "none",
+      chunk_index: params.chunkIndex ?? 0,
+      status: response.status,
+      error_code: errorCode,
+    });
+    throw new Error(`Memory preparation failed (${errorCode}). Please try again.`);
   }
 
   const payload = (await response.json()) as AgentPkmPreviewResponse;
@@ -220,6 +321,26 @@ function resolveCardTargetDomain(card: AgentPkmPreviewCard): string {
   );
 }
 
+function resolveCardScope(card: AgentPkmPreviewCard): string | null {
+  const value = readString(card.primary_json_path) || readString(card.target_entity_scope);
+  return value || null;
+}
+
+function resolveCardSharingPosture(card: AgentPkmPreviewCard): string {
+  if ((card.sharing_impact?.active_recipient_count || 0) > 0) {
+    return "Approved for sharing with the recipients shown above.";
+  }
+  return "Private to your private agent. Consent is required before external sharing.";
+}
+
+function formatPkmLocation(domain: string, scope: string | null): string {
+  const path = String(scope || "")
+    .split(".")
+    .map((segment) => titleize(segment))
+    .filter(Boolean);
+  return [titleize(domain), ...path].filter(Boolean).join(" > ");
+}
+
 export async function addToPKM(params: {
   userId: string;
   cards: AgentPkmPreviewCard[];
@@ -227,10 +348,17 @@ export async function addToPKM(params: {
   vaultKey: string;
   vaultOwnerToken: string;
   source?: string;
-  confirmation: PkmUserConfirmation;
+  confirmation: PkmWriteAuthorization;
 }): Promise<AgentPkmSaveResult> {
-  const results: AgentPkmSaveResult["results"] = [];
-  if (!params.confirmation || params.confirmation.confirmedByUser !== true) {
+  // Writes to a single domain must stay ordered: each write reads and merges
+  // the result of the preceding one. Independent domains have no such
+  // dependency, so a small bounded fan-out keeps large imports responsive
+  // without risking same-domain lost updates.
+  const maxParallelDomainWrites = 3;
+  const results: Array<AgentPkmSaveResult["results"][number] | undefined> =
+    new Array(params.cards.length);
+  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  if (!params.confirmation || (!automatic && params.confirmation.confirmedByUser !== true)) {
     return {
       attempted: params.cards.length,
       saved: 0,
@@ -239,21 +367,50 @@ export async function addToPKM(params: {
       results: params.cards.map((card) => ({
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "Explicit owner confirmation is required before saving to PKM.",
+        message: "Your confirmation is required before saving to Memory.",
       })),
     };
   }
 
-  for (const card of params.cards) {
-    if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
-      results.push({
+  const saveCard = async (card: AgentPkmPreviewCard, index: number): Promise<void> => {
+    if (isReservedPkmCard(card)) {
+      results[index] = {
         cardId: card.card_id || "agent_pkm_card",
         domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: "Reserved, never shareable.",
         success: false,
-        message: "This PKM preview is not eligible for confirmation and saving.",
-      });
-      continue;
+        message: "This memory is reserved and cannot be saved from Agent chat.",
+      };
+      return;
+    }
+    if (card.write_mode !== "can_save" && card.write_mode !== "confirm_first") {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This memory preview is not eligible for confirmation and saving.",
+      };
+      return;
+    }
+    if (
+      automatic &&
+      (card.write_mode !== "can_save" || (card.sharing_impact?.active_recipient_count || 0) > 0)
+    ) {
+      results[index] = {
+        cardId: card.card_id || "agent_pkm_card",
+        domain: resolveCardTargetDomain(card) || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
+        success: false,
+        message: "This memory needs review before it can be saved.",
+      };
+      return;
     }
     const candidatePayload = toRecord(card.candidate_payload);
     const structureDecision = toRecord(card.structure_decision);
@@ -265,13 +422,15 @@ export async function addToPKM(params: {
     const cardId = card.card_id || "agent_pkm_card";
 
     if (Object.keys(candidatePayload).length === 0 || !targetDomain) {
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain || "unknown",
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: "PKM preview did not produce a valid target domain or payload.",
-      });
-      continue;
+        message: "Memory preview did not produce a valid place to save this detail.",
+      };
+      return;
     }
 
     const summaryProjection = toRecord(structureDecision.summary_projection);
@@ -313,68 +472,107 @@ export async function addToPKM(params: {
 
     try {
       const sharingImpact = card.sharing_impact;
+      const ownerConfirmation = automatic
+        ? null
+        : params.confirmation as PkmUserConfirmation;
       const result = await PkmWriteCoordinator.savePreparedDomain({
         userId: params.userId,
         domain: targetDomain,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
-        confirmation: {
-          ...params.confirmation,
-          sharingImpactAcknowledged:
-            (sharingImpact?.active_recipient_count || 0) > 0
-              ? params.confirmation.sharingImpactAcknowledged === true
-              : false,
-          sharingImpact: sharingImpact
-            ? {
-                activeRecipientCount: sharingImpact.active_recipient_count,
-                recipientLabels: sharingImpact.recipient_labels,
-                entersNextExportRevision: sharingImpact.enters_next_export_revision,
-                summary: sharingImpact.summary,
-                affectedGrantIds: sharingImpact.affected_grant_ids,
-                affectedExportIds: sharingImpact.affected_export_ids,
-              }
-            : undefined,
-        },
+        confirmation: automatic
+          ? params.confirmation
+          : {
+              ...ownerConfirmation!,
+              sharingImpactAcknowledged:
+                (sharingImpact?.active_recipient_count || 0) > 0
+                  ? ownerConfirmation!.sharingImpactAcknowledged === true
+                  : false,
+              sharingImpact: sharingImpact
+                ? {
+                    activeRecipientCount: sharingImpact.active_recipient_count,
+                    recipientLabels: sharingImpact.recipient_labels,
+                    entersNextExportRevision: sharingImpact.enters_next_export_revision,
+                    summary: sharingImpact.summary,
+                    affectedGrantIds: sharingImpact.affected_grant_ids,
+                    affectedExportIds: sharingImpact.affected_export_ids,
+                  }
+                : undefined,
+            },
         build: async () => ({
           domainData: candidatePayload,
           summary: {
             ...nextSummaryProjection,
-            message_excerpt: compactText(card.source_text || params.sourceMessage, 160),
             source: params.source || "agent_chat",
-            card_id: cardId,
           },
           mergeDecision: card.merge_decision,
           structureDecision: nextStructureDecision,
           manifest: nextManifest || undefined,
         }),
       });
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain,
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: result.success,
         message: result.message,
         result,
-      });
+      };
     } catch (error) {
-      results.push({
+      results[index] = {
         cardId,
         domain: targetDomain,
+        scope: resolveCardScope(card),
+        sharingPosture: resolveCardSharingPosture(card),
         success: false,
-        message: error instanceof Error ? error.message : "Failed to save PKM memory.",
-      });
+        message: error instanceof Error ? error.message : "Failed to save this memory.",
+      };
     }
-  }
+  };
 
-  const savedResults = results.filter((result) => result.success);
+  const domainQueues = new Map<string, Array<[number, AgentPkmPreviewCard]>>();
+  params.cards.forEach((card, index) => {
+    // Invalid domains receive their own queue so a malformed card never
+    // blocks valid data from a different domain.
+    const domain = resolveCardTargetDomain(card) || `__invalid_${index}`;
+    const queue = domainQueues.get(domain) || [];
+    queue.push([index, card]);
+    domainQueues.set(domain, queue);
+  });
+
+  const queues = Array.from(domainQueues.values());
+  let nextQueueIndex = 0;
+  const worker = async (): Promise<void> => {
+    while (nextQueueIndex < queues.length) {
+      const queue = queues[nextQueueIndex++];
+      if (!queue) return;
+      for (const [index, card] of queue) {
+        await saveCard(card, index);
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(maxParallelDomainWrites, queues.length) },
+      () => worker(),
+    ),
+  );
+
+  const completedResults = results.filter(
+    (result): result is AgentPkmSaveResult["results"][number] => Boolean(result),
+  );
+
+  const savedResults = completedResults.filter((result) => result.success);
   if (savedResults.length > 0) {
     AgentPkmContextStore.invalidateUser(params.userId);
   }
   return {
-    attempted: results.length,
+    attempted: completedResults.length,
     saved: savedResults.length,
-    failed: results.length - savedResults.length,
+    failed: completedResults.length - savedResults.length,
     domains: Array.from(new Set(savedResults.map((result) => result.domain))).filter(Boolean),
-    results,
+    results: completedResults,
   };
 }
 
@@ -420,7 +618,6 @@ export function buildAgentPkmContextFromMetadata(
     const summary =
       compactText(domain.readableSummary, 240) ||
       compactText(domain.summary?.readable_summary, 240) ||
-      compactText(domain.summary?.message_excerpt, 160) ||
       `${domain.attributeCount || 0} saved detail${domain.attributeCount === 1 ? "" : "s"}.`;
     lines.push(
       [
@@ -449,10 +646,28 @@ export async function loadAgentPkmContext(params: {
   message?: string;
   forceRefresh?: boolean;
   maxChars?: number;
+  /**
+   * Interactive first turns may use redacted metadata while the decrypted
+   * session working set warms in the background. This never writes or changes
+   * PKM relevance/save policy; it only avoids blocking a new conversation on
+   * a full encrypted blob.
+   */
+  metadataOnly?: boolean;
+  /**
+   * Personal-memory requests must fail closed until the decrypted, typed
+   * session inventory is available. Metadata is intentionally insufficient.
+   */
+  requireDecrypted?: boolean;
 }): Promise<AgentPkmContext> {
-  if (params.vaultKey) {
+  if (params.requireDecrypted && (!params.vaultKey || params.metadataOnly)) {
+    throw new AgentPkmContextNotReadyError(
+      "Unlock your vault before asking Agent about your private memory."
+    );
+  }
+
+  if (params.vaultKey && !params.metadataOnly) {
     try {
-      return await AgentPkmContextStore.load({
+      const workingContext = await AgentPkmContextStore.load({
         userId: params.userId,
         vaultKey: params.vaultKey,
         vaultOwnerToken: params.vaultOwnerToken,
@@ -460,9 +675,42 @@ export async function loadAgentPkmContext(params: {
         forceRefresh: params.forceRefresh,
         maxChars: params.maxChars,
       });
-    } catch {
+      if (workingContext) {
+        return workingContext;
+      }
+      if (params.requireDecrypted) {
+        throw new AgentPkmContextNotReadyError(
+          "Your private memory is still preparing. Please try again in a moment."
+        );
+      }
+      return {
+        text: "",
+        domains: [],
+        totalAttributes: 0,
+        updatedAt: null,
+      };
+    } catch (error) {
+      if (error instanceof AgentPkmContextNotReadyError) {
+        throw error;
+      }
       AgentPkmContextStore.invalidateUser(params.userId);
+      if (params.requireDecrypted) {
+        throw new AgentPkmContextNotReadyError(
+          "Your private memory could not be loaded. Please try again in a moment."
+        );
+      }
+      return {
+        text: "",
+        domains: [],
+        totalAttributes: 0,
+        updatedAt: null,
+      };
     }
+  }
+  if (params.requireDecrypted) {
+    throw new AgentPkmContextNotReadyError(
+      "Unlock your vault before asking Agent about your private memory."
+    );
   }
   const metadata = await PersonalKnowledgeModelService.getMetadata(
     params.userId,
@@ -484,17 +732,55 @@ export function peekAgentPkmContext(params: {
   return AgentPkmContextStore.peek(params);
 }
 
+export function warmAgentPkmContext(params: {
+  userId: string;
+  vaultOwnerToken: string;
+  vaultKey?: string | null;
+}): Promise<void> {
+  if (!params.vaultKey) return Promise.resolve();
+
+  const existing = agentPkmWarmups.get(params.userId);
+  if (existing) return existing;
+
+  const warmup = loadAgentPkmContext({
+    ...params,
+    message: "",
+    requireDecrypted: true,
+  })
+    .then(() => undefined)
+    .finally(() => {
+      if (agentPkmWarmups.get(params.userId) === warmup) {
+        agentPkmWarmups.delete(params.userId);
+      }
+    });
+  agentPkmWarmups.set(params.userId, warmup);
+  return warmup;
+}
+
 export function clearAgentPkmContext(userId?: string): void {
+  if (userId) {
+    agentPkmWarmups.delete(userId);
+  } else {
+    agentPkmWarmups.clear();
+  }
   AgentPkmContextStore.clear(userId);
 }
 
 export function formatAgentPkmSaveSummary(result: AgentPkmSaveResult): string {
   if (result.saved === 0) {
     return result.failed > 0
-      ? "Agent could not save that PKM memory."
-      : "No PKM memory was saved for this turn.";
+      ? "One could not save that memory."
+      : "No memory was saved for this message.";
   }
-  const domainText =
-    result.domains.length > 0 ? ` (${result.domains.map(titleize).join(", ")})` : "";
-  return `Saved ${result.saved} PKM memor${result.saved === 1 ? "y" : "ies"}${domainText}.`;
+  const saved = result.results.filter((entry) => entry.success);
+  const locations = Array.from(
+    new Set(
+      saved
+        .map((entry) => formatPkmLocation(entry.domain, entry.scope))
+        .filter(Boolean)
+    )
+  );
+  const posture = saved[0]?.sharingPosture;
+  const locationText = locations.length > 0 ? `Saved in ${locations.join(", ")}.` : "Saved to your memory.";
+  return `${locationText}${posture ? ` ${posture}` : ""}`;
 }

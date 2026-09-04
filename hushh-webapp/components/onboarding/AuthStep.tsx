@@ -25,7 +25,12 @@ import {
   setOnboardingFlowActiveCookie,
   setOnboardingRequiredCookie,
 } from "@/lib/services/onboarding-route-cookie";
-import { buildWelcomeRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildWelcomeRoute,
+  isFirebaseSessionOnlyRoute,
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
 import { type AuthMethod } from "@/lib/observability/events";
@@ -114,6 +119,14 @@ function ssoSlug(providerId: string): string {
 }
 
 /**
+ * Analytics identity for a provider. Enterprise/government IdPs all report as
+ * "sso" so the event enum stays low-cardinality as providers are enabled.
+ */
+function authMethodFor(provider: AuthProviderId): AuthMethod {
+  return provider === "google" || provider === "apple" ? provider : "sso";
+}
+
+/**
  * Registers the governed voice handler for one enterprise provider.
  *
  * A component rather than a loop because `useLocalOnboardingActionHandler` is a
@@ -139,14 +152,6 @@ function SsoVoiceActionHandler({
       }) as never,
   );
   return null;
-}
-
-/**
- * Analytics identity for a provider. Enterprise/government IdPs all report as
- * "sso" so the event enum stays low-cardinality as providers are enabled.
- */
-function authMethodFor(provider: AuthProviderId): AuthMethod {
-  return provider === "google" || provider === "apple" ? provider : "sso";
 }
 
 function isAuthCancel(error: unknown): boolean {
@@ -197,7 +202,12 @@ export function AuthStep({
 }) {
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
-  const { user, loading: authLoading, setNativeUser } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    beginPostAuthSettlement,
+    completePostAuthSettlement,
+  } = useAuth();
   const { registerSteps, completeStep, reset } = useStepProgress();
   const lastNavigationKeyRef = useRef<string | null>(null);
   const lastResolvedNavigationPathRef = useRef<string | null>(null);
@@ -313,24 +323,6 @@ export function AuthStep({
     };
   }, [updateProviderAttemptPhase, user]);
 
-  const localReviewerCredentialsAvailable = useMemo(() => {
-    return Boolean(
-      resolveLocalReviewerCredentials(
-        typeof window !== "undefined" ? window.location.hostname : null,
-      ),
-    );
-  }, []);
-  const isLocalReviewerSurface = useMemo(() => {
-    if (typeof window === "undefined") {
-      return process.env.NODE_ENV !== "production";
-    }
-    const hostname = window.location.hostname.toLowerCase();
-    return (
-      process.env.NODE_ENV !== "production" ||
-      hostname === "localhost" ||
-      hostname === "127.0.0.1"
-    );
-  }, []);
   const openLegalDoc = useCallback(async (docType: KaiLegalDocumentType) => {
     // Defer open so the originating tap does not get interpreted as outside-interact.
     await new Promise<void>((resolve) => {
@@ -421,10 +413,13 @@ export function AuthStep({
       phoneNumber?: string | null,
       resumeTarget?: string,
     ) => {
-      const targetPath = resumeTarget || redirectPath;
-      const navigationKey = `${userId}:${targetPath || ROUTES.KAI_HOME}`;
+      const explicitTargetPath = normalizeInternalRouteHref(
+        resumeTarget || redirectPath,
+      );
+      const targetPath = explicitTargetPath ?? ROUTES.ONE_HOME;
+      const navigationKey = `${userId}:${targetPath}`;
       if (lastNavigationKeyRef.current === navigationKey) {
-        return lastResolvedNavigationPathRef.current;
+        return lastResolvedNavigationPathRef.current || targetPath;
       }
       lastNavigationKeyRef.current = navigationKey;
 
@@ -441,7 +436,7 @@ export function AuthStep({
           (user ? await user.getIdToken().catch(() => undefined) : undefined);
         const resolvedPath = await PostAuthRouteService.resolveAfterLogin({
           userId,
-          redirectPath: targetPath,
+          redirectPath: explicitTargetPath ?? undefined,
           idToken: resolvedIdToken,
           phoneNumber,
           enableFirstRunSetupGate: true,
@@ -456,36 +451,50 @@ export function AuthStep({
         // user. The provider launch itself remains a `started` settlement;
         // the durable journey is never advanced merely because a redirect was
         // opened or a popup was requested.
-        await PreVaultUserStateService.syncOnboardingJourney({
-          userId,
-          phase:
-            nextPath === ROUTES.PHONE_MANDATE ? "phone_required" : "setup_hub",
-          callbackState: "succeeded",
-        }).catch((journeyError) => {
-          // The existing post-auth route remains the rollback path while the
-          // additive journey migration rolls out.
-          console.warn(
-            "[AuthStep] Failed to persist onboarding journey:",
-            journeyError,
-          );
-        });
-        setOnboardingRequiredCookie(nextPath === ROUTES.ONE_SETUP);
-        setOnboardingFlowActiveCookie(nextPath === ROUTES.KAI_IMPORT);
-        router.push(nextPath);
+        const firebaseSessionOnly = isFirebaseSessionOnlyRoute(nextPath);
+        if (!firebaseSessionOnly) {
+          await PreVaultUserStateService.syncOnboardingJourney({
+            userId,
+            phase:
+              nextPath === ROUTES.PHONE_MANDATE
+                ? "phone_required"
+                : "setup_hub",
+            callbackState: "succeeded",
+            idToken: resolvedIdToken,
+          }).catch((journeyError) => {
+            // The existing post-auth route remains the rollback path while the
+            // additive journey migration rolls out.
+            console.warn(
+              "[AuthStep] Failed to persist onboarding journey:",
+              journeyError,
+            );
+          });
+        }
+        // Product handoffs require only the settled Firebase session. They do
+        // not start or resume One setup and never create a private-place gate.
+        setOnboardingRequiredCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.ONE_SETUP,
+        );
+        setOnboardingFlowActiveCookie(
+          !firebaseSessionOnly && nextPath === ROUTES.KAI_IMPORT,
+        );
+        // Replace, not push: the login screen must not stay on the back stack,
+        // so an onboarded user pressing Back never lands back on /login or the
+        // setup hub it forwards to.
+        router.replace(nextPath);
         lastResolvedNavigationPathRef.current = nextPath;
         return nextPath;
       } catch (error) {
         console.warn("[AuthStep] Failed to resolve post-auth route:", error);
-        const fallbackPath = targetPath || ROUTES.KAI_HOME;
         const safeFallbackPath =
-          fallbackPath === ROUTES.ONE_SETUP ||
-          fallbackPath === ROUTES.ONE_SETUP_FINANCE ||
-          fallbackPath === ROUTES.KAI_IMPORT
+          targetPath === ROUTES.ONE_SETUP ||
+          targetPath === ROUTES.ONE_SETUP_FINANCE ||
+          targetPath === ROUTES.KAI_IMPORT
             ? ROUTES.KAI_HOME
-            : fallbackPath;
+            : targetPath;
         setOnboardingRequiredCookie(safeFallbackPath === ROUTES.ONE_SETUP);
         setOnboardingFlowActiveCookie(safeFallbackPath === ROUTES.KAI_IMPORT);
-        router.push(safeFallbackPath);
+        router.replace(safeFallbackPath);
         lastResolvedNavigationPathRef.current = safeFallbackPath;
         return safeFallbackPath;
       }
@@ -536,7 +545,6 @@ export function AuthStep({
     growthEntrySurface,
     growthJourney,
     providerAttempt?.id,
-    setNativeUser,
     resolveAndNavigate,
   ]);
 
@@ -604,12 +612,16 @@ export function AuthStep({
             dedupeWindowMs: 5_000,
           });
         }
-        setNativeUser(authenticatedUser);
-        await resolveAndNavigate(
-          authenticatedUser.uid,
-          await authenticatedUser.getIdToken(),
-          authenticatedUser.phoneNumber,
-        );
+        const settlementId = beginPostAuthSettlement(authenticatedUser);
+        try {
+          await resolveAndNavigate(
+            authenticatedUser.uid,
+            await authenticatedUser.getIdToken(),
+            authenticatedUser.phoneNumber,
+          );
+        } finally {
+          completePostAuthSettlement(settlementId);
+        }
       } else {
         trackEvent("auth_failed", {
           action: "reviewer",
@@ -633,13 +645,14 @@ export function AuthStep({
       );
     }
   }, [
+    beginPostAuthSettlement,
+    completePostAuthSettlement,
     growthEntrySurface,
     growthJourney,
     nativeTestConfig.autoReviewerLogin,
     nativeTestConfig.vaultPassphrase,
     resolveAndNavigate,
     reviewModeConfig.enabled,
-    setNativeUser,
   ]);
 
   useEffect(() => {
@@ -760,39 +773,48 @@ export function AuthStep({
               summary: `${authProviderLabel(provider)} did not return a user session.`,
             };
           }
-          const idToken = await authenticatedUser.getIdToken();
-          if (providerAttemptRef.current?.id !== attempt.id) {
-            return {
-              status: "blocked" as const,
-              summary: "A newer sign-in attempt replaced this one.",
-            };
-          }
-          trackEvent("auth_succeeded", {
-            action: authMethodFor(provider),
-            result: "success",
-          });
-          if (growthJourney) {
-            trackGrowthFunnelStepCompleted({
-              journey: growthJourney,
-              step: "auth_completed",
-              entrySurface: growthEntrySurface,
-              authMethod: authMethodFor(provider),
-              dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
-              dedupeWindowMs: 5_000,
+          const settlementId = beginPostAuthSettlement(authenticatedUser);
+          try {
+            const idToken =
+              authResult.idToken || (await authenticatedUser.getIdToken());
+            if (providerAttemptRef.current?.id !== attempt.id) {
+              return {
+                status: "blocked" as const,
+                summary: "A newer sign-in attempt replaced this one.",
+              };
+            }
+            trackEvent("auth_succeeded", {
+              action: authMethodFor(provider),
+              result: "success",
             });
+            // Welcome on the first sign-in, welcome back afterwards. The server
+            // decides which; this is the one point per sign-in that asks. It is
+            // never awaited — navigation must not wait on a mail.
+            void ApiService.notifyAuthMail("signed_in", { idToken });
+            if (growthJourney) {
+              trackGrowthFunnelStepCompleted({
+                journey: growthJourney,
+                step: "auth_completed",
+                entrySurface: growthEntrySurface,
+                authMethod: authMethodFor(provider),
+                dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
+                dedupeWindowMs: 5_000,
+              });
+            }
+            const routeAfter = await resolveAndNavigate(
+              authenticatedUser.uid,
+              idToken,
+              authenticatedUser.phoneNumber,
+              attempt.resumeRoute,
+            );
+            return {
+              status: "succeeded" as const,
+              summary: `${authProviderLabel(provider)} sign-in completed.`,
+              routeAfter,
+            };
+          } finally {
+            completePostAuthSettlement(settlementId);
           }
-          setNativeUser(authenticatedUser);
-          const routeAfter = await resolveAndNavigate(
-            authenticatedUser.uid,
-            idToken,
-            authenticatedUser.phoneNumber,
-            attempt.resumeRoute,
-          );
-          return {
-            status: "succeeded" as const,
-            summary: `${authProviderLabel(provider)} sign-in completed.`,
-            routeAfter,
-          };
         })
         .catch((error: unknown) => {
           if (providerAttemptRef.current?.id !== attempt.id) {
@@ -836,12 +858,13 @@ export function AuthStep({
       return Promise.race([settlementPromise, attentionPromise]);
     },
     [
+      beginPostAuthSettlement,
+      completePostAuthSettlement,
       growthEntrySurface,
       growthJourney,
       publishProviderAttempt,
       redirectPath,
       resolveAndNavigate,
-      setNativeUser,
       updateProviderAttemptPhase,
     ],
   );
@@ -1052,21 +1075,33 @@ export function AuthStep({
         },
       ];
 
+  // Reviewer credentials are a governed native-test fixture, never a normal
+  // sign-in choice. Keeping this control behind the explicit test bridge
+  // prevents local/UAT configuration from leaking a fixture account into the
+  // product UI while preserving the native runner's observable test mode.
   // Enterprise / government IdPs, shown only when actually enabled for this
   // environment so a person never taps a button that dead-ends in
   // "ask your admin". Rendered under the social providers because most people
   // arriving here are consumers; those who work somewhere find their own IdP.
   const enterpriseProviders = enabledEnterpriseProviders();
 
-  const showReviewer =
-    reviewModeConfig.enabled ||
-    nativeReviewerVisible ||
-    localReviewerCredentialsAvailable ||
-    isLocalReviewerSurface;
+  const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
     <main
-      className="relative h-[100dvh] min-h-[100svh] w-full overflow-hidden"
+      // The outer app scroll root reserves --app-scroll-bottom-pad below this
+      // element for the fixed onboarding Agent Bar, then re-adds it as its
+      // own padding-bottom. Sizing this element to a full 100dvh on top of
+      // that reservation forced scroll on every device. Inline style (not a
+      // Tailwind arbitrary-value class) because Tailwind's arbitrary calc()
+      // parser requires escaped whitespace around the minus sign
+      // ("100dvh_-_var(...)"); without it the whole declaration is invalid
+      // CSS and silently dropped, which is what happened here before.
+      className="relative w-full overflow-hidden"
+      style={{
+        height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+        minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+      }}
       data-testid="auth-step-primary"
     >
       {/* Shared immersive gradient backdrop (welcome / login / carousel). */}
@@ -1108,125 +1143,123 @@ export function AuthStep({
         <ArrowLeft className="h-[18px] w-[18px]" strokeWidth={2} />
       </button>
 
-      <div className="relative mx-auto flex h-[100dvh] min-h-[100svh] w-full max-w-[440px] flex-col">
-        {/* Hero */}
-        <div className="flex flex-1 flex-col items-center justify-center px-6 pb-6 text-center">
-          {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
-              chrome (badge circle removed by design). */}
-          <div
-            className="relative flex h-[92px] w-[92px] items-center justify-center"
-            aria-hidden="true"
-          >
-            <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-            <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
-              🤫
-            </span>
-          </div>
-          <h1
-            role="heading"
-            aria-level={1}
-            aria-label="Welcome to One"
-            className="mt-6 font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
-          >
-            Welcome to One<span style={{ color: "var(--app-accent)" }}>.</span>
-          </h1>
-          <p className="mt-3 max-w-[19rem] text-[16px] leading-[1.45] text-[rgba(23,19,12,0.6)] dark:text-[rgba(250,246,238,0.62)]">
-            Sign in to open your private vault. It unlocks with you, and only
-            you.
-          </p>
-        </div>
-
-        {/* Frosted glass action sheet: translucent + backdrop-blurred so the
-            dark ambient hero shows through behind it, while dark-on-light
-            controls stay legible. Matches the welcome ("/") glass sheet. */}
-        <div className="relative overflow-hidden rounded-t-[36px] border-t border-white/70 bg-white/55 px-6 pt-7 pb-[calc(132px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] shadow-[0_-1px_0_rgba(255,255,255,0.6)_inset,0_-24px_60px_-24px_rgba(23,19,12,0.22)] backdrop-blur-md backdrop-saturate-150 supports-[backdrop-filter]:bg-white/40 dark:border-white/10 dark:bg-[#141018]/60 dark:shadow-[0_-1px_0_rgba(255,255,255,0.06)_inset,0_-24px_60px_-24px_rgba(0,0,0,0.6)] dark:supports-[backdrop-filter]:bg-[#141018]/45">
-          {/* Glass highlight sheen along the top edge. */}
-          <span
-            aria-hidden
-            className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(255,255,255,0.55)_0%,transparent_100%)] dark:bg-[linear-gradient(180deg,rgba(255,255,255,0.06)_0%,transparent_100%)]"
-          />
-          <div className="relative z-[1] mx-auto w-full max-w-[21.5rem] space-y-3">
-            {providerAttempt?.phase === "attention_required" ? (
-              <p
-                role="status"
-                className="rounded-2xl bg-[rgba(156,116,52,0.10)] px-4 py-3 text-center text-sm leading-relaxed text-[#6e5121] dark:bg-white/[0.08] dark:text-[#E7C47C]"
-              >
-                The provider window needs attention. You can retry the same
-                sign-in option securely.
-              </p>
-            ) : null}
-            {authOptions.map((option) => (
-              <AuthProviderButton
-                key={option.id}
-                label={option.label}
-                icon={option.icon}
-                onClick={() => {
-                  void option.onClick();
-                }}
-                disabled={providerBusy}
-                voiceControlId={`auth_${option.id}`}
-                className={cn(
-                  option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
-                )}
-              />
-            ))}
-
-            {enterpriseProviders.map((provider) => (
-              <SsoVoiceActionHandler
-                key={`voice_${provider.id}`}
-                provider={provider}
-                onLogin={handleProviderLogin}
-              />
-            ))}
-
-            {enterpriseProviders.map((provider) => (
-              <AuthProviderButton
-                key={provider.id}
-                label={`Continue with ${provider.label}`}
-                icon={<Icon icon={Building2} size="md" />}
-                onClick={() => {
-                  void handleProviderLogin(provider.id as AuthProviderId, {
-                    initiator: "tap",
-                  });
-                }}
-                disabled={providerBusy}
-                voiceControlId={`auth_sso_${ssoSlug(provider.id)}`}
-                className={GOOGLE_BTN_CLASS}
-              />
-            ))}
-
-            {showReviewer ? (
-              <AuthProviderButton
-                label="Continue as Reviewer"
-                icon={<Icon icon={Shield} size="md" />}
-                onClick={handleReviewerLogin}
-                disabled={providerBusy}
-                className={REVIEWER_BTN_CLASS}
-              />
-            ) : null}
-
-            {/* Consent-first reassurance chip. */}
-            <div className="mx-auto mt-1 flex w-fit items-center gap-1.5 rounded-full bg-[rgba(156,116,52,0.10)] px-3 py-1.5 dark:bg-white/[0.06]">
-              <Icon
-                icon={Shield}
-                size="sm"
-                className="text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]"
-              />
-              <span className="type-footnote text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-deep)]">
-                Consent-first. Nothing moves without your yes.
+      <div
+        className="relative mx-auto flex w-full max-w-[440px] flex-col justify-center"
+        style={{
+          height: "calc(100dvh - var(--app-scroll-bottom-pad, 0px))",
+          minHeight: "calc(100svh - var(--app-scroll-bottom-pad, 0px))",
+        }}
+        data-auth-content-block
+      >
+        {/* Center the complete sign-in group as one visual block while the
+            fixed Back control remains independently anchored above it. Legal
+            copy is anchored separately at the bottom like a standard auth
+            footer, so it does not read as primary sign-in content. */}
+        <div
+          className="flex w-full flex-none flex-col items-center gap-6 px-6 pb-6 text-center"
+          data-auth-signin-clusters
+        >
+          <div className="flex flex-col items-center gap-4">
+            {/* Quiet mark: the bare 🤫 over a soft accent glow, no medallion
+                chrome (badge circle removed by design). */}
+            <div
+              className="relative flex h-[92px] w-[92px] items-center justify-center"
+              aria-hidden="true"
+            >
+              <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
+              <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+                🤫
               </span>
             </div>
+            <h1
+              role="heading"
+              aria-level={1}
+              aria-label="Welcome to One"
+              className="font-[family-name:var(--font-app-display)] text-[34px] font-extrabold leading-[1.05] tracking-[-1.1px] text-[#17130C] dark:text-[#FAF6EE]"
+            >
+              Welcome to One
+              <span style={{ color: "var(--app-accent)" }}>.</span>
+            </h1>
+          </div>
 
-            <p className="type-footnote mx-auto max-w-[18.75rem] text-center text-[#86868b] dark:text-white/45">
-              A verified phone number is required before you continue.
-            </p>
+          {/* Buttons sit directly on the shared hero background (no card/sheet
+              behind them), matching the welcome ("/") page's direct-on-canvas
+              CTA. The outer app scroll root already reserves clearance for the
+              fixed onboarding Agent Bar (--onboarding-agent-bar-clearance in
+              app/providers.tsx), so this is a plain content gap rather than a
+              second bar-height reservation. */}
+          <div className="relative mx-auto w-full max-w-[21.5rem] space-y-4">
+            <div className="space-y-3" data-auth-provider-actions>
+              {providerAttempt?.phase === "attention_required" ? (
+                <p
+                  role="status"
+                  className="rounded-2xl bg-[color:var(--app-accent-tint)] px-4 py-3 text-center text-sm leading-relaxed text-[color:var(--app-accent-deep)] dark:bg-white/[0.08]"
+                >
+                  The provider window needs attention. You can retry the same
+                  sign-in option securely.
+                </p>
+              ) : null}
+              {authOptions.map((option) => (
+                <AuthProviderButton
+                  key={option.id}
+                  label={option.label}
+                  icon={option.icon}
+                  onClick={() => {
+                    void option.onClick();
+                  }}
+                  disabled={providerBusy}
+                  voiceControlId={`auth_${option.id}`}
+                  className={cn(
+                    option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
+                  )}
+                />
+              ))}
+
+              {enterpriseProviders.map((provider) => (
+                <SsoVoiceActionHandler
+                  key={`voice_${provider.id}`}
+                  provider={provider}
+                  onLogin={handleProviderLogin}
+                />
+              ))}
+
+              {enterpriseProviders.map((provider) => (
+                <AuthProviderButton
+                  key={provider.id}
+                  label={`Continue with ${provider.label}`}
+                  icon={<Icon icon={Building2} size="md" />}
+                  onClick={() => {
+                    void handleProviderLogin(provider.id as AuthProviderId, {
+                      initiator: "tap",
+                    });
+                  }}
+                  disabled={providerBusy}
+                  voiceControlId={`auth_sso_${ssoSlug(provider.id)}`}
+                  className={GOOGLE_BTN_CLASS}
+                />
+              ))}
+
+              {showReviewer ? (
+                <AuthProviderButton
+                  label="Continue as Reviewer"
+                  icon={<Icon icon={Shield} size="md" />}
+                  onClick={handleReviewerLogin}
+                  disabled={providerBusy}
+                  className={REVIEWER_BTN_CLASS}
+                />
+              ) : null}
+            </div>
+
           </div>
         </div>
-        {/* Lifted to clear the persistent agent bar (pinned above the safe
-            area, ~44px tall + gap) so the legal footnote never tucks under it. */}
-        <footer className="absolute inset-x-6 bottom-[calc(20px+56px+env(safe-area-inset-bottom,0px)+var(--app-screen-footer-pad))] flex-none">
-          <p className="type-footnote mx-auto max-w-[19.5rem] text-center text-[#86868b] dark:text-white/45">
-            By continuing, you agree to One&apos;s{" "}
+      </div>
+      <div className="absolute inset-x-6 bottom-5 z-10 flex justify-center">
+        <div
+          className="flex flex-col items-center gap-3"
+          data-auth-supporting-content
+        >
+          <p className="type-footnote mx-auto max-w-[24rem] text-center leading-5 text-[#86868b] dark:text-white/45">
+            By continuing you agree to our{" "}
             <button
               type="button"
               onClick={() => void openLegalDoc("terms")}
@@ -1234,8 +1267,8 @@ export function AuthStep({
               className="font-semibold text-[color:var(--app-accent-deep)] transition-opacity hover:opacity-70 dark:text-[color:var(--app-accent-deep)]"
             >
               Terms
-            </button>{" "}
-            and{" "}
+            </button>
+            <span aria-hidden="true"> and </span>
             <button
               type="button"
               onClick={() => void openLegalDoc("privacy")}
@@ -1244,9 +1277,8 @@ export function AuthStep({
             >
               Privacy Policy
             </button>
-            .
           </p>
-        </footer>
+        </div>
       </div>
       <AuthLegalDialog
         docType={activeLegalDoc}

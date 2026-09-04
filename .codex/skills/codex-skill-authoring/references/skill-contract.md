@@ -124,7 +124,9 @@ Workflow-routing rules:
 4. Be explicit about what the skill does not own.
 5. Hand off to owner or sibling skills instead of absorbing adjacent workflows.
 6. Do not create a new skill when tightening an existing owner or spoke is enough.
-7. Every skill inherits the repo-wide premise verification gate from `AGENTS.md` and the shared truth-first operating kernel.
+7. Every skill inherits both the repo-wide premise verification gate and the
+   Bacterial Software Architecture Gate from `AGENTS.md`. Keep skill procedures
+   small, modular, and self-contained while preserving canonical authority.
 8. Skills that answer, review, plan, or merge must explicitly avoid blind agreement with prompt claims. They should verify current repo contracts before treating a claim as true.
 9. When a task includes phrases such as `missing`, `not implemented`, `static`, `dynamic`, `duplicate`, `safe`, `ready`, `working before`, or `should be easy`, the owning skill must classify the claim as `already_exists`, `partially_exists`, `missing`, `future_state_only`, `wrong_direction`, or `needs_verification` before recommending a path.
 10. If a capability already exists, the skill must route the user toward extending the existing contract rather than creating a parallel path.
@@ -140,6 +142,13 @@ Workflow-routing rules:
 16. Treat a skill as bloated when the main `SKILL.md` becomes a mixed incident ledger, comment-template inventory, domain checklist, and workflow procedure in one file. The correction is extraction, not deleting the governance constraint.
 17. A scan for skill quality should report line count, role, owner family, reads, checks, references, scripts, budget status, likely duplication, and agent/subagent activation mechanisms.
 18. Skills that judge product direction, founder language, future-state plans, or PR north-star fit must use the Founder Wiki North-Star Probe from `.codex/skills/codex-skill-authoring/references/founder-wiki-north-star-probe.md` when the task is material. The wiki is a direction lens, not current-state implementation proof; private wiki evidence stays local-only; conflicts should be recorded as `current_state_vs_north_star_drift`.
+19. Every skill and workflow inherits the Bacterial Software Architecture Gate in `AGENTS.md`: keep procedural kernels small, move reusable logic into bounded scripts or references, preserve canonical authority, and require characterization plus compatibility facades before splitting working surfaces.
+20. Every skill and workflow that reaches merge, Admin bypass, deployment,
+    rollback, or environment-promotion authority inherits
+    `.codex/skills/repo-operations/references/admin-release-sop.md`. Domain
+    skills may add surface-specific verification, but they must route the
+    state-changing decision to `repo-operations` and must not duplicate a
+    competing release procedure.
 
 ## Coverage baseline
 

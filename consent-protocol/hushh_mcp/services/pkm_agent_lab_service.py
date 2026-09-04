@@ -6,6 +6,7 @@ import json
 import logging
 import os
 import re
+import secrets
 import time
 from collections import OrderedDict
 from copy import deepcopy
@@ -14,6 +15,11 @@ from typing import Any
 
 from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.hushh_adk.manifest import ManifestLoader
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -52,6 +58,7 @@ _INTENT_CLASSES = {
 }
 _MUTATION_INTENTS = {"create", "extend", "update", "correct", "delete", "no_op"}
 _WRITE_MODES = {"can_save", "confirm_first", "do_not_save"}
+_AUTO_SAVE_MIN_CONFIDENCE = 0.64
 _FINANCIAL_GUARD_ROUTES = {
     "financial_core",
     "sanctioned_financial_memory",
@@ -324,6 +331,32 @@ Deletions are signaled by: forget, remove, delete, don't remember this anymore.
 Refinements are signaled by: also, still, usually, when possible, prefer, more often.
 
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
+_SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "card_security_code",
+        re.compile(r"\b(?:cvv|cvc|cvv2|pin)\b\s*(?:is|:|=|-)?\s*\d{3,6}\b", re.I),
+    ),
+    (
+        "credential",
+        re.compile(
+            r"\b(?:password|passwd|passphrase|api[ _-]?key|secret[ _-]?key|access[ _-]?token|"
+            r"refresh[ _-]?token|private[ _-]?key|client[ _-]?secret)\b\s*(?:is|:|=|-)\s*\S+",
+            re.I,
+        ),
+    ),
+    ("credential", re.compile(r"\b(?:sk|pk|rk)_(?:live|test|prod)_[A-Za-z0-9]{8,}\b")),
+    ("government_id", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("government_id", re.compile(r"\b\d{4}\s\d{4}\s\d{4}\b")),
+    ("government_id", re.compile(r"\bpassport\b[^\n]{0,24}\b[A-Z]{1,2}\d{6,8}\b", re.I)),
+    (
+        "bank_account",
+        re.compile(
+            r"\b(?:account|routing|iban)\s*(?:number|no\.?|#)?\s*(?:is|:|=|-)?\s*[A-Z]{0,2}\d{8,}\b",
+            re.I,
+        ),
+    ),
+)
+
 _INTERNAL_METADATA_SCOPE_TOKENS = {
     "artifact",
     "artifact_id",
@@ -379,7 +412,8 @@ _MEMORY_SIMILARITY_STOPWORDS = {
 _ENTITY_STATUS_ACTIVE = "active"
 _ENTITY_STATUS_CORRECTED = "corrected"
 _ENTITY_STATUS_DELETED = "deleted"
-_MAX_PREVIEW_CARDS = 4
+_MAX_PREVIEW_CARDS = 8
+_MAX_SEGMENT_SOURCE_CHARS = 4000
 _PREVIEW_CACHE_TTL_SECONDS = max(
     60,
     int(os.getenv("PKM_AGENT_LAB_PREVIEW_CACHE_TTL_SECONDS", "300") or "300"),
@@ -390,16 +424,24 @@ _PREVIEW_CACHE_MAX_SIZE = max(
 )
 _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     1.5,
-    # A structured preview can call segmentation, financial guard, intent,
-    # merge, and structure contracts. Four seconds is below normal Vertex
-    # tail latency and forced valid model responses into fallback.
-    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "8") or "8"),
+    # Protected UAT evidence showed valid Gemini 3.5 Flash responses regularly
+    # arriving after eight seconds. Ten seconds avoids cancelling healthy tail
+    # responses and then paying for a duplicate retry.
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "10") or "10"),
+)
+# One retry absorbs transient provider tail latency without introducing another
+# runtime configuration surface or extending the shared preview deadline.
+_AGENT_CONTRACT_MAX_ATTEMPTS = 2
+_PKM_SALIENCE_AGENT_TIMEOUT_SECONDS = max(
+    _AGENT_CONTRACT_TIMEOUT_SECONDS,
+    float(os.getenv("PKM_SALIENCE_AGENT_TIMEOUT_SECONDS", "15") or "15"),
 )
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
-    # Keep a finite user-facing budget while allowing the sequential contract
-    # graph to complete under normal provider tail latency.
-    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "30") or "30"),
+    # The graph is bounded but sequential after segmentation. Five additional
+    # seconds absorb one provider-tail response without making fallback the
+    # normal path for otherwise valid memory decisions.
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "35") or "35"),
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}
@@ -588,6 +630,24 @@ _STRUCTURE_PREVIEW_SCHEMA = {
 }
 
 
+def _manifest_model_name(manifest: Any) -> str:
+    """The text model a manifest asks for, with the fleet alias resolved.
+
+    Real manifests own the mapping (`model_config_for_runtime`); the lightweight
+    stand-ins tests use only carry `.model`. Either way `gemini-default` lands on
+    the switched fleet model (constants.GEMINI_MODEL).
+    """
+    resolver = getattr(manifest, "model_config_for_runtime", None)
+    if callable(resolver):
+        try:
+            return str(resolver().name or "")
+        except Exception:  # noqa: BLE001 - fall back to the raw field
+            pass
+    raw = getattr(manifest, "model", None)
+    name = getattr(raw, "name", raw)
+    return resolve_fleet_model_name(name if isinstance(name, str) else None)
+
+
 class PKMAgentLabService:
     def __init__(self) -> None:
         self._memory_segmentation_manifest = None
@@ -635,25 +695,79 @@ class PKMAgentLabService:
     def client(self):
         if self._client is not None:
             return self._client
-        api_key = (
-            str(os.getenv("GEMINI_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_API_KEY", "")).strip()
-            or str(os.getenv("GOOGLE_GENAI_API_KEY", "")).strip()
-        )
-        if not api_key:
-            return None
         try:
-            from google import genai
-
-            # The GenAI SDK derives managed Vertex mode and endpoint selection
-            # from the configured environment. Passing an explicit location with
-            # an API key is invalid, so deployments select `global` through
-            # GOOGLE_CLOUD_LOCATION rather than this constructor.
-            self._client = genai.Client(api_key=api_key)
+            # Managed PKM intelligence is bound to the same workload ADC
+            # contract as every other hosted Gemini caller. Environment API
+            # keys must never become an implicit fallback.
+            self._client = build_managed_runtime_client("gemini")
         except Exception as exc:
             logger.warning("pkm.agent_lab_client_unavailable error=%s", exc)
             self._client = None
         return self._client
+
+    @staticmethod
+    def _is_retryable_provider_error(exc: Exception) -> bool:
+        status_code = PKMAgentLabService._provider_status_code(exc)
+        if status_code in {429, 500, 503}:
+            return True
+        message = str(exc).lower()
+        markers = (
+            "resource_exhausted",
+            "resource exhausted",
+            "service_unavailable",
+            "service unavailable",
+            "internal server error",
+            "status 429",
+            "status 500",
+            "status 503",
+            "code 429",
+            "code 500",
+            "code 503",
+        )
+        return any(marker in message for marker in markers)
+
+    @staticmethod
+    def _provider_status_code(exc: Exception) -> int | None:
+        for field in ("status_code", "code"):
+            value = getattr(exc, field, None)
+            if callable(value):
+                try:
+                    value = value()
+                except TypeError:
+                    continue
+            try:
+                return int(value)
+            except (TypeError, ValueError):
+                continue
+        return None
+
+    @classmethod
+    def _provider_error_code(cls, exc: Exception) -> str:
+        """Classify provider failures without retaining or logging request text."""
+        status_code = cls._provider_status_code(exc)
+        if status_code == 401:
+            return "unauthenticated"
+        if status_code == 403:
+            return "permission_denied"
+        if status_code == 404:
+            return "model_not_found"
+        if status_code == 429:
+            return "quota_exhausted"
+        if status_code in {500, 503}:
+            return "provider_unavailable"
+        message = str(exc).lower()
+        if "quota" in message or "resource exhausted" in message:
+            return "quota_exhausted"
+        if "model" in message and ("not found" in message or "unavailable" in message):
+            return "model_not_found"
+        if "permission" in message or "forbidden" in message:
+            return "permission_denied"
+        return "provider_request_failed"
+
+    @staticmethod
+    def _provider_retry_delay_seconds(attempt: int) -> float:
+        exponential_delay = min(1.5, 0.5 * (2 ** max(0, attempt - 1)))
+        return exponential_delay + (secrets.randbelow(251) / 1000.0)
 
     @staticmethod
     def _preview_cache_key(
@@ -759,7 +873,7 @@ class PKMAgentLabService:
 
     @classmethod
     def _fallback_segmented_messages(cls, message: str) -> list[dict[str, Any]]:
-        normalized = cls._safe_excerpt(message, limit=2000)
+        normalized = cls._safe_excerpt(message, limit=50000)
         if not normalized:
             return []
 
@@ -803,25 +917,31 @@ class PKMAgentLabService:
         *,
         message: str,
     ) -> list[dict[str, Any]]:
-        fallback = cls._fallback_segmented_messages(message)
-        if len(fallback) == 1:
-            return fallback
         if not isinstance(raw, dict):
-            return fallback
+            return []
 
         items = raw.get("segments")
         if not isinstance(items, list):
-            return fallback
+            return []
 
+        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
             if not isinstance(item, dict):
                 continue
-            source_text = cls._safe_excerpt(str(item.get("source_text") or ""), limit=280)
+            source_text = cls._safe_excerpt(
+                str(item.get("source_text") or ""),
+                limit=_MAX_SEGMENT_SOURCE_CHARS,
+            )
             if not source_text:
                 continue
             normalized = source_text.casefold()
+            # Segmentation may select only a direct part of the owner's text.
+            # Never let a rewritten or invented clause become a persistence
+            # candidate, even if a provider returned valid JSON.
+            if normalized not in normalized_message:
+                continue
             if normalized in seen:
                 continue
             seen.add(normalized)
@@ -833,9 +953,7 @@ class PKMAgentLabService:
                     or "Segmented memory candidate.",
                 }
             )
-        if len(fallback) == 1 and len(sanitized) == 1:
-            return fallback
-        return sanitized or fallback
+        return sanitized
 
     @classmethod
     def _stable_entity_id(
@@ -870,6 +988,39 @@ class PKMAgentLabService:
             seen.add(normalized)
             unique.append(normalized)
         return unique
+
+    @staticmethod
+    def _luhn_ok(digits: str) -> bool:
+        total = 0
+        for index, char in enumerate(reversed(digits)):
+            value = ord(char) - 48
+            if index % 2 == 1:
+                value *= 2
+                if value > 9:
+                    value -= 9
+            total += value
+        return total % 10 == 0
+
+    @classmethod
+    def _contains_sensitive_secret(cls, message: str) -> str | None:
+        """Name the kind of secret a passage carries, or None.
+
+        A card number, a CVV or PIN, a password or API key, a government id, or
+        a bank account never becomes a plain memory, whatever domain the model
+        proposes: the wallet and the vault's secret surfaces exist for those.
+        This runs before any agent so the passage is rejected, not redirected.
+        """
+        text = str(message or "")
+        if not text.strip():
+            return None
+        for run in re.findall(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)", text):
+            digits = re.sub(r"[ -]", "", run)
+            if 13 <= len(digits) <= 19 and cls._luhn_ok(digits):
+                return "card_number"
+        for kind, pattern in _SENSITIVE_VALUE_PATTERNS:
+            if pattern.search(text):
+                return kind
+        return None
 
     @classmethod
     def _looks_opaque_or_nonsense(cls, message: str) -> bool:
@@ -1358,56 +1509,157 @@ class PKMAgentLabService:
         response_schema: dict[str, Any],
         model_override: str | None = None,
         timeout_seconds: float | None = None,
+        execution_trace: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
-        if self.client is None:
-            return None
-        effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
-        if timeout_seconds is not None:
-            if timeout_seconds <= 0.25:
-                logger.info(
-                    "pkm.agent_contract_skipped_budget agent=%s timeout_seconds=%s",
-                    getattr(manifest, "id", "unknown"),
-                    round(timeout_seconds, 3),
-                )
-                return None
-            effective_timeout = max(0.25, min(_AGENT_CONTRACT_TIMEOUT_SECONDS, timeout_seconds))
-        try:
-            from google.genai import types as genai_types
+        started_at = time.perf_counter()
+        agent_id = str(getattr(manifest, "id", "unknown") or "unknown")
 
-            config = genai_types.GenerateContentConfig(
-                temperature=0.0,
-                response_mime_type="application/json",
-                automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
-                response_schema=response_schema,
+        def record(status: str, *, attempts: int, error_type: str = "") -> None:
+            if execution_trace is None:
+                return
+            execution_trace.append(
+                {
+                    "agent_id": agent_id,
+                    "status": status,
+                    "attempts": attempts,
+                    "latency_ms": round((time.perf_counter() - started_at) * 1000, 2),
+                    "error_type": error_type,
+                }
             )
-            response = await asyncio.wait_for(
-                self.client.aio.models.generate_content(
-                    model=model_override or manifest.model or GEMINI_MODEL,
-                    contents=prompt,
-                    config=config,
-                ),
-                timeout=effective_timeout,
-            )
-            parsed = (
-                response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
-            )
-            if parsed is None:
-                parsed = json.loads((response.text or "").strip() or "{}")
-            return parsed if isinstance(parsed, dict) else None
-        except asyncio.TimeoutError:
-            logger.warning(
-                "pkm.agent_contract_timeout agent=%s timeout_seconds=%s",
-                getattr(manifest, "id", "unknown"),
-                round(effective_timeout, 3),
-            )
+
+        if self.client is None:
+            record("client_unavailable", attempts=0)
             return None
-        except Exception as exc:
-            logger.warning(
-                "pkm.agent_contract_failed agent=%s error=%s",
-                getattr(manifest, "id", "unknown"),
-                exc,
+        deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
+        from google.genai import types as genai_types
+
+        active_model = model_override or _manifest_model_name(manifest) or GEMINI_MODEL
+        is_salience_model = active_model == "gemini-3.1-pro-preview"
+        thinking_level = (
+            genai_types.ThinkingLevel.LOW
+            if is_salience_model
+            else genai_types.ThinkingLevel.MINIMAL
+        )
+        config = build_generate_content_config(
+            genai_types,
+            active_model,
+            temperature=0.0,
+            # These calls are deterministic schema workers inside a bounded,
+            # sequential PKM graph. Gemini's default thinking can consume the
+            # shared preview deadline before the final structure contract runs.
+            # Flash stays bounded for the fast structural stages; the two
+            # salience stages use the higher-capability model deliberately.
+            thinking_config=genai_types.ThinkingConfig(
+                thinking_level=thinking_level,
+            ),
+            response_mime_type="application/json",
+            automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
+            response_schema=response_schema,
+        )
+        max_attempts = 1 if is_salience_model else _AGENT_CONTRACT_MAX_ATTEMPTS
+        for attempt in range(1, max_attempts + 1):
+            remaining_seconds = (
+                max(0.0, deadline - time.perf_counter()) if deadline is not None else None
             )
-            return None
+            if remaining_seconds is not None and remaining_seconds <= 0.25:
+                logger.info(
+                    "pkm.agent_contract_skipped_budget agent=%s attempt=%s "
+                    "budget_remaining_seconds=%s",
+                    getattr(manifest, "id", "unknown"),
+                    attempt,
+                    round(remaining_seconds, 3),
+                )
+                record("budget_exhausted", attempts=attempt - 1)
+                return None
+            effective_timeout = (
+                _PKM_SALIENCE_AGENT_TIMEOUT_SECONDS
+                if is_salience_model
+                else _AGENT_CONTRACT_TIMEOUT_SECONDS
+            )
+            if remaining_seconds is not None:
+                effective_timeout = max(
+                    0.25,
+                    min(effective_timeout, remaining_seconds),
+                )
+            try:
+                response = await asyncio.wait_for(
+                    self.client.aio.models.generate_content(
+                        model=active_model,
+                        contents=prompt,
+                        config=config,
+                    ),
+                    timeout=effective_timeout,
+                )
+                parsed = (
+                    response.parsed if isinstance(getattr(response, "parsed", None), dict) else None
+                )
+                if parsed is None:
+                    parsed = json.loads((response.text or "").strip() or "{}")
+                if isinstance(parsed, dict):
+                    record("success", attempts=attempt)
+                    return parsed
+                record("invalid_response", attempts=attempt)
+                return None
+            except asyncio.TimeoutError:
+                can_retry = attempt < max_attempts
+                retry_budget_seconds = (
+                    max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                )
+                if can_retry and (retry_budget_seconds is None or retry_budget_seconds > 0.25):
+                    logger.warning(
+                        "pkm.agent_contract_timeout_retry agent=%s attempt=%s "
+                        "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
+                        getattr(manifest, "id", "unknown"),
+                        attempt,
+                        max_attempts,
+                        round(effective_timeout, 3),
+                        round(retry_budget_seconds, 3)
+                        if retry_budget_seconds is not None
+                        else None,
+                    )
+                    continue
+                logger.warning(
+                    "pkm.agent_contract_timeout agent=%s attempts=%s timeout_seconds=%s",
+                    getattr(manifest, "id", "unknown"),
+                    attempt,
+                    round(effective_timeout, 3),
+                )
+                record("timeout", attempts=attempt)
+                return None
+            except Exception as exc:
+                can_retry = attempt < max_attempts and self._is_retryable_provider_error(exc)
+                if can_retry:
+                    retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
+                    retry_budget_seconds = (
+                        max(0.0, deadline - time.perf_counter()) if deadline is not None else None
+                    )
+                    if (
+                        retry_budget_seconds is None
+                        or retry_budget_seconds > retry_delay_seconds + 0.25
+                    ):
+                        logger.warning(
+                            "pkm.agent_contract_provider_retry agent=%s attempt=%s "
+                            "max_attempts=%s delay_seconds=%s error_type=%s",
+                            getattr(manifest, "id", "unknown"),
+                            attempt,
+                            max_attempts,
+                            round(retry_delay_seconds, 3),
+                            type(exc).__name__,
+                        )
+                        await asyncio.sleep(retry_delay_seconds)
+                        continue
+                logger.warning(
+                    "pkm.agent_contract_failed agent=%s model=%s error_type=%s "
+                    "provider_status=%s error_code=%s",
+                    getattr(manifest, "id", "unknown"),
+                    active_model,
+                    type(exc).__name__,
+                    self._provider_status_code(exc),
+                    self._provider_error_code(exc),
+                )
+                record("error", attempts=attempt, error_type=type(exc).__name__)
+                return None
+        return None
 
     @staticmethod
     def _remaining_preview_budget_seconds(deadline: float | None) -> float | None:
@@ -1492,19 +1744,22 @@ class PKMAgentLabService:
         strict_small_model: bool,
     ) -> str:
         header = (
-            "You are the Memory Segmentation Agent for Hushh Kai.\n"
+            "You are the Memory Segmentation Agent for Hussh Kai.\n"
             "Return JSON only with segments, source_agent, contract_version.\n"
-            "Split a single natural-language prompt into 1 to 4 meaningful memory candidates.\n"
+            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
         )
         if strict_small_model:
             return (
                 f"{header}"
                 f"Message: {message}\n"
                 "Rules:\n"
+                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
+                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
                 "- Keep each segment self-contained and short.\n"
-                "- Split only when the prompt clearly contains multiple durable or semi-durable ideas.\n"
-                "- Do not invent facts that were not stated.\n"
-                "- If the prompt is one coherent memory, return one segment only.\n"
+                "- source_text must be an exact contiguous quote from the message.\n"
+                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
+                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
                 "- contract_version must be 1.\n"
                 'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
                 '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
@@ -1513,11 +1768,13 @@ class PKMAgentLabService:
             f"{header}"
             f"Natural language message: {message}\n"
             "Rules:\n"
-            "- Return 1 segment for a single coherent memory.\n"
-            "- Return multiple segments only when the prompt clearly contains multiple distinct memories, routines, preferences, or facts.\n"
-            "- Do not split purely stylistic repetition.\n"
-            "- Keep source_text close to the user's own wording.\n"
-            "- Never emit more than 4 segments.\n"
+            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
+            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
+            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
+            "- source_text must be an exact contiguous quote from the user's message.\n"
+            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
+            "- Never emit more than 8 segments.\n"
             "- contract_version must be 1.\n"
         )
 
@@ -3034,7 +3291,6 @@ class PKMAgentLabService:
             "top_level_scope_paths": top_level_scope_paths,
             "externalizable_paths": externalizable_paths,
             "summary_projection": {
-                "message_excerpt": cls._safe_excerpt(message, limit=120),
                 "intent_class": intent_frame.get("intent_class"),
                 "save_class": intent_frame.get("save_class"),
                 "path_count": len(json_paths),
@@ -3181,6 +3437,30 @@ class PKMAgentLabService:
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        secret_kind = cls._contains_sensitive_secret(message)
+        if secret_kind:
+            # Same terminal shape as the reserved-target rejection: never
+            # redirected, never owner-confirmable, and the hint tells the
+            # surface to point at the secure form instead.
+            return {
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "reject_sensitive_secret",
+                    "target_domain": "",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+                },
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": [f"sensitive_{secret_kind}_rejected"],
+            }
         raw_structure = parsed_structure or {}
         raw_decision = raw_structure.get("structure_decision")
         raw_decision = raw_decision if isinstance(raw_decision, dict) else {}
@@ -3239,10 +3519,30 @@ class PKMAgentLabService:
         try:
             target_domain = validate_dynamic_top_level_domain(target_domain)
         except ValueError:
-            validation_hints.append("invalid_or_reserved_custom_domain_rejected")
-            target_domain = validate_dynamic_top_level_domain(
-                recommended_domain or _DEFAULT_CONFIRMATION_DOMAINS[0]
-            )
+            # A model-proposed reserved or malformed domain must never be
+            # silently redirected into a general domain. That would turn a
+            # policy rejection into an owner-confirmable write to the wrong
+            # place. Return a terminal preview instead; callers already omit
+            # do_not_save cards from the save path.
+            return {
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "reject_reserved_target",
+                    "target_domain": "",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+                },
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": ["invalid_or_reserved_target_rejected"],
+            }
         keyword_ranked_domains = cls._keyword_ranked_domains(
             message=message,
             current_domains=current_domains,
@@ -3397,7 +3697,10 @@ class PKMAgentLabService:
 
         write_mode = str(raw_structure.get("write_mode") or "").strip().lower()
         if write_mode not in _WRITE_MODES:
-            write_mode = "can_save"
+            # A missing structure decision is not owner approval. Keep the
+            # malformed result review-only instead of synthesizing a write.
+            write_mode = "confirm_first"
+            validation_hints.append("invalid_write_mode_requires_review")
 
         if intent_frame.get("save_class") == "ephemeral":
             write_mode = "do_not_save"
@@ -3418,6 +3721,7 @@ class PKMAgentLabService:
                 in {
                     "non_financial_payload_replaced",
                     "financial_domain_requires_confirmation",
+                    "financial_payload_normalized",
                     "unresolved_domain_choice",
                 }
                 for hint in validation_hints
@@ -3459,16 +3763,36 @@ class PKMAgentLabService:
         if mutation_intent == "no_op" and write_mode == "can_save":
             write_mode = "do_not_save"
 
-        # PKM v5 has no semantic auto-save lane. Every durable create/update/
-        # move/merge/delete is shown to the owner as a review card first.
-        if write_mode != "do_not_save":
+        effective_confidence = min(
+            cls._clamp_confidence(intent_frame.get("confidence"), default=0.0),
+            cls._clamp_confidence(decision.get("confidence"), default=0.0),
+        )
+        requires_review_for_auto_save = (
+            mutation_intent not in {"create", "extend"}
+            or effective_confidence < _AUTO_SAVE_MIN_CONFIDENCE
+            or any(
+                hint
+                in {
+                    "new_domain_requires_extra_confidence",
+                    "custom_domain_pending_owner_confirmation",
+                    "possible_duplicate_memory",
+                    "financial_domain_requires_confirmation",
+                    "unresolved_domain_choice",
+                    "dynamic_scope_metadata_no_specific_match",
+                }
+                for hint in validation_hints
+            )
+        )
+        if write_mode == "can_save" and requires_review_for_auto_save:
             write_mode = "confirm_first"
+            validation_hints.append("auto_save_requires_review")
+
+        if write_mode == "confirm_first":
             intent_frame["requires_confirmation"] = True
             intent_frame["confirmation_reason"] = (
                 str(intent_frame.get("confirmation_reason") or "").strip()
                 or "Review the domain, scope, and sharing impact before this PKM change is saved."
             )
-            validation_hints.append("pkm_v5_owner_confirmation_required")
 
         parsed_validation_hints = raw_structure.get("validation_hints")
         if isinstance(parsed_validation_hints, list):
@@ -3776,7 +4100,7 @@ class PKMAgentLabService:
             "notes": [
                 note
                 for note in [
-                    "Prompt was truncated to four preview cards. Split the message if you want Kai to review each memory separately."
+                    "Prompt was truncated to eight preview cards. Split the message if you want Kai to review each memory separately."
                     if split_recommended
                     else "",
                     "Preview is read-only. Save encrypts only the selected PKM updates with the active vault key.",
@@ -3902,7 +4226,7 @@ class PKMAgentLabService:
             registry_payload = self._compact_registry_choices(registry_choices)
             return (
                 f"{self._kernel_prompt('Memory Intent Agent')}"
-                "You are the Memory Intent Agent for Hushh Kai.\n"  # nosec B608 - prompt template, not SQL.
+                "You are the Memory Intent Agent for Hussh Kai.\n"  # nosec B608 - prompt template, not SQL.
                 "Return JSON only with save_class, intent_class, mutation_intent, requires_confirmation, confirmation_reason, candidate_domain_choices, confidence, source_agent, contract_version.\n"
                 "Allowed save_class: durable, ephemeral, ambiguous.\n"
                 "Allowed intent_class: preference, profile_fact, routine, task_or_reminder, plan_or_goal, relationship, health, travel, shopping_need, financial_event, correction, deletion, note, ambiguous.\n"
@@ -3980,7 +4304,7 @@ class PKMAgentLabService:
             else self._build_state_summary(simulated_state)
         )
         header = (
-            "You are the Memory Merge Agent for Hushh Kai.\n"
+            "You are the Memory Merge Agent for Hussh Kai.\n"
             "Return JSON only with merge_mode, target_domain, target_entity_id, target_entity_path, match_confidence, match_reason, source_agent, contract_version.\n"
             "Allowed merge_mode values: create_entity, extend_entity, correct_entity, delete_entity, no_op.\n"
         )
@@ -4041,7 +4365,7 @@ class PKMAgentLabService:
             compact_registry_choices = self._compact_registry_choices(registry_choices)
             return (
                 f"{self._kernel_prompt('PKM Structure Agent')}"
-                "You are the PKM Structure Agent for Hushh Kai.\n"
+                "You are the PKM Structure Agent for Hussh Kai.\n"
                 "Return JSON only with candidate_payload, structure_decision, write_mode, primary_json_path, target_entity_scope, validation_hints.\n"
                 "Allowed actions: match_existing_domain, create_domain, extend_domain.\n"
                 "Allowed write_mode: can_save, confirm_first, do_not_save.\n"
@@ -4138,6 +4462,7 @@ class PKMAgentLabService:
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
         deadline: float | None = None,
+        execution_trace: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         normalized_domains = [
             self._normalize_segment(domain) for domain in (current_domains or []) if domain
@@ -4167,6 +4492,7 @@ class PKMAgentLabService:
             response_schema=_FINANCIAL_GUARD_SCHEMA,
             model_override=model_override,
             timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+            execution_trace=execution_trace,
         )
         financial_guard_used_fallback = financial_guard_raw is None
         financial_guard = self._sanitize_financial_guard_decision(
@@ -4230,6 +4556,7 @@ class PKMAgentLabService:
                     response_schema=_INTENT_FRAME_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 intent_used_fallback = intent_raw is None
                 intent_frame = self._sanitize_intent_frame(
@@ -4262,6 +4589,7 @@ class PKMAgentLabService:
                     response_schema=_MERGE_DECISION_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 merge_used_fallback = merge_raw is None
             merge_decision = self._sanitize_merge_decision(
@@ -4303,6 +4631,7 @@ class PKMAgentLabService:
                     response_schema=_STRUCTURE_PREVIEW_SCHEMA,
                     model_override=model_override,
                     timeout_seconds=self._remaining_preview_budget_seconds(deadline),
+                    execution_trace=execution_trace,
                 )
                 structure_used_fallback = structure_raw is None
             normalized_preview = self._normalize_structure_preview(
@@ -4350,7 +4679,7 @@ class PKMAgentLabService:
         return {
             "agent_id": agent_manifest.id,
             "agent_name": agent_manifest.name,
-            "model": model_override or agent_manifest.model or GEMINI_MODEL,
+            "model": model_override or _manifest_model_name(agent_manifest) or GEMINI_MODEL,
             "used_fallback": used_fallback,
             "intent_used_fallback": intent_used_fallback,
             "merge_used_fallback": merge_used_fallback,
@@ -4380,6 +4709,7 @@ class PKMAgentLabService:
         model_override: str | None = None,
         strict_small_model: bool = False,
         domain_registry_override: list[dict[str, Any]] | None = None,
+        capture_execution_trace: bool = False,
     ) -> dict[str, Any]:
         total_started_at = time.perf_counter()
         normalized_domains = [
@@ -4395,17 +4725,19 @@ class PKMAgentLabService:
             strict_small_model=strict_small_model,
             domain_registry_override=domain_registry_override,
         )
-        cached_preview = self._get_cached_structure_preview(preview_cache_key)
-        if cached_preview is not None:
-            logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
-            return cached_preview
-        inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
-        if inflight_preview is not None:
-            logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
-            return deepcopy(await inflight_preview)
+        if not capture_execution_trace:
+            cached_preview = self._get_cached_structure_preview(preview_cache_key)
+            if cached_preview is not None:
+                logger.info("pkm.agent_lab.preview_cache_hit user_id=%s", user_id)
+                return cached_preview
+            inflight_preview = _PREVIEW_INFLIGHT.get(preview_cache_key)
+            if inflight_preview is not None:
+                logger.info("pkm.agent_lab.preview_inflight_hit user_id=%s", user_id)
+                return deepcopy(await inflight_preview)
 
         async def _build_preview() -> dict[str, Any]:
             errors: list[str] = []
+            execution_trace: list[dict[str, Any]] | None = [] if capture_execution_trace else None
             preview_deadline = time.perf_counter() + _PREVIEW_TOTAL_BUDGET_SECONDS
 
             segmentation_started_at = time.perf_counter()
@@ -4418,6 +4750,7 @@ class PKMAgentLabService:
                 response_schema=_SEGMENTATION_SCHEMA,
                 model_override=model_override,
                 timeout_seconds=self._remaining_preview_budget_seconds(preview_deadline),
+                execution_trace=execution_trace,
             )
             segmentation_latency_ms = round(
                 (time.perf_counter() - segmentation_started_at) * 1000, 2
@@ -4438,7 +4771,10 @@ class PKMAgentLabService:
             async def _build_preview_entry(
                 index: int, segment: dict[str, Any]
             ) -> dict[str, Any] | None:
-                source_text = self._safe_excerpt(str(segment.get("source_text") or ""), limit=400)
+                source_text = self._safe_excerpt(
+                    str(segment.get("source_text") or ""),
+                    limit=_MAX_SEGMENT_SOURCE_CHARS,
+                )
                 if not source_text:
                     return None
                 preview_started_at = time.perf_counter()
@@ -4452,6 +4788,7 @@ class PKMAgentLabService:
                     strict_small_model=strict_small_model,
                     domain_registry_override=domain_registry_override,
                     deadline=preview_deadline,
+                    execution_trace=execution_trace,
                 )
                 preview_latency_ms = round((time.perf_counter() - preview_started_at) * 1000, 2)
                 card_id = f"card_{index:02d}"
@@ -4518,6 +4855,8 @@ class PKMAgentLabService:
                     self._remaining_preview_budget_seconds(preview_deadline) or 0.0, 3
                 ),
             }
+            if execution_trace is not None:
+                performance["agent_execution"] = execution_trace
 
             if primary_preview is None:
                 empty_manifest = self._build_manifest_from_payload(
@@ -4541,7 +4880,7 @@ class PKMAgentLabService:
                     "agent_id": self.memory_segmentation_manifest.id,
                     "agent_name": self.memory_segmentation_manifest.name,
                     "model": model_override
-                    or self.memory_segmentation_manifest.model
+                    or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
                     "used_fallback": True,
                     "intent_used_fallback": False,
@@ -4575,7 +4914,8 @@ class PKMAgentLabService:
                     "performance": performance,
                     "context_plan": context_plan,
                 }
-                self._set_cached_structure_preview(preview_cache_key, response_payload)
+                if not capture_execution_trace:
+                    self._set_cached_structure_preview(preview_cache_key, response_payload)
                 return response_payload
 
             validation_hints = list(primary_preview.get("validation_hints") or [])
@@ -4601,9 +4941,12 @@ class PKMAgentLabService:
                 merge_used_fallback=bool(response_payload.get("merge_used_fallback")),
                 structure_used_fallback=bool(response_payload.get("structure_used_fallback")),
             )
-            self._set_cached_structure_preview(preview_cache_key, response_payload)
+            if not capture_execution_trace:
+                self._set_cached_structure_preview(preview_cache_key, response_payload)
             return response_payload
 
+        if capture_execution_trace:
+            return deepcopy(await _build_preview())
         task = asyncio.create_task(_build_preview())
         _PREVIEW_INFLIGHT[preview_cache_key] = task
         try:

@@ -1,0 +1,69 @@
+{
+  "id": "reviewer-app-testing",
+  "role": "spoke",
+  "owner_family": "security-audit",
+  "primary_scope": "reviewer-app-testing",
+  "description": "Use when operating reviewer-account browser rehearsals that require BYOK unlock, memory-only decrypted information, and same-session client navigation.",
+  "owned_paths": [
+    ".codex/skills/reviewer-app-testing",
+    "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+    "hushh-webapp/scripts/testing/verify-signed-in-routes.mjs"
+  ],
+  "non_owned_paths": [
+    "consent-protocol/hushh_mcp/vault",
+    "hushh-webapp/lib/pkm",
+    "scripts/ci/pkm-upgrade-gate.sh"
+  ],
+  "task_types": [
+    "reviewer-app-rehearsal",
+    "security-consent-audit",
+    "release-readiness"
+  ],
+  "required_reads": [
+    ".codex/skills/reviewer-app-testing/references/byok-reviewer-browser-contract.md",
+    ".codex/skills/reviewer-app-testing/references/reviewer-rehearsal-preflight.md",
+    "hushh-webapp/scripts/testing/reviewer-test-identity.mjs",
+    "hushh-webapp/lib/testing/native-test.ts",
+    "hushh-webapp/components/app-ui/native-test-bootstrap.tsx",
+    "hushh-webapp/components/app-ui/native-test-router.tsx",
+    "hushh-webapp/lib/utils/browser-navigation.ts"
+  ],
+  "required_commands": [
+    "./scripts/ci/reviewer-app-testing-check.sh",
+    "./bin/hushh codex route-task reviewer-app-rehearsal --text",
+    "node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help",
+    "consent-protocol/.venv/bin/python .codex/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help"
+  ],
+  "verification_bundles": [
+    {
+      "id": "reviewer-app-testing",
+      "commands": [
+        "./scripts/ci/reviewer-app-testing-check.sh",
+        "./bin/hushh codex route-task reviewer-app-rehearsal --text",
+        "node .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs --help",
+        "consent-protocol/.venv/bin/python .codex/skills/reviewer-app-testing/scripts/reconcile-reviewer-identity.py --help"
+      ],
+      "tests": [
+        "node .codex/skills/reviewer-app-testing/scripts/verify-reviewer-byok-navigation.mjs"
+      ]
+    }
+  ],
+  "handoff_targets": [
+    "security-audit",
+    "vault-pkm-governance",
+    "pkm-upgrade-rehearsal",
+    "frontend-cache-coherence"
+  ],
+  "adjacent_skills": [
+    "security-audit",
+    "vault-pkm-governance",
+    "pkm-upgrade-rehearsal",
+    "frontend-cache-coherence"
+  ],
+  "risk_tags": [
+    "byok-secret-leak",
+    "reviewer-fixture-drift",
+    "vault-session-loss",
+    "cold-route-false-proof"
+  ]
+}

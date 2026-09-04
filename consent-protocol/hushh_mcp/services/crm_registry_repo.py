@@ -1,9 +1,9 @@
 """DB-backed enterprise CRM registry repository.
 
 Loads active `enterprise_crm_registry` rows into `ConnectedSystemDefinition`
-objects. List views avoid credential decryption. MuleSoft Bearer action paths
-pass the row's CRM client id and encrypted client secret directly to the MCP
-tool; MuleSoft owns secret decryption.
+objects. List views avoid credential decryption. MuleSoft managed-connector rows
+resolve their own CRM connection; the explicit external dynamic-registry
+profile receives only a server-owned encrypted-at-rest connection bundle.
 
 No plaintext credentials are ever logged. Decryption failures surface as
 `ConnectedSystemConfigurationError` (fail-closed) rather than crashing the
@@ -12,7 +12,12 @@ request path.
 
 from __future__ import annotations
 
+import base64
+import hashlib
+import json
 import logging
+import threading
+import time
 from typing import Any
 from urllib.parse import urljoin
 
@@ -25,8 +30,6 @@ from hushh_mcp.runtime_settings import (
     get_omnigateway_transport_headers,
 )
 from hushh_mcp.services.connected_systems_service import (
-    EXTERNAL_CRM_TOOL_CATALOG,
-    REGISTRY_MCP_ENDPOINT,
     ConnectedSystemConfigurationError,
     ConnectedSystemDefinition,
 )
@@ -49,6 +52,10 @@ _AUTH_HEADER_STYLES: dict[str, tuple[str, str]] = {
 }
 _CANONICAL_CUSTOMER0_CRM_ID = "salesforce-fsc-customer0"
 _CUSTOMER0_ENTERPRISE_NAMES = ("macys", "macy's")
+_SNAPSHOT_TTL_SECONDS = 30.0
+_snapshot_lock = threading.Lock()
+_snapshot_expires_at = 0.0
+_snapshot_definitions: tuple[ConnectedSystemDefinition, ...] = ()
 
 
 def _resolve_endpoint(row: dict[str, Any]) -> str:
@@ -74,31 +81,30 @@ def _is_mulesoft_managed_auth(row: dict[str, Any]) -> bool:
     return str(row.get("auth_header_style") or "").strip().lower() == "bearer"
 
 
-def _first_text(row: dict[str, Any], *keys: str) -> str:
-    for key in keys:
-        value = str(row.get(key) or "").strip()
-        if value:
-            return value
-    return ""
+def _gateway_credential_profile(row: dict[str, Any]) -> str:
+    return str(row.get("gateway_credential_profile") or "shared").strip().lower()
 
 
-def _mulesoft_tool_arguments(row: dict[str, Any]) -> dict[str, Any]:
-    return {
+def _uses_dynamic_registry(row: dict[str, Any]) -> bool:
+    return str(row.get("crm_connection_mode") or "managed").strip().lower() == "dynamic_registry"
+
+
+def _dynamic_registry_tool_arguments(row: dict[str, Any]) -> dict[str, Any]:
+    client_id, client_secret = _decrypt_credentials(row)
+    values = {
         "target": str(row.get("crm_enterprise_name") or "").strip(),
-        "crmBaseUrl": str(row.get("crm_base_url") or "").strip(),
-        "crmMcpEndpoint": str(row.get("crm_mcp_endpoint") or "").strip(),
-        "clientId": _first_text(
-            row, "crm_client_id", "crm_client_id_ciphertext", "crm_client_id_blob"
-        ),
-        "clientSecret": _first_text(
-            row,
-            "crm_client_secret",
-            "crm_client_secret_ciphertext",
-            "crm_client_secret_blob",
-        ),
-        "crmTokenUrl": str(row.get("crm_token_url") or "").strip(),
-        "objectType": str(row.get("user_object_name") or "Contact").strip() or "Contact",
+        "crmBaseUrl": str(row.get("crm_connection_base_url") or "").strip(),
+        "crmMcpEndpoint": str(row.get("crm_connection_mcp_endpoint") or "").strip(),
+        "clientId": client_id,
+        "clientSecret": client_secret,
+        "crmTokenUrl": str(row.get("crm_connection_token_url") or "").strip(),
     }
+    if not all(values.values()):
+        raise ConnectedSystemConfigurationError(
+            "CRM dynamic-registry configuration is incomplete.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    return values
 
 
 def _load_active_row(crm_id: str, database: Any) -> dict[str, Any] | None:
@@ -151,13 +157,58 @@ def _public_system_id(row: dict[str, Any]) -> str:
 def _tool_catalog(row_crm_id: str, database: Any) -> tuple[dict[str, Any], ...]:
     operation_rows = database.execute_raw(
         """
-        SELECT operation, tool_name, http_method, path, description
+        SELECT operation, tool_name, object_type, crm_encrypted_fields_tool_name,
+               http_method, path, description, mcp_endpoint, response_contract
         FROM crm_operation_endpoints
         WHERE crm_id = :crm_id
         """,
         {"crm_id": row_crm_id},
     ).data
-    return _tool_catalog_from_rows(operation_rows) or EXTERNAL_CRM_TOOL_CATALOG
+    # The database registry is the executable source of truth. A legacy
+    # in-code catalog here would advertise CRUD operations which the active
+    # CRM row has not explicitly mapped, defeating capability-safe rollout.
+    return _tool_catalog_from_rows(operation_rows)
+
+
+def _active_crm_encrypted_fields_key(row_crm_id: str, database: Any) -> dict[str, Any] | None:
+    """Return the pinned X25519 recipient key; no request may choose it."""
+    rows = database.execute_raw(
+        """
+        SELECT key_id, public_key, public_key_fingerprint, environment, status
+        FROM crm_encrypted_fields_recipient_keys
+        WHERE crm_id = :crm_id
+          AND status = 'active'
+          AND (retires_at IS NULL OR retires_at > NOW())
+        ORDER BY activated_at DESC
+        LIMIT 1
+        """,
+        {"crm_id": row_crm_id},
+    ).data
+    if not rows:
+        return None
+    key = rows[0]
+    try:
+        public_key = str(key.get("public_key") or "")
+        decoded_public_key = base64.b64decode(public_key, validate=True)
+        if len(decoded_public_key) != 32:
+            raise ValueError("wrong X25519 key length")
+    except (ValueError, base64.binascii.Error) as error:
+        raise ConnectedSystemConfigurationError(
+            "CRM encrypted-fields recipient key is invalid.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        ) from error
+    fingerprint = f"sha256:{hashlib.sha256(decoded_public_key).hexdigest()}"
+    if fingerprint != str(key.get("public_key_fingerprint") or ""):
+        raise ConnectedSystemConfigurationError(
+            "CRM encrypted-fields recipient key fingerprint is invalid.",
+            code="CONNECTED_SYSTEM_REGISTRY_INCOMPLETE",
+        )
+    return {
+        "keyId": str(key.get("key_id") or ""),
+        "publicKey": public_key,
+        "publicKeyFingerprint": fingerprint,
+        "environment": str(key.get("environment") or ""),
+    }
 
 
 def _definition_from_row(
@@ -168,9 +219,13 @@ def _definition_from_row(
     tool_catalog: tuple[dict[str, Any], ...],
     transport_headers: tuple[tuple[str, str], ...] = (),
     transport_tool_arguments: dict[str, Any] | None = None,
+    transport_replacement_tool_arguments: dict[str, Any] | None = None,
+    crm_encrypted_fields_recipient_key: dict[str, Any] | None = None,
 ) -> ConnectedSystemDefinition:
     return ConnectedSystemDefinition(
         system_id=requested_crm_id,
+        registry_id=str(row.get("crm_id") or requested_crm_id),
+        configuration_revision=max(1, int(row.get("configuration_revision") or 1)),
         display_name=str(row.get("crm_enterprise_name") or ""),
         customer_display_name=str(row.get("crm_enterprise_name") or ""),
         system_type=str(row.get("crm_type") or ""),
@@ -183,9 +238,25 @@ def _definition_from_row(
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
         transport_tool_arguments=transport_tool_arguments,
+        transport_replacement_tool_arguments=transport_replacement_tool_arguments,
         delete_transport_endpoint=(
             str(row.get("crm_delete_endpoint")).strip() if row.get("crm_delete_endpoint") else None
         ),
+        capabilities=frozenset(
+            operation
+            for operation, enabled in {
+                "schema": True,
+                "create": bool(row.get("supports_create")),
+                "read": bool(row.get("supports_read")),
+                "update": bool(row.get("supports_update")),
+                "delete": bool(row.get("supports_delete")),
+            }.items()
+            if enabled
+        ),
+        timeout_seconds=max(1, int(row.get("timeout_seconds") or 30)),
+        retry_count=max(0, int(row.get("retry_count") or 0)),
+        crm_encrypted_fields_v1_enabled=bool(row.get("crm_encrypted_fields_v1_enabled")),
+        crm_encrypted_fields_recipient_key=crm_encrypted_fields_recipient_key,
     )
 
 
@@ -193,7 +264,7 @@ def _definition_from_row_without_decrypt(
     *, requested_crm_id: str, row: dict[str, Any], database: Any
 ) -> ConnectedSystemDefinition:
     row_crm_id = str(row.get("crm_id") or requested_crm_id)
-    endpoint = REGISTRY_MCP_ENDPOINT if _is_mulesoft_managed_auth(row) else _resolve_endpoint(row)
+    endpoint = _resolve_endpoint(row)
     tool_catalog = _tool_catalog(row_crm_id, database)
     mulesoft_managed_auth = _is_mulesoft_managed_auth(row)
     return _definition_from_row(
@@ -201,7 +272,16 @@ def _definition_from_row_without_decrypt(
         row=row,
         endpoint=endpoint,
         tool_catalog=tool_catalog,
-        transport_headers=get_omnigateway_transport_headers() if mulesoft_managed_auth else (),
+        transport_headers=(
+            get_omnigateway_transport_headers(_gateway_credential_profile(row))
+            if mulesoft_managed_auth
+            else ()
+        ),
+        crm_encrypted_fields_recipient_key=(
+            _active_crm_encrypted_fields_key(row_crm_id, database)
+            if bool(row.get("crm_encrypted_fields_v1_enabled"))
+            else None
+        ),
     )
 
 
@@ -315,10 +395,31 @@ def _tool_catalog_from_rows(rows: list[dict[str, Any]]) -> tuple[dict[str, Any],
             {
                 "name": name,
                 "operation": operation,
+                "objectType": str(row.get("object_type") or "").strip() or None,
                 "description": str(row.get("description") or "").strip(),
+                "mcpEndpoint": str(row.get("mcp_endpoint") or "").strip() or None,
+                "crmEncryptedFieldsToolName": (
+                    str(row.get("crm_encrypted_fields_tool_name") or "").strip() or None
+                ),
+                # This is non-secret registry metadata. It controls how the
+                # backend decodes a tool response and is never supplied by a
+                # browser request.
+                "responseContract": _response_contract(row.get("response_contract")),
             }
         )
     return tuple(catalog)
+
+
+def _response_contract(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return dict(value)
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return {}
+        return parsed if isinstance(parsed, dict) else {}
+    return {}
 
 
 def load_active_definition(
@@ -326,8 +427,10 @@ def load_active_definition(
 ) -> ConnectedSystemDefinition | None:
     """Return the active CRM definition for `crm_id`, or None if not found/inactive.
 
-    Header-auth rows decrypt credentials into transport headers. MuleSoft Bearer
-    rows do not decrypt; they pass row values directly as MCP tool arguments.
+    Header-auth rows decrypt credentials into transport headers. MuleSoft
+    bearer rows use a registered gateway credential profile. Managed rows keep
+    CRM credentials in MuleSoft; dynamic-registry rows decrypt the server-owned
+    CRM connection bundle into private tool arguments.
     """
     database = db if db is not None else get_db()
 
@@ -337,15 +440,16 @@ def load_active_definition(
 
     row_crm_id = str(row.get("crm_id") or crm_id)
     mulesoft_managed_auth = _is_mulesoft_managed_auth(row)
-    endpoint = REGISTRY_MCP_ENDPOINT if mulesoft_managed_auth else _resolve_endpoint(row)
+    endpoint = _resolve_endpoint(row)
     tool_catalog = _tool_catalog(row_crm_id, database)
 
     style = str(row.get("auth_header_style") or "client_id_secret_headers")
     transport_headers: tuple[tuple[str, str], ...]
     transport_tool_arguments: dict[str, Any] | None = None
     if mulesoft_managed_auth:
-        transport_headers = get_omnigateway_transport_headers()
-        transport_tool_arguments = _mulesoft_tool_arguments(row)
+        transport_headers = get_omnigateway_transport_headers(_gateway_credential_profile(row))
+        if _uses_dynamic_registry(row):
+            transport_tool_arguments = _dynamic_registry_tool_arguments(row)
     else:
         # Decrypt credentials only for legacy header-auth rows.
         client_id, client_secret = _decrypt_credentials(row)
@@ -377,11 +481,26 @@ def load_active_definition(
         tool_catalog=tool_catalog,
         transport_headers=transport_headers,
         transport_tool_arguments=transport_tool_arguments,
+        transport_replacement_tool_arguments=(
+            transport_tool_arguments if _uses_dynamic_registry(row) else None
+        ),
+        crm_encrypted_fields_recipient_key=(
+            _active_crm_encrypted_fields_key(row_crm_id, database)
+            if bool(row.get("crm_encrypted_fields_v1_enabled"))
+            else None
+        ),
     )
 
 
 def load_active_definitions(*, db: Any | None = None) -> tuple[ConnectedSystemDefinition, ...]:
     """Return all active CRM definitions without decrypting CRM credentials."""
+    global _snapshot_definitions, _snapshot_expires_at
+    use_snapshot = db is None
+    now = time.monotonic()
+    if use_snapshot:
+        with _snapshot_lock:
+            if _snapshot_definitions and now < _snapshot_expires_at:
+                return _snapshot_definitions
     database = db if db is not None else get_db()
     definitions: list[ConnectedSystemDefinition] = []
     for row in _load_active_rows(database):
@@ -395,4 +514,21 @@ def load_active_definitions(*, db: Any | None = None) -> tuple[ConnectedSystemDe
                 database=database,
             )
         )
-    return tuple(definitions)
+    resolved = tuple(definitions)
+    if use_snapshot:
+        with _snapshot_lock:
+            _snapshot_definitions = resolved
+            _snapshot_expires_at = time.monotonic() + _SNAPSHOT_TTL_SECONDS
+    return resolved
+
+
+def invalidate_registry_snapshot() -> None:
+    """Invalidate this process' short registry projection cache.
+
+    Operator activation invokes this directly. Other instances converge within
+    the bounded TTL; the Postgres revision remains the source of truth.
+    """
+    global _snapshot_definitions, _snapshot_expires_at
+    with _snapshot_lock:
+        _snapshot_definitions = ()
+        _snapshot_expires_at = 0.0

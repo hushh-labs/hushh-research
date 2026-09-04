@@ -1,15 +1,17 @@
-import {
-  useEffect,
-  useSyncExternalStore,
-  type RefObject,
-} from "react";
+import { useEffect, useSyncExternalStore } from "react";
 
 const MIN_SCROLL_Y_FOR_SHOW = 10;
-const MIN_SCROLL_Y_FOR_HIDE = 24;
 const JITTER_DELTA_PX = 1.5;
-const DIRECTION_DELTA_PX = 2;
+// Cumulative displacement (px) the gesture must travel in a single direction
+// before the bottom chrome starts hiding/revealing. Per-frame deltas above the
+// jitter floor but below this threshold (slow "micro-scroll" gestures on iOS)
+// previously nudged progress 1:1 every frame, so the bar drifted down / collapsed
+// prematurely while barely scrolling. We accumulate directional distance and only
+// begin moving once it clears this commit threshold; direction reversals reset it.
+const MIN_SCROLL_THRESHOLD_PX = 15;
 const PROGRESS_EPSILON = 0.001;
-const ANIMATION_TIME_CONSTANT_MS = 85;
+const SCROLL_TRAVEL_PX = 84;
+
 const APP_SCROLL_ROOT_SELECTOR = '[data-app-scroll-root="true"]';
 
 type Listener = () => void;
@@ -21,6 +23,8 @@ interface VisibilityState {
   initialized: boolean;
   rafId: number | null;
   lastFrameTs: number | null;
+  direction: -1 | 0 | 1;
+  directionalDistance: number;
 }
 
 const listeners = new Set<Listener>();
@@ -38,6 +42,8 @@ const state: VisibilityState = {
   initialized: false,
   rafId: null,
   lastFrameTs: null,
+  direction: 0,
+  directionalDistance: 0,
 };
 
 function clamp01(value: number): number {
@@ -58,55 +64,18 @@ function cancelAnimation() {
   state.lastFrameTs = null;
 }
 
-function animateProgress(ts: number) {
-  if (state.lastFrameTs === null) {
-    state.lastFrameTs = ts;
-  }
-  const dt = Math.min(40, Math.max(1, ts - state.lastFrameTs));
-  state.lastFrameTs = ts;
-
-  const alpha = 1 - Math.exp(-dt / ANIMATION_TIME_CONSTANT_MS);
-  const next = state.progress + (state.targetProgress - state.progress) * alpha;
-
-  if (Math.abs(state.targetProgress - next) <= PROGRESS_EPSILON) {
-    const shouldEmit = Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
-    state.progress = state.targetProgress;
-    cancelAnimation();
-    if (shouldEmit) {
-      emit();
-    }
-    return;
-  }
-
-  if (Math.abs(next - state.progress) > PROGRESS_EPSILON) {
-    state.progress = next;
-    emit();
-  }
-
-  state.rafId = requestAnimationFrame(animateProgress);
-}
-
 function setTargetProgress(nextTarget: number) {
   const clampedTarget = clamp01(nextTarget);
-  if (Math.abs(clampedTarget - state.targetProgress) <= PROGRESS_EPSILON) {
+  if (
+    Math.abs(clampedTarget - state.targetProgress) <= PROGRESS_EPSILON &&
+    Math.abs(clampedTarget - state.progress) <= PROGRESS_EPSILON
+  ) {
     return;
   }
+  cancelAnimation();
   state.targetProgress = clampedTarget;
-
-  if (Math.abs(state.progress - state.targetProgress) <= PROGRESS_EPSILON) {
-    const shouldEmit = Math.abs(state.progress - state.targetProgress) > PROGRESS_EPSILON;
-    state.progress = state.targetProgress;
-    cancelAnimation();
-    if (shouldEmit) {
-      emit();
-    }
-    return;
-  }
-
-  if (typeof window !== "undefined" && state.rafId === null) {
-    state.lastFrameTs = null;
-    state.rafId = window.requestAnimationFrame(animateProgress);
-  }
+  state.progress = clampedTarget;
+  emit();
 }
 
 function readWindowY(): number {
@@ -131,7 +100,9 @@ function resolveScrollTarget(): Window | HTMLElement | null {
   if (typeof window === "undefined" || typeof document === "undefined") {
     return null;
   }
-  const appScrollRoot = document.querySelector<HTMLElement>(APP_SCROLL_ROOT_SELECTOR);
+  const appScrollRoot = document.querySelector<HTMLElement>(
+    APP_SCROLL_ROOT_SELECTOR,
+  );
   if (appScrollRoot) {
     return appScrollRoot;
   }
@@ -164,18 +135,34 @@ export function onScroll(y: number): void {
   }
 
   if (nextY <= MIN_SCROLL_Y_FOR_SHOW) {
+    state.direction = -1;
+    state.directionalDistance = 0;
     setTargetProgress(0);
     return;
   }
 
-  if (delta >= DIRECTION_DELTA_PX && nextY >= MIN_SCROLL_Y_FOR_HIDE) {
-    setTargetProgress(1);
+  const direction = delta > 0 ? 1 : -1;
+  // A direction reversal restarts the commit budget so the bar responds
+  // promptly when the user changes scroll direction, but a fresh slow drag in
+  // one direction must still travel MIN_SCROLL_THRESHOLD_PX before anything moves.
+  if (direction !== state.direction) {
+    state.direction = direction;
+    state.directionalDistance = 0;
+  }
+  state.directionalDistance += Math.abs(delta);
+
+  // Velocity/displacement gate: hold the bar pinned until the gesture has
+  // committed enough distance in this direction. Without this, slow
+  // micro-scrolls (each frame just over the jitter floor) nudged progress 1:1
+  // every frame and the bar drifted/collapsed prematurely.
+  if (state.directionalDistance < MIN_SCROLL_THRESHOLD_PX) {
     return;
   }
 
-  if (delta <= -DIRECTION_DELTA_PX) {
-    setTargetProgress(0);
-  }
+  // Once committed, follow the thumb directly. This avoids an iOS-only lag
+  // window where the gesture has ended but the fixed controls are still
+  // animating under a tap.
+  setTargetProgress(state.progress + delta / SCROLL_TRAVEL_PX);
 }
 
 function attachScrollListener() {
@@ -256,6 +243,8 @@ export function resetKaiBottomChromeVisibility(): void {
   state.targetProgress = 0;
   state.initialized = false;
   state.lastY = readActiveScrollY();
+  state.direction = 0;
+  state.directionalDistance = 0;
   emit();
 }
 
@@ -273,12 +262,14 @@ export function snapKaiBottomChromeVisible(): void {
   state.progress = 0;
   state.targetProgress = 0;
   state.lastY = readActiveScrollY();
+  state.direction = 0;
+  state.directionalDistance = 0;
   emit();
 }
 
 /**
  * Re-seed the singleton from the ACTUAL current scroll position of the active
- * target and animate toward the matching mean/hidden target.
+ * target and snap to the matching visible state.
  *
  * The singleton is module-level and shared across consumers. When a transient
  * consumer (e.g. the AgentBar, which unmounts while the agent window is open)
@@ -339,12 +330,14 @@ export function useKaiBottomChromeVisibility(enabled: boolean): {
     };
   }, [enabled]);
 
-  return { hidden: enabled ? hidden : false, progress: enabled ? progress : 0, onScroll };
+  return {
+    hidden: enabled ? hidden : false,
+    progress: enabled ? progress : 0,
+    onScroll,
+  };
 }
 
 const BOTTOM_CHROME_PROGRESS_VAR = "--bottom-chrome-progress";
-const BOTTOM_CHROME_SHARED_TRANSLATION =
-  "translate3d(0, calc(var(--bottom-chrome-progress, 0) * var(--bottom-chrome-hide-distance, var(--bottom-chrome-full-height))), 0)";
 
 /**
  * Drives the bottom-chrome hide animation by writing the continuous scroll
@@ -374,10 +367,7 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
 
     const root = document.documentElement;
     const writeVar = () => {
-      root.style.setProperty(
-        BOTTOM_CHROME_PROGRESS_VAR,
-        String(getSnapshot()),
-      );
+      root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, String(getSnapshot()));
     };
 
     listenerRefCount += 1;
@@ -397,38 +387,4 @@ export function useKaiBottomChromeProgressCssVar(enabled: boolean): void {
       root.style.setProperty(BOTTOM_CHROME_PROGRESS_VAR, "0");
     };
   }, [enabled]);
-}
-
-/**
- * Bind a fixed sibling to the established bottom-chrome motion without
- * subscribing its React owner to every scroll frame. The Agent Bar is mounted
- * outside the route shell, so it receives the shared CSS variables directly on
- * its own fixed wrapper.
- *
- * The translation is deliberately the navigation's measured travel distance,
- * not the fixed sibling's height. When the navigation exits, the Agent Bar
- * settles into its vacated bottom slot and remains entirely visible. Measuring
- * the Agent Bar itself here would move it beyond the viewport and make the
- * primary conversation control disappear.
- */
-export function useKaiBottomChromeElementTranslation(
-  elementRef: RefObject<HTMLElement | null>,
-  enabled: boolean,
-): void {
-  useEffect(() => {
-    const element = elementRef.current;
-    if (!enabled || !element) {
-      element?.style.removeProperty("transform");
-      return;
-    }
-
-    // Browser-side CSS resolves the current runtime-measured nav size and the
-    // root scroll progress without a scroll listener, layout read, or React
-    // update for the Agent Bar subtree.
-    element.style.transform = BOTTOM_CHROME_SHARED_TRANSLATION;
-
-    return () => {
-      element.style.removeProperty("transform");
-    };
-  }, [elementRef, enabled]);
 }

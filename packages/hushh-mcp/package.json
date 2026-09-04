@@ -1,6 +1,6 @@
 {
   "name": "@hushh/mcp",
-  "version": "0.2.0",
+  "version": "0.4.1",
   "description": "Launch-friendly npm wrapper for the Hussh Consent MCP server",
   "license": "Apache-2.0",
   "repository": {
@@ -19,7 +19,9 @@
     "LICENSE",
     "NOTICE",
     "README.md",
+    "CHANGELOG.md",
     "bin/",
+    "gateway/",
     "public-docs.json",
     "scripts/",
     "vendor/"
@@ -28,11 +30,20 @@
     "docs:render": "node ./scripts/render-readme.mjs",
     "docs:check": "node ./scripts/render-readme.mjs --check",
     "test": "vitest run bin-config.test.ts",
-    "verify:package": "npm run docs:check && npm test && npm pack --dry-run",
-    "prepack": "node ./scripts/stage-runtime.mjs",
+    "gateway:generate": "node ./scripts/generate-gateway-manifest.mjs",
+    "gateway:check": "npm run gateway:generate && git diff --exit-code -- gateway/hushh-mcp-gateway.json gateway/hushh-agentforce-mcp-manifest.json gateway/hushh-mulesoft-exchange-mcp-schema.json",
+    "verify:package": "npm run docs:check && npm run gateway:check && npm test && npm run verify:packed-runtime && npm pack --dry-run",
+    "verify:packed-runtime": "node ./scripts/verify-packed-runtime.mjs",
+    "prepack": "node ./scripts/stage-runtime.mjs && node ./scripts/generate-gateway-manifest.mjs",
     "print-config": "node ./bin/hushh-mcp.js --print-config",
     "print-codex-toml": "node ./bin/hushh-mcp.js --print-codex-toml",
-    "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config"
+    "print-remote-config": "node ./bin/hushh-mcp.js --print-remote-config",
+    "print-client-credentials-config": "node ./bin/hushh-mcp.js --print-client-credentials-config",
+    "print-gateway-manifest": "node ./bin/hushh-mcp.js --print-gateway-manifest",
+    "print-agentforce-manifest": "node ./bin/hushh-mcp.js --print-agentforce-manifest",
+    "print-mulesoft-exchange-manifest": "node ./bin/hushh-mcp.js --print-mulesoft-exchange-manifest",
+    "print-mulesoft-agentforce-handoff": "node ./bin/hushh-mcp.js --print-mulesoft-agentforce-handoff",
+    "verify:client-credentials": "node ./scripts/verify-client-credentials.mjs"
   },
   "publishConfig": {
     "access": "public"
@@ -42,5 +53,8 @@
   },
   "devDependencies": {
     "vitest": "^4.1.5"
+  },
+  "overrides": {
+    "postcss": "8.5.23"
   }
 }

@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
 import { getNativeTestConfig } from "@/lib/testing/native-test";
-import { ROUTES, isOneSetupRoute } from "@/lib/navigation/routes";
+import { isOneSetupRoute } from "@/lib/navigation/routes";
 
 let lastAppliedInitialRoute: string | null = null;
 let lastAppliedInitialRouteRequest: { route: string; appliedAt: number } | null = null;
 let lastAppliedExpectedRouteRecovery: { key: string; appliedAt: number } | null = null;
+let settledExpectedRouteKey: string | null = null;
 
 const NATIVE_TEST_CONFIG_UPDATED_EVENT = "hushh:native-test-config-updated";
 const EXPECTED_ROUTE_RECOVERY_RETRY_MS = 5_000;
@@ -55,13 +56,20 @@ function routePathname(value: string | null | undefined) {
   }
 }
 
-function isAcceptedOneSetupFallback(currentRoute: string, initialRoute: string | null | undefined) {
+function isAcceptedOneSetupFallback(
+  currentRoute: string,
+  initialRoute: string | null | undefined,
+  expectedRoute: string | null | undefined,
+) {
   const currentPath = routePathname(currentRoute);
-  const initialPath = routePathname(initialRoute);
+  const targetPath = routePathname(
+    expectedRoute || getRedirectTarget(initialRoute) || initialRoute,
+  );
   return (
     isOneSetupRoute(currentPath) &&
-    (initialPath === ROUTES.ONE_HOME || initialPath.startsWith(`${ROUTES.ONE_HOME}/`)) &&
-    !isOneSetupRoute(initialPath)
+    targetPath.startsWith("/") &&
+    targetPath !== "/login" &&
+    !isOneSetupRoute(targetPath)
   );
 }
 
@@ -75,28 +83,23 @@ function canRecoverToExpectedRoute() {
     return true;
   }
 
-  return [
-    "authenticated",
-    "loading_vault_state",
-    "unlocking_vault",
-    "vault_unlocked",
-  ].includes(String(bridge.bootstrapState || ""));
+  return bridge.bootstrapState === "vault_unlocked";
+}
+
+function expectedRouteKey(
+  initialRoute: string,
+  expectedRoute: string | null,
+): string {
+  const runId =
+    typeof window === "undefined"
+      ? ""
+      : String(window.__HUSHH_NATIVE_TEST__?.uiFlowRunId || "");
+  return [runId, initialRoute, expectedRoute || ""].join("|");
 }
 
 export function NativeTestRouter() {
   const router = useRouter();
   const pathname = usePathname();
-  const [pendingNativeRoute, setPendingNativeRoute] = useState<{
-    route: string;
-    requestedAt: number;
-  } | null>(null);
-
-  useEffect(() => {
-    if (!pendingNativeRoute?.route) {
-      return;
-    }
-    router.replace(pendingNativeRoute.route, { scroll: false });
-  }, [pendingNativeRoute, router]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -104,7 +107,6 @@ export function NativeTestRouter() {
     }
 
     const navigateToRoute = (route: string) => {
-      setPendingNativeRoute({ route, requestedAt: Date.now() });
       router.replace(route, { scroll: false });
     };
     const installNavigationBridge = () => {
@@ -127,7 +129,27 @@ export function NativeTestRouter() {
 
       missingConfigAttempts = 0;
       const currentRoute = `${pathname}${window.location.search || ""}`;
-      if (isAcceptedOneSetupFallback(currentRoute, config.initialRoute)) {
+      const expectationKey = expectedRouteKey(
+        config.initialRoute,
+        config.expectedRoute,
+      );
+      if (
+        config.expectedRoute &&
+        sameRoute(currentRoute, config.expectedRoute)
+      ) {
+        // Route injection is an admission aid, not permanent navigation
+        // ownership. Once the expected screen has rendered, release it so
+        // close/back controls can prove real app behavior instead of being
+        // immediately pushed back by the test harness.
+        settledExpectedRouteKey = expectationKey;
+      }
+      if (
+        isAcceptedOneSetupFallback(
+          currentRoute,
+          config.initialRoute,
+          config.expectedRoute,
+        ) && !canRecoverToExpectedRoute()
+      ) {
         lastAppliedInitialRoute = config.initialRoute;
         lastAppliedExpectedRouteRecovery = null;
         return true;
@@ -139,6 +161,9 @@ export function NativeTestRouter() {
       }
 
       if (lastAppliedInitialRoute === config.initialRoute) {
+        if (settledExpectedRouteKey === expectationKey) {
+          return true;
+        }
         const now = Date.now();
         const redirectTarget = getRedirectTarget(config.initialRoute);
         const recoveryKey = [
@@ -231,7 +256,12 @@ export function NativeTestRouter() {
 
     const timer = window.setInterval(() => {
       const shouldStop = maybeRoute();
-      if (shouldStop && !getNativeTestConfig().enabled) {
+      const bridge = window.__HUSHH_NATIVE_TEST__;
+      const uiFlowOwnsRouting =
+        bridge?.runUiFlows === true &&
+        bridge?._uiFlowsRoutingOwned === true &&
+        !getNativeTestConfig().initialRoute;
+      if (shouldStop && (!getNativeTestConfig().enabled || uiFlowOwnsRouting)) {
         window.clearInterval(timer);
       }
     }, 500);

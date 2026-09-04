@@ -13,13 +13,18 @@ import {
 } from "@/lib/services/consent-center-service";
 import { AppBackgroundTaskService } from "@/lib/services/app-background-task-service";
 import { bootstrapCurrentUserLocationRecipientKey } from "@/lib/one-location/key-bootstrap";
+import { OneLocationService } from "@/lib/one-location/service";
+import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import { bootstrapCurrentUserMarketplaceRecipientKey } from "@/lib/one-marketplace/key-bootstrap";
 import { runMarketplaceDeliverySweep } from "@/lib/one-marketplace/delivery-sweep";
+import { warmAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import { warmAgentChatHistoryCache } from "@/lib/agent/agent-chat-history-cache";
+import { warmGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 
 import { normalizeStoredPortfolio } from "@/lib/utils/portfolio-normalize";
 import { KaiFinancialResourceService } from "@/lib/kai/kai-financial-resource";
 import { toDurationBucket, trackEvent } from "@/lib/observability/client";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 
 export type UnlockWarmResult = {
   onboardingSynced: boolean;
@@ -29,6 +34,8 @@ export type UnlockWarmResult = {
   dashboardPicksWarmed: boolean;
   consentsWarmed: boolean;
   vaultStatusWarmed: boolean;
+  locationStateWarmed: boolean;
+  agentContextWarmed: boolean;
 };
 
 type WarmPriority =
@@ -67,11 +74,13 @@ function toSymbolsKey(symbols: string[]): string {
 }
 
 function resolveWarmPriority(routePath?: string | null): WarmPriority {
-  const path = String(routePath || "").trim().toLowerCase();
+  const path = String(routePath || "")
+    .trim()
+    .toLowerCase();
   if (!path) return "default";
   if (
-    path === ROUTES.KAI_HOME ||
-    path.startsWith(`${ROUTES.KAI_HOME}?`) ||
+    path === KAI_MARKET_PATH ||
+    path.startsWith(`${KAI_MARKET_PATH}?`) ||
     path === ROUTES.LEGACY_KAI_HOME ||
     path.startsWith(`${ROUTES.LEGACY_KAI_HOME}?`)
   ) {
@@ -89,14 +98,17 @@ function resolveWarmPriority(routePath?: string | null): WarmPriority {
     path.startsWith(ROUTES.KAI_PORTFOLIO) ||
     path.startsWith(ROUTES.LEGACY_KAI_PORTFOLIO) ||
     path.startsWith("/one/kai/dashboard") ||
-    path.startsWith("/kai/dashboard") ||
-    path.startsWith(ROUTES.KAI_OPTIMIZE) ||
-    path.startsWith("/kai/optimize")
+    path.startsWith("/kai/dashboard")
   ) {
     return "dashboard";
   }
-  if (path.startsWith("/consents")) return "consents";
-  if (path.startsWith("/profile")) return "profile";
+  if (
+    path.startsWith(ROUTES.CONSENTS) ||
+    path.startsWith(ROUTES.LEGACY_CONSENTS)
+  ) {
+    return "consents";
+  }
+  if (path.startsWith("/one/profile")) return "profile";
   if (path.startsWith("/ria")) return "ria";
   return "default";
 }
@@ -108,42 +120,88 @@ function deriveTrackedSymbols(portfolio: Record<string, unknown>): string[] {
     !Array.isArray(portfolio.portfolio)
       ? (portfolio.portfolio as Record<string, unknown>)
       : null;
-  const holdings = (
-    (Array.isArray(portfolio.holdings) && portfolio.holdings) ||
+  const holdings = ((Array.isArray(portfolio.holdings) && portfolio.holdings) ||
     (Array.isArray(nestedPortfolio?.holdings) && nestedPortfolio.holdings) ||
-    []
-  ) as Array<Record<string, unknown>>;
+    []) as Array<Record<string, unknown>>;
 
   return holdings
     .filter((holding) => {
-      const assetType = String(holding.asset_type || "").trim().toLowerCase();
-      const name = String(holding.name || "").trim().toLowerCase();
-      if (assetType.includes("cash") || assetType.includes("sweep")) return false;
+      const assetType = String(holding.asset_type || "")
+        .trim()
+        .toLowerCase();
+      const name = String(holding.name || "")
+        .trim()
+        .toLowerCase();
+      if (assetType.includes("cash") || assetType.includes("sweep"))
+        return false;
       if (name.includes("cash") || name.includes("sweep")) return false;
       return true;
     })
-    .map((holding) => String(holding.symbol || "").trim().toUpperCase())
+    .map((holding) =>
+      String(holding.symbol || "")
+        .trim()
+        .toUpperCase(),
+    )
     .filter(
       (symbol, index, arr) =>
         Boolean(symbol) &&
         !EXCLUDED_SYMBOLS.has(symbol) &&
         !symbol.startsWith("HOLDING_") &&
         TICKER_CANDIDATE_RE.test(symbol) &&
-        arr.indexOf(symbol) === index
+        arr.indexOf(symbol) === index,
     )
     .sort((a, b) => a.localeCompare(b))
     .slice(0, 8);
 }
 
 function nowMs(): number {
-  if (typeof performance !== "undefined" && typeof performance.now === "function") {
+  if (
+    typeof performance !== "undefined" &&
+    typeof performance.now === "function"
+  ) {
     return performance.now();
   }
   return Date.now();
 }
 
+export async function settleWithConcurrency<
+  const T extends readonly (() => Promise<unknown>)[],
+>(
+  tasks: T,
+  concurrency = 4,
+): Promise<{
+  [K in keyof T]: PromiseSettledResult<Awaited<ReturnType<T[K]>>>;
+}> {
+  const results = new Array<PromiseSettledResult<unknown>>(tasks.length);
+  let nextIndex = 0;
+  const worker = async () => {
+    while (nextIndex < tasks.length) {
+      const index = nextIndex++;
+      const task = tasks[index];
+      if (!task) return;
+      try {
+        results[index] = { status: "fulfilled", value: await task() };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  };
+  await Promise.all(
+    Array.from(
+      { length: Math.min(Math.max(1, concurrency), tasks.length) },
+      worker,
+    ),
+  );
+  return results as {
+    [K in keyof T]: PromiseSettledResult<Awaited<ReturnType<T[K]>>>;
+  };
+}
+
 export class UnlockWarmOrchestrator {
-  private static inFlightBySignature = new Map<string, Promise<UnlockWarmResult>>();
+  private static inFlightBySignature = new Map<
+    string,
+    Promise<UnlockWarmResult>
+  >();
   private static inFlightByUser = new Map<string, Promise<UnlockWarmResult>>();
   private static recentResultBySignature = new Map<
     string,
@@ -174,7 +232,7 @@ export class UnlockWarmOrchestrator {
       this.locationKeyBootstrappedByUser.delete(params.userId);
       console.warn(
         "[UnlockWarmOrchestrator] One Location recipient key bootstrap failed:",
-        error
+        error,
       );
     });
   }
@@ -201,7 +259,7 @@ export class UnlockWarmOrchestrator {
       this.marketplaceKeyBootstrappedByUser.delete(params.userId);
       console.warn(
         "[UnlockWarmOrchestrator] Marketplace recipient key bootstrap failed:",
-        error
+        error,
       );
     });
   }
@@ -229,7 +287,7 @@ export class UnlockWarmOrchestrator {
       this.marketplaceDeliverySweptByUser.delete(params.userId);
       console.warn(
         "[UnlockWarmOrchestrator] Marketplace delivery sweep failed:",
-        error
+        error,
       );
     });
   }
@@ -239,7 +297,6 @@ export class UnlockWarmOrchestrator {
     vaultKey: string;
     vaultOwnerToken: string;
   }): void {
-
     void ConsentExportRefreshOrchestrator.ensureRunning({
       userId: params.userId,
       vaultKey: params.vaultKey,
@@ -248,7 +305,7 @@ export class UnlockWarmOrchestrator {
     }).catch((error) => {
       console.warn(
         "[UnlockWarmOrchestrator] Consent export refresh orchestration failed:",
-        error
+        error,
       );
     });
   }
@@ -263,7 +320,7 @@ export class UnlockWarmOrchestrator {
 
   static async awaitInFlightForUser(
     userId: string,
-    timeoutMs = 2_000
+    timeoutMs = 2_000,
   ): Promise<UnlockWarmResult | null> {
     const existing = this.inFlightByUser.get(userId);
     if (!existing) return null;
@@ -341,27 +398,36 @@ export class UnlockWarmOrchestrator {
       warmPriority === "analysis" ||
       warmPriority === "default";
     const shouldWarmMarket =
-      warmPriority === "market" ||
-      warmPriority === "default";
+      warmPriority === "market" || warmPriority === "default";
     const shouldWarmDashboardPicks =
-      warmPriority === "dashboard" ||
-      warmPriority === "default";
+      warmPriority === "dashboard" || warmPriority === "default";
     const shouldWarmMetadata =
       warmPriority === "profile" ||
       warmPriority === "dashboard" ||
       warmPriority === "analysis" ||
       warmPriority === "default";
-    const shouldWarmConsents = warmPriority === "consents" || warmPriority === "default";
+    const shouldWarmConsents =
+      warmPriority === "consents" || warmPriority === "default";
+    // The Consent Center's canonical summary/pending page cache is lightweight
+    // and must be ready after every successful unlock, regardless of the route
+    // that happened to unlock the vault. Legacy consent resources below remain
+    // route-prioritized because they are not used by the canonical screen.
+    const shouldWarmConsentCenter = Boolean(params.firebaseIdToken);
     const shouldWarmVaultStatus =
       warmPriority === "consents" ||
       warmPriority === "profile" ||
       warmPriority === "default";
     const statusItems = [
-      shouldWarmFinancial || shouldHydrateFinancialCacheOnly ? "Getting your portfolio information ready" : null,
+      "Getting One ready for a new chat",
+      shouldWarmFinancial || shouldHydrateFinancialCacheOnly
+        ? "Getting your portfolio information ready"
+        : null,
       shouldWarmMetadata ? "Refreshing your profile details" : null,
       shouldWarmConsents ? "Refreshing your consent list" : null,
       shouldWarmMarket ? "Updating market snapshots" : null,
-      warmPriority === "default" ? "Refreshing advisor workspace summaries" : null,
+      warmPriority === "default"
+        ? "Refreshing advisor workspace summaries"
+        : null,
     ].filter((item): item is string => typeof item === "string");
     const taskId = `${UNLOCK_WARM_TASK_KIND}_${params.userId}_${warmPriority}`;
     AppBackgroundTaskService.startTask({
@@ -381,319 +447,422 @@ export class UnlockWarmOrchestrator {
       },
     });
     try {
-    const result: UnlockWarmResult = {
-      onboardingSynced: false,
-      metadataWarmed: false,
-      financialWarmed: false,
-      kaiMarketWarmed: false,
-      dashboardPicksWarmed: false,
-      consentsWarmed: false,
-      vaultStatusWarmed: false,
-    };
-    let symbols: string[] = [];
-    let prewarmedFinancialDomain: Record<string, unknown> | null = null;
-    let financialHydrated = false;
+      const result: UnlockWarmResult = {
+        onboardingSynced: false,
+        metadataWarmed: false,
+        financialWarmed: false,
+        kaiMarketWarmed: false,
+        dashboardPicksWarmed: false,
+        consentsWarmed: false,
+        vaultStatusWarmed: false,
+        locationStateWarmed: false,
+        agentContextWarmed: false,
+      };
+      // This entire orchestrator is already detached from the unlock UI. Start
+      // One's redacted, process-memory-only working set immediately and let the
+      // remaining route warmups continue in parallel.
+      const agentContextWarmPromise = warmAgentPkmContext({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      })
+        .then(() => true)
+        .catch((error) => {
+          console.warn(
+            "[UnlockWarmOrchestrator] Agent context warm-up failed:",
+            error,
+          );
+          return false;
+        });
+      const runtimeConfigurationWarmPromise = warmGeminiRuntimeConnection({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[UnlockWarmOrchestrator] Runtime configuration warm-up failed:",
+          error,
+        );
+      });
+      const agentHistoryWarmPromise = warmAgentChatHistoryCache({
+        userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }).catch((error) => {
+        console.warn(
+          "[UnlockWarmOrchestrator] Agent history warm-up failed:",
+          error,
+        );
+      });
+      let symbols: string[] = [];
+      let prewarmedFinancialDomain: Record<string, unknown> | null = null;
+      let financialHydrated = false;
 
-    const syncPromise =
-      shouldWarmMetadata
+      const syncPromise = shouldWarmMetadata
         ? KaiProfileSyncService.syncPendingToVault({
             userId: params.userId,
             vaultKey: params.vaultKey,
             vaultOwnerToken: params.vaultOwnerToken,
           })
-        : Promise.resolve({ synced: false, reason: "skipped_for_route" } as const);
+        : Promise.resolve({
+            synced: false,
+            reason: "skipped_for_route",
+          } as const);
 
-    if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
-      const hydratedFinancial = await KaiFinancialResourceService.hydrateFromSecureCache({
-        userId: params.userId,
-        vaultKey: params.vaultKey,
-      }).catch(() => null);
-      if (hydratedFinancial) {
-        result.financialWarmed = hydratedFinancial.hasFinancialData;
-        symbols = Array.isArray(hydratedFinancial.holdings)
-          ? hydratedFinancial.holdings.slice(0, 8)
-          : [];
-        financialHydrated = hydratedFinancial.hasFinancialData;
+      if (shouldWarmFinancial || shouldHydrateFinancialCacheOnly) {
+        const hydratedFinancial =
+          await KaiFinancialResourceService.hydrateFromSecureCache({
+            userId: params.userId,
+            vaultKey: params.vaultKey,
+          }).catch(() => null);
+        if (hydratedFinancial) {
+          result.financialWarmed = hydratedFinancial.hasFinancialData;
+          symbols = Array.isArray(hydratedFinancial.holdings)
+            ? hydratedFinancial.holdings.slice(0, 8)
+            : [];
+          financialHydrated = hydratedFinancial.hasFinancialData;
+        }
       }
-    }
 
-    if (shouldWarmFinancial) {
-      try {
-        prewarmedFinancialDomain = await PersonalKnowledgeModelService.loadDomainData({
-          userId: params.userId,
-          domain: "financial",
-          vaultKey: params.vaultKey,
-          vaultOwnerToken: params.vaultOwnerToken,
-        });
-        const hydrated = this.hydrateFinancialCaches({
-          cache,
-          userId: params.userId,
-          financialDomain: prewarmedFinancialDomain,
-        });
-        financialHydrated = hydrated.financialWarmed;
-        result.financialWarmed = hydrated.financialWarmed;
-        symbols = hydrated.symbols;
-      } catch (error) {
-        console.warn("[UnlockWarmOrchestrator] Priority financial warm-up failed:", error);
-      }
-    }
-
-    try {
-      const syncResult = await syncPromise;
-      result.onboardingSynced = syncResult.synced;
-    } catch (error) {
-      console.warn("[UnlockWarmOrchestrator] Pending onboarding sync failed:", error);
-    }
-
-    const [
-      metadataResult,
-      vaultStatusResult,
-      consentsResult,
-      pendingResult,
-      auditResult,
-      financialDomainResult,
-    ] = await Promise.allSettled([
-      shouldWarmMetadata
-        ? PersonalKnowledgeModelService.getMetadata(params.userId, false, params.vaultOwnerToken)
-        : Promise.resolve(null),
-      shouldWarmVaultStatus
-        ? ApiService.getVaultStatus(params.userId, params.vaultOwnerToken)
-        : Promise.resolve(null),
-      shouldWarmConsents
-        ? ApiService.getActiveConsents(params.userId, params.vaultOwnerToken)
-        : Promise.resolve(null),
-      shouldWarmConsents
-        ? ApiService.getPendingConsents(params.userId, params.vaultOwnerToken)
-        : Promise.resolve(null),
-      shouldWarmConsents
-        ? ApiService.getConsentHistory(params.userId, params.vaultOwnerToken, 1, 50)
-        : Promise.resolve(null),
-      shouldWarmFinancial
-        ? prewarmedFinancialDomain
-          ? Promise.resolve(prewarmedFinancialDomain)
-          : PersonalKnowledgeModelService.loadDomainData({
+      if (shouldWarmFinancial) {
+        try {
+          prewarmedFinancialDomain =
+            await PersonalKnowledgeModelService.loadDomainData({
               userId: params.userId,
               domain: "financial",
               vaultKey: params.vaultKey,
               vaultOwnerToken: params.vaultOwnerToken,
-            })
-        : Promise.resolve(null),
-    ]);
+            });
+          const hydrated = this.hydrateFinancialCaches({
+            cache,
+            userId: params.userId,
+            financialDomain: prewarmedFinancialDomain,
+          });
+          financialHydrated = hydrated.financialWarmed;
+          result.financialWarmed = hydrated.financialWarmed;
+          symbols = hydrated.symbols;
+        } catch (error) {
+          console.warn(
+            "[UnlockWarmOrchestrator] Priority financial warm-up failed:",
+            error,
+          );
+        }
+      }
 
-    result.metadataWarmed = shouldWarmMetadata && metadataResult.status === "fulfilled";
+      try {
+        const syncResult = await syncPromise;
+        result.onboardingSynced = syncResult.synced;
+      } catch (error) {
+        console.warn(
+          "[UnlockWarmOrchestrator] Pending onboarding sync failed:",
+          error,
+        );
+      }
 
-    if (
-      shouldWarmVaultStatus &&
-      vaultStatusResult.status === "fulfilled" &&
-      vaultStatusResult.value &&
-      "ok" in vaultStatusResult.value &&
-      vaultStatusResult.value.ok
-    ) {
-      const statusData = await vaultStatusResult.value.json();
-      cache.set(CACHE_KEYS.VAULT_STATUS(params.userId), statusData, WARM_CACHE_TTL_MS);
-      result.vaultStatusWarmed = true;
-    }
+      const [
+        metadataResult,
+        vaultStatusResult,
+        consentsResult,
+        pendingResult,
+        auditResult,
+        financialDomainResult,
+        locationStateResult,
+      ] = await settleWithConcurrency(
+        [
+          () =>
+            shouldWarmMetadata
+              ? PersonalKnowledgeModelService.getMetadata(
+                  params.userId,
+                  false,
+                  params.vaultOwnerToken,
+                )
+              : Promise.resolve(null),
+          () =>
+            shouldWarmVaultStatus
+              ? ApiService.getVaultStatus(params.userId, params.vaultOwnerToken)
+              : Promise.resolve(null),
+          () =>
+            shouldWarmConsents
+              ? ApiService.getActiveConsents(
+                  params.userId,
+                  params.vaultOwnerToken,
+                )
+              : Promise.resolve(null),
+          () =>
+            shouldWarmConsents
+              ? ApiService.getPendingConsents(
+                  params.userId,
+                  params.vaultOwnerToken,
+                  { loadSurface: "warm" },
+                )
+              : Promise.resolve(null),
+          () =>
+            shouldWarmConsents
+              ? ApiService.getConsentHistory(
+                  params.userId,
+                  params.vaultOwnerToken,
+                  1,
+                  50,
+                )
+              : Promise.resolve(null),
+          () =>
+            shouldWarmFinancial
+              ? prewarmedFinancialDomain
+                ? Promise.resolve(prewarmedFinancialDomain)
+                : PersonalKnowledgeModelService.loadDomainData({
+                    userId: params.userId,
+                    domain: "financial",
+                    vaultKey: params.vaultKey,
+                    vaultOwnerToken: params.vaultOwnerToken,
+                  })
+              : Promise.resolve(null),
+          // Safe only in the active browser process: Location state may include
+          // encrypted envelopes and is intentionally never persisted to device
+          // storage. Warming it here gives the just-unlocked route an immediate
+          // cache-first render while it reconciles in the background.
+          () =>
+            OneLocationStateResource.load(params.userId, () =>
+              OneLocationService.getState(params.vaultOwnerToken),
+            ),
+        ] as const,
+        4,
+      );
 
-    if (
-      shouldWarmConsents &&
-      consentsResult.status === "fulfilled" &&
-      consentsResult.value &&
-      "ok" in consentsResult.value &&
-      consentsResult.value.ok
-    ) {
-      const consentsData = await consentsResult.value.json();
-      cache.set(CACHE_KEYS.ACTIVE_CONSENTS(params.userId), consentsData.active || [], WARM_CACHE_TTL_MS);
-      result.consentsWarmed = true;
-    }
+      result.metadataWarmed =
+        shouldWarmMetadata && metadataResult.status === "fulfilled";
 
-    if (
-      shouldWarmConsents &&
-      pendingResult.status === "fulfilled" &&
-      pendingResult.value &&
-      "ok" in pendingResult.value &&
-      pendingResult.value.ok
-    ) {
-      const pendingData = (await pendingResult.value.json()).pending || [];
-      cache.set(CACHE_KEYS.PENDING_CONSENTS(params.userId), pendingData, WARM_CACHE_TTL_MS);
-      result.consentsWarmed = true;
-    }
+      if (locationStateResult.status === "fulfilled") {
+        result.locationStateWarmed = true;
+      }
 
-    if (
-      shouldWarmConsents &&
-      auditResult.status === "fulfilled" &&
-      auditResult.value &&
-      "ok" in auditResult.value &&
-      auditResult.value.ok
-    ) {
-      const data = await auditResult.value.json();
-      const auditData = Array.isArray(data) ? data : data?.items ?? data?.history ?? [];
-      cache.set(CACHE_KEYS.CONSENT_AUDIT_LOG(params.userId), auditData, WARM_CACHE_TTL_MS);
-      result.consentsWarmed = true;
-    }
+      if (
+        shouldWarmVaultStatus &&
+        vaultStatusResult.status === "fulfilled" &&
+        vaultStatusResult.value &&
+        "ok" in vaultStatusResult.value &&
+        vaultStatusResult.value.ok
+      ) {
+        const statusData = await vaultStatusResult.value.json();
+        cache.set(
+          CACHE_KEYS.VAULT_STATUS(params.userId),
+          statusData,
+          WARM_CACHE_TTL_MS,
+        );
+        result.vaultStatusWarmed = true;
+      }
 
-    // Warm the exact cache keys the /consents page reads (consent center
-    // summary + list). The legacy ACTIVE/PENDING/AUDIT writes above feed other
-    // surfaces but do NOT match the consent center page keys, so without this
-    // step /consents always lands cold after unlock. ConsentCenterService
-    // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
-    // so calling it here populates the page-read keys directly. Requires a
-    // Firebase ID token (the consent center proxy is Firebase-authenticated).
-    if (shouldWarmConsents && params.firebaseIdToken) {
-      const idToken = params.firebaseIdToken;
-      await Promise.allSettled([
-        ConsentCenterService.getSummary({
-          idToken,
+      if (
+        shouldWarmConsents &&
+        consentsResult.status === "fulfilled" &&
+        consentsResult.value &&
+        "ok" in consentsResult.value &&
+        consentsResult.value.ok
+      ) {
+        const consentsData = await consentsResult.value.json();
+        cache.set(
+          CACHE_KEYS.ACTIVE_CONSENTS(params.userId),
+          consentsData.active || [],
+          WARM_CACHE_TTL_MS,
+        );
+        result.consentsWarmed = true;
+      }
+
+      if (
+        shouldWarmConsents &&
+        pendingResult.status === "fulfilled" &&
+        pendingResult.value &&
+        "ok" in pendingResult.value &&
+        pendingResult.value.ok
+      ) {
+        const pendingData = (await pendingResult.value.json()).pending || [];
+        cache.set(
+          CACHE_KEYS.PENDING_CONSENTS(params.userId),
+          pendingData,
+          WARM_CACHE_TTL_MS,
+        );
+        result.consentsWarmed = true;
+      }
+
+      if (
+        shouldWarmConsents &&
+        auditResult.status === "fulfilled" &&
+        auditResult.value &&
+        "ok" in auditResult.value &&
+        auditResult.value.ok
+      ) {
+        const data = await auditResult.value.json();
+        const auditData = Array.isArray(data)
+          ? data
+          : (data?.items ?? data?.history ?? []);
+        cache.set(
+          CACHE_KEYS.CONSENT_AUDIT_LOG(params.userId),
+          auditData,
+          WARM_CACHE_TTL_MS,
+        );
+        result.consentsWarmed = true;
+      }
+
+      // Warm the exact cache keys the /consents page reads (consent center
+      // summary + list). The legacy ACTIVE/PENDING/AUDIT writes above feed other
+      // surfaces but do NOT match the consent center page keys, so without this
+      // step /consents always lands cold after unlock. ConsentCenterService
+      // handles its own cache.set into CONSENT_CENTER_SUMMARY / CONSENT_CENTER_LIST,
+      // so calling it here populates the page-read keys directly. Requires a
+      // Firebase ID token (the consent center proxy is Firebase-authenticated).
+      if (shouldWarmConsentCenter && params.firebaseIdToken) {
+        const idToken = params.firebaseIdToken;
+        await Promise.allSettled([
+          ConsentCenterService.getSummary({
+            idToken,
+            userId: params.userId,
+            mode: "consents",
+          }),
+          ConsentCenterService.listEntries({
+            idToken,
+            userId: params.userId,
+            mode: "consents",
+            surface: "pending",
+            q: "",
+            page: 1,
+            limit: CONSENT_CENTER_PAGE_SIZE,
+          }),
+        ]);
+        result.consentsWarmed = true;
+      }
+
+      if (
+        shouldWarmFinancial &&
+        !financialHydrated &&
+        financialDomainResult.status === "fulfilled" &&
+        financialDomainResult.value
+      ) {
+        const hydrated = this.hydrateFinancialCaches({
+          cache,
           userId: params.userId,
-          mode: "consents",
-        }),
-        ConsentCenterService.listEntries({
-          idToken,
-          userId: params.userId,
-          mode: "consents",
-          surface: "pending",
-          q: "",
-          page: 1,
-          limit: CONSENT_CENTER_PAGE_SIZE,
-        }),
-        ConsentCenterService.listEntries({
-          idToken,
-          userId: params.userId,
-          mode: "consents",
-          surface: "active",
-          q: "",
-          page: 1,
-          limit: CONSENT_CENTER_PAGE_SIZE,
-        }),
-      ]);
-      result.consentsWarmed = true;
-    }
+          financialDomain: financialDomainResult.value,
+        });
+        result.financialWarmed = hydrated.financialWarmed;
+        symbols = hydrated.symbols;
+      }
 
-    if (
-      shouldWarmFinancial &&
-      !financialHydrated &&
-      financialDomainResult.status === "fulfilled" &&
-      financialDomainResult.value
-    ) {
-      const hydrated = this.hydrateFinancialCaches({
-        cache,
+      if (shouldWarmDashboardPicks && symbols.length > 0) {
+        const picksSymbolsKey = toSymbolsKey(symbols);
+        const picksCacheKey = CACHE_KEYS.KAI_DASHBOARD_PROFILE_PICKS(
+          params.userId,
+          picksSymbolsKey,
+          3,
+        );
+        result.dashboardPicksWarmed = Boolean(cache.get(picksCacheKey));
+      } else if (shouldWarmDashboardPicks) {
+        result.dashboardPicksWarmed = true;
+      }
+
+      if (shouldWarmMarket) {
+        const symbolsKey = toSymbolsKey(symbols);
+        const preferredCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+          params.userId,
+          symbolsKey,
+          7,
+          activePickSource,
+        );
+        const defaultCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
+          params.userId,
+          "default",
+          7,
+          activePickSource,
+        );
+        result.kaiMarketWarmed = Boolean(
+          cache.get(preferredCacheKey) || cache.get(defaultCacheKey),
+        );
+      }
+
+      // VaultProvider owns the one idle PKM upgrade kickoff for a newly opened
+      // vault. Warm orchestration can be invoked again by route/cache refreshes,
+      // so it must not independently start the same long-running upgrade or
+      // repeat its completion notice.
+      // Provision the One Location recipient key for every user on every unlock,
+      // regardless of which route they unlocked on, so receiving/requesting
+      // location never requires visiting the One Location page first.
+      this.queueLocationRecipientKeyBootstrap({
         userId: params.userId,
-        financialDomain: financialDomainResult.value,
+        vaultOwnerToken: params.vaultOwnerToken,
+        vaultKey: params.vaultKey,
       });
-      result.financialWarmed = hydrated.financialWarmed;
-      symbols = hydrated.symbols;
-    }
-
-    if (shouldWarmDashboardPicks && symbols.length > 0) {
-      const picksSymbolsKey = toSymbolsKey(symbols);
-      const picksCacheKey = CACHE_KEYS.KAI_DASHBOARD_PROFILE_PICKS(
-        params.userId,
-        picksSymbolsKey,
-        3
-      );
-      result.dashboardPicksWarmed = Boolean(cache.get(picksCacheKey));
-    } else if (shouldWarmDashboardPicks) {
-      result.dashboardPicksWarmed = true;
-    }
-
-    if (shouldWarmMarket) {
-      const symbolsKey = toSymbolsKey(symbols);
-      const preferredCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
-        params.userId,
-        symbolsKey,
-        7,
-        activePickSource
-      );
-      const defaultCacheKey = CACHE_KEYS.KAI_MARKET_HOME(
-        params.userId,
-        "default",
-        7,
-        activePickSource
-      );
-      result.kaiMarketWarmed = Boolean(
-        cache.get(preferredCacheKey) || cache.get(defaultCacheKey)
-      );
-    }
-
-    // VaultProvider owns the one idle PKM upgrade kickoff for a newly opened
-    // vault. Warm orchestration can be invoked again by route/cache refreshes,
-    // so it must not independently start the same long-running upgrade or
-    // repeat its completion notice.
-    // Provision the One Location recipient key for every user on every unlock,
-    // regardless of which route they unlocked on, so receiving/requesting
-    // location never requires visiting the One Location page first.
-    this.queueLocationRecipientKeyBootstrap({
-      userId: params.userId,
-      vaultOwnerToken: params.vaultOwnerToken,
-      vaultKey: params.vaultKey,
-    });
-    // Same rationale for the marketplace: every user auto-publishes a recipient
-    // key on unlock so a seller can deliver a slice to them at approve time.
-    this.queueMarketplaceRecipientKeyBootstrap({
-      userId: params.userId,
-      vaultOwnerToken: params.vaultOwnerToken,
-    });
-    // Deliver any slices an agent approved without a browser to seal.
-    this.queueMarketplaceDeliverySweep({
-      userId: params.userId,
-      vaultKey: params.vaultKey,
-      vaultOwnerToken: params.vaultOwnerToken,
-    });
-    if (warmPriority === "consents") {
-      this.queueConsentExportRefresh(params);
-    }
-
-    const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
-    trackEvent("startup_readiness_warmup_completed", {
-      result: "success",
-      warm_priority: warmPriority,
-      duration_ms: durationMs,
-      duration_ms_bucket: toDurationBucket(durationMs),
-      onboarding_synced: result.onboardingSynced,
-      metadata_warmed: result.metadataWarmed,
-      financial_warmed: result.financialWarmed,
-      kai_market_warmed: result.kaiMarketWarmed,
-      dashboard_picks_warmed: result.dashboardPicksWarmed,
-      consents_warmed: result.consentsWarmed,
-      vault_status_warmed: result.vaultStatusWarmed,
-    });
-    AppBackgroundTaskService.completeTask(
-      taskId,
-      "Background activity is up to date.",
-      {
-        routePath: params.routePath || null,
-        warmPriority,
-        statusItems,
-        result,
+      // Same rationale for the marketplace: every user auto-publishes a recipient
+      // key on unlock so a seller can deliver a slice to them at approve time.
+      this.queueMarketplaceRecipientKeyBootstrap({
+        userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      // Deliver any slices an agent approved without a browser to seal.
+      this.queueMarketplaceDeliverySweep({
+        userId: params.userId,
+        vaultKey: params.vaultKey,
+        vaultOwnerToken: params.vaultOwnerToken,
+      });
+      if (warmPriority === "consents") {
+        this.queueConsentExportRefresh(params);
       }
-    );
-    return result;
-  } catch (error) {
-    const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
-    trackEvent("startup_readiness_warmup_completed", {
-      result: "error",
-      warm_priority: warmPriority,
-      duration_ms: durationMs,
-      duration_ms_bucket: toDurationBucket(durationMs),
-      onboarding_synced: false,
-      metadata_warmed: false,
-      financial_warmed: false,
-      kai_market_warmed: false,
-      dashboard_picks_warmed: false,
-      consents_warmed: false,
-      vault_status_warmed: false,
-    });
-    AppBackgroundTaskService.failTask(
-      taskId,
-      "We could not finish getting your workspace ready.",
-      "Background activity needs attention.",
-      {
-        routePath: params.routePath || null,
-        warmPriority,
-        statusItems,
-      }
-    );
-    throw error;
-  }
+
+      [result.agentContextWarmed] = await Promise.all([
+        agentContextWarmPromise,
+        runtimeConfigurationWarmPromise.then(() => undefined),
+        agentHistoryWarmPromise.then(() => undefined),
+      ]);
+
+      const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
+      trackEvent("startup_readiness_warmup_completed", {
+        result: "success",
+        warm_priority: warmPriority,
+        duration_ms: durationMs,
+        duration_ms_bucket: toDurationBucket(durationMs),
+        onboarding_synced: result.onboardingSynced,
+        metadata_warmed: result.metadataWarmed,
+        financial_warmed: result.financialWarmed,
+        kai_market_warmed: result.kaiMarketWarmed,
+        dashboard_picks_warmed: result.dashboardPicksWarmed,
+        consents_warmed: result.consentsWarmed,
+        vault_status_warmed: result.vaultStatusWarmed,
+        agent_context_warmed: result.agentContextWarmed,
+      });
+      AppBackgroundTaskService.completeTask(
+        taskId,
+        "Background activity is up to date.",
+        {
+          routePath: params.routePath || null,
+          warmPriority,
+          statusItems,
+          result,
+        },
+      );
+      return result;
+    } catch (error) {
+      const durationMs = Math.max(0, Math.round(nowMs() - startedAtMs));
+      trackEvent("startup_readiness_warmup_completed", {
+        result: "error",
+        warm_priority: warmPriority,
+        duration_ms: durationMs,
+        duration_ms_bucket: toDurationBucket(durationMs),
+        onboarding_synced: false,
+        metadata_warmed: false,
+        financial_warmed: false,
+        kai_market_warmed: false,
+        dashboard_picks_warmed: false,
+        consents_warmed: false,
+        vault_status_warmed: false,
+        agent_context_warmed: false,
+      });
+      AppBackgroundTaskService.failTask(
+        taskId,
+        "We could not finish getting your workspace ready.",
+        "Background activity needs attention.",
+        {
+          routePath: params.routePath || null,
+          warmPriority,
+          statusItems,
+        },
+      );
+      throw error;
+    }
   }
 
   private static hydrateFinancialCaches(params: {
@@ -702,7 +871,11 @@ export class UnlockWarmOrchestrator {
     financialDomain: Record<string, unknown> | null;
   }): { financialWarmed: boolean; symbols: string[] } {
     const financialRaw = params.financialDomain;
-    if (!financialRaw || typeof financialRaw !== "object" || Array.isArray(financialRaw)) {
+    if (
+      !financialRaw ||
+      typeof financialRaw !== "object" ||
+      Array.isArray(financialRaw)
+    ) {
       return { financialWarmed: false, symbols: [] };
     }
 
@@ -724,7 +897,11 @@ export class UnlockWarmOrchestrator {
       typeof profileCandidate === "object" &&
       !Array.isArray(profileCandidate)
     ) {
-      params.cache.set(CACHE_KEYS.KAI_PROFILE(params.userId), profileCandidate, WARM_CACHE_TTL_MS);
+      params.cache.set(
+        CACHE_KEYS.KAI_PROFILE(params.userId),
+        profileCandidate,
+        WARM_CACHE_TTL_MS,
+      );
     }
 
     return {

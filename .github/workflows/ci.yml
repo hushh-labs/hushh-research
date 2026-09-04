@@ -82,6 +82,15 @@ jobs:
             fi
           elif [ "${{ github.event_name }}" = "push" ]; then
             LOG_OPTS="$(resolve_from_default_branch)"
+          elif [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # A manually dispatched run validates a BRANCH, so it scans that
+            # branch's own commits — the same range a push resolves. It used to
+            # fall through to the bare-SHA case below, which walks all history
+            # (~3400 commits) and fails on findings that predate the branch by
+            # years. That made the manual lane useless exactly when it is
+            # needed most: when the pull_request event does not fire and this
+            # is the only way to validate a change.
+            LOG_OPTS="$(resolve_from_default_branch)"
           else
             LOG_OPTS="${{ github.sha }}"
           fi
@@ -179,7 +188,10 @@ jobs:
               - 'scripts/ci/**'
             backend:
               - 'consent-protocol/**'
+              - 'packages/hushh-mcp/**'
+              - 'deploy/backend.cloudbuild.yaml'
               - '.github/workflows/ci.yml'
+              - '.github/workflows/deploy-uat.yml'
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/**'
@@ -304,7 +316,13 @@ jobs:
     needs: [preflight-gate]
     if: needs.preflight-gate.outputs.frontend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Was 15, which the job could not fit. Downloading Chromium and WebKit
+    # took 13-15 minutes on its own, so the lane either died mid-download or
+    # reached the checks with ~100 seconds left and was cancelled part-way
+    # through them. Both outcomes report as "cancelled", which reads like
+    # infrastructure noise rather than a budget that was never large enough.
+    # 30 leaves room for a cold cache; a warm one finishes far inside it.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v6
         with:
@@ -315,6 +333,34 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: "npm"
           cache-dependency-path: hushh-webapp/package-lock.json
+
+      # The browsers are the whole cost of this lane, and they only change when
+      # the Playwright dependency does. Keying on the lockfile means a normal
+      # PR restores them instead of re-downloading ~400MB per run.
+      - name: Cache Playwright browsers
+        id: playwright-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: ${{ runner.os }}-playwright-${{ hashFiles('hushh-webapp/package-lock.json') }}
+
+      # The layout-contract pack drives real Chromium and WebKit. WebKit is not
+      # optional: it is the engine iOS ships, and a native <select> there
+      # ignores an author border-radius that Chromium honours, so a
+      # Chromium-only run passes controls that are visibly broken on an iPhone.
+      - name: Install Playwright browsers
+        run: |
+          set -euo pipefail
+          npm ci --prefix hushh-webapp
+          # `--with-deps` installs the browsers AND the apt libraries they link
+          # against. The apt half is not covered by the cache (it writes outside
+          # ~/.cache/ms-playwright), so on a cache hit install only the system
+          # deps and let the restored browser binaries stand.
+          if [ "${{ steps.playwright-cache.outputs.cache-hit }}" = "true" ]; then
+            (cd hushh-webapp && npx playwright install-deps chromium webkit)
+          else
+            (cd hushh-webapp && npx playwright install --with-deps chromium webkit)
+          fi
 
       - name: Run targeted web contract checks
         run: bash scripts/ci/orchestrate.sh web-targeted
@@ -357,6 +403,29 @@ jobs:
           VAULT_DATA_KEY: "0000000000000000000000000000000000000000000000000000000000000000"
           HUSHH_DEVELOPER_TOKEN: "test_hushh_developer_token_for_ci"
 
+  mcp-package-check:
+    name: "MCP Package"
+    needs: [preflight-gate]
+    if: needs.preflight-gate.outputs.backend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: "npm"
+          cache-dependency-path: packages/hushh-mcp/package-lock.json
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          protocol-dir: ./consent-protocol
+
+      - name: Verify packed MCP runtime and release artifacts
+        run: bash scripts/ci/orchestrate.sh mcp-package
+
   # ============================================================================
   # Integration Check (route contracts; runs when frontend or backend paths changed)
   # ============================================================================
@@ -368,6 +437,8 @@ jobs:
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
       - uses: actions/setup-node@v6
         with:
@@ -380,12 +451,41 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
+      - name: Resolve change-aware verification plan
+        id: verification-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            base_sha="${{ github.event.pull_request.base.sha }}"
+            target_sha="${{ github.event.pull_request.head.sha }}"
+          else
+            base_sha="$(git rev-parse HEAD^ 2>/dev/null || true)"
+            target_sha="${{ github.sha }}"
+          fi
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "$target_sha" \
+            --base-sha "$base_sha" \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output "$RUNNER_TEMP/ci-verification-plan.json"
+
       - name: Run integration check script (single source of truth)
         run: bash scripts/ci/orchestrate.sh integration
         env:
           CI_NATIVE_PARITY_REQUIRED: ${{ env.CI_NATIVE_PARITY_REQUIRED }}
           CI_DOCS_PARITY_REQUIRED: ${{ env.CI_DOCS_PARITY_REQUIRED }}
+          CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
+          CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/ci-verification-plan.json
         continue-on-error: false  # Route contracts must pass; fail CI if missing/out of sync
+
+      - name: Upload verification-plan artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ci-verification-plan
+          path: ${{ runner.temp }}/ci-verification-plan.json
+          if-no-files-found: error
 
   # ============================================================================
   # Upstream Sync Check (one-directional: warns if upstream has unpulled commits)
@@ -426,6 +526,41 @@ jobs:
           MAIN_SYNC_CURRENT_BRANCH: ${{ github.head_ref || github.ref_name }}
         run: sh scripts/git/check-main-sync.sh
 
+  # Advisory, not required: Base Freshness Gate proves a PR CONTAINS main's
+  # commits as ancestors; it says nothing about whether the PR's content still
+  # HAS what those commits landed. Three ways to lose landed work, three
+  # passes (see scripts/ci/check-merge-fidelity.sh):
+  #   A  a conflict resolution that kept the stale side (2026-08-19 incident)
+  #   B  a clean revert inside the PR — no conflict, so pass A is blind to it
+  #   C  a revert committed straight onto the base tip, which neither A nor B
+  #      can see (2026-08-20 mass revert a60c51dfc), caught by widening the
+  #      base to "main N days ago" over the files this PR touches
+  # It is a text heuristic with a real false-positive rate on large files with
+  # repeated boilerplate and on a branch's own early, later-corrected sync
+  # commits — read the output, don't just watch the check mark. Deliberately
+  # kept out of ci-status's `needs` and run with continue-on-error so it can
+  # never block a merge. Deliberate reverts clear it with the
+  # `intentional-revert` label plus a `Merge-Regression-Ack:` line.
+  merge-fidelity-gate:
+    name: "Merge Fidelity Gate (advisory)"
+    if: github.event_name == 'pull_request' && (github.base_ref == 'main' || github.base_ref == 'integration/pr-train')
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Check this PR still has what the base already landed
+        env:
+          MERGE_REGRESSION_MODE: warn
+          MERGE_FIDELITY_BASE_REF: "origin/${{ github.base_ref }}"
+          MERGE_FIDELITY_PR_NUMBER: ${{ github.event.pull_request.number }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: bash scripts/ci/check-merge-fidelity.sh
+
   ci-status:
     name: "CI Status Gate"
     needs:
@@ -438,6 +573,7 @@ jobs:
       - web-core-check
       - web-targeted-check
       - protocol-check
+      - mcp-package-check
       - integration-check
       - main-freshness-gate
     if: always()
@@ -456,6 +592,7 @@ jobs:
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
+          MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
           MAIN_FRESHNESS="${{ needs['main-freshness-gate'].result }}"
 
@@ -468,11 +605,12 @@ jobs:
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
           printf 'protocol-check=%s\n' "$PROTOCOL"
+          printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

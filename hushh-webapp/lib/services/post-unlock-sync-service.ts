@@ -15,15 +15,18 @@ export class PostUnlockSyncService {
     vaultKey: string;
     vaultOwnerToken: string;
   }): Promise<{ onboardingSynced: boolean }> {
+    // Callers decide whether this is a best-effort background warm-up or the
+    // mandatory Finish setup transaction. Never convert an encrypted-write
+    // failure into `false` here: the setup hub must keep its retryable state
+    // rather than exiting with a partially protected onboarding session.
     const syncResult = await KaiProfileSyncService.syncPendingToVault({
       userId: params.userId,
       vaultKey: params.vaultKey,
       vaultOwnerToken: params.vaultOwnerToken,
-    }).catch((error) => {
-      console.warn("[PostUnlockSyncService] Pending onboarding sync failed:", error);
-      return { synced: false };
     });
 
-    return { onboardingSynced: Boolean(syncResult.synced) };
+    return {
+      onboardingSynced: Boolean(syncResult.synced),
+    };
   }
 }

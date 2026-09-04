@@ -10,7 +10,21 @@ import {
 } from "../testing/reviewer-test-identity.mjs";
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
+import {
+  advanceNativeUiCheckpoint,
+  createNativeUiAuditPlan,
+  hasTerminalNativeUiStatus,
+  NATIVE_UI_TERMINAL_STATUS_GRACE_MS,
+  nativeUiFlowStepTimeoutMs,
+  validateNativeUiAuditCompletion,
+} from "./native-ui-audit-plan.mjs";
 import { syncNativeFirebaseConfigs } from "./sync-native-firebase-configs.mjs";
+import {
+  assertNativeArtifactSafe,
+  errorClass,
+  sanitizeNativeArtifact,
+  sanitizeStatusForReport,
+} from "./native-report-sanitizer.mjs";
 
 const repoRoot = process.cwd();
 const webDir = repoRoot;
@@ -41,6 +55,10 @@ const timeoutMs = Number(
 const flowFilter = (process.env.ANDROID_UI_FLOW_FILTER || "").trim();
 const routeFilter = (process.env.ANDROID_UI_ROUTE_FILTER || "").trim();
 let startedEmulatorSerial = "";
+// Isolates in-page flow checkpoints between cold audit launches without
+// carrying reviewer, vault, route, or content data in the identifier.
+const uiFlowRunId = `android-${Date.now().toString(36)}`;
+let activeAuditSerial = "";
 const googleServicesCandidates = [
   path.join(androidDir, "app/google-services.json"),
   path.join(androidDir, "app/src/google-services.json"),
@@ -48,19 +66,22 @@ const googleServicesCandidates = [
   path.join(androidDir, "app/src/Debug/google-services.json"),
 ];
 
+assertDestructiveNativeAuditAllowed();
+
 const reviewerIdentity = resolveReviewerTestIdentity({
   envFiles: defaultReviewerIdentityEnvFiles({ repoRoot: monorepoRoot, webDir }),
 });
 const reviewerVaultPassphrase = reviewerIdentity.reviewerVaultPassphrase;
 const reviewerUid = reviewerIdentity.reviewerUid;
 const uiFlows = filterUiFlows({ flowFilter, routeFilter });
-const REDACTED_REPORT_STATUS_KEYS = new Set([
-  "bootstrap_uid",
-  "body",
-  "bodySnippet",
-  "jserr",
-]);
+const auditPlan = createNativeUiAuditPlan(uiFlows);
 
+function assertDestructiveNativeAuditAllowed() {
+  if (process.env.HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT === "true") return;
+  throw new Error(
+    "This is a destructive cold-start audit: it force-stops, uninstalls, clears, and resets the Android app before injecting the reviewer fixture. It cannot prove vault or route continuity. Use npm run android:continuity:local for a normal-session check, or set HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true only for an intentional cold audit.",
+  );
+}
 function run(cmd, args, options = {}) {
   const output = execFileSync(cmd, args, {
     cwd: repoRoot,
@@ -103,6 +124,29 @@ function tryRunAdb(serial, args, options = {}) {
   } catch {
     return "";
   }
+}
+
+function stopAuditApp() {
+  if (!activeAuditSerial) return;
+  tryRunAdb(activeAuditSerial, ["shell", "am", "force-stop", bundleId], {
+    stdio: "ignore",
+  });
+}
+
+function cleanupAuditProcess() {
+  const serial = activeAuditSerial;
+  stopAuditApp();
+  activeAuditSerial = "";
+  if (serial && startedEmulatorSerial === serial) {
+    tryRunAdb(serial, ["emu", "kill"], { stdio: "ignore" });
+  }
+}
+
+for (const signal of ["SIGINT", "SIGTERM"]) {
+  process.once(signal, () => {
+    cleanupAuditProcess();
+    process.exit(signal === "SIGINT" ? 130 : 143);
+  });
 }
 
 function sleep(ms) {
@@ -226,15 +270,6 @@ function parseStatus(raw) {
   );
 }
 
-function sanitizeStatusForReport(status = {}) {
-  return Object.fromEntries(
-    Object.entries(status || {}).map(([key, value]) => [
-      key,
-      REDACTED_REPORT_STATUS_KEYS.has(key) && value ? "<redacted>" : value,
-    ]),
-  );
-}
-
 function applyEnvValues(values = {}) {
   for (const [key, value] of Object.entries(values)) {
     if (value !== undefined && value !== "") {
@@ -246,12 +281,7 @@ function applyEnvValues(values = {}) {
 function ensureNativeTestBuildEnv() {
   const uatEnvPath = path.join(repoRoot, ".env.uat.local");
   const uatValues = parseEnvFile(uatEnvPath);
-  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  const backendUrl =
-    configured &&
-    !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
-      ? configured
-      : String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
+  const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
 
   if (
     !backendUrl ||
@@ -269,6 +299,7 @@ function ensureNativeTestBuildEnv() {
     NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
+    NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:
       uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -329,8 +360,12 @@ function buildApp() {
       "native-ui-test-runner.js was not copied into the Android app bundle.",
     );
   }
+  const copiedManifest = JSON.parse(fs.readFileSync(copiedManifestPath, "utf8"));
+  if (copiedManifest?.audit_plan?.digest !== auditPlan.digest) {
+    throw new Error("Android bundle flow manifest does not match the requested audit plan.");
+  }
   console.log(
-    `==> native UI flow manifest copied (${manifest.flows.length} flow(s))`,
+    `==> native UI flow manifest copied (${manifest.flows.length} flow(s), plan ${auditPlan.digest.slice(0, 12)})`,
   );
   runAndroid("./gradlew", [":app:assembleDebug"], {
     stdio: "inherit",
@@ -356,7 +391,12 @@ function installAndLaunch(serial) {
     stdio: ["ignore", "pipe", "pipe"],
     maxBuffer: 1024 * 1024 * 10,
   });
-  tryRunAdb(serial, ["shell", "pm", "clear", bundleId], { stdio: "ignore" });
+  const clearOutput = runAdb(serial, ["shell", "pm", "clear", bundleId], {
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (!/^success$/i.test(clearOutput.trim())) {
+    throw new Error(`Android cold audit could not clear ${bundleId}: ${clearOutput || "unknown error"}`);
+  }
   tryRunAdb(serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"], {
     stdio: "ignore",
   });
@@ -385,11 +425,11 @@ function installAndLaunch(serial) {
     "HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN",
     "true",
     "--ez",
-    "HUSHH_NATIVE_TEST_RESET_APP_STATE",
-    "true",
-    "--ez",
     "HUSHH_NATIVE_TEST_RUN_UI_FLOWS",
     "true",
+    "--es",
+    "HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID",
+    uiFlowRunId,
     "--es",
     "HUSHH_NATIVE_TEST_VAULT_PASSPHRASE",
     reviewerVaultPassphrase,
@@ -410,26 +450,9 @@ function readStatus(serial) {
 }
 
 function resolveInitialLaunchTarget() {
-  const firstFlow = uiFlows[0];
-  const firstEnsurePersona = firstFlow?.steps?.find(
-    (step) => step?.type === "ensure_persona" && step?.persona,
-  )?.persona;
-  const firstRoute = String(firstFlow?.route || "");
-  const route =
-    firstEnsurePersona === "investor"
-      ? "/one/kai"
-      : firstEnsurePersona === "ria"
-        ? "/ria"
-        : firstRoute.startsWith("/one/kai") || firstRoute.startsWith("/kai")
-          ? "/one/kai"
-          : firstRoute.startsWith("/ria")
-            ? "/ria"
-            : "/ria";
-
   return {
-    route,
-    marker:
-      route === "/one/kai" ? "native-route-kai-home" : "native-route-ria-home",
+    route: "/one",
+    marker: "native-route-one-home",
   };
 }
 
@@ -448,28 +471,89 @@ function readUiReport(serial) {
 function waitForUiInteractionReport(serial) {
   const startedAt = Date.now();
   let lastStatus = {};
-  let lastFlow = "";
+  let lastProgressKey = "";
+  let lastProgressAt = startedAt;
+  let completedReport = null;
+  let completedReportObservedAt = 0;
+  const highestCheckpointByFlow = new Map();
 
   while (Date.now() - startedAt < timeoutMs) {
     try {
       const raw = readStatus(serial).trim();
       if (raw) {
         lastStatus = parseStatus(raw);
-        const currentFlow = lastStatus.ui_flow || "";
-        if (currentFlow && currentFlow !== lastFlow) {
-          process.stdout.write(`\n   -> flow ${currentFlow} ... `);
-          lastFlow = currentFlow;
+        const checkpoint = advanceNativeUiCheckpoint({
+          flows: uiFlows,
+          status: lastStatus,
+          highestByFlow: highestCheckpointByFlow,
+        });
+        if (!checkpoint.ok) {
+          return {
+            ok: false,
+            report: readUiReport(serial),
+            status: lastStatus,
+            error: `Android UI interaction audit ${checkpoint.reason}`,
+          };
         }
-        if ((lastStatus.ui_complete || "") === "1") {
-          const report = readUiReport(serial);
+        const progressKey = [
+          lastStatus.ui_run || "",
+          lastStatus.ui_flow || "",
+          lastStatus.ui_step || "",
+          lastStatus.ui_step_type || "",
+          lastStatus.ui_checkpoint || "",
+          lastStatus.route || "",
+          lastStatus.bootstrap || "",
+        ].join("|");
+        if (progressKey && progressKey !== lastProgressKey) {
+          process.stdout.write(
+            `\n   -> ${lastStatus.ui_flow || "bootstrap"} / ${lastStatus.ui_step_type || "waiting"} ... `,
+          );
+          lastProgressKey = progressKey;
+          lastProgressAt = Date.now();
+        }
+        if (hasTerminalNativeUiStatus(lastStatus)) {
+          const report = completedReport || readUiReport(serial);
           if (report)
             return { ok: Boolean(report.ok), report, status: lastStatus };
+        }
+        if ((lastStatus.uifailed || "") === "1") {
+          return {
+            ok: false,
+            report: readUiReport(serial),
+            status: lastStatus,
+            error: "Android UI interaction audit reported a terminal failure",
+          };
+        }
+        if (
+          (lastStatus.uistarted || "") === "1" &&
+          (lastStatus.ui_complete || "") !== "1" &&
+          Date.now() - lastProgressAt > nativeUiFlowStepTimeoutMs(uiFlows, lastStatus) + 10_000
+        ) {
+          return {
+            ok: false,
+            report: readUiReport(serial),
+            status: lastStatus,
+            error: "Android UI interaction audit stalled without step progress",
+          };
         }
       }
 
       const report = readUiReport(serial);
       if (report?.completedAt) {
-        return { ok: Boolean(report.ok), report, status: lastStatus };
+        completedReport = report;
+        completedReportObservedAt ||= Date.now();
+        if (
+          Date.now() - completedReportObservedAt >=
+          NATIVE_UI_TERMINAL_STATUS_GRACE_MS
+        ) {
+          return {
+            ok: false,
+            report: completedReport,
+            status: lastStatus,
+            error:
+              "Android UI interaction report completed before native terminal status settled",
+          };
+        }
       }
     } catch {
       // App may still be booting or the debug package may not have created files.
@@ -478,7 +562,7 @@ function waitForUiInteractionReport(serial) {
     sleep(1000);
   }
 
-  const report = readUiReport(serial);
+  const report = completedReport || readUiReport(serial);
   return {
     ok: false,
     report,
@@ -495,65 +579,93 @@ function main() {
   console.log(
     `==> native Android UI interaction audit (${uiFlows.length} flows)`,
   );
+  console.log(`==> audit plan: ${auditPlan.digest.slice(0, 12)}`);
   for (const flow of uiFlows) {
     console.log(`   - ${flow.id} — ${flow.description}`);
   }
 
-  if (process.env.ANDROID_UI_INTERACTION_SKIP_BUILD !== "true") {
-    buildApp();
-  } else {
-    console.log(
-      "==> skipping rebuild (ANDROID_UI_INTERACTION_SKIP_BUILD=true)",
+  if (process.env.ANDROID_UI_INTERACTION_SKIP_BUILD === "true") {
+    throw new Error(
+      "ANDROID_UI_INTERACTION_SKIP_BUILD is unsupported: a cold UI audit must build and sync the exact requested flow manifest.",
     );
-    prepareNativeTestArtifacts({ flowFilter, routeFilter });
   }
+  buildApp();
 
   const serial = resolveAdbDevice();
+  activeAuditSerial = serial;
   console.log(`==> device: ${serial}`);
   let result;
   try {
     installAndLaunch(serial);
     result = waitForUiInteractionReport(serial);
   } finally {
-    tryRunAdb(serial, ["shell", "am", "force-stop", bundleId], {
-      stdio: "ignore",
-    });
-    if (startedEmulatorSerial === serial) {
-      tryRunAdb(serial, ["emu", "kill"], { stdio: "ignore" });
-    }
+    cleanupAuditProcess();
   }
 
+  const completion = validateNativeUiAuditCompletion({
+    report: result.report,
+    status: result.status,
+    plan: auditPlan,
+    runId: uiFlowRunId,
+  });
+  const sanitizedReport = sanitizeNativeArtifact(result.report);
+  const sanitizedErrorClass = errorClass(result.error || completion.reason);
+  const skippedOptionalFlows = completion.ok
+    ? completion.optionalSkippedFlowIds
+    : [];
+  const skippedConditionalRiaWorkspaceFlows = completion.ok
+    ? completion.conditionalRiaWorkspaceSkippedFlowIds
+    : [];
   const summary = {
     generated_at: new Date().toISOString(),
     device: serial,
+    plan: {
+      version: auditPlan.version,
+      digest: auditPlan.digest,
+      flow_count: auditPlan.flow_count,
+    },
     flow_count: uiFlows.length,
-    passed_flows: result.report?.flows?.filter((flow) => flow.ok).length ?? 0,
-    failed_flows: result.report?.flows?.filter((flow) => !flow.ok).length ?? 0,
-    ok: Boolean(result.ok && result.report?.ok),
+    passed_flows:
+      sanitizedReport?.flows?.filter((flow) => flow.ok && !flow.skipped).length ?? 0,
+    failed_flows: sanitizedReport?.flows?.filter((flow) => !flow.ok).length ?? 0,
+    skipped_optional_flows: skippedOptionalFlows,
+    skipped_conditional_ria_workspace_flows:
+      skippedConditionalRiaWorkspaceFlows,
+    ok: Boolean(result.ok && completion.ok),
     flows: uiFlows.map((flow) => flow.id),
-    report: result.report,
-    error: result.error || null,
+    report: sanitizedReport,
+    errorClass: sanitizedErrorClass || null,
     last_status: sanitizeStatusForReport(result.status),
   };
 
+  assertNativeArtifactSafe(summary, [reviewerUid, reviewerVaultPassphrase]);
   fs.writeFileSync(reportPath, `${JSON.stringify(summary, null, 2)}\n`);
   console.log(`\n==> report: ${path.relative(repoRoot, reportPath)}`);
 
   if (summary.ok) {
+    const optionalSuffix = skippedOptionalFlows.length
+      ? `; ${skippedOptionalFlows.length} optional skipped`
+      : "";
+    const conditionalSuffix = skippedConditionalRiaWorkspaceFlows.length
+      ? `; ${skippedConditionalRiaWorkspaceFlows.length} RIA-workspace conditional skipped`
+      : "";
     console.log(
-      `==> Android UI interactions passed (${summary.passed_flows}/${summary.flow_count})`,
+      `==> Android UI interactions passed (${summary.passed_flows}/${summary.flow_count}${optionalSuffix}${conditionalSuffix})`,
     );
     return;
   }
 
-  const failed = (result.report?.flows || []).filter((flow) => !flow.ok);
+  const failed = (sanitizedReport?.flows || []).filter((flow) => !flow.ok);
   for (const flow of failed) {
     console.log(
-      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.error || "failed"}`,
+      `   x ${flow.id}: ${flow.failedStep?.type || flow.results?.slice(-1)[0]?.errorClass || "failed"}`,
     );
   }
   if (result.error) {
-    console.log(`   x ${result.error}`);
+    console.log(`   x ${sanitizedErrorClass || "other"}`);
+  }
+  if (!completion.ok) {
+    console.log("   x audit report did not prove the requested plan completed");
   }
   process.exit(1);
 }

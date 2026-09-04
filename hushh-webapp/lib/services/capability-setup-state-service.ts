@@ -103,7 +103,7 @@ export interface CapabilitySetupInputs {
   pendingConsents: number;
   /**
    * OAuth-connection booleans the caller already knows, keyed by capability id
-   * (e.g. `{ gmail: true }`). Absent keys mean "not connected / unknown" and
+ * (e.g. `{ gmail: true, calendar: true }`). Absent keys mean "not connected / unknown" and
    * are treated per the capability's own prerequisite rules.
    */
   oauthConnections?: Partial<Record<string, boolean>>;
@@ -116,15 +116,24 @@ export interface CapabilitySetupInputs {
   exploredCapabilityIds?: ReadonlySet<string>;
   /**
    * Location readiness signal: whether the user has a location recipient key
-   * (their live location is set up). Only knowable post-unlock (it lives behind
+   * (live location is set up). Only knowable post-unlock (it lives behind
    * the vault). `true` → set up, `false` → not set up, `undefined` → not fetched
    * yet (or vault locked). Fed by a lightweight `getState` fetch when unlocked.
    */
   locationRecipientKeyReady?: boolean;
+  /**
+   * RIA readiness signal: whether the user has an onboarded RIA profile (a
+   * `ria_profiles` row exists, which the backend creates only on onboarding
+   * submit — never for a partial license check). `true` → onboarded, `false` →
+   * no profile, `undefined` → not fetched yet. Fed by a lightweight
+   * `getOnboardingStatus` fetch. Unlike location this does not require the vault,
+   * so an onboarded RIA reads as complete even before unlock.
+   */
+  riaOnboarded?: boolean;
 }
 
 /** Capabilities that require an OAuth connection to a third party. */
-const OAUTH_GATED = new Set<string>(["gmail"]);
+const OAUTH_GATED = new Set<string>(["gmail", "calendar"]);
 const TERMINAL_SETUP_IDS = new Set<string>(ONE_SETUP_CAPABILITY_IDS);
 
 function blocked(
@@ -272,21 +281,32 @@ function resolveVaultGated(
 }
 
 /**
- * Resolve the location (Onepoint) capability. "Set up" means the user has a
- * location recipient key, which lives behind the vault. Locked → we cannot read
- * it, so keep the honest vault-prerequisite `unknown` ("Unlock to view").
- * Unlocked → `completed` ("Ready") when the key exists, `not-started`
- * ("Set up location") when it doesn't, and `unknown`/"Checking…" while the
- * one-shot fetch is still in flight.
+ * A recipient key proves Location provisioning started, not that the one-time
+ * setup terminal was acknowledged. Durable completion is handled above through
+ * `setupCapabilityIds`; this resolver reports the live key as progress only.
  */
 function resolveLocation(inputs: CapabilitySetupInputs): CapabilityStatus {
   if (!inputs.isVaultUnlocked) {
     return unknown("location", "vault", true);
   }
   const ready = inputs.locationRecipientKeyReady;
-  if (ready === true) return simple("location", "completed");
+  if (ready === true) return simple("location", "in-progress");
   if (ready === false) return simple("location", "not-started");
   return unknown("location", null, false);
+}
+
+/**
+ * Resolve the RIA capability. "Set up" means the user has an onboarded RIA
+ * profile (an existing `ria_profiles` row). When that live signal says onboarded
+ * we mark it `completed` regardless of vault state — the profile exists whether
+ * or not the vault is unlocked this session. Otherwise fall back to the generic
+ * vault-gated behaviour (locked → "Unlock to view", active journey →
+ * "in-progress", unlocked-but-none → "Set up RIA") so nothing is fabricated and
+ * the durable "Finish RIA setup" terminal id still completes it.
+ */
+function resolveRia(inputs: CapabilitySetupInputs): CapabilityStatus {
+  if (inputs.riaOnboarded === true) return simple("ria", "completed");
+  return resolveVaultGated("ria", inputs);
 }
 
 /** Resolve an OAuth-gated capability from caller-supplied connection booleans. */
@@ -322,6 +342,7 @@ export function resolveCapabilitySetupState(
   if (id === "finance") return resolveFinance(inputs);
   if (id === "consent") return resolveConsent(inputs);
   if (id === "location") return resolveLocation(inputs);
+  if (id === "ria") return resolveRia(inputs);
   if (OAUTH_GATED.has(id)) return resolveOauthGated(id, inputs);
 
   const capability = getOneCapability(id);
@@ -339,8 +360,8 @@ export function resolveCapabilitySetupState(
   // cannot read real state, so report `unknown` with the vault prerequisite
   // rather than fabricating "Ready". Declared via the catalog `requiresVault`
   // flag so the set is explicit and testable (finance, gmail, email, location,
-  // pkm, connected-systems). Note gmail/connected-systems are handled by the
-  // OAuth branch above, so this covers email, location, and pkm.
+  // pkm, connected-systems, calendar). OAuth-gated capabilities are handled by
+  // the branch above, so this covers email, location, and pkm.
   if (capability?.requiresVault === true) {
     return resolveVaultGated(id, inputs);
   }

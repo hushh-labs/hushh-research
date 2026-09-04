@@ -14,16 +14,15 @@ Use this reference after the initial scan to choose the correct owner skill firs
 8. `repo-operations`: CI/CD, env parity, deploy, branch protection, and repo operational tooling.
 9. `oss-license-governance`: Apache-2.0 surface, SPDX/REUSE, package license metadata, and third-party notice governance.
 10. `contributor-onboarding`: bootstrap, devcontainer, doctor, and contributor-first-run experience ownership.
-11. `subtree-upstream-governance`: upstream-first coordination, subtree sync policy, and maintainer-only subtree contract ownership.
+11. `subtree-upstream-governance`: optional-mirror coordination, subtree sync policy, and maintainer-only subtree contract ownership.
 12. `planning-board`: GitHub board workflows.
 13. `future-planner`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
 14. `comms-community`: public/community explanation workflows.
 15. `codex-skill-authoring`: local skill creation, linting, scaffolding, and taxonomy maintenance.
 16. `agent-orchestration-governance`: custom agents, subagent limits, delegation authority, and handoff verification.
 17. `autonomous-rca-governance`: resume-safe RCA for runtime, UAT, and CI failures.
-18. `desktop-mac`: native macOS One app, LaunchAgent, and local MCP host surfaces.
-19. `kai-voice-governance`: One Voice contracts, Kai compatibility runtime, planner/executor flow, and generated gateway parity.
-20. `pr-governance-review`: PR review, train governance, merge-readiness, and trust-boundary review.
+18. `one-voice-governance`: One Voice contracts, Kai compatibility runtime, planner/executor flow, and generated gateway parity.
+19. `pr-governance-review`: PR review, train governance, merge-readiness, and trust-boundary review.
 
 ## Spoke skills by owner
 
@@ -54,14 +53,17 @@ Use this reference after the initial scan to choose the correct owner skill firs
 
 1. `iam-consent-governance`
 2. `vault-pkm-governance`
-3. `quality-contracts`
-4. `streaming-contracts`
-5. `kai-test-account-reset`
+3. `reviewer-app-testing`
+4. `pkm-upgrade-rehearsal`
+5. `quality-contracts`
+6. `streaming-contracts`
+7. `kai-test-account-reset`
 
 ### `repo-operations`
 
 1. `github-contribution-governance`
 2. `uat-scoped-deploy`
+3. `release-ios-appstore`
 
 ## Canonical workflow packs
 
@@ -83,20 +85,22 @@ Use this reference after the initial scan to choose the correct owner skill firs
 16. `generic-pdf-artifact-generation`
 17. `github-contribution-governance`
 18. `hushh-consent-mcp-ops`
-19. `kai-voice-governance`
+19. `one-voice-governance`
 20. `mcp-surface-change`
 21. `morphy-ax-governance`
 22. `mobile-parity-check`
 23. `new-feature-tri-flow`
-24. `oss-license-governance`
-25. `pr-governance-review`
-26. `pre-pr-readiness`
-27. `release-readiness`
-28. `report-artifact-generation`
-29. `repo-orientation`
-30. `ria-api-reference`
-31. `security-consent-audit`
-32. `security-posture-maintenance`
-33. `skill-authoring`
-34. `subtree-upstream-governance`
-35. `uat-scoped-deploy`
+24. `pkm-upgrade-rehearsal`
+25. `reviewer-app-rehearsal`
+26. `oss-license-governance`
+27. `pr-governance-review`
+28. `pre-pr-readiness`
+29. `release-readiness`
+30. `report-artifact-generation`
+31. `repo-orientation`
+32. `ria-api-reference`
+33. `security-consent-audit`
+34. `security-posture-maintenance`
+35. `skill-authoring`
+36. `subtree-upstream-governance`
+37. `uat-scoped-deploy`

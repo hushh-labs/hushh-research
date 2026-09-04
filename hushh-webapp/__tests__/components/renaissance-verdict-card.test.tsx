@@ -5,7 +5,7 @@ import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdi
 import type { KaiHomeRenaissanceItem } from "@/lib/services/api-service";
 
 function makeRow(
-  overrides: Partial<KaiHomeRenaissanceItem> = {}
+  overrides: Partial<KaiHomeRenaissanceItem> = {},
 ): KaiHomeRenaissanceItem {
   return {
     symbol: "NVDA",
@@ -34,12 +34,16 @@ describe("RenaissanceVerdictCard", () => {
 
     expect(screen.getByText("Constructive signal")).toBeTruthy();
     expect(container.textContent).toContain(
-      "Nvidia currently shows a constructive Renaissance bias."
+      "Constructive bias on the active advisor list.",
     );
     expect(container.textContent).toContain(
-      "Kai presents this as market context, not a personalized instruction."
+      "One presents this as market context, not a personalized instruction.",
     );
-    expect(container.textContent).not.toMatch(/\bBuy\b|Do not buy|before adding/i);
+    expect(container.textContent).not.toContain("Investment thesis");
+    expect(container.textContent).not.toContain("Key signals");
+    expect(container.textContent).not.toMatch(
+      /\bBuy\b|Do not buy|before adding/i,
+    );
   });
 
   it("uses caution language for reduce or sell bias without telling the user what to trade", () => {
@@ -49,13 +53,13 @@ describe("RenaissanceVerdictCard", () => {
           recommendation_bias: "SELL",
           degraded: true,
         })}
-      />
+      />,
     );
 
     expect(screen.getByText("Caution signal")).toBeTruthy();
-    expect(screen.getByText("Lower confidence")).toBeTruthy();
+    expect(container.textContent).toContain("lower-confidence context");
     expect(container.textContent).toContain(
-      "Review the thesis and data quality before acting on the signal."
+      "Review the thesis and information quality before acting on the signal.",
     );
     expect(container.textContent).not.toMatch(/Do not buy|before adding/i);
   });

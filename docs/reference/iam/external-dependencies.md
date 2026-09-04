@@ -15,7 +15,7 @@ Track upstream systems used by IAM and consent flows, with ownership and failure
 | --- | --- | --- | --- | --- |
 | FINRA Data API | RIA verification evidence | Product + Compliance | Fail closed for RIA activation; keep status non-active | Verify plan, auth, and quota before rollout |
 | Firebase Auth | User identity bootstrap | Platform | Fail closed for authenticated surfaces | Token verification is mandatory |
-| Supabase Postgres / DB backend | Consent audit and relationship state | Backend | Fail closed for access grants; audit integrity first | Event-sourced consent records remain source of truth |
+| Cloud SQL Postgres / DB backend | Consent audit and relationship state | Backend | Fail closed for access grants; audit integrity first | Event-sourced consent records remain source of truth |
 | GCP Cloud Run/Monitoring | Runtime, audit visibility, alerts | Platform/SRE | Degraded mode with explicit alerts; no silent bypass | Keep alert coverage for consent failures |
 
 ## Governance Rules

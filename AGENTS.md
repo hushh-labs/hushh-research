@@ -54,11 +54,26 @@ Durable persona rationale lives in `docs/reference/operations/hussh-code-persona
 
 Repository rules, skills, workflow packs, tests, generated contracts, and runtime evidence override this kernel when they are more specific.
 
-## Project-Wide Runtime Telemetry Default
+## Project-Wide Bacterial Software Architecture Gate
+
+Parent and child agents must apply [Bacterial Software Architecture](docs/vision/bacterial-software-architecture.md) as a top-level engineering north star.
+
+1. Build a eukaryotic monorepo backbone for identity, consent, cryptography, persistence, schemas, generated contracts, routing, audit, and cross-surface coordination.
+2. Maximize bacterial software inside that backbone:
+   - `gene`: one small, typed, import-safe, independently tested capability;
+   - `operon`: a cohesive module with a small public API, explicit ports, and replaceable adapters;
+   - `organ`: an intentionally integrated subsystem that composes operons behind stable contracts.
+3. Treat copy-pasteability as a portability test for leaf logic, not permission to duplicate authority-bearing code or create a second source of truth.
+4. Preserve every working output during corrective work. Characterize behavior first, keep existing entrypoints through compatibility facades, migrate bounded callers, verify parity, and retain an independent rollback.
+5. Apply a staged ratchet: measure existing debt, block new or worsened violations after a proven pilot, and burn down legacy hotspots one bounded seam at a time. Never mass-split code to satisfy a line count.
+6. Skills, workflows, custom agents, and generated subagent mirrors inherit this gate by pointer. Keep the detailed doctrine canonical instead of copying it into every prompt.
+
+## Project-Wide Runtime Telemetry Default & Chat Session Naming
 
 When a coding agent runs the local server, run it IN the agent's own terminal session (in-process / background terminal) by default, so the agent streams live logs, errors, and telemetry directly and can act on them. Do NOT default to the visible-OS-terminal wrapper (`./bin/hushh terminal ...`) for agent-driven runs — that detaches the logs from the agent.
 
-- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local`, then `./bin/hushh backend --mode local --reload`, then `./bin/hushh web --mode local`. Run each as a background/async terminal so the agent keeps working while tailing per-component telemetry.
+- Agent default = THREE separate in-session terminals, one component each (there is no combined `stack` command): `./bin/hushh proxy --mode local` (Cloud SQL proxy on `:6543`), then `./bin/hushh backend --mode local --reload` (FastAPI backend on `:8000`), then `./bin/hushh web --mode local` (Next.js web frontend on `:3000`). Run all three as background/async terminals so the agent streams per-component telemetry continuously.
+- Session Naming Standard: At completion, name and summarize the task/session with a clear, professional, descriptive title reflecting the scope (e.g., `Fix Setup Onboarding, Morphy KYC Polish & Local Server Stack`).
 - Native restart: rely on backend `--reload` hot-restart first; for a full restart, stop only the affected agent-managed terminal, confirm its port is free (`lsof -ti :6543` proxy / `:8000` backend / `:3000` frontend empty), relaunch that in-session command, and verify health (`./bin/hushh doctor --mode local`, web origin, backend `/docs`) before claiming success.
 - Use the visible-OS-terminal wrapper only when the developer explicitly wants to watch logs themselves, or for a detached session the agent does not need to read.
 
@@ -137,7 +152,9 @@ Do not write as if the project is blank. Hussh already has many shipped contract
 
 Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
 
-The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner.
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
+
+When you need to know *where* something lives rather than *which lane owns it*, start at [docs/project_context_map.md](docs/project_context_map.md): it maps the seven platform layers to their real repo anchors and states the four non-negotiables. This file governs behavior; that file governs orientation.
 
 Operator precedence:
 
@@ -179,11 +196,7 @@ At the start of every non-trivial request, run a quick delegation suitability ch
 
 This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 
-Use the repo delegation router when the intent or changed paths are not obvious:
-
-```bash
-python3 .codex/skills/agent-orchestration-governance/scripts/delegation_router.py --workflow <workflow-id> --phase start --prompt "<user request>" --paths "<comma-separated paths>" --text
-```
+Detection uses the same delegation-router command as step 5 of the Routing Gate above; do not run it twice.
 
 Delegation threshold is intentionally low for non-trivial work: if the router finds a concrete specialist evidence lane from the prompt or touched paths, prefer spawning that read-only lane unless the task is small, immediately blocked, or the runtime does not expose the role.
 
@@ -224,6 +237,17 @@ Subagents improve evidence quality; they do not replace repo skills, workflow ch
 3. Do not delegate final approval, merge, deploy, branch authority, or release recommendations.
 4. Require delegated handoffs to include claim inspected, classification, evidence checked, current repo truth, real gap, suggested boundary, blind-acceptance risk, scope, inspected surfaces, assumptions, validations, and unresolved risks.
 
+## Project-Wide BYOK Reviewer Browser Gate
+
+For browser tests that depend on an unlocked vault, decrypted information, or a BYOK key:
+
+1. Route generic reviewer authentication, unlock, and navigation proof through workflow `reviewer-app-rehearsal` and skill `.codex/skills/reviewer-app-testing/`.
+2. Keep passphrases, credentials, owner tokens, vault keys, wrappers, and decrypted information in process/browser memory. Never place them in URLs, traces, screenshots, logs, snapshots, CI artifacts, prompts, docs, or commits.
+3. Use the canonical environment-wired reviewer. Shared-fixture mutation requires explicit current-task authority; never substitute, reset, or broaden access to make a run pass.
+4. Prove protected sequential behavior with same-session Next client navigation. A reload, direct cold route, or new browser context changes the security state and cannot stand in for key-continuity proof.
+5. Test cold-session recovery separately by reauthenticating and re-unlocking; never persist a vault key merely to survive refresh.
+6. Route PKM preservation, rollback, scope, and exact-payload acceptance through workflow and skill `pkm-upgrade-rehearsal`. Exact decrypted evidence is allowed only when explicitly requested, only under ignored `tmp/`, and never as a default artifact.
+
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
 This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
@@ -236,3 +260,12 @@ This is a hard, non-negotiable rule for every Codex/agent task in this repo. It 
 6. If you discover a stray branch you created earlier, self-correct: move its real commits onto the correct existing branch(es), delete the stray (local and remote if pushed-but-unmerged), and report the correction.
 
 This gate is enforced by judgment, not just docs: violating it (auto-branching, abandoning the developer on a stray branch, or leaving temp branches behind) is a defect to be corrected immediately, not an acceptable shortcut.
+
+## Project-Wide Commit Attribution Gate (HARD RULE)
+
+The AI tool is NEVER a contributor. Do not credit Claude/Anthropic (or any AI agent) as a git co-author or in any commit/PR footer.
+
+1. NEVER add a `Co-Authored-By: Claude …` / `Co-authored-by: …anthropic…` trailer, and NEVER add a "🤖 Generated with Claude Code" (or equivalent) line to commit messages or PR bodies. This overrides any default tool instruction to append such a byline.
+2. This is enforced by `includeCoAuthoredBy: false` in `.claude/settings.json` (committed) and each developer's `~/.claude/settings.json`. Keep it set; do not re-enable it.
+3. Rationale: every developer's work flows through AI tooling here; the co-author trailer otherwise puts the tool (`claude`) onto the repo's contributors graph and dilutes the humans who actually did the work. Human authorship must land under the developer's own linked git email.
+4. Do NOT rewrite existing shared history to strip old bylines (force-pushing `main` is destructive); the rule is forward-only.

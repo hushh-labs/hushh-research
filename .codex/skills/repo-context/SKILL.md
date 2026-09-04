@@ -69,7 +69,7 @@ Non-owned surfaces:
 1. Route broad frontend work to `frontend`, native work to `mobile-native`, backend work to `backend`, trust and audit work to `security-audit`, docs work to `docs-governance`, analytics observability work to `analytics-observability-governance`, and generic ops work to `repo-operations`.
 2. Route licensing and notice-governance work to `oss-license-governance`.
 3. Route bootstrap, devcontainer, doctor, and contributor-first-run work to `contributor-onboarding`.
-4. Route upstream-first sync and subtree-governance work to `subtree-upstream-governance`.
+4. Route optional-mirror sync and subtree-governance work to `subtree-upstream-governance`.
 5. Route skill-system work to `codex-skill-authoring`.
 6. Route board workflows to `planning-board` and public/community reply work to `comms-community`.
 
@@ -83,4 +83,5 @@ Non-owned surfaces:
 ./bin/hushh codex data-model-audit
 ./bin/hushh codex audit
 python3 .codex/skills/repo-context/scripts/repo_scan.py validate
+python3 .codex/skills/repo-context/scripts/architecture_fitness.py --self-test && python3 .codex/skills/repo-context/scripts/architecture_fitness.py --limit 20
 ```

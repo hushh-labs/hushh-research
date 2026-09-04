@@ -433,12 +433,30 @@ export class HushhPersonalKnowledgeModelWeb
     }>;
     expectedDataVersion?: number;
     upgradeContext?: {
+      schemaVersion: "pkm_upgrade_claim.v1";
+      claimId: string;
+      commitId: string;
+      ownerUserId: string;
       runId: string;
-      priorDomainContractVersion?: number;
-      newDomainContractVersion?: number;
-      priorReadableSummaryVersion?: number;
-      newReadableSummaryVersion?: number;
-      retryCount?: number;
+      domain: string;
+      sourceContentRevision: number;
+      sourceManifestRevision: number;
+      targetDomainContractVersion: number;
+      targetReadableSummaryVersion: number;
+      targetPkmContractVersion: string;
+      targetReadableProjectionVersion: string;
+      expiresAt: string;
+      mode: "real";
+    };
+    preservationReceipt?: {
+      schemaVersion: "pkm_preservation_receipt.v1";
+      totalSourceOccurrences: number;
+      preserved: number;
+      moved: number;
+      equalValueDeduplicated: number;
+      quarantined: number;
+      rejected: number;
+      complete: boolean;
     };
     mutationPlan?: Record<string, unknown>;
     vaultOwnerToken?: string;
@@ -448,6 +466,19 @@ export class HushhPersonalKnowledgeModelWeb
     message?: string;
     dataVersion?: number;
     updatedAt?: string;
+    manifestRevision?: number;
+    commitId?: string;
+    archivedRevisionId?: string;
+    preservationReceipt?: {
+      schemaVersion: "pkm_preservation_receipt.v1";
+      totalSourceOccurrences: number;
+      preserved: number;
+      moved: number;
+      equalValueDeduplicated: number;
+      quarantined: number;
+      rejected: number;
+      complete: boolean;
+    };
   }> {
     const response = await fetch("/api/pkm/store-domain", {
       method: "POST",
@@ -478,18 +509,38 @@ export class HushhPersonalKnowledgeModelWeb
           Number.isFinite(options.expectedDataVersion) && options.expectedDataVersion !== undefined
             ? Math.max(0, Number(options.expectedDataVersion))
             : undefined,
-        upgrade_context: options.upgradeContext
+        upgrade_claim: options.upgradeContext
           ? {
+              schema_version: options.upgradeContext.schemaVersion,
+              claim_id: options.upgradeContext.claimId,
+              commit_id: options.upgradeContext.commitId,
+              owner_user_id: options.upgradeContext.ownerUserId,
               run_id: options.upgradeContext.runId,
-              prior_domain_contract_version:
-                options.upgradeContext.priorDomainContractVersion,
-              new_domain_contract_version:
-                options.upgradeContext.newDomainContractVersion,
-              prior_readable_summary_version:
-                options.upgradeContext.priorReadableSummaryVersion,
-              new_readable_summary_version:
-                options.upgradeContext.newReadableSummaryVersion,
-              retry_count: options.upgradeContext.retryCount,
+              domain: options.upgradeContext.domain,
+              source_content_revision: options.upgradeContext.sourceContentRevision,
+              source_manifest_revision: options.upgradeContext.sourceManifestRevision,
+              target_domain_contract_version:
+                options.upgradeContext.targetDomainContractVersion,
+              target_readable_summary_version:
+                options.upgradeContext.targetReadableSummaryVersion,
+              target_pkm_contract_version: options.upgradeContext.targetPkmContractVersion,
+              target_readable_projection_version:
+                options.upgradeContext.targetReadableProjectionVersion,
+              expires_at: options.upgradeContext.expiresAt,
+              mode: options.upgradeContext.mode,
+            }
+          : undefined,
+        preservation_receipt: options.preservationReceipt
+          ? {
+              schema_version: options.preservationReceipt.schemaVersion,
+              total_source_occurrences: options.preservationReceipt.totalSourceOccurrences,
+              preserved: options.preservationReceipt.preserved,
+              moved: options.preservationReceipt.moved,
+              equal_value_deduplicated:
+                options.preservationReceipt.equalValueDeduplicated,
+              quarantined: options.preservationReceipt.quarantined,
+              rejected: options.preservationReceipt.rejected,
+              complete: options.preservationReceipt.complete,
             }
           : undefined,
       }),
@@ -525,6 +576,37 @@ export class HushhPersonalKnowledgeModelWeb
       message: typeof data.message === "string" ? data.message : undefined,
       dataVersion: typeof data.data_version === "number" ? data.data_version : undefined,
       updatedAt: typeof data.updated_at === "string" ? data.updated_at : undefined,
+      manifestRevision:
+        typeof data.manifest_revision === "number" ? data.manifest_revision : undefined,
+      commitId: typeof data.commit_id === "string" ? data.commit_id : undefined,
+      archivedRevisionId:
+        typeof data.archived_revision_id === "string" ? data.archived_revision_id : undefined,
+      preservationReceipt:
+        data.preservation_receipt && typeof data.preservation_receipt === "object"
+          ? {
+              schemaVersion: "pkm_preservation_receipt.v1",
+              totalSourceOccurrences: Number(
+                (data.preservation_receipt as Record<string, unknown>)
+                  .total_source_occurrences || 0
+              ),
+              preserved: Number(
+                (data.preservation_receipt as Record<string, unknown>).preserved || 0
+              ),
+              moved: Number((data.preservation_receipt as Record<string, unknown>).moved || 0),
+              equalValueDeduplicated: Number(
+                (data.preservation_receipt as Record<string, unknown>)
+                  .equal_value_deduplicated || 0
+              ),
+              quarantined: Number(
+                (data.preservation_receipt as Record<string, unknown>).quarantined || 0
+              ),
+              rejected: Number(
+                (data.preservation_receipt as Record<string, unknown>).rejected || 0
+              ),
+              complete:
+                (data.preservation_receipt as Record<string, unknown>).complete === true,
+            }
+          : undefined,
     };
   }
 
@@ -577,6 +659,32 @@ export class HushhPersonalKnowledgeModelWeb
     }
 
     return response.json();
+  }
+
+  async getDomainSnapshot(options: {
+    userId: string;
+    domain: string;
+    segmentIds?: string[];
+    vaultOwnerToken?: string;
+  }): Promise<Record<string, unknown>> {
+    const params = new URLSearchParams();
+    for (const segmentId of options.segmentIds || []) {
+      if (segmentId.trim()) params.append("segment_ids", segmentId.trim());
+    }
+    const query = params.size ? `?${params.toString()}` : "";
+    const response = await fetch(
+      `/api/pkm/domain-snapshot/${encodeURIComponent(options.userId)}/${encodeURIComponent(options.domain)}${query}`,
+      {
+        headers: {
+          Authorization: await this.getAuthHeader(options.vaultOwnerToken),
+        },
+        cache: "no-store",
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`HTTP Error ${response.status}: PKM domain snapshot request failed`);
+    }
+    return (await response.json()) as Record<string, unknown>;
   }
 
   async clearDomain(options: {

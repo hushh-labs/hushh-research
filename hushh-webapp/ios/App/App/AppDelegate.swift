@@ -5,6 +5,10 @@ import FirebaseAuth
 import FirebaseMessaging
 import GoogleSignIn
 import UserNotifications
+import AVFoundation
+#if canImport(AppIntents)
+import AppIntents
+#endif
 
 @UIApplicationMain
 class AppDelegate: UIResponder, UIApplicationDelegate {
@@ -12,13 +16,24 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     private static let consentReviewAction = "CONSENT_REVIEW"
     private static let consentApproveAction = "CONSENT_APPROVE"
     private static let consentDenyAction = "CONSENT_DENY"
+    private static let emergencySmsNotificationCategory = "ONE_LOCATION_SMS_EMERGENCY"
+    private static let emergencySmsOpenAction = "ONE_LOCATION_SMS_OPEN"
+    private static let emergencySmsSound = "one_location_sms_alarm.wav"
 
     var window: UIWindow?
     private let nativeTestConfig = NativeTestConfiguration()
 
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
+#if canImport(AppIntents)
+        if #available(iOS 16.0, *) {
+            HusshOneAppShortcuts.updateAppShortcutParameters()
+        }
+#endif
         // Ensure Firebase is initialized once for native plugins and auth flows.
-        if FirebaseApp.app() == nil {
+        // `FirebaseApp.app()` logs an error when no default app exists, even
+        // when that is the normal first-launch state. Inspect the registry so
+        // cold starts stay clean before configuring the default app.
+        if FirebaseApp.allApps?.isEmpty != false {
             if Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil {
                 FirebaseApp.configure()
                 print("✅ [AppDelegate] Firebase configured")
@@ -31,9 +46,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
         NativeTestResetter.resetAppStateIfNeeded(configuration: nativeTestConfig)
 
-        // Configure the delegate so notification presentation and tap handling work
-        // after the app explicitly requests permission from the notification init flow.
-        UNUserNotificationCenter.current().delegate = self
+        prepareEmergencySmsSound()
         registerNotificationCategories()
         Messaging.messaging().delegate = self
         logNotificationSettings(context: "didFinishLaunching")
@@ -52,7 +65,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         NotificationCenter.default.post(name: .capacitorDidRegisterForRemoteNotifications, object: deviceToken)
         // Pass APNs token to Firebase Messaging
         Messaging.messaging().apnsToken = deviceToken
-        print("✅ [AppDelegate] APNs token registered with Firebase Messaging: \(deviceToken.hexPrefix())")
+        print("✅ [AppDelegate] APNs token registered with Firebase Messaging")
         logNotificationSettings(context: "didRegisterForRemoteNotifications")
     }
     
@@ -72,7 +85,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
             userInfo: userInfo
         )
         print(
-            "📩 [AppDelegate] Remote notification payload while appState=\(application.applicationState.debugLabel): \(userInfo)"
+            "📩 [AppDelegate] Remote notification received while appState=\(application.applicationState.debugLabel)"
         )
         completionHandler(.newData)
     }
@@ -94,6 +107,8 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
     func applicationDidBecomeActive(_ application: UIApplication) {
         // Restart any tasks that were paused (or not yet started) while the application was inactive. If the application was previously in the background, optionally refresh the user interface.
         logNotificationSettings(context: "applicationDidBecomeActive")
+        OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
+        OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
     }
 
     func applicationWillTerminate(_ application: UIApplication) {
@@ -120,42 +135,11 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
 
 }
 
-// MARK: - UNUserNotificationCenterDelegate
-extension AppDelegate: UNUserNotificationCenterDelegate {
-    // Handle foreground notifications (app is open)
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                willPresent notification: UNNotification,
-                                withCompletionHandler completionHandler: @escaping (UNNotificationPresentationOptions) -> Void) {
-        let userInfo = notification.request.content.userInfo
-        print(
-            "📬 [AppDelegate] Foreground notification received while appState=\(UIApplication.shared.applicationState.debugLabel): \(userInfo)"
-        )
-        // Present as a real system notification even while the app is active.
-        completionHandler([.banner, .list, .sound, .badge])
-    }
-    
-    // Handle notification taps
-    func userNotificationCenter(_ center: UNUserNotificationCenter,
-                                didReceive response: UNNotificationResponse,
-                                withCompletionHandler completionHandler: @escaping () -> Void) {
-        print("👆 [AppDelegate] Notification action performed: \(response.actionIdentifier)")
-
-        let userInfo = response.notification.request.content.userInfo
-        print("📦 [AppDelegate] Notification data: \(userInfo)")
-        logNotificationSettings(context: "didReceiveNotificationResponse")
-        
-        // The Capacitor FCM plugin will handle the navigation
-        // via the notificationActionPerformed listener
-        
-        completionHandler()
-    }
-}
-
 // MARK: - MessagingDelegate
 extension AppDelegate: MessagingDelegate {
     func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
         if let fcmToken, !fcmToken.isEmpty {
-            print("✅ [AppDelegate] Firebase Messaging registration token refreshed: \(fcmToken.prefix(24))...")
+            print("✅ [AppDelegate] Firebase Messaging registration token refreshed")
             logNotificationSettings(context: "didReceiveRegistrationToken")
         } else {
             print("⚠️ [AppDelegate] Firebase Messaging registration token missing")
@@ -186,8 +170,93 @@ private extension AppDelegate {
             intentIdentifiers: [],
             options: [.customDismissAction]
         )
-        UNUserNotificationCenter.current().setNotificationCategories([consentCategory])
-        print("✅ [AppDelegate] Registered notification categories: \(Self.consentNotificationCategory)")
+        let emergencyOpenAction = UNNotificationAction(
+            identifier: Self.emergencySmsOpenAction,
+            title: "Open live location",
+            options: [.foreground]
+        )
+        let emergencyCategory = UNNotificationCategory(
+            identifier: Self.emergencySmsNotificationCategory,
+            actions: [emergencyOpenAction],
+            intentIdentifiers: [],
+            options: [.customDismissAction]
+        )
+        UNUserNotificationCenter.current().setNotificationCategories([
+            consentCategory,
+            emergencyCategory,
+        ])
+        print(
+            "✅ [AppDelegate] Registered notification categories: \(Self.consentNotificationCategory), \(Self.emergencySmsNotificationCategory)"
+        )
+    }
+
+    func prepareEmergencySmsSound() {
+        do {
+            let fileManager = FileManager.default
+            guard let libraryDirectory = fileManager.urls(
+                for: .libraryDirectory,
+                in: .userDomainMask
+            ).first else {
+                return
+            }
+            let soundsDirectory = libraryDirectory.appendingPathComponent(
+                "Sounds",
+                isDirectory: true
+            )
+            try fileManager.createDirectory(
+                at: soundsDirectory,
+                withIntermediateDirectories: true
+            )
+            let soundURL = soundsDirectory.appendingPathComponent(Self.emergencySmsSound)
+            if fileManager.fileExists(atPath: soundURL.path) {
+                return
+            }
+
+            let sampleRate = 44_100.0
+            let duration = 0.94
+            guard
+                let format = AVAudioFormat(
+                    commonFormat: .pcmFormatInt16,
+                    sampleRate: sampleRate,
+                    channels: 1,
+                    interleaved: false
+                ),
+                let buffer = AVAudioPCMBuffer(
+                    pcmFormat: format,
+                    frameCapacity: AVAudioFrameCount(sampleRate * duration)
+                ),
+                let samples = buffer.int16ChannelData?[0]
+            else {
+                return
+            }
+
+            buffer.frameLength = buffer.frameCapacity
+            var phase = 0.0
+            for frame in 0..<Int(buffer.frameLength) {
+                let time = Double(frame) / sampleRate
+                let pulseOffset = time.truncatingRemainder(dividingBy: 0.34)
+                let isPulse = pulseOffset < 0.24
+                let frequency = 980.0 - (360.0 * min(pulseOffset / 0.24, 1.0))
+                phase += (2.0 * Double.pi * frequency) / sampleRate
+                let envelope = isPulse
+                    ? sin(Double.pi * pulseOffset / 0.24) * 0.55
+                    : 0.0
+                samples[frame] = Int16(
+                    max(-1.0, min(1.0, sin(phase) * envelope)) * Double(Int16.max)
+                )
+            }
+
+            let audioFile = try AVAudioFile(
+                forWriting: soundURL,
+                settings: format.settings,
+                commonFormat: .pcmFormatInt16,
+                interleaved: false
+            )
+            try audioFile.write(from: buffer)
+            print("✅ [AppDelegate] Emergency SMS notification sound ready")
+        } catch {
+            print("⚠️ [AppDelegate] Emergency SMS sound setup failed: \(error.localizedDescription)")
+        }
     }
 
     func logNotificationSettings(context: String) {
@@ -196,12 +265,6 @@ private extension AppDelegate {
                 "🔔 [AppDelegate] Notification settings (\(context)): auth=\(settings.authorizationStatus.debugLabel) alert=\(settings.alertSetting.debugLabel) badge=\(settings.badgeSetting.debugLabel) sound=\(settings.soundSetting.debugLabel) center=\(settings.notificationCenterSetting.debugLabel) lock=\(settings.lockScreenSetting.debugLabel) banner=\(settings.alertSetting.debugLabel)"
             )
         }
-    }
-}
-
-private extension Data {
-    func hexPrefix(limit: Int = 16) -> String {
-        map { String(format: "%02x", $0) }.joined().prefix(limit).description
     }
 }
 

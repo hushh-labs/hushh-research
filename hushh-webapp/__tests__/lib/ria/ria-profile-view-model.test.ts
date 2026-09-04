@@ -77,10 +77,16 @@ describe("ria-profile-view-model", () => {
     expect(props.advisoryAccessReady).toBe(false);
   });
 
-  it("treats active/verified as advisory access ready", () => {
+  it("treats active/verified/finra_verified as advisory access ready", () => {
     expect(isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "active" }))).toBe(
       true,
     );
+    expect(
+      isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "verified" })),
+    ).toBe(true);
+    expect(
+      isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "finra_verified" })),
+    ).toBe(true);
     expect(
       isRiaAdvisoryAccessReady(baseStatus({ advisory_status: "submitted" })),
     ).toBe(false);
@@ -102,5 +108,29 @@ describe("ria-profile-view-model", () => {
     expect(draft.onboardingType).toBe("individual");
     // Verified advisor is seeded as licence-found so the draft is coherent.
     expect(draft.licenseVerificationStatus).toBe("found");
+  });
+
+  it("seeds stored coordinates so saving the profile cannot wipe them", () => {
+    const draft = seedRiaDraftFromStatus(
+      baseStatus({ business_latitude: 33.4084, business_longitude: -111.9797 }),
+    );
+    expect(draft.latitude).toBe(33.4084);
+    expect(draft.longitude).toBe(-111.9797);
+
+    // Mirrors the payload ria-profile-section builds in handleSaveProfile:
+    // before the seeding fix these resolved to undefined on every save, which
+    // erased the adviser's geocoded office.
+    const savePayload = {
+      business_latitude: draft.latitude ?? undefined,
+      business_longitude: draft.longitude ?? undefined,
+    };
+    expect(savePayload.business_latitude).toBe(33.4084);
+    expect(savePayload.business_longitude).toBe(-111.9797);
+  });
+
+  it("leaves coordinates null when the record has none", () => {
+    const draft = seedRiaDraftFromStatus(baseStatus());
+    expect(draft.latitude).toBeNull();
+    expect(draft.longitude).toBeNull();
   });
 });

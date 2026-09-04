@@ -78,18 +78,18 @@ def _skill_by_id(skills: list[dict[str, Any]], skill_id: str) -> dict[str, Any]:
 
 def _voice_family(skills: list[dict[str, Any]]) -> OrderedDict[str, Any]:
     root_gateway = REPO_ROOT / "contracts/kai/kai-action-gateway.vnext.json"
-    root_manifest = REPO_ROOT / "contracts/kai/voice-action-manifest.v1.json"
+    route_index = REPO_ROOT / "contracts/kai/one-route-orchestration-index.v1.json"
     web_contracts = sorted(REPO_ROOT.glob("hushh-webapp/**/*.voice-action-contract.json"))
     gateway = _read_json(root_gateway) or {}
-    manifest = _read_json(root_manifest) or {}
-    skill = _skill_by_id(skills, "kai-voice-governance")
+    orchestration = _read_json(route_index) or {}
+    skill = _skill_by_id(skills, "one-voice-governance")
     source_contracts = gateway.get("source_contracts") if isinstance(gateway, dict) else []
     generated_artifacts = _existing(
         [
             "contracts/kai/kai-action-gateway.vnext.json",
-            "contracts/kai/voice-action-manifest.v1.json",
+            "contracts/kai/one-route-orchestration-index.v1.json",
             "hushh-webapp/contracts/kai/kai-action-gateway.vnext.json",
-            "hushh-webapp/contracts/kai/voice-action-manifest.v1.json",
+            "hushh-webapp/contracts/kai/one-route-orchestration-index.v1.json",
         ]
     )
     return OrderedDict(
@@ -98,17 +98,14 @@ def _voice_family(skills: list[dict[str, Any]]) -> OrderedDict[str, Any]:
         source_contracts=[_path(path) for path in web_contracts],
         generated_artifacts=generated_artifacts,
         generated_action_count=len(gateway.get("actions", [])) if isinstance(gateway, dict) else 0,
-        manifest_action_count=len(manifest.get("actions", [])) if isinstance(manifest, dict) else 0,
+        route_orchestration_count=len(orchestration.get("routes", [])) if isinstance(orchestration, dict) else 0,
         gateway_source_contracts=source_contracts if isinstance(source_contracts, list) else [],
         runtime_sources=_existing(
             [
                 "hushh-webapp/lib/voice/kai-action-gateway.ts",
-                "hushh-webapp/lib/voice/voice-action-dispatcher.ts",
-                "hushh-webapp/lib/voice/voice-turn-orchestrator.ts",
-                "hushh-webapp/lib/voice/voice-action-manifest.ts",
-                "hushh-webapp/components/kai/voice/voice-console-sheet.tsx",
-                "consent-protocol/hushh_mcp/services/voice_action_manifest.py",
-                "consent-protocol/hushh_mcp/services/voice_intent_service.py",
+                "hushh-webapp/components/agent/agent-bar.tsx",
+                "hushh-webapp/components/kai/kai-command-bar-global.tsx",
+                "consent-protocol/hushh_mcp/services/action_gateway.py",
             ]
         ),
         docs=skill.get("required_reads", []),
@@ -219,7 +216,7 @@ def build_schematics() -> OrderedDict[str, Any]:
         ),
         _route_family(skills),
         _family_from_skill(
-            _skill_by_id(skills, "kai-voice-governance"),
+            _skill_by_id(skills, "one-voice-governance"),
             "kai-finance-runtime",
             [
                 "docs/reference/kai/kai-accuracy-contract.md",

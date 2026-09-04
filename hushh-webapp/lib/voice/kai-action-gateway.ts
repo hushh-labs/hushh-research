@@ -4,6 +4,7 @@ import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
@@ -19,13 +20,23 @@ export type KaiActionDelegateAgentId =
   | "agent_connected_systems"
   | "agent_connections"
   | "agent_email"
-  | "agent_gmail"
-  | "agent_location"
-  | "agent_personal_information";
+  | "agent_location";
 export type KaiActionExecutionTarget =
   | {
       status: "wired";
-      path: "kai_command" | "voice_tool" | "route" | "local_handler";
+      path:
+        | "kai_command"
+        | "voice_tool"
+        | "route"
+        | "local_handler"
+        // A UI control the person taps directly (a menu item, a segmented
+        // toggle) rather than a named route or local_handler function.
+        // agent-action-runtime.ts's executor already dispatches this the
+        // same way as local_handler -- it falls through to the same
+        // resolveLocalOnboardingHandler registry for any path that isn't
+        // explicitly "route" -- so a real handler registered under the
+        // action id is all a "control" action needs to actually run.
+        | "control";
       target: string;
       params?: Record<string, unknown>;
     }
@@ -34,10 +45,6 @@ export type KaiActionExecutionTarget =
       reason: string;
       intended_handler?: string;
     }
-  | {
-      status: "dead";
-      reason: string;
-    };
 
 export type KaiActionWorkflowStep =
   | {
@@ -272,9 +279,7 @@ function validateDelegateAgentId(
     normalized === "agent_connected_systems" ||
     normalized === "agent_connections" ||
     normalized === "agent_email" ||
-    normalized === "agent_gmail" ||
-    normalized === "agent_location" ||
-    normalized === "agent_personal_information"
+    normalized === "agent_location"
   ) {
     return normalized;
   }
@@ -293,7 +298,8 @@ function validateExecutionTarget(
       (path !== "kai_command" &&
         path !== "voice_tool" &&
         path !== "route" &&
-        path !== "local_handler") ||
+        path !== "local_handler" &&
+        path !== "control") ||
       !target
     ) {
       return null;
@@ -313,11 +319,6 @@ function validateExecutionTarget(
       reason,
       intended_handler: cleanString(value.intended_handler) || undefined,
     };
-  }
-  if (status === "dead") {
-    const reason = cleanString(value.reason);
-    if (!reason) return null;
-    return { status, reason };
   }
   return null;
 }
@@ -692,7 +693,21 @@ function validateGateway(value: unknown): KaiActionGateway {
 }
 
 export const KAI_ACTION_GATEWAY = validateGateway(gatewayJson);
-export const KAI_ACTION_GATEWAY_ACTIONS = KAI_ACTION_GATEWAY.actions;
+function isCrmProductAction(action: KaiActionDefinition): boolean {
+  const searchable = [
+    action.action_id,
+    action.label,
+    action.meaning,
+    ...action.reachability.routes,
+    ...action.reachability.screens,
+    ...(action.delegate_agent_id ? [action.delegate_agent_id] : []),
+  ].join(" ").toLowerCase();
+  return searchable.includes("crm") || searchable.includes("connected_system") || searchable.includes("connected-system");
+}
+
+export const KAI_ACTION_GATEWAY_ACTIONS = isLocalCrmBuildEnabled()
+  ? KAI_ACTION_GATEWAY.actions
+  : KAI_ACTION_GATEWAY.actions.filter((action) => !isCrmProductAction(action));
 
 const KAI_ACTION_BY_ID = new Map(
   KAI_ACTION_GATEWAY_ACTIONS.map(
@@ -852,18 +867,10 @@ export function evaluateKaiActionAvailability(input: {
   allowPersonaRouteSettlement?: boolean;
 }): KaiActionAvailability {
   const { action, appRuntimeState, surfaceMetadata } = input;
-  if (action.execution_target.status === "dead") {
-    return {
-      status: "dead",
-      reason: action.execution_target.reason,
-      target_persona: null,
-      blocked_guidance: action.workflow?.blocked_guidance || null,
-    };
-  }
   if (action.execution_policy === "manual_only") {
     return {
       status: "manual_only",
-      reason: "This action remains manual in the current Kai workflow.",
+      reason: "This action remains manual in the current Finance workflow.",
       target_persona: null,
       blocked_guidance: action.workflow?.blocked_guidance || null,
     };
@@ -912,7 +919,7 @@ export function evaluateKaiActionAvailability(input: {
           appRuntimeState?.persona?.ria_setup_available
             ? "RIA actions stay locked until you finish RIA setup."
             : requiredPersonas.includes("investor")
-              ? "Switch to the Investor workspace before using Kai finance actions."
+              ? "Switch to the Investor workspace before using Finance actions."
               : "This action is not available in the active workspace.",
         target_persona: requiredPersonas[0] || null,
         blocked_guidance:
@@ -921,7 +928,7 @@ export function evaluateKaiActionAvailability(input: {
           appRuntimeState?.persona?.ria_setup_available
             ? "Complete RIA setup to unlock this workspace."
             : requiredPersonas.includes("investor")
-              ? "Switch to Investor to use this Kai finance action."
+              ? "Switch to Investor to use this Finance action."
               : null),
       };
     }
@@ -1019,6 +1026,27 @@ export function evaluateKaiActionAvailability(input: {
         blocked_guidance:
           appRuntimeState?.persona?.ria_setup_available === true
             ? "Complete RIA setup to unlock the workspace."
+            : null,
+      };
+    }
+    // #6437: registered in capability-guard-coverage.v1.json as
+    // "projection" (client-checkable) since these were authored, but never
+    // actually wired here -- both gated real, voice-executable RIA
+    // client-workspace actions with nothing enforcing them. An onboarding
+    // *record* existing (ria_persona_available, checked above) is not the
+    // same as onboarding being *complete*; see isRiaAdvisoryAccessReady.
+    if (
+      (guardId === "ria_onboarding_complete" ||
+        guardId === "consent_center_available") &&
+      appRuntimeState?.persona?.ria_onboarding_complete !== true
+    ) {
+      return {
+        status: "blocked",
+        reason: "Finish RIA verification before using this action.",
+        target_persona: "ria",
+        blocked_guidance:
+          appRuntimeState?.persona?.ria_setup_available === true
+            ? "Complete RIA setup to unlock this."
             : null,
       };
     }

@@ -14,6 +14,7 @@ Usage:
     --region <region> \
     --service <cloud-run-service> \
     --contract-file <path> \
+    [--release-environment <production|uat>] \
     [--report-path <path>] \
     [--proxy-port <port>]
 
@@ -27,6 +28,7 @@ PROJECT=""
 REGION="us-central1"
 SERVICE="consent-protocol"
 CONTRACT_FILE=""
+RELEASE_ENVIRONMENT="production"
 REPORT_PATH=""
 PROXY_PORT="${DB_PROXY_PORT:-6543}"
 
@@ -46,6 +48,10 @@ while [ "$#" -gt 0 ]; do
       ;;
     --contract-file)
       CONTRACT_FILE="${2:-}"
+      shift 2
+      ;;
+    --release-environment)
+      RELEASE_ENVIRONMENT="${2:-}"
       shift 2
       ;;
     --report-path)
@@ -70,10 +76,22 @@ done
 
 [ -n "$PROJECT" ] || { echo "--project is required" >&2; exit 1; }
 [ -n "$CONTRACT_FILE" ] || { echo "--contract-file is required" >&2; exit 1; }
+case "$RELEASE_ENVIRONMENT" in
+  production|uat) ;;
+  *) echo "--release-environment must be production or uat" >&2; exit 1 ;;
+esac
 
 command -v gcloud >/dev/null 2>&1 || { echo "gcloud is required" >&2; exit 1; }
 command -v jq >/dev/null 2>&1 || { echo "jq is required" >&2; exit 1; }
-command -v python3 >/dev/null 2>&1 || { echo "python3 is required" >&2; exit 1; }
+# The interpreter that runs the release guard. Overridable because the guard
+# imports `asyncpg`, which lives in the consent-protocol environment and not in
+# whatever `python3` resolves to on a PATH. Hardcoding it here is how a caller
+# that HAD resolved the right interpreter still ended up running the guard under
+# one that could not import it (measured 2026-08-29: the RCA runner chose the
+# project venv for every check except this one, because this one goes through
+# bash). Defaults to `python3`, so every existing caller is unchanged.
+PYTHON="${PYTHON:-python3}"
+command -v "$PYTHON" >/dev/null 2>&1 || { echo "$PYTHON is required" >&2; exit 1; }
 
 if [ -z "$REPORT_PATH" ]; then
   REPORT_PATH="$(mktemp "${TMPDIR:-/tmp}/runtime-db-contract.XXXXXX")"
@@ -185,7 +203,8 @@ export DB_NAME
 export DB_USER
 export DB_PASSWORD
 
-python3 "$REPO_ROOT/scripts/ops/db_migration_release_guard.py" \
+"$PYTHON" "$REPO_ROOT/scripts/ops/db_migration_release_guard.py" \
+  --release-environment "$RELEASE_ENVIRONMENT" \
   --contract-file "$CONTRACT_FILE" \
   --report-path "$REPORT_PATH"
 

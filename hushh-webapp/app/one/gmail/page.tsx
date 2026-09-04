@@ -1,3 +1,3 @@
-import GmailReceiptsPage from "@/components/gmail/gmail-receipts-page";
+import OneGmailPageClient from "@/app/one/gmail/gmail-page-client";
 
-export default GmailReceiptsPage;
+export default OneGmailPageClient;

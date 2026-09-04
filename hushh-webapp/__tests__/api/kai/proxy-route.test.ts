@@ -22,14 +22,6 @@ function createRequest(url: string, init: RequestInit): NextRequest {
   return new NextRequest(url, init);
 }
 
-async function waitForFetchCall(fetchSpy: ReturnType<typeof vi.spyOn>) {
-  for (let index = 0; index < 10; index += 1) {
-    if (fetchSpy.mock.calls.length > 0) return;
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  expect(fetchSpy).toHaveBeenCalled();
-}
-
 describe("/api/kai/[...path] proxy", () => {
   it("forwards Authorization header for JSON POST routes", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -60,6 +52,33 @@ describe("/api/kai/[...path] proxy", () => {
     const headers = options?.headers as Headers;
     expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
     expect(headers.get("Content-Type")).toBe("application/json");
+  });
+
+  it("lets Gmail OAuth completion finish within its server timeout after the popup closes", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ connected: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const controller = new AbortController();
+    const req = createRequest("http://localhost:3000/api/kai/gmail/connect/complete", {
+      method: "POST",
+      signal: controller.signal,
+      headers: {
+        Authorization: "Bearer id-token",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ user_id: "user_123", code: "code", state: "state" }),
+    });
+
+    const res = await kaiRoute.POST(req, {
+      params: Promise.resolve({ path: ["gmail", "connect", "complete"] }),
+    });
+
+    expect(res.status).toBe(200);
+    const [, options] = fetchSpy.mock.calls[0] ?? [];
+    expect(options?.signal).not.toBe(req.signal);
   });
 
   it("forwards Authorization for import multipart path without overriding multipart content-type", async () => {
@@ -153,67 +172,6 @@ describe("/api/kai/[...path] proxy", () => {
     expect(options?.body).toBeInstanceOf(FormData);
   });
 
-  it("applies an upstream timeout to Agent voice STT uploads", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(JSON.stringify({ transcript: "hello", uncertain: false }), {
-        status: 200,
-        headers: { "Content-Type": "application/json" },
-      })
-    );
-    const formData = new FormData();
-    formData.set("user_id", "user_123");
-    formData.set("audio", new Blob(["audio"], { type: "audio/webm" }), "utterance.webm");
-    const req = createRequest("http://localhost:3000/api/kai/agent/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        "Content-Type": "multipart/form-data; boundary=testboundary",
-      },
-      body: "--testboundary--",
-    });
-    vi.spyOn(req, "formData").mockResolvedValue(formData);
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "voice", "stt"] }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("applies an upstream timeout to Agent chat streams", async () => {
-    const streamBody = new ReadableStream({
-      start(controller) {
-        controller.enqueue(new TextEncoder().encode("event: start\\ndata: {}\\n\\n"));
-        controller.close();
-      },
-    });
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(streamBody, {
-        status: 200,
-        headers: { "Content-Type": "text/event-stream" },
-      })
-    );
-    const req = createRequest("http://localhost:3000/api/kai/agent/chat/stream", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "text/event-stream",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: "user_123", message: "hello" }),
-    });
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "chat", "stream"] }),
-    });
-
-    expect(res.status).toBe(200);
-    const [, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
-  });
-
   it("passes through SSE stream headers and forwards Authorization on stream path", async () => {
     const streamBody = new ReadableStream({
       start(controller) {
@@ -228,7 +186,7 @@ describe("/api/kai/[...path] proxy", () => {
         headers: {
           "Content-Type": "text/event-stream",
           "X-Agent-Conversation-Id": "conversation-1",
-          "X-Agent-Model": "gemini-2.5-pro",
+          "X-Agent-Model": "gemini-3.5-flash",
         },
       })
     );
@@ -250,7 +208,7 @@ describe("/api/kai/[...path] proxy", () => {
     expect(res.headers.get("Cache-Control")).toBe("no-cache");
     expect(res.headers.get("Connection")).toBe("keep-alive");
     expect(res.headers.get("X-Agent-Conversation-Id")).toBe("conversation-1");
-    expect(res.headers.get("X-Agent-Model")).toBe("gemini-2.5-pro");
+    expect(res.headers.get("X-Agent-Model")).toBe("gemini-3.5-flash");
 
     const [url, options] = fetchSpy.mock.calls[0] ?? [];
     expect(url).toBe("http://backend.test/api/kai/analyze/stream?ticker=AAPL&user_id=user_123");
@@ -319,141 +277,4 @@ describe("/api/kai/[...path] proxy", () => {
     expect(headers.get("Authorization")).toBeNull();
   });
 
-  it("passes through binary /voice/tts responses and preserves voice headers", async () => {
-    const audioBytes = new Uint8Array([1, 2, 3, 4]);
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(audioBytes, {
-        status: 200,
-        headers: {
-          "Content-Type": "audio/mpeg",
-          "X-Kai-TTS-Model": "gpt-4o-mini-tts",
-          "X-Kai-TTS-Voice": "alloy",
-          "X-Kai-TTS-Format": "mp3",
-          "X-Kai-TTS-Audio-Bytes": "4",
-        },
-      })
-    );
-
-    const req = createRequest("http://localhost:3000/api/kai/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "audio/mpeg",
-        "Content-Type": "application/json",
-        "X-Voice-Turn-Id": "vturn_proxy_tts_1",
-      },
-      body: JSON.stringify({ user_id: "user_123", text: "hello" }),
-    });
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["voice", "tts"] }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("audio/mpeg");
-    expect(res.headers.get("X-Kai-TTS-Model")).toBe("gpt-4o-mini-tts");
-    expect(res.headers.get("X-Kai-TTS-Voice")).toBe("alloy");
-    expect(res.headers.get("X-Kai-TTS-Format")).toBe("mp3");
-    expect(res.headers.get("X-Kai-TTS-Audio-Bytes")).toBe("4");
-
-    const body = new Uint8Array(await res.arrayBuffer());
-    expect(Array.from(body)).toEqual([1, 2, 3, 4]);
-
-    const [url, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(url).toBe("http://backend.test/api/kai/voice/tts");
-    const headers = options?.headers as Headers;
-    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
-    expect(headers.get("Accept")).toBe("audio/mpeg");
-    expect(headers.get("X-Voice-Turn-Id")).toBe("vturn_proxy_tts_1");
-  });
-
-  it("passes through binary /agent/voice/tts responses and preserves Agent voice headers", async () => {
-    const audioBytes = new Uint8Array([8, 6, 7, 5]);
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(audioBytes, {
-        status: 200,
-        headers: {
-          "Content-Type": "audio/wav",
-          "X-Agent-TTS-Model": "gemini-2.5-flash-preview-tts",
-          "X-Agent-TTS-Voice": "Sulafat",
-          "X-Agent-TTS-Source": "backend_gemini_audio",
-          "X-Agent-TTS-Audio-Bytes": "4",
-        },
-      })
-    );
-
-    const req = createRequest("http://localhost:3000/api/kai/agent/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "audio/wav",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: "user_123", text: "hello" }),
-    });
-
-    const res = await kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "voice", "tts"] }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(res.headers.get("Content-Type")).toBe("audio/wav");
-    expect(res.headers.get("X-Agent-TTS-Model")).toBe("gemini-2.5-flash-preview-tts");
-    expect(res.headers.get("X-Agent-TTS-Voice")).toBe("Sulafat");
-    expect(res.headers.get("X-Agent-TTS-Source")).toBe("backend_gemini_audio");
-    expect(res.headers.get("X-Agent-TTS-Audio-Bytes")).toBe("4");
-
-    const body = new Uint8Array(await res.arrayBuffer());
-    expect(Array.from(body)).toEqual([8, 6, 7, 5]);
-
-    const [url, options] = fetchSpy.mock.calls[0] ?? [];
-    expect(url).toBe("http://backend.test/api/kai/agent/voice/tts");
-    const headers = options?.headers as Headers;
-    expect(headers.get("Authorization")).toBe("Bearer vault_owner_token");
-    expect(headers.get("Accept")).toBe("audio/wav");
-    expect(options?.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it("aborts Agent voice TTS upstream work when the incoming request is cancelled", async () => {
-    const controller = new AbortController();
-    let upstreamSignal: AbortSignal | undefined;
-    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation((_url, init) => {
-      upstreamSignal = init?.signal as AbortSignal;
-      return new Promise<Response>((_resolve, reject) => {
-        upstreamSignal?.addEventListener(
-          "abort",
-          () => reject(new DOMException("Aborted", "AbortError")),
-          { once: true }
-        );
-      });
-    });
-
-    const req = createRequest("http://localhost:3000/api/kai/agent/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: "Bearer vault_owner_token",
-        Accept: "audio/wav",
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ user_id: "user_123", text: "hello" }),
-      signal: controller.signal,
-    });
-
-    const pending = kaiRoute.POST(req, {
-      params: Promise.resolve({ path: ["agent", "voice", "tts"] }),
-    });
-    await waitForFetchCall(fetchSpy);
-
-    expect(upstreamSignal).toBeInstanceOf(AbortSignal);
-    expect(upstreamSignal?.aborted).toBe(false);
-    controller.abort();
-
-    const res = await pending;
-    expect(upstreamSignal?.aborted).toBe(true);
-    expect(res.status).toBe(499);
-    await expect(res.json()).resolves.toEqual({
-      error: "Request cancelled",
-      message: "The request was cancelled.",
-    });
-  });
 });

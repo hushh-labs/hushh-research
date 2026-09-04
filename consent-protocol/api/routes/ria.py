@@ -2,20 +2,47 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+import asyncio
+import json
+import logging
+import secrets
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, Any, Literal
 
-from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+import asyncpg
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request, Response
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field, field_validator
 
 from api.middleware import require_firebase_auth
-from api.middlewares.rate_limit import limiter
+from api.middlewares.rate_limit import RateLimits, limiter
+from api.routes.account import _verify_phone_claim_id_token
+from db.connection import get_pool
+from hushh_mcp.services.actor_identity_service import (
+    ActorIdentityAliasError,
+    ActorIdentityService,
+)
 from hushh_mcp.services.consent_center_service import ConsentCenterService
+from hushh_mcp.services.nws_nearby_service import NwsNearbyError, NwsNearbyService
+from hushh_mcp.services.nws_networth_service import NwsNetWorthError, NwsNetWorthService
+from hushh_mcp.services.ria_claim_email_service import queue_claim_verification_email
+from hushh_mcp.services.ria_claim_service import (
+    RIAClaimEmailError,
+    RIAClaimService,
+    claim_test_code,
+    is_claim_test_email,
+    mask_email,
+    normalize_nanp_phone,
+    validate_claim_ticket,
+    verify_test_possession,
+)
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/ria", tags=["RIA"])
 
@@ -156,12 +183,12 @@ class RIAPicksParseRequest(BaseModel):
 class RIAPicksSyncRequest(BaseModel):
     label: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
+    investor_debate_thesis: str | None = Field(None, max_length=2000)
     top_picks: list[dict] = Field(default_factory=list, max_length=5000)
     avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
     source_data_version: int | None = None
     source_manifest_revision: int | None = None
-    retire_legacy: bool = True
 
 
 class RIAInviteTarget(BaseModel):
@@ -186,10 +213,6 @@ class RIAMarketplaceDiscoverabilityRequest(BaseModel):
     enabled: bool
     headline: str | None = Field(None, max_length=512)
     strategy_summary: str | None = Field(None, max_length=5000)
-
-
-class RIAPicksShareStateRequest(BaseModel):
-    enabled: bool
 
 
 class RIAClientDetailResponse(BaseModel):
@@ -234,6 +257,106 @@ def _iam_schema_not_ready_response() -> JSONResponse:
             "error": "RIA verification service is temporarily unavailable",
             "code": "IAM_SCHEMA_NOT_READY",
         },
+    )
+
+
+class RIANearbyDiscoverRequest(BaseModel):
+    """A location to look around, plus the advisor's on-screen filters.
+
+    Bounds mirror the upstream contract so a bad request is refused here rather
+    than spent against a rate limit every Hushh caller shares. ``country_code``
+    is accepted only alongside a postal code — see the service for why a
+    coordinate deliberately carries no country context.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=3, max_length=16)
+    country_code: str | None = Field(default=None, min_length=2, max_length=2)
+    top_n: int = Field(default=100, ge=1, le=400)
+    initial_radius_km: float = Field(default=20.0, gt=0, le=250)
+    max_radius_km: float = Field(default=100.0, gt=0, le=500)
+    lanes: list[str] = Field(default_factory=list, max_length=6)
+    tags: list[str] = Field(default_factory=list, max_length=20)
+    minimum_confidence_grade: str = Field(default="B", min_length=1, max_length=1)
+
+
+class RIANearbyShortlistRequest(BaseModel):
+    """One shortlist or dismiss action against a public NWS record.
+
+    ``snapshot`` is the public record as rendered, stored so the shortlist can
+    be listed without another upstream call. It is bounded rather than free-form
+    because it is caller-supplied and lands in a JSONB column (CWE-400).
+    """
+
+    person_id: str = Field(..., min_length=1, max_length=128)
+    action: str = Field(default="shortlist", min_length=1, max_length=32)
+    snapshot: dict[str, Any] = Field(default_factory=dict)
+
+    @field_validator("snapshot")
+    @classmethod
+    def bound_snapshot(cls, value: dict[str, Any]) -> dict[str, Any]:
+        if len(value) > 40:
+            raise ValueError("snapshot has too many fields")
+        if len(json.dumps(value, default=str)) > 8192:
+            raise ValueError("snapshot is too large")
+        return value
+
+
+class RIANetWorthDiscoverRequest(BaseModel):
+    """A US location to look up published net-worth estimates around.
+
+    Narrower than the directory request on purpose. The upstream accepts only a
+    US ZIP on the postal path and applies no trimming or case folding of its
+    own, and it takes exactly three result counts. Refusing anything else here
+    keeps a malformed request from spending the product's shared per-minute
+    grant, which a coordinate lookup spends twice.
+    """
+
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+    postal_code: str | None = Field(default=None, min_length=5, max_length=10)
+    count: int = Field(default=100)
+    financial_mode: str = Field(default="estimated", min_length=1, max_length=32)
+    minimum_confidence: str = Field(default="C", min_length=1, max_length=1)
+    minimum_coverage: float = Field(default=0.55, ge=0.0, le=1.0)
+
+
+def _nearby_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "private, no-store"
+    response.headers["Pragma"] = "no-cache"
+
+
+def _handle_nearby_error(exc: NwsNearbyError) -> HTTPException:
+    # The upstream limits per {key, egress IP} and every caller shares both, so
+    # its Retry-After is the whole surface's. Passing it through lets a client
+    # wait the stated time instead of hammering a closed door.
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": "RIA_NEARBY_UNAVAILABLE", "message": str(exc)},
+        headers=headers,
+    )
+
+
+def _handle_networth_error(exc: NwsNetWorthError) -> HTTPException:
+    """Surface the net-worth failure with its own discriminator.
+
+    The directory handler stamps one code on every failure, so a client cannot
+    tell a rejected ZIP from a dead upstream without reading the status. This
+    path carries the service's own code instead, because the three states a
+    screen must distinguish — not configured, temporarily unavailable, and bad
+    input — all differ in whether retrying is worth anything.
+    """
+    headers = None
+    if exc.status_code == 429 and exc.retry_after_seconds:
+        headers = {"Retry-After": str(exc.retry_after_seconds)}
+    return HTTPException(
+        status_code=exc.status_code,
+        detail={"code": exc.code, "message": str(exc)},
+        headers=headers,
     )
 
 
@@ -433,6 +556,122 @@ async def ria_clients(
         if limit != 50:
             params["limit"] = limit
         return await service.list_ria_clients(firebase_uid, **params)
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+
+
+@router.post("/nearby/discover")
+@limiter.limit(RateLimits.RIA_NEARBY_DIRECTORY_READ)
+async def ria_nearby_discover(
+    request: Request,
+    response: Response,
+    payload: RIANearbyDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Public-association records near a location the advisor chose.
+
+    POST rather than GET even though it reads nothing: a GET would put the
+    advisor's coordinate in the request line, which the access log records
+    verbatim and which also lands in browser history and any Referer. The
+    advisors and Maps proxies are POST for the same reason.
+
+    A coverage miss is a normal 200 with an empty result set, not an error. The
+    upstream's coverage block is returned untouched so the screen can say what
+    is true — no approved dataset here — rather than implying a failure or
+    quietly substituting the one market that does have data.
+    """
+    _ = firebase_uid  # auth-gate only; results are public and not user-scoped
+    _nearby_no_store(response)
+    try:
+        return await NwsNearbyService().discover(
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            country_code=payload.country_code,
+            top_n=payload.top_n,
+            initial_radius_km=payload.initial_radius_km,
+            max_radius_km=payload.max_radius_km,
+            lanes=payload.lanes,
+            tags=payload.tags,
+            minimum_confidence_grade=payload.minimum_confidence_grade,
+        )
+    except NwsNearbyError as exc:
+        raise _handle_nearby_error(exc) from exc
+
+
+@router.post("/nearby/shortlist")
+@limiter.limit(RateLimits.RIA_NEARBY_SHORTLIST_WRITE)
+async def ria_nearby_shortlist_write(
+    request: Request,
+    response: Response,
+    payload: RIANearbyShortlistRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return await service.record_nws_nearby_action(
+            firebase_uid,
+            person_id=payload.person_id,
+            action=payload.action,
+            snapshot=payload.snapshot,
+        )
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/nearby/networth")
+@limiter.limit(RateLimits.RIA_NEARBY_NETWORTH_READ)
+async def ria_nearby_networth_discover(
+    request: Request,
+    response: Response,
+    payload: RIANetWorthDiscoverRequest,
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    """Published net-worth estimates for people associated with a US location.
+
+    POST for the same reason the directory read is: a coordinate in a request
+    line is recorded verbatim by every access log it passes through.
+
+    Unlike the directory read, the advisor's identity matters here. A coordinate
+    lookup requires a consent receipt bound to a stable pseudonymous subject, so
+    the Firebase UID is used — never sent, only HMAC'd into an opaque actor the
+    upstream can bind a receipt to without learning who it is.
+
+    A covered location with no publishable estimate is a normal 200 with an
+    empty list. That is the common answer, not a failure: the geography index
+    spans the whole country while the reviewed financial roster does not, and
+    the two counts are returned separately so the screen can say so rather than
+    implying the search broke.
+    """
+    _nearby_no_store(response)
+    try:
+        return await NwsNetWorthService().discover(
+            firebase_uid=firebase_uid,
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            postal_code=payload.postal_code,
+            count=payload.count,
+            financial_mode=payload.financial_mode,
+            minimum_confidence=payload.minimum_confidence,
+            minimum_coverage=payload.minimum_coverage,
+        )
+    except NwsNetWorthError as exc:
+        raise _handle_networth_error(exc) from exc
+
+
+@router.get("/nearby/shortlist")
+async def ria_nearby_shortlist_read(
+    response: Response,
+    limit: int = Query(default=100, ge=1, le=200),
+    firebase_uid: str = Depends(_require_ria_verified),
+):
+    _nearby_no_store(response)
+    service = RIAIAMService()
+    try:
+        return {"items": await service.list_nws_nearby_shortlist(firebase_uid, limit=limit)}
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
 
@@ -642,7 +881,8 @@ async def renaissance_screening(firebase_uid: str = Depends(require_firebase_aut
 
 
 @router.get("/picks")
-async def ria_pick_uploads(firebase_uid: str = Depends(require_firebase_auth)):
+async def get_active_ria_pick_package(firebase_uid: str = Depends(require_firebase_auth)):
+    """Return the authenticated RIA's encrypted active Picks package."""
     service = RIAIAMService()
     try:
         return await service.get_active_ria_pick_package(firebase_uid)
@@ -687,12 +927,12 @@ async def upload_ria_picks(
             firebase_uid,
             label=payload.label,
             package_note=payload.package_note,
+            investor_debate_thesis=payload.investor_debate_thesis,
             top_picks=payload.top_picks,
             avoid_rows=payload.avoid_rows,
             screening_sections=payload.screening_sections,
             source_data_version=payload.source_data_version,
             source_manifest_revision=payload.source_manifest_revision,
-            retire_legacy=payload.retire_legacy,
         )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
@@ -714,20 +954,539 @@ async def ria_workspace(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
 
-@router.post("/clients/{investor_user_id}/picks-share")
-async def set_ria_client_picks_share(
-    investor_user_id: _InvestorUserId,
-    payload: RIAPicksShareStateRequest,
-    firebase_uid: str = Depends(_require_ria_verified),
+# ---------------------------------------------------------------------------
+# Claim-by-phone: resolve an office number to SEC claim targets and claim one.
+# Possession of the filed number is proven by this backend (test passcode on
+# allowlisted numbers outside production, or a Firebase phone-auth token) and
+# only then asserted upstream as `phone_otp` evidence.
+# ---------------------------------------------------------------------------
+
+
+class RIAClaimLookupRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+
+
+class RIAClaimOtpStartRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+
+
+class RIAClaimVerifyRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+    claim_type: Literal["individual", "firm"]
+    firm_crd: int = Field(ge=1, le=99_999_999)
+    individual_crd: int | None = Field(None, ge=1, le=999_999_999)
+    verification_id: str | None = Field(None, max_length=256)
+    verification_code: str | None = Field(None, max_length=16)
+    phone_id_token: str | None = Field(None, max_length=20_000)
+
+
+class RIAClaimCompleteRequest(BaseModel):
+    phone: str = Field(min_length=3, max_length=32)
+    claim_ticket: str = Field(min_length=1, max_length=512)
+    claim_type: Literal["individual", "firm"]
+    firm_crd: int = Field(ge=1, le=99_999_999)
+    individual_crd: int | None = Field(None, ge=1, le=999_999_999)
+
+
+@router.post("/claim/lookup")
+@limiter.limit("20/minute")
+async def ria_claim_lookup(
+    payload: RIAClaimLookupRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
 ):
-    service = RIAIAMService()
+    _ = firebase_uid
+    service = RIAClaimService()
     try:
-        return await service.set_ria_pick_share_state(
-            firebase_uid,
-            investor_user_id=investor_user_id,
-            enabled=payload.enabled,
+        return await service.lookup(payload.phone)
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+@router.post("/claim/otp/start")
+@limiter.limit("20/minute")
+async def ria_claim_otp_start(
+    payload: RIAClaimOtpStartRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAClaimService()
+    try:
+        return service.start_otp(firebase_uid, payload.phone)
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+async def _account_phone_matches(firebase_uid: str, phone_digits: str) -> bool:
+    """True when this account's already-verified phone IS the number being claimed.
+
+    The phone mandate verifies possession of the account's number and records it
+    server-side. When an adviser then claims the same number, asking for a second
+    passcode proves nothing the backend does not already hold. This reads our own
+    record — never anything the browser asserts — so the possession model is
+    unchanged.
+    """
+    try:
+        identity = (await ActorIdentityService().get_many([firebase_uid])).get(firebase_uid) or {}
+    except Exception:  # noqa: BLE001 - identity cache is advisory here; fail closed
+        return False
+    if identity.get("phone_verified") is not True:
+        return False
+    stored: str = normalize_nanp_phone(str(identity.get("phone_number") or ""))
+    return bool(stored) and stored == phone_digits
+
+
+async def _prove_claim_possession(
+    payload: RIAClaimVerifyRequest, phone_digits: str, firebase_uid: str
+) -> str:
+    """Return the proof channel after verifying possession, or raise 401."""
+    if payload.phone_id_token:
+        token_phone, _session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+        if normalize_nanp_phone(token_phone) != phone_digits:
+            raise HTTPException(
+                status_code=401,
+                detail={
+                    "code": "CLAIM_PHONE_MISMATCH",
+                    "message": "The verified number does not match this claim.",
+                },
+            )
+        return "firebase_phone_auth"
+    if payload.verification_id and payload.verification_code:
+        if verify_test_possession(phone_digits, payload.verification_id, payload.verification_code):
+            return "test_code"
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "CLAIM_INVALID_CODE",
+                "message": "That code didn't work. Check it and try again.",
+            },
+        )
+    # No passcode supplied: accept the account's own verified phone when it is
+    # the number being claimed. This is what removes the second passcode from
+    # the journey for an adviser who just verified that exact line.
+    if await _account_phone_matches(firebase_uid, phone_digits):
+        return "verified_account_phone"
+    raise HTTPException(
+        status_code=422,
+        detail={
+            "code": "CLAIM_PROOF_REQUIRED",
+            "message": "A verification code or phone token is required.",
+        },
+    )
+
+
+@router.post("/claim/verify")
+@limiter.limit("20/minute")
+async def ria_claim_verify(
+    payload: RIAClaimVerifyRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    phone_digits = normalize_nanp_phone(payload.phone)
+    if not phone_digits:
+        raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
+    proof_channel = await _prove_claim_possession(payload, phone_digits, firebase_uid)
+    service = RIAClaimService()
+    try:
+        result = await service.evaluate_with_possession(
+            user_id=firebase_uid,
+            phone_digits=phone_digits,
+            claim_type=payload.claim_type,
+            firm_crd=payload.firm_crd,
+            individual_crd=payload.individual_crd,
+        )
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    result["proof_channel"] = proof_channel
+    return result
+
+
+@router.post("/claim/complete")
+@limiter.limit("20/minute")
+async def ria_claim_complete(
+    payload: RIAClaimCompleteRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    phone_digits = normalize_nanp_phone(payload.phone)
+    if not phone_digits:
+        raise HTTPException(status_code=400, detail="Enter a valid US phone number.")
+    if not validate_claim_ticket(payload.claim_ticket, firebase_uid, phone_digits):
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "CLAIM_TICKET_INVALID",
+                "message": "This claim session expired. Verify the number again.",
+            },
+        )
+    service = RIAClaimService()
+    try:
+        return await service.complete(
+            user_id=firebase_uid,
+            phone_digits=phone_digits,
+            claim_type=payload.claim_type,
+            firm_crd=payload.firm_crd,
+            individual_crd=payload.individual_crd,
         )
     except IAMSchemaNotReadyError:
         return _iam_schema_not_ready_response()
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+
+# ---------------------------------------------------------------------------
+# Claim email upgrade: verify a work-email alias on the claimed firm's own
+# domain, then re-run the upstream evaluation with the extra evidence. The
+# plaintext code travels only from the identity service to the mail queue —
+# it never appears in any HTTP response.
+# ---------------------------------------------------------------------------
+
+
+class RIAClaimEmailStartRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+
+
+class RIAClaimEmailConfirmRequest(BaseModel):
+    email: str = Field(min_length=3, max_length=320)
+    code: str = Field(min_length=1, max_length=16)
+
+
+@router.post("/claim/email/start")
+@limiter.limit("20/minute")
+async def ria_claim_email_start(
+    payload: RIAClaimEmailStartRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    service = RIAClaimService()
+    try:
+        prepared = await service.prepare_email_verification(firebase_uid, payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+
+    try:
+        alias_result = await ActorIdentityService().request_email_alias_verification(
+            user_id=firebase_uid,
+            email=prepared["email"],
+            verification_source="user_verified",
+            source_ref="ria_claim_email",
+            include_plaintext_code=True,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    # Route-internal handoff: pop the plaintext so it cannot leak into the
+    # response, and give it only to the mail sender.
+    code_plaintext = alias_result.pop("verification_code_plaintext", None)
+    if alias_result.get("already_verified"):
+        return {"status": "already_verified", "email_masked": prepared["email_masked"]}
+
+    delivery = await queue_claim_verification_email(
+        target_email=prepared["email"],
+        verification_code=str(code_plaintext or ""),
+        firm_name=prepared.get("firm_name"),
+    )
+    if delivery.get("delivery_status") != "queued":
+        # Best-effort mail: the alias ceremony stands, the client may retry.
+        return JSONResponse(
+            status_code=502,
+            content={"status": "send_failed", "email_masked": prepared["email_masked"]},
+        )
+    return {"status": "sent", "email_masked": prepared["email_masked"]}
+
+
+@router.post("/claim/email/confirm")
+@limiter.limit("20/minute")
+async def ria_claim_email_confirm(
+    payload: RIAClaimEmailConfirmRequest,
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    # Demo fallback (never production): an allowlisted address may also confirm
+    # with the fixed claim test code, so the badge journey stays walkable when
+    # mail delivery is unavailable. The real emailed code always works too.
+    test_code = claim_test_code()
+    test_code_accepted = bool(
+        test_code
+        and is_claim_test_email(payload.email)
+        and secrets.compare_digest(str(payload.code or "").strip(), test_code)
+    )
+    try:
+        await ActorIdentityService().confirm_email_alias_verification(
+            user_id=firebase_uid,
+            email=payload.email,
+            verification_code=payload.code,
+            accept_without_code=test_code_accepted,
+        )
+    except ActorIdentityAliasError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+
+    service = RIAClaimService()
+    try:
+        result = await service.upgrade_with_email_evidence(firebase_uid, email=payload.email)
+    except RIAClaimEmailError as exc:
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail={"code": exc.code, "message": str(exc)},
+        ) from exc
+    except IAMSchemaNotReadyError:
+        return _iam_schema_not_ready_response()
+    except RIAIAMPolicyError as exc:
+        raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    return {
+        "verified": bool(result.get("verified")),
+        "verification_status": str(result.get("verification_status") or ""),
+        "verification_level": result.get("verification_level"),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Claim dossier: the background scan row a verified claim dispatched. Own row
+# only; a failed scan or send is visible and retryable, never silent.
+# ---------------------------------------------------------------------------
+
+
+_DOSSIER_RETRYABLE_STATUSES = ("scan_failed", "send_failed", "send_blocked_test_unset")
+_DOSSIER_MAIL_STATUSES = {
+    "sent": "sent",
+    "send_failed": "failed",
+    "send_blocked_test_unset": "blocked",
+    "blocked_no_email": "blocked",
+}
+
+
+async def _fetch_own_dossier_row(conn: Any, user_id: str, *, for_update: bool = False) -> Any:
+    """Latest dossier row belonging to the caller — never anyone else's."""
+    query = """
+        SELECT id, status, scan_id, result_summary, result_markdown, requested_at,
+               completed_at, mail_recipient, mail_intended_recipient
+        FROM ria_claim_dossiers
+        WHERE user_id = $1
+        ORDER BY requested_at DESC, id DESC
+        LIMIT 1
+    """
+    if for_update:
+        query += " FOR UPDATE"
+    return await conn.fetchrow(query, user_id)
+
+
+def _shape_dossier_row(row: Any) -> dict[str, Any]:
+    """Own-row projection: status, result, and the mail outcome — no internals."""
+    status = str(row["status"] or "")
+    recipient = str(row["mail_intended_recipient"] or row["mail_recipient"] or "")
+    requested_at = row["requested_at"]
+    completed_at = row["completed_at"]
+    return {
+        "status": status,
+        "summary": row["result_summary"],
+        "markdown": row["result_markdown"],
+        "requested_at": requested_at.isoformat() if requested_at else None,
+        "completed_at": completed_at.isoformat() if completed_at else None,
+        "mail": {
+            "status": _DOSSIER_MAIL_STATUSES.get(status, "pending"),
+            "recipient_masked": mask_email(recipient) if recipient else None,
+        },
+    }
+
+
+async def _load_dossier_claim_context(user_id: str) -> dict[str, Any] | None:
+    """Latest persisted claim snapshot — the worker's re-dispatch input."""
+    try:
+        # Route-internal reuse of the claim service's own snapshot loader.
+        context = await RIAClaimService()._load_claim_context(user_id)
+    except Exception:  # noqa: BLE001 - a missing snapshot is a 409, never a 500
+        return None
+    return context if isinstance(context, dict) else None
+
+
+def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any]) -> None:
+    """Spawn the dossier worker again for an already-claimed row."""
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    task = asyncio.create_task(
+        service._run_worker(
+            dossier_id=dossier_id,
+            user_id=user_id,
+            ria_profile_id=str(context.get("ria_profile_id") or ""),
+            claim_type=str(metadata.get("claim_type") or ""),
+            reference_metadata=metadata,
+        )
+    )
+    ria_dossier_service._track_background_task(task)
+
+
+# Dossier rows whose poll this instance is already resuming, so a page that
+# reloads twice does not stack workers on one row.
+_DOSSIER_RESUMING: set[int] = set()
+
+# How long a row may sit in `queued` before a read treats it as stranded
+# rather than a worker that is legitimately still starting up. Generous next
+# to the ~10s frontend poll interval and the resolve_email/build_payload/
+# start_scan calls a live worker makes before its first status write, so a
+# request landing while dispatch is genuinely still in flight does not race
+# it into starting a second scan.
+_DOSSIER_QUEUED_STALL_THRESHOLD = timedelta(seconds=90)
+
+
+async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
+    """Re-enter the poll for a row left mid-scan or never started, if stalled.
+
+    The worker is an in-process background task on a CPU-throttled Cloud Run
+    service: once an instance stops receiving requests its CPU is withdrawn,
+    a poll can freeze mid-flight, and a row can be stranded forever with the
+    scan itself finishing perfectly well upstream. The read that renders the
+    card is a request, so it is also the thing that can revive it.
+
+    Two stall points, not one. `scanning` was the only one handled here --
+    the scan id is durable on the row, so resuming it costs one poll rather
+    than a new scan. But the SAME withdrawal can happen even earlier: the
+    background task is scheduled the instant the claim HTTP response goes
+    out, and if CPU is pulled before that task gets its first turn on the
+    event loop, the row never leaves `queued` at all -- reported as
+    "Preparing your dossier..." frozen indefinitely, because nothing was ever
+    driving it in the first place. That case has no scan id to resume, so it
+    re-enters the worker from the start rather than resuming a poll, gated by
+    `_DOSSIER_QUEUED_STALL_THRESHOLD` so a request landing while the original
+    dispatch is genuinely still starting up does not race it into a second
+    scan.
+    """
+    status = str(row["status"] or "")
+    if row["completed_at"] is not None:
+        return
+    dossier_id = int(row["id"])
+    if dossier_id in _DOSSIER_RESUMING:
+        return
+
+    resume_scan_id = ""
+    if status == "scanning":
+        resume_scan_id = str(row["scan_id"] or "").strip()
+        if not resume_scan_id:
+            return
+    elif status == "queued":
+        requested_at = row["requested_at"]
+        if requested_at is None:
+            return
+        if requested_at.tzinfo is None:
+            requested_at = requested_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - requested_at < _DOSSIER_QUEUED_STALL_THRESHOLD:
+            return
+    else:
+        return
+
+    context = await _load_dossier_claim_context(user_id)
+    if context is None:
+        return
+
+    from hushh_mcp.services import ria_dossier_service
+
+    metadata_raw = context.get("metadata")
+    metadata = metadata_raw if isinstance(metadata_raw, dict) else {}
+    service = ria_dossier_service.RIADossierService()
+    _DOSSIER_RESUMING.add(dossier_id)
+
+    async def _run() -> None:
+        try:
+            await service._run_worker(
+                dossier_id=dossier_id,
+                user_id=user_id,
+                ria_profile_id=str(context.get("ria_profile_id") or ""),
+                claim_type=str(metadata.get("claim_type") or ""),
+                reference_metadata=metadata,
+                resume_scan_id=resume_scan_id,
+            )
+        finally:
+            _DOSSIER_RESUMING.discard(dossier_id)
+
+    ria_dossier_service._track_background_task(asyncio.create_task(_run()))
+
+
+@router.get("/dossier")
+@limiter.limit("20/minute")
+async def ria_dossier_status(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """The caller's own dossier row; 404 until a verified claim creates one."""
+    _ = request
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            row = await _fetch_own_dossier_row(conn, firebase_uid)
+    except asyncpg.UndefinedTableError:
+        row = None
+    if row is None:
+        raise HTTPException(status_code=404, detail="No dossier yet.")
+    try:
+        await _resume_stalled_dossier(row, firebase_uid)
+    except Exception:  # noqa: BLE001 - reviving the poll never fails the read
+        logger.warning("ria.dossier_resume_failed", exc_info=True)
+    return _shape_dossier_row(row)
+
+
+@router.post("/dossier/retry")
+@limiter.limit("20/minute")
+async def ria_dossier_retry(
+    request: Request,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    """Flip a failed dossier back to queued and re-run the worker.
+
+    Allowed only from the visible failure states; the flip happens under
+    FOR UPDATE so a double-tap re-dispatches exactly once.
+    """
+    _ = request
+    context = await _load_dossier_claim_context(firebase_uid)
+    pool = await get_pool()
+    try:
+        async with pool.acquire() as conn:
+            async with conn.transaction():
+                row = await _fetch_own_dossier_row(conn, firebase_uid, for_update=True)
+                if row is None:
+                    raise HTTPException(status_code=404, detail="No dossier yet.")
+                status = str(row["status"] or "")
+                if status not in _DOSSIER_RETRYABLE_STATUSES:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "DOSSIER_NOT_RETRYABLE",
+                            "message": "Only a failed dossier can be retried.",
+                        },
+                    )
+                if context is None:
+                    raise HTTPException(
+                        status_code=409,
+                        detail={
+                            "code": "CLAIM_CONTEXT_MISSING",
+                            "message": "Claim your profile before retrying the dossier.",
+                        },
+                    )
+                await conn.execute(
+                    """
+                    UPDATE ria_claim_dossiers
+                    SET status = 'queued', error = NULL, completed_at = NULL
+                    WHERE id = $1
+                    """,
+                    row["id"],
+                )
+    except asyncpg.UndefinedTableError:
+        raise HTTPException(status_code=404, detail="No dossier yet.") from None
+    _redispatch_dossier(dossier_id=int(row["id"]), user_id=firebase_uid, context=context)
+    shaped = _shape_dossier_row(row)
+    shaped["status"] = "queued"
+    shaped["completed_at"] = None
+    shaped["mail"]["status"] = "pending"
+    return shaped

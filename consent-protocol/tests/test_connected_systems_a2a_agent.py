@@ -38,7 +38,7 @@ def _planned_crm_update(*, slots: dict) -> dict:
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_proposes_crm_update_inline_directive():
+async def test_connected_systems_a2a_requires_validated_plan_and_does_not_harvest_chat_pii():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
@@ -54,18 +54,8 @@ async def test_connected_systems_a2a_proposes_crm_update_inline_directive():
 
     assert result.conversation_id == "thread_crm"
     assert result.model == "one+connected-systems"
-    assert result.directive is not None
-    assert result.directive.kind == "action"
-    assert result.directive.payload["type"] == "connected_system.crm.update.propose"
-    assert result.directive.payload["actionId"] == "connected_system.crm.update.propose"
-    assert result.directive.payload["confirmLabel"] == "Update"
-    assert result.directive.payload["execution"] == "frontend"
-    slots = result.directive.payload["slots"]
-    assert slots["systemId"] == "salesforce-fsc-customer0"
-    assert slots["id"] == "003ABCDEF123456"
-    assert slots["email"] == "kushal@example.com"
-    assert slots["phone"] == "415-555-1212"
-    assert json.loads(slots["additionalFieldsJson"]) == {"MailingCity": "New York"}
+    assert result.directive is None
+    assert "validated Connected Systems action" in result.text
 
 
 @pytest.mark.asyncio
@@ -100,7 +90,7 @@ async def test_connected_systems_a2a_marks_all_brand_updates():
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_asks_for_missing_city_before_update():
+async def test_connected_systems_a2a_does_not_lexically_infer_missing_city_prompt():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
@@ -111,15 +101,12 @@ async def test_connected_systems_a2a_asks_for_missing_city_before_update():
         )
     )
 
-    assert result.directive is not None
-    assert result.directive.kind == "prompt"
-    assert result.directive.payload["kind"] == "free_text"
-    assert result.directive.payload["fieldName"] == "MailingCity"
-    assert "What city" in result.directive.payload["question"]
+    assert result.directive is None
+    assert result.is_complete is True
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_asks_for_missing_city_across_brands():
+async def test_connected_systems_a2a_opens_dynamic_field_table_for_validated_scope():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
@@ -132,14 +119,13 @@ async def test_connected_systems_a2a_asks_for_missing_city_across_brands():
     )
 
     assert result.directive is not None
-    assert result.directive.kind == "prompt"
-    assert result.directive.payload["kind"] == "free_text"
+    assert result.directive.kind == "action"
     assert result.directive.payload["slots"]["scope"] == "all_connected_crm_systems"
-    assert "connected CRM brands" in result.directive.payload["question"]
+    assert result.directive.payload["confirmLabel"] == "Update all"
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_turns_all_brand_city_answer_into_update_directive():
+async def test_connected_systems_a2a_does_not_turn_prompt_text_into_update_directive():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
@@ -167,16 +153,13 @@ async def test_connected_systems_a2a_turns_all_brand_city_answer_into_update_dir
         )
     )
 
-    assert result.directive is not None
-    assert result.directive.kind == "action"
-    slots = result.directive.payload["slots"]
-    assert slots["scope"] == "all_connected_crm_systems"
-    assert json.loads(slots["additionalFieldsJson"]) == {"MailingCity": "New York"}
-    assert result.directive.payload["confirmLabel"] == "Update all"
+    assert result.directive is None
+    assert result.is_complete is True
+    assert "CRM field table" in result.text
 
 
 @pytest.mark.asyncio
-async def test_connected_systems_a2a_turns_city_answer_into_update_directive():
+async def test_connected_systems_a2a_keeps_answered_prompt_in_manual_field_table():
     result = await ConnectedSystemsAgentA2A().handle(
         A2ATask(
             user_id="user_crm",
@@ -203,11 +186,9 @@ async def test_connected_systems_a2a_turns_city_answer_into_update_directive():
         )
     )
 
-    assert result.directive is not None
-    assert result.directive.kind == "action"
-    slots = result.directive.payload["slots"]
-    assert json.loads(slots["additionalFieldsJson"]) == {"MailingCity": "New York"}
-    assert result.directive.payload["confirmLabel"] == "Update"
+    assert result.directive is None
+    assert result.is_complete is True
+    assert "CRM field table" in result.text
 
 
 @pytest.mark.asyncio
@@ -219,6 +200,15 @@ async def test_connected_systems_a2a_blocks_crm_delete():
             conversation_id="thread_crm",
             authority=_authority(),
             message="delete the CRM contact record",
+            planned_action={
+                "call_id": "crm_delete_plan",
+                "action_id": "connected_system.crm.delete",
+                "label": "Delete CRM Record",
+                "execution": "blocked",
+                "slots": {},
+                "message": "CRM deletion must be completed manually.",
+                "reason": "crm_delete_manual_only",
+            },
         )
     )
 

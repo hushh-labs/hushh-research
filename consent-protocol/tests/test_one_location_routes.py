@@ -18,9 +18,21 @@ from tests.services.test_one_location_agent_service import (
 
 class DatabaseExecutionError(Exception):
     code = "DATABASE_UNAVAILABLE"
-    details = "Database temporarily unavailable."
+    # Shaped like the real thing: db_client passes str(<the DBAPI error>), and
+    # SQLAlchemy appends the statement plus every bound value to that.
+    details = (
+        "(psycopg2.OperationalError) connection failed\n"
+        "[SQL: SELECT * FROM one_location_recipients WHERE phone = %s]\n"
+        "[parameters: {'phone': '+919812345678'}]"
+    )
     hint = "Retry later."
     status_code = 503
+
+
+class _MemoryNearbyPresenceService:
+    def purge_terminal(self, *, older_than_hours: float) -> dict[str, int]:
+        assert older_than_hours > 0
+        return {"expired": 0, "deleted": 0}
 
 
 def _client(
@@ -32,6 +44,11 @@ def _client(
         "user_id": current_user["user_id"]
     }
     monkeypatch.setattr(one_location, "_service", lambda: service)
+    monkeypatch.setattr(
+        one_location,
+        "_nearby_presence_service",
+        _MemoryNearbyPresenceService,
+    )
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -45,6 +62,402 @@ def _register_key(client: TestClient, user: dict[str, str], user_id: str) -> Non
         },
     )
     assert response.status_code == 200
+
+
+def test_sms_contacts_api_is_owner_scoped_and_idempotent(monkeypatch) -> None:
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    first = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    second = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    assert first.status_code == 200
+    assert first.json()["smsContactUserIds"] == ["user_b"]
+    assert second.json()["smsContactUserIds"] == ["user_b"]
+
+    current_user["user_id"] = "user_c"
+    assert client.get("/api/one/location/state").json()["smsContactUserIds"] == []
+
+    current_user["user_id"] = "user_a"
+    removed = client.delete("/api/one/location/sms-contacts/user_b")
+    removed_again = client.delete("/api/one/location/sms-contacts/user_b")
+    assert removed.status_code == 200
+    assert removed.json()["smsContactUserIds"] == []
+    assert removed_again.json()["smsContactUserIds"] == []
+    assert service.connections
+
+
+def test_atomic_private_share_route_binds_owner_from_token(monkeypatch) -> None:
+    class AtomicRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant_with_initial_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "grant": {"id": "grant-1", "status": "active"},
+                "envelope": {"id": "envelope-1", "ciphertext": "ciphertext"},
+                "idempotentReplay": False,
+            }
+
+    service = AtomicRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    captured_at = datetime.now(timezone.utc).isoformat()
+
+    response = client.post(
+        "/api/one/location/grants/with-envelope",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationHours": 1,
+            "clientOperationId": "123e4567-e89b-12d3-a456-426614174000",
+            "confirmedAt": captured_at,
+            "shareKind": "check_in",
+            "envelope": {
+                **encrypted_envelope("recipient-key"),
+                "capturedAt": captured_at,
+            },
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["idempotentReplay"] is False
+    assert service.calls[0]["owner_user_id"] == "owner-from-token"
+    assert service.calls[0]["recipient_user_id"] == "recipient"
+    assert service.calls[0]["enforce_connection"] is True
+
+
+def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) -> None:
+    class GrantRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def create_grant(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "id": "grant-1",
+                "status": "active",
+                "durationMode": "until_stopped",
+                "durationHours": None,
+                "expiresAt": None,
+            }
+
+    service = GrantRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "recipient",
+            "recipientKeyId": "recipient-key",
+            "durationMode": "until_stopped",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["grant"]["expiresAt"] is None
+    assert service.calls[0]["duration_mode"] == "until_stopped"
+    assert service.calls[0]["duration_hours"] is None
+    assert service.calls[0]["enforce_connection"] is True
+
+
+def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 7,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "automatic",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": 7,
+        }
+    ]
+
+
+def test_auto_approval_route_rejects_partial_or_unknown_context(monkeypatch) -> None:
+    class RejectProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            raise AssertionError("invalid approval payload reached the service")
+
+    service = RejectProbe()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    rejected_payloads = [
+        {},
+        {"durationHours": 1},
+        {"durationHours": 1, "durationMode": "timed"},
+        {"approvalMode": None},
+        {"approvalMode": "legacy"},
+        {"approvalMode": "manual", "autoApproveRuleVersion": 1},
+        {"approvalMode": "automatic"},
+        {"approvalMode": "automatic", "autoApproveRuleVersion": 0},
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationHours": 1,
+        },
+        {
+            "approvalMode": "automatic",
+            "autoApproveRuleVersion": 1,
+            "durationMode": "timed",
+        },
+        {"approvalMode": "manual", "autoApproveScopeKind": "all_contacts"},
+        {
+            "approvalMode": "manual",
+            "autoApproveCircleId": "550e8400-e29b-41d4-a716-446655440000",
+        },
+        {"approvalMode": "manual", "autoApproveEnabledAt": "2026-08-24T09:00:00Z"},
+        {"approvalMode": "manual", "automatic": True},
+    ]
+
+    for payload in rejected_payloads:
+        response = client.post(
+            "/api/one/location/requests/request-1/approve",
+            json=payload,
+        )
+        assert response.status_code == 422, payload
+    assert service.calls == []
+
+
+def test_manual_approval_route_requires_explicit_intent(monkeypatch) -> None:
+    class ApprovalRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def approve_request(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "request": {"id": "request-1", "status": "approved"},
+                "grant": {"id": "grant-1", "status": "active"},
+            }
+
+    service = ApprovalRouteProbe()
+    client = _client(service, {"user_id": "owner-from-token"}, monkeypatch)  # type: ignore[arg-type]
+
+    response = client.post(
+        "/api/one/location/requests/request-1/approve",
+        json={"approvalMode": "manual", "durationHours": 1},
+    )
+    no_override_response = client.post(
+        "/api/one/location/requests/request-2/approve",
+        json={"approvalMode": "manual"},
+    )
+
+    assert response.status_code == 200
+    assert no_override_response.status_code == 200
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-1",
+            "approval_mode": "manual",
+            "duration_hours": 1,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+        {
+            "owner_user_id": "owner-from-token",
+            "request_id": "request-2",
+            "approval_mode": "manual",
+            "duration_hours": None,
+            "duration_mode": None,
+            "auto_approve_rule_version": None,
+        },
+    ]
+
+
+def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circle", "circleId": kwargs["circle_id"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circle", "circleId": circle_id},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circle",
+            "circle_id": circle_id,
+        }
+    ]
+
+
+def test_nearby_check_in_preferences_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_nearby_check_in_defaults(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+
+        def update_nearby_check_in_defaults(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "visible": kwargs["visible"],
+                "allowConnectionRequests": kwargs["allow_connection_requests"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/nearby-check-in-preferences")
+    assert get_response.status_code == 200
+    assert get_response.json() == {
+        "preferences": {"visible": True, "allowConnectionRequests": False, "updatedAt": None}
+    }
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/nearby-check-in-preferences",
+        json={"visible": False, "allowConnectionRequests": True},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "visible": False,
+            "allow_connection_requests": True,
+        }
+    ]
+
+
+def test_sos_voice_preference_route_reads_and_writes_the_owner(monkeypatch) -> None:
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.get_calls: list[dict] = []
+            self.update_calls: list[dict] = []
+
+        def get_sos_voice_preference(self, **kwargs):
+            self.get_calls.append(kwargs)
+            return {"defaultAction": "open", "updatedAt": None}
+
+        def update_sos_voice_preference(self, **kwargs):
+            self.update_calls.append(kwargs)
+            return {
+                "defaultAction": kwargs["default_action"],
+                "updatedAt": "2026-08-26T09:00:00+00:00",
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+
+    get_response = client.get("/api/one/location/sos-voice-preference")
+    assert get_response.status_code == 200
+    assert get_response.json() == {"preference": {"defaultAction": "open", "updatedAt": None}}
+    assert service.get_calls == [{"user_id": "owner-from-token"}]
+
+    patch_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "trigger"},
+    )
+    assert patch_response.status_code == 200
+    assert service.update_calls == [
+        {
+            "user_id": "owner-from-token",
+            "default_action": "trigger",
+        }
+    ]
+
+    invalid_response = client.patch(
+        "/api/one/location/sos-voice-preference",
+        json={"defaultAction": "not-a-real-choice"},
+    )
+    assert invalid_response.status_code == 422
+
+
+def test_view_envelope_route_threads_allow_empty_query_param(monkeypatch) -> None:
+    """The opt-in must reach the service, and must default to off.
+
+    Off by default is the whole point: native bundles already in the field
+    branch on the 404 LOCATION_ENVELOPE_MISSING contract, so a request that does
+    not ask for the relaxed shape must keep getting the old one.
+    """
+
+    class ViewRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def view_latest_envelope(self, **kwargs):
+            self.calls.append(kwargs)
+            return {"grant": {"id": "grant-1"}, "envelope": None, "status": "awaiting"}
+
+    service = ViewRouteProbe()
+    current_user = {"user_id": "recipient-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    grant_id = "123e4567-e89b-12d3-a456-426614174000"
+
+    default_response = client.get(f"/api/one/location/grants/{grant_id}/envelope")
+    opted_in = client.get(f"/api/one/location/grants/{grant_id}/envelope?allow_empty=1")
+
+    assert default_response.status_code == 200
+    assert opted_in.status_code == 200
+    assert service.calls[0]["allow_empty"] is False
+    assert service.calls[1]["allow_empty"] is True
+    # The recipient is always bound from the token, never from the query string.
+    assert service.calls[1]["recipient_user_id"] == "recipient-from-token"
+    assert service.calls[1]["grant_id"] == grant_id
 
 
 def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(monkeypatch) -> None:
@@ -108,7 +521,7 @@ def test_four_user_one_location_api_flow_is_authenticated_and_ciphertext_only(mo
     current_user["user_id"] = user_a
     approve_d = client.post(
         f"/api/one/location/requests/{referral['request']['id']}/approve",
-        json={"durationHours": 1},
+        json={"approvalMode": "manual", "durationHours": 1},
     )
     assert approve_d.status_code == 200
     grant_d = approve_d.json()["grant"]
@@ -183,7 +596,11 @@ def test_public_location_invite_route_creates_request_without_returning_location
     resolve_response = client.get(f"/api/one/location/public-invites/{token}")
     assert resolve_response.status_code == 200
     resolve_payload = resolve_response.json()
-    assert resolve_payload["invite"]["ownerLabel"] == "A trusted person"
+    # The sharer's display name, over the wire. It read "A trusted person" for
+    # every link ever minted because create_public_invite never wrote
+    # metadata.owner_safe_label -- the only field this payload consults.
+    assert resolve_payload["invite"]["ownerLabel"] == "User A"
+    # A name, and nothing else: no id, no phone, no email, no raw name field.
     assert "ownerUserId" not in json.dumps(resolve_payload)
     assert "ownerDisplayName" not in json.dumps(resolve_payload)
     assert "ownerMaskedPhone" not in json.dumps(resolve_payload)
@@ -534,8 +951,11 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
         "deleted_referrals": 1,
         "deleted_public_invites": 1,
         "deleted_circle_invites": 0,
+        "deleted_named_circle_codes": 0,
+        "deleted_named_circle_member_invites": 0,
         "deleted_public_submissions": 1,
         "deleted_events": 1,
+        "nearby_presence": {"expired": 0, "deleted": 0},
         "retention_hours": 12.0,
     }
     assert old_grant_id not in service.grants
@@ -590,9 +1010,13 @@ def test_one_location_route_preserves_db_error_mapping_without_db_client_import(
     assert response.status_code == 503
     assert response.detail == {
         "code": "DATABASE_UNAVAILABLE",
-        "message": "Database temporarily unavailable.",
+        "message": "Location storage is temporarily unavailable. Try again shortly.",
         "hint": "Retry later.",
     }
+    # CWE-209: the raw SQLAlchemy detail carries the statement and its bound
+    # values; only the code and the static hint may cross the wire.
+    assert "[parameters:" not in str(response.detail)
+    assert "+919812345678" not in str(response.detail)
 
 
 def test_recipient_key_blob_is_returned_to_owner_and_never_leaks_to_others(monkeypatch) -> None:
@@ -722,3 +1146,80 @@ def test_create_grant_without_share_kind_preserves_existing_classification(monke
     )
     assert resp2.status_code == 200
     assert resp2.json()["grant"]["shareKind"] == "share"
+
+    # Both of those are in the NON-emergency lane -- `check_in` and `share`
+    # are not separate lanes -- so the second still replaces the first, and
+    # the pair is still left holding exactly one live ordinary grant. Two
+    # lanes, not one lane per kind: without this the fix could quietly become
+    # "never replace anything" and grants would pile up with no Stop for them.
+    assert service.grants[grant["id"]]["status"] == "revoked"
+    assert service.grants[resp2.json()["grant"]["id"]]["status"] == "active"
+
+
+def test_sos_grant_and_normal_share_coexist_over_the_api(monkeypatch) -> None:
+    """End to end over HTTP: the pair holds one live grant in each lane (#5506).
+
+    The service-level tests prove the revoke predicate; this proves the whole
+    route stack agrees, right through to what `getState` hands the client. It
+    is the client-visible half of the fix: `shareKind` comes back on every
+    grant, which is what lets the web app tell the two apart and stop treating
+    one grant as one person.
+    """
+    service = FourUserMemoryService()
+    current_user = {"user_id": "user_a"}
+    client = _client(service, current_user, monkeypatch)
+
+    _register_key(client, current_user, "user_b")
+    service._seed_connection("user_a", "user_b")
+    current_user["user_id"] = "user_a"
+
+    share = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 4,
+            "shareKind": "share",
+        },
+    )
+    assert share.status_code == 200
+    share_grant = share.json()["grant"]
+    assert share_grant["shareKind"] == "share"
+
+    # Save My Soul only accepts a recipient the owner has already chosen as an
+    # SMS contact, so this is a precondition of the alert, not part of it.
+    contact = client.post(
+        "/api/one/location/sms-contacts",
+        json={"recipientUserId": "user_b"},
+    )
+    assert contact.status_code == 200
+
+    sos = client.post(
+        "/api/one/location/grants",
+        json={
+            "recipientUserId": "user_b",
+            "recipientKeyId": "key-user_b",
+            "durationHours": 8,
+            "shareKind": "sos",
+        },
+    )
+    assert sos.status_code == 200
+    sos_grant = sos.json()["grant"]
+    assert sos_grant["shareKind"] == "sos"
+    assert sos_grant["id"] != share_grant["id"]
+
+    state = client.get("/api/one/location/state").json()
+    active = [
+        grant
+        for grant in state["ownerGrants"]
+        if grant["status"] == "active" and grant["recipientUserId"] == "user_b"
+    ]
+    # TWO active grants to one person, which used to be impossible: creating
+    # the SOS grant revoked the four-hour share as a matter of course.
+    assert len(active) == 2
+    assert {grant["id"] for grant in active} == {share_grant["id"], sos_grant["id"]}
+    assert sorted(grant["shareKind"] for grant in active) == ["share", "sos"]
+    # The four-hour share kept its own window; the alert did not shorten it or
+    # stretch it to the emergency lane's eight.
+    surviving = next(grant for grant in active if grant["id"] == share_grant["id"])
+    assert surviving["expiresAt"] == share_grant["expiresAt"]

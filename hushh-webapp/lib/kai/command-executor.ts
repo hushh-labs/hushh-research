@@ -1,6 +1,10 @@
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
-import { buildKaiAnalysisPreviewRoute, ROUTES } from "@/lib/navigation/routes";
+import {
+  buildKaiAnalysisPreviewRoute,
+  buildKaiMarketRoute,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { showDebateAlreadyRunningToast } from "@/lib/kai/debate-run-notifications";
 import type { AnalysisParams } from "@/lib/stores/kai-session-store";
 import type {
@@ -92,7 +96,7 @@ function getHistoryTarget(
   params?: Record<string, unknown> | KaiCommandParams,
 ): string {
   if (!params || typeof params !== "object") {
-    return `${ROUTES.KAI_ANALYSIS}?tab=history`;
+    return buildKaiMarketRoute("analysis", { view: "history" });
   }
 
   const tabRaw = typeof params.tab === "string" ? params.tab : null;
@@ -100,17 +104,16 @@ function getHistoryTarget(
 
   const query = new URLSearchParams();
   if (tabRaw && VALID_HISTORY_TABS.has(tabRaw)) {
-    query.set("tab", tabRaw);
+    query.set("view", tabRaw);
   }
   if (focusRaw === "active") {
     query.set("focus", "active");
   }
-  if (!query.has("tab") && !query.has("focus")) {
-    query.set("tab", "history");
+  if (!query.has("view") && !query.has("focus")) {
+    query.set("view", "history");
   }
 
-  const suffix = query.toString();
-  return suffix ? `${ROUTES.KAI_ANALYSIS}?${suffix}` : ROUTES.KAI_ANALYSIS;
+  return buildKaiMarketRoute("analysis", Object.fromEntries(query.entries()));
 }
 
 function getActiveAnalysisTarget(symbol?: string | null): string {
@@ -122,7 +125,7 @@ function getActiveAnalysisTarget(symbol?: string | null): string {
   if (normalizedSymbol) {
     query.set("ticker", normalizedSymbol);
   }
-  return `${ROUTES.KAI_ANALYSIS}?${query.toString()}`;
+  return buildKaiMarketRoute("analysis", Object.fromEntries(query.entries()));
 }
 
 type BuildCommandResultInput = {
@@ -172,7 +175,6 @@ export function executeKaiCommand(
     command,
     params,
     router,
-    hasPortfolioData,
     reviewDirty,
     busyOperations,
     setAnalysisParams,
@@ -223,23 +225,6 @@ export function executeKaiCommand(
     console.warn(
       `[KAI_ACTION_REGISTRY] missing_action_for_command command=${command}`,
     );
-  }
-
-  if (!hasPortfolioData && command === "optimize") {
-    toast.info("Import your portfolio to unlock this command.");
-    router.push(ROUTES.KAI_IMPORT);
-    return buildCommandResult({
-      status: "blocked",
-      reason: "portfolio_required",
-      actionId,
-      routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_IMPORT,
-      screenBefore: currentScreen,
-      screenAfter: "import",
-      resultSummary:
-        "Portfolio import is required before that Kai command can run.",
-      data: { command },
-    });
   }
 
   if (command === "analyze") {
@@ -299,20 +284,6 @@ export function executeKaiCommand(
     });
   }
 
-  if (command === "optimize") {
-    router.push(ROUTES.KAI_OPTIMIZE);
-    return buildCommandResult({
-      status: "executed",
-      actionId,
-      routeBefore: currentRoute,
-      routeAfter: ROUTES.KAI_OPTIMIZE,
-      screenBefore: currentScreen,
-      screenAfter: "optimize",
-      resultSummary: "Opened the Kai optimization workspace.",
-      data: { command },
-    });
-  }
-
   if (command === "import") {
     router.push(ROUTES.KAI_IMPORT);
     return buildCommandResult({
@@ -322,7 +293,7 @@ export function executeKaiCommand(
       routeAfter: ROUTES.KAI_IMPORT,
       screenBefore: currentScreen,
       screenAfter: "import",
-      resultSummary: "Opened the Kai portfolio import flow.",
+      resultSummary: "Opened the Finance portfolio import flow.",
       data: { command },
     });
   }
@@ -337,7 +308,7 @@ export function executeKaiCommand(
       routeAfter,
       screenBefore: currentScreen,
       screenAfter: "kai_analysis",
-      resultSummary: "Opened the Kai analysis history view.",
+      resultSummary: "Opened the Finance analysis history view.",
       data: { command },
     });
   }
@@ -351,7 +322,7 @@ export function executeKaiCommand(
       routeAfter: ROUTES.KAI_DASHBOARD,
       screenBefore: currentScreen,
       screenAfter: "dashboard",
-      resultSummary: "Opened the Kai dashboard.",
+      resultSummary: "Opened the Finance dashboard.",
       data: { command },
     });
   }
@@ -365,7 +336,7 @@ export function executeKaiCommand(
       routeAfter: ROUTES.KAI_HOME,
       screenBefore: currentScreen,
       screenAfter: "home",
-      resultSummary: "Opened the Kai home screen.",
+      resultSummary: "Opened the Finance home screen.",
       data: { command },
     });
   }
@@ -409,7 +380,7 @@ export function executeKaiCommand(
     actionId,
     routeBefore: currentRoute,
     screenBefore: currentScreen,
-    resultSummary: "That Kai command is not supported.",
+    resultSummary: "That Finance command is not supported.",
     data: { command },
   });
 }

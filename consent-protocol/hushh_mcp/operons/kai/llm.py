@@ -9,8 +9,7 @@ import asyncio
 import json
 import logging
 import os
-import subprocess
-from pathlib import Path
+import time
 from typing import Any, AsyncGenerator, Dict, List, Optional
 
 # Gemini SDK (google-genai only).
@@ -29,12 +28,15 @@ from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import (
     GEMINI_MODEL,
     KAI_LLM_MAX_OUTPUT_TOKENS_DEFAULT,
-    KAI_LLM_STREAM_INCLUDE_THOUGHTS,
     KAI_LLM_TEMPERATURE,
     KAI_LLM_THINKING_ENABLED,
     KAI_LLM_THINKING_LEVEL,
     KAI_SYNTHESIS_MAX_OUTPUT_TOKENS,
     ConsentScope,
+)
+from hushh_mcp.runtime_providers import (
+    ManagedGeminiRuntimeBinding,
+    build_generate_content_config,
 )
 from hushh_mcp.types import UserID
 
@@ -78,87 +80,6 @@ def _resolve_vertex_mode() -> bool:
     return _is_truthy(raw_value)
 
 
-def _resolve_project_from_credentials_file() -> tuple[str, Optional[str]]:
-    credentials_path = (os.getenv("GOOGLE_APPLICATION_CREDENTIALS") or "").strip()
-    if not credentials_path:
-        return "", None
-
-    try:
-        payload = json.loads(Path(credentials_path).read_text(encoding="utf-8"))
-        project_id = payload.get("project_id")
-        if isinstance(project_id, str) and project_id.strip():
-            return project_id.strip(), "GOOGLE_APPLICATION_CREDENTIALS.project_id"
-    except Exception as creds_err:
-        logger.debug("[Kai LLM] Unable to parse GOOGLE_APPLICATION_CREDENTIALS: %s", creds_err)
-
-    return "", None
-
-
-def _resolve_project_from_gcloud() -> tuple[str, Optional[str]]:
-    try:
-        result = subprocess.run(
-            ["gcloud", "config", "get-value", "project"],
-            check=False,
-            capture_output=True,
-            text=True,
-            timeout=2.0,
-        )
-    except Exception as gcloud_err:
-        logger.debug("[Kai LLM] Unable to resolve project via gcloud CLI: %s", gcloud_err)
-        return "", None
-
-    if result.returncode != 0:
-        return "", None
-
-    project_id = (result.stdout or "").strip()
-    if project_id and project_id.lower() != "(unset)":
-        return project_id, "gcloud config"
-    return "", None
-
-
-def _resolve_vertex_project() -> tuple[str, Optional[str]]:
-    """Resolve Vertex project from env aliases first, then ADC/credentials metadata."""
-    env_project_keys = (
-        "GOOGLE_CLOUD_PROJECT",
-        "GCP_PROJECT",
-        "GOOGLE_PROJECT",
-        "GCLOUD_PROJECT",
-        "VERTEX_PROJECT_ID",
-    )
-    for key in env_project_keys:
-        value = (os.getenv(key) or "").strip()
-        if value:
-            return value, key
-
-    try:
-        import google.auth  # type: ignore
-
-        _, detected_project = google.auth.default()
-        if isinstance(detected_project, str) and detected_project.strip():
-            return detected_project.strip(), "google.auth.default()"
-    except Exception as adc_err:
-        logger.debug("[Kai LLM] Unable to resolve project from ADC: %s", adc_err)
-
-    file_project, file_source = _resolve_project_from_credentials_file()
-    if file_project:
-        return file_project, file_source
-
-    gcloud_project, gcloud_source = _resolve_project_from_gcloud()
-    if gcloud_project:
-        return gcloud_project, gcloud_source
-
-    return "", None
-
-
-def _resolve_vertex_location() -> str:
-    return (
-        os.getenv("GOOGLE_CLOUD_LOCATION")
-        or os.getenv("GCP_LOCATION")
-        or os.getenv("VERTEX_LOCATION")
-        or "global"
-    ).strip()
-
-
 def _initialize_gemini_client(force: bool = False) -> None:
     """Initialize or refresh the shared Gemini Vertex client."""
     global _gemini_client
@@ -176,10 +97,21 @@ def _initialize_gemini_client(force: bool = False) -> None:
     _gemini_unavailable_reason = None
     _gemini_model_name = (os.getenv("GEMINI_MODEL") or GEMINI_MODEL).strip()
     _gemini_use_vertex = _resolve_vertex_mode()
-    _gemini_project, _gemini_project_source = _resolve_vertex_project()
-    _gemini_location = _resolve_vertex_location()
+    binding = None
+    try:
+        binding = ManagedGeminiRuntimeBinding.from_environment()
+        _gemini_project = binding.project
+        _gemini_project_source = "managed_runtime_binding"
+        _gemini_location = binding.primary_location
+    except Exception as binding_err:
+        _gemini_project = ""
+        _gemini_project_source = None
+        _gemini_location = ""
+        _gemini_unavailable_reason = f"LLM_VERTEX_BINDING_INVALID: {binding_err}"
 
-    if not GEMINI_AVAILABLE:
+    if _gemini_unavailable_reason:
+        pass
+    elif not GEMINI_AVAILABLE:
         _gemini_unavailable_reason = "LLM_SDK_MISSING: install google-genai"
     elif not _gemini_model_name:
         _gemini_unavailable_reason = "LLM_MODEL_MISSING: GEMINI_MODEL is empty"
@@ -189,22 +121,15 @@ def _initialize_gemini_client(force: bool = False) -> None:
         )
     elif not _gemini_project:
         _gemini_unavailable_reason = (
-            "LLM_VERTEX_PROJECT_MISSING: set GOOGLE_CLOUD_PROJECT (or configure ADC/gcloud project)"
+            "LLM_VERTEX_PROJECT_MISSING: set GOOGLE_CLOUD_PROJECT for workload ADC"
         )
     elif not _gemini_location:
         _gemini_unavailable_reason = "LLM_VERTEX_LOCATION_MISSING: set GOOGLE_CLOUD_LOCATION"
     else:
         try:
-            # Keep env aligned for downstream libs/components that rely on canonical names.
-            os.environ.setdefault("GOOGLE_GENAI_USE_VERTEXAI", "true")
-            os.environ.setdefault("GOOGLE_CLOUD_PROJECT", _gemini_project)
-            os.environ.setdefault("GCP_PROJECT", _gemini_project)
-            os.environ.setdefault("GOOGLE_CLOUD_LOCATION", _gemini_location)
-            _gemini_client = genai.Client(
-                vertexai=True,
-                project=_gemini_project,
-                location=_gemini_location,
-            )
+            if binding is None:
+                raise RuntimeError("Managed Gemini runtime binding is unavailable")
+            _gemini_client = binding.build_direct_client(model=_gemini_model_name)
             logger.info(
                 "[Kai LLM] Vertex client initialized (project=%s, location=%s, model=%s, source=%s)",
                 _gemini_project,
@@ -244,6 +169,12 @@ def get_gemini_unavailable_reason() -> Optional[str]:
     if _gemini_client is None and _gemini_unavailable_reason is None:
         _initialize_gemini_client()
     return _gemini_unavailable_reason
+
+
+def build_kai_generation_config(types_module: Any, **kwargs: Any) -> Any:
+    """Build config for the active Kai/One specialist text model."""
+    active_model = _gemini_model_name or GEMINI_MODEL
+    return build_generate_content_config(types_module, active_model, **kwargs)
 
 
 async def agent_chat_model_call(
@@ -324,7 +255,11 @@ async def _generate_content_text(
         _gemini_client.aio.models.generate_content(
             model=_gemini_model_name,
             contents=prompt,
-            config=types.GenerateContentConfig(**config_kwargs),
+            config=build_generate_content_config(
+                types,
+                _gemini_model_name,
+                **config_kwargs,
+            ),
         ),
         timeout=timeout_seconds,
     )
@@ -853,8 +788,9 @@ async def stream_gemini_response(
     - {"type": "complete", "text": "full response"} when done
     - {"type": "error", "message": "..."} on error
 
-    Uses Gemini 3 Flash with synchronous streaming wrapped in async context.
-    This is more reliable than async iteration which may not yield correctly.
+    The timeout is a total wall-clock budget. The provider must also produce
+    its first event and each subsequent event within bounded idle windows so a
+    stalled iterator cannot leave the debate UI open forever.
     """
     if not _require_gemini_ready():
         logger.error("[Gemini Streaming] No client configured: %s", _gemini_unavailable_reason)
@@ -883,39 +819,72 @@ async def stream_gemini_response(
         if thinking_level is None:
             thinking_level = types.ThinkingLevel.HIGH
         config_kwargs["thinking_config"] = types.ThinkingConfig(
-            include_thoughts=bool(KAI_LLM_STREAM_INCLUDE_THOUGHTS),
+            # Debate progress comes from authored phase events. Do not spend
+            # output bandwidth generating hidden chain-of-thought text.
+            include_thoughts=False,
             thinking_level=thinking_level,
         )
-    config = types.GenerateContentConfig(**config_kwargs)
+    config = build_generate_content_config(types, _gemini_model_name, **config_kwargs)
 
     max_attempts = 3
+    loop = asyncio.get_running_loop()
+    deadline = loop.time() + max(0.001, timeout)
+    started_at = time.perf_counter()
     for attempt in range(1, max_attempts + 1):
+        stream = None
         try:
+            remaining = deadline - loop.time()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
             async with _gemini_stream_semaphore:
-                stream = await _gemini_client.aio.models.generate_content_stream(
-                    model=_gemini_model_name,
-                    contents=prompt,
-                    config=config,
+                first_event_timeout = min(15.0, remaining)
+                stream = await asyncio.wait_for(
+                    _gemini_client.aio.models.generate_content_stream(
+                        model=_gemini_model_name,
+                        contents=prompt,
+                        config=config,
+                    ),
+                    timeout=first_event_timeout,
                 )
 
                 full_text = ""
                 token_count = 0
+                response_started_at: Optional[float] = None
 
-                async for chunk in stream:
+                while True:
+                    remaining = deadline - loop.time()
+                    if remaining <= 0:
+                        raise asyncio.TimeoutError
+                    idle_timeout = min(
+                        15.0 if response_started_at is None else 20.0,
+                        remaining,
+                    )
+                    try:
+                        chunk = await asyncio.wait_for(anext(stream), timeout=idle_timeout)
+                    except StopAsyncIteration:
+                        break
                     try:
                         emitted = False
+                        saw_structured_parts = False
                         if hasattr(chunk, "candidates") and chunk.candidates:
                             for candidate in chunk.candidates:
                                 content = getattr(candidate, "content", None)
                                 parts = getattr(content, "parts", None) or []
+                                saw_structured_parts = saw_structured_parts or bool(parts)
                                 for part in parts:
                                     text_value = getattr(part, "text", None)
                                     if not text_value:
                                         continue
                                     is_thought = bool(getattr(part, "thought", False))
+                                    if is_thought:
+                                        # Internal model reasoning is never part of the
+                                        # user-visible debate transcript or parser input.
+                                        continue
                                     token_count += 1
                                     full_text += str(text_value)
                                     emitted = True
+                                    if response_started_at is None:
+                                        response_started_at = time.perf_counter()
                                     if token_count % 10 == 0:
                                         logger.info(
                                             "[Gemini Streaming] Token #%s for %s",
@@ -926,14 +895,16 @@ async def stream_gemini_response(
                                         "type": "token",
                                         "text": str(text_value),
                                         "agent": agent_name,
-                                        "token_source": "thought" if is_thought else "response",
+                                        "token_source": "response",
                                     }
 
-                        if not emitted:
+                        if not emitted and not saw_structured_parts:
                             chunk_text = chunk.text if hasattr(chunk, "text") else ""
                             if chunk_text:
                                 token_count += 1
                                 full_text += str(chunk_text)
+                                if response_started_at is None:
+                                    response_started_at = time.perf_counter()
                                 if token_count % 10 == 0:
                                     logger.info(
                                         "[Gemini Streaming] Token #%s for %s",
@@ -950,12 +921,39 @@ async def stream_gemini_response(
                         logger.warning("[Gemini Streaming] Skipped chunk for %s: %s", agent_name, e)
                         continue
 
+            elapsed_ms = round((time.perf_counter() - started_at) * 1000)
+            first_response_ms = (
+                round((response_started_at - started_at) * 1000)
+                if response_started_at is not None
+                else None
+            )
             yield {
                 "type": "complete",
                 "text": full_text,
                 "agent": agent_name,
             }
-            logger.info("[Gemini Streaming] Complete for %s, %s tokens", agent_name, token_count)
+            logger.info(
+                "[Gemini Streaming] Complete for %s (chunks=%s, first_response_ms=%s, "
+                "elapsed_ms=%s, attempts=%s)",
+                agent_name,
+                token_count,
+                first_response_ms,
+                elapsed_ms,
+                attempt,
+            )
+            return
+        except asyncio.TimeoutError:
+            logger.warning(
+                "[Gemini Streaming] Deadline exceeded for %s (attempt=%s/%s)",
+                agent_name,
+                attempt,
+                max_attempts,
+            )
+            yield {
+                "type": "error",
+                "message": "Streaming analysis timed out.",
+                "agent": agent_name,
+            }
             return
         except Exception as e:
             retryable = _is_retryable_stream_error(e)
@@ -979,6 +977,17 @@ async def stream_gemini_response(
                 "agent": agent_name,
             }
             return
+        finally:
+            close = getattr(stream, "aclose", None)
+            if callable(close):
+                try:
+                    await close()
+                except Exception:
+                    logger.debug(
+                        "[Gemini Streaming] Provider stream close failed for %s",
+                        agent_name,
+                        exc_info=True,
+                    )
 
 
 async def analyze_fundamental_streaming(

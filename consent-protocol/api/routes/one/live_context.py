@@ -22,20 +22,23 @@ from __future__ import annotations
 
 import logging
 import os
-from typing import Any
+from typing import Any, cast
 
-from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
-from hushh_mcp.services.voice_action_manifest import (
-    get_voice_manifest_action,
+from hushh_mcp.onboarding_contract import SETUP_CAPABILITY_IDS
+from hushh_mcp.services.action_gateway import (
+    AVAILABLE_ACTION_IDS_CAP,
+    get_action_gateway_action,
     is_navigation_action,
 )
+from hushh_mcp.services.route_orchestration_index import resolve_route_orchestration_entry
 
 logger = logging.getLogger(__name__)
 
 LIVE_CONTEXT_STRING_CAP = 64
-# Mirrors the frontend AVAILABLE_ACTION_IDS_CAP in
-# hushh-webapp/lib/voice/screen-context-builder.ts; keep in sync.
-LIVE_CONTEXT_ARRAY_CAP = 18
+# Mirrors the frontend's derived AVAILABLE_ACTION_IDS_CAP in
+# hushh-webapp/lib/voice/screen-context-builder.ts via the shared Python
+# constant of the same name in action_gateway.py; keep both in sync.
+LIVE_CONTEXT_ARRAY_CAP = AVAILABLE_ACTION_IDS_CAP
 LIVE_MODULE_CAP = 10
 LIVE_CAPABILITY_CAP = 10
 ONBOARDING_PHASES = frozenset(
@@ -49,9 +52,18 @@ ONBOARDING_PHASES = frozenset(
     }
 )
 ONBOARDING_CALLBACK_STATES = frozenset({"none", "pending", "succeeded", "cancelled", "failed"})
-ONBOARDING_CAPABILITIES = frozenset(
-    {"gmail", "location", "email", "finance", "ria", "connected-systems"}
+# Mirrors VOICE_ENGINE_DOMAINS' `enforced: true` entries in
+# hushh-webapp/lib/agent/voice-engine-domains.ts; keep in sync. Finance and
+# Calendar are deliberately excluded -- neither routes through a choke point
+# this server can gate on (see voice_domain_policy.py), so accepting them
+# here would let a client believe a restriction is enforced when it is not.
+VOICE_SCOPED_DOMAIN_KEYS = frozenset(
+    {"location", "email", "connected_systems", "consent", "connections", "kyc"}
 )
+# Use the same canonical setup catalog that validates durable onboarding state.
+# A browser-provided capability must not be accepted here if the persistence
+# contract would reject it later.
+ONBOARDING_CAPABILITIES = SETUP_CAPABILITY_IDS
 ACTION_SETTLEMENT_STATUSES = frozenset(
     {"succeeded", "started", "blocked", "invalid", "failed", "noop"}
 )
@@ -110,8 +122,16 @@ def sanitize_route_playbook(route_entry: Any) -> dict[str, Any] | None:
     }
 
 
-def compose_route_context_note(context: dict[str, Any]) -> str | None:
-    """Build one bounded model note from server-resolved route intelligence."""
+def compose_route_context_note(
+    context: dict[str, Any], *, is_route_entry: bool = True
+) -> str | None:
+    """Build one bounded model note from server-resolved route intelligence.
+
+    ``is_route_entry`` separates arriving on a screen from the content
+    changing on the screen the person is already standing on. Both refresh
+    the action inventory; only an arrival may spend the playbook's on-entry
+    cue, or One narrates a navigation that never happened.
+    """
     playbook = context.get("route_playbook")
     if not isinstance(playbook, dict):
         return None
@@ -122,11 +142,29 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
     primary = str(playbook.get("primary_action_id") or "")
     active_actions = context.get("available_action_ids")
     action_inventory = ", ".join(active_actions) if isinstance(active_actions, list) else ""
+    visible_modules = context.get("visible_modules")
+    module_inventory = ", ".join(visible_modules) if isinstance(visible_modules, list) else ""
     interaction_layer = context.get("interaction_layer")
     layer_id = (
         str(interaction_layer.get("layer_id") or "") if isinstance(interaction_layer, dict) else ""
     )
-    proactive = playbook.get("proactivity") == "on_entry"
+    proactive = playbook.get("proactivity") == "on_entry" and is_route_entry
+    dead_end = context.get("dead_end")
+    # A screen that cannot proceed on its own. The capability-honesty sentence
+    # below already stops One inventing a capability; this is the other half of
+    # the same problem -- the person is not asking for something impossible,
+    # they are one screen away from what they need, and only the screen knows
+    # which screen that is.
+    dead_end_note = (
+        "The person is currently stuck on this screen: "
+        f"{dead_end.get('reason')} "
+        "If what they ask for runs into that, do not just say you cannot do it: "
+        "explain the situation in one sentence, then offer to run the action id "
+        f"'{dead_end.get('remedy_action_id')}', which is where it gets resolved. "
+        "Offer it once and wait for an answer; never run it unasked. "
+        if isinstance(dead_end, dict)
+        else ""
+    )
     return (
         "[App route context - not user speech] This note SUPERSEDES any action "
         "inventory from earlier notes or your initial instructions. The verified "
@@ -138,8 +176,22 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
         "and run the exact returned id before any identity or greeting response. "
         f"The currently visible generated action ids are: "
         f"{action_inventory or 'none on this screen (cross-screen navigation actions remain available)'}. "
-        f"The current top interaction layer is: {layer_id or 'none'}. "
-        f"The preferred action reference is '{primary or 'none'}'. "
+        # Capability honesty. Without a sanctioned way to say "I cannot do that
+        # yet", the model reissued the same directive until the person gave up,
+        # or narrated an outcome that nothing had actually performed.
+        "If no listed action covers what the person asks for, say plainly that "
+        "you cannot do that here yet and name what you can do instead. Do not "
+        "reissue a directive that has not settled, and never imply an "
+        "unavailable capability succeeded. "
+        + dead_end_note
+        + f"The content currently visible to the person is: {module_inventory or 'not reported'}. "
+        + (
+            f"The person is looking at: {context.get('spoken_subject')}. "
+            if context.get("spoken_subject")
+            else ""
+        )
+        + f"The current top interaction layer is: {layer_id or 'none'}. "
+        + f"The preferred action reference is '{primary or 'none'}'. "
         + (
             f"After route settlement, orient once with this intent: {cue} "
             if proactive and cue
@@ -151,15 +203,69 @@ def compose_route_context_note(context: dict[str, Any]) -> str | None:
 
 def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     """Keep only bounded, redacted UI state for tool availability decisions."""
+    # Typed Agent Chat sends the shared structured screen context, whose
+    # canonical action snapshot is nested under ``one_voice_context``. Live
+    # sockets already flatten that snapshot before transport. Normalize both
+    # shapes here so chat cannot fall into a compatibility-permissive context
+    # merely because it used the shared builder directly.
+    snapshot = payload.get("one_voice_context")
+    if isinstance(snapshot, dict):
+        snapshot_map = cast(dict[str, Any], snapshot)
+
+        def nested_map(key: str) -> dict[str, Any]:
+            value = snapshot_map.get(key)
+            return cast(dict[str, Any], value) if isinstance(value, dict) else {}
+
+        route = nested_map("route")
+        ui = nested_map("ui")
+        cache = nested_map("cache")
+        persona = nested_map("persona")
+        voice = nested_map("voice")
+        auth = nested_map("auth")
+        revisions = nested_map("revisions")
+        payload = {
+            **payload,
+            "context_id": payload.get("context_id") or snapshot_map.get("snapshot_id"),
+            "screen": payload.get("screen") or route.get("screen"),
+            "spoken_subject": payload.get("spoken_subject") or ui.get("spoken_subject"),
+            "dead_end": payload.get("dead_end") or ui.get("dead_end"),
+            "route_family": payload.get("route_family") or route.get("route_family"),
+            "route_query": payload.get("route_query") or route.get("route_query"),
+            "context_revision": payload.get("context_revision")
+            or f"{revisions.get('route', '')}:{revisions.get('ui', '')}",
+            "signed_in": payload.get("signed_in") is True or auth.get("signed_in") is True,
+            "persona": payload.get("persona") or persona.get("active"),
+            "voice_state": payload.get("voice_state") or voice.get("state"),
+            "available_action_ids": payload.get("available_action_ids")
+            or snapshot_map.get("available_action_ids"),
+            "visible_modules": payload.get("visible_modules") or ui.get("visible_modules"),
+            "visible_control_ids": payload.get("visible_control_ids")
+            or ui.get("visible_control_ids"),
+            "interaction_layer": payload.get("interaction_layer") or ui.get("interaction_layer"),
+            "pending_settlement": payload.get("pending_settlement") is True
+            or snapshot_map.get("pending_settlement") is True,
+            "cache_freshness": payload.get("cache_freshness") or cache.get("freshness"),
+            "vault_ready": payload.get("vault_ready") is True or cache.get("vault_ready") is True,
+            "portfolio_ready": payload.get("portfolio_ready") is True
+            or cache.get("portfolio_ready") is True,
+            "busy_operations": payload.get("busy_operations") or cache.get("busy_operations"),
+            "onboarding": payload.get("onboarding") or snapshot_map.get("onboarding"),
+            "voice_settings": payload.get("voice_settings") or snapshot_map.get("voice_settings"),
+        }
     cache_freshness = bounded_text(payload.get("cache_freshness"), 32)
     route_family = bounded_text(payload.get("route_family"))
-    route_entry = resolve_route_orchestration_entry(route_family)
+    # Structural query only (tab/view/focus/...), allowlisted and bounded by the
+    # browser before it is sent. It selects between screens that share a single
+    # path, so it must not ride inside route_family: that value is
+    # redaction-sensitive and also feeds layout resolution.
+    route_query = bounded_text(payload.get("route_query"), 128)
+    route_entry = resolve_route_orchestration_entry(route_family, route_query)
     route_action_ids = {
         action_id
         for action_id in (
             route_entry.get("action_ids", []) if isinstance(route_entry, dict) else []
         )
-        if isinstance(action_id, str) and get_voice_manifest_action(action_id) is not None
+        if isinstance(action_id, str) and get_action_gateway_action(action_id) is not None
     }
     canonical_screen = (
         bounded_text(route_entry.get("canonical_screen"), 64)
@@ -179,7 +285,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         action_id
         for action_id in submitted_raw
         if action_id in route_action_ids
-        or is_navigation_action(get_voice_manifest_action(action_id))
+        or is_navigation_action(get_action_gateway_action(action_id))
     ]
     if submitted_raw and not route_action_ids:
         # Route not in the generated index (or declares no actions): only
@@ -220,6 +326,16 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # stale render or forged frame from lending another route's actions to
         # the active page.
         "screen": canonical_screen or None,
+        # Opt-in and bounded. selected_entity / primary_entity stay redacted:
+        # several surfaces fill those with an investor name or email address.
+        # A surface sets this only when naming its subject is harmless.
+        "spoken_subject": bounded_text(payload.get("spoken_subject"), 64) or None,
+        # Where the person is stuck, and the one action that unsticks them.
+        # Admitted under the same rule as the action inventory, so a screen can
+        # describe its own dead end but cannot mint a destination out of it.
+        "dead_end": sanitize_dead_end(payload.get("dead_end"), submitted_action_ids),
+        "context_revision": bounded_text(payload.get("context_revision"), 128) or None,
+        "signed_in": payload.get("signed_in") is True,
         "persona": bounded_text(payload.get("persona")),
         "voice_state": bounded_text(payload.get("voice_state"), 32),
         "available_action_ids": submitted_action_ids,
@@ -236,7 +352,41 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "portfolio_ready": payload.get("portfolio_ready") is True,
         "busy_operations": bounded_text_list(payload.get("busy_operations"), LIVE_MODULE_CAP),
         "onboarding": sanitize_onboarding_context(payload.get("onboarding")),
+        "voice_settings": sanitize_voice_settings(payload.get("voice_settings")),
     }
+
+
+def sanitize_dead_end(value: Any, submitted_action_ids: list[str]) -> dict[str, Any] | None:
+    """Keep a screen's own report that it is stuck, and where to go instead.
+
+    A dead end is not a guard failure and not a missing capability: the screen
+    works, it simply has nothing to work on until something is done elsewhere.
+    The emergency-contacts screen saying "no connections" is the case -- the
+    remedy lives in Connect, and nothing the screen already published could
+    point there.
+
+    Two things keep this from becoming an authority hole. The reason is bounded
+    text that only ever reaches the model as narration, and the remedy must be
+    an id this route was already allowed to run: either declared for the route
+    by the generated index or a cross-screen navigation action. A screen that
+    names anything else loses the whole dead end rather than half of it, since
+    a reason with an unreachable remedy would strand the person mid-sentence.
+    """
+    if not isinstance(value, dict):
+        return None
+    reason = bounded_text(value.get("reason"), 160)
+    remedy_action_id = bounded_text(value.get("remedy_action_id"), 128)
+    if not reason or not remedy_action_id:
+        return None
+    if remedy_action_id not in submitted_action_ids and not is_navigation_action(
+        get_action_gateway_action(remedy_action_id)
+    ):
+        logger.info(
+            "one_adk_live_context_dead_end_remedy_rejected remedy=%s",
+            remedy_action_id,
+        )
+        return None
+    return {"reason": reason, "remedy_action_id": remedy_action_id}
 
 
 def sanitize_interaction_layer(
@@ -262,7 +412,7 @@ def sanitize_interaction_layer(
     visible_action_ids = [
         action_id
         for action_id in bounded_text_list(value.get("visible_action_ids"), LIVE_CONTEXT_ARRAY_CAP)
-        if action_id in submitted and get_voice_manifest_action(action_id) is not None
+        if action_id in submitted and get_action_gateway_action(action_id) is not None
     ]
     dismissible = value.get("dismissible") is True
     dismiss_action_id: str | None = bounded_text(value.get("dismiss_action_id"), 128) or None
@@ -270,7 +420,7 @@ def sanitize_interaction_layer(
         not dismissible
         or not dismiss_action_id
         or dismiss_action_id not in visible_action_ids
-        or get_voice_manifest_action(dismiss_action_id) is None
+        or get_action_gateway_action(dismiss_action_id) is None
     ):
         dismiss_action_id = None
     options: list[dict[str, Any]] = []
@@ -340,6 +490,29 @@ def sanitize_onboarding_context(value: Any) -> dict[str, Any]:
     }
 
 
+def sanitize_voice_settings(value: Any) -> dict[str, Any]:
+    """Bound the person's own restrictions on their already-authorized voice agent.
+
+    Every field here narrows a capability the person already has, never grants
+    one -- unlike onboarding phase or cache freshness, there is no authority
+    risk in trusting a bounded, allowlisted version of what the browser sends,
+    because the two places this actually changes behavior (run_app_action's
+    domain gate, _directive_flags' tap-confirmation gate) independently
+    re-derive their own decision from these same bounded values, never from
+    payload passed straight through.
+    """
+    payload = value if isinstance(value, dict) else {}
+    return {
+        "voice_enabled": payload.get("voice_enabled") is not False,
+        "require_tap_confirmation": payload.get("require_tap_confirmation") is True,
+        "disabled_domains": [
+            domain
+            for domain in bounded_text_list(payload.get("disabled_domains"), LIVE_MODULE_CAP)
+            if domain in VOICE_SCOPED_DOMAIN_KEYS
+        ],
+    }
+
+
 def sanitize_action_settlement(
     payload: Any, issued_directives: dict[str, str]
 ) -> dict[str, str] | None:
@@ -353,13 +526,18 @@ def sanitize_action_settlement(
     status_value = bounded_text(payload.get("status"), 16)
     if status_value not in ACTION_SETTLEMENT_STATUSES:
         return None
+    context_revision = bounded_text(payload.get("contextRevision"), 256)
+    if not context_revision:
+        return None
     issued_directives.pop(directive_id, None)
     return {
         "directive_id": directive_id,
         "action_id": action_id,
+        "context_revision": context_revision,
         "status": status_value,
         "summary": bounded_text(payload.get("summary"), 320) or "The app returned no detail.",
         "reason": bounded_text(payload.get("reason"), 96),
         "route_after": bounded_text(payload.get("routeAfter"), 128),
         "screen_after": bounded_text(payload.get("screenAfter"), 64),
+        "destination_context_id": bounded_text(payload.get("destinationContextId"), 128),
     }

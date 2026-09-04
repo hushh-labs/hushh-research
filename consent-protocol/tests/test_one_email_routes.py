@@ -14,6 +14,7 @@ def _build_app(user_id: str = "user_123") -> TestClient:
         "scope": "vault.owner",
         "token": "vault-token",
     }
+    app.dependency_overrides[one_email.require_firebase_auth] = lambda: user_id
     return TestClient(app)
 
 
@@ -92,6 +93,62 @@ def test_one_email_sync_recent_uses_authenticated_user(monkeypatch):
     assert response.status_code == 200
     assert response.json()["matched_count"] == 1
     assert calls == [{"user_id": "user_123", "max_results": 12}]
+
+
+def test_one_kyc_preference_get_and_patch_use_authenticated_user(monkeypatch):
+    calls: list[dict] = []
+
+    class _Service:
+        async def get_automatic_response_preparation_preference(self, *, user_id: str):
+            calls.append({"operation": "get", "user_id": user_id})
+            return {
+                "user_id": user_id,
+                "automatic_response_preparation_enabled": False,
+            }
+
+        async def set_automatic_response_preparation_preference(
+            self,
+            *,
+            user_id: str,
+            enabled: bool,
+        ):
+            calls.append({"operation": "set", "user_id": user_id, "enabled": enabled})
+            return {
+                "user_id": user_id,
+                "automatic_response_preparation_enabled": enabled,
+            }
+
+    monkeypatch.setattr(one_email, "_service", lambda: _Service())
+    client = _build_app(user_id="user_123")
+
+    get_response = client.get(
+        "/api/one/kyc/preferences/automatic-response-preparation?user_id=user_123"
+    )
+    patch_response = client.patch(
+        "/api/one/kyc/preferences/automatic-response-preparation",
+        json={"user_id": "user_123", "enabled": True},
+    )
+
+    assert get_response.status_code == 200
+    assert get_response.json()["automatic_response_preparation_enabled"] is False
+    assert patch_response.status_code == 200
+    assert patch_response.json()["automatic_response_preparation_enabled"] is True
+    assert calls == [
+        {"operation": "get", "user_id": "user_123"},
+        {"operation": "set", "user_id": "user_123", "enabled": True},
+    ]
+
+
+def test_one_kyc_preference_rejects_user_mismatch(monkeypatch):
+    client = _build_app(user_id="user_123")
+
+    response = client.patch(
+        "/api/one/kyc/preferences/automatic-response-preparation",
+        json={"user_id": "other_user", "enabled": True},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "User ID does not match authenticated user"
 
 
 def test_one_kyc_reject_route_uses_authenticated_user(monkeypatch):

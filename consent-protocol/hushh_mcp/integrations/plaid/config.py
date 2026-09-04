@@ -24,10 +24,11 @@ _PLAID_BASE_URLS = {
 _TX_HISTORY_DAYS_DEFAULT = 730
 _DEFAULT_COUNTRY_CODES = ["US"]
 _DEFAULT_LANGUAGE = "en"
-_DEFAULT_CLIENT_NAME = "Hushh Kai"
+_DEFAULT_CLIENT_NAME = "Hussh Kai"
 _DEFAULT_MANUAL_ENTRY_ENABLED = False
 _DEFAULT_CRYPTO_WALLET_ENABLED = False
-_DEFAULT_REDIRECT_PATH = "/kai/plaid/oauth/return"
+_DEFAULT_REDIRECT_PATH = "/one/kai/plaid/oauth/return"
+_LEGACY_REDIRECT_PATH = "/kai/plaid/oauth/return"
 _DEFAULT_WEBHOOK_PATH = "/api/kai/plaid/webhook"
 
 
@@ -103,12 +104,34 @@ class PlaidRuntimeConfig:
         return bool(self.client_id and self.secret)
 
     @classmethod
-    def from_env(cls) -> "PlaidRuntimeConfig":
+    def from_env(cls, *, environment_override: str | None = None) -> "PlaidRuntimeConfig":
+        """Build the runtime config, optionally overriding the Plaid environment.
+
+        ``environment_override`` only takes effect locally
+        (``ENVIRONMENT=development``) and only when a matching secret is
+        configured. This lets local development offer a second "Production"
+        Plaid connect flow alongside the default sandbox one, without ever
+        changing behavior in UAT/production, where the environment is fixed
+        by ``PLAID_ENV``/``BACKEND_RUNTIME_CONFIG_JSON``.
+        """
         app_runtime = get_app_runtime_settings()
+        is_local = app_runtime.environment == "development"
         environment = _clean_text(
             os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
             default="sandbox",
         ).lower()
+        secret = _clean_text(os.getenv("PLAID_SECRET"))
+        normalized_override = _clean_text(environment_override).lower() or None
+        if is_local and normalized_override and normalized_override != environment:
+            override_secret = _clean_text(os.getenv("PLAID_LOCAL_PRODUCTION_SECRET"))
+            if normalized_override == "production" and override_secret:
+                environment = "production"
+                secret = override_secret
+            elif normalized_override in _PLAID_BASE_URLS:
+                logger.warning(
+                    "plaid.environment_override_ignored_missing_secret override=%s",
+                    normalized_override,
+                )
         base_url = _PLAID_BASE_URLS.get(environment, _PLAID_BASE_URLS["sandbox"])
         frontend_url = app_runtime.app_frontend_origin or None
         redirect_path = _clean_text(
@@ -176,7 +199,7 @@ class PlaidRuntimeConfig:
             environment=environment,
             base_url=base_url,
             client_id=_clean_text(os.getenv("PLAID_CLIENT_ID")),
-            secret=_clean_text(os.getenv("PLAID_SECRET")),
+            secret=secret,
             country_codes=country_codes or list(_DEFAULT_COUNTRY_CODES),
             language=_clean_text(os.getenv("PLAID_LANGUAGE"), default=_DEFAULT_LANGUAGE),
             client_name=_clean_text(
@@ -216,20 +239,48 @@ class PlaidRuntimeConfig:
             return default_redirect_uri
 
         requested_parts = urlsplit(requested)
-        if requested_parts.path != self.redirect_path:
-            raise RuntimeError(
-                f"Plaid redirect URI must use the configured callback path {self.redirect_path}."
-            )
+        allowed_paths = {
+            self.redirect_path,
+            _DEFAULT_REDIRECT_PATH,
+            _LEGACY_REDIRECT_PATH,
+        }
+        if requested_parts.path not in allowed_paths:
+            raise RuntimeError("Plaid redirect URI must use the configured One callback path.")
 
         allowed = _normalize_redirect_uri(default_redirect_uri)
-        if allowed is not None:
-            allowed_parts = urlsplit(allowed)
-            if (
-                requested_parts.scheme != allowed_parts.scheme
-                or requested_parts.netloc != allowed_parts.netloc
-            ):
-                raise RuntimeError(
-                    "Plaid redirect URI does not match the configured frontend origin."
-                )
+        if allowed is None:
+            raise RuntimeError("Plaid redirect URI requires a configured frontend origin.")
+        allowed_parts = urlsplit(allowed)
+        if (
+            requested_parts.scheme != allowed_parts.scheme
+            or requested_parts.netloc != allowed_parts.netloc
+        ):
+            raise RuntimeError("Plaid redirect URI does not match the configured frontend origin.")
 
         return requested
+
+
+def local_plaid_environment_choices() -> list[str]:
+    """Environments the local backend can offer as separate connect buttons.
+
+    Always includes the default configured environment. Additionally
+    includes "production" when running locally (``ENVIRONMENT=development``)
+    and ``PLAID_LOCAL_PRODUCTION_SECRET`` is set. Returns a single-item list
+    everywhere else (UAT/production), since those environments are fixed by
+    ``PLAID_ENV``/``BACKEND_RUNTIME_CONFIG_JSON`` and must not offer a
+    same-request environment switch.
+    """
+    app_runtime = get_app_runtime_settings()
+    default_environment = _clean_text(
+        os.getenv("PLAID_ENV") or os.getenv("PLAID_ENVIRONMENT"),
+        default="sandbox",
+    ).lower()
+    choices = [default_environment]
+    is_local = app_runtime.environment == "development"
+    if (
+        is_local
+        and default_environment != "production"
+        and _clean_text(os.getenv("PLAID_LOCAL_PRODUCTION_SECRET"))
+    ):
+        choices.append("production")
+    return choices

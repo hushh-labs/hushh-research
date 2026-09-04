@@ -36,6 +36,13 @@ const allowedIosUsageDescriptionKeys = new Set([
   // Background location sharing (One Location) needs Always authorization.
   "NSLocationAlwaysAndWhenInUseUsageDescription",
   "NSContactsUsageDescription",
+  // The shared vault bridge uses Face ID for a locally authorized unlock.
+  // Keep this aligned with verify-native-plugin-contracts.mjs, which requires
+  // the same non-empty declaration when the vault/keychain plugins are present.
+  "NSFaceIDUsageDescription",
+  // Profile picture: choose from library / take a photo.
+  "NSPhotoLibraryUsageDescription",
+  "NSCameraUsageDescription",
 ]);
 const unexpectedIosUsageDescriptionKeys = iosUsageDescriptionKeys.filter(
   (key) => !allowedIosUsageDescriptionKeys.has(key)
@@ -64,6 +71,40 @@ if (!contactsUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSContactsUsageDescription.");
 }
 
+// Keep the distributed bundle identity at the unique, previously accepted
+// "Hussh One" while the visible and spoken system name remains the intentional
+// Siri-facing "Agent One". These fields are separate contracts and must not collapse
+// back to the globally generic bundle name that App Store Connect rejected.
+//
+// Scoped to visible/spoken copy on purpose. The `hushh` CFBundleURLScheme and
+// com.hushh.app bundle identifier remain load-bearing for deep links/signing.
+const expectedIosNames = new Map([
+  ["CFBundleDisplayName", "Agent One"],
+  ["CFBundleName", "Hussh One"],
+  ["CFBundleSpokenName", "Agent One"],
+]);
+for (const [key, expected] of expectedIosNames) {
+  const match = infoPlist.match(
+    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
+  );
+  if (match?.[1] !== expected) {
+    fail(
+      `iOS Info.plist ${key} must be "${expected}" (found "${match?.[1] ?? "missing"}").`
+    );
+  }
+}
+for (const key of iosUsageDescriptionKeys) {
+  const match = infoPlist.match(
+    new RegExp(`<key>${key}</key>\\s*<string>([^<]*)</string>`)
+  );
+  const copy = match?.[1] ?? "";
+  if (/\bhushh\b/i.test(copy)) {
+    fail(
+      `iOS Info.plist ${key} spells the brand "hushh"; user-facing copy must read "Hussh".`
+    );
+  }
+}
+
 const androidManifest = read(androidManifestPath);
 const androidPermissions = [
   ...androidManifest.matchAll(/<uses-permission\b[^>]*android:name="([^"]+)"/g),
@@ -71,6 +112,7 @@ const androidPermissions = [
 const allowedAndroidPermissions = new Set([
   "android.permission.INTERNET",
   "android.permission.RECORD_AUDIO",
+  "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
   "android.permission.ACCESS_COARSE_LOCATION",
   "android.permission.READ_CONTACTS",
@@ -86,6 +128,9 @@ if (unexpectedAndroidPermissions.length > 0) {
 if (!androidManifest.includes('android.permission.RECORD_AUDIO')) {
   fail("AndroidManifest.xml must include android.permission.RECORD_AUDIO.");
 }
+if (!androidManifest.includes('android.permission.MODIFY_AUDIO_SETTINGS')) {
+  fail("AndroidManifest.xml must include android.permission.MODIFY_AUDIO_SETTINGS.");
+}
 if (!androidManifest.includes('android.permission.ACCESS_FINE_LOCATION')) {
   fail("AndroidManifest.xml must include android.permission.ACCESS_FINE_LOCATION.");
 }
@@ -97,6 +142,14 @@ if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
 }
 if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
   fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+}
+const androidMainActivity = androidManifest.match(
+  /<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*>/,
+);
+if (!androidMainActivity?.[0]?.includes('android:windowSoftInputMode="adjustNothing"')) {
+  fail(
+    "Android MainActivity must use windowSoftInputMode=adjustNothing so KeyboardInsetManager is the only keyboard layout authority.",
+  );
 }
 if (!infoPlist.includes("<string>location</string>")) {
   fail("One Location background sharing requires the iOS 'location' background mode in Info.plist UIBackgroundModes.");
@@ -145,6 +198,43 @@ const markerlessRequiredRoutes = inventoryRoutes
   .map((route) => route.route);
 if (markerlessRequiredRoutes.length > 0) {
   fail(`native-required routes need expectedMarker: ${markerlessRequiredRoutes.join(", ")}`);
+}
+
+// An `excluded-*` classification drops a route out of every parity check above.
+// That is the one place tri-flow can be lost silently: marking a route excluded
+// costs nothing and no reviewer sees why. The PR template already demands the
+// layer be "explicitly marked as not applicable with the reason" -- this makes
+// the inventory hold that reason, so the claim is reviewable instead of implied.
+const EXCLUSION_REASON_MIN_LENGTH = 40;
+const unjustifiedExclusions = inventoryRoutes
+  .filter((route) => String(route.classification || "").startsWith("excluded"))
+  .filter(
+    (route) => String(route.reason || "").trim().length < EXCLUSION_REASON_MIN_LENGTH
+  )
+  .map((route) => route.route);
+if (unjustifiedExclusions.length > 0) {
+  fail(
+    "excluded routes need a `reason` explaining why the native layer does not apply " +
+      `(min ${EXCLUSION_REASON_MIN_LENGTH} chars): ${unjustifiedExclusions.join(", ")}`
+  );
+}
+
+const nonCanonicalProfileLaunches = inventoryRoutes
+  .filter((route) => String(route.route || "").startsWith("/one/profile"))
+  .filter((route) => String(route.initialRoute || "").startsWith("/login?"))
+  .filter((route) => {
+    try {
+      const redirect = new URL(route.initialRoute, "https://native-test.local").searchParams.get("redirect");
+      return !redirect?.startsWith("/one/profile");
+    } catch {
+      return true;
+    }
+  })
+  .map((route) => route.route);
+if (nonCanonicalProfileLaunches.length > 0) {
+  fail(
+    `canonical /one/profile inventory entries must launch through /one/profile redirects: ${nonCanonicalProfileLaunches.join(", ")}`,
+  );
 }
 
 if (!process.exitCode) {

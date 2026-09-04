@@ -6,13 +6,14 @@ import {
   useMemo,
   useRef,
   useState,
-  type CSSProperties,
+  type ReactNode,
 } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { CapabilityCinematicIntroGate } from "@/components/onboarding/setup/capability-cinematic-intro";
 import { OnboardingShell } from "@/components/ria/onboarding/onboarding-shell";
 import { OnboardingStepWelcome } from "@/components/ria/onboarding/onboarding-step-welcome";
 import { OnboardingStepLicense } from "@/components/ria/onboarding/onboarding-step-license";
@@ -21,10 +22,7 @@ import { OnboardingStepServices } from "@/components/ria/onboarding/onboarding-s
 import { OnboardingStepReview } from "@/components/ria/onboarding/onboarding-step-review";
 import { useAuth } from "@/hooks/use-auth";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import {
-  normalizeInternalRouteHref,
-  ROUTES,
-} from "@/lib/navigation/routes";
+import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
 import {
   buildRiaOnboardingSteps,
   canContinueRiaOnboardingStep,
@@ -42,6 +40,7 @@ import {
   buildRiaScrapePrefillPatch,
 } from "@/lib/ria/ria-onboarding-prefill";
 import { RiaOnboardingDraftLocalService } from "@/lib/services/ria-onboarding-draft-local-service";
+import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { seedRiaDraftFromStatus } from "@/lib/ria/ria-profile-view-model";
 import {
   isIAMSchemaNotReadyError,
@@ -50,24 +49,31 @@ import {
   type RiaLicenseVerificationResult,
   type RiaOnboardingStatus,
 } from "@/lib/services/ria-service";
+import {
+  buildRiaClaimRoute,
+  isClaimableLookupOutcome,
+  toNanpDigits,
+} from "@/lib/ria/ria-claim-entry";
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { trackEvent } from "@/lib/observability/client";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveAppEnvironment } from "@/lib/app-env";
 import { openKaiCommandBar } from "@/lib/navigation/kai-command-bar-events";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
 
 const LICENSE_VERIFICATION_TIMEOUT_MS = 90_000;
 const SCRAPE_POLL_INTERVAL_MS = 5_000;
 const RIA_ENVIRONMENT_BYPASS_STATUS = "Environment bypass";
 
 // Decorative advisor photo per onboarding step (transparent, feather-edged
-// WebP under public/ria/onboarding). Welcome = full-bleed hero above the
-// eyebrow; every other step = smaller top-right accent overlapping the header.
+// WebP under public/ria/onboarding). Every step uses the same top-right accent
+// composition so the opening choice has the same compact, side-by-side header
+// geometry as the rest of the RIA setup flow.
 const RIA_ONBOARDING_STEP_IMAGES: Record<
   string,
   { src: string; variant: "hero" | "accent"; badge?: boolean }
 > = {
-  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "hero" },
+  welcome: { src: "/ria/onboarding/adv4f.webp", variant: "accent" },
   license_number: { src: "/ria/onboarding/adv2f.webp", variant: "accent" },
   license_details: {
     src: "/ria/onboarding/adv3f.webp",
@@ -77,6 +83,23 @@ const RIA_ONBOARDING_STEP_IMAGES: Record<
   services: { src: "/ria/onboarding/adv1f.webp", variant: "accent" },
   review: { src: "/ria/onboarding/adv5f.webp", variant: "accent" },
 };
+
+function RiaOnboardingJourney({
+  showIntro,
+  children,
+}: {
+  showIntro: boolean;
+  children: ReactNode;
+}) {
+  if (!showIntro) return <>{children}</>;
+
+  return (
+    <CapabilityCinematicIntroGate capabilityId="ria" embedded>
+      {children}
+    </CapabilityCinematicIntroGate>
+  );
+}
+
 const REGULATOR_PREFILL_RESET: Partial<RiaOnboardingDraft> = {
   advisorName: "",
   firmName: "",
@@ -134,7 +157,13 @@ function resolveRiaSubmitErrorMessage(
 }
 
 function isAdvisoryAccessReady(status?: string | null): boolean {
-  return status === "active" || status === "verified";
+  return status === "active" || status === "verified" || status === "finra_verified";
+}
+
+function isEstablishedAdvisor(
+  status: Pick<RiaOnboardingStatus, "advisory_status" | "verification_status"> | null | undefined,
+): boolean {
+  return isAdvisoryAccessReady(status?.advisory_status || status?.verification_status);
 }
 
 function shouldRepairVerifiedPrefill(draft: RiaOnboardingDraft): boolean {
@@ -171,16 +200,20 @@ function buildVerifiedLicensePrefillPatch(
 export default function RiaOnboardingPage({
   setupMode = false,
   onSetupReadinessChange,
+  onSetupSkip,
 }: {
   setupMode?: boolean;
   onSetupReadinessChange?: (ready: boolean) => void;
+  onSetupSkip?: () => void | Promise<void>;
 } = {}) {
   const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
   const { user, phoneNumber } = useAuth();
   const {
     refresh: refreshPersonaState,
     riaCapability,
+    riaOnboardingStatus: personaRiaOnboardingStatus,
     loading: personaLoading,
     refreshing: personaRefreshing,
   } = usePersonaState();
@@ -191,6 +224,7 @@ export default function RiaOnboardingPage({
   //   ?reinitiate=1   → re-run the whole 5-step wizard (start at welcome)
   // A generic ?step= is also honoured.
   const editParam = searchParams?.get("edit") ?? null;
+  const currentRoute = `${pathname}${searchParams?.toString() ? `?${searchParams.toString()}` : ""}`;
   const setupOrigin =
     setupMode ||
     normalizeInternalRouteHref(searchParams?.get("from")) === ROUTES.ONE_SETUP;
@@ -222,6 +256,26 @@ export default function RiaOnboardingPage({
   // required field (services / fees) is empty. The services step reacts by
   // scrolling to the first missing field and surfacing an inline hint.
   const [servicesValidateTick, setServicesValidateTick] = useState(0);
+
+  // Entry-mode gate — decide onboarding-vs-profile from synchronously-available
+  // signals BEFORE painting the wizard, so an established advisor never sees the
+  // "2/5" onboarding flash. Latches once decided, so a fresh advisor whose
+  // capability flips to "switch" after submitting is NOT yanked out mid-review.
+  //   "wizard"      → render the onboarding wizard (fresh setup / edit / setup hub)
+  //   "established" → redirect to the regulatory profile (skeleton meanwhile)
+  //   null          → undecided (cold cache, persona still loading) → skeleton
+  const [entryMode, setEntryMode] = useState<"wizard" | "established" | null>(
+    () => {
+      if (hasEditIntent || setupMode || setupOrigin) return "wizard";
+      if (
+        riaCapability === "switch" ||
+        isEstablishedAdvisor(personaRiaOnboardingStatus)
+      ) {
+        return "established";
+      }
+      return null;
+    },
+  );
 
   const verificationAbortRef = useRef<AbortController | null>(null);
   const scrapePollingRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -349,10 +403,12 @@ export default function RiaOnboardingPage({
           });
         }
 
-        // An explicit ?edit=license / ?step= / ?reinitiate deep-link wins over the
-        // persisted draft step so the profile CTAs land on the right step.
-        const preferredStepId =
-          requestedStepIdRef.current ?? localDraft?.currentStepId ?? null;
+        // Opening RIA setup always lands on step 1. The saved draft still
+        // prefills every field, but its step pointer is deliberately ignored so
+        // entering the flow never drops the user mid-wizard (and never skips the
+        // welcome step's cinematic intro). Only an explicit
+        // ?edit=license / ?step= / ?reinitiate deep-link may land elsewhere.
+        const preferredStepId = requestedStepIdRef.current;
         const currentStepId = preferredStepId
           ? resolveRiaOnboardingStepId(resolvedDraft, preferredStepId, {
               licenseVerificationSatisfied:
@@ -364,6 +420,14 @@ export default function RiaOnboardingPage({
         setStatus(nextStatus);
         setDraft({ ...resolvedDraft, currentStepId });
         setShouldPersistDraft(true);
+        if (setupMode && nextStatus?.exists === true) {
+          const effectiveStatus = String(
+            nextStatus.advisory_status ||
+              nextStatus.verification_status ||
+              "pending",
+          ).toLowerCase();
+          onSetupReadinessChange?.(effectiveStatus !== "rejected");
+        }
       } catch (loadError) {
         if (!cancelled) {
           if (isIAMSchemaNotReadyError(loadError)) {
@@ -388,7 +452,7 @@ export default function RiaOnboardingPage({
     return () => {
       cancelled = true;
     };
-  }, [phoneNumber, user]);
+  }, [onSetupReadinessChange, phoneNumber, setupMode, user]);
 
   // Already-established advisors (riaCapability "switch" = RIA persona provisioned
   // / profile built) don't belong in the onboarding wizard — route them to their
@@ -396,15 +460,97 @@ export default function RiaOnboardingPage({
   // finishes onboarding in-session (capability flips to "switch" after submit) is
   // not hijacked out of the review step. Skipped for an explicit edit intent
   // (e.g. re-verifying a licence from the profile).
+  // Resolve the entry mode once (cold-cache path): if the synchronous lazy-init
+  // couldn't decide, wait for persona to settle, then latch. Force flows
+  // (edit / reinitiate / setup) always resolve to the wizard.
   useEffect(() => {
-    if (personaLoading || personaRefreshing) return;
+    if (entryMode !== null) return;
+    if (hasEditIntent || setupMode || setupOrigin) {
+      setEntryMode("wizard");
+      return;
+    }
+    if (
+      riaCapability === "switch" ||
+      isEstablishedAdvisor(personaRiaOnboardingStatus)
+    ) {
+      setEntryMode("established");
+      return;
+    }
+    if (!personaLoading && !personaRefreshing) {
+      setEntryMode("wizard");
+      return;
+    }
+    // Persona still resolving (cold start). Consult the native persistent hint
+    // so an established advisor is redirected without waiting for the network.
+    // Only a positive "exists" acts (never forces the wizard); if the hint is
+    // cross-device stale the profile page's own guard self-corrects.
+    if (user?.uid) {
+      let active = true;
+      void RiaOnboardingStatusLocalService.load(user.uid).then((hint) => {
+        if (active && hint?.exists === true) {
+          setEntryMode("established");
+        }
+      });
+      return () => {
+        active = false;
+      };
+    }
+    return undefined;
+  }, [
+    entryMode,
+    hasEditIntent,
+    setupMode,
+    setupOrigin,
+    riaCapability,
+    personaRiaOnboardingStatus,
+    personaLoading,
+    personaRefreshing,
+    user,
+  ]);
+
+  // Established advisors don't belong in the wizard — send them to their RIA
+  // regulatory profile. Fires once; the skeleton renders meanwhile so the
+  // onboarding chrome never paints.
+  useEffect(() => {
+    if (entryMode !== "established") return;
     if (onboardingEntryHandledRef.current) return;
     onboardingEntryHandledRef.current = true;
-    if (hasEditIntent) return;
-    if (riaCapability === "switch") {
-      router.replace(ROUTES.RIA_PROFILE);
-    }
-  }, [hasEditIntent, personaLoading, personaRefreshing, riaCapability, router]);
+    router.replace(ROUTES.RIA_PROFILE);
+  }, [entryMode, router]);
+
+  // Recognise before asking. An adviser opening RIA setup has usually already
+  // given us the number the SEC lists them at, so check it before showing a
+  // blank wizard. Fails open: any miss, error or timeout leaves the wizard
+  // exactly as it was.
+  const claimProbeRef = useRef(false);
+  useEffect(() => {
+    if (entryMode !== "wizard" || claimProbeRef.current || !user) return;
+    // The account's verified number lives on the auth context; the Firebase
+    // user object is null here for anyone who signed in with Google and for
+    // native sessions that rehydrate before the phone hydrates.
+    const phone = toNanpDigits(phoneNumber || user.phoneNumber);
+    if (!phone) return;
+    claimProbeRef.current = true;
+    void (async () => {
+      try {
+        const idToken = await user.getIdToken();
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 12_000);
+        const lookup = await RiaService.claimLookup(
+          idToken,
+          { phone },
+          { signal: controller.signal },
+        ).finally(() => clearTimeout(timer));
+        if (isClaimableLookupOutcome(lookup)) {
+          router.replace(buildRiaClaimRoute(phone, { returnTo: currentRoute }));
+        }
+      } catch {
+        /* stay in the wizard */
+      }
+    })();
+    // phoneNumber is in the deps so the probe re-runs once the backend phone
+    // hydrates, which happens after the first render for a Google sign-in.
+  }, [currentRoute, entryMode, user, phoneNumber, router]);
 
   useEffect(() => {
     if (!user || !draftReady || iamUnavailable || !shouldPersistDraft) return;
@@ -577,7 +723,9 @@ export default function RiaOnboardingPage({
             license_number: licenseNumber,
             regulator: regulator || undefined,
           },
-          { signal: controller.signal },
+          // Cache-aware (force omitted → false): a fresh cached "found" returns
+          // instantly, so a reopen no longer re-scrapes the regulator.
+          { signal: controller.signal, userId: currentUser.uid },
         );
 
         if (cancelled || controller.signal.aborted) return;
@@ -643,7 +791,9 @@ export default function RiaOnboardingPage({
             license_number: draft.licenseNumber.trim(),
             regulator: draft.regulator || undefined,
           },
-          { signal: controller.signal },
+          // Explicit user tap → force:true bypasses the client verify cache and
+          // writes the fresh result through for later reopens.
+          { signal: controller.signal, userId: user.uid, force: true },
         );
 
       clearTimeout(timeoutId);
@@ -741,7 +891,7 @@ export default function RiaOnboardingPage({
         }
         return;
       }
-      router.push(ROUTES.RIA_HOME);
+      router.push(ROUTES.RIA_PROFILE);
       return;
     }
 
@@ -812,27 +962,45 @@ export default function RiaOnboardingPage({
 
       await refreshPersonaState({ force: true });
 
+      // Durably mark the RIA setup step complete so the /one dashboard "N of 6"
+      // count includes it (and updates live via the pre-vault bootstrap-cache
+      // "set" event the dashboard hook subscribes to). Only for the standalone
+      // path — in setupMode the setup-hub coordinator writes this on "Finish",
+      // so we avoid racing it. Best-effort + idempotent: enrichRia still
+      // reconciles the dashboard count on the next load if this write fails.
+      if (!setupMode) {
+        try {
+          const current = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+          );
+          if (!current.setupCapabilityIds.includes("ria")) {
+            const next = Array.from(
+              new Set([...current.setupCapabilityIds, "ria"]),
+            ).sort();
+            // syncSetupCapabilities REPLACES the stored set, so pass the union.
+            await PreVaultUserStateService.syncSetupCapabilities(
+              user.uid,
+              next,
+            );
+          }
+        } catch {
+          // best-effort; dashboard enrichRia reconciles the count on next load.
+        }
+      }
+
       if (advisoryOutcome === "verified" || advisoryOutcome === "active") {
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Credentials verified", {
-          description: "Your advisor profile is now live in the RIA directory.",
-        });
+        toast.success("Credentials verified. Your advisor profile is now live in the RIA directory.");
       } else if (advisoryOutcome === "rejected") {
-        toast.error("Verification failed", {
-          description:
-            result.verification_message || "The license could not be verified.",
-        });
+        toast.error("Verification failed");
         setError(result.verification_message || "Verification was rejected.");
       } else {
         // Onboarding is complete; the verified badge is a separate layer that
         // unlocks after live/manual verification succeeds. Do not block here.
         await RiaOnboardingDraftLocalService.clear(user.uid);
         setShouldPersistDraft(false);
-        toast.success("Profile created", {
-          description:
-            "Your RIA profile is live as pending verification. The verified badge unlocks once your licence is confirmed.",
-        });
+        toast.success("Profile created");
       }
 
       setStatus((current) => ({
@@ -874,9 +1042,10 @@ export default function RiaOnboardingPage({
         localVerificationBypassEnabled,
       });
       setError(submitErrorMessage);
-      toast.error("Could not submit verification", {
-        description: submitErrorMessage,
-      });
+      // The resolved message is the useful half -- it names what the
+      // regulator needs. It is also on the page via setError, so the
+      // clamp bounding it here costs nothing.
+      toast.error(submitErrorMessage);
     } finally {
       submitInFlightRef.current = false;
       setSaving(false);
@@ -897,10 +1066,7 @@ export default function RiaOnboardingPage({
   function handleDraftBio() {
     const suggestion = buildRiaOnboardingBioSuggestion(draft);
     if (!suggestion) {
-      toast.info("Verify your licence first", {
-        description:
-          "Kai needs regulator-backed details before drafting a bio.",
-      });
+      toast.info("Verify your licence first. One needs regulator-backed details before drafting a bio.");
       return;
     }
     updateDraft({
@@ -909,17 +1075,12 @@ export default function RiaOnboardingPage({
         ? draft.strategySummary
         : suggestion,
     });
-    toast.success("Bio drafted", {
-      description: "Review the draft before submitting your profile.",
-    });
+    toast.success("Bio drafted. Review the draft before submitting your profile.");
   }
 
   function handleAskKaiUpdateAnything() {
     openKaiCommandBar();
-    toast.info("Kai command opened", {
-      description:
-        "Ask Kai what to update, or use Edit on any section for direct changes.",
-    });
+    toast.info("Command bar opened");
   }
 
   const isEnriching = Boolean(draft.scrapeJobId && scrapePollingRef.current);
@@ -944,7 +1105,7 @@ export default function RiaOnboardingPage({
 
     if (!user) {
       return (
-        <div className="rounded-[24px] border border-dashed px-4 py-6 text-sm text-muted-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-dashed px-4 py-6 text-sm text-muted-foreground">
           Sign in to continue the RIA onboarding flow.
         </div>
       );
@@ -952,7 +1113,7 @@ export default function RiaOnboardingPage({
 
     if (iamUnavailable) {
       return (
-        <div className="rounded-[24px] border border-amber-200 bg-amber-50 px-4 py-6 text-sm text-foreground">
+        <div className="rounded-[var(--ria-card-radius)] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-6 text-sm text-foreground">
           RIA onboarding is unavailable in this environment. The backend IAM
           schema has not been activated yet.
         </div>
@@ -1065,6 +1226,33 @@ export default function RiaOnboardingPage({
     }
   }
 
+  // No-flash gate: while the entry decision is pending (cold cache) or the user
+  // is an established advisor being redirected to their profile, render a neutral
+  // skeleton — NEVER the onboarding wizard — so an advisor with an existing
+  // profile sees no "2/5 Enter your licence" flash.
+  if (entryMode !== "wizard") {
+    return (
+      <>
+        <NativeTestBeacon
+          routeId="/ria/onboarding"
+          marker="native-route-ria-onboarding"
+          authState={user ? "authenticated" : "anonymous"}
+          dataState={nativeTestDataState}
+          errorCode={null}
+          errorMessage={null}
+        />
+        <FullscreenFlowShell width="reading" className="px-0">
+          <div
+            className="flex min-h-[40vh] items-center justify-center"
+            data-ria-onboarding-gate="pending"
+          >
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+          </div>
+        </FullscreenFlowShell>
+      </>
+    );
+  }
+
   return (
     <>
       <NativeTestBeacon
@@ -1075,40 +1263,35 @@ export default function RiaOnboardingPage({
         errorCode={error ? "ria_onboarding" : null}
         errorMessage={error}
       />
-      <FullscreenFlowShell
-        width="reading"
-        className="px-0"
-        style={
-          {
-            "--app-fullscreen-flow-content-offset":
-              "var(--top-shell-reserved-height)",
-          } as CSSProperties
-        }
-      >
-        <OnboardingShell
-          currentStepIndex={currentStepIndex}
-          totalSteps={steps.length}
-          eyebrow={currentStep.eyebrow}
-          title={currentStep.title}
-          description={currentStep.description}
-          canContinue={canContinue}
-          saving={saving}
-          isFirstStep={currentStepIndex === 0}
-          isLastStep={currentStep.id === "review"}
-          advisoryAccessReady={advisoryAccessReady}
-          allowInvalidPress={currentStep.id === "services"}
-          heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
-          onBack={handleBack}
-          onContinue={handleContinue}
-        >
-          {renderStep()}
+      <FullscreenFlowShell width="reading" className="px-0">
+        <RiaOnboardingJourney showIntro={currentStep.id === "welcome"}>
+          <OnboardingShell
+            currentStepIndex={currentStepIndex}
+            totalSteps={steps.length}
+            eyebrow={currentStep.eyebrow}
+            title={currentStep.title}
+            description={currentStep.description}
+            canContinue={canContinue}
+            saving={saving}
+            isFirstStep={currentStepIndex === 0}
+            isLastStep={currentStep.id === "review"}
+            advisoryAccessReady={advisoryAccessReady}
+            hideTerminal={setupMode && advisoryAccessReady}
+            onSkip={setupMode && !advisoryAccessReady ? onSetupSkip : undefined}
+            allowInvalidPress={currentStep.id === "services"}
+            heroImage={RIA_ONBOARDING_STEP_IMAGES[currentStep.id]}
+            onBack={handleBack}
+            onContinue={handleContinue}
+          >
+            {renderStep()}
 
-          {error ? (
-            <div className="mt-4 rounded-[24px] border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-700 dark:border-red-800 dark:bg-red-950/20 dark:text-red-400">
-              {error}
-            </div>
-          ) : null}
-        </OnboardingShell>
+            {error ? (
+              <div className="mt-4 rounded-[var(--ria-card-radius)] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-4 py-4 text-sm text-[color:var(--ria-danger-text)]">
+                {error}
+              </div>
+            ) : null}
+          </OnboardingShell>
+        </RiaOnboardingJourney>
       </FullscreenFlowShell>
     </>
   );

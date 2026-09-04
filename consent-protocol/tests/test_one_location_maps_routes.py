@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
+from api.routes.one import location as location_routes
 from api.routes.one.location import router
 from hushh_mcp.services import google_maps_service as gms
 
@@ -23,6 +24,7 @@ def test_autocomplete_route(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "autocomplete", fake)
     res = client.post("/api/one/location/maps/autocomplete", json={"input": "Starbucks"})
     assert res.status_code == 200
+    assert res.headers["cache-control"] == "private, no-store"
     assert res.json()["suggestions"] == [{"placeId": "p1", "text": "Starbucks"}]
 
 
@@ -33,6 +35,7 @@ def test_place_details_route(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "place_details", fake)
     res = client.post("/api/one/location/maps/place-details", json={"placeId": "p1"})
     assert res.status_code == 200
+    assert res.headers["cache-control"] == "private, no-store"
     assert res.json()["place"]["latitude"] == 1.0
 
 
@@ -54,7 +57,11 @@ def test_route_eta_route(client, monkeypatch):
 
 def test_reverse_geocode_route(client, monkeypatch):
     async def fake(self, *, lat, lng):
-        return {"name": "Central Library", "formattedAddress": "476 5th Ave"}
+        return {
+            "name": "Central Library",
+            "formattedAddress": "476 5th Ave",
+            "countryCode": "US",
+        }
 
     monkeypatch.setattr(gms.GoogleMapsService, "reverse_geocode", fake)
     res = client.post(
@@ -65,6 +72,7 @@ def test_reverse_geocode_route(client, monkeypatch):
     data = res.json()
     assert data["place"]["name"] == "Central Library"
     assert data["place"]["formattedAddress"] == "476 5th Ave"
+    assert data["place"]["countryCode"] == "US"
 
 
 def test_maps_unconfigured_returns_503(client, monkeypatch):
@@ -74,3 +82,43 @@ def test_maps_unconfigured_returns_503(client, monkeypatch):
     monkeypatch.setattr(gms.GoogleMapsService, "autocomplete", fake)
     res = client.post("/api/one/location/maps/autocomplete", json={"input": "x"})
     assert res.status_code == 503
+
+
+def test_private_map_state_is_authenticated_and_ciphertext_only(client, monkeypatch):
+    class FakeService:
+        def list_map_state(self, *, user_id):
+            assert user_id == "u1"
+            return {
+                "preferences": {"presenceMode": "ghost", "rendererConsentVersion": None},
+                "freshnessSeconds": 90,
+                "markers": [
+                    {
+                        "grant": {"id": "grant-1", "ownerUserId": "owner", "recipientUserId": "u1"},
+                        "envelope": {"id": "envelope-1", "ciphertext": "opaque", "iv": "opaque"},
+                    }
+                ],
+            }
+
+    monkeypatch.setattr(location_routes, "_service", lambda: FakeService())
+    res = client.get("/api/one/location/map-state")
+    assert res.status_code == 200
+    payload = res.json()
+    assert payload["markers"][0]["envelope"]["ciphertext"] == "opaque"
+    assert "latitude" not in str(payload).lower()
+    assert "longitude" not in str(payload).lower()
+
+
+def test_private_map_preferences_validate_presence(client, monkeypatch):
+    class FakeService:
+        def update_map_preferences(self, **kwargs):
+            assert kwargs["user_id"] == "u1"
+            assert kwargs["presence_mode"] == "foreground_private"
+            return {"presenceMode": "foreground_private", "rendererConsentVersion": None}
+
+    monkeypatch.setattr(location_routes, "_service", lambda: FakeService())
+    res = client.patch(
+        "/api/one/location/map-preferences",
+        json={"presenceMode": "foreground_private"},
+    )
+    assert res.status_code == 200
+    assert res.json()["preferences"]["presenceMode"] == "foreground_private"

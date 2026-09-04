@@ -3,22 +3,41 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
+tests/test_hushh_tech_client_migration.py
+tests/test_hushh_tech_synthetic_import.py
+tests/test_hushh_tech_client_service.py
+tests/test_hushh_tech_routes.py
+tests/test_hushh_tech_scope_isolation.py
+tests/test_hushh_tech_runtime_config.py
 tests/test_export_projection.py
 tests/test_local_mcp_keypair_service.py
 tests/test_mcp_encrypted_scoped_export_tool.py
 tests/test_request_consent_local_keypair.py
 tests/test_mcp_remote_endpoint.py
+tests/test_mcp_public_contract_v030.py
+tests/test_mcp_public_tools_v030.py
+tests/test_mcp_protocol_negotiation_v030.py
+tests/test_campaign_context_tool.py
 tests/quality/test_kai_route_auth_compliance.py
 tests/test_kai_auth_matrix.py
 tests/test_kai_consent_grant_dynamic_scopes.py
+tests/test_kai_analyze_run_store.py
+tests/test_kai_analyze_durable_run_store_deploy_parity.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_pkm_upgrade_routes.py
 tests/test_pkm_upgrade_service.py
 tests/test_vault_keys_metadata.py
 tests/test_one_location_routes.py
+tests/services/test_one_location_agent_service.py
+tests/services/test_connections_service.py
+tests/services/test_push_notifications.py
+tests/test_fcm_messages.py
+tests/routes/test_connections_route.py
 tests/test_adk_a2a_compliance_script.py
+tests/test_ria_claim_flow.py
 tests/test_ria_iam_service_architecture.py
 tests/test_kai_optimize_realtime_contract.py
 tests/test_portfolio_stream_quality_rules.py
@@ -26,3 +45,121 @@ tests/test_stream_path_query_bounds_cwe400.py
 tests/performance/test_market_cache_instrumentation.py
 tests/test_llm_operon_stream_error_leak.py
 tests/test_stream_agent_thinking_gemini_error_cwe209.py
+tests/test_one_location_db_error_detail_cwe209.py
+tests/test_cloudbuild_step_arg_limit.py
+tests/test_uat_deploy_no_traffic_contract.py
+tests/test_verify_env_secrets_parity.py
+tests/test_deploy_sha_gate_payload_size.py
+tests/services/test_advisor_directory_service.py
+tests/test_advisors_runtime_config_wiring.py
+tests/test_advisors_coordinate_privacy.py
+tests/test_ria_claim_email_evidence.py
+tests/test_ria_claim_email_routes.py
+tests/test_ria_onboarding_status_claim_event.py
+tests/test_account_delete_scope_proposals.py
+tests/test_console_triage_regressions.py
+tests/test_ria_claim_dossiers_migration.py
+tests/test_ria_dossier_service.py
+tests/test_ria_dossier_email_service.py
+tests/test_ria_dossier_routes.py
+tests/test_ria_claim_email_test_path.py
+tests/test_ria_dossier_mail_contract.py
+tests/test_ria_claim_location.py
+tests/test_ria_brochure_profile.py
+
+# The privacy property contact sync is built around, as code instead of prose.
+#
+# A raw phone number belonging to somebody who is NOT a Hushh user must never
+# reach a Hushh server. Adding Google Contacts is ~20 lines if the backend calls
+# the People API — it reuses the working OAuth refresh path and needs no client
+# id, no JS origins, no Capacitor gate. It would read as a simplification in
+# review. This is what makes it a failing test instead of a judgement call.
+tests/test_contacts_never_reach_the_server.py
+
+# Release-gate classification. These guard the rule that a third-party outage
+# must not block a healthy release, and that a candidate defect still must.
+tests/test_dependency_health_classifier.py
+tests/test_capability_health.py
+tests/test_managed_vertex_readiness_script.py
+tests/test_verify_uat_release.py
+
+# Contact matching correctness.
+#
+# Two ways a real person went unfound, both silent: the server normalizer read
+# a bare ten-digit number as North American (fabricating a US identity, which
+# could disclose a stranger's membership), and the candidate cap truncated the
+# pool on an ordering the query's own comment calls arbitrary. Neither had a
+# test, and this manifest is the only pytest invocation in any lane.
+tests/test_contact_match_correctness.py
+
+# One Location Circles, and the migration guards that protect them.
+#
+# Every file below was written to lock a behaviour that had already broken
+# once, and not one of them was running anywhere: this manifest is the only
+# pytest invocation in any lane, including the merge queue, so a test absent
+# from it is decoration. `test_one_location_system_circle_migration.py` carries
+# the guard written after the account-delete 500, and
+# `test_migrations_are_replay_safe.py` the one written after 158/159 rolled a
+# production deploy back -- both green, both unrun, for as long as they have
+# existed.
+# The extra-time lane. Fourteen guards on the ask->approve round trip that had
+# never run anywhere: the amount surviving the request, the extension being
+# detected, an owner still able to grant less, a refused extension leaving
+# live access alone -- plus the ones added with #6256, which is the defect
+# an unrun suite let through (approving "30 min more" REPLACED the 1h50m it
+# was meant to add to).
+# The nearby-place taxonomy behind the check-in drawer. None of these ran in any
+# lane, which is how "Hotels" came to list a lounge and a construction firm while
+# temples, mosques and police stations matched no category at all: ruff, mypy and
+# bandit were the only things reading this code.
+tests/test_place_taxonomy.py
+tests/services/test_google_maps_service.py
+tests/test_places_directory.py
+tests/services/test_one_location_extra_time_requests.py
+tests/services/test_one_location_circle_service.py
+tests/services/test_people_search_sql.py
+tests/test_one_location_system_circle_migration.py
+tests/test_one_location_system_circle_kinds_migration.py
+tests/test_migrations_are_replay_safe.py
+tests/services/test_account_service_cleanup_tables.py
+tests/test_pool_acquire_is_bounded.py
+
+# Contact discovery.
+#
+# `POST /api/marketplace/contacts/match` answers "is the person behind this
+# phone number on Hushh", a thousand numbers at a time. It shipped with no rate
+# limit of its own and no global one to fall back on, and echoed four digits of
+# each matched person's number back. Neither had a single test, and this
+# manifest is the only pytest invocation in any lane -- so a guard absent from
+# it is decoration.
+tests/test_contact_discovery_hardening.py
+tests/test_trusted_device_routes.py
+tests/test_trusted_device_heartbeat.py
+tests/quality/test_revocation_persistence.py
+
+# One Location place ratings.
+#
+# The first durable link between a person and a venue this product has ever
+# kept, so the guards below hold the properties that cannot be fixed after
+# launch: a rating is writable only by someone the server recorded at the
+# place; the visit ledger holds the venue only as ciphertext; a rating row
+# carries no author display identity for a future read path to leak; one
+# person gets one vote per place; and no average is published until enough
+# people have rated that the average is not a re-identification of one of them.
+#
+# This manifest is the only pytest invocation in any lane, including the merge
+# queue, so a test absent from it is decoration.
+tests/test_one_location_place_rating_migration.py
+tests/services/test_one_location_place_rating_service.py
+tests/test_one_location_place_rating_consent_scope.py
+
+# Nearby check-in, which place ratings are built on top of.
+#
+# Every file below has existed and been green for as long as the feature has,
+# and not one of them has ever run: none was in this manifest. They are added
+# here because the change above edits the service and the route they cover.
+tests/test_one_location_nearby_presence_migration.py
+tests/test_one_location_nearby_presence_routes.py
+tests/services/test_one_location_nearby_presence_service.py
+tests/test_one_location_nearby_point_contract_migration.py
+tests/test_one_location_nearby_check_in_preferences_migration.py

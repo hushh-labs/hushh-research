@@ -18,7 +18,6 @@ import os
 import threading
 import time
 import urllib.parse
-from collections import Counter
 from datetime import datetime, timedelta
 from typing import Any, Dict, List
 
@@ -27,6 +26,8 @@ from defusedxml import ElementTree as DefusedET
 
 from hushh_mcp.consent.token import validate_token
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.services.fmp_call_budget import is_budget_critical, record_fmp_call
+from hushh_mcp.services.market_refresh_policy import provider_quote_cache_ttl_seconds
 from hushh_mcp.types import UserID
 
 logger = logging.getLogger(__name__)
@@ -552,7 +553,7 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
     api_key = _pmp_api_key()
     if not api_key:
         return []
-    if _provider_in_cooldown("pmp:global"):
+    if _provider_in_cooldown("pmp:global") or is_budget_critical():
         return []
 
     timeout = httpx.Timeout(connect=4.0, read=8.0, write=8.0, pool=4.0)
@@ -566,6 +567,9 @@ async def _fetch_pmp_news(ticker: str) -> List[Dict[str, Any]]:
                 "apikey": api_key,
             },
         )
+        # This is a real FMP request, so include it in the shared daily quota
+        # record exactly once. Cached feed pages never reach this function.
+        record_fmp_call(endpoint="/stable/news/stock", status_code=res.status_code)
         if not res.is_success:
             _mark_provider_cooldown("pmp:global", res.status_code)
         res.raise_for_status()
@@ -814,7 +818,9 @@ async def fetch_market_data_batch(
             finnhub_enabled=finnhub_enabled,
             pmp_enabled=pmp_enabled,
         )
-        ttl_seconds = max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        ttl_seconds = provider_quote_cache_ttl_seconds(
+            max(int(payload.get("ttl_seconds") or 0), _MARKET_DATA_CACHE_TTL_SECONDS)
+        )
         normalized_payload = dict(payload)
         normalized_payload["ticker"] = symbol
         normalized_payload["ttl_seconds"] = ttl_seconds
@@ -1181,84 +1187,79 @@ async def fetch_market_news(
     logger.info("[News Fetcher] Fetching news for %s (user=[redacted])", ticker)
 
     errors: list[str] = []
-    articles: list[Dict[str, Any]] = []
+    providers: list[tuple[str, str, Any]] = [
+        (
+            "finnhub",
+            "finnhub_news",
+            lambda: _fetch_finnhub_company_news(ticker, days_back),
+        ),
+        ("pmp_fmp", "pmp_news", lambda: _fetch_pmp_news(ticker)),
+        (
+            "newsapi",
+            "newsapi",
+            lambda: _fetch_newsapi_articles(ticker, days_back),
+        ),
+        (
+            "google_news_rss",
+            "google_news_rss",
+            lambda: _fetch_google_news_rss(ticker, days_back),
+        ),
+    ]
 
-    # Provider priority: 1) Finnhub, 2) PMP (FMP), then existing fallbacks.
-    if _finnhub_api_key():
-        try:
-            articles.extend(await _fetch_finnhub_company_news(ticker, days_back))
-            _emit_realtime_telemetry(
-                "news_provider_success",
-                ticker=ticker.upper(),
-                provider="finnhub",
-                rows=len(articles),
-            )
-        except Exception as exc:
-            errors.append(_provider_error("finnhub_news", exc))
-            _emit_realtime_telemetry(
-                "news_provider_failure",
-                ticker=ticker.upper(),
-                provider="finnhub",
-                error=str(exc)[:200],
-            )
-
-    if _pmp_api_key():
-        try:
-            articles.extend(await _fetch_pmp_news(ticker))
-            _emit_realtime_telemetry(
-                "news_provider_success",
-                ticker=ticker.upper(),
-                provider="pmp_fmp",
-                rows=len(articles),
-            )
-        except Exception as exc:
-            errors.append(_provider_error("pmp_news", exc))
-            _emit_realtime_telemetry(
-                "news_provider_failure",
-                ticker=ticker.upper(),
-                provider="pmp_fmp",
-                error=str(exc)[:200],
-            )
-
-    try:
-        articles.extend(await _fetch_newsapi_articles(ticker, days_back))
-    except Exception as exc:
-        errors.append(_provider_error("newsapi", exc))
-
-    try:
-        articles.extend(await _fetch_google_news_rss(ticker, days_back))
-    except Exception as exc:
-        errors.append(_provider_error("google_news_rss", exc))
-
-    deduped: list[Dict[str, Any]] = []
-    seen: set[str] = set()
-    for row in articles:
-        key = f"{str(row.get('title') or '').strip().lower()}::{str(row.get('url') or '').strip()}"
-        if not key or key in seen:
+    # This really is priority/fallback. A useful first source ends the request;
+    # an all-provider aggregation multiplied cold-cache quota usage without
+    # improving a paginated feed, whose pages are served from its server cache.
+    for provider, error_name, fetcher in providers:
+        cooldown_key = f"{provider}:news"
+        if _provider_in_cooldown(cooldown_key):
+            errors.append(f"{error_name}:cooldown")
             continue
-        seen.add(key)
-        deduped.append(row)
+        try:
+            articles = await fetcher()
+            if not articles:
+                errors.append(f"{error_name}:empty")
+                continue
+            deduped: list[Dict[str, Any]] = []
+            seen: set[str] = set()
+            for row in articles:
+                key = f"{str(row.get('title') or '').strip().lower()}::{str(row.get('url') or '').strip()}"
+                if not key or key in seen:
+                    continue
+                seen.add(key)
+                deduped.append(row)
+            if not deduped:
+                errors.append(f"{error_name}:empty")
+                continue
+            _emit_realtime_telemetry(
+                "news_provider_success",
+                ticker=ticker.upper(),
+                provider=provider,
+                rows=len(deduped[:25]),
+            )
+            return deduped[:25]
+        except Exception as exc:
+            if isinstance(exc, httpx.HTTPStatusError) and exc.response is not None:
+                _mark_provider_cooldown(cooldown_key, exc.response.status_code)
+            errors.append(_provider_error(error_name, exc))
+            _emit_realtime_telemetry(
+                "news_provider_failure",
+                ticker=ticker.upper(),
+                provider=provider,
+                error=str(exc)[:200],
+            )
 
-    if not deduped:
-        _emit_realtime_telemetry(
-            "news_all_providers_failed",
-            ticker=ticker.upper(),
-            errors=errors,
-        )
-        raise RealtimeDataUnavailable(
-            "news",
-            f"No realtime news data available for {ticker}. providers={'; '.join(errors) or 'none'}",
-            retryable=True,
-        )
-
-    provider_counts = Counter(str(row.get("provider") or "unknown") for row in deduped)
+    if not errors:
+        errors.append("no_news_provider_configured")
     _emit_realtime_telemetry(
-        "news_fetch_success",
+        "news_all_providers_failed",
         ticker=ticker.upper(),
-        providers=dict(provider_counts),
-        returned_rows=len(deduped[:25]),
+        errors=errors,
     )
-    return deduped[:25]
+    raise RealtimeDataUnavailable(
+        "news",
+        f"No realtime news data available for {ticker}. providers={'; '.join(errors) or 'none'}",
+        retryable=True,
+    )
 
 
 # ============================================================================
@@ -1396,7 +1397,9 @@ async def fetch_market_data(
                 if payload and float(payload.get("price") or 0) > 0:
                     fetched_at = payload.get("fetched_at")
                     ttl_seconds = int(payload.get("ttl_seconds") or 0)
-                    cache_ttl_seconds = max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
+                    cache_ttl_seconds = provider_quote_cache_ttl_seconds(
+                        max(ttl_seconds, _MARKET_DATA_CACHE_TTL_SECONDS)
+                    )
                     is_stale = bool(payload.get("is_stale", False))
                     normalized_payload = dict(payload)
                     normalized_payload["ticker"] = symbol

@@ -49,7 +49,7 @@ describe("useStaleResource lifecycle", () => {
       () =>
         new Promise<typeof payload>((resolve) => {
           resolveLoad = resolve;
-        })
+        }),
     );
 
     const { result } = renderHook(() =>
@@ -57,7 +57,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "cold-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Before the promise resolves, the hook should be loading
@@ -78,6 +78,42 @@ describe("useStaleResource lifecycle", () => {
     expect(load).toHaveBeenCalledTimes(1);
   });
 
+  it("keeps loading while a loader hydrates cache before its authority settles", async () => {
+    const hydrated = { source: "device" };
+    const authoritative = { source: "network" };
+    let resolveLoad!: (value: typeof authoritative) => void;
+    const load = vi.fn(
+      () =>
+        new Promise<typeof authoritative>((resolve) => {
+          resolveLoad = resolve;
+        }),
+    );
+
+    const { result } = renderHook(() =>
+      useStaleResource({
+        cacheKey: "hydrating-key",
+        enabled: true,
+        load,
+      }),
+    );
+
+    expect(result.current.loading).toBe(true);
+    await act(async () => {
+      getCache().set("hydrating-key", hydrated);
+    });
+
+    expect(result.current.data).toEqual(hydrated);
+    expect(result.current.loading).toBe(true);
+
+    await act(async () => {
+      getCache().set("hydrating-key", authoritative);
+      resolveLoad(authoritative);
+    });
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+    expect(result.current.data).toEqual(authoritative);
+  });
+
   // 2 – Warm cache: data available immediately without loading phase
   it("returns cached data immediately on warm cache", async () => {
     const payload = { cached: true };
@@ -90,7 +126,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "warm-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Data available immediately from cache snapshot – no loading
@@ -98,8 +134,8 @@ describe("useStaleResource lifecycle", () => {
     expect(result.current.loading).toBe(false);
   });
 
-  // 3 – Cache invalidation triggers refetch
-  it("triggers refetch after cache.invalidate(key)", async () => {
+  // 3 – Default cache invalidation clears the rendered value.
+  it("clears data after cache.invalidate(key) by default", async () => {
     const initial = { version: 1 };
     const updated = { version: 2 };
     let callCount = 0;
@@ -116,7 +152,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "inv-key",
         enabled: true,
         load,
-      })
+      }),
     );
 
     // Wait for initial load
@@ -136,6 +172,40 @@ describe("useStaleResource lifecycle", () => {
     });
   });
 
+  it("keeps an opted-in stale value visible while a mutation refreshes it", async () => {
+    const initial = { version: 1 };
+    getCache().set("retained-key", initial);
+    let resolveLoad!: (value: typeof initial) => void;
+
+    const { result } = renderHook(() =>
+      useStaleResource({
+        cacheKey: "retained-key",
+        enabled: true,
+        retainOnInvalidate: true,
+        load: vi.fn(
+          () =>
+            new Promise<typeof initial>((resolve) => {
+              resolveLoad = resolve;
+            }),
+        ),
+      }),
+    );
+
+    expect(result.current.data).toEqual(initial);
+    act(() => {
+      getCache().invalidate("retained-key");
+    });
+    void result.current.refresh({ force: true });
+
+    await waitFor(() => {
+      expect(result.current.refreshing).toBe(true);
+    });
+    expect(result.current.data).toEqual(initial);
+    await act(async () => {
+      resolveLoad(initial);
+    });
+  });
+
   // 4 – Dedup: two hooks with same cacheKey result in load called only once
   it("deduplicates concurrent loads for the same cacheKey", async () => {
     let resolveLoad!: (value: string) => void;
@@ -143,7 +213,7 @@ describe("useStaleResource lifecycle", () => {
       () =>
         new Promise<string>((resolve) => {
           resolveLoad = resolve;
-        })
+        }),
     );
 
     const makeProps = () => ({
@@ -196,7 +266,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "err-key",
         enabled: true,
         load: failingLoad,
-      })
+      }),
     );
 
     // Initially the hook should pick up cached (stale) data via peek
@@ -220,7 +290,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "disabled-key",
         enabled: false,
         load,
-      })
+      }),
     );
 
     // Give it a tick to ensure nothing fires
@@ -253,7 +323,7 @@ describe("useStaleResource lifecycle", () => {
         cacheKey: "recover-key",
         enabled: true,
         load: failingLoad,
-      })
+      }),
     );
 
     // Error is set by the failed load.
@@ -271,5 +341,55 @@ describe("useStaleResource lifecycle", () => {
       expect(result.current.error).toBeNull();
     });
     expect(result.current.data).toEqual({ recovered: true });
+  });
+
+  it("never lets a late response from a previous cache key overwrite the active resource", async () => {
+    let resolveFirst!: (value: string) => void;
+    let resolveSecond!: (value: string) => void;
+    const load = vi.fn(
+      (cacheKey: string) =>
+        new Promise<string>((resolve) => {
+          if (cacheKey === "feed:user-a") resolveFirst = resolve;
+          else resolveSecond = resolve;
+        }),
+    );
+
+    const { result, rerender } = renderHook(
+      ({ cacheKey }) =>
+        useStaleResource({
+          cacheKey,
+          enabled: true,
+          load: () => load(cacheKey),
+        }),
+      { initialProps: { cacheKey: "feed:user-a" } },
+    );
+
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-a"));
+
+    rerender({ cacheKey: "feed:user-b" });
+
+    // The previous user's value is never exposed while the new request starts.
+    expect(result.current.data).toBeNull();
+    expect(result.current.error).toBeNull();
+    expect(result.current.loading).toBe(true);
+    await waitFor(() => expect(load).toHaveBeenCalledWith("feed:user-b"));
+
+    await act(async () => {
+      getCache().set("feed:user-b", "user-b-data");
+      resolveSecond("user-b-data");
+    });
+    await waitFor(() => expect(result.current.data).toBe("user-b-data"));
+
+    // The first request settles last. It may still populate its own keyed cache,
+    // but it must not mutate the active hook state or its loading lifecycle.
+    await act(async () => {
+      getCache().set("feed:user-a", "user-a-data");
+      resolveFirst("user-a-data");
+    });
+
+    expect(result.current.data).toBe("user-b-data");
+    expect(result.current.loading).toBe(false);
+    expect(result.current.refreshing).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 });

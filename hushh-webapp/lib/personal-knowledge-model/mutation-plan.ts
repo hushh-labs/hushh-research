@@ -5,6 +5,7 @@ export type PkmMutationOperation = "create" | "update" | "move" | "merge" | "del
 
 export type PkmUserConfirmation = {
   confirmedByUser: true;
+  authorizationMode?: never;
   surface: "chat" | "voice" | "web" | "ios" | "android" | "import";
   source: string;
   confirmedAt?: string;
@@ -18,6 +19,32 @@ export type PkmUserConfirmation = {
     affectedExportIds: string[];
   };
 };
+
+/**
+ * A per-vault policy that the owner explicitly enabled in Memory. This is
+ * deliberately distinct from a review-button confirmation in the receipt so
+ * audits never claim that the owner reviewed an individual automatic write.
+ */
+export type PkmOwnerAutoSaveAuthorization = {
+  authorizationMode: "owner_auto_save_policy";
+  confirmedByUser?: never;
+  surface: "chat" | "voice";
+  source: string;
+  autoSavePolicyVersion: 1;
+  autoSavePolicyEnabledAt: string;
+};
+
+export type PkmWriteAuthorization = PkmUserConfirmation | PkmOwnerAutoSaveAuthorization;
+
+export function isOwnerAutoSaveAuthorization(
+  authorization: PkmWriteAuthorization
+): authorization is PkmOwnerAutoSaveAuthorization {
+  return Boolean(
+    authorization &&
+      "authorizationMode" in authorization &&
+      authorization.authorizationMode === "owner_auto_save_policy"
+  );
+}
 
 export type PkmMutationPlanV2 = {
   version: 2;
@@ -40,6 +67,8 @@ export type PkmMutationPlanV2 = {
     summary: string;
   };
   semantic_contract_version: string;
+  writer_id: string;
+  structure_agent_id: string;
   source_revision: number;
   confirmation_receipt: {
     version: 2;
@@ -51,8 +80,18 @@ export type PkmMutationPlanV2 = {
     displayed_domain: string;
     displayed_scope: string;
     sharing_impact_acknowledged: boolean;
+    authorization_mode: "owner_confirmed" | "owner_auto_save_policy";
+    auto_save_policy_version?: 1;
+    auto_save_policy_enabled_at?: string;
   };
 };
+
+const MACHINE_PROVENANCE_ID = /^[a-z][a-z0-9_.:-]{0,127}$/;
+
+function normalizedWriterId(value: string): string {
+  const candidate = String(value || "").trim().toLowerCase();
+  return MACHINE_PROVENANCE_ID.test(candidate) ? candidate : "owner_confirmed_write";
+}
 
 function titleize(value: string): string {
   return value
@@ -67,7 +106,7 @@ function opaqueId(kind: "plan" | "receipt"): string {
   return `pkm_${kind}_${entropy}`;
 }
 
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   if (globalThis.crypto?.subtle) {
     const digest = await globalThis.crypto.subtle.digest(
       "SHA-256",
@@ -86,13 +125,29 @@ async function sha256Hex(value: string): Promise<string> {
   return Math.abs(hash >>> 0).toString(16).padStart(12, "0");
 }
 
-function normalizedScope(manifest: DomainManifest | null | undefined): string {
-  return (
-    manifest?.top_level_scope_paths?.find((scope) => typeof scope === "string" && scope.trim()) ||
-    "profile"
-  )
-    .trim()
-    .toLowerCase();
+function normalizedScope(params: {
+  currentManifest?: DomainManifest | null;
+  targetManifest?: DomainManifest | null;
+  scopePath?: string;
+}): string {
+  const [requestedScopePart = ""] = String(params.scopePath || "").trim().split(".", 1);
+  const requestedScope = requestedScopePart.toLowerCase();
+  const allowedScopes = new Set(
+    [params.currentManifest, params.targetManifest]
+      .flatMap((manifest) => manifest?.top_level_scope_paths || [])
+      .map((scope) => {
+        const [topLevelScope = ""] = String(scope || "").trim().split(".", 1);
+        return topLevelScope.toLowerCase();
+      })
+      .filter(Boolean)
+  );
+  if (requestedScope) {
+    if (allowedScopes.size > 0 && !allowedScopes.has(requestedScope)) {
+      throw new Error("The confirmed PKM scope is not present in the current manifest.");
+    }
+    return requestedScope;
+  }
+  return allowedScopes.values().next().value || "profile";
 }
 
 function registryHandle(
@@ -110,26 +165,44 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
   domain: string;
   currentManifest?: DomainManifest | null;
   targetManifest?: DomainManifest | null;
+  scopePath?: string;
   operation?: PkmMutationOperation;
   confidence?: number;
   explanation?: string;
   sourceRevision?: number;
-  confirmation: PkmUserConfirmation;
+  confirmation: PkmWriteAuthorization;
 }): Promise<PkmMutationPlanV2> {
-  if (params.confirmation.confirmedByUser !== true) {
+  const automatic = isOwnerAutoSaveAuthorization(params.confirmation);
+  const automaticAuthorization = automatic
+    ? params.confirmation as PkmOwnerAutoSaveAuthorization
+    : null;
+  const ownerConfirmation = automatic
+    ? null
+    : params.confirmation as PkmUserConfirmation;
+  if (!automatic && params.confirmation.confirmedByUser !== true) {
     throw new Error("PKM mutation requires explicit owner confirmation.");
   }
 
   const domain = params.domain.trim().toLowerCase();
-  const scope = normalizedScope(params.targetManifest || params.currentManifest);
+  const scope = normalizedScope({
+    currentManifest: params.currentManifest,
+    targetManifest: params.targetManifest,
+    scopePath: params.scopePath,
+  });
   const generatedHandle = `s_${(
     await sha256Hex(`${params.userId}:${domain}:${scope}`)
   ).slice(0, 12)}`;
   const sourceHandle = registryHandle(params.currentManifest, scope) || generatedHandle;
   const targetHandle = registryHandle(params.targetManifest, scope) || sourceHandle;
   const operation = params.operation || (params.currentManifest ? "update" : "create");
+  if (automatic && operation === "delete") {
+    throw new Error("Automatic PKM saving cannot delete saved information.");
+  }
   const planId = opaqueId("plan");
-  const sharingImpact = params.confirmation.sharingImpact;
+  const sharingImpact = ownerConfirmation?.sharingImpact;
+  const confirmedAt = automatic
+    ? new Date().toISOString()
+    : ownerConfirmation?.confirmedAt || new Date().toISOString();
 
   return {
     version: 2,
@@ -144,7 +217,9 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
     confidence: Math.max(0, Math.min(1, params.confidence ?? 1)),
     explanation:
       params.explanation ||
-      `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`,
+      (automatic
+        ? `The owner enabled automatic saving for this eligible ${operation} operation in ${titleize(domain)} / ${titleize(scope)}.`
+        : `The owner reviewed this ${operation} operation for ${titleize(domain)} / ${titleize(scope)}.`),
     affected_grant_ids: sharingImpact?.affectedGrantIds || [],
     affected_export_ids: sharingImpact?.affectedExportIds || [],
     sharing_impact: {
@@ -154,17 +229,27 @@ export async function buildConfirmedPkmMutationPlanV2(params: {
       summary: sharingImpact?.summary || "No active recipients are affected.",
     },
     semantic_contract_version: CURRENT_PKM_CONTRACT_VERSION,
+    writer_id: normalizedWriterId(params.confirmation.source),
+    structure_agent_id: "pkm_structure_agent",
     source_revision: Math.max(0, params.sourceRevision || 0),
     confirmation_receipt: {
       version: 2,
       receipt_id: opaqueId("receipt"),
       plan_id: planId,
       confirmed_by_user_id: params.userId,
-      confirmed_at: params.confirmation.confirmedAt || new Date().toISOString(),
+      confirmed_at: confirmedAt,
       surface: params.confirmation.surface,
       displayed_domain: domain,
       displayed_scope: scope,
-      sharing_impact_acknowledged: params.confirmation.sharingImpactAcknowledged === true,
+      sharing_impact_acknowledged:
+        ownerConfirmation?.sharingImpactAcknowledged === true,
+      authorization_mode: automatic ? "owner_auto_save_policy" : "owner_confirmed",
+      ...(automatic
+        ? {
+            auto_save_policy_version: automaticAuthorization!.autoSavePolicyVersion,
+            auto_save_policy_enabled_at: automaticAuthorization!.autoSavePolicyEnabledAt,
+          }
+        : {}),
     },
   };
 }

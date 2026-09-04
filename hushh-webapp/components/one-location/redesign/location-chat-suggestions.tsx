@@ -9,12 +9,16 @@ export interface SuggestionChip {
 }
 
 export const LOCATION_SUGGESTION_CHIPS: SuggestionChip[] = [
-  { label: "Who can see me?", mode: "send", value: "Who can see me right now?" },
+  {
+    label: "Who can see me?",
+    mode: "send",
+    value: "Who can see me right now?",
+  },
   { label: "Stop sharing with…", mode: "prefill", value: "Stop sharing with " },
   {
-    label: "Ask someone to share",
+    label: "Ask for location",
     mode: "prefill",
-    value: "Ask … to share their location with me",
+    value: "Ask for location from ",
   },
   {
     label: "Deny a request",
@@ -27,12 +31,12 @@ export const LOCATION_SUGGESTION_CHIPS: SuggestionChip[] = [
     value: "Share my location with ",
   },
   {
-    label: "Show me where someone is",
+    label: "Find someone",
     mode: "send",
     value: "Show me where someone is",
   },
   {
-    label: "Make a public link",
+    label: "Create link",
     mode: "send",
     value: "Make a public link to my location",
   },
@@ -44,7 +48,10 @@ export function SuggestionChips(props: {
 }) {
   const { onSend, onPrefill } = props;
   return (
-    <div className="flex flex-wrap gap-2" data-testid="location-chat-suggestions">
+    <div
+      className="flex flex-wrap gap-2"
+      data-testid="location-chat-suggestions"
+    >
       {LOCATION_SUGGESTION_CHIPS.map((chip) => (
         <button
           key={chip.label}

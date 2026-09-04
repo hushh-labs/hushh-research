@@ -1,0 +1,29 @@
+{
+  "skill_name": "pkm-upgrade-rehearsal",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "rehearse the PKM upgrade against historical fixtures and prove zero information loss",
+        "top_k": 3
+      },
+      {
+        "prompt": "test PKM rollback quarantine occurrence lineage and canonical scope preservation",
+        "top_k": 3
+      },
+      {
+        "prompt": "load reviewer brokerage then capture exact encrypted and decrypted PKM upgrade payloads",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "verify generic reviewer BYOK unlock across Next routes without changing PKM",
+        "owner": "reviewer-app-testing"
+      },
+      {
+        "prompt": "change ordinary vault encryption and PKM manifest persistence code",
+        "owner": "vault-pkm-governance"
+      }
+    ]
+  }
+}

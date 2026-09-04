@@ -17,6 +17,8 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from typing import Any, Optional
 
+from hushh_mcp.runtime_providers import build_managed_runtime_client
+
 logger = logging.getLogger(__name__)
 
 
@@ -1925,19 +1927,11 @@ class RichPDFParser:
         holdings = []
 
         try:
-            import os
-
-            from google import genai
             from google.genai import types
 
             from hushh_mcp.constants import GEMINI_MODEL
 
-            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            if not api_key:
-                logger.warning("No Gemini API key found, skipping LLM extraction")
-                return []
-
-            client = genai.Client(api_key=api_key)
+            client = build_managed_runtime_client("gemini")
 
             prompt = f"""Extract all investment holdings from this {brokerage} brokerage statement.
 
@@ -1960,7 +1954,11 @@ Statement text (first 12000 chars):
 {text[:12000]}
 """
 
-            config = types.GenerateContentConfig(
+            from hushh_mcp.runtime_providers import build_generate_content_config
+
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.3,
                 max_output_tokens=8192,
             )
@@ -2093,63 +2091,20 @@ Statement text (first 12000 chars):
         """
         import base64
         import json
-        import os
 
-        from google import genai
         from google.genai import types
 
-        from hushh_mcp.constants import GEMINI_MODEL, GEMINI_MODEL_VERTEX
+        from hushh_mcp.constants import GEMINI_MODEL
 
         portfolio = ComprehensivePortfolio()
 
-        api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
+        logger.info("Using Vertex AI with Application Default Credentials")
+        try:
+            client = build_managed_runtime_client("gemini")
+        except Exception as exc:
+            logger.error("Vertex AI init failed: %s", type(exc).__name__)
+            raise ValueError("Could not initialize managed Gemini client") from exc
         model_to_use = GEMINI_MODEL
-
-        # Determine which client to use based on API key format
-        if api_key and api_key.startswith("AIza"):
-            # Google AI Studio API key
-            logger.info("Using Google AI Studio API key")
-            client = genai.Client(api_key=api_key)
-            model_to_use = GEMINI_MODEL
-        else:
-            # Try Vertex AI with Application Default Credentials
-            logger.info("Using Vertex AI with Application Default Credentials")
-            try:
-                # For Vertex AI, we need project and location
-                project_id = os.environ.get("GOOGLE_CLOUD_PROJECT") or os.environ.get("GCP_PROJECT")
-
-                # Try to get project from gcloud config if not set
-                if not project_id:
-                    import subprocess
-
-                    try:
-                        result = subprocess.run(
-                            ["gcloud", "config", "get-value", "project"],
-                            capture_output=True,
-                            text=True,
-                            timeout=5,
-                        )
-                        if result.returncode == 0 and result.stdout.strip():
-                            project_id = result.stdout.strip()
-                    except Exception:
-                        pass
-
-                if not project_id:
-                    raise ValueError("No GCP project found. Set GOOGLE_CLOUD_PROJECT env var.")
-
-                location = os.environ.get("GOOGLE_CLOUD_LOCATION", "global")
-
-                client = genai.Client(
-                    vertexai=True,
-                    project=project_id,
-                    location=location,
-                )
-                model_to_use = GEMINI_MODEL_VERTEX
-                logger.info(f"Using Vertex AI with project: {project_id}, model: {model_to_use}")
-
-            except Exception as e:
-                logger.error(f"Vertex AI init failed: {e}")
-                raise ValueError(f"Could not initialize Gemini client: {e}")
 
         # Encode PDF as base64
         pdf_base64 = base64.b64encode(pdf_bytes).decode("utf-8")
@@ -2332,7 +2287,11 @@ Extract data into the following nested objects:
             types.Part(inline_data=types.Blob(mime_type="application/pdf", data=pdf_base64)),
         ]
 
-        config = types.GenerateContentConfig(
+        from hushh_mcp.runtime_providers import build_generate_content_config
+
+        config = build_generate_content_config(
+            types,
+            model_to_use,
             temperature=0.1,  # Low temperature for accuracy
             max_output_tokens=32768,  # Large output for comprehensive data
         )
@@ -3170,13 +3129,11 @@ class PortfolioImportService:
     ) -> Optional[DocumentRelevance]:
         """LLM classifier for ambiguous uploads. Returns None on classifier failure."""
         try:
-            from google import genai
             from google.genai import types
-            from google.genai.types import HttpOptions
 
             from hushh_mcp.constants import GEMINI_MODEL
 
-            client = genai.Client(http_options=HttpOptions(api_version="v1"))
+            client = build_managed_runtime_client("gemini")
 
             prompt = f"""
 Classify whether this uploaded file is a brokerage/investment account statement suitable for portfolio import.
@@ -3193,7 +3150,11 @@ Content sample:
 {text_sample[:6000]}
 """.strip()
 
-            config = types.GenerateContentConfig(
+            from hushh_mcp.runtime_providers import build_generate_content_config
+
+            config = build_generate_content_config(
+                types,
+                GEMINI_MODEL,
                 temperature=0.0,
                 max_output_tokens=256,
                 response_mime_type="application/json",

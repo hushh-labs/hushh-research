@@ -185,14 +185,11 @@ const CONNECT_PICK =
 
 const connectRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
-  "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
-  "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
-  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
-  "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
-  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
+  "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
+  "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
+  "[--one-fg:var(--foreground)] [--one-fg2:var(--muted-foreground)] [--one-fg3:color-mix(in_oklab,var(--muted-foreground)_82%,transparent)]",
   "[--one-blue:var(--app-accent)] [--one-link:var(--app-accent-deep)] [--one-blue-t:var(--app-accent-tint)]",
   "dark:[--one-blue:var(--app-accent)] dark:[--one-link:var(--app-accent-deep)] dark:[--one-blue-t:var(--app-accent-tint)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
@@ -344,7 +341,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
+          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">One</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -394,14 +391,14 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Message Kai..."
+            placeholder="Message One..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
         </div>
         <button
           type="submit"
           className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Send to Kai"
+          aria-label="Send to One"
         >
           <Mic className="h-4 w-4" />
         </button>
@@ -439,8 +436,8 @@ function NotificationsSheet({
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {[
           { title: "Registration verified", body: "SEBI network check completed", time: "2m", tone: "up" },
-          { title: "Kai pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
-          { title: "Consent receipt saved", body: "No advisor data shared yet", time: "3h", tone: "neutral" },
+          { title: "Finance pick ready", body: "Emily Nakamura - 94% match", time: "1h", tone: "blue" },
+          { title: "Consent receipt saved", body: "No advisor information shared yet", time: "3h", tone: "neutral" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
             <span
@@ -580,7 +577,7 @@ function AdvisorDetailSheet({
             ))}
           </div>
           <p className="mt-3 text-[12px] leading-snug text-[color:var(--one-fg3)]">
-            No commissions. Billed quarterly by the advisor - never through Kai.
+            No commissions. Billed quarterly by the advisor - never through Finance.
           </p>
         </div>
       </div>
@@ -599,7 +596,7 @@ function AdvisorDetailSheet({
         </button>
         {requested ? (
           <p className="mt-2.5 text-center text-[12px] leading-snug text-[color:var(--one-fg2)]">
-            They will reach out within a day. Nothing is shared until you approve their request.
+            They will reach out within a day. Nothing is shared until you approve request.
           </p>
         ) : null}
       </div>
@@ -665,8 +662,8 @@ export function KaiConnectPreviewView() {
       </style>
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(32px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -713,14 +710,14 @@ export function KaiConnectPreviewView() {
               <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              <b className="font-semibold">Kai:</b> I compared all five against your portfolio - ask me why Emily fits best.
+              <b className="font-semibold">One:</b> I compared all five against your portfolio - ask me why Emily fits best.
             </span>
             <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
           </button>
 
           <section className="mt-8">
             <SectionHeader
-              title="Kai's pick for you"
+              title="One's pick for you"
               icon={Star}
               tone="blue"
               action={
@@ -789,7 +786,7 @@ export function KaiConnectPreviewView() {
                 </button>
               ))}
             </div>
-            <div className="overflow-hidden rounded-[20px] bg-[color:var(--one-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+            <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--one-card)] shadow-[var(--app-card-shadow-standard)]">
               {visibleProfiles.map((profile) => (
                 <AdvisorRow key={profile.id} profile={profile} onOpen={setSelectedProfile} />
               ))}

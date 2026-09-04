@@ -4,7 +4,6 @@ import { Preferences } from "@capacitor/preferences";
 import {
   getLocalItem,
   removeLocalItem,
-  setLocalItem,
 } from "@/lib/utils/session-storage";
 import type {
   DrawdownResponse,
@@ -13,10 +12,17 @@ import type {
   VolatilityPreference,
 } from "@/lib/services/kai-profile-service";
 import { setOnboardingRequiredCookie } from "@/lib/services/onboarding-route-cookie";
+import { SecureResourceCacheService } from "@/lib/services/secure-resource-cache-service";
 
 const KEY_PREFIX = "kai_pre_vault_onboarding_v1";
 const VERSION = 1 as const;
 const FALLBACK_STORAGE_PREFIX = `${KEY_PREFIX}:fallback`;
+const VAULT_HANDOFF_RESOURCE_KEY = "pre_vault_onboarding:vault_handoff:v1";
+const VAULT_HANDOFF_TTL_MS = 14 * 24 * 60 * 60 * 1000;
+// New onboarding information is intentionally memory-only until Finish setup.
+// The legacy Preferences/localStorage records below are read solely to migrate
+// an older install through an encrypted handoff, then deleted.
+const volatileDrafts = new Map<string, PreVaultOnboardingState>();
 
 export type PreVaultOnboardingAnswers = {
   investment_horizon: InvestmentHorizon | null;
@@ -40,6 +46,13 @@ type DraftUpdate = {
   answers?: Partial<PreVaultOnboardingAnswers>;
   risk_score?: number | null;
   risk_profile?: RiskProfile | null;
+};
+
+type VaultHandoffRecord = {
+  version: 1;
+  source: "pre_vault_onboarding";
+  state: PreVaultOnboardingState;
+  committedAt: string | null;
 };
 
 function nowIso(now?: Date): string {
@@ -135,6 +148,33 @@ function normalizeState(raw: unknown): PreVaultOnboardingState {
   };
 }
 
+function normalizeVaultHandoff(raw: unknown): VaultHandoffRecord | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    return null;
+  }
+
+  const record = raw as Record<string, unknown>;
+  if (record.version !== 1 || record.source !== "pre_vault_onboarding") {
+    return null;
+  }
+  if (!record.state || typeof record.state !== "object" || Array.isArray(record.state)) {
+    return null;
+  }
+
+  const state = normalizeState(record.state);
+  const committedAt =
+    typeof record.committedAt === "string" && record.committedAt.trim().length > 0
+      ? record.committedAt
+      : null;
+
+  return {
+    version: VERSION,
+    source: "pre_vault_onboarding",
+    state,
+    committedAt,
+  };
+}
+
 function keyForUser(userId: string): string {
   return `${KEY_PREFIX}:${userId}`;
 }
@@ -143,23 +183,8 @@ function fallbackKeyForUser(userId: string): string {
   return `${FALLBACK_STORAGE_PREFIX}:${userId}`;
 }
 
-async function persist(userId: string, state: PreVaultOnboardingState): Promise<void> {
-  const serialized = JSON.stringify(state);
-  try {
-    await Preferences.set({
-      key: keyForUser(userId),
-      value: serialized,
-    });
-    setLocalItem(fallbackKeyForUser(userId), serialized);
-  } catch (error) {
-    // Keep onboarding progression fail-open when native Preferences temporarily fails.
-    if (typeof window !== "undefined") {
-      setLocalItem(fallbackKeyForUser(userId), serialized);
-      setOnboardingRequiredCookie(!state.completed);
-      return;
-    }
-    throw error;
-  }
+function retainVolatileDraft(userId: string, state: PreVaultOnboardingState): void {
+  volatileDrafts.set(userId, state);
   setOnboardingRequiredCookie(!state.completed);
 }
 
@@ -169,6 +194,12 @@ export class PreVaultOnboardingService {
   }
 
   static async load(userId: string): Promise<PreVaultOnboardingState | null> {
+    const volatile = volatileDrafts.get(userId);
+    if (volatile) return volatile;
+
+    // Compatibility read only. Never write a new pre-vault record to either
+    // browser persistence surface: a refresh intentionally discards fresh
+    // setup answers until the private vault is finalized.
     try {
       const { value } = await Preferences.get({ key: keyForUser(userId) });
       if (!value) return null;
@@ -216,7 +247,7 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
@@ -249,7 +280,7 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
@@ -264,11 +295,109 @@ export class PreVaultOnboardingService {
       updated_at: iso,
     };
 
-    await persist(userId, next);
+    retainVolatileDraft(userId, next);
     return next;
   }
 
+  /**
+   * Check for a prior encrypted handoff whose PKM commit has already succeeded,
+   * then finish removing the legacy browser source. This is intentionally
+   * idempotent: a failed cleanup leaves only the encrypted handoff plus the
+   * original source, so the next unlocked session retries deletion without
+   * writing the domain again.
+   */
+  static async finalizeKnownVaultCommit(params: {
+    userId: string;
+    vaultKey: string;
+  }): Promise<boolean> {
+    const encrypted = normalizeVaultHandoff(
+      await SecureResourceCacheService.read<unknown>({
+        userId: params.userId,
+        resourceKey: VAULT_HANDOFF_RESOURCE_KEY,
+        vaultKey: params.vaultKey,
+      }),
+    );
+
+    if (encrypted?.committedAt) {
+      await this.clearAfterVaultCommit(params.userId);
+      await SecureResourceCacheService.invalidateResource(
+        params.userId,
+        VAULT_HANDOFF_RESOURCE_KEY,
+      );
+      return true;
+    }
+
+    // Earlier clients recorded a plaintext completion timestamp only after the
+    // encrypted PKM write returned successfully. Convert that narrow legacy
+    // receipt into an encrypted handoff before retiring the plaintext copy.
+    const legacy = await this.load(params.userId);
+    if (!legacy?.synced_to_vault_at) {
+      return false;
+    }
+
+    await this.completeAfterVaultCommit({
+      userId: params.userId,
+      vaultKey: params.vaultKey,
+      state: legacy,
+      committedAt: legacy.synced_to_vault_at,
+    });
+    return true;
+  }
+
+  /**
+   * Store a temporary encrypted receipt and then remove the pre-vault source.
+   * Call this only after the authoritative PKM write has completed. If either
+   * encrypted receipt write or source cleanup fails, the source remains for a
+   * later unlocked retry; no user answer is discarded on a partial migration.
+   */
+  static async completeAfterVaultCommit(params: {
+    userId: string;
+    vaultKey: string;
+    state?: PreVaultOnboardingState | null;
+    committedAt?: string;
+  }): Promise<boolean> {
+    const state = params.state ?? (await this.load(params.userId));
+    if (!state) {
+      return false;
+    }
+
+    const handoff: VaultHandoffRecord = {
+      version: VERSION,
+      source: "pre_vault_onboarding",
+      state,
+      committedAt: params.committedAt ?? nowIso(),
+    };
+
+    await SecureResourceCacheService.writeRequired({
+      userId: params.userId,
+      resourceKey: VAULT_HANDOFF_RESOURCE_KEY,
+      value: handoff,
+      ttlMs: VAULT_HANDOFF_TTL_MS,
+      vaultKey: params.vaultKey,
+    });
+
+    await this.clearAfterVaultCommit(params.userId);
+    await SecureResourceCacheService.invalidateResource(
+      params.userId,
+      VAULT_HANDOFF_RESOURCE_KEY,
+    );
+    return true;
+  }
+
+  /**
+   * Strict cleanup for the post-commit path. Unlike ordinary account cleanup,
+   * a storage failure is observable so the encrypted receipt can retry this on
+   * the next unlock instead of silently claiming the legacy source was removed.
+   */
+  private static async clearAfterVaultCommit(userId: string): Promise<void> {
+    volatileDrafts.delete(userId);
+    await Preferences.remove({ key: keyForUser(userId) });
+    removeLocalItem(fallbackKeyForUser(userId));
+    setOnboardingRequiredCookie(false);
+  }
+
   static async clear(userId: string): Promise<void> {
+    volatileDrafts.delete(userId);
     try {
       await Preferences.remove({ key: keyForUser(userId) });
     } catch (error) {

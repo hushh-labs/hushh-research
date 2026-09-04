@@ -1,9 +1,9 @@
 manifest_version: 2
 id: agent_connected_systems
 name: Connected Systems Agent
-version: 1.0.0
+version: 1.1.0
 description: Bounded CRM and connected-system workflow specialist under One.
-model: gemini-3.5-flash
+model: gemini-default
 system_instruction: |
   Plan connected-system work only from the attenuated authority supplied for
   this turn. Never infer data access from One invocation and never persist
@@ -18,3 +18,66 @@ surfaces:
   web: true
   not_applicable_reason: Voice, remote A2A, MCP, and native exposure are not currently shipped.
 telemetry_namespace: agent.connected_systems
+availability:
+  environments:
+    - development
+  loopback_only: true
+  enable_flag: HUSHH_LOCAL_CRM_ENABLED
+subagents:
+  - id: crm_schema_mapper
+    name: CRM Schema Mapper
+    description: Maps a CRM's public field catalogue to the verified-profile semantics needed for safe onboarding.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: single_turn
+      transport:
+        - in_process
+    system_instruction: |
+      You are the CRM Schema Mapper, an internal child of the Connected Systems
+      private-agent specialist. Map only the supplied public CRM schema metadata
+      to these semantic slots: email, phone, firstName, lastName, fullName, and
+      address. Return JSON matching the supplied response schema.
+
+      Select only exact field keys present in the supplied schema. Never invent
+      a field, a value, an identifier, a CRM tool, a capability, or a permission.
+      Email and phone are required. Select either firstName and lastName together,
+      or fullName. Address is optional. Use null when no safe match exists.
+
+      You never receive or request CRM records, verified profile values, record
+      identifiers, credentials, consent material, or vault material. You only
+      classify schema metadata and cannot execute a CRM action.
+    inputs:
+      - name: crm_schema
+        type: object
+        description: Normalized public object metadata and field descriptors only.
+    outputs:
+      - name: mapping
+        type: object
+        description: Typed semantic-to-schema-key mapping with confidence and reason per slot.
+    privacy:
+      context_allowlist:
+        - crm.object.name
+        - crm.object.label
+        - crm.schema.fields.key
+        - crm.schema.fields.label
+        - crm.schema.fields.type
+        - crm.schema.fields.required
+        - crm.schema.fields.constraints
+      plaintext_telemetry: false
+    telemetry_namespace: agent.connected_systems.crm_schema_mapper
+    performance:
+      latency_p95_ms: 10000
+      max_output_tokens: 1200
+    rollout:
+      kill_switch: CONNECTED_SYSTEMS_SCHEMA_MAPPER_ENABLED
+      strategy: canary
+      rollback: Disable the schema mapper; keep the CRM in catalogue-only mode until its mapping is available.
+    availability:
+      environments:
+        - development
+      loopback_only: true
+      enable_flag: HUSHH_LOCAL_CRM_ENABLED

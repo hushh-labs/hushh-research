@@ -118,7 +118,7 @@ function RecommendationBadge({ recommendation, confidence }: { recommendation: s
 
   return (
     <div className="flex items-center justify-between">
-      <Badge variant="outline" className={cn("font-bold uppercase text-xs tracking-wider px-3 py-1", colors[variant])}>
+      <Badge variant="outline" className={cn("px-3 py-1 text-[13px] font-semibold tracking-normal", colors[variant])}>
         {recommendation}
       </Badge>
       {confidence !== undefined && confidence !== null && !Number.isNaN(confidence) && (
@@ -154,7 +154,7 @@ function MetricsGrid({ metrics, title }: { metrics: Record<string, any>; title: 
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">{title}</p>
+      <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">{title}</p>
       <div className="grid grid-cols-2 gap-1.5">
         {entries.map(([key, value]) => (
           <div key={key} className="flex justify-between items-center py-1 px-2 rounded-md bg-muted/20">
@@ -175,7 +175,7 @@ function SentimentGauge({ score }: { score: number }) {
   return (
     <div className="space-y-1.5">
       <div className="flex justify-between items-center">
-        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Sentiment Score</p>
+        <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">Sentiment Score</p>
         <span className={cn("text-sm font-bold", color)}>{label}</span>
       </div>
       <div className="relative h-2 bg-muted/30 rounded-full overflow-hidden">
@@ -203,7 +203,7 @@ function CatalystChips({ catalysts }: { catalysts: string[] }) {
   if (valid.length === 0) return null;
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">Key Catalysts</p>
+      <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">Key Catalysts</p>
       <div className="flex flex-wrap gap-1.5">
         {valid.slice(0, 6).map((c, i) => (
           <Badge key={i} variant="outline" className="text-[10px] bg-primary/5 border-primary/20">
@@ -252,7 +252,7 @@ function PriceTargets({ targets }: { targets: Record<string, any> }) {
 
   return (
     <div className="space-y-1.5">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider flex items-center gap-1.5">
+      <p className="flex items-center gap-1.5 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
         <Icon icon={Target} size="xs" />
         Price Targets
       </p>
@@ -279,7 +279,7 @@ function SourcesList({ sources }: { sources: string[] }) {
     <div className="space-y-1.5">
       <button
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center gap-1.5 text-xs font-semibold text-muted-foreground uppercase tracking-wider hover:text-foreground transition-colors"
+        className="flex items-center gap-1.5 text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground transition-colors hover:text-foreground"
       >
         <Icon icon={ExternalLink} size={12} />
         Sources ({valid.length})
@@ -384,18 +384,21 @@ export function StreamingProgressView({
         </span>
       </div>
 
-      {/* AI Thoughts (Reasoning) - Show streamed text during active, thoughts array when complete */}
-      {(isActive || thoughts.length > 0 || streamedText) && (
+      {/* Only claim a stream when the provider emitted real text. Round-one
+          structured agents can be active without token deltas; rendering an
+          empty "Preparing stream" box in that state was misleading. */}
+      {reasoningText.trim().length > 0 && (
         <StreamingAccordion
           id={`thoughts-${title.toLowerCase().replace(/\s+/g, "-")}`}
-          title="Reasoning"
+          title="Analysis"
           text={reasoningText}
           isStreaming={!disableStreaming && isActive} // Disable streaming animation if requested
           isComplete={isComplete}
           autoCollapseOnComplete={false}
           icon={isComplete ? "brain" : "spinner"}
-          className="border-primary/5 bg-primary/5"
+          className="bg-transparent"
           defaultExpanded={compactMode || isActive}
+          surface="flat"
         />
       )}
 
@@ -425,13 +428,13 @@ export function StreamingProgressView({
             <div className="grid grid-cols-2 gap-1.5">
               {isNonEmptyString(financialResilience) && (
                 <div className="p-1.5 rounded-md bg-muted/20">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Financial Resilience</p>
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">Financial Resilience</p>
                   <p className="text-[10px] font-medium mt-0.5">{financialResilience}</p>
                 </div>
               )}
               {isNonEmptyString(growthEfficiency) && (
                 <div className="p-1.5 rounded-md bg-muted/20">
-                  <p className="text-[10px] text-muted-foreground uppercase tracking-wider">Growth Efficiency</p>
+                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">Growth Efficiency</p>
                   <p className="text-[10px] font-medium mt-0.5">{growthEfficiency}</p>
                 </div>
               )}

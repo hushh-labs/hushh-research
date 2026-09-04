@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from api.middleware import require_vault_owner_token
 from api.routes import connected_systems
-from hushh_mcp.services.connected_systems_service import ConnectedSystemBlockedError
+from hushh_mcp.services.connected_systems_service import (
+    ConnectedSystemBlockedError,
+    ConnectedSystemConfigurationError,
+)
+from hushh_mcp.services.crm_schema_mapping_service import CrmSchemaMappingError
 
 
 class FakeConnectedSystemsService:
@@ -16,6 +23,9 @@ class FakeConnectedSystemsService:
         self.deleted_payload = None
         self.binding_payload = None
         self.search_payload = None
+        self.disconnected_payload = None
+        self.schema_calls = 0
+        self.encrypted_fields_payload = None
 
     def list_systems(self):
         return [
@@ -32,7 +42,34 @@ class FakeConnectedSystemsService:
             }
         ]
 
-    def create_record_intent(self, **kwargs):
+    def registry_revision(self):
+        return 7
+
+    def get_system(self, system_id):
+        return SimpleNamespace(registry_id="crm_001", system_id=system_id)
+
+    def list_record_binding_statuses(self, **kwargs):
+        self.binding_payload = kwargs
+        return {
+            "bindings": [
+                {
+                    "systemId": "salesforce-fsc-customer0",
+                    "objectType": "Contact",
+                    "status": "unbound",
+                }
+            ]
+        }
+
+    async def get_schema(self, **kwargs):
+        self.schema_calls += 1
+        return {
+            "systemId": kwargs["system_id"],
+            "objectType": kwargs.get("object_type") or "Contact",
+            "fields": [],
+            "effectiveActions": {"schema": True},
+        }
+
+    async def create_record_intent_for_verified_user(self, **kwargs):
         self.created_payload = kwargs
         return {
             "intentId": "csi_test",
@@ -42,7 +79,7 @@ class FakeConnectedSystemsService:
             "fieldNames": ["Email", "Phone", "LastName"],
         }
 
-    async def read_record(self, **kwargs):
+    async def read_bound_record(self, **kwargs):
         self.read_payload = kwargs
         return {
             "systemId": kwargs["system_id"],
@@ -62,7 +99,22 @@ class FakeConnectedSystemsService:
             "binding": None,
         }
 
-    async def search_record(self, **kwargs):
+    def disconnect_record_binding(self, **kwargs):
+        self.disconnected_payload = kwargs
+        return {
+            "systemId": kwargs["system_id"],
+            "target": "Macys",
+            "objectType": kwargs["object_type"],
+            "status": "disconnected",
+            "binding": {
+                "systemId": kwargs["system_id"],
+                "objectType": kwargs["object_type"],
+                "recordId": "003gK00000demoQAA",
+                "status": "disconnected",
+            },
+        }
+
+    async def search_verified_record(self, **kwargs):
         self.search_payload = kwargs
         return {
             "systemId": kwargs["system_id"],
@@ -81,7 +133,7 @@ class FakeConnectedSystemsService:
             "mcp": {"isError": False, "payload": {"Contact": [{"Id": "003gK00000demoQAA"}]}},
         }
 
-    def update_record_intent(self, **kwargs):
+    async def update_record_intent_from_fields(self, **kwargs):
         self.updated_payload = kwargs
         return {
             "intentId": "csi_update_test",
@@ -89,6 +141,60 @@ class FakeConnectedSystemsService:
             "action": "update",
             "status": "pending",
             "fieldNames": ["MailingCity"],
+        }
+
+    def crm_encrypted_fields_configuration(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
+        return {
+            "profile": "crm-encrypted-fields.v1",
+            "configurationRevision": 1,
+            "recipientKey": {"keyId": "uat-key", "publicKey": "public"},
+            "keyDerivation": "SHA-256(X25519 shared secret)",
+            "aad": False,
+        }
+
+    async def read_bound_record_encrypted_fields(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
+        return {
+            "profile": "crm-encrypted-fields.v1",
+            "systemId": kwargs["system_id"],
+            "objectType": kwargs["object_type"],
+            "status": "succeeded",
+            "totalSize": 1,
+            "recordId": "003gK00000demoQAA",
+            "bindingStatus": "active",
+            "encryptedFields": kwargs["encrypted_fields"],
+        }
+
+    async def create_encrypted_fields_update_intent(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
+        return {
+            "intentId": "csi_encrypted",
+            "systemId": kwargs["system_id"],
+            "action": "update",
+            "status": "pending",
+            "fieldNames": kwargs["field_names"],
+        }
+
+    async def approve_encrypted_fields_intent(self, **kwargs):
+        self.encrypted_fields_payload = kwargs
+        return {
+            "intentId": kwargs["intent_id"],
+            "systemId": kwargs["system_id"],
+            "action": "update",
+            "status": "succeeded",
+            "fieldNames": ["Title"],
+        }
+
+    def create_delete_intent(self, **kwargs):
+        self.deleted_payload = kwargs
+        return {
+            "intentId": "csi_delete_test",
+            "systemId": kwargs["system_id"],
+            "action": "delete",
+            "status": "pending",
+            "recordId": kwargs.get("record_id"),
+            "fieldNames": [],
         }
 
     async def delete_record(self, **kwargs):
@@ -105,7 +211,7 @@ class FakeConnectedSystemsService:
 
 
 class FakeBlockedDeleteConnectedSystemsService(FakeConnectedSystemsService):
-    async def delete_record(self, **kwargs):
+    def create_delete_intent(self, **kwargs):
         self.deleted_payload = kwargs
         raise ConnectedSystemBlockedError(
             "Delete is blocked for this connected system.",
@@ -123,6 +229,39 @@ def _build_app() -> FastAPI:
     return app
 
 
+class FakeSchemaMappingService:
+    def __init__(self):
+        self.crm_ids = []
+
+    async def resolve(self, **kwargs):
+        self.crm_ids.append(kwargs["crm_id"])
+        return SimpleNamespace(
+            mapping={
+                "email": "Email",
+                "phone": "Phone",
+                "firstName": "FirstName",
+                "lastName": "LastName",
+            }
+        )
+
+    def invalidate(self, **_kwargs):
+        return None
+
+
+class FakeUnavailableSchemaMappingService:
+    async def resolve(self, **_kwargs):
+        raise CrmSchemaMappingError("Schema mapping is unavailable.")
+
+
+@pytest.fixture(autouse=True)
+def schema_mapping_service(monkeypatch):
+    monkeypatch.setattr(
+        connected_systems,
+        "get_crm_schema_mapping_service",
+        lambda: FakeSchemaMappingService(),
+    )
+
+
 def test_list_connected_systems_route_returns_salesforce_registry_entry(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
@@ -132,6 +271,7 @@ def test_list_connected_systems_route_returns_salesforce_registry_entry(monkeypa
 
     assert response.status_code == 200
     payload = response.json()
+    assert payload["registryRevision"] == 7
     assert payload["systems"][0]["systemId"] == "salesforce-fsc-customer0"
     assert payload["systems"][0]["displayName"] == "Macy's"
     assert payload["systems"][0]["customerDisplayName"] == "Macy's"
@@ -139,7 +279,70 @@ def test_list_connected_systems_route_returns_salesforce_registry_entry(monkeypa
     assert payload["systems"][0]["systemName"] == "FSC"
 
 
-def test_create_intent_route_accepts_live_mcp_camel_case_shape(monkeypatch):
+def test_list_connected_systems_returns_typed_registry_unavailable_error(monkeypatch):
+    monkeypatch.setattr(
+        connected_systems,
+        "get_connected_systems_service",
+        lambda: (_ for _ in ()).throw(
+            ConnectedSystemConfigurationError(
+                "Connected Systems configuration is temporarily unavailable.",
+                code="CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
+            )
+        ),
+    )
+    client = TestClient(_build_app())
+
+    response = client.get("/api/connected-systems", headers={"Authorization": "Bearer HCT:test"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == {
+        "code": "CONNECTED_SYSTEM_REGISTRY_UNAVAILABLE",
+        "message": "Connected Systems configuration is temporarily unavailable.",
+    }
+
+
+def test_schema_mapping_failure_reuses_the_single_catalogue_fetch(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    monkeypatch.setattr(
+        connected_systems,
+        "get_crm_schema_mapping_service",
+        lambda: FakeUnavailableSchemaMappingService(),
+    )
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schemaMappingStatus"] == "unavailable"
+    assert service.schema_calls == 1
+
+
+def test_schema_mapping_uses_internal_registry_parent_key(monkeypatch):
+    service = FakeConnectedSystemsService()
+    mapping_service = FakeSchemaMappingService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    monkeypatch.setattr(
+        connected_systems,
+        "get_crm_schema_mapping_service",
+        lambda: mapping_service,
+    )
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/salesforce-fsc-customer0/schema?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["schemaMappingStatus"] == "ready"
+    assert mapping_service.crm_ids == ["crm_001"]
+
+
+def test_create_intent_route_accepts_no_browser_identity_fields(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
@@ -147,14 +350,7 @@ def test_create_intent_route_accepts_live_mcp_camel_case_shape(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/create-intents",
         headers={"Authorization": "Bearer HCT:test"},
-        json={
-            "objectType": "Contact",
-            "email": "doe.john@abc.com",
-            "phone": "1234567899",
-            "firstName": "John",
-            "lastName": "Doe",
-            "additionalFields": {"Title": "VP Sales"},
-        },
+        json={"objectType": "Contact"},
     )
 
     assert response.status_code == 200
@@ -163,15 +359,16 @@ def test_create_intent_route_accepts_live_mcp_camel_case_shape(monkeypatch):
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "email": "doe.john@abc.com",
-        "phone": "1234567899",
-        "first_name": "John",
-        "last_name": "Doe",
-        "additional_fields": {"Title": "VP Sales"},
+        "profile_field_mappings": {
+            "email": "Email",
+            "phone": "Phone",
+            "firstName": "FirstName",
+            "lastName": "LastName",
+        },
     }
 
 
-def test_read_route_accepts_updated_mcp_search_and_return_fields(monkeypatch):
+def test_read_route_uses_bound_record(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
@@ -179,13 +376,7 @@ def test_read_route_accepts_updated_mcp_search_and_return_fields(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/read",
         headers={"Authorization": "Bearer HCT:test"},
-        json={
-            "objectType": "Contact",
-            "email": "doe.john@abc.com",
-            "phone": "1234567899",
-            "searchFields": {"Title": "VP Sales"},
-            "returnFields": ["LeadSource", "MailingCity"],
-        },
+        json={"objectType": "Contact", "returnFields": ["LeadSource", "MailingCity"]},
     )
 
     assert response.status_code == 200
@@ -194,9 +385,6 @@ def test_read_route_accepts_updated_mcp_search_and_return_fields(monkeypatch):
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "email": "doe.john@abc.com",
-        "phone": "1234567899",
-        "search_fields": {"Title": "VP Sales"},
         "return_fields": ["LeadSource", "MailingCity"],
     }
 
@@ -220,7 +408,48 @@ def test_record_binding_route_returns_authenticated_user_binding(monkeypatch):
     }
 
 
-def test_search_route_binds_matching_crm_record(monkeypatch):
+def test_disconnect_binding_route_is_owner_scoped_and_record_id_free(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+
+    response = client.delete(
+        "/api/connected-systems/salesforce-fsc-customer0/record-binding?objectType=Contact",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "disconnected"
+    assert service.disconnected_payload == {
+        "user_id": "user_123",
+        "system_id": "salesforce-fsc-customer0",
+        "object_type": "Contact",
+    }
+
+
+def test_batch_record_binding_statuses_are_owner_scoped_and_identifier_free(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+
+    response = client.get(
+        "/api/connected-systems/record-bindings",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+
+    assert response.status_code == 200
+    assert service.binding_payload == {"user_id": "user_123"}
+    assert response.json()["bindings"] == [
+        {
+            "systemId": "salesforce-fsc-customer0",
+            "objectType": "Contact",
+            "status": "unbound",
+        }
+    ]
+    assert "recordId" not in response.text
+
+
+def test_search_route_uses_verified_owner_identity(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
@@ -228,12 +457,9 @@ def test_search_route_binds_matching_crm_record(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/search",
         headers={"Authorization": "Bearer HCT:test"},
-        json={
-            "objectType": "Contact",
-            "email": "doe.john@abc.com",
-            "phone": "1234567899",
-            "returnFields": ["LeadSource", "MailingCity"],
-        },
+        # The browser may carry a legacy objectType field, but the registry-owned
+        # read operation remains the sole authority for record discovery.
+        json={"objectType": "Account", "returnFields": ["LeadSource", "MailingCity"]},
     )
 
     assert response.status_code == 200
@@ -242,15 +468,82 @@ def test_search_route_binds_matching_crm_record(monkeypatch):
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "email": "doe.john@abc.com",
-        "phone": "1234567899",
-        "search_fields": None,
         "return_fields": ["LeadSource", "MailingCity"],
         "force_refresh": False,
     }
 
 
-def test_update_intent_route_accepts_updated_mcp_id_and_additional_fields(monkeypatch):
+def test_encrypted_fields_read_route_accepts_only_opaque_values(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+    encrypted_fields = {"profile": "crm-encrypted-fields.v1", "ciphertext": "opaque"}
+
+    response = client.post(
+        "/api/connected-systems/salesforce-fsc-customer0/records/read-encrypted",
+        headers={"Authorization": "Bearer HCT:test"},
+        json={
+            "objectType": "Contact",
+            "returnFields": ["FirstName", "LastName"],
+            "encryptedFields": encrypted_fields,
+        },
+    )
+
+    assert response.status_code == 200
+    assert service.encrypted_fields_payload == {
+        "user_id": "user_123",
+        "system_id": "salesforce-fsc-customer0",
+        "object_type": "Contact",
+        "return_fields": ["FirstName", "LastName"],
+        "encrypted_fields": encrypted_fields,
+    }
+
+    rejected = client.post(
+        "/api/connected-systems/salesforce-fsc-customer0/records/read-encrypted",
+        headers={"Authorization": "Bearer HCT:test"},
+        json={
+            "objectType": "Contact",
+            "returnFields": ["FirstName"],
+            "searchFields": {"Email": "must-not-cross-hussh"},
+            "encryptedFields": encrypted_fields,
+        },
+    )
+    assert rejected.status_code == 422
+
+
+def test_encrypted_fields_update_and_approval_routes_keep_values_opaque(monkeypatch):
+    service = FakeConnectedSystemsService()
+    monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
+    client = TestClient(_build_app())
+    encrypted_fields = {"profile": "crm-encrypted-fields.v1", "ciphertext": "opaque"}
+
+    prepared = client.post(
+        "/api/connected-systems/salesforce-fsc-customer0/records/update-intents-encrypted",
+        headers={"Authorization": "Bearer HCT:test"},
+        json={
+            "objectType": "Contact",
+            "fieldNames": ["Title"],
+            "encryptedFields": encrypted_fields,
+        },
+    )
+    assert prepared.status_code == 200
+    assert service.encrypted_fields_payload["encrypted_fields"] == encrypted_fields
+    assert service.encrypted_fields_payload["locked_field_names"] == {
+        "Email",
+        "Phone",
+        "FirstName",
+        "LastName",
+    }
+
+    approved = client.post(
+        "/api/connected-systems/salesforce-fsc-customer0/intents/csi_encrypted/approve-encrypted",
+        headers={"Authorization": "Bearer HCT:test"},
+    )
+    assert approved.status_code == 200
+    assert approved.json()["status"] == "succeeded"
+
+
+def test_update_intent_route_resolves_bound_record_id(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
@@ -260,7 +553,6 @@ def test_update_intent_route_accepts_updated_mcp_id_and_additional_fields(monkey
         headers={"Authorization": "Bearer HCT:test"},
         json={
             "objectType": "Contact",
-            "id": "003gK00000m36zhQAA",
             "additionalFields": {"MailingCity": "New York"},
         },
     )
@@ -271,13 +563,14 @@ def test_update_intent_route_accepts_updated_mcp_id_and_additional_fields(monkey
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "record_id": "003gK00000m36zhQAA",
-        "additional_fields": {"MailingCity": "New York"},
+        "record_id": None,
+        "record_fields": {"MailingCity": "New York"},
         "readback_locator": None,
+        "locked_field_names": {"Email", "Phone", "FirstName", "LastName"},
     }
 
 
-def test_delete_route_accepts_updated_mcp_id_shape(monkeypatch):
+def test_delete_route_resolves_bound_record_id(monkeypatch):
     service = FakeConnectedSystemsService()
     monkeypatch.setattr(connected_systems, "get_connected_systems_service", lambda: service)
     client = TestClient(_build_app())
@@ -285,19 +578,17 @@ def test_delete_route_accepts_updated_mcp_id_shape(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/delete",
         headers={"Authorization": "Bearer HCT:test"},
-        json={
-            "objectType": "Contact",
-            "id": "003gK00000m36zhQAA",
-        },
+        json={"objectType": "Contact"},
     )
 
     assert response.status_code == 200
-    assert response.json()["mcp"]["payload"]["deleted"] is True
+    assert response.json()["status"] == "pending"
+    assert response.json()["action"] == "delete"
     assert service.deleted_payload == {
         "user_id": "user_123",
         "system_id": "salesforce-fsc-customer0",
         "object_type": "Contact",
-        "record_id": "003gK00000m36zhQAA",
+        "record_id": None,
     }
 
 
@@ -309,10 +600,7 @@ def test_delete_route_returns_403_when_service_blocks_delete(monkeypatch):
     response = client.post(
         "/api/connected-systems/salesforce-fsc-customer0/records/delete",
         headers={"Authorization": "Bearer HCT:test"},
-        json={
-            "objectType": "Contact",
-            "id": "003gK00000m36zhQAA",
-        },
+        json={"objectType": "Contact"},
     )
 
     assert response.status_code == 403

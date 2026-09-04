@@ -27,6 +27,12 @@ type CapabilityVaultPrerequisiteProps = {
   capabilityLabel: string;
   routeKey: string;
   children: ReactNode;
+  /**
+   * Safe, non-interactive route chrome that may render while the vault owner
+   * token is being checked. It must not read protected route data.
+   */
+  checkingFallback?: ReactNode;
+  allowVaultCreation?: boolean;
 };
 
 /**
@@ -42,6 +48,8 @@ export function CapabilityVaultPrerequisite({
   capabilityLabel,
   routeKey,
   children,
+  checkingFallback,
+  allowVaultCreation = true,
 }: CapabilityVaultPrerequisiteProps) {
   const router = useRouter();
   const { user, loading: authLoading } = useAuth();
@@ -53,6 +61,8 @@ export function CapabilityVaultPrerequisite({
   const [retryKey, setRetryKey] = useState(0);
   const [vaultHandoffPending, setVaultHandoffPending] = useState(false);
   const autoPresentedRef = useRef(false);
+  const vaultBoundaryActive =
+    state === "create_required" || state === "unlock_required" || vaultHandoffPending;
 
   useEffect(() => {
     if (authLoading || userId) return;
@@ -111,7 +121,7 @@ export function CapabilityVaultPrerequisite({
   }, [state]);
 
   usePublishVoiceSurfaceMetadata(
-    dialogOpen
+    vaultBoundaryActive
       ? {
           screenId: "capability_vault_prerequisite",
           title: `Set up vault for ${capabilityLabel}`,
@@ -143,69 +153,51 @@ export function CapabilityVaultPrerequisite({
     return <RouteLoadingState label="Redirecting to sign in…" />;
   }
   if (state === "checking") {
-    return <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
+    return checkingFallback ?? <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />;
   }
   if (vaultHandoffPending) {
     return <RouteLoadingState label={`Opening ${capabilityLabel}…`} />;
   }
 
   const failed = state === "failed";
-  const actionLabel = failed
-    ? "Try again"
-    : state === "unlock_required"
-      ? "Open your private vault"
-      : "Set up your private vault";
-  const detail = failed
-    ? "We could not confirm your vault yet. Try again before continuing with this capability."
-    : state === "unlock_required"
-      ? `Open your private vault before ${capabilityLabel} uses encrypted information.`
-      : `${capabilityLabel} keeps the encrypted information needed for your choices in your private vault.`;
+  const actionLabel =
+    state === "unlock_required" ? "Unlock One" : "Set a lock";
 
-  return (
-    <section
-      aria-labelledby="capability-vault-prerequisite-title"
-      className="mx-auto w-full max-w-[32rem] space-y-4 px-4 py-8 text-center sm:px-6"
-    >
-      <div className="space-y-2">
-        <h1
-          id="capability-vault-prerequisite-title"
-          className="font-[family-name:var(--font-app-display)] text-2xl font-semibold tracking-[-0.02em] text-foreground"
-        >
-          {state === "unlock_required"
-            ? "Open your private vault first"
-            : "Set up your private vault first"}
-        </h1>
-        <p className="text-sm leading-6 text-muted-foreground">{detail}</p>
-      </div>
-      <Button
-        type="button"
-        variant="blue"
-        effect="fill"
-        size="lg"
-        onClick={() => {
-          if (failed) {
-            // The initial automatic presentation was intentionally consumed by
-            // the failed presence probe. A person-triggered retry is a new
-            // attempt and should present the vault flow once that probe settles.
+  if (failed) {
+    return (
+      <section className="mx-auto flex min-h-[18rem] w-full max-w-[32rem] flex-col items-center justify-center gap-3 px-4 text-center sm:px-6">
+        <p className="text-sm leading-6 text-muted-foreground">
+          We couldn't confirm your lock yet.
+        </p>
+        <Button
+          type="button"
+          variant="blue"
+          effect="fill"
+          onClick={() => {
             autoPresentedRef.current = false;
             setRetryKey((value) => value + 1);
-            return;
-          }
-          setDialogOpen(true);
-        }}
-      >
-        {actionLabel}
-      </Button>
+          }}
+        >
+          Try again
+        </Button>
+      </section>
+    );
+  }
+
+  return (
+    <section className="min-h-[18rem] w-full" aria-busy="true">
+      <RouteLoadingState label={`Preparing ${capabilityLabel}…`} />
       {user ? (
         <VaultUnlockDialog
           user={user}
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          title={`${actionLabel} for ${capabilityLabel}`}
-          description={`${actionLabel} before ${capabilityLabel} starts using encrypted information.`}
+          title={actionLabel}
+          description={`Continue ${capabilityLabel} setup once you're unlocked.`}
           enableGeneratedDefault={
             !preferPassphraseUnlockForAutomation(nativeTestConfig)
           }
+          allowVaultCreation={allowVaultCreation}
           onSuccess={() => {
             setVaultHandoffPending(true);
             setDialogOpen(false);

@@ -51,17 +51,7 @@ export function LocationChatPanel(props: {
   };
 
   if (!vaultOwnerToken) {
-    return (
-      <section data-testid="location-chat-panel" className={cn(CARD_SURFACE, "p-4")}>
-        <div className="flex items-center gap-3">
-          <BotAvatar />
-          <div>
-            <p className="text-sm font-semibold text-foreground">Onepoint</p>
-            <p className={MUTED_TEXT}>Unlock your vault to use the assistant.</p>
-          </div>
-        </div>
-      </section>
-    );
+    return null;
   }
 
   const hasMessages = chat.messages.length > 0;
@@ -71,7 +61,7 @@ export function LocationChatPanel(props: {
       <header className="mb-3 flex items-center gap-3">
         <BotAvatar />
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-foreground">Onepoint</p>
+          <p className="text-sm font-semibold text-foreground">Location</p>
           <p className={MUTED_TEXT}>
             Ask who can see you — or make changes by typing.
           </p>

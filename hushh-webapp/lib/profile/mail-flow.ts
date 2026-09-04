@@ -37,12 +37,19 @@ export interface GmailStatusSummary {
 }
 
 /**
- * Consumer-facing explanation shared by the disconnected and active-scan
- * states. Receipt emails represent purchase interactions, so they are a
- * clearer signal of brand affinity than a generic mailbox summary.
+ * Consumer-facing explanation on the disconnected state: what One reads, and
+ * what comes back out, which is the question being asked at the moment nothing
+ * is connected yet.
+ *
+ * It names only the features the connected Gmail workspace currently exposes.
+ * Personal-information monitoring is an independent, explicit opt-in after
+ * connection, so it must not be implied by the connection itself.
+ *
+ * The active-scan state does NOT share this: it has its own sentence inside
+ * `describeGmailReceiptScanProgress`, which carries live counts.
  */
-export const GMAIL_RECEIPT_SIGNAL_EXPLANATION =
-  "Receipt emails capture purchase interactions. Once connected, One uses the receipts it finds to understand the brands you care about and prepare a private shopping summary.";
+export const GMAIL_INBOX_SIGNAL_EXPLANATION =
+  "One syncs purchase receipts into a private shopping summary. You can separately turn on KYC-request monitoring after connecting.";
 
 export function describeGmailReceiptScanProgress(params: {
   scanned: number;
@@ -83,6 +90,11 @@ const TECHNICAL_ERROR_PATTERNS = [
   "nullreference",
   "syntaxerror",
   "background on this error at",
+  "failed to store domain data",
+];
+const RECOVERABLE_SYNC_INTERRUPTION_PATTERNS = [
+  "gmail sync expired before completion",
+  "gmail sync worker stopped before reporting a final status",
 ];
 
 function normalizeText(value: string | null | undefined): string {
@@ -198,6 +210,26 @@ function isAuthErrorText(value: string | null | undefined): boolean {
   ].some((pattern) => normalized.includes(pattern));
 }
 
+/**
+ * A local restart can interrupt an in-flight receipt scan after Gmail has
+ * already stored prior receipts. That is not a connection or authorization
+ * failure. Keep the previous usable state visible and let a later sync retry
+ * instead of presenting a permanent red health card on every cold launch.
+ */
+function hasRecoverableSyncInterruption(
+  status: GmailConnectionStatus | null,
+): boolean {
+  const messages = [
+    status?.last_sync_error,
+    status?.latest_run?.error_message,
+  ].map(normalizeText);
+  return messages.some((message) =>
+    RECOVERABLE_SYNC_INTERRUPTION_PATTERNS.some((pattern) =>
+      message.includes(pattern),
+    ),
+  );
+}
+
 function latestSyncTimestamp(
   run: GmailSyncRun | null | undefined,
   status: GmailConnectionStatus | null,
@@ -261,7 +293,10 @@ export function resolveGmailLastUpdatedLabel(
   status: GmailConnectionStatus | null,
   run?: GmailSyncRun | null,
 ): string | null {
-  const timestamp = latestSyncTimestamp(run ?? status?.latest_run, status);
+  const timestamp = latestSyncTimestamp(
+    run === undefined ? status?.latest_run : run,
+    status,
+  );
   if (!timestamp) return null;
   const relative = formatRelativeTimeFromNow(timestamp);
   if (relative) {
@@ -281,7 +316,10 @@ export function resolveGmailStatusSummary(options: {
     status?.configured && status?.connected && !status?.revoked,
   );
   const connectedLabel = resolveGmailConnectedLabel(status);
-  const lastUpdated = resolveGmailLastUpdatedLabel(status);
+  const lastUpdated = resolveGmailLastUpdatedLabel(
+    status,
+    hasRecoverableSyncInterruption(status) ? null : undefined,
+  );
 
   if (loading && !status && !errorText) {
     return {
@@ -331,7 +369,12 @@ export function resolveGmailStatusSummary(options: {
     };
   }
 
-  if (connected && (status?.last_sync_status === "failed" || errorText)) {
+  if (
+    connected &&
+    ((status?.last_sync_status === "failed" &&
+      !hasRecoverableSyncInterruption(status)) ||
+      errorText)
+  ) {
     return {
       tone: "error",
       title: "Sync failed",
@@ -367,14 +410,20 @@ export function resolveGmailStatusSummary(options: {
   return {
     tone: "neutral",
     title: "Gmail not connected",
-    detail: `Connect Gmail to start. ${GMAIL_RECEIPT_SIGNAL_EXPLANATION}`,
+    // No "Connect Gmail to start." prefix: the title above already says Gmail
+    // is not connected, and the button below says Connect Gmail.
+    detail: GMAIL_INBOX_SIGNAL_EXPLANATION,
     helper: null,
   };
 }
 
 function resolveLatestSyncText(status: GmailConnectionStatus | null): string {
   const run = status?.latest_run;
-  const lastUpdated = resolveGmailLastUpdatedLabel(status, run);
+  const recoverableInterruption = hasRecoverableSyncInterruption(status);
+  const lastUpdated = resolveGmailLastUpdatedLabel(
+    status,
+    recoverableInterruption ? null : run,
+  );
 
   if (run?.status === "queued") {
     return "Syncing your receipts now.";
@@ -385,10 +434,10 @@ function resolveLatestSyncText(status: GmailConnectionStatus | null): string {
   if (run?.status === "completed") {
     return lastUpdated || "Your receipts are up to date.";
   }
-  if (run?.status === "failed") {
+  if (run?.status === "failed" && !recoverableInterruption) {
     return "We couldn't update your receipts.";
   }
-  if (status?.last_sync_status === "failed") {
+  if (status?.last_sync_status === "failed" && !recoverableInterruption) {
     return "We couldn't update your receipts.";
   }
   if (status?.last_sync_at) {
@@ -520,7 +569,11 @@ export function resolveGmailConnectionPresentation(options: {
     };
   }
 
-  if (connected && status?.last_sync_status === "failed") {
+  if (
+    connected &&
+    status?.last_sync_status === "failed" &&
+    !hasRecoverableSyncInterruption(status)
+  ) {
     return {
       state: "sync_failed",
       badgeLabel: "Try again",
@@ -601,7 +654,10 @@ export function resolveGmailSyncFeedback(
   const latestRunStatus = status?.latest_run?.status;
   const terminalStatus = latestRunStatus || status?.last_sync_status;
 
-  if (terminalStatus === "failed" || status?.last_sync_status === "failed") {
+  if (
+    (terminalStatus === "failed" || status?.last_sync_status === "failed") &&
+    !hasRecoverableSyncInterruption(status)
+  ) {
     return {
       kind: "error",
       message: sanitizeGmailUserMessage(
@@ -612,6 +668,13 @@ export function resolveGmailSyncFeedback(
           authFallback: "Reconnect Gmail to continue syncing your receipts.",
         },
       ),
+    };
+  }
+
+  if (hasRecoverableSyncInterruption(status)) {
+    return {
+      kind: "message",
+      message: "A previous Gmail refresh was interrupted. Your saved receipts are still available.",
     };
   }
 

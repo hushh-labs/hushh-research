@@ -1,0 +1,29 @@
+{
+  "skill_name": "analytics-observability-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "our GA4 key events are not showing up in the BigQuery export for the Kai growth dashboard",
+        "top_k": 3
+      },
+      {
+        "prompt": "check whether the Firebase app stream for the UAT property is polluting the production analytics reporting",
+        "top_k": 3
+      },
+      {
+        "prompt": "the custom dimension taxonomy drifted from what npm run verify:analytics expects",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "who owns branch protection and the merge queue for the Cloud Run deploy pipeline",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "consolidate these redundant docs and decide the right documentation home for them",
+        "owner": "docs-governance"
+      }
+    ]
+  }
+}

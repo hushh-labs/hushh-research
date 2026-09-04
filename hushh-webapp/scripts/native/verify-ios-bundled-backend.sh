@@ -75,7 +75,7 @@ if bad:
         file=sys.stderr,
     )
     print(
-        "Run npm run ios:prepare:uat before archiving a UAT build.",
+        "Run npm run ios:prepare:uat or npm run ios:prepare:prod before archiving.",
         file=sys.stderr,
     )
     raise SystemExit(1)
@@ -86,7 +86,7 @@ if expected_backend_url:
     ]
     if mismatched:
         print(
-            "Bundled iOS backend does not match expected UAT backend for: "
+            "Bundled iOS backend does not match expected backend for: "
             + ", ".join(mismatched),
             file=sys.stderr,
         )

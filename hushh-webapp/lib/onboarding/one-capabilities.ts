@@ -1,22 +1,27 @@
+
 import {
-  BookOpen,
-  BriefcaseBusiness,
-  ChartNoAxesCombined,
-  Database,
+  BookMarked,
+  CalendarDays,
+  ContactRound,
+  CreditCard,
+  FileCheck2,
+  KeyRound,
+  Landmark,
   Mail,
-  MailCheck,
   MapPin,
-  ShieldCheck,
   Store,
+  UsersRound,
   type LucideIcon,
 } from "lucide-react";
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
 } from "@/lib/onboarding/setup-capability-ids";
+import { ONE_CAPABILITY_ICON_CLASS_BY_TONE } from "@/lib/design/agent-theme-registry";
 
 export {
   ONE_SETUP_CAPABILITY_IDS,
@@ -42,6 +47,7 @@ export type OneCapabilityTone =
   | "finance"
   | "ria"
   | "gmail"
+  | "calendar"
   | "email"
   | "location"
   | "pkm"
@@ -49,6 +55,19 @@ export type OneCapabilityTone =
   | "connected";
 
 export type OneCapabilityGroup = "workflow" | "memory" | "access";
+
+export type OneCapabilityIcon =
+  | { kind: "lucide"; icon: LucideIcon }
+  | { kind: "image"; src: string; alt: string };
+
+export function lucideCapabilityIcon(icon: LucideIcon): OneCapabilityIcon {
+  return { kind: "lucide", icon };
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
+function imageCapabilityIcon(src: string, alt: string): OneCapabilityIcon {
+  return { kind: "image", src, alt };
+}
 
 export interface OneCapability {
   id: string;
@@ -58,8 +77,8 @@ export interface OneCapability {
   setupControlId?: `one_setup_tile_${string}`;
   /**
    * Backend agent lane this tile is bound to, or null when the tile is a
-   * pure access/preview surface with no agent behind it (consent center,
-   * marketplace preview) or the lane does not exist yet (gmail).
+   * pure access/preview surface with no agent behind it (consent center or
+   * marketplace preview).
    *
    * This is a CONTRACT, not a comment: ids must exist in the backend
    * SPECIALIST_A2A_SCOPE_MAP and are enforced by
@@ -74,10 +93,14 @@ export interface OneCapability {
    * full `description` would truncate mid-word. Falls back to `description`.
    */
   previewLabel?: string;
+  /** Hide this capability from the primary One agent roster while its route remains available. */
+  isVisibleOnRoster?: boolean;
   href: string;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
+  /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
+  availability?: "enabled" | "paused" | "local-only";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -117,8 +140,40 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Market, portfolio, analysis, and RIA handoff.",
     previewLabel: "Market, portfolio & analysis",
     href: ROUTES.KAI_HOME,
-    icon: ChartNoAxesCombined,
+    icon: lucideCapabilityIcon(Landmark),
     tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "wallet",
+    agentId: "agent_wallet",
+    title: "Wallet",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: lucideCapabilityIcon(CreditCard),
+    tone: "pkm",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    // Second, deliberately. Location was row 6 of 10 and below the fold on a
+    // phone; 391 people reached this screen in 30 days and 18 opened Location,
+    // while the feature converts at 76% once found. Unlike Finance and Consent
+    // it has no inbound entry point -- no push, no toast, no feed row reaches
+    // someone who does not already have a share -- so its only discovery path
+    // is this list.
+    id: "location",
+    setupActionId: "setup.open_location",
+    setupControlId: "one_setup_tile_location",
+    agentId: "agent_location",
+    title: "Location",
+    description: "Share where you are with people you trust.",
+    previewLabel: "Live location & Alerts",
+    href: ROUTES.ONE_LOCATION,
+    icon: lucideCapabilityIcon(MapPin),
+    tone: "location",
     group: "workflow",
     requiresVault: true,
   },
@@ -133,7 +188,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Advisor verification, profile, clients, and requests.",
     previewLabel: "Advisor profile & verification",
     href: ROUTES.RIA_ONBOARDING,
-    icon: BriefcaseBusiness,
+    icon: lucideCapabilityIcon(UsersRound),
     tone: "ria",
     group: "workflow",
     requiresVault: true,
@@ -147,45 +202,46 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     description: "Receipt sync and purchase-memory review.",
     previewLabel: "Receipt & purchase memory",
     href: ROUTES.GMAIL,
-    icon: Mail,
+    icon: lucideCapabilityIcon(Mail),
     tone: "gmail",
     group: "memory",
+    requiresVault: true,
+  },
+  {
+    id: "calendar",
+    setupActionId: "setup.open_calendar",
+    setupControlId: "one_setup_tile_calendar",
+    agentId: "agent_calendar",
+    title: "Calendar",
+    description: "Calendar summaries, availability, and confirmed scheduling.",
+    previewLabel: "Availability & scheduling",
+    href: ROUTES.CALENDAR,
+    icon: lucideCapabilityIcon(CalendarDays),
+    tone: "calendar",
+    group: "workflow",
     requiresVault: true,
   },
   {
     id: "email",
     setupActionId: "setup.open_email",
     setupControlId: "one_setup_tile_email",
-    agentId: "agent_email",
-    title: "Email",
-    description: "Approval drafts and client request workflows.",
+    agentId: "agent_kyc",
+    title: "KYC",
+    description: "Review information requests and approve each response.",
     href: ROUTES.ONE_KYC,
-    icon: MailCheck,
+    icon: lucideCapabilityIcon(FileCheck2),
     tone: "email",
     group: "workflow",
     requiresVault: true,
   },
   {
-    id: "location",
-    setupActionId: "setup.open_location",
-    setupControlId: "one_setup_tile_location",
-    agentId: "agent_location",
-    title: "Onepoint",
-    description: "Live location & Alerts",
-    previewLabel: "Live location & Alerts",
-    href: ROUTES.ONE_LOCATION,
-    icon: MapPin,
-    tone: "location",
-    group: "workflow",
-    requiresVault: true,
-  },
-  {
     id: "pkm",
-    agentId: "agent_personal_information",
+    // Memory is a direct private-agent surface, not Marketplace delegation.
+    agentId: null,
     title: "Memory",
     description: "Saved knowledge and context you can review.",
     href: ROUTES.PKM,
-    icon: BookOpen,
+    icon: lucideCapabilityIcon(BookMarked),
     tone: "pkm",
     group: "memory",
     requiresVault: true,
@@ -198,7 +254,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     title: "Consent",
     description: "Access requests, approvals, and revocations.",
     href: buildConsentCenterHref("pending"),
-    icon: ShieldCheck,
+    icon: lucideCapabilityIcon(KeyRound),
     tone: "consent",
     group: "access",
     isExploreOnly: true,
@@ -212,23 +268,25 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
       "Preview priced slices of your personal information you could publish.",
     previewLabel: "Priced information slices",
     href: ROUTES.ONE_MARKETPLACE,
-    icon: Store,
+    icon: lucideCapabilityIcon(Store),
     tone: "pkm",
     group: "access",
     isExploreOnly: true,
+    isVisibleOnRoster: false,
   },
   {
     id: "connected-systems",
     setupActionId: "setup.open_connected_systems",
     setupControlId: "one_setup_tile_connected-systems",
     agentId: "agent_connected_systems",
-    title: "Connected Systems",
+    title: "CRM",
     description: "Approved CRM reads and writes.",
     href: ROUTES.CONNECTED_SYSTEMS,
-    icon: Database,
+    icon: lucideCapabilityIcon(ContactRound),
     tone: "connected",
     group: "workflow",
     requiresVault: true,
+    availability: "local-only",
   },
 ] as const;
 
@@ -237,8 +295,9 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
  * This order is product-authored and must not be re-ranked by status: people
  * should always see the same calm sequence while individual rows update.
  *
- * Memory, Consent, and Information Marketplace remain available in One; they
- * are not account-setup requirements.
+ * Memory and Consent remain available in One; they are not account-setup
+ * requirements. Information Marketplace remains route-addressable but is not
+ * shown in the primary agent roster while the surface is disabled.
  */
 export type OneSetupCapability = OneCapability & {
   id: OneSetupCapabilityId;
@@ -255,7 +314,10 @@ function requireOneCapability(id: OneSetupCapabilityId): OneSetupCapability {
 }
 
 export const ONE_SETUP_CAPABILITIES: readonly OneSetupCapability[] =
-  ONE_SETUP_CAPABILITY_IDS.map(requireOneCapability);
+  ONE_SETUP_CAPABILITY_IDS.map(requireOneCapability).filter(
+    (capability): capability is OneSetupCapability =>
+      isOneCapabilityEnabled(capability),
+  );
 
 export function getOneSetupCapability(
   id: string,
@@ -281,27 +343,14 @@ export function getOneCapability(id: string): OneCapability | undefined {
  */
 // Class strings are written out in full (not built from a hex variable) so
 // Tailwind's static content scanner can find and generate each utility.
-export const ONE_CAPABILITY_ICON_CLASS_BY_TONE: Record<
-  OneCapabilityTone,
-  string
-> = {
-  // One color guidelines — soft premium palette (see the "One — Color
-  // Guidelines" spec). Each tone maps to its named token.
-  // Finance: Lavender Mist.
-  finance: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
-  // RIA: Sky Blue.
-  ria: "bg-[#60A5FA] text-[#1d1d1f] dark:text-white",
-  // Gmail renders its own full-color brand mark (see GmailBrandIcon) on a clean
-  // Cloud White tile, so the logo's colors read cleanly.
-  gmail: "bg-white text-[#1d1d1f]",
-  // Email: Mint Teal.
-  email: "bg-[#14B8A6] text-[#1d1d1f] dark:text-white",
-  // Location: Sage Green.
-  location: "bg-[#A7D7A1] text-[#1d1d1f] dark:text-white",
-  // Memory (saved knowledge) + Information Marketplace preview: Lavender Mist.
-  pkm: "bg-[#B85CF6] text-[#1d1d1f] dark:text-white",
-  // Consent: Warm Gold (matches the shield motif).
-  consent: "bg-[#C8923A] text-[#1d1d1f] dark:text-white",
-  // Connected Systems: Slate Blue-Gray.
-  connected: "bg-[#94A3B8] text-[#1d1d1f] dark:text-white",
-};
+export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
+
+export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
+  const resolved =
+    typeof capability === "string" ? getOneCapability(capability) : capability;
+  if (!resolved || resolved.id === "marketplace" || resolved.availability === "paused") {
+    return false;
+  }
+  if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  return true;
+}

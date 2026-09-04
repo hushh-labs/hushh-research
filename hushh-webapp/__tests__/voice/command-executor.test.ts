@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 
 const toastInfoMock = vi.fn();
 const toastErrorMock = vi.fn();
@@ -24,7 +24,7 @@ function baseInput() {
     reviewDirty: false,
     busyOperations: {} as Record<string, boolean>,
     setAnalysisParams: vi.fn(),
-    currentRoute: "/profile",
+    currentRoute: "/one/profile",
     currentScreen: "profile_account",
   };
 }
@@ -46,15 +46,17 @@ describe("executeKaiCommand", () => {
     });
 
     expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
-    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=NVDA`);
+    expect(input.router.push).toHaveBeenCalledWith(
+      buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
+    );
     expect(result).toEqual({
       status: "executed",
       reason: undefined,
       actionResult: {
         status: "started",
         actionId: "analysis.start",
-        routeBefore: "/profile",
-        routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+        routeBefore: "/one/profile",
+        routeAfter: buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
         screenBefore: "profile_account",
         screenAfter: "kai_analysis",
         resultSummary: "Opened the NVDA comparison preview before starting the debate.",
@@ -84,10 +86,10 @@ describe("executeKaiCommand", () => {
       description: "Open analysis to continue with the active run.",
     });
     expect(input.router.push).toHaveBeenCalledWith(
-      `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=MSFT`
+      buildKaiMarketRoute("analysis", { focus: "active", ticker: "MSFT" })
     );
     expect(result.actionResult.routeAfter).toBe(
-      `${ROUTES.KAI_ANALYSIS}?focus=active&ticker=MSFT`
+      buildKaiMarketRoute("analysis", { focus: "active", ticker: "MSFT" })
     );
     expect(result.actionResult.screenAfter).toBe("kai_analysis");
   });
@@ -105,11 +107,13 @@ describe("executeKaiCommand", () => {
     });
 
     expect(input.setAnalysisParams).toHaveBeenCalledWith(null);
-    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?ticker=AMD`);
+    expect(input.router.push).toHaveBeenCalledWith(
+      buildKaiMarketRoute("analysis", { ticker: "AMD" }),
+    );
     expect(result.actionResult).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=AMD`,
+      routeAfter: buildKaiMarketRoute("analysis", { ticker: "AMD" }),
       screenAfter: "kai_analysis",
     });
   });
@@ -123,11 +127,13 @@ describe("executeKaiCommand", () => {
       command: "history",
     });
 
-    expect(input.router.push).toHaveBeenCalledWith(`${ROUTES.KAI_ANALYSIS}?tab=history`);
+    expect(input.router.push).toHaveBeenCalledWith(
+      buildKaiMarketRoute("analysis", { view: "history" }),
+    );
     expect(result.actionResult).toMatchObject({
       status: "succeeded",
       actionId: "route.analysis_history",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?tab=history`,
+      routeAfter: buildKaiMarketRoute("analysis", { view: "history" }),
       screenAfter: "kai_analysis",
     });
   });

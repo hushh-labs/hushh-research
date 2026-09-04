@@ -6,7 +6,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
   Crown,
-  Download,
   FileSpreadsheet,
   Loader2,
   Medal,
@@ -33,9 +32,15 @@ import {
 } from "@/components/app-ui/command-fields";
 import { DataTable } from "@/components/app-ui/data-table";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { SurfaceCard, SurfaceCardContent, SurfaceInset } from "@/components/app-ui/surfaces";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import {
+  SurfaceCard,
+  SurfaceCardContent,
+  SurfaceInset,
+  SurfaceStack,
+} from "@/components/app-ui/surfaces";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
+import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
 import {
   Table,
   TableBody,
@@ -44,6 +49,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Textarea } from "@/components/ui/textarea";
 import { useAuth } from "@/hooks/use-auth";
 import {
   preloadTickerUniverse,
@@ -70,7 +76,8 @@ import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metada
 
 type PicksSource = "kai" | "my";
 type PicksCategory = "top-picks" | "avoid" | "screening";
-type ScreeningSectionKey = "investable_requirements" | "automatic_avoid_triggers" | "the_math";
+type ScreeningSectionKey =
+  "investable_requirements" | "automatic_avoid_triggers" | "the_math";
 
 type DraftTopPickRow = {
   id: string;
@@ -108,7 +115,10 @@ type DraftPickPackage = {
   avoid_rows: DraftAvoidRow[];
   screening_sections: DraftScreeningSection[];
   package_note: string;
+  investor_debate_thesis: string;
 };
+
+const INVESTOR_DEBATE_THESIS_MAX_LENGTH = 2000;
 
 type ValidationState = {
   packageErrors: string[];
@@ -131,11 +141,14 @@ const TIER_CONFIG: Record<string, { icon: typeof Crown; color: string }> = {
 };
 
 const TIER_OPTIONS = Object.keys(TIER_CONFIG);
-const TIER_COMMAND_OPTIONS: CommandPickerOption[] = TIER_OPTIONS.map((tier) => ({
-  value: tier,
-  label: tier,
-  description: `${tier} conviction band`,
-}));
+const TIER_COMMAND_OPTIONS: CommandPickerOption[] = TIER_OPTIONS.map(
+  (tier) => ({
+    value: tier,
+    label: tier,
+    description: `${tier} conviction band`,
+  }),
+);
+const RIA_PICK_THESIS_MAX_LENGTH = 2000;
 
 const DEFAULT_AVOID_CATEGORIES = [
   "Governance",
@@ -146,7 +159,11 @@ const DEFAULT_AVOID_CATEGORIES = [
   "Valuation",
 ];
 
-const SCREENING_SECTIONS: Array<{ key: ScreeningSectionKey; label: string; blurb: string }> = [
+const SCREENING_SECTIONS: Array<{
+  key: ScreeningSectionKey;
+  label: string;
+  blurb: string;
+}> = [
   {
     key: "investable_requirements",
     label: RIA_COPY.picks.screening.investable.title,
@@ -169,6 +186,10 @@ function generateId(prefix: string) {
     return `${prefix}-${crypto.randomUUID()}`;
   }
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function normalizeAdvisorThesisInput(value: string): string {
+  return value.trim().slice(0, RIA_PICK_THESIS_MAX_LENGTH);
 }
 
 function createTopPickRow(seed?: Partial<RiaPickRow>): DraftTopPickRow {
@@ -194,7 +215,9 @@ function createAvoidRow(seed?: Partial<RiaAvoidRow>): DraftAvoidRow {
   };
 }
 
-function createScreeningRow(seed?: Partial<RiaScreeningRow>): DraftScreeningRow {
+function createScreeningRow(
+  seed?: Partial<RiaScreeningRow>,
+): DraftScreeningRow {
   return {
     id: generateId("screen"),
     title: String(seed?.title || ""),
@@ -214,15 +237,24 @@ function dedupeMathRows(rows: DraftScreeningRow[]): DraftScreeningRow[] {
   });
 }
 
-function normalizeScreeningDisplayRows<T extends { title?: string | null; detail?: string | null; value_text?: string | null }>(
-  rows: T[],
-  sectionKey: string
-): T[] {
+function normalizeScreeningDisplayRows<
+  T extends {
+    title?: string | null;
+    detail?: string | null;
+    value_text?: string | null;
+  },
+>(rows: T[], sectionKey: string): T[] {
   const seen = new Set<string>();
   return rows.filter((row) => {
-    const title = String(row.title || "").trim().toLowerCase();
-    const detail = String(row.detail || "").trim().toLowerCase();
-    const value = String(row.value_text || "").trim().toLowerCase();
+    const title = String(row.title || "")
+      .trim()
+      .toLowerCase();
+    const detail = String(row.detail || "")
+      .trim()
+      .toLowerCase();
+    const value = String(row.value_text || "")
+      .trim()
+      .toLowerCase();
     const signature = `${sectionKey}|${title}|${detail}|${value}`;
     if (sectionKey === "the_math") {
       if (seen.has(signature)) {
@@ -239,7 +271,9 @@ function shouldRenderScreeningDetail(rule: {
   detail?: string | null;
   value_text?: string | null;
 }) {
-  const title = String(rule.title || "").trim().toLowerCase();
+  const title = String(rule.title || "")
+    .trim()
+    .toLowerCase();
   const detail = String(rule.detail || "").trim();
   if (!detail) return false;
   return detail.toLowerCase() !== title;
@@ -252,8 +286,12 @@ function shouldRenderScreeningValue(rule: {
 }) {
   const value = String(rule.value_text || "").trim();
   if (!value) return false;
-  const title = String(rule.title || "").trim().toLowerCase();
-  const detail = String(rule.detail || "").trim().toLowerCase();
+  const title = String(rule.title || "")
+    .trim()
+    .toLowerCase();
+  const detail = String(rule.detail || "")
+    .trim()
+    .toLowerCase();
   const normalizedValue = value.toLowerCase();
   return normalizedValue !== title && normalizedValue !== detail;
 }
@@ -265,33 +303,36 @@ function createDraftPackage(source?: RiaPickPackage | null): DraftPickPackage {
   }
 
   return {
-    top_picks:
-      source?.top_picks?.length
-        ? source.top_picks.map((row) => createTopPickRow(row))
-        : [],
-    avoid_rows:
-      source?.avoid_rows?.length
-        ? source.avoid_rows.map((row) => createAvoidRow(row))
-        : [],
+    top_picks: source?.top_picks?.length
+      ? source.top_picks.map((row) => createTopPickRow(row))
+      : [],
+    avoid_rows: source?.avoid_rows?.length
+      ? source.avoid_rows.map((row) => createAvoidRow(row))
+      : [],
     screening_sections: SCREENING_SECTIONS.map((section) => {
-      const rows = (screeningMap.get(section.key)?.rows || []).map((row) => createScreeningRow(row));
+      const rows = (screeningMap.get(section.key)?.rows || []).map((row) =>
+        createScreeningRow(row),
+      );
       return {
         section: section.key,
         rows: section.key === "the_math" ? dedupeMathRows(rows) : rows,
       };
     }),
     package_note: String(source?.package_note || ""),
+    investor_debate_thesis: String(source?.investor_debate_thesis || ""),
   };
 }
 
-function draftToPayload(draft: DraftPickPackage): RiaPickPackage & { package_note?: string } {
+function draftToPayload(
+  draft: DraftPickPackage,
+): RiaPickPackage & { package_note?: string; investor_debate_thesis?: string } {
   return {
     top_picks: draft.top_picks.map((row, index) => ({
       ticker: row.ticker.trim().toUpperCase(),
       company_name: row.company_name.trim(),
       sector: row.sector.trim(),
       tier: row.tier.trim().toUpperCase(),
-      investment_thesis: row.investment_thesis.trim(),
+      investment_thesis: normalizeAdvisorThesisInput(row.investment_thesis),
       tier_rank: index + 1,
     })),
     avoid_rows: draft.avoid_rows.map((row) => ({
@@ -304,22 +345,28 @@ function draftToPayload(draft: DraftPickPackage): RiaPickPackage & { package_not
     })),
     screening_sections: draft.screening_sections.map((section) => ({
       section: section.section,
-      rows: (section.section === "the_math" ? dedupeMathRows(section.rows) : section.rows).map(
-        (row, index) => ({
-          rule_index: index + 1,
-          title: row.title.trim(),
-          detail: row.detail.trim(),
-          value_text: row.value_text.trim() || null,
-        })
-      ),
+      rows: (section.section === "the_math"
+        ? dedupeMathRows(section.rows)
+        : section.rows
+      ).map((row, index) => ({
+        rule_index: index + 1,
+        title: row.title.trim(),
+        detail: row.detail.trim(),
+        value_text: row.value_text.trim() || null,
+      })),
     })),
     package_note: draft.package_note.trim() || undefined,
+    investor_debate_thesis: draft.investor_debate_thesis.trim() || undefined,
   };
 }
 
-function packageFingerprint(value: RiaPickPackage | DraftPickPackage | null | undefined) {
+function packageFingerprint(
+  value: RiaPickPackage | DraftPickPackage | null | undefined,
+) {
   if (!value) return "";
-  return JSON.stringify(draftToPayload(createDraftPackage(value as RiaPickPackage)));
+  return JSON.stringify(
+    draftToPayload(createDraftPackage(value as RiaPickPackage)),
+  );
 }
 
 function TierBadge({ tier }: { tier?: string | null }) {
@@ -330,7 +377,12 @@ function TierBadge({ tier }: { tier?: string | null }) {
   }
   const Icon = config.icon;
   return (
-    <span className={cn("inline-flex items-center gap-1 text-xs font-semibold", config.color)}>
+    <span
+      className={cn(
+        "inline-flex items-center gap-1 text-xs font-semibold",
+        config.color,
+      )}
+    >
       <Icon className="h-3.5 w-3.5" />
       {normalizedTier}
     </span>
@@ -391,10 +443,13 @@ function UploadPanel({
     <SurfaceCard data-testid="ria-picks-upload-panel">
       <SurfaceCardContent className="space-y-4 p-5">
         <div>
-          <h3 className="text-sm font-semibold text-foreground">Upload a top-picks CSV</h3>
+          <h3 className="text-sm font-semibold text-foreground">
+            Upload a top-picks CSV
+          </h3>
           <p className="mt-1 text-sm text-muted-foreground">
-            CSV parsing still works, but it now feeds the same live package save path as the inline
-            editor. Your current avoid and screening rules stay attached.
+            CSV parsing still works, but it now feeds the same live package save
+            path as the inline editor. Your current avoid and screening rules
+            stay attached.
           </p>
         </div>
         <div className="space-y-3">
@@ -407,12 +462,15 @@ function UploadPanel({
           <input
             type="file"
             accept=".csv,text/csv"
-            onChange={(event) => onFileSelected(event.target.files?.[0] ?? null)}
+            onChange={(event) =>
+              onFileSelected(event.target.files?.[0] ?? null)
+            }
             className="block w-full text-sm"
           />
           {fileName ? (
             <p className="text-xs text-muted-foreground">
-              Ready: <span className="font-medium text-foreground">{fileName}</span>
+              Ready:{" "}
+              <span className="font-medium text-foreground">{fileName}</span>
             </p>
           ) : null}
           <div className="flex flex-wrap gap-2">
@@ -426,12 +484,7 @@ function UploadPanel({
               <Upload className="mr-2 h-4 w-4" />
               {submitting ? "Uploading..." : "Upload and replace top picks"}
             </Button>
-            <Button asChild variant="none" effect="fade" size="sm">
-              <a href="/templates/ria-picks-template.csv" download>
-                <Download className="mr-2 h-4 w-4" />
-                Download template
-              </a>
-            </Button>
+            <TemplatePreviewModal triggerLabel="Download template" />
           </div>
         </div>
       </SurfaceCardContent>
@@ -454,10 +507,75 @@ function EmptyMyListState() {
   );
 }
 
+function TopPickMobileCard({ row }: { row: RiaPickRow }) {
+  return (
+    <SurfaceCard>
+      <SurfaceCardContent className="space-y-3 p-4">
+        <div className="flex min-w-0 items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-semibold tracking-tight text-foreground">
+              {row.ticker || "—"}
+            </p>
+            <p className="mt-0.5 break-words text-sm text-foreground">
+              {row.company_name || "—"}
+            </p>
+            <p className="mt-0.5 break-words text-xs text-muted-foreground">
+              {row.sector || "—"}
+            </p>
+          </div>
+          <div className="shrink-0">
+            <TierBadge tier={row.tier} />
+          </div>
+        </div>
+        <p className="break-words text-xs leading-5 text-muted-foreground">
+          {row.investment_thesis || "—"}
+        </p>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
+}
+
+function AvoidMobileCard({ row }: { row: RiaAvoidRow }) {
+  return (
+    <SurfaceCard>
+      <SurfaceCardContent className="space-y-3 p-4">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-start justify-between gap-3">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold tracking-tight text-foreground">
+                {row.ticker || "—"}
+              </p>
+              <p className="mt-0.5 break-words text-sm text-foreground">
+                {row.company_name || "—"}
+              </p>
+              <p className="mt-0.5 break-words text-xs text-muted-foreground">
+                {row.sector || "—"}
+              </p>
+            </div>
+            <span className="shrink-0 rounded-full bg-muted px-2 py-1 text-[11px] font-medium text-muted-foreground">
+              {row.category || "Avoid"}
+            </span>
+          </div>
+        </div>
+        <div className="space-y-2">
+          <p className="break-words text-xs leading-5 text-muted-foreground">
+            {row.why_avoid || "—"}
+          </p>
+          {row.note ? (
+            <p className="break-words border-t border-border/30 pt-2 text-xs leading-5 text-muted-foreground">
+              {row.note}
+            </p>
+          ) : null}
+        </div>
+      </SurfaceCardContent>
+    </SurfaceCard>
+  );
+}
+
 function InlineValidationBanner({ errors }: { errors: string[] }) {
   if (errors.length === 0) return null;
   return (
-    <div className="rounded-[18px] border border-rose-200/80 bg-rose-50/90 px-4 py-3 text-sm text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+    <div className="rounded-[18px] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-4 py-3 text-sm text-[color:var(--ria-danger-text)]">
       {errors.join(" ")}
     </div>
   );
@@ -466,7 +584,7 @@ function InlineValidationBanner({ errors }: { errors: string[] }) {
 function RowErrorNotice({ errors }: { errors: string[] | undefined }) {
   if (!errors || errors.length === 0) return null;
   return (
-    <div className="rounded-[12px] border border-rose-200/70 bg-rose-50/80 px-3 py-2 text-xs text-rose-700 dark:border-rose-500/20 dark:bg-rose-500/10 dark:text-rose-200">
+    <div className="rounded-[12px] border border-[color:var(--ria-danger-border)] bg-[color:var(--ria-danger-bg)] px-3 py-2 text-xs text-[color:var(--ria-danger-text)]">
       {errors.join(" ")}
     </div>
   );
@@ -490,13 +608,15 @@ function ValidationIssuesPanel({
         <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <AlertTriangle className="h-4 w-4 text-amber-600 dark:text-amber-400" />
+              <AlertTriangle className="h-4 w-4 text-[color:var(--ria-warning-text)]" />
               <p className="text-sm font-semibold text-foreground">
-                {issues.length} row{issues.length === 1 ? "" : "s"} need attention
+                {issues.length} row{issues.length === 1 ? "" : "s"} need
+                attention
               </p>
             </div>
             <p className="text-sm text-muted-foreground">
-              Jump straight to invalid rows or filter the editor down to issues only.
+              Jump straight to invalid rows or filter the editor down to issues
+              only.
             </p>
           </div>
           <Button
@@ -515,10 +635,14 @@ function ValidationIssuesPanel({
               key={issue.rowId}
               type="button"
               onClick={() => onJumpToIssue(issue)}
-              className="rounded-[18px] border border-amber-200/80 bg-amber-50/80 px-4 py-3 text-left transition hover:border-amber-300 hover:bg-amber-50 dark:border-amber-500/20 dark:bg-amber-500/10 dark:hover:bg-amber-500/15"
+              className="rounded-[18px] border border-[color:var(--ria-warning-border)] bg-[color:var(--ria-warning-bg)] px-4 py-3 text-left transition hover:brightness-95 dark:hover:brightness-110"
             >
-              <p className="text-sm font-semibold text-foreground">{issue.title}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{issue.messages.join(" ")}</p>
+              <p className="text-sm font-semibold text-foreground">
+                {issue.title}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {issue.messages.join(" ")}
+              </p>
             </button>
           ))}
         </div>
@@ -531,25 +655,29 @@ function DenseCellInput(
   props: React.InputHTMLAttributes<HTMLInputElement> & {
     invalid?: boolean;
     tone?: "editable" | "derived";
-  }
+  },
 ) {
   const { invalid, className, tone = "editable", ...rest } = props;
   return (
     <input
       {...rest}
       className={cn(
-        "h-9 w-full rounded-[14px] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
-        invalid ? "border-rose-300 dark:border-rose-500/50" : "border-border/80",
+        "h-9 w-full rounded-[var(--ria-chip-radius)] border px-2.5 text-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring/70",
+        invalid
+          ? "border-[color:var(--ria-danger-border)]"
+          : "border-border/80",
         tone === "derived"
           ? "bg-muted/[0.72] text-muted-foreground shadow-[inset_0_1px_0_rgba(255,255,255,0.35)] read-only:cursor-default"
           : "bg-background text-foreground",
-        className
+        className,
       )}
     />
   );
 }
 
-async function loadTickerCommandOptions(query: string): Promise<CommandPickerOption<TickerUniverseRow>[]> {
+async function loadTickerCommandOptions(
+  query: string,
+): Promise<CommandPickerOption<TickerUniverseRow>[]> {
   const normalizedQuery = query.trim().toUpperCase();
   if (!normalizedQuery) return [];
 
@@ -558,7 +686,10 @@ async function loadTickerCommandOptions(query: string): Promise<CommandPickerOpt
     .filter((row) => {
       const ticker = row.ticker.toUpperCase();
       const title = String(row.title || "").toUpperCase();
-      return row.tradable !== false && (ticker.includes(normalizedQuery) || title.includes(normalizedQuery));
+      return (
+        row.tradable !== false &&
+        (ticker.includes(normalizedQuery) || title.includes(normalizedQuery))
+      );
     })
     .slice(0, 8);
 
@@ -592,7 +723,11 @@ function TickerLookupField({
 }: {
   rowId: string;
   value: string;
-  onResolvedRow: (rowId: string, value: string, metadata: TickerUniverseRow | null) => void;
+  onResolvedRow: (
+    rowId: string,
+    value: string,
+    metadata: TickerUniverseRow | null,
+  ) => void;
   invalid?: boolean;
 }) {
   return (
@@ -607,19 +742,27 @@ function TickerLookupField({
       invalid={invalid}
       allowClear
       loadOptions={loadTickerCommandOptions}
-      onSelect={(option) => onResolvedRow(rowId, option?.value || "", option?.data || null)}
+      onSelect={(option) =>
+        onResolvedRow(rowId, option?.value || "", option?.data || null)
+      }
       renderOption={(option, selected) => (
         <>
           <div className="min-w-0 flex-1 space-y-1">
             <div className="flex items-center gap-2">
-              <span className="font-semibold tracking-tight text-foreground">{option.label}</span>
+              <span className="font-semibold tracking-tight text-foreground">
+                {option.label}
+              </span>
               <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] text-muted-foreground">
                 {option.supportingLabel || "Unclassified"}
               </span>
             </div>
-            <p className="truncate text-xs text-muted-foreground">{option.description}</p>
+            <p className="truncate text-xs text-muted-foreground">
+              {option.description}
+            </p>
           </div>
-          {selected ? <span className="text-xs font-medium text-primary">Selected</span> : null}
+          {selected ? (
+            <span className="text-xs font-medium text-primary">Selected</span>
+          ) : null}
         </>
       )}
     />
@@ -713,16 +856,30 @@ function TopPicksEditor({
   saveDisabled: boolean;
   onAddRow: () => void;
   onRemoveRow: (id: string) => void;
-  onRowChange: (id: string, field: keyof DraftTopPickRow, value: string) => void;
-  onTickerResolved: (id: string, value: string, metadata: TickerUniverseRow | null) => void;
+  onRowChange: (
+    id: string,
+    field: keyof DraftTopPickRow,
+    value: string,
+  ) => void;
+  onTickerResolved: (
+    id: string,
+    value: string,
+    metadata: TickerUniverseRow | null,
+  ) => void;
   onSave: () => void;
 }) {
   const [page, setPage] = useState(1);
   const filteredRows = useMemo(
-    () => (showIssuesOnly ? rows.filter((row) => Boolean(errors[row.id]?.length)) : rows),
-    [errors, rows, showIssuesOnly]
+    () =>
+      showIssuesOnly
+        ? rows.filter((row) => Boolean(errors[row.id]?.length))
+        : rows,
+    [errors, rows, showIssuesOnly],
   );
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / EDITOR_PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRows.length / EDITOR_PAGE_SIZE),
+  );
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
@@ -745,7 +902,8 @@ function TopPicksEditor({
           <div>
             <h3 className="text-sm font-semibold text-foreground">Top picks</h3>
             <p className="text-xs text-muted-foreground">
-              SEC-backed tickers only. Company and sector map from the maintained symbol master.
+              SEC-backed tickers only. Company and sector map from the
+              maintained symbol master.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 sm:justify-end">
@@ -755,7 +913,9 @@ function TopPicksEditor({
               size="sm"
               onClick={() => {
                 onAddRow();
-                setPage(Math.ceil((filteredRows.length + 1) / EDITOR_PAGE_SIZE));
+                setPage(
+                  Math.ceil((filteredRows.length + 1) / EDITOR_PAGE_SIZE),
+                );
               }}
               className="w-full justify-center"
             >
@@ -779,68 +939,91 @@ function TopPicksEditor({
           {visibleRows.map((row, index) => {
             const displayIndex = (page - 1) * EDITOR_PAGE_SIZE + index + 1;
             return (
-            <SurfaceInset
-              key={row.id}
-              className={cn(
-                "space-y-3 p-3",
-                focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Top pick {displayIndex}</p>
-                  <p className="text-xs text-muted-foreground">Compact mobile editor</p>
+              <SurfaceInset
+                key={row.id}
+                className={cn(
+                  "space-y-3 p-3",
+                  focusedRowId === row.id &&
+                    "ring-2 ring-amber-300/70 dark:ring-amber-500/40",
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Top pick {displayIndex}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Compact mobile editor
+                    </p>
+                  </div>
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => onRemoveRow(row.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <MobileEditorField label="Ticker">
-                <TickerLookupField
-                  rowId={row.id}
-                  value={row.ticker}
-                  onResolvedRow={onTickerResolved}
-                  invalid={Boolean(errors[row.id]?.length)}
-                />
-                <RowErrorNotice errors={errors[row.id]} />
-              </MobileEditorField>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MobileEditorField label="Company">
-                  <DenseCellInput value={row.company_name} readOnly tone="derived" />
-                </MobileEditorField>
-                <MobileEditorField label="Sector">
-                  <DenseCellInput value={row.sector} readOnly tone="derived" />
-                </MobileEditorField>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
-                <MobileEditorField label="Tier">
-                  <CommandPickerField
-                    title="Select tier"
-                    description="Choose the conviction band the investor debate should inherit."
-                    value={row.tier}
-                    placeholder="Tier"
-                    options={TIER_COMMAND_OPTIONS}
-                    allowClear
+                <MobileEditorField label="Ticker">
+                  <TickerLookupField
+                    rowId={row.id}
+                    value={row.ticker}
+                    onResolvedRow={onTickerResolved}
                     invalid={Boolean(errors[row.id]?.length)}
-                    onSelect={(option) => onRowChange(row.id, "tier", option?.value || "")}
-                    triggerClassName="min-h-11"
                   />
+                  <RowErrorNotice errors={errors[row.id]} />
                 </MobileEditorField>
-                <MobileEditorField label="Investment thesis">
-                  <PopupTextEditorField
-                    title={`Investment thesis for ${row.ticker || `top pick ${displayIndex}`}`}
-                    description="Keep the list compact, then edit the full thesis in this focused editor."
-                    value={row.investment_thesis}
-                    placeholder="Why this name belongs in the live debate universe"
-                    previewPlaceholder="Add the investment thesis"
-                    invalid={Boolean(errors[row.id]?.length)}
-                    onSave={(value) => onRowChange(row.id, "investment_thesis", value)}
-                    triggerClassName="min-h-[56px] px-3 py-2.5"
-                    previewClassName="line-clamp-2 text-xs leading-5"
-                  />
-                </MobileEditorField>
-              </div>
-            </SurfaceInset>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MobileEditorField label="Company">
+                    <DenseCellInput
+                      value={row.company_name}
+                      readOnly
+                      tone="derived"
+                    />
+                  </MobileEditorField>
+                  <MobileEditorField label="Sector">
+                    <DenseCellInput
+                      value={row.sector}
+                      readOnly
+                      tone="derived"
+                    />
+                  </MobileEditorField>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
+                  <MobileEditorField label="Tier">
+                    <CommandPickerField
+                      title="Select tier"
+                      description="Choose the conviction band the investor debate should inherit."
+                      value={row.tier}
+                      placeholder="Tier"
+                      options={TIER_COMMAND_OPTIONS}
+                      allowClear
+                      invalid={Boolean(errors[row.id]?.length)}
+                      onSelect={(option) =>
+                        onRowChange(row.id, "tier", option?.value || "")
+                      }
+                      triggerClassName="min-h-11"
+                    />
+                  </MobileEditorField>
+                  <MobileEditorField label="Investment thesis">
+                    <PopupTextEditorField
+                      title={`Investment thesis for ${row.ticker || `top pick ${displayIndex}`}`}
+                      description="Keep the list compact, then edit the full thesis in this focused editor."
+                      value={row.investment_thesis}
+                      placeholder="Why this name belongs in the live debate universe"
+                      previewPlaceholder="Add the investment thesis"
+                      invalid={Boolean(errors[row.id]?.length)}
+                      onSave={(value) =>
+                        onRowChange(row.id, "investment_thesis", value)
+                      }
+                      maxLength={RIA_PICK_THESIS_MAX_LENGTH}
+                      triggerClassName="min-h-[56px] px-3 py-2.5"
+                      previewClassName="line-clamp-2 text-xs leading-5"
+                    />
+                  </MobileEditorField>
+                </div>
+              </SurfaceInset>
             );
           })}
         </div>
@@ -848,12 +1031,24 @@ function TopPicksEditor({
           <Table className="min-w-[880px]">
             <TableHeader className="sticky top-0 z-10 bg-[color:var(--app-card-surface-default-solid)] backdrop-blur">
               <TableRow className="border-border/50">
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Ticker</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Company</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Sector</TableHead>
-                <TableHead className="w-[120px] px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Tier</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Investment thesis</TableHead>
-                <TableHead className="w-[72px] px-3 py-2 text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Row</TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Ticker
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Company
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Sector
+                </TableHead>
+                <TableHead className="w-[120px] px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Tier
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Investment thesis
+                </TableHead>
+                <TableHead className="w-[72px] px-3 py-2 text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Row
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -869,10 +1064,18 @@ function TopPicksEditor({
                     <RowErrorNotice errors={errors[row.id]} />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
-                    <DenseCellInput value={row.company_name} readOnly tone="derived" />
+                    <DenseCellInput
+                      value={row.company_name}
+                      readOnly
+                      tone="derived"
+                    />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
-                    <DenseCellInput value={row.sector} readOnly tone="derived" />
+                    <DenseCellInput
+                      value={row.sector}
+                      readOnly
+                      tone="derived"
+                    />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <CommandPickerField
@@ -883,7 +1086,9 @@ function TopPicksEditor({
                       options={TIER_COMMAND_OPTIONS}
                       allowClear
                       invalid={Boolean(errors[row.id]?.length)}
-                      onSelect={(option) => onRowChange(row.id, "tier", option?.value || "")}
+                      onSelect={(option) =>
+                        onRowChange(row.id, "tier", option?.value || "")
+                      }
                     />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
@@ -894,14 +1099,22 @@ function TopPicksEditor({
                       placeholder="Why this name belongs in the live debate universe"
                       previewPlaceholder="Add the investment thesis"
                       invalid={Boolean(errors[row.id]?.length)}
-                      onSave={(value) => onRowChange(row.id, "investment_thesis", value)}
+                      onSave={(value) =>
+                        onRowChange(row.id, "investment_thesis", value)
+                      }
+                      maxLength={RIA_PICK_THESIS_MAX_LENGTH}
                       triggerClassName="min-h-[56px] px-3 py-2.5"
                       previewClassName="line-clamp-2 text-xs leading-5"
                     />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => onRemoveRow(row.id)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -947,15 +1160,25 @@ function AvoidEditor({
   onAddRow: () => void;
   onRemoveRow: (id: string) => void;
   onRowChange: (id: string, field: keyof DraftAvoidRow, value: string) => void;
-  onTickerResolved: (id: string, value: string, metadata: TickerUniverseRow | null) => void;
+  onTickerResolved: (
+    id: string,
+    value: string,
+    metadata: TickerUniverseRow | null,
+  ) => void;
   onSave: () => void;
 }) {
   const [page, setPage] = useState(1);
   const filteredRows = useMemo(
-    () => (showIssuesOnly ? rows.filter((row) => Boolean(errors[row.id]?.length)) : rows),
-    [errors, rows, showIssuesOnly]
+    () =>
+      showIssuesOnly
+        ? rows.filter((row) => Boolean(errors[row.id]?.length))
+        : rows,
+    [errors, rows, showIssuesOnly],
   );
-  const totalPages = Math.max(1, Math.ceil(filteredRows.length / EDITOR_PAGE_SIZE));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filteredRows.length / EDITOR_PAGE_SIZE),
+  );
   useEffect(() => {
     setPage((current) => Math.min(current, totalPages));
   }, [totalPages]);
@@ -978,7 +1201,8 @@ function AvoidEditor({
           <div>
             <h3 className="text-sm font-semibold text-foreground">Avoid</h3>
             <p className="text-xs text-muted-foreground">
-              Anything here becomes a hard or soft exclusion signal in the investor debate flow.
+              Anything here becomes a hard or soft exclusion signal in the
+              investor debate flow.
             </p>
           </div>
           <div className="grid gap-2 sm:grid-cols-2 sm:justify-end">
@@ -988,7 +1212,9 @@ function AvoidEditor({
               size="sm"
               onClick={() => {
                 onAddRow();
-                setPage(Math.ceil((filteredRows.length + 1) / EDITOR_PAGE_SIZE));
+                setPage(
+                  Math.ceil((filteredRows.length + 1) / EDITOR_PAGE_SIZE),
+                );
               }}
               className="w-full justify-center"
             >
@@ -1012,79 +1238,101 @@ function AvoidEditor({
           {visibleRows.map((row, index) => {
             const displayIndex = (page - 1) * EDITOR_PAGE_SIZE + index + 1;
             return (
-            <SurfaceInset
-              key={row.id}
-              className={cn(
-                "space-y-3 p-3",
-                focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
-              )}
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div>
-                  <p className="text-sm font-semibold text-foreground">Avoid row {displayIndex}</p>
-                  <p className="text-xs text-muted-foreground">Compact mobile editor</p>
+              <SurfaceInset
+                key={row.id}
+                className={cn(
+                  "space-y-3 p-3",
+                  focusedRowId === row.id &&
+                    "ring-2 ring-amber-300/70 dark:ring-amber-500/40",
+                )}
+              >
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <p className="text-sm font-semibold text-foreground">
+                      Avoid row {displayIndex}
+                    </p>
+                    <p className="text-xs text-muted-foreground">
+                      Compact mobile editor
+                    </p>
+                  </div>
+                  <Button
+                    variant="none"
+                    effect="fade"
+                    size="sm"
+                    onClick={() => onRemoveRow(row.id)}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
-                <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </div>
-              <MobileEditorField label="Ticker">
-                <TickerLookupField
-                  rowId={row.id}
-                  value={row.ticker}
-                  onResolvedRow={onTickerResolved}
-                  invalid={Boolean(errors[row.id]?.length)}
-                />
-                <RowErrorNotice errors={errors[row.id]} />
-              </MobileEditorField>
-              <div className="grid gap-3 sm:grid-cols-2">
-                <MobileEditorField label="Company">
-                  <DenseCellInput value={row.company_name} readOnly tone="derived" />
-                </MobileEditorField>
-                <MobileEditorField label="Sector">
-                  <DenseCellInput value={row.sector} readOnly tone="derived" />
-                </MobileEditorField>
-              </div>
-              <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
-                <MobileEditorField label="Category">
-                  <CommandPickerField
-                    title={`Avoid category for ${row.ticker || `avoid row ${index + 1}`}`}
-                    description="Use a shared category language so the linked-investor debate reads consistently."
-                    value={row.category}
-                    placeholder="Select category"
-                    options={categoryOptions}
-                    allowClear
-                    onSelect={(option) => onRowChange(row.id, "category", option?.value || "")}
-                    triggerClassName="min-h-11"
-                  />
-                </MobileEditorField>
-                <MobileEditorField label="Reason">
-                  <PopupTextEditorField
-                    title={`Avoid reason for ${row.ticker || `avoid row ${displayIndex}`}`}
-                    description="Capture the exclusion logic in a focused editor instead of a cramped inline textarea."
-                    value={row.why_avoid}
-                    placeholder="Why this name should be screened out"
-                    previewPlaceholder="Add the avoid reason"
+                <MobileEditorField label="Ticker">
+                  <TickerLookupField
+                    rowId={row.id}
+                    value={row.ticker}
+                    onResolvedRow={onTickerResolved}
                     invalid={Boolean(errors[row.id]?.length)}
-                    onSave={(value) => onRowChange(row.id, "why_avoid", value)}
+                  />
+                  <RowErrorNotice errors={errors[row.id]} />
+                </MobileEditorField>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <MobileEditorField label="Company">
+                    <DenseCellInput
+                      value={row.company_name}
+                      readOnly
+                      tone="derived"
+                    />
+                  </MobileEditorField>
+                  <MobileEditorField label="Sector">
+                    <DenseCellInput
+                      value={row.sector}
+                      readOnly
+                      tone="derived"
+                    />
+                  </MobileEditorField>
+                </div>
+                <div className="grid gap-3 sm:grid-cols-[minmax(0,0.65fr)_minmax(0,1fr)]">
+                  <MobileEditorField label="Category">
+                    <CommandPickerField
+                      title={`Avoid category for ${row.ticker || `avoid row ${index + 1}`}`}
+                      description="Use a shared category language so the linked-investor debate reads consistently."
+                      value={row.category}
+                      placeholder="Select category"
+                      options={categoryOptions}
+                      allowClear
+                      onSelect={(option) =>
+                        onRowChange(row.id, "category", option?.value || "")
+                      }
+                      triggerClassName="min-h-11"
+                    />
+                  </MobileEditorField>
+                  <MobileEditorField label="Reason">
+                    <PopupTextEditorField
+                      title={`Avoid reason for ${row.ticker || `avoid row ${displayIndex}`}`}
+                      description="Capture the exclusion logic in a focused editor instead of a cramped inline textarea."
+                      value={row.why_avoid}
+                      placeholder="Why this name should be screened out"
+                      previewPlaceholder="Add the avoid reason"
+                      invalid={Boolean(errors[row.id]?.length)}
+                      onSave={(value) =>
+                        onRowChange(row.id, "why_avoid", value)
+                      }
+                      triggerClassName="min-h-[56px] px-3 py-2.5"
+                      previewClassName="line-clamp-2 text-xs leading-5"
+                    />
+                  </MobileEditorField>
+                </div>
+                <MobileEditorField label="Note">
+                  <PopupTextEditorField
+                    title={`Advisor note for ${row.ticker || `avoid row ${index + 1}`}`}
+                    description="Optional context for your team or future review."
+                    value={row.note}
+                    placeholder="Optional context for the advisor team"
+                    previewPlaceholder="Add an optional note"
+                    onSave={(value) => onRowChange(row.id, "note", value)}
                     triggerClassName="min-h-[56px] px-3 py-2.5"
                     previewClassName="line-clamp-2 text-xs leading-5"
                   />
                 </MobileEditorField>
-              </div>
-              <MobileEditorField label="Note">
-                <PopupTextEditorField
-                  title={`Advisor note for ${row.ticker || `avoid row ${index + 1}`}`}
-                  description="Optional context for your team or future review."
-                  value={row.note}
-                  placeholder="Optional context for the advisor team"
-                  previewPlaceholder="Add an optional note"
-                  onSave={(value) => onRowChange(row.id, "note", value)}
-                  triggerClassName="min-h-[56px] px-3 py-2.5"
-                  previewClassName="line-clamp-2 text-xs leading-5"
-                />
-              </MobileEditorField>
-            </SurfaceInset>
+              </SurfaceInset>
             );
           })}
         </div>
@@ -1092,13 +1340,27 @@ function AvoidEditor({
           <Table className="min-w-[920px]">
             <TableHeader className="sticky top-0 z-10 bg-[color:var(--app-card-surface-default-solid)] backdrop-blur">
               <TableRow className="border-border/50">
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Ticker</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Company</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Sector</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Category</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Reason</TableHead>
-                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Note</TableHead>
-                <TableHead className="w-[72px] px-3 py-2 text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">Row</TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Ticker
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Company
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Sector
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Category
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Reason
+                </TableHead>
+                <TableHead className="px-3 py-2 text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Note
+                </TableHead>
+                <TableHead className="w-[72px] px-3 py-2 text-right text-[11px] uppercase tracking-[0.16em] text-muted-foreground">
+                  Row
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1114,10 +1376,18 @@ function AvoidEditor({
                     <RowErrorNotice errors={errors[row.id]} />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
-                    <DenseCellInput value={row.company_name} readOnly tone="derived" />
+                    <DenseCellInput
+                      value={row.company_name}
+                      readOnly
+                      tone="derived"
+                    />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
-                    <DenseCellInput value={row.sector} readOnly tone="derived" />
+                    <DenseCellInput
+                      value={row.sector}
+                      readOnly
+                      tone="derived"
+                    />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <CommandPickerField
@@ -1127,7 +1397,9 @@ function AvoidEditor({
                       placeholder="Select category"
                       options={categoryOptions}
                       allowClear
-                      onSelect={(option) => onRowChange(row.id, "category", option?.value || "")}
+                      onSelect={(option) =>
+                        onRowChange(row.id, "category", option?.value || "")
+                      }
                     />
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
@@ -1138,7 +1410,9 @@ function AvoidEditor({
                       placeholder="Why this name should be screened out"
                       previewPlaceholder="Add the avoid reason"
                       invalid={Boolean(errors[row.id]?.length)}
-                      onSave={(value) => onRowChange(row.id, "why_avoid", value)}
+                      onSave={(value) =>
+                        onRowChange(row.id, "why_avoid", value)
+                      }
                       triggerClassName="min-h-[56px] px-3 py-2.5"
                       previewClassName="line-clamp-2 text-xs leading-5"
                     />
@@ -1157,7 +1431,12 @@ function AvoidEditor({
                   </TableCell>
                   <TableCell className="px-3 py-2.5 align-top">
                     <div className="flex justify-end">
-                      <Button variant="none" effect="fade" size="sm" onClick={() => onRemoveRow(row.id)}>
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        onClick={() => onRemoveRow(row.id)}
+                      >
                         <Trash2 className="h-4 w-4" />
                       </Button>
                     </div>
@@ -1203,7 +1482,7 @@ function ScreeningEditor({
     section: ScreeningSectionKey,
     rowId: string,
     field: keyof DraftScreeningRow,
-    value: string
+    value: string,
   ) => void;
   onSave: () => void;
 }) {
@@ -1214,7 +1493,8 @@ function ScreeningEditor({
           <div>
             <h3 className="text-sm font-semibold text-foreground">Screening</h3>
             <p className="text-xs text-muted-foreground">
-              Keep the fixed screening taxonomy, but update the rules Kai should carry into investor debates.
+              Keep the fixed screening taxonomy, but update the rules One should
+              carry into investor debates.
             </p>
           </div>
           <div className="flex justify-end">
@@ -1233,88 +1513,116 @@ function ScreeningEditor({
         </SurfaceCardContent>
       </SurfaceCard>
       <div className="max-h-[62vh] space-y-4 overflow-y-auto">
-      {SCREENING_SECTIONS.map((section) => {
-        const currentSection = sections.find((item) => item.section === section.key);
-        const rows = currentSection?.rows || [];
-        const filteredRows = showIssuesOnly
-          ? rows.filter((row) => Boolean(errors[row.id]?.length))
-          : rows;
-        if (showIssuesOnly && filteredRows.length === 0) {
-          return null;
-        }
-        return (
-          <SurfaceCard key={section.key}>
-            <SurfaceCardContent className="space-y-4 p-4">
-              <div className="space-y-3">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground">{section.label}</h3>
-                  <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
-                    {section.blurb}
-                  </p>
+        {SCREENING_SECTIONS.map((section) => {
+          const currentSection = sections.find(
+            (item) => item.section === section.key,
+          );
+          const rows = currentSection?.rows || [];
+          const filteredRows = showIssuesOnly
+            ? rows.filter((row) => Boolean(errors[row.id]?.length))
+            : rows;
+          if (showIssuesOnly && filteredRows.length === 0) {
+            return null;
+          }
+          return (
+            <SurfaceCard key={section.key}>
+              <SurfaceCardContent className="space-y-4 p-4">
+                <div className="space-y-3">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {section.label}
+                    </h3>
+                    <p className="max-w-2xl text-xs leading-5 text-muted-foreground">
+                      {section.blurb}
+                    </p>
+                  </div>
+                  <div className="flex justify-start sm:justify-end">
+                    <Button
+                      variant="none"
+                      effect="fade"
+                      size="sm"
+                      onClick={() => onAddRow(section.key)}
+                      className="w-full justify-center sm:w-auto"
+                    >
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add rule
+                    </Button>
+                  </div>
                 </div>
-                <div className="flex justify-start sm:justify-end">
-                  <Button variant="none" effect="fade" size="sm" onClick={() => onAddRow(section.key)} className="w-full justify-center sm:w-auto">
-                    <Plus className="mr-2 h-4 w-4" />
-                    Add rule
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-3">
-                {filteredRows.length === 0 ? (
-                  <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
-                    No rules yet. Add the rubric you want Kai to carry into the investor debate.
-                  </SurfaceInset>
-                ) : null}
-                {filteredRows.map((row) => (
-                  <SurfaceInset
-                    key={row.id}
-                    className={cn(
-                      "space-y-3 p-3",
-                      focusedRowId === row.id && "ring-2 ring-amber-300/70 dark:ring-amber-500/40"
-                    )}
-                  >
-                    <div className="grid gap-3 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_auto]">
-                      <DenseCellInput
-                        value={row.title}
-                        onChange={(event) => onRowChange(section.key, row.id, "title", event.target.value)}
-                        placeholder="Rule title"
-                        invalid={Boolean(errors[row.id]?.length)}
-                      />
-                      <PopupTextEditorField
-                        title={`Rule detail for ${row.title || "this screening rule"}`}
-                        description="Explain the screening logic in plain language without squeezing it into the grid."
-                        value={row.detail}
-                        placeholder="Explain the rule in plain language"
-                        previewPlaceholder="Add the rule detail"
-                        invalid={Boolean(errors[row.id]?.length)}
-                        onSave={(value) => onRowChange(section.key, row.id, "detail", value)}
-                        triggerClassName="min-h-[56px] px-3 py-2.5"
-                        previewClassName="line-clamp-2 text-xs leading-5"
-                      />
-                      <DenseCellInput
-                        value={row.value_text}
-                        onChange={(event) => onRowChange(section.key, row.id, "value_text", event.target.value)}
-                        placeholder="Threshold / value"
-                      />
-                      <div className="flex items-start justify-end">
-                        <Button
-                          variant="none"
-                          effect="fade"
-                          size="sm"
-                          onClick={() => onRemoveRow(section.key, row.id)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                <div className="space-y-3">
+                  {filteredRows.length === 0 ? (
+                    <SurfaceInset className="px-4 py-3 text-sm text-muted-foreground">
+                      No rules yet. Add the rubric you want One to carry into
+                      the investor debate.
+                    </SurfaceInset>
+                  ) : null}
+                  {filteredRows.map((row) => (
+                    <SurfaceInset
+                      key={row.id}
+                      className={cn(
+                        "space-y-3 p-3",
+                        focusedRowId === row.id &&
+                          "ring-2 ring-amber-300/70 dark:ring-amber-500/40",
+                      )}
+                    >
+                      <div className="grid gap-3 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.6fr)_minmax(0,0.8fr)_auto]">
+                        <DenseCellInput
+                          value={row.title}
+                          onChange={(event) =>
+                            onRowChange(
+                              section.key,
+                              row.id,
+                              "title",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="Rule title"
+                          invalid={Boolean(errors[row.id]?.length)}
+                        />
+                        <PopupTextEditorField
+                          title={`Rule detail for ${row.title || "this screening rule"}`}
+                          description="Explain the screening logic in plain language without squeezing it into the grid."
+                          value={row.detail}
+                          placeholder="Explain the rule in plain language"
+                          previewPlaceholder="Add the rule detail"
+                          invalid={Boolean(errors[row.id]?.length)}
+                          onSave={(value) =>
+                            onRowChange(section.key, row.id, "detail", value)
+                          }
+                          triggerClassName="min-h-[56px] px-3 py-2.5"
+                          previewClassName="line-clamp-2 text-xs leading-5"
+                        />
+                        <DenseCellInput
+                          value={row.value_text}
+                          onChange={(event) =>
+                            onRowChange(
+                              section.key,
+                              row.id,
+                              "value_text",
+                              event.target.value,
+                            )
+                          }
+                          placeholder="Threshold / value"
+                        />
+                        <div className="flex items-start justify-end">
+                          <Button
+                            variant="none"
+                            effect="fade"
+                            size="sm"
+                            onClick={() => onRemoveRow(section.key, row.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        </div>
                       </div>
-                    </div>
-                    <RowErrorNotice errors={errors[row.id]} />
-                  </SurfaceInset>
-                ))}
-              </div>
-            </SurfaceCardContent>
-          </SurfaceCard>
-        );
-      })}
+                      <RowErrorNotice errors={errors[row.id]} />
+                    </SurfaceInset>
+                  ))}
+                </div>
+              </SurfaceCardContent>
+            </SurfaceCard>
+          );
+        })}
       </div>
     </div>
   );
@@ -1325,7 +1633,11 @@ export default function RiaPicksPage() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { riaCapability, loading: personaLoading, refreshing: personaRefreshing } = usePersonaState();
+  const {
+    riaCapability,
+    loading: personaLoading,
+    refreshing: personaRefreshing,
+  } = usePersonaState();
 
   const [source, setSource] = useState<PicksSource>("kai");
   const [category, setCategory] = useState<PicksCategory>("top-picks");
@@ -1338,8 +1650,12 @@ export default function RiaPicksPage() {
   const [uploadOpen, setUploadOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   const [showIssuesOnly, setShowIssuesOnly] = useState(false);
-  const [focusedIssueRowId, setFocusedIssueRowId] = useState<string | null>(null);
-  const [draftPackage, setDraftPackage] = useState<DraftPickPackage | null>(null);
+  const [focusedIssueRowId, setFocusedIssueRowId] = useState<string | null>(
+    null,
+  );
+  const [draftPackage, setDraftPackage] = useState<DraftPickPackage | null>(
+    null,
+  );
   const [validationState, setValidationState] = useState<ValidationState>({
     packageErrors: [],
     rowErrors: {},
@@ -1351,6 +1667,11 @@ export default function RiaPicksPage() {
   const [avoidLoading, setAvoidLoading] = useState(false);
   const [screeningRows, setScreeningRows] = useState<RiaScreeningRow[]>([]);
   const [screeningLoading, setScreeningLoading] = useState(false);
+  // Without an explicit error + retry state a failed screening fetch silently
+  // collapses into the "No rules yet" empty state (indistinguishable from a
+  // genuinely empty config).
+  const [screeningError, setScreeningError] = useState(false);
+  const [screeningReloadToken, setScreeningReloadToken] = useState(0);
 
   const sourceParam = searchParams?.get("source");
   const categoryParam = searchParams?.get("category");
@@ -1381,11 +1702,14 @@ export default function RiaPicksPage() {
         params.set("category", next.category);
       }
       const query = params.toString();
-      router.replace(query ? `${ROUTES.RIA_PICKS}?${query}` : ROUTES.RIA_PICKS, {
-        scroll: false,
-      });
+      router.replace(
+        query ? `${ROUTES.RIA_PICKS}?${query}` : ROUTES.RIA_PICKS,
+        {
+          scroll: false,
+        },
+      );
     },
-    [router, searchParams]
+    [router, searchParams],
   );
 
   const picksResource = useStaleResource<{
@@ -1403,7 +1727,9 @@ export default function RiaPicksPage() {
     };
   }>({
     cacheKey: user?.uid ? `ria_picks_${user.uid}` : "ria_picks_guest",
-    enabled: Boolean(user?.uid && (riaCapability !== "setup" || personaRefreshing)),
+    enabled: Boolean(
+      user?.uid && (riaCapability !== "setup" || personaRefreshing),
+    ),
     load: async () => {
       if (!user?.uid) throw new Error("Sign in");
       const idToken = await user.getIdToken();
@@ -1418,11 +1744,14 @@ export default function RiaPicksPage() {
 
   const activePackage = useMemo(
     () => picksResource.data?.package || createDraftPackage(null),
-    [picksResource.data?.package]
+    [picksResource.data?.package],
   );
   const picksMetadata = picksResource.data?.metadata;
   const myTopPicks = activePackage.top_picks || [];
-  const myAvoidRows = useMemo(() => activePackage.avoid_rows || [], [activePackage.avoid_rows]);
+  const myAvoidRows = useMemo(
+    () => activePackage.avoid_rows || [],
+    [activePackage.avoid_rows],
+  );
   const myScreeningSections = activePackage.screening_sections || [];
   const showMyListEmptyState =
     source === "my" &&
@@ -1430,32 +1759,39 @@ export default function RiaPicksPage() {
     !editing &&
     !picksResource.loading &&
     myTopPicks.length === 0 &&
-    !(!isVaultUnlocked && picksResource.data?.metadata?.storage_source === "pkm" && picksResource.data?.metadata?.has_package === true);
+    !(
+      !isVaultUnlocked &&
+      picksResource.data?.metadata?.storage_source === "pkm" &&
+      picksResource.data?.metadata?.has_package === true
+    );
   const myListRequiresUnlock =
     source === "my" &&
     !isVaultUnlocked &&
     picksMetadata?.storage_source === "pkm" &&
     picksMetadata?.has_package === true;
-  const screeningViewRows = source === "kai"
-    ? SCREENING_SECTIONS.map((section) => ({
-        section: section.key,
-        label: section.label,
-        rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
-          screeningRows.filter((row) => row.section === section.key),
-          section.key
-        ),
-      }))
-    : SCREENING_SECTIONS.map((section) => ({
-        section: section.key,
-        label: section.label,
-        rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
-          myScreeningSections.find((item) => item.section === section.key)?.rows || [],
-          section.key
-        ),
-      }));
+  const screeningViewRows =
+    source === "kai"
+      ? SCREENING_SECTIONS.map((section) => ({
+          section: section.key,
+          label: section.label,
+          rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
+            screeningRows.filter((row) => row.section === section.key),
+            section.key,
+          ),
+        }))
+      : SCREENING_SECTIONS.map((section) => ({
+          section: section.key,
+          label: section.label,
+          rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
+            myScreeningSections.find((item) => item.section === section.key)
+              ?.rows || [],
+            section.key,
+          ),
+        }));
 
   const iamUnavailable = Boolean(
-    picksResource.error && isIAMSchemaNotReadyError(new Error(picksResource.error))
+    picksResource.error &&
+    isIAMSchemaNotReadyError(new Error(picksResource.error)),
   );
 
   const draftFingerprint = packageFingerprint(draftPackage);
@@ -1470,7 +1806,9 @@ export default function RiaPicksPage() {
         items.push({
           rowId: row.id,
           category: "top-picks",
-          title: row.ticker ? `Top picks: ${row.ticker}` : "Top picks: missing ticker",
+          title: row.ticker
+            ? `Top picks: ${row.ticker}`
+            : "Top picks: missing ticker",
           messages,
         });
       }
@@ -1488,7 +1826,8 @@ export default function RiaPicksPage() {
     }
     for (const section of draftPackage.screening_sections) {
       const sectionLabel =
-        SCREENING_SECTIONS.find((item) => item.key === section.section)?.label || "Screening";
+        SCREENING_SECTIONS.find((item) => item.key === section.section)
+          ?.label || "Screening";
       for (const row of section.rows) {
         const messages = validationState.rowErrors[row.id];
         if (messages?.length) {
@@ -1538,7 +1877,8 @@ export default function RiaPicksPage() {
   }, [kaiRows.length, user]);
 
   useEffect(() => {
-    if (!user || (source !== "kai" && source !== "my") || avoidRows.length > 0) return;
+    if (!user || (source !== "kai" && source !== "my") || avoidRows.length > 0)
+      return;
     let cancelled = false;
     void (async () => {
       setAvoidLoading(true);
@@ -1560,10 +1900,17 @@ export default function RiaPicksPage() {
     let cancelled = false;
     void (async () => {
       setScreeningLoading(true);
+      setScreeningError(false);
       try {
         const idToken = await user.getIdToken();
         const data = await RiaService.getRenaissanceScreening(idToken);
         if (!cancelled) setScreeningRows(data.items);
+      } catch {
+        // A failed screening fetch previously escaped as an unhandled
+        // rejection and left the screening view silently empty (rendering as
+        // "no rules configured" rather than a real error). Surface it so the
+        // screening branch can render an explicit error + retry affordance.
+        if (!cancelled) setScreeningError(true);
       } finally {
         if (!cancelled) setScreeningLoading(false);
       }
@@ -1571,14 +1918,14 @@ export default function RiaPicksPage() {
     return () => {
       cancelled = true;
     };
-  }, [screeningRows.length, user]);
+  }, [screeningRows.length, user, screeningReloadToken]);
 
   const sourceOptions = useMemo(
     () => [
-      { value: "kai", label: `Kai list (${kaiRows.length || "..."})` },
+      { value: "kai", label: `Suggested list (${kaiRows.length || "..."})` },
       { value: "my", label: `My list (${myTopPicks.length})` },
     ],
-    [kaiRows.length, myTopPicks.length]
+    [kaiRows.length, myTopPicks.length],
   );
 
   const categoryOptions = useMemo(
@@ -1587,7 +1934,7 @@ export default function RiaPicksPage() {
       { value: "avoid", label: "Avoid" },
       { value: "screening", label: "Screening" },
     ],
-    []
+    [],
   );
 
   const avoidCategoryOptions = useMemo<CommandPickerOption[]>(() => {
@@ -1616,7 +1963,9 @@ export default function RiaPicksPage() {
         accessorKey: "ticker",
         header: "Ticker",
         cell: ({ row }) => (
-          <div className="font-semibold tracking-tight text-foreground">{row.original.ticker}</div>
+          <div className="font-semibold tracking-tight text-foreground">
+            {row.original.ticker}
+          </div>
         ),
       },
       {
@@ -1624,7 +1973,9 @@ export default function RiaPicksPage() {
         header: "Company",
         cell: ({ row }) => (
           <div className="min-w-[160px]">
-            <p className="font-medium text-foreground">{row.original.company_name || "—"}</p>
+            <p className="font-medium text-foreground">
+              {row.original.company_name || "—"}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
               {row.original.sector || "—"}
             </p>
@@ -1635,7 +1986,9 @@ export default function RiaPicksPage() {
         accessorKey: "sector",
         header: "Sector",
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">{row.original.sector || "—"}</span>
+          <span className="text-sm text-muted-foreground">
+            {row.original.sector || "—"}
+          </span>
         ),
       },
       {
@@ -1647,13 +2000,13 @@ export default function RiaPicksPage() {
         accessorKey: "investment_thesis",
         header: "Thesis",
         cell: ({ row }) => (
-          <p className="max-w-[360px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[360px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.investment_thesis || "—"}
           </p>
         ),
       },
     ],
-    []
+    [],
   );
 
   const avoidColumns = useMemo<ColumnDef<RiaAvoidRow>[]>(
@@ -1662,7 +2015,9 @@ export default function RiaPicksPage() {
         accessorKey: "ticker",
         header: "Ticker",
         cell: ({ row }) => (
-          <div className="font-semibold tracking-tight text-foreground">{row.original.ticker}</div>
+          <div className="font-semibold tracking-tight text-foreground">
+            {row.original.ticker}
+          </div>
         ),
       },
       {
@@ -1670,7 +2025,9 @@ export default function RiaPicksPage() {
         header: "Company",
         cell: ({ row }) => (
           <div className="min-w-[160px]">
-            <p className="font-medium text-foreground">{row.original.company_name || "—"}</p>
+            <p className="font-medium text-foreground">
+              {row.original.company_name || "—"}
+            </p>
             <p className="mt-0.5 text-xs text-muted-foreground sm:hidden">
               {row.original.sector || "—"}
             </p>
@@ -1681,14 +2038,16 @@ export default function RiaPicksPage() {
         accessorKey: "category",
         header: "Category",
         cell: ({ row }) => (
-          <span className="text-sm text-muted-foreground">{row.original.category || "—"}</span>
+          <span className="text-sm text-muted-foreground">
+            {row.original.category || "—"}
+          </span>
         ),
       },
       {
         accessorKey: "why_avoid",
         header: "Reason",
         cell: ({ row }) => (
-          <p className="max-w-[380px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[380px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.why_avoid || "—"}
           </p>
         ),
@@ -1697,13 +2056,13 @@ export default function RiaPicksPage() {
         accessorKey: "note",
         header: "Note",
         cell: ({ row }) => (
-          <p className="max-w-[260px] text-xs leading-5 text-muted-foreground">
+          <p className="max-w-[260px] whitespace-normal break-words text-xs leading-5 text-muted-foreground">
             {row.original.note || "—"}
           </p>
         ),
       },
     ],
-    []
+    [],
   );
 
   function startEditing() {
@@ -1733,22 +2092,30 @@ export default function RiaPicksPage() {
     }));
   }
 
-  function patchTopPickRow(id: string, field: keyof DraftTopPickRow, value: string) {
+  function patchTopPickRow(
+    id: string,
+    field: keyof DraftTopPickRow,
+    value: string,
+  ) {
     if (!draftPackage) return;
     updateDraft({
       ...draftPackage,
       top_picks: draftPackage.top_picks.map((row) =>
-        row.id === id ? { ...row, [field]: value } : row
+        row.id === id ? { ...row, [field]: value } : row,
       ),
     });
   }
 
-  function patchAvoidRow(id: string, field: keyof DraftAvoidRow, value: string) {
+  function patchAvoidRow(
+    id: string,
+    field: keyof DraftAvoidRow,
+    value: string,
+  ) {
     if (!draftPackage) return;
     updateDraft({
       ...draftPackage,
       avoid_rows: draftPackage.avoid_rows.map((row) =>
-        row.id === id ? { ...row, [field]: value } : row
+        row.id === id ? { ...row, [field]: value } : row,
       ),
     });
   }
@@ -1757,7 +2124,7 @@ export default function RiaPicksPage() {
     section: ScreeningSectionKey,
     rowId: string,
     field: keyof DraftScreeningRow,
-    value: string
+    value: string,
   ) {
     if (!draftPackage) return;
     updateDraft({
@@ -1766,9 +2133,11 @@ export default function RiaPicksPage() {
         item.section === section
           ? {
               ...item,
-              rows: item.rows.map((row) => (row.id === rowId ? { ...row, [field]: value } : row)),
+              rows: item.rows.map((row) =>
+                row.id === rowId ? { ...row, [field]: value } : row,
+              ),
             }
-          : item
+          : item,
       ),
     });
   }
@@ -1789,16 +2158,18 @@ export default function RiaPicksPage() {
                     ? metadata?.title?.trim() || row.company_name
                     : "",
                   sector: normalizedValue
-                    ? String(metadata?.sector_primary || metadata?.sector || "").trim() || row.sector
+                    ? String(
+                        metadata?.sector_primary || metadata?.sector || "",
+                      ).trim() || row.sector
                     : "",
                 }
-              : row
+              : row,
           ),
         };
       });
       setValidationState((current) => ({ ...current, rowErrors: {} }));
     },
-    []
+    [],
   );
 
   const updateAvoidTicker = useCallback(
@@ -1817,26 +2188,37 @@ export default function RiaPicksPage() {
                     ? metadata?.title?.trim() || row.company_name
                     : "",
                   sector: normalizedValue
-                    ? String(metadata?.sector_primary || metadata?.sector || "").trim() || row.sector
+                    ? String(
+                        metadata?.sector_primary || metadata?.sector || "",
+                      ).trim() || row.sector
                     : "",
                 }
-              : row
+              : row,
           ),
         };
       });
       setValidationState((current) => ({ ...current, rowErrors: {} }));
     },
-    []
+    [],
   );
 
-  async function resolveMetadata(ticker: string, lookup: Map<string, TickerUniverseRow>) {
+  async function resolveMetadata(
+    ticker: string,
+    lookup: Map<string, TickerUniverseRow>,
+  ) {
     const normalizedTicker = ticker.trim().toUpperCase();
     if (!normalizedTicker) return null;
     const local = lookup.get(normalizedTicker);
     if (local) return local;
     try {
-      const remoteMatches = await searchTickerUniverseRemote(normalizedTicker, 8);
-      const exact = remoteMatches.find((row) => row.ticker.toUpperCase() === normalizedTicker) || null;
+      const remoteMatches = await searchTickerUniverseRemote(
+        normalizedTicker,
+        8,
+      );
+      const exact =
+        remoteMatches.find(
+          (row) => row.ticker.toUpperCase() === normalizedTicker,
+        ) || null;
       if (exact) lookup.set(normalizedTicker, exact);
       return exact;
     } catch {
@@ -1849,7 +2231,9 @@ export default function RiaPicksPage() {
     validation: ValidationState;
   }> {
     const universe = await preloadTickerUniverse();
-    const lookup = new Map(universe.map((row) => [row.ticker.toUpperCase(), row]));
+    const lookup = new Map(
+      universe.map((row) => [row.ticker.toUpperCase(), row]),
+    );
     const rowErrors: Record<string, string[]> = {};
     const packageErrors: string[] = [];
     const seenTop = new Set<string>();
@@ -1868,7 +2252,7 @@ export default function RiaPicksPage() {
           issues.push("Ticker appears more than once in Top picks.");
         }
         if (!row.tier.trim()) issues.push("Tier is required.");
-        if (!row.investment_thesis.trim()) issues.push("Investment thesis is required.");
+        const thesis = normalizeAdvisorThesisInput(row.investment_thesis);
         if (issues.length > 0) {
           rowErrors[row.id] = issues;
         } else {
@@ -1878,11 +2262,13 @@ export default function RiaPicksPage() {
           ...row,
           ticker,
           company_name: metadata?.title?.trim() || row.company_name.trim(),
-          sector: String(metadata?.sector_primary || metadata?.sector || "").trim() || row.sector.trim(),
+          sector:
+            String(metadata?.sector_primary || metadata?.sector || "").trim() ||
+            row.sector.trim(),
           tier: row.tier.trim().toUpperCase(),
-          investment_thesis: row.investment_thesis.trim(),
+          investment_thesis: thesis,
         };
-      })
+      }),
     );
 
     const nextAvoidRows = await Promise.all(
@@ -1910,37 +2296,46 @@ export default function RiaPicksPage() {
           ...row,
           ticker,
           company_name: metadata?.title?.trim() || row.company_name.trim(),
-          sector: String(metadata?.sector_primary || metadata?.sector || "").trim() || row.sector.trim(),
+          sector:
+            String(metadata?.sector_primary || metadata?.sector || "").trim() ||
+            row.sector.trim(),
           category: row.category.trim(),
           why_avoid: row.why_avoid.trim(),
           note: row.note.trim(),
         };
-      })
+      }),
     );
 
-    const nextScreeningSections = nextDraft.screening_sections.map((section) => {
-      const dedupedRows = section.section === "the_math" ? dedupeMathRows(section.rows) : section.rows;
-      return {
-        section: section.section,
-        rows: dedupedRows.map((row) => {
-          const issues: string[] = [];
-          if (!row.title.trim()) issues.push("Rule title is required.");
-          if (!row.detail.trim()) issues.push("Rule detail is required.");
-          if (issues.length > 0) {
-            rowErrors[row.id] = issues;
-          }
-          return {
-            ...row,
-            title: row.title.trim(),
-            detail: row.detail.trim(),
-            value_text: row.value_text.trim(),
-          };
-        }),
-      };
-    });
+    const nextScreeningSections = nextDraft.screening_sections.map(
+      (section) => {
+        const dedupedRows =
+          section.section === "the_math"
+            ? dedupeMathRows(section.rows)
+            : section.rows;
+        return {
+          section: section.section,
+          rows: dedupedRows.map((row) => {
+            const issues: string[] = [];
+            if (!row.title.trim()) issues.push("Rule title is required.");
+            if (!row.detail.trim()) issues.push("Rule detail is required.");
+            if (issues.length > 0) {
+              rowErrors[row.id] = issues;
+            }
+            return {
+              ...row,
+              title: row.title.trim(),
+              detail: row.detail.trim(),
+              value_text: row.value_text.trim(),
+            };
+          }),
+        };
+      },
+    );
 
     if (nextTopRows.length === 0) {
-      packageErrors.push("Top picks cannot be empty. This list powers the linked-investor debate universe.");
+      packageErrors.push(
+        "Top picks cannot be empty. This list powers the linked-investor debate universe.",
+      );
     }
 
     return {
@@ -1981,7 +2376,10 @@ export default function RiaPicksPage() {
     return data.items;
   }
 
-  async function savePackage(payload: ReturnType<typeof draftToPayload>, nextLabel?: string) {
+  async function savePackage(
+    payload: ReturnType<typeof draftToPayload>,
+    nextLabel?: string,
+  ) {
     if (!user) return;
     const idToken = await user.getIdToken();
     await RiaService.savePickPackage({
@@ -1991,6 +2389,7 @@ export default function RiaPicksPage() {
       vaultOwnerToken,
       label: nextLabel || "Active advisor package",
       package_note: payload.package_note || undefined,
+      investor_debate_thesis: payload.investor_debate_thesis || undefined,
       top_picks: payload.top_picks,
       avoid_rows: payload.avoid_rows,
       screening_sections: payload.screening_sections,
@@ -2006,10 +2405,13 @@ export default function RiaPicksPage() {
         ensureKaiScreeningRowsLoaded(),
       ]);
       if (topPicks.length === 0) {
-        toast.error("Kai list is not available yet");
+        toast.error("Suggested list is not available yet");
         return;
       }
-      const basePackage = editing && draftPackage ? draftPackage : createDraftPackage(activePackage);
+      const basePackage =
+        editing && draftPackage
+          ? draftPackage
+          : createDraftPackage(activePackage);
       const nextDraft = {
         ...basePackage,
         top_picks: topPicks.map((row) => createTopPickRow(row)),
@@ -2018,7 +2420,7 @@ export default function RiaPicksPage() {
           section: section.key,
           rows: normalizeScreeningDisplayRows<RiaScreeningRow>(
             kaiScreeningRows.filter((row) => row.section === section.key),
-            section.key
+            section.key,
           ).map((row) => createScreeningRow(row)),
         })),
       };
@@ -2029,9 +2431,13 @@ export default function RiaPicksPage() {
       setSource("my");
       setEditing(true);
       setUploadOpen(false);
-      toast.success("Copied all Kai tabs into My list. Save to publish it.");
+      toast.success(
+        "Copied all suggested tabs into My list. Save to publish it.",
+      );
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to copy list");
+      toast.error(
+        error instanceof Error ? error.message : "Failed to copy list",
+      );
     } finally {
       setSavingToMyList(false);
     }
@@ -2054,6 +2460,8 @@ export default function RiaPicksPage() {
         source_filename: fileName || undefined,
         label: label.trim() || "Active advisor package",
         package_note: activePackage.package_note || undefined,
+        investor_debate_thesis:
+          activePackage.investor_debate_thesis || undefined,
         avoid_rows: activePackage.avoid_rows,
         screening_sections: activePackage.screening_sections,
       });
@@ -2082,7 +2490,10 @@ export default function RiaPicksPage() {
       }
       const { payload, validation } = await validateDraft(draftPackage);
       setValidationState(validation);
-      if (validation.packageErrors.length > 0 || Object.keys(validation.rowErrors).length > 0) {
+      if (
+        validation.packageErrors.length > 0 ||
+        Object.keys(validation.rowErrors).length > 0
+      ) {
         setShowIssuesOnly(true);
         toast.error("Fix the highlighted validation issues before saving.");
         return;
@@ -2093,19 +2504,24 @@ export default function RiaPicksPage() {
       setUploadOpen(false);
       void picksResource.refresh({ force: true });
     } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to save advisor package");
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : "Failed to save advisor package",
+      );
     } finally {
       setPackageSaving(false);
     }
   }
 
-  const sourceTitle = source === "kai" ? "Kai list" : "My list";
+  const sourceTitle = source === "kai" ? "Suggested list" : "My list";
   const showMyListActionRail = source === "my";
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "ria_picks",
       title: "RIA Picks",
-      purpose: "Advisor stock universe with Kai reference picks and vault-backed advisor package.",
+      purpose:
+        "Advisor stock universe with suggested reference picks and vault-backed advisor package.",
       sections: [
         {
           id: "ria_picks_source",
@@ -2130,7 +2546,7 @@ export default function RiaPicksPage() {
         },
         {
           id: "ria_picks_source_kai",
-          label: "Kai list",
+          label: "Suggested list",
           type: "tab",
           state: source === "kai" ? "active" : "available",
           actionId: "ria.picks.open_source_kai",
@@ -2178,7 +2594,7 @@ export default function RiaPicksPage() {
         },
         {
           id: "ria_picks_copy_from_kai",
-          label: "Copy from Kai",
+          label: "Copy suggested list",
           type: "button",
           state: savingToMyList || !isVaultUnlocked ? "disabled" : "available",
           actionId: "ria.picks.copy_from_kai",
@@ -2207,7 +2623,12 @@ export default function RiaPicksPage() {
       ],
       activeTab: `${source}:${category}`,
       activeFilters: [sourceTitle, category],
-      visibleModules: ["Source tabs", "Category tabs", "Advisor package actions"],
+      visibleModules: [
+        "Source tabs",
+        "Category tabs",
+        "Advisor package actions",
+        "Investor debate context",
+      ],
       busyOperations: [
         ...(submitting ? ["ria_picks_uploading"] : []),
         ...(savingToMyList ? ["ria_picks_copying"] : []),
@@ -2219,6 +2640,9 @@ export default function RiaPicksPage() {
         editing,
         upload_open: uploadOpen,
         has_unsaved_changes: hasUnsavedChanges,
+        has_investor_debate_thesis: Boolean(
+          activePackage.investor_debate_thesis,
+        ),
         vault_unlocked: isVaultUnlocked,
         validation_issue_count: validationIssues.length,
         kai_top_pick_count: kaiRows.length,
@@ -2226,6 +2650,7 @@ export default function RiaPicksPage() {
       },
     }),
     [
+      activePackage.investor_debate_thesis,
       category,
       editing,
       hasUnsavedChanges,
@@ -2239,7 +2664,7 @@ export default function RiaPicksPage() {
       submitting,
       uploadOpen,
       validationIssues.length,
-    ]
+    ],
   );
   usePublishVoiceSurfaceMetadata(voiceSurfaceMetadata);
 
@@ -2249,6 +2674,12 @@ export default function RiaPicksPage() {
       <RiaCompatibilityState
         title="Complete RIA onboarding"
         description="Finish onboarding to manage picks."
+        nativeTest={{
+          routeId: "/ria/picks",
+          marker: "native-route-ria-picks",
+          authState: user ? "authenticated" : "pending",
+          dataState: "unavailable-valid",
+        }}
       />
     );
   }
@@ -2256,8 +2687,11 @@ export default function RiaPicksPage() {
   return (
     <AppPageShell
       as="main"
-      width="expanded"
-      className="pb-16 sm:pb-24"
+      // Matches RiaPageShell's own default -- see its comment. The wide
+      // tables inside this screen already gate themselves behind
+      // `hidden md:block` and their own horizontal scroll, so narrowing the
+      // shell does not affect them.
+      width="agent"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
@@ -2271,7 +2705,7 @@ export default function RiaPicksPage() {
         errorMessage: picksResource.error,
       }}
     >
-      <AppPageHeaderRegion>
+      <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
           eyebrow={RIA_COPY.picks.eyebrow}
           title={RIA_COPY.picks.title}
@@ -2282,9 +2716,9 @@ export default function RiaPicksPage() {
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div className="flex flex-col gap-6">
+        <SurfaceStack className="gap-6">
           <div data-testid="ria-picks-primary">
-            <SettingsSegmentedTabs
+            <SegmentedTabs
               value={source}
               onValueChange={(value) => {
                 const nextSource = value as PicksSource;
@@ -2297,7 +2731,7 @@ export default function RiaPicksPage() {
             />
           </div>
 
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={category}
             onValueChange={(value) => {
               const nextCategory = value as PicksCategory;
@@ -2305,372 +2739,502 @@ export default function RiaPicksPage() {
               updatePicksRouteState({ category: nextCategory });
             }}
             options={categoryOptions}
-            mobileColumns={3}
+            mobileColumns={2}
           />
 
-          {showMyListActionRail ? (
-            <SurfaceCard>
-              <SurfaceCardContent className="space-y-2 p-3 sm:p-4">
-                <div className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:max-w-[28rem]">
-                  <Button
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    data-voice-control-id="ria_picks_upload_csv"
-                    disabled={!isVaultUnlocked}
-                    onClick={() => {
-                      setUploadOpen((current) => {
-                        const nextOpen = !current;
-                        if (nextOpen) setEditing(false);
-                        return nextOpen;
-                      });
-                    }}
-                    className="w-full justify-center"
-                  >
-                    <Upload className="mr-2 h-4 w-4" />
-                    {uploadOpen ? "Close upload" : "Upload"}
-                  </Button>
-                  <Button
-                    asChild
-                    variant="none"
-                    effect="fade"
-                    size="sm"
-                    className="w-full justify-center"
-                  >
-                    <a
-                      href="/templates/ria-picks-template.csv"
-                      download
-                      data-voice-control-id="ria_picks_download_template"
-                    >
-                      <Download className="mr-2 h-4 w-4" />
-                      Template
-                    </a>
-                  </Button>
-                </div>
-                <div className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:max-w-[28rem]">
-                  <Button
-                    variant="blue-gradient"
-                    effect="fill"
-                    size="sm"
-                    data-voice-control-id="ria_picks_copy_from_kai"
-                    disabled={savingToMyList || kaiLoading || !isVaultUnlocked}
-                    onClick={() => void saveKaiAsMyList()}
-                    className="w-full justify-center"
-                  >
-                    <Save className="mr-2 h-4 w-4" />
-                    {savingToMyList ? "Copying..." : "Copy from Kai"}
-                  </Button>
-                  {!editing ? (
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      data-voice-control-id="ria_picks_edit_package"
-                      disabled={!isVaultUnlocked}
-                      onClick={startEditing}
-                      className="w-full justify-center"
-                    >
-                      <PencilLine className="mr-2 h-4 w-4" />
-                      Edit
-                    </Button>
-                  ) : (
-                    <Button
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      data-voice-control-id="ria_picks_discard_changes"
-                      disabled={!isVaultUnlocked}
-                      onClick={discardChanges}
-                      className="w-full justify-center"
-                    >
-                      <X className="mr-2 h-4 w-4" />
-                      Discard
-                    </Button>
-                  )}
-                </div>
-                {!isVaultUnlocked ? (
-                  <p className="px-1 text-center text-xs text-muted-foreground">
-                    {RIA_COPY.picks.unlockRail}
-                  </p>
-                ) : null}
-              </SurfaceCardContent>
-            </SurfaceCard>
-          ) : null}
-
-          {iamUnavailable ? (
-            <RiaCompatibilityState
-              title="Waiting on IAM schema"
-              description="Pick lists need the IAM tables."
-            />
-          ) : null}
-
-          {!iamUnavailable && source === "my" && uploadOpen ? (
-            <UploadPanel
-              label={label}
-              fileName={fileName}
-              fileContent={fileContent}
-              submitting={submitting}
-              onLabelChange={setLabel}
-              onFileSelected={(file) => {
-                if (!file) {
-                  setFileName("");
-                  setFileContent("");
-                  return;
-                }
-                setFileName(file.name);
-                void file.text().then(setFileContent);
-              }}
-              onUpload={() => void onUpload()}
-            />
-          ) : null}
-
-          {!iamUnavailable && editing && source === "my" ? (
-            <InlineValidationBanner errors={validationState.packageErrors} />
-          ) : null}
-
-          {!iamUnavailable && editing && source === "my" ? (
-            <ValidationIssuesPanel
-              issues={validationIssues}
-              showIssuesOnly={showIssuesOnly}
-              onToggleShowIssuesOnly={() => setShowIssuesOnly((current) => !current)}
-              onJumpToIssue={(issue) => {
-                setCategory(issue.category);
-                setShowIssuesOnly(true);
-                setFocusedIssueRowId(issue.rowId);
-              }}
-            />
-          ) : null}
-
-          {!iamUnavailable && category === "top-picks" ? (
-            <div className="space-y-4">
-              <TierSummary rows={source === "kai" ? kaiRows : myTopPicks} />
-
-              {source === "kai" && kaiLoading ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading Kai list...
-                </div>
-              ) : null}
-
-              {source === "my" && picksResource.loading ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading My list...
-                </div>
-              ) : null}
-
-              {myListRequiresUnlock ? (
+          {(
+            <>
+              {showMyListActionRail ? (
                 <SurfaceCard>
-                  <SurfaceCardContent className="p-4 sm:p-5">
-                    <p className="text-sm font-medium text-foreground">Unlock required</p>
-                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
-                      This advisor package is now stored in your PKM. Unlock the vault to view or edit it.
-                    </p>
+                  <SurfaceCardContent className="space-y-2 p-3 sm:p-4">
+                    <div className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:max-w-[28rem]">
+                      <Button
+                        variant="none"
+                        effect="fade"
+                        size="sm"
+                        data-voice-control-id="ria_picks_upload_csv"
+                        disabled={!isVaultUnlocked}
+                        onClick={() => {
+                          setUploadOpen((current) => {
+                            const nextOpen = !current;
+                            if (nextOpen) setEditing(false);
+                            return nextOpen;
+                          });
+                        }}
+                        className="w-full justify-center"
+                      >
+                        <Upload className="mr-2 h-4 w-4" />
+                        {uploadOpen ? "Close upload" : "Upload"}
+                      </Button>
+                      <TemplatePreviewModal
+                        triggerLabel="Template"
+                        triggerClassName="w-full justify-center"
+                        triggerVoiceControlId="ria_picks_download_template"
+                      />
+                    </div>
+                    <div className="grid gap-2 sm:grid-cols-2 xl:mx-auto xl:max-w-[28rem]">
+                      <Button
+                        variant="blue-gradient"
+                        effect="fill"
+                        size="sm"
+                        data-voice-control-id="ria_picks_copy_from_kai"
+                        disabled={
+                          savingToMyList || kaiLoading || !isVaultUnlocked
+                        }
+                        onClick={() => void saveKaiAsMyList()}
+                        className="w-full justify-center"
+                      >
+                        <Save className="mr-2 h-4 w-4" />
+                        {savingToMyList ? "Copying..." : "Copy suggested list"}
+                      </Button>
+                      {!editing ? (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          data-voice-control-id="ria_picks_edit_package"
+                          disabled={!isVaultUnlocked}
+                          onClick={startEditing}
+                          className="w-full justify-center"
+                        >
+                          <PencilLine className="mr-2 h-4 w-4" />
+                          Edit
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          data-voice-control-id="ria_picks_discard_changes"
+                          disabled={!isVaultUnlocked}
+                          onClick={discardChanges}
+                          className="w-full justify-center"
+                        >
+                          <X className="mr-2 h-4 w-4" />
+                          Discard
+                        </Button>
+                      )}
+                    </div>
+                    {!isVaultUnlocked ? (
+                      <p className="px-1 text-center text-xs text-muted-foreground">
+                        {RIA_COPY.picks.unlockRail}
+                      </p>
+                    ) : null}
                   </SurfaceCardContent>
                 </SurfaceCard>
               ) : null}
 
-              {showMyListEmptyState ? (
-                <EmptyMyListState />
-              ) : null}
-
-              {source === "my" && editing && draftPackage ? (
-                <TopPicksEditor
-                  rows={draftPackage.top_picks}
-                  errors={validationState.rowErrors}
-                  showIssuesOnly={showIssuesOnly}
-                  focusedRowId={focusedIssueRowId}
-                  packageSaving={packageSaving}
-                  saveDisabled={!hasUnsavedChanges}
-                  onAddRow={() =>
-                    updateDraft({
-                      ...draftPackage,
-                      top_picks: [...draftPackage.top_picks, createTopPickRow()],
-                    })
-                  }
-                  onRemoveRow={(id) =>
-                    updateDraft({
-                      ...draftPackage,
-                      top_picks: draftPackage.top_picks.filter((row) => row.id !== id),
-                    })
-                  }
-                  onRowChange={patchTopPickRow}
-                  onTickerResolved={updateTopPickTicker}
-                  onSave={() => void saveDraftPackage()}
+              {iamUnavailable ? (
+                <RiaCompatibilityState
+                  title="Waiting on IAM schema"
+                  description="Pick lists need the IAM tables."
                 />
               ) : null}
 
-              {((source === "kai" && !kaiLoading && kaiRows.length > 0) ||
-                (source === "my" && !editing && !picksResource.loading && myTopPicks.length > 0)) ? (
-                <div data-testid="ria-picks-active">
-                  <DataTable
-                    columns={pickColumns}
-                    data={source === "kai" ? kaiRows : myTopPicks}
-                    searchKey="ticker"
-                    globalSearchKeys={["ticker", "company_name", "sector", "tier", "investment_thesis"]}
-                    searchPlaceholder={`Search ${sourceTitle.toLowerCase()} by ticker, company, sector, or tier`}
-                    initialPageSize={10}
-                    pageSizeOptions={[10, 20, 30]}
-                    density="compact"
-                    stickyHeader
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full min-w-[640px]"
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {!iamUnavailable && category === "avoid" ? (
-            <div className="space-y-4">
-              {source === "kai" && avoidLoading ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading avoid list...
-                </div>
-              ) : null}
-
-              {source === "my" && editing && draftPackage ? (
-                <AvoidEditor
-                  rows={draftPackage.avoid_rows}
-                  errors={validationState.rowErrors}
-                  showIssuesOnly={showIssuesOnly}
-                  focusedRowId={focusedIssueRowId}
-                  categoryOptions={avoidCategoryOptions}
-                  packageSaving={packageSaving}
-                  saveDisabled={!hasUnsavedChanges}
-                  onAddRow={() =>
-                    updateDraft({
-                      ...draftPackage,
-                      avoid_rows: [...draftPackage.avoid_rows, createAvoidRow()],
-                    })
-                  }
-                  onRemoveRow={(id) =>
-                    updateDraft({
-                      ...draftPackage,
-                      avoid_rows: draftPackage.avoid_rows.filter((row) => row.id !== id),
-                    })
-                  }
-                  onRowChange={patchAvoidRow}
-                  onTickerResolved={updateAvoidTicker}
-                  onSave={() => void saveDraftPackage()}
+              {!iamUnavailable && source === "my" && uploadOpen ? (
+                <UploadPanel
+                  label={label}
+                  fileName={fileName}
+                  fileContent={fileContent}
+                  submitting={submitting}
+                  onLabelChange={setLabel}
+                  onFileSelected={(file) => {
+                    if (!file) {
+                      setFileName("");
+                      setFileContent("");
+                      return;
+                    }
+                    setFileName(file.name);
+                    void file.text().then(setFileContent);
+                  }}
+                  onUpload={() => void onUpload()}
                 />
               ) : null}
 
-              {source === "my" && !editing && myAvoidRows.length === 0 ? (
-                <SurfaceCard>
-                  <SurfaceCardContent className="p-5">
-                    <p className="text-sm font-semibold text-foreground">{RIA_COPY.picks.avoidEmpty.title}</p>
-                    <p className="mt-1 text-sm text-muted-foreground">
-                      {RIA_COPY.picks.avoidEmpty.description}
-                    </p>
+              {!iamUnavailable && source === "my" ? (
+                <SurfaceCard data-testid="ria-investor-debate-thesis">
+                  <SurfaceCardContent className="space-y-3 p-4 sm:p-5">
+                    <div className="space-y-1">
+                      <h2 className="text-sm font-semibold text-foreground">
+                        Investor debate context
+                      </h2>
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        This is shared only through an active Picks permission.
+                        Kai treats it as attributed advisor context when an
+                        investor starts a debate from this list.
+                      </p>
+                    </div>
+                    {editing && draftPackage ? (
+                      <div className="space-y-2">
+                        <Textarea
+                          aria-label="Investor debate context"
+                          value={draftPackage.investor_debate_thesis}
+                          maxLength={INVESTOR_DEBATE_THESIS_MAX_LENGTH}
+                          rows={6}
+                          placeholder="Explain the current portfolio view, key trade-offs, and what an investor should pressure-test in debate."
+                          onChange={(event) =>
+                            updateDraft({
+                              ...draftPackage,
+                              investor_debate_thesis: event.target.value,
+                            })
+                          }
+                        />
+                        <p className="text-right text-xs tabular-nums text-muted-foreground">
+                          {draftPackage.investor_debate_thesis.length}/
+                          {INVESTOR_DEBATE_THESIS_MAX_LENGTH}
+                        </p>
+                      </div>
+                    ) : activePackage.investor_debate_thesis ? (
+                      <p className="whitespace-pre-wrap text-sm leading-6 text-foreground">
+                        {activePackage.investor_debate_thesis}
+                      </p>
+                    ) : (
+                      <p className="text-sm leading-6 text-muted-foreground">
+                        No additional context is included with this package.
+                      </p>
+                    )}
                   </SurfaceCardContent>
                 </SurfaceCard>
               ) : null}
 
-              {((source === "kai" && !avoidLoading && avoidRows.length > 0) ||
-                (source === "my" && !editing && myAvoidRows.length > 0)) ? (
-                <div data-testid="ria-picks-active">
-                  <DataTable
-                    columns={avoidColumns}
-                    data={source === "kai" ? avoidRows : myAvoidRows}
-                    searchKey="ticker"
-                    globalSearchKeys={["ticker", "company_name", "sector", "category", "why_avoid", "note"]}
-                    searchPlaceholder="Search avoid list by ticker, company, category, or reason"
-                    initialPageSize={10}
-                    pageSizeOptions={[10, 20, 30]}
-                    density="compact"
-                    stickyHeader
-                    tableContainerClassName="w-full"
-                    tableClassName="w-full min-w-[700px]"
-                  />
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-
-          {!iamUnavailable && category === "screening" ? (
-            <div className="space-y-4">
-              {source === "kai" && screeningLoading ? (
-                <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Loading screening criteria...
-                </div>
-              ) : null}
-
-              {source === "my" && editing && draftPackage ? (
-                <ScreeningEditor
-                  sections={draftPackage.screening_sections}
-                  errors={validationState.rowErrors}
-                  showIssuesOnly={showIssuesOnly}
-                  focusedRowId={focusedIssueRowId}
-                  packageSaving={packageSaving}
-                  saveDisabled={!hasUnsavedChanges}
-                  onAddRow={(section) =>
-                    updateDraft({
-                      ...draftPackage,
-                      screening_sections: draftPackage.screening_sections.map((item) =>
-                        item.section === section
-                          ? { ...item, rows: [...item.rows, createScreeningRow()] }
-                          : item
-                      ),
-                    })
-                  }
-                  onRemoveRow={(section, rowId) =>
-                    updateDraft({
-                      ...draftPackage,
-                      screening_sections: draftPackage.screening_sections.map((item) =>
-                        item.section === section
-                          ? { ...item, rows: item.rows.filter((row) => row.id !== rowId) }
-                          : item
-                      ),
-                    })
-                  }
-                  onRowChange={patchScreeningRow}
-                  onSave={() => void saveDraftPackage()}
+              {!iamUnavailable && editing && source === "my" ? (
+                <InlineValidationBanner
+                  errors={validationState.packageErrors}
                 />
               ) : null}
 
-              {!editing ? (
-                <div className="space-y-6" data-testid="ria-picks-active">
-                  {screeningViewRows.map((section) => (
-                    <SurfaceCard key={section.section}>
-                      <SurfaceCardContent className="p-4">
-                        <h3 className="mb-3 text-sm font-semibold text-foreground">{section.label}</h3>
-                        {section.rows.length === 0 ? (
-                          <p className="text-sm text-muted-foreground">
-                            No rules yet for this section.
-                          </p>
-                        ) : (
-                          <div className="space-y-2">
-                            {section.rows.map((rule, index) => (
-                              <div
-                                key={`${section.section}-${index}`}
-                                className="border-b border-border/20 pb-2 last:border-0 last:pb-0"
-                              >
-                                <p className="text-sm font-medium text-foreground">{rule.title}</p>
-                                {shouldRenderScreeningDetail(rule) ? (
-                                  <p className="text-xs leading-5 text-muted-foreground">
-                                    {rule.detail}
-                                  </p>
-                                ) : null}
-                                {shouldRenderScreeningValue(rule) ? (
-                                  <p className="mt-1 text-xs font-medium text-primary">
-                                    {rule.value_text}
-                                  </p>
-                                ) : null}
-                              </div>
-                            ))}
-                          </div>
-                        )}
+              {!iamUnavailable && editing && source === "my" ? (
+                <ValidationIssuesPanel
+                  issues={validationIssues}
+                  showIssuesOnly={showIssuesOnly}
+                  onToggleShowIssuesOnly={() =>
+                    setShowIssuesOnly((current) => !current)
+                  }
+                  onJumpToIssue={(issue) => {
+                    setCategory(issue.category);
+                    setShowIssuesOnly(true);
+                    setFocusedIssueRowId(issue.rowId);
+                  }}
+                />
+              ) : null}
+
+              {!iamUnavailable && category === "top-picks" ? (
+                <div className="space-y-4">
+                  <TierSummary rows={source === "kai" ? kaiRows : myTopPicks} />
+
+                  {source === "kai" && kaiLoading ? (
+                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading suggested list...
+                    </div>
+                  ) : null}
+
+                  {source === "my" && picksResource.loading ? (
+                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading My list...
+                    </div>
+                  ) : null}
+
+                  {myListRequiresUnlock ? (
+                    <SurfaceCard>
+                      <SurfaceCardContent className="p-4 sm:p-5">
+                        <p className="text-sm font-medium text-foreground">
+                          Unlock required
+                        </p>
+                        <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                          This advisor package is now stored in your PKM. Unlock
+                          the vault to view or edit it.
+                        </p>
                       </SurfaceCardContent>
                     </SurfaceCard>
-                  ))}
+                  ) : null}
+
+                  {showMyListEmptyState ? <EmptyMyListState /> : null}
+
+                  {source === "my" && editing && draftPackage ? (
+                    <TopPicksEditor
+                      rows={draftPackage.top_picks}
+                      errors={validationState.rowErrors}
+                      showIssuesOnly={showIssuesOnly}
+                      focusedRowId={focusedIssueRowId}
+                      packageSaving={packageSaving}
+                      saveDisabled={!hasUnsavedChanges}
+                      onAddRow={() =>
+                        updateDraft({
+                          ...draftPackage,
+                          top_picks: [
+                            ...draftPackage.top_picks,
+                            createTopPickRow(),
+                          ],
+                        })
+                      }
+                      onRemoveRow={(id) =>
+                        updateDraft({
+                          ...draftPackage,
+                          top_picks: draftPackage.top_picks.filter(
+                            (row) => row.id !== id,
+                          ),
+                        })
+                      }
+                      onRowChange={patchTopPickRow}
+                      onTickerResolved={updateTopPickTicker}
+                      onSave={() => void saveDraftPackage()}
+                    />
+                  ) : null}
+
+                  {(source === "kai" && !kaiLoading && kaiRows.length > 0) ||
+                  (source === "my" &&
+                    !editing &&
+                    !picksResource.loading &&
+                    myTopPicks.length > 0) ? (
+                    <div data-testid="ria-picks-active">
+                      <DataTable
+                        columns={pickColumns}
+                        data={source === "kai" ? kaiRows : myTopPicks}
+                        searchKey="ticker"
+                        globalSearchKeys={[
+                          "ticker",
+                          "company_name",
+                          "sector",
+                          "tier",
+                          "investment_thesis",
+                        ]}
+                        searchPlaceholder={`Search ${sourceTitle.toLowerCase()} by ticker, company, sector, or tier`}
+                        initialPageSize={10}
+                        pageSizeOptions={[10, 20, 30]}
+                        density="compact"
+                        stickyHeader
+                        tableContainerClassName="w-full"
+                        tableClassName="w-full min-w-[640px]"
+                        renderMobileCard={(row) => (
+                          <TopPickMobileCard row={row} />
+                        )}
+                      />
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
-            </div>
-          ) : null}
-        </div>
+
+              {!iamUnavailable && category === "avoid" ? (
+                <div className="space-y-4">
+                  {source === "kai" && avoidLoading ? (
+                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading avoid list...
+                    </div>
+                  ) : null}
+
+                  {source === "my" && editing && draftPackage ? (
+                    <AvoidEditor
+                      rows={draftPackage.avoid_rows}
+                      errors={validationState.rowErrors}
+                      showIssuesOnly={showIssuesOnly}
+                      focusedRowId={focusedIssueRowId}
+                      categoryOptions={avoidCategoryOptions}
+                      packageSaving={packageSaving}
+                      saveDisabled={!hasUnsavedChanges}
+                      onAddRow={() =>
+                        updateDraft({
+                          ...draftPackage,
+                          avoid_rows: [
+                            ...draftPackage.avoid_rows,
+                            createAvoidRow(),
+                          ],
+                        })
+                      }
+                      onRemoveRow={(id) =>
+                        updateDraft({
+                          ...draftPackage,
+                          avoid_rows: draftPackage.avoid_rows.filter(
+                            (row) => row.id !== id,
+                          ),
+                        })
+                      }
+                      onRowChange={patchAvoidRow}
+                      onTickerResolved={updateAvoidTicker}
+                      onSave={() => void saveDraftPackage()}
+                    />
+                  ) : null}
+
+                  {source === "my" && !editing && myAvoidRows.length === 0 ? (
+                    <SurfaceCard>
+                      <SurfaceCardContent className="p-5">
+                        <p className="text-sm font-semibold text-foreground">
+                          {RIA_COPY.picks.avoidEmpty.title}
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          {RIA_COPY.picks.avoidEmpty.description}
+                        </p>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                  ) : null}
+
+                  {(source === "kai" &&
+                    !avoidLoading &&
+                    avoidRows.length > 0) ||
+                  (source === "my" && !editing && myAvoidRows.length > 0) ? (
+                    <div data-testid="ria-picks-active">
+                      <DataTable
+                        columns={avoidColumns}
+                        data={source === "kai" ? avoidRows : myAvoidRows}
+                        searchKey="ticker"
+                        globalSearchKeys={[
+                          "ticker",
+                          "company_name",
+                          "sector",
+                          "category",
+                          "why_avoid",
+                          "note",
+                        ]}
+                        searchPlaceholder="Search avoid list by ticker, company, category, or reason"
+                        initialPageSize={10}
+                        pageSizeOptions={[10, 20, 30]}
+                        density="compact"
+                        stickyHeader
+                        tableContainerClassName="w-full"
+                        tableClassName="w-full min-w-[700px]"
+                        renderMobileCard={(row) => (
+                          <AvoidMobileCard row={row} />
+                        )}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {!iamUnavailable && category === "screening" ? (
+                <div className="space-y-4">
+                  {source === "kai" && screeningError ? (
+                    // A failed Kai screening fetch used to collapse into the
+                    // empty "No rules yet" state. Show it explicitly with a
+                    // retry that re-arms the loader.
+                    <SurfaceCard>
+                      <SurfaceCardContent
+                        className="space-y-3 p-4 sm:p-5"
+                        data-testid="ria-screening-error"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-foreground">
+                            Screening rules unavailable
+                          </p>
+                          <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                            The screening rules failed to load. Check your
+                            connection and try again.
+                          </p>
+                        </div>
+                        <Button
+                          variant="none"
+                          effect="fade"
+                          size="sm"
+                          onClick={() => {
+                            setScreeningError(false);
+                            setScreeningReloadToken((token) => token + 1);
+                          }}
+                          className="justify-center"
+                        >
+                          Try again
+                        </Button>
+                      </SurfaceCardContent>
+                    </SurfaceCard>
+                  ) : null}
+
+                  {source === "kai" && screeningLoading ? (
+                    <div className="flex items-center gap-2 py-8 text-sm text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                      Loading screening criteria...
+                    </div>
+                  ) : null}
+
+                  {source === "my" && editing && draftPackage ? (
+                    <ScreeningEditor
+                      sections={draftPackage.screening_sections}
+                      errors={validationState.rowErrors}
+                      showIssuesOnly={showIssuesOnly}
+                      focusedRowId={focusedIssueRowId}
+                      packageSaving={packageSaving}
+                      saveDisabled={!hasUnsavedChanges}
+                      onAddRow={(section) =>
+                        updateDraft({
+                          ...draftPackage,
+                          screening_sections:
+                            draftPackage.screening_sections.map((item) =>
+                              item.section === section
+                                ? {
+                                    ...item,
+                                    rows: [...item.rows, createScreeningRow()],
+                                  }
+                                : item,
+                            ),
+                        })
+                      }
+                      onRemoveRow={(section, rowId) =>
+                        updateDraft({
+                          ...draftPackage,
+                          screening_sections:
+                            draftPackage.screening_sections.map((item) =>
+                              item.section === section
+                                ? {
+                                    ...item,
+                                    rows: item.rows.filter(
+                                      (row) => row.id !== rowId,
+                                    ),
+                                  }
+                                : item,
+                            ),
+                        })
+                      }
+                      onRowChange={patchScreeningRow}
+                      onSave={() => void saveDraftPackage()}
+                    />
+                  ) : null}
+
+                  {!editing && !screeningError ? (
+                    <div className="space-y-6" data-testid="ria-picks-active">
+                      {screeningViewRows.map((section) => (
+                        <SurfaceCard key={section.section}>
+                          <SurfaceCardContent className="p-4">
+                            <h3 className="mb-3 text-sm font-semibold text-foreground">
+                              {section.label}
+                            </h3>
+                            {section.rows.length === 0 ? (
+                              <p className="text-sm text-muted-foreground">
+                                No rules yet for this section.
+                              </p>
+                            ) : (
+                              <div className="space-y-2">
+                                {section.rows.map((rule, index) => (
+                                  <div
+                                    key={`${section.section}-${index}`}
+                                    className="border-b border-border/20 pb-2 last:border-0 last:pb-0"
+                                  >
+                                    <p className="text-sm font-medium text-foreground">
+                                      {rule.title}
+                                    </p>
+                                    {shouldRenderScreeningDetail(rule) ? (
+                                      <p className="text-xs leading-5 text-muted-foreground">
+                                        {rule.detail}
+                                      </p>
+                                    ) : null}
+                                    {shouldRenderScreeningValue(rule) ? (
+                                      <p className="mt-1 text-xs font-medium text-primary">
+                                        {rule.value_text}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+                          </SurfaceCardContent>
+                        </SurfaceCard>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+            </>
+          )}
+        </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>
   );

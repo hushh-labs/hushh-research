@@ -44,18 +44,19 @@ the governed operator service account. Current live facts:
 | Runtime SAs | compute + cloudbuild SAs granted UAT-parity roles |
 | APIs | full UAT parity (92 enabled; doctor-audited) |
 | **Deployed services** | `consent-protocol` + `hushh-webapp` live and healthy (first deploy 2026-07-10, `deploy-env=dev`, public invoker enabled — note: org-fresh projects drop the `--allow-unauthenticated` binding silently; re-add `allUsers` → `roles/run.invoker` if a new service 403s) |
-| Schedulers | full UAT parity: `one-email-kyc-retention-purge-dev` (daily 09:37 PT), `marketplace-investor-replenisher-every-8h`, `obs-supabase-data-health-every-30m` (+ their Cloud Run jobs and invoker SAs) |
+| Schedulers | full UAT parity: `one-email-kyc-retention-purge-dev` (daily 09:37 PT), `marketplace-investor-replenisher-every-8h`, `obs-Cloud SQL-data-health-every-30m` (+ their Cloud Run jobs and invoker SAs) |
 | Database | full UAT data replica (102 tables, parity-verified) |
 | Domain | `dev.one.hushh.ai` mapped to `hushh-webapp` + DNS CNAME live; origin flipped in secrets/workflow; TLS cert provisioning in flight |
 | Doctor status | 0 failures, 1 warning (TLS cert provisioning — self-resolving) |
 
 Known parity notes:
 
-- `obs-supabase-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
+- `obs-Cloud SQL-data-health` exits 1 in dev with `pkm_coherence_mismatch` — the SAME
   anomaly its UAT runs currently fail with (data-shape issue inherited via the clone,
   not an environment defect).
-- GitHub environment `dev` + secret `GCP_SA_KEY_DEV` still pending so the governed
-  `Deploy to Dev` workflow can take over from manual bootstrap deploys.
+- GitHub environment `dev` Workload Identity Federation variables are still pending,
+  so the governed `Deploy to Dev` workflow cannot yet take over from manual bootstrap
+  deploys.
 
 ## Identity Model (read this first)
 
@@ -97,6 +98,25 @@ labels and provenance verification.
 2. Everything else (voice, Plaid, market data, Gmail receipts OAuth, Maps, reviewer
    smoke, phone test numbers) replicates UAT, using secret values copied into the dev
    project.
+3. **Managed Vertex inference temporarily uses the UAT Vertex project.** The Dev
+   Cloud Run service continues to run as
+   `consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com`, but
+   `GOOGLE_CLOUD_PROJECT=hushh-pda-uat` for managed Gemini text and One Live calls.
+   Dev keeps its own Cloud Run and database resources while managed Gemini requests
+   use UAT's working Vertex billing entitlement. UAT grants that Dev service account only
+   `roles/aiplatform.user` and `roles/serviceusage.serviceUsageConsumer`; Dev usage
+   therefore consumes UAT Vertex quota and appears in UAT billing and audit logs.
+   The shared backend build rejects this override outside `deploy-env=dev`.
+   The Dev Cloud Build identity has the UAT project-local
+   `devVertexDeployVerifier` custom role with only
+   `serviceusage.services.list` and `resourcemanager.projects.getIamPolicy`, allowing
+   the build to verify those runtime grants without broad UAT Viewer access.
+
+   Roll back after Google clears project `621416509462` by removing the Dev fallback
+   from `deploy/backend.cloudbuild.yaml`, redeploying Dev, proving managed Vertex
+   readiness against `hushh-pda-dev`, removing the two UAT IAM bindings from the Dev
+   runtime service account, and removing the verifier-role binding from the Dev Cloud
+   Build identity. Delete the custom role after no bindings remain.
 
 ---
 
@@ -172,7 +192,7 @@ Then override the values that must differ in dev:
 | `DB_USER` / `DB_PASSWORD` | the new dev Cloud SQL credentials |
 | `APP_FRONTEND_ORIGIN` | `https://dev.one.hushh.ai` |
 | `BACKEND_URL` | dev backend Cloud Run URL (set after the first deploy) |
-| `GMAIL_OAUTH_REDIRECT_URI` | `https://dev.one.hushh.ai/profile/gmail/oauth/return` when Gmail receipts run in dev; it must exactly match `APP_FRONTEND_ORIGIN + /profile/gmail/oauth/return`. |
+| `GMAIL_OAUTH_REDIRECT_URI` | `https://dev.one.hushh.ai/one/profile/gmail/oauth/return` when Gmail receipts or owner-approved send run in dev; it must exactly match `APP_FRONTEND_ORIGIN + /one/profile/gmail/oauth/return`. |
 
 Notes:
 
@@ -203,7 +223,9 @@ python3 scripts/ops/verify-env-secrets-parity.py \
 ## Phase 4 — Deploy service account + GitHub wiring
 
 ```bash
-# Service account with the same roles as the UAT deployer
+# Service account with the narrowly scoped roles needed by the dev deploy workflow.
+# Bind GitHub's OIDC principal through Workload Identity Federation; do not create a
+# service-account key.
 gcloud iam service-accounts create github-deployer \
   --project=hushh-pda-dev --display-name="GitHub Actions dev deployer"
 
@@ -215,15 +237,18 @@ for role in roles/cloudbuild.builds.editor roles/run.admin roles/iam.serviceAcco
     --role="$role"
 done
 
-gcloud iam service-accounts keys create dev-deployer-key.json \
-  --iam-account=github-deployer@hushh-pda-dev.iam.gserviceaccount.com
+# Also grant roles/iam.serviceAccountUser on only:
+# consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com
+# Then configure the Workload Identity Pool/provider attribute condition for the
+# exact hushh-labs/hushh-research repository and governed branch/environment.
 ```
 
 In GitHub (`hushh-labs/hushh-research` → Settings → Environments):
 
 1. Create environment **`dev`** (mirror any reviewer/branch protections from `uat`).
-2. Add environment secret **`GCP_SA_KEY_DEV`** = contents of `dev-deployer-key.json`.
-3. Delete the local key file after upload.
+2. Add environment variable **`GCP_WORKLOAD_IDENTITY_PROVIDER`** = the full provider resource name.
+3. Add environment variable **`GCP_DEPLOY_SERVICE_ACCOUNT`** = `github-deployer@hushh-pda-dev.iam.gserviceaccount.com`.
+4. Do not create, download, or upload a service-account JSON key.
 
 Dispatch governance is already wired: `config/ci-governance.json` has a `dev` surface
 with the same governed actor list as UAT, enforced by
@@ -283,10 +308,10 @@ Ongoing schedulers to replicate (after first deploy):
 
 - One KYC retention purge (Phase 6b above; UAT runs it daily at 09:37 PT).
 - One Location retention purge: `POST /api/one/location/retention/purge?older_than_hours=12`
-  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN` (note: UAT itself has
-  no such job today — parity means matching UAT, so treat this as optional until UAT
-  adds it).
-- `marketplace-investor-replenisher-every-8h` and `obs-supabase-data-health-every-30m`
+  with `X-Hushh-Maintenance-Token: $ONE_LOCATION_RETENTION_TOKEN`.
+  `deploy/one-location/setup_retention_scheduler.sh` is the operator-run UAT shape;
+  use the same bounded endpoint for dev only after the UAT job is explicitly enabled.
+- `marketplace-investor-replenisher-every-8h` and `obs-Cloud SQL-data-health-every-30m`
   trigger Cloud Run *jobs* that must first be created in dev
   (`deploy/marketplace/setup_investor_replenisher_scheduler.sh`,
   `deploy/observability/`); the doctor reports them as warnings until then.

@@ -8,6 +8,8 @@ the same registry lane as self-serve tokens.
 
 from __future__ import annotations
 
+import argparse
+import importlib.util
 import json
 from pathlib import Path
 from unittest.mock import MagicMock, patch
@@ -20,6 +22,15 @@ from hushh_mcp.services.developer_registry_service import (
 )
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def _partner_provisioning_module():
+    script_path = ROOT / "scripts" / "ops" / "provision_partner_developer_app.py"
+    spec = importlib.util.spec_from_file_location("partner_provisioning", script_path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
 
 
 def _result(rows):
@@ -146,11 +157,15 @@ class TestPartnerPrincipal:
             "allowed_tool_groups": '["core_consent"]',
             "kind": "partner_crm",
             "crm_id": "salesforce-fsc-hushh",
+            "schema_profile": "flat",
+            "oauth_client_credentials_enabled": True,
             "token_id": 7,
         }
         principal = DeveloperRegistryService._principal_from_row(row)
         assert principal.kind == "partner_crm"
         assert principal.crm_id == "salesforce-fsc-hushh"
+        assert principal.schema_profile == "flat"
+        assert principal.oauth_client_credentials_enabled is True
         assert principal.agent_id == "developer:app_hushh-technologies_abcd1234"
 
     def test_principal_defaults_to_self_serve_kind(self):
@@ -163,6 +178,8 @@ class TestPartnerPrincipal:
         principal = DeveloperRegistryService._principal_from_row(row)
         assert principal.kind == "self_serve"
         assert principal.crm_id is None
+        assert principal.schema_profile == "standard"
+        assert principal.oauth_client_credentials_enabled is False
 
     def test_dataclass_defaults_keep_backward_compat(self):
         principal = DeveloperPrincipal(
@@ -173,6 +190,54 @@ class TestPartnerPrincipal:
         )
         assert principal.kind == "self_serve"
         assert principal.crm_id is None
+
+
+class TestMuleSoftAgentforceProvisioning:
+    def test_agentexchange_integration_selects_executable_client_credentials(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="salesforce-agentexchange",
+            schema_profile="standard",
+            enable_client_credentials=False,
+            client_credentials_execution_mode="catalog_only",
+        )
+
+        module._apply_integration_defaults(parser, args)
+
+        assert args.enable_client_credentials is True
+        assert args.client_credentials_execution_mode == "execute"
+
+    def test_named_integration_selects_executable_client_credentials(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="mulesoft-agentforce",
+            schema_profile="standard",
+            enable_client_credentials=False,
+            client_credentials_execution_mode="execute",
+        )
+
+        module._apply_integration_defaults(parser, args)
+
+        assert args.schema_profile == "standard"
+        assert args.enable_client_credentials is True
+        assert args.client_credentials_execution_mode == "execute"
+
+    def test_named_integration_uses_the_same_catalog_from_any_legacy_profile(self):
+        module = _partner_provisioning_module()
+        parser = argparse.ArgumentParser()
+        args = argparse.Namespace(
+            integration_target="mulesoft-agentforce",
+            schema_profile="flat",
+            enable_client_credentials=False,
+            client_credentials_execution_mode="execute",
+        )
+
+        module._apply_integration_defaults(parser, args)
+
+        assert args.schema_profile == "flat"
+        assert args.client_credentials_execution_mode == "execute"
 
 
 class TestPartnerMigrationContract:
@@ -198,3 +263,38 @@ class TestPartnerMigrationContract:
         cols = contract["required_tables"]["developer_apps"]
         assert "kind" in cols
         assert "crm_id" in cols
+
+    def test_agentforce_compatibility_migration_is_release_guarded(self):
+        migration = ROOT / "db" / "migrations" / "105_agentforce_mcp_compatibility.sql"
+        sql = migration.read_text()
+        manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+        contract = json.loads(
+            (ROOT / "db" / "contracts" / "uat_integrated_schema.json").read_text()
+        )
+        assert "schema_profile" in sql
+        assert "oauth_client_credentials_enabled" in sql
+        assert "developer_connector_keys" in sql
+        assert "105_agentforce_mcp_compatibility.sql" in manifest["ordered_migrations"]
+        assert "105_agentforce_mcp_compatibility.sql" in manifest["groups"]["developer"]
+        agentforce_uat_migration = ROOT / "db" / "migrations" / "106_agentforce_uat_profile.sql"
+        assert agentforce_uat_migration.exists()
+        assert "agentforce" in agentforce_uat_migration.read_text()
+        assert "106_agentforce_uat_profile.sql" in manifest["ordered_migrations"]
+        assert "106_agentforce_uat_profile.sql" in manifest["groups"]["developer"]
+        # Contract head advances as new migrations land; assert it still covers
+        # the agentforce migration (106+) rather than pinning an exact version.
+        assert contract["expected_migration_version"] >= 106
+        assert "schema_profile" in contract["required_tables"]["developer_apps"]
+        consent_execution = (
+            ROOT / "db" / "migrations" / "109_oauth_client_credentials_consent_execution.sql"
+        )
+        assert consent_execution.exists()
+        assert "mcp_execution_mode = 'execute'" in consent_execution.read_text()
+        assert (
+            "109_oauth_client_credentials_consent_execution.sql" in manifest["ordered_migrations"]
+        )
+        assert (
+            "109_oauth_client_credentials_consent_execution.sql" in manifest["groups"]["developer"]
+        )
+        assert "developer_connector_keys" in contract["required_tables"]
+        assert "developer_oauth_tokens" in contract["required_tables"]

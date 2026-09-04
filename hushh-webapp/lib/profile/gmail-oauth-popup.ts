@@ -1,6 +1,15 @@
 "use client";
 
 const STORAGE_KEY = "one_gmail_oauth_popup_attempt_v1";
+const FALLBACK_ATTEMPT_KEY = "one_gmail_oauth_popup_attempt_fallback_v1";
+// A localStorage key (not sessionStorage, which does not cross the
+// popup/opener boundary) used as a fallback settlement signal. postMessage
+// is the primary channel, but if the popup's `window.opener` reference is
+// lost (some browsers null it out for popups, or cross-origin heuristics
+// interfere), postMessage delivery silently fails. The parent also listens
+// for the "storage" event on this key so it can detect settlement even when
+// postMessage never arrives.
+const FALLBACK_SETTLEMENT_KEY = "one_gmail_oauth_popup_settlement_v1";
 const MAX_ATTEMPT_AGE_MS = 15 * 60 * 1000;
 const POPUP_NAME = "hushh-gmail-oauth";
 const POPUP_FEATURES = "popup=yes,width=520,height=720,resizable=yes,scrollbars=yes";
@@ -22,6 +31,20 @@ export type GmailOAuthPopupSettlement = {
 function getStorage(target?: Window | null): Storage | null {
   try {
     return target?.sessionStorage ?? null;
+  } catch {
+    return null;
+  }
+}
+
+export function getGmailOAuthPopupSessionStorage(
+  target?: Window | null,
+): Storage | null {
+  return getStorage(target);
+}
+
+function getFallbackStorage(target?: Window | null): Storage | null {
+  try {
+    return target?.localStorage ?? null;
   } catch {
     return null;
   }
@@ -53,20 +76,31 @@ export function persistGmailOAuthPopupAttempt(
   attempt: GmailOAuthPopupAttempt,
 ): boolean {
   const targetStorage = getStorage(target);
-  if (!targetStorage) return false;
+  const fallbackStorage = getFallbackStorage(target);
+  let persisted = false;
   try {
-    targetStorage.setItem(STORAGE_KEY, JSON.stringify(attempt));
-    return true;
+    targetStorage?.setItem(STORAGE_KEY, JSON.stringify(attempt));
+    persisted = Boolean(targetStorage);
   } catch {
-    return false;
+    persisted = false;
   }
+  try {
+    fallbackStorage?.setItem(FALLBACK_ATTEMPT_KEY, JSON.stringify(attempt));
+    persisted = persisted || Boolean(fallbackStorage);
+  } catch {
+    // The fallback is best effort. Return whether the primary write succeeded.
+  }
+  return persisted;
 }
 
 export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
   if (typeof window === "undefined") return null;
   const targetStorage = getStorage(window);
-  const raw = targetStorage?.getItem(STORAGE_KEY);
-  if (!targetStorage || !raw) return null;
+  const fallbackStorage = getFallbackStorage(window);
+  const raw =
+    targetStorage?.getItem(STORAGE_KEY) ??
+    fallbackStorage?.getItem(FALLBACK_ATTEMPT_KEY);
+  if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<GmailOAuthPopupAttempt>;
     if (
@@ -82,16 +116,17 @@ export function readGmailOAuthPopupAttempt(): GmailOAuthPopupAttempt | null {
   } catch {
     // Discard malformed browser state below.
   }
-  targetStorage.removeItem(STORAGE_KEY);
+  targetStorage?.removeItem(STORAGE_KEY);
+  fallbackStorage?.removeItem(FALLBACK_ATTEMPT_KEY);
   return null;
 }
 
 export function clearGmailOAuthPopupAttempt(
   target?: Window | null,
 ): void {
-  getStorage(target ?? (typeof window === "undefined" ? null : window))?.removeItem(
-    STORAGE_KEY,
-  );
+  const resolvedTarget = target ?? (typeof window === "undefined" ? null : window);
+  getStorage(resolvedTarget)?.removeItem(STORAGE_KEY);
+  getFallbackStorage(resolvedTarget)?.removeItem(FALLBACK_ATTEMPT_KEY);
 }
 
 /**
@@ -114,6 +149,11 @@ export function openGmailOAuthPopup(
 
   try {
     popup.document.title = "Connecting Gmail";
+    if (popup.document.body) {
+      popup.document.body.textContent = "Opening secure Google sign-in…";
+      popup.document.body.style.cssText =
+        "margin:0;display:grid;min-height:100vh;place-items:center;background:#0a0a0a;color:#f5f5f5;font:16px system-ui,sans-serif;";
+    }
     popup.focus();
   } catch {
     // The browser owns focus policy. The retained popup remains usable.
@@ -161,5 +201,43 @@ export function notifyGmailOAuthPopupOpener(
     return true;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Fallback settlement channel for when `window.opener` is null/inaccessible
+ * (postMessage cannot be delivered). Writing to localStorage fires a
+ * same-origin "storage" event on every OTHER tab/window watching this key,
+ * including the original opener, even without a direct opener reference.
+ * Same redacted terminal-outcome payload as postMessage; no OAuth/vault
+ * material crosses this channel either.
+ */
+export function notifyGmailOAuthPopupOpenerFallback(
+  settlement: GmailOAuthPopupSettlement,
+): boolean {
+  if (typeof window === "undefined") return false;
+  try {
+    window.localStorage.setItem(
+      FALLBACK_SETTLEMENT_KEY,
+      JSON.stringify({ ...settlement, sentAt: Date.now() }),
+    );
+    // Clear it right after so a later reload of this same tab doesn't
+    // replay a stale settlement as if it just happened.
+    window.localStorage.removeItem(FALLBACK_SETTLEMENT_KEY);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+export function readGmailOAuthPopupSettlementFallback(
+  event: StorageEvent,
+): GmailOAuthPopupSettlement | null {
+  if (event.key !== FALLBACK_SETTLEMENT_KEY || !event.newValue) return null;
+  try {
+    const parsed = JSON.parse(event.newValue) as unknown;
+    return isGmailOAuthPopupSettlement(parsed) ? parsed : null;
+  } catch {
+    return null;
   }
 }

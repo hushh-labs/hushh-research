@@ -14,8 +14,15 @@ import { usePathname } from "next/navigation";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { useAuth } from "@/hooks/use-auth";
-import { getRouteScope, routePersonaForScope } from "@/lib/navigation/route-scope";
-import { CacheService, CACHE_KEYS, CACHE_TTL } from "@/lib/services/cache-service";
+import {
+  getRouteScope,
+  routePersonaForScope,
+} from "@/lib/navigation/route-scope";
+import {
+  CacheService,
+  CACHE_KEYS,
+  CACHE_TTL,
+} from "@/lib/services/cache-service";
 import {
   RiaService,
   type Persona,
@@ -45,11 +52,36 @@ interface PersonaContextValue {
 const PersonaContext = createContext<PersonaContextValue | null>(null);
 const PERSONA_TRANSITION_TIMEOUT_MS = 4_000;
 
+function scheduleWhenIdle(task: () => void): () => void {
+  if (typeof window !== "undefined" && "requestIdleCallback" in window) {
+    const requestIdle = window.requestIdleCallback as (
+      callback: IdleRequestCallback,
+      options?: IdleRequestOptions,
+    ) => number;
+    const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+    const handle = requestIdle(task, { timeout: 4_000 });
+    return () => cancelIdle(handle);
+  }
+  const timeout = globalThis.setTimeout(task, 1_000);
+  return () => globalThis.clearTimeout(timeout);
+}
+
+function isGmailRoute(pathname: string | null): boolean {
+  const path = String(pathname || "").toLowerCase();
+  return (
+    path.startsWith("/one/gmail") ||
+    path.startsWith("/one/setup/gmail") ||
+    path.startsWith("/one/email")
+  );
+}
+
 function readCachedPersona(userId: string) {
   const cache = CacheService.getInstance();
   return {
     personaState: cache.get<PersonaState>(CACHE_KEYS.PERSONA_STATE(userId)),
-    riaOnboardingStatus: cache.get<RiaOnboardingStatus>(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId)),
+    riaOnboardingStatus: cache.get<RiaOnboardingStatus>(
+      CACHE_KEYS.RIA_ONBOARDING_STATUS(userId),
+    ),
   };
 }
 
@@ -70,18 +102,26 @@ function buildFallbackPersonaState(userId: string): PersonaState {
 
 function shouldLoadRiaOnboardingStatus(
   pathname: string,
-  personaState: PersonaState | null
+  personaState: PersonaState | null,
 ): boolean {
-  const normalized = String(pathname || "").trim().toLowerCase();
+  const normalized = String(pathname || "")
+    .trim()
+    .toLowerCase();
   if (!normalized) return false;
   if (normalized.startsWith("/ria")) return true;
 
-  const activePersona = personaState?.active_persona || personaState?.last_active_persona;
+  const activePersona =
+    personaState?.active_persona || personaState?.last_active_persona;
   const primaryPersona = personaState?.primary_nav_persona;
   const riaContext = activePersona === "ria" || primaryPersona === "ria";
 
-  if (normalized.startsWith("/profile")) return riaContext;
-  if (normalized.startsWith("/consents")) return riaContext;
+  if (normalized.startsWith("/one/profile")) return riaContext;
+  if (
+    normalized.startsWith(ROUTES.CONSENTS) ||
+    normalized.startsWith(ROUTES.LEGACY_CONSENTS)
+  ) {
+    return riaContext;
+  }
   return false;
 }
 
@@ -89,10 +129,12 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
   const pathname = usePathname();
   const { user, isAuthenticated, loading: authLoading } = useAuth();
   const [personaState, setPersonaState] = useState<PersonaState | null>(null);
-  const [riaOnboardingStatus, setRiaOnboardingStatus] = useState<RiaOnboardingStatus | null>(null);
+  const [riaOnboardingStatus, setRiaOnboardingStatus] =
+    useState<RiaOnboardingStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [personaTransitionTarget, setPersonaTransitionTarget] = useState<Persona | null>(null);
+  const [personaTransitionTarget, setPersonaTransitionTarget] =
+    useState<Persona | null>(null);
   const pathnameRef = useRef(pathname);
   const personaMutationSeqRef = useRef(0);
 
@@ -137,7 +179,11 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
           return;
         }
         setPersonaState(nextPersona);
-        cache.set(CACHE_KEYS.PERSONA_STATE(userId), nextPersona, CACHE_TTL.SESSION);
+        cache.set(
+          CACHE_KEYS.PERSONA_STATE(userId),
+          nextPersona,
+          CACHE_TTL.SESSION,
+        );
 
         if (!nextPersona.iam_schema_ready) {
           setRiaOnboardingStatus(null);
@@ -153,18 +199,24 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         const nextOnboarding = await RiaService.getOnboardingStatus(idToken, {
           userId,
           force,
-        }).catch(
-          () => null as RiaOnboardingStatus | null
-        );
+        }).catch(() => null as RiaOnboardingStatus | null);
         setRiaOnboardingStatus(nextOnboarding);
         if (nextOnboarding) {
-          cache.set(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId), nextOnboarding, CACHE_TTL.SESSION);
+          cache.set(
+            CACHE_KEYS.RIA_ONBOARDING_STATUS(userId),
+            nextOnboarding,
+            CACHE_TTL.SESSION,
+          );
         } else {
           cache.invalidate(CACHE_KEYS.RIA_ONBOARDING_STATUS(userId));
         }
       } catch (error) {
-        console.warn("[PersonaProvider] Persona refresh unavailable; using cached/fallback state.", error);
-        const fallback = cached.personaState || buildFallbackPersonaState(userId);
+        console.warn(
+          "[PersonaProvider] Persona refresh unavailable; using cached/fallback state.",
+          error,
+        );
+        const fallback =
+          cached.personaState || buildFallbackPersonaState(userId);
         setPersonaState(fallback);
         setRiaOnboardingStatus(cached.riaOnboardingStatus ?? null);
       } finally {
@@ -172,12 +224,18 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         setRefreshing(false);
       }
     },
-    [authLoading, isAuthenticated, user]
+    [authLoading, isAuthenticated, user],
   );
 
   useEffect(() => {
+    if (isGmailRoute(pathname)) {
+      return scheduleWhenIdle(() => {
+        void refresh();
+      });
+    }
     void refresh();
-  }, [refresh]);
+    return undefined;
+  }, [pathname, refresh]);
 
   useEffect(() => {
     if (authLoading || !isAuthenticated || !user) return;
@@ -204,7 +262,9 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         const idToken = await user.getIdToken();
         const next = await RiaService.switchPersona(idToken, target);
         const cache = CacheService.getInstance();
-        CacheSyncService.onPersonaStateChanged(user.uid, { preservePersonaState: true });
+        CacheSyncService.onPersonaStateChanged(user.uid, {
+          preservePersonaState: true,
+        });
         cache.set(CACHE_KEYS.PERSONA_STATE(user.uid), next, CACHE_TTL.SESSION);
         personaMutationSeqRef.current += 1;
         setPersonaState(next);
@@ -215,19 +275,26 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
         throw error;
       }
     },
-    [isAuthenticated, user]
+    [isAuthenticated, user],
   );
 
   const riaCapability: RiaCapability = useMemo(() => {
     if (!personaState?.iam_schema_ready) return "disabled";
-    if (personaState.ria_switch_available ?? personaState.personas.includes("ria")) {
+    if (
+      personaState.ria_switch_available ??
+      personaState.personas.includes("ria")
+    ) {
       return "switch";
     }
     return "setup";
   }, [personaState]);
 
   const activePersona: Persona = useMemo(() => {
-    return personaState?.active_persona || personaState?.last_active_persona || "investor";
+    return (
+      personaState?.active_persona ||
+      personaState?.last_active_persona ||
+      "investor"
+    );
   }, [personaState]);
 
   const routePersona = useMemo(() => {
@@ -249,7 +316,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
     const timeoutId = window.setTimeout(() => {
       setPersonaTransitionTarget((current) =>
-        current === personaTransitionTarget ? null : current
+        current === personaTransitionTarget ? null : current,
       );
     }, PERSONA_TRANSITION_TIMEOUT_MS);
 
@@ -264,7 +331,9 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   const riaSwitchAvailable = useMemo(() => {
     if (!personaState?.iam_schema_ready) return false;
-    return personaState.ria_switch_available ?? personaState.personas.includes("ria");
+    return (
+      personaState.ria_switch_available ?? personaState.personas.includes("ria")
+    );
   }, [personaState]);
 
   const riaSetupAvailable = useMemo(() => {
@@ -274,7 +343,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
 
   const riaEntryRoute = useMemo(() => {
     if (riaCapability === "switch") {
-      return ROUTES.RIA_HOME;
+      return ROUTES.RIA_PROFILE;
     }
     return ROUTES.RIA_ONBOARDING;
   }, [riaCapability]);
@@ -311,7 +380,7 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       riaSetupAvailable,
       riaSwitchAvailable,
       switchPersona,
-    ]
+    ],
   );
 
   useEffect(() => {
@@ -334,26 +403,39 @@ export function PersonaProvider({ children }: { children: ReactNode }) {
       try {
         const next = await switchPersona(target);
         bridge.activePersona = next?.active_persona || target;
-        bridge.primaryNavPersona = next?.primary_nav_persona || bridge.activePersona || target;
+        bridge.primaryNavPersona =
+          next?.primary_nav_persona || bridge.activePersona || target;
         bridge.personaSwitchStatus = `ok:${target}`;
         return next;
       } catch (error) {
         bridge.personaSwitchStatus = `error:${target}`;
         bridge.personaSwitchError =
-          error instanceof Error ? error.message : "native persona switch failed";
+          error instanceof Error
+            ? error.message
+            : "native persona switch failed";
         throw error;
       }
     };
 
     return () => {
       const currentBridge = window.__HUSHH_NATIVE_TEST__;
-      if (currentBridge && currentBridge.switchPersona === bridge.switchPersona) {
+      if (
+        currentBridge &&
+        currentBridge.switchPersona === bridge.switchPersona
+      ) {
         currentBridge.switchPersona = null;
       }
     };
-  }, [activePersona, personaTransitionTarget, primaryNavPersona, switchPersona]);
+  }, [
+    activePersona,
+    personaTransitionTarget,
+    primaryNavPersona,
+    switchPersona,
+  ]);
 
-  return <PersonaContext.Provider value={value}>{children}</PersonaContext.Provider>;
+  return (
+    <PersonaContext.Provider value={value}>{children}</PersonaContext.Provider>
+  );
 }
 
 export function usePersonaState() {

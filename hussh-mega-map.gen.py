@@ -6,8 +6,11 @@
 #   Apple Mac unified memory / Nvidia RTX Spark on-device · UCP · AP2 agent-economy.
 # Colors standardized on the hushh-search-console Foundation palette (ink/gold) but
 #   kept CONTRASTIVE for legibility; gold = emphasis/navigation only (Foundation law).
-# Renders BOTH hussh-mega-map.dark.svg and hussh-mega-map.light.svg.
-import html, math, re
+# Renders four SVGs next to this file: hussh-mega-map.{dark,light}.svg (internal,
+#   eight layers) and hussh-mega-map.{dark,light}.public.svg (public, seven layers).
+import html, math, os, re
+
+REPO_ROOT = os.path.dirname(os.path.abspath(__file__))
 def e(s): return html.escape(str(s))
 
 W=3320; AX0=100; INW=W-2*AX0
@@ -95,7 +98,7 @@ LAYERS_ALL=[
  ]),
  ("INFRASTRUCTURE","INFRA","the governed foundation everything above runs on",[
    ("GCP · Cloud Run + Vertex","cloud compute + LLM","serverless compute + Gemini","scales · governed deploys","UAT → prod parity","hosts API + MCP","ship",[]),
-   ("Supabase / Postgres","database","relational data plane","durable workflow state","consent·audit·metadata","ciphertext rows","ship",[]),
+   ("Cloud SQL / Postgres","database","relational data plane","durable workflow state","consent·audit·metadata","ciphertext rows","ship",[]),
    ("GCP Secret Manager","secret store","secret store","no keys in code","runtime refs · BYOK refs","model API keys","ship",[]),
    ("Firebase / FCM","auth + push","auth + push messaging","identity & notifications","tokens + messaging","consent push prompt","ship",[]),
    ("CI/CD","delivery pipeline","delivery pipeline","safe, repeatable ships","parity gates UAT→prod","blocked on red test","ship",[]),
@@ -185,7 +188,7 @@ SANITIZE=[
  ("Google ADK","agent dev kit"),("ADK runtime + tools","agent runtime + tools"),("Agent Development Kit (Google)","agent dev kit"),("agent dev kit (Google)","agent dev kit"),("ADK","agent dev kit"),
  ("Hermes (Nous)","Agent runtime"),("Mac · Hermes runtime","On-device · agent runtime"),("Hermes runtime","agent runtime"),("Hermes","agent runtime"),("(Nous)",""),("Nous Research","research lab"),("Nous",""),
  ("Firebase Auth","Identity provider"),("Firebase / FCM","Auth + push"),("Firebase Cloud Messaging push","push messaging"),("Firebase identity","identity provider"),("Firebase","auth"),("FCM","push messaging"),
- ("Supabase / Postgres","Database"),("Supabase","Postgres"),
+ ("Cloud SQL / Postgres","Database"),("Cloud SQL","Postgres"),
  ("@hushh/mcp · Hosted MCP","Hosted MCP server"),("@hushh/mcp","hosted MCP"),
  ("Next.js","web framework"),("Capacitor","native shell"),("MLX","on-device ML"),
  ("Renaissance overlay tiers","systematic overlay tiers"),("Renaissance","systematic"),
@@ -394,7 +397,7 @@ def render(theme_name, public=False):
 
     S.append("</g></svg>")
     suffix=f"{theme_name}.public" if public else theme_name
-    out=f"/Users/kushaltrivedi/Documents/GitHub/hushh-research/hussh-mega-map.{suffix}.svg"
+    out=os.path.join(REPO_ROOT, f"hussh-mega-map.{suffix}.svg")
     svg_str="\n".join(S)
     # round long float coords so geometry digit-runs can't trip the wiki credit_card scan
     svg_str=re.sub(r'(\d+\.\d{3,})', lambda m: f"{float(m.group(1)):.2f}", svg_str)

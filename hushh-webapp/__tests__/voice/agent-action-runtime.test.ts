@@ -8,7 +8,7 @@ import {
   registerLocalOnboardingHandler,
   unregisterLocalOnboardingHandler,
 } from "@/lib/agent/local-onboarding-actions";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute, ROUTES } from "@/lib/navigation/routes";
 import type { AppRuntimeState } from "@/lib/voice/voice-types";
 
 function runtimeState(
@@ -59,6 +59,94 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it("never names a surface the action did not open", async () => {
+    // Regression: this runtime was Kai-only once, and every route action
+    // reported `${label} opened in Finance.` long after it became the shared
+    // path for every surface. Asking for Voice Settings answered "Open Voice
+    // Settings opened in Finance."
+    //
+    // The action's own surface_id is no better -- it names where the action is
+    // authored, not where it lands, so route.voice_settings would claim
+    // "Agents". The summary names no place at all now.
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.voice_settings",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(result.status).toBe("started");
+    expect(result.resultSummary).not.toMatch(/Finance/i);
+    expect(result.resultSummary).not.toMatch(/Agents/i);
+    // The label alone is the honest description of what happened.
+    expect(result.resultSummary).toBe("Open Voice Settings.");
+  });
+
+  it("admits generated direct route actions outside the current screen inventory", async () => {
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.one_location",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).toHaveBeenCalledWith(ROUTES.ONE_LOCATION);
+    expect(result).toMatchObject({
+      status: "started",
+      actionId: "route.one_location",
+      routeAfter: ROUTES.ONE_LOCATION,
+    });
+  });
+
+  it("keeps global route actions blocked behind an active blocking layer", async () => {
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.one_location",
+      allowedActionIds: [],
+      surfaceMetadata: {
+        interactionLayer: {
+          schemaVersion: "voice_interaction_layer.v1",
+          id: "vault-unlock",
+          kind: "vault",
+          modality: "blocking",
+          lifecycle: "open",
+          dismissible: false,
+          visibleActionIds: [],
+          visibleControlIds: [],
+          options: [],
+          blocksUnderlyingActions: true,
+          agentContinuity: "suppressed",
+        },
+      },
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(router.push).not.toHaveBeenCalled();
+    expect(result).toMatchObject({
+      status: "blocked",
+      actionId: "route.one_location",
+      reason: "action_not_in_active_inventory",
+    });
+  });
+
   it("routes Agent analysis.start tools to the comparison preview before debate launch", async () => {
     const router = {
       push: vi.fn(),
@@ -80,12 +168,12 @@ describe("executeAgentGatewayAction", () => {
 
     expect(setAnalysisParams).toHaveBeenCalledWith(null);
     expect(router.push).toHaveBeenCalledWith(
-      `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+      buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
     );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=NVDA`,
+      routeAfter: buildKaiMarketRoute("analysis", { ticker: "NVDA" }),
       screenAfter: "kai_analysis",
       resultSummary:
         "Opened the NVDA comparison preview before starting the debate.",
@@ -124,12 +212,12 @@ describe("executeAgentGatewayAction", () => {
 
     expect(switchPersona).toHaveBeenCalledWith("investor");
     expect(router.push).toHaveBeenCalledWith(
-      `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+      buildKaiMarketRoute("analysis", { ticker: "TSLA" }),
     );
     expect(result).toMatchObject({
       status: "started",
       actionId: "analysis.start",
-      routeAfter: `${ROUTES.KAI_ANALYSIS}?ticker=TSLA`,
+      routeAfter: buildKaiMarketRoute("analysis", { ticker: "TSLA" }),
       screenAfter: "kai_analysis",
     });
   });
@@ -248,6 +336,54 @@ describe("executeAgentGatewayAction", () => {
         status: "started",
         actionId: "onboarding.claim_one",
         resultSummary: "Opening sign-in.",
+      });
+    } finally {
+      unregisterLocalOnboardingHandler("onboarding.claim_one", handler);
+    }
+  });
+
+  it("waits for a started local mutation after a later voice abort", async () => {
+    const router = { push: vi.fn() };
+    const controller = new AbortController();
+    let finish:
+      | ((value: { status: "succeeded"; summary: string }) => void)
+      | null = null;
+    const handler = vi.fn(
+      () =>
+        new Promise<{ status: "succeeded"; summary: string }>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    registerLocalOnboardingHandler("onboarding.claim_one", handler);
+
+    try {
+      const resultPromise = executeAgentGatewayAction({
+        actionId: "onboarding.claim_one",
+        slots: {},
+        signal: controller.signal,
+        userId: "",
+        router,
+        appRuntimeState: runtimeState({
+          auth: { signed_in: false, user_id: null },
+          vault: {
+            unlocked: false,
+            token_available: false,
+            token_valid: false,
+          },
+          route: { pathname: "/", screen: "one_intro", subview: null },
+        }),
+        hasPortfolioData: false,
+        busyOperations: {},
+        setAnalysisParams: vi.fn(),
+      });
+
+      await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1));
+      controller.abort();
+      finish?.({ status: "succeeded", summary: "Sign-in opened." });
+
+      await expect(resultPromise).resolves.toMatchObject({
+        status: "succeeded",
+        actionId: "onboarding.claim_one",
       });
     } finally {
       unregisterLocalOnboardingHandler("onboarding.claim_one", handler);

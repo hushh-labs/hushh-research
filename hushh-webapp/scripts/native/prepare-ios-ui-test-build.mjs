@@ -10,6 +10,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { parseEnvFile } from "../testing/reviewer-test-identity.mjs";
 import { prepareNativeTestArtifacts } from "./prepare-native-test-artifacts.mjs";
+import { createNativeUiAuditPlan } from "./native-ui-audit-plan.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -24,11 +25,7 @@ function applyEnvValues(values = {}) {
 function ensureNativeTestBuildEnv() {
   const uatEnvPath = path.join(repoRoot, ".env.uat.local");
   const uatValues = parseEnvFile(uatEnvPath);
-  const configured = String(process.env.NEXT_PUBLIC_BACKEND_URL || "").trim();
-  const backendUrl =
-    configured && !/^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(configured)
-      ? configured
-      : String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
+  const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
 
   if (!backendUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
     throw new Error("device UI test requires UAT NEXT_PUBLIC_BACKEND_URL (.env.uat.local).");
@@ -41,6 +38,12 @@ function ensureNativeTestBuildEnv() {
     NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
     NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
     NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
+    NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,
+    // The onboarding map picker loads Google Maps JS via the browser key
+    // (getBrowserMapsApiKey). Next inlines NEXT_PUBLIC_* at build time, so this
+    // must be bundled or the picker resolves an empty key and never loads the map.
+    NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY:
+      uatValues.NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY,
     NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
     NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
     NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
@@ -69,7 +72,12 @@ function main() {
   if (!fs.existsSync(copiedManifestPath)) {
     throw new Error("native-ui-flows.json was not copied into the iOS app bundle.");
   }
-  console.log(`==> native UI flow manifest copied (${manifest.flows.length} flow(s))`);
+  const copiedManifest = JSON.parse(fs.readFileSync(copiedManifestPath, "utf8"));
+  const auditPlan = createNativeUiAuditPlan(manifest.flows);
+  if (copiedManifest?.audit_plan?.digest !== auditPlan.digest) {
+    throw new Error("iOS device UI bundle flow manifest does not match the requested audit plan.");
+  }
+  console.log(`==> native UI flow manifest copied (${manifest.flows.length} flow(s), plan ${auditPlan.digest.slice(0, 12)})`);
 }
 
 main();

@@ -18,7 +18,7 @@ import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
 import { Button } from "@/lib/morphy-ux/button";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { useHostname } from "@/lib/hooks/use-hostname";
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import {
   Dialog,
   DialogContent,
@@ -74,7 +74,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
 
       try {
         // Avoid stacking prompts on top of the first-time Kai nav tour.
-        if (pathname === ROUTES.KAI_HOME || pathname === ROUTES.LEGACY_KAI_HOME) {
+        if (pathname === KAI_MARKET_PATH || pathname === ROUTES.LEGACY_KAI_HOME) {
           const navTourState = await KaiNavTourLocalService.load(user.uid);
           if (
             !navTourState?.completed_at &&
@@ -218,11 +218,12 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
           <DialogDescription>{description}</DialogDescription>
         </DialogHeader>
 
-        <DialogFooter className="gap-2 sm:gap-2">
+        <DialogFooter className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end sm:gap-2">
           <Button
             variant="none"
             effect="fade"
             size="lg"
+            className="h-12 rounded-full border border-[color:var(--app-accent-border)] !bg-[color:var(--app-accent-tint)] px-5 text-[15px] font-medium !text-[color:var(--app-accent-deep)] hover:!bg-[color:var(--app-accent-surface-strong)]"
             onClick={() => void handleNotNow()}
             disabled={busy}
           >
@@ -232,6 +233,7 @@ export function VaultMethodPrompt({ enabled }: VaultMethodPromptProps) {
             variant="blue-gradient"
             effect="fill"
             size="lg"
+            className="h-12 rounded-full px-5 text-[15px] font-semibold"
             onClick={() => void handleEnable()}
             disabled={busy}
           >

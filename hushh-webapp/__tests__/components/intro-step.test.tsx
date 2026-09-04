@@ -40,6 +40,7 @@ describe("IntroStep voice contract", () => {
       "data-voice-control-id",
       "onboarding_claim_one",
     );
+    expect(button.querySelector(":scope > .morphy-ripple-host")).not.toBeNull();
     fireEvent.click(button);
     expect(onLogin).toHaveBeenCalledTimes(1);
 
@@ -54,18 +55,34 @@ describe("IntroStep voice contract", () => {
     });
   });
 
-  it("uses the standardized root quiet mark between the private-agent line and One", () => {
+  it("renders the quiet mark before One without the eyebrow line", () => {
     render(<IntroStep onLogin={vi.fn()} />);
 
-    const privateAgent = screen.getByText("Your private agent");
+    expect(screen.queryByText("Your private agent")).not.toBeInTheDocument();
     const quietMark = screen.getByText("🤫");
     const one = screen.getByRole("heading", { name: "One" });
 
-    expect(privateAgent.compareDocumentPosition(quietMark)).toBe(
-      Node.DOCUMENT_POSITION_FOLLOWING,
-    );
     expect(quietMark.compareDocumentPosition(one)).toBe(
       Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+  });
+
+  it("keeps the root public navigation to Research, Blog, and Developers", () => {
+    render(<IntroStep onLogin={vi.fn()} />);
+
+    const publicNav = screen.getByRole("navigation", { name: "Explore Hussh" });
+    expect(publicNav.querySelectorAll("a")).toHaveLength(3);
+    expect(screen.getByRole("link", { name: "Research" })).toHaveAttribute(
+      "href",
+      "/research",
+    );
+    expect(screen.getByRole("link", { name: "Blog" })).toHaveAttribute(
+      "href",
+      "/blog",
+    );
+    expect(screen.getByRole("link", { name: "Developers" })).toHaveAttribute(
+      "href",
+      "/developers",
     );
   });
 });

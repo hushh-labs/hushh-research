@@ -4,7 +4,7 @@
  * One Location Consent Actions Hook
  * =================================
  *
- * The shared `/consents` Access Manager renders One Location rows (live
+ * The shared `/one/consent` Access Manager renders One Location rows (live
  * location requests, share grants, public links) via the backend
  * `OneLocationCenterContributor`. Those rows carry `metadata.request_source`
  * starting with `one_location` (see `location-consent.ts`).
@@ -62,8 +62,14 @@ function clampApprovalDurationHours(durationHours?: number): number {
   // The consent-manager duration picker offers values in hours. One Location's
   // backend clamps to its own policy window, so we only guard against missing /
   // non-positive input here and let the server enforce the real ceiling.
+  //
+  // One hour rather than twenty-four, matching the server's own
+  // `DEFAULT_APPROVAL_DURATION_HOURS`. This is the "nobody said" fallback, and
+  // on an extension the number is now time ADDED to a live share (#6256) --
+  // so a missing value defaulting to a full day would quietly hand out the
+  // largest top-up the policy allows on the one path where nothing was chosen.
   if (!Number.isFinite(durationHours) || !durationHours || durationHours <= 0) {
-    return 24;
+    return 1;
   }
   return durationHours;
 }
@@ -191,12 +197,13 @@ export function useOneLocationConsentActions(
             );
             if (!requester?.keyId || !requester.publicKeyJwk) {
               throw new Error(
-                "They need to open Onepoint once before approval can finish.",
+                "They need to open Location once before approval can finish.",
               );
             }
             const response = await OneLocationService.approveRequest({
               vaultOwnerToken,
               requestId,
+              approvalMode: "manual",
               durationHours: clampApprovalDurationHours(durationHours),
             });
             const point = await OneLocationService.captureCurrentPosition();

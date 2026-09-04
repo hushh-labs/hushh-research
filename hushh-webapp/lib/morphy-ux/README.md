@@ -51,6 +51,28 @@ managed by `lib/theme/accent.ts`, applied pre-paint by the inline script in
    from these instead of forking their own copies; the One Location redesign
    was the reference implementation and now consumes the promoted modules.
 
+## Apple design grammar (material effects)
+
+Morphy adopts the Apple web design principles as enforceable grammar
+(`npm run verify:accent-tokens` fails violations):
+
+1. **Press physics.** Every control carries the same tactile weight: the
+   `.press-scale` utility (`transform: scale(var(--motion-press-scale))` on
+   active, reduced-motion aware) layered WITH the md-ripple. Button and all
+   segmented primitives ship it; never write per-component press styles.
+2. **Radius grammar.** `--app-radius-pill` = action signal; `--app-radius-lg`
+   = compact utility cards; `--app-radius-sm` = compact utility rects. The
+   shipped `--app-card-radius-*` contract stays canonical for app cards. No
+   in-between radii in new primitives.
+3. **Weight ladder.** 300 / 400 / 600 / 700 only; `font-medium` (500) is
+   deliberately absent from this folder. Labels 400, emphasis 600, weight 300
+   is the rare "airy" cue.
+4. **Elevation doctrine.** No shadows on chrome; elevation = surface change +
+   backdrop blur (`--app-blur-frosted`). The single photographic shadow is
+   `--app-shadow-product`, reserved for imagery resting on a surface.
+5. **Fonts are system-stack only.** `--font-app-*` resolves SF Pro on Apple
+   platforms; never bundle Apple font files.
+
 ## Motion system (single source of truth)
 
 All motion in the app is driven by CSS custom properties declared once in
@@ -103,22 +125,35 @@ mode.
   targets the app shell content node (`[data-app-shell-content="true"]`);
   timing/easing come from the `--motion-route-exit/enter-*` tokens.
 
+### Standard content enter
+
+The standard route, async-layout, and component-mount expression is opacity
+`0 → 1`, vertical settle `8px → 0`,
+`--motion-page-enter-duration`, and `--motion-ease-emphasized`.
+
+- `usePageEnterAnimation` applies it to the initial route and semantic async
+  mounts inside the shared app shell.
+- `.motion-step-enter` applies that exact same enter to intentional in-route
+  swaps, including controlled pager panels. It does not add a route exit.
+- High-churn surfaces must opt out with `data-no-auto-fade` and animate only a
+  stable inner layout root when a deliberate transition is needed. This keeps
+  pagers, live tables, and drag transforms from competing with the standard.
+
 **How uniformity is achieved (the layout-level chokepoint).** Three entry
 points feed the same envelope so no call site needs special handling:
 
 1. **Link clicks** — a capture-phase click interceptor catches same-origin `<a>`
    navigations and starts the exit beat at the earliest possible moment (before
    React re-renders), then pushes the route.
-2. **All programmatic navigation** — `useRouteTransition` patches the History
-   API (`history.pushState` / `history.replaceState`) **once**. Next.js App
-   Router routes every `router.push` / `router.replace` through those two
-   methods, so this single patch gives all programmatic navigations (bottom nav,
-   tab bars, top app bar, buttons, onboarding handlers, voice/agent runtimes,
-   auth guards/redirects — ~185 call sites) the same exit→enter crossfade
-   without editing any of them. The patch runs the exit beat, then defers the
-   real history mutation by one exit beat. A `transitionInFlight` re-entrancy
-   flag ensures the deferred real call (and the click interceptor's own
-   `router.push`) passes straight through instead of opening a second envelope.
+2. **Programmatic navigation** — persistent controls and generated actions use
+   the interaction coordinator and receive the full exit→enter envelope.
+   Compatibility `router.push` / `router.replace` callers are observed through
+   one History API wrapper so their incoming screen still receives the shared
+   visual treatment. The wrapper always calls the native History method
+   synchronously: Next.js owns that mutation, and delaying or replaying it can
+   make the App Router retry until WebKit rejects the page for excessive
+   `replaceState` calls. A `transitionInFlight` flag prevents an explicitly
+   coordinated commit from opening a second visual envelope.
 3. **Browser back/forward** — the resolved-pathname effect plays the **enter**
    beat once the route settles (the outgoing frame is already gone on a real
    history pop).

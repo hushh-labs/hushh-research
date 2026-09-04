@@ -20,8 +20,10 @@ describe("pkm natural-language helpers", () => {
     });
 
     expect(readable.readable_summary).toContain("financial update");
+    expect(readable.readable_summary).toMatch(/^One saved/);
     expect(readable.readable_highlights).toContain("Updated an existing memory");
     expect(readable.readable_highlights.some((item) => item.includes("Profile"))).toBe(true);
+    expect(JSON.stringify(readable)).not.toContain("lower-risk portfolio");
     expect(readable.readable_event_summary).toContain("Financial");
   });
 

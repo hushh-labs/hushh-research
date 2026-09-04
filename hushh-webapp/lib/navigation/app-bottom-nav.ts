@@ -1,4 +1,4 @@
-import { ROUTES } from "@/lib/navigation/routes";
+import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import {
   buildConsentCenterHref,
   buildRiaConsentManagerHref,
@@ -8,17 +8,9 @@ import { activeRiaRouteTabFromPath } from "@/lib/navigation/ria-route-tabs";
 
 export type SharedBottomNavKey = "dashboard" | "connect" | "search" | "profile";
 export type InvestorNavKey =
-  | SharedBottomNavKey
-  | "finance"
-  | "portfolio"
-  | "connect"
-  | "analysis";
+  SharedBottomNavKey | "finance" | "portfolio" | "connect" | "analysis";
 export type RiaNavKey =
-  | SharedBottomNavKey
-  | "ria-home"
-  | "clients"
-  | "connect"
-  | "picks";
+  SharedBottomNavKey | "ria-home" | "clients" | "connect" | "picks";
 export type OneNavKey =
   | SharedBottomNavKey
   | "finance"
@@ -28,7 +20,8 @@ export type OneNavKey =
   | "guardian"
   | "pkm"
   | "marketplace"
-  | "connected";
+  | "connected"
+  | "feed";
 export type AppBottomNavKey = InvestorNavKey | RiaNavKey | OneNavKey;
 export type AppBottomNavScope = "one" | "investor" | "ria";
 export type AppBottomNavAction =
@@ -51,7 +44,9 @@ function isBottomNavRoute(pathname: string, route: string): boolean {
   return pathname === route || pathname.startsWith(`${route}/`);
 }
 
-export function isCommonBottomNavRoute(pathname: string | null | undefined): boolean {
+export function isCommonBottomNavRoute(
+  pathname: string | null | undefined,
+): boolean {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   return (
     isBottomNavRoute(normalizedPathname, ROUTES.MARKETPLACE) ||
@@ -66,20 +61,6 @@ function isKnownBottomNavScope(
   return value === "one" || value === "investor" || value === "ria";
 }
 
-function oneNavKeyForAgentSectionId(
-  sectionId: string | null | undefined,
-): OneNavKey {
-  if (sectionId === "finance") return "finance";
-  if (sectionId === "gmail") return "gmail";
-  if (sectionId === "email") return "email";
-  if (sectionId === "location") return "location";
-  if (sectionId === "consent") return "guardian";
-  if (sectionId === "pkm") return "pkm";
-  if (sectionId === "marketplace") return "marketplace";
-  if (sectionId === "connected-systems") return "connected";
-  return "dashboard";
-}
-
 export function resolveBottomNavigationScope(
   pathname: string | null | undefined,
   _activePersona: string | null | undefined,
@@ -90,7 +71,7 @@ export function resolveBottomNavigationScope(
     return "ria";
   }
   if (
-    isBottomNavRoute(normalizedPathname, ROUTES.KAI_HOME) ||
+    isBottomNavRoute(normalizedPathname, KAI_MARKET_PATH) ||
     isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_KAI_HOME)
   ) {
     return "investor";
@@ -149,8 +130,14 @@ export function resolveOneNavSlot(
   if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_LOCATION)) {
     return "location";
   }
-  if (isBottomNavRoute(normalizedPathname, ROUTES.CONSENTS)) {
+  if (
+    isBottomNavRoute(normalizedPathname, ROUTES.CONSENTS) ||
+    isBottomNavRoute(normalizedPathname, ROUTES.LEGACY_CONSENTS)
+  ) {
     return "guardian";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_FEED)) {
+    return "feed";
   }
   return "dashboard";
 }
@@ -177,10 +164,9 @@ export function resolveInvestorNavSlot(
 ): InvestorNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const activeTab = activeKaiRouteTabFromPath(
-    normalizedPathname || ROUTES.KAI_HOME,
+    normalizedPathname || KAI_MARKET_PATH,
   );
   if (activeTab === "dashboard") return "portfolio";
-  if (activeTab === "connect") return "connect";
   if (activeTab === "analysis") return "analysis";
   return "finance";
 }
@@ -201,12 +187,11 @@ export function resolveInvestorActiveNav(
   }
 
   const activeTab = activeKaiRouteTabFromPath(
-    normalizedPathname || ROUTES.KAI_HOME,
+    normalizedPathname || KAI_MARKET_PATH,
   );
   if (activeTab === "market") return "finance";
   if (activeTab === "dashboard") return "portfolio";
   if (activeTab === "analysis") return "analysis";
-  if (activeTab === "connect") return "connect";
   return "finance";
 }
 
@@ -215,11 +200,11 @@ export function resolveRiaNavSlot(
 ): RiaNavKey {
   const normalizedPathname = normalizeBottomNavPathname(pathname);
   const activeTab = activeRiaRouteTabFromPath(
-    normalizedPathname || ROUTES.RIA_HOME,
+    normalizedPathname || ROUTES.RIA_PROFILE,
   );
   if (activeTab === "picks") return "picks";
-  if (activeTab === "connect") return "connect";
-  return "clients";
+  if (activeTab === "clients") return "clients";
+  return "ria-home";
 }
 
 export function resolveRiaActiveNav(
@@ -233,30 +218,44 @@ export function resolveRiaActiveNav(
     return "dashboard";
   }
   if (normalizedPathname === ROUTES.AGENT) return "search";
-  if (isBottomNavRoute(normalizedPathname, ROUTES.RIA_PROFILE)) {
-    return "profile";
-  }
   if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
     return "profile";
   }
 
   const activeTab = activeRiaRouteTabFromPath(
-    normalizedPathname || ROUTES.RIA_HOME,
+    normalizedPathname || ROUTES.RIA_PROFILE,
   );
-  if (activeTab === "home") return "ria-home";
+  if (activeTab === "profile") return "ria-home";
   if (activeTab === "clients") return "clients";
   if (activeTab === "picks") return "picks";
-  if (activeTab === "connect") return "connect";
   return "ria-home";
 }
 
 export function resolveBottomNavActiveKey(
   pathname: string | null | undefined,
-  scope: AppBottomNavScope,
+  _scope: AppBottomNavScope,
 ): AppBottomNavKey {
-  if (scope === "one") return resolveOneActiveNav(pathname);
-  if (scope === "ria") return resolveRiaActiveNav(pathname);
-  return resolveInvestorActiveNav(pathname);
+  const normalizedPathname = normalizeBottomNavPathname(pathname);
+  if (
+    normalizedPathname === ROUTES.HOME ||
+    normalizedPathname === ROUTES.ONE_HOME
+  ) {
+    return "dashboard";
+  }
+  if (normalizedPathname === ROUTES.AGENT) return "search";
+  if (isBottomNavRoute(normalizedPathname, ROUTES.CONNECT)) {
+    return "connect";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.ONE_FEED)) {
+    return "feed";
+  }
+  if (isBottomNavRoute(normalizedPathname, ROUTES.PROFILE)) {
+    // Profile is reached from One but is not a persistent bottom-bar option.
+    // Keep the visible control selected rather than pointing at a removed tab.
+    return "dashboard";
+  }
+
+  return "dashboard";
 }
 
 export function resolveBottomNavContextKey(
@@ -269,23 +268,18 @@ export function resolveBottomNavContextKey(
 }
 
 export function resolveBottomNavOptionKeys(
-  pathname: string | null | undefined,
-  scope: AppBottomNavScope,
-  context?: AppBottomNavContext,
+  _pathname: string | null | undefined,
+  _scope: AppBottomNavScope,
+  _context?: AppBottomNavContext,
 ): AppBottomNavKey[] {
-  if (scope === "one") {
-    const normalizedPathname = normalizeBottomNavPathname(pathname);
-    const slot = isCommonBottomNavRoute(normalizedPathname)
-      ? oneNavKeyForAgentSectionId(context?.lastAgentSectionId)
-      : resolveOneNavSlot(normalizedPathname);
-    return [slot, "connect", "profile"];
-  }
+  return ["dashboard", "connect", "feed", "search"];
+}
 
-  if (scope === "investor") {
-    return ["finance", "portfolio", "analysis", "connect", "profile"];
-  }
-
-  return ["ria-home", "clients", "picks", "connect", "profile"];
+/** Contextual workspace tabs belong exclusively to the unified top shell. */
+export function resolveBottomNavSpecialistOptionKeys(
+  _scope: AppBottomNavScope,
+): AppBottomNavKey[] {
+  return [];
 }
 
 export function resolveBottomNavAction(
@@ -315,6 +309,8 @@ export function resolveBottomNavAction(
             ? buildRiaConsentManagerHref("pending")
             : buildConsentCenterHref("pending"),
       };
+    case "feed":
+      return { type: "route", href: ROUTES.ONE_FEED };
     case "pkm":
       return { type: "route", href: ROUTES.PKM };
     case "marketplace":
@@ -329,15 +325,17 @@ export function resolveBottomNavAction(
         href: scope === "one" ? ROUTES.CONNECT : ROUTES.MARKETPLACE,
       };
     case "ria-home":
-      return { type: "route", href: ROUTES.RIA_HOME };
+      return { type: "route", href: ROUTES.RIA_PROFILE };
     case "clients":
       return { type: "route", href: ROUTES.RIA_CLIENTS };
     case "picks":
       return { type: "route", href: ROUTES.RIA_PICKS };
     case "profile":
+      // Unified profile for every scope, including RIA — the RIA advisor profile
+      // now lives inside /one/profile under the "Regulatory profile" panel.
       return {
         type: "route",
-        href: scope === "ria" ? ROUTES.RIA_PROFILE : ROUTES.PROFILE,
+        href: ROUTES.PROFILE,
       };
     default:
       return { type: "none" };

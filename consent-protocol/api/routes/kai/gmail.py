@@ -38,6 +38,11 @@ class GmailConnectCompleteRequest(BaseModel):
     redirect_uri: str | None = Field(default=None, max_length=2048)
 
 
+class GmailNativeConnectCompleteRequest(BaseModel):
+    user_id: str = Field(min_length=1, max_length=256)
+    server_auth_code: str = Field(min_length=1, max_length=2048)
+
+
 class GmailDisconnectRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=256)
 
@@ -51,7 +56,7 @@ class GmailReconcileRequest(BaseModel):
 
 
 class GmailReceiptMemoryPreviewRequest(BaseModel):
-    user_id: str = Field(min_length=1, max_length=256)
+    user_id: str = Field(min_length=1, max_length=128)
     force_refresh: bool = False
 
 
@@ -137,7 +142,7 @@ def _to_http_exception(exc: Exception, *, operation: str) -> HTTPException:
         )
     if isinstance(exc, GmailApiError):
         detail: dict[str, Any] = {
-            "code": "GMAIL_CONNECTOR_ERROR",
+            "code": exc.code or "GMAIL_CONNECTOR_ERROR",
             "message": str(exc),
         }
         if exc.payload:
@@ -186,6 +191,33 @@ async def gmail_connect_complete(
         )
     except Exception as exc:
         logger.exception("kai.gmail.connect_complete_failed user_id=%s", payload.user_id)
+        raise _to_http_exception(exc, operation="connect_complete") from exc
+
+
+@router.post("/gmail/connect/native/start")
+async def gmail_native_connect_start(
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    try:
+        return await _service().start_native_connect()
+    except Exception as exc:
+        logger.exception("kai.gmail.native_connect_start_failed user_id=%s", firebase_uid)
+        raise _to_http_exception(exc, operation="connect_start") from exc
+
+
+@router.post("/gmail/connect/native/complete")
+async def gmail_native_connect_complete(
+    payload: GmailNativeConnectCompleteRequest,
+    firebase_uid: str = Depends(require_firebase_auth),
+):
+    verify_user_id_match(firebase_uid, payload.user_id)
+    try:
+        return await _service().complete_native_connect(
+            user_id=payload.user_id,
+            server_auth_code=payload.server_auth_code,
+        )
+    except Exception as exc:
+        logger.exception("kai.gmail.native_connect_complete_failed user_id=%s", payload.user_id)
         raise _to_http_exception(exc, operation="connect_complete") from exc
 
 

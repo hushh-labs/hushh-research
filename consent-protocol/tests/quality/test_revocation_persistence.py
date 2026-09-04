@@ -322,3 +322,55 @@ async def test_validate_token_with_db_scoped_token_fails_closed_on_db_error():
     assert valid is False
     assert reason == "Token revocation status could not be confirmed (DB unavailable)"
     assert token_result is None
+
+
+@pytest.mark.asyncio
+async def test_device_owner_token_requires_active_device():
+    device_id = "tdv_" + ("a" * 32)
+    token_obj = issue_token(
+        USER_ID,
+        f"device:{device_id}",
+        ConsentScope.VAULT_OWNER,
+    )
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=True)
+    mock_service_instance.is_trusted_device_active = AsyncMock(return_value=False)
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, result = await validate_token_with_db(
+            token_obj.token, ConsentScope.VAULT_OWNER
+        )
+
+    assert valid is False
+    assert reason == "TRUSTED_DEVICE_REVOKED"
+    assert result is None
+
+
+@pytest.mark.asyncio
+async def test_device_owner_token_fails_closed_when_device_status_is_unavailable():
+    device_id = "tdv_" + ("a" * 32)
+    token_obj = issue_token(
+        USER_ID,
+        f"device:{device_id}",
+        ConsentScope.VAULT_OWNER,
+    )
+
+    fake_module = types.ModuleType("hushh_mcp.services.consent_db")
+    mock_service_instance = AsyncMock()
+    mock_service_instance.is_token_active = AsyncMock(return_value=True)
+    mock_service_instance.is_trusted_device_active = AsyncMock(
+        side_effect=Exception("DB connection refused")
+    )
+    fake_module.ConsentDBService = lambda: mock_service_instance
+
+    with patch.dict(sys.modules, {"hushh_mcp.services.consent_db": fake_module}):
+        valid, reason, result = await validate_token_with_db(
+            token_obj.token, ConsentScope.VAULT_OWNER
+        )
+
+    assert valid is False
+    assert reason == "TRUSTED_DEVICE_STATUS_UNCONFIRMED"
+    assert result is None

@@ -36,7 +36,7 @@ class AgentOutputConfig(StrictManifestModel):
 
 class AgentModelConfig(StrictManifestModel):
     provider: str = "gemini"
-    name: str = GEMINI_MODEL
+    name: str = Field(default_factory=lambda: GEMINI_MODEL)
     mode: str = "hushh_managed_vertex"
     credential_ref: str | None = None
 
@@ -101,9 +101,53 @@ class PerformanceContract(StrictManifestModel):
 
 
 class RolloutContract(StrictManifestModel):
-    kill_switch: str
+    """How an agent is turned off.
+
+    ``kill_switch`` is optional because a declared switch that nothing reads is worse
+    than none: it advertises a control an operator would reach for in an incident and
+    find inert. Declare one only when the runtime actually honours it; the guard in
+    tests/test_agent_manifests.py refuses any name that no code reads.
+    """
+
+    kill_switch: str | None = None
     strategy: Literal["off", "internal", "canary", "general"] = "off"
     rollback: str
+
+
+class EnvironmentAvailabilityContract(StrictManifestModel):
+    """Authored deployment boundary for a product agent or internal child."""
+
+    environments: list[Literal["development", "uat", "production"]] = Field(
+        default_factory=lambda: ["development", "uat", "production"]
+    )
+    loopback_only: bool = False
+    enable_flag: str | None = None
+
+
+class AgentSubagentConfig(StrictManifestModel):
+    """Manifest-owned internal ADK specialist.
+
+    A child is a bounded implementation detail of its parent, not another
+    top-level routing authority. Keeping its instruction and I/O contract in
+    the parent manifest makes the generated registry auditable and prevents a
+    parallel Python prompt from drifting away from the authored contract.
+    """
+
+    id: str
+    name: str
+    description: str
+    model: AgentModelConfig = Field(default_factory=AgentModelConfig)
+    runtime: RuntimeContract = Field(default_factory=RuntimeContract)
+    system_instruction: str
+    inputs: list[AgentInputConfig] = Field(default_factory=list)
+    outputs: list[AgentOutputConfig] = Field(default_factory=list)
+    privacy: PrivacyContract = Field(default_factory=PrivacyContract)
+    telemetry_namespace: str
+    performance: PerformanceContract = Field(default_factory=PerformanceContract)
+    rollout: RolloutContract
+    availability: EnvironmentAvailabilityContract = Field(
+        default_factory=EnvironmentAvailabilityContract
+    )
 
 
 class AgentManifestV2(StrictManifestModel):
@@ -139,10 +183,13 @@ class AgentManifestV2(StrictManifestModel):
     performance: PerformanceContract = Field(default_factory=PerformanceContract)
     rollout: RolloutContract = Field(
         default_factory=lambda: RolloutContract(
-            kill_switch="HUSHH_AGENT_DISABLED",
             rollback="Disable the agent and restore the prior manifest.",
         )
     )
+    availability: EnvironmentAvailabilityContract = Field(
+        default_factory=EnvironmentAvailabilityContract
+    )
+    subagents: list[AgentSubagentConfig] = Field(default_factory=list)
     capabilities: dict[str, Any] = Field(default_factory=dict)
     ui_type: str | None = "chat"
     icon: str | None = None
@@ -152,6 +199,16 @@ class AgentManifestV2(StrictManifestModel):
     def reject_duplicates(cls, values: list[str]) -> list[str]:
         if len(values) != len(set(values)):
             raise ValueError("duplicate values are not allowed")
+        return values
+
+    @field_validator("subagents")
+    @classmethod
+    def reject_duplicate_subagent_ids(
+        cls, values: list[AgentSubagentConfig]
+    ) -> list[AgentSubagentConfig]:
+        identifiers = [value.id for value in values]
+        if len(identifiers) != len(set(identifiers)):
+            raise ValueError("duplicate subagent ids are not allowed")
         return values
 
     def tool_py_funcs(self) -> list[str]:
@@ -164,8 +221,31 @@ class AgentManifestV2(StrictManifestModel):
 
     def model_config_for_runtime(self) -> AgentModelConfig:
         if isinstance(self.model, AgentModelConfig):
-            return self.model
-        return AgentModelConfig(name=self.model)
+            name = str(self.model.name or "").strip()
+            if not name or name in {
+                "default",
+                "gemini-default",
+                "active",
+                "gemini-active",
+                "gemini_default",
+            }:
+                name = GEMINI_MODEL
+            return AgentModelConfig(
+                provider=self.model.provider,
+                name=name,
+                mode=self.model.mode,
+                credential_ref=self.model.credential_ref,
+            )
+        name = str(self.model or "").strip()
+        if not name or name in {
+            "default",
+            "gemini-default",
+            "active",
+            "gemini-active",
+            "gemini_default",
+        }:
+            name = GEMINI_MODEL
+        return AgentModelConfig(name=name)
 
 
 # Compatibility import name while callers migrate to the explicit V2 name.

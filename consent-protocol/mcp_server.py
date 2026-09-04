@@ -28,27 +28,34 @@ import logging
 import sys
 import time
 
+import jsonschema
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
-from mcp.types import ResourceLink, TextContent
+from mcp.types import CallToolResult, TextContent
 
 from mcp_modules import resources as mcp_resources
-
-# Import modular components
+from mcp_modules.agentforce_contract import (
+    AGENTFORCE_PROFILE,
+)
+from mcp_modules.canonical_contract import canonical_tool_name
 from mcp_modules.config import SERVER_INFO
 from mcp_modules.developer_context import (
+    get_current_developer_principal,
+    get_current_schema_profile,
     get_current_visible_tool_names,
     is_tool_allowed,
 )
-from mcp_modules.log_redaction import install_sensitive_log_filter, redact_mcp_arguments
-from mcp_modules.tools import (
-    get_tool_definitions,
-    handle_check_consent_status,
-    handle_discover_user_domains,
-    handle_get_encrypted_scoped_export,
-    handle_get_ria_client_access_summary,
-    handle_get_ria_profile,
-    handle_get_ria_verification_status,
+from mcp_modules.flat_projection import project_flat_result
+from mcp_modules.log_redaction import install_sensitive_log_filter
+from mcp_modules.public_contract import (
+    get_public_tool_names,
+    get_server_instructions,
+    validate_public_tool_input,
+    validate_public_tool_output,
+)
+from mcp_modules.tools.campaign_context_tools import handle_prepare_campaign_context
+from mcp_modules.tools.definitions import get_tool_definitions
+from mcp_modules.tools.kai_tools import (
     handle_kai_analyze_stock,
     handle_kai_cancel_active_analysis,
     handle_kai_navigate_back,
@@ -57,15 +64,24 @@ from mcp_modules.tools import (
     handle_kai_open_history,
     handle_kai_open_home,
     handle_kai_open_import,
-    handle_kai_open_optimize,
     handle_kai_open_profile,
     handle_kai_resume_active_analysis,
+)
+from mcp_modules.tools.public_tools_v3 import (
+    _error as build_safe_error,
+)
+from mcp_modules.tools.public_tools_v3 import (
+    handle_check_consent_status,
+    handle_get_encrypted_scoped_export,
+    handle_request_consent,
+    handle_search_user_scopes,
+)
+from mcp_modules.tools.ria_read_tools import (
+    handle_get_ria_client_access_summary,
+    handle_get_ria_profile,
+    handle_get_ria_verification_status,
     handle_list_marketplace_investors,
     handle_list_ria_profiles,
-    handle_list_scopes,
-    handle_prepare_campaign_context,
-    handle_request_consent,
-    handle_validate_token,
 )
 from mcp_modules.transport_context import mark_local_stdio_transport
 
@@ -87,25 +103,7 @@ logger = logging.getLogger("hushh-mcp-server")
 # SERVER INITIALIZATION
 # ============================================================================
 
-_CONNECTOR_INITIALIZATION_INSTRUCTIONS = json.dumps(
-    {
-        "consent_flow": [
-            "discover_user_domains",
-            "request_consent",
-            "check_consent_status",
-            "get_encrypted_scoped_export",
-            "fetch ResourceLink outside model context",
-            "validate envelope v2 and decrypt in connector process",
-        ],
-        "connector_capabilities": SERVER_INFO["connector_capabilities"],
-        "crypto_mode": {
-            "stdio": "local",
-            "hosted_streamable_http": "host",
-            "unsupported_behavior": "Return CONNECTOR_CRYPTO_UNSUPPORTED; never request plaintext fallback.",
-        },
-    },
-    separators=(",", ":"),
-)
+_CONNECTOR_INITIALIZATION_INSTRUCTIONS = get_server_instructions()
 server = Server(
     "hushh-consent",
     version=SERVER_INFO["version"],
@@ -113,33 +111,48 @@ server = Server(
 )
 
 HANDLERS = {
-    # ── Consent / Privacy tools ───────────────────────────────────────────────
+    "search_user_scopes": handle_search_user_scopes,
     "prepare_campaign_context": handle_prepare_campaign_context,
     "request_consent": handle_request_consent,
-    "validate_token": handle_validate_token,
-    "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
-    "list_scopes": handle_list_scopes,
-    "discover_user_domains": handle_discover_user_domains,
     "check_consent_status": handle_check_consent_status,
-    # ── RIA / Marketplace tools ───────────────────────────────────────────────
+    "get_encrypted_scoped_export": handle_get_encrypted_scoped_export,
+    # Existing non-public groups remain available only to explicitly entitled
+    # partner/internal apps. They are excluded from the v0.3 public contract.
     "list_ria_profiles": handle_list_ria_profiles,
     "get_ria_profile": handle_get_ria_profile,
     "list_marketplace_investors": handle_list_marketplace_investors,
     "get_ria_verification_status": handle_get_ria_verification_status,
     "get_ria_client_access_summary": handle_get_ria_client_access_summary,
-    # ── Kai compatibility voice action tools ─────────────────────────────────
     "kai_analyze_stock": handle_kai_analyze_stock,
     "kai_open_dashboard": handle_kai_open_dashboard,
     "kai_open_import": handle_kai_open_import,
     "kai_open_history": handle_kai_open_history,
     "kai_open_consent": handle_kai_open_consent,
     "kai_open_profile": handle_kai_open_profile,
-    "kai_open_optimize": handle_kai_open_optimize,
     "kai_open_home": handle_kai_open_home,
     "kai_navigate_back": handle_kai_navigate_back,
     "kai_resume_active_analysis": handle_kai_resume_active_analysis,
     "kai_cancel_active_analysis": handle_kai_cancel_active_analysis,
 }
+_PUBLIC_TOOL_NAMES = frozenset(canonical_tool_name(name) for name in get_public_tool_names())
+_PRIVATE_INPUT_SCHEMAS = {
+    tool.name: tool.inputSchema
+    for tool in get_tool_definitions(allowed_tool_names=set(HANDLERS) - _PUBLIC_TOOL_NAMES)
+}
+
+
+def _mcp_error(result: tuple[list, dict]) -> CallToolResult:
+    """Return a standard MCP execution error without a success-shaped payload.
+
+    Public tools declare strict success output schemas.  A safe error payload
+    deliberately has a different shape, so placing it in ``structuredContent``
+    makes strict hosts validate it as a malformed success result.  MCP models
+    tool execution errors as ``isError`` plus content; the safe JSON text is
+    retained for clients that need a machine-readable error.
+    """
+
+    content, _structured = result
+    return CallToolResult(content=content, isError=True)
 
 
 # ============================================================================
@@ -151,7 +164,10 @@ HANDLERS = {
 async def list_tools():
     """Expose Hussh consent tools to MCP hosts."""
     allowed_tool_names = set(get_current_visible_tool_names())
-    return get_tool_definitions(allowed_tool_names=allowed_tool_names)
+    return get_tool_definitions(
+        allowed_tool_names=allowed_tool_names,
+        schema_profile=get_current_schema_profile(),
+    )
 
 
 # ============================================================================
@@ -159,8 +175,8 @@ async def list_tools():
 # ============================================================================
 
 
-@server.call_tool()
-async def call_tool(name: str, arguments: dict) -> list[TextContent | ResourceLink]:
+@server.call_tool(validate_input=False)
+async def call_tool(name: str, arguments: dict):
     """
     Route tool calls to appropriate handlers.
 
@@ -168,53 +184,115 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent | ResourceLi
     Logging: All calls logged for audit trail
     """
     start_time = time.perf_counter()
-    logger.info(f"🔧 Tool called: {name}")
-    logger.info("   Arguments: %s", json.dumps(redact_mcp_arguments(arguments), default=str))
+    logger.info("Tool called: %s", name)
 
-    handler = HANDLERS.get(name)
+    canonical_name = canonical_tool_name(name)
+    handler = HANDLERS.get(canonical_name or "")
     if not handler:
         logger.warning(f"❌ Unknown tool requested: {name}")
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {"error": f"Unknown tool: {name}", "available_tools": list(HANDLERS.keys())}
-                ),
+        return _mcp_error(
+            build_safe_error(
+                "UNKNOWN_TOOL",
+                "The requested tool is not part of the Hussh Consent MCP contract.",
+                recoverable=True,
+                next_action="Call tools/list and use one of the published tools.",
             )
-        ]
+        )
 
     if not is_tool_allowed(name):
         logger.warning("❌ Tool not entitled for current app: %s", name)
-        return [
-            TextContent(
-                type="text",
-                text=json.dumps(
-                    {
-                        "error": "Tool not available for this developer app",
-                        "tool": name,
-                        "available_tools": list(get_current_visible_tool_names()),
-                    }
-                ),
+        return _mcp_error(
+            build_safe_error(
+                "TOOL_NOT_ENTITLED",
+                "This developer app is not entitled to the requested tool.",
+                recoverable=False,
+                next_action="Use tools/list for the app's current entitlement surface.",
             )
-        ]
+        )
+
+    principal = get_current_developer_principal()
+    if principal and (
+        principal.mcp_execution_mode == "catalog_only"
+        or principal.schema_profile == AGENTFORCE_PROFILE
+    ):
+        return _mcp_error(
+            build_safe_error(
+                "REQUIRES_SECURE_CONSENT_FLOW",
+                "This action needs a person-specific consent review before it can continue.",
+                recoverable=False,
+                next_action="Continue in Hussh Consent Center, where the person can review and approve the request.",
+            )
+        )
+
+    if canonical_name in _PUBLIC_TOOL_NAMES and not validate_public_tool_input(name, arguments):
+        return _mcp_error(
+            build_safe_error(
+                "INVALID_ARGUMENTS",
+                "The tool arguments do not match the published contract.",
+                recoverable=True,
+                next_action="Call tools/list and retry with only the declared fields.",
+            )
+        )
+    if canonical_name not in _PUBLIC_TOOL_NAMES:
+        try:
+            jsonschema.validate(arguments, _PRIVATE_INPUT_SCHEMAS[canonical_name])
+        except (KeyError, jsonschema.ValidationError, jsonschema.SchemaError):
+            return _mcp_error(
+                build_safe_error(
+                    "INVALID_ARGUMENTS",
+                    "The tool arguments do not match the entitled tool contract.",
+                    recoverable=True,
+                    next_action="Call tools/list and retry with only the declared fields.",
+                )
+            )
 
     try:
         result = await handler(arguments)
+        if canonical_name not in _PUBLIC_TOOL_NAMES:
+            return result
+        if "error_code" in result[1]:
+            return _mcp_error(result)
+        try:
+            flat_payload = project_flat_result(canonical_name, result[1])
+        except (TypeError, ValueError):
+            return _mcp_error(
+                build_safe_error(
+                    "INVALID_TOOL_RESULT",
+                    "Hussh could not produce a contract-valid tool result.",
+                    recoverable=True,
+                    next_action="Retry once; if it repeats, report the correlation reference.",
+                )
+            )
+        result = ([TextContent(type="text", text=json.dumps(flat_payload))], flat_payload)
+        valid_output = validate_public_tool_output(canonical_name, result[1])
+        if not valid_output:
+            logger.error("Tool %s returned a contract-invalid result", name)
+            return _mcp_error(
+                build_safe_error(
+                    "INVALID_TOOL_RESULT",
+                    "Hussh could not produce a contract-valid tool result.",
+                    recoverable=True,
+                    next_action="Retry once; if it repeats, report the correlation reference.",
+                )
+            )
         end_time = time.perf_counter()
         elapsed_ms = (end_time - start_time) * 1000
         logger.info(f"✅ Tool {name} completed successfully")
         logger.info(f"⏱️ Performance: Tool {name} execution took {elapsed_ms:.2f}ms")
         return result
-    except Exception as e:
+    except Exception as exc:
         end_time = time.perf_counter()
         elapsed_ms = (end_time - start_time) * 1000
-        logger.error(f"❌ Tool {name} failed: {str(e)}")
+        logger.error("Tool %s failed error_type=%s", name, type(exc).__name__)
         logger.info(f"⏱️ Performance: Tool {name} failed after {elapsed_ms:.2f}ms")
-        return [
-            TextContent(
-                type="text", text=json.dumps({"error": str(e), "tool": name, "status": "failed"})
+        return _mcp_error(
+            build_safe_error(
+                "INTERNAL_ERROR",
+                "Hussh could not complete the tool call.",
+                recoverable=True,
+                next_action="Retry once; if it repeats, report the correlation reference.",
             )
-        ]
+        )
 
 
 # ============================================================================

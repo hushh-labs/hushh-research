@@ -6,14 +6,13 @@ Kai compatibility voice-action tool handlers for the MCP server.
 Each handler corresponds to one actionable function inside the Kai mobile app.
 The mobile client receives a structured KaiAction payload and routes accordingly.
 
-Canonical action-ID reference (mirrors voice_intent_service._COMMAND_TO_CANONICAL_ACTION_ID):
+Canonical action-ID reference is the generated action gateway:
   route.kai_home           → open Market / Home tab
   route.kai_dashboard      → open Portfolio / Dashboard tab
   route.kai_import         → open Import tab
   route.analysis_history   → open Analysis History tab
   route.consents           → open Consents tab
   route.profile            → open Profile tab
-  route.kai_optimize       → open Optimize tab
   analysis.start           → begin stock analysis (requires symbol slot)
   analysis.resume_active   → resume the currently running analysis
   analysis.cancel_active   → cancel the currently running analysis
@@ -25,11 +24,11 @@ from __future__ import annotations
 import json
 import logging
 import re
-from functools import lru_cache
-from pathlib import Path
 from typing import Any
 
 from mcp.types import TextContent
+
+from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
 logger = logging.getLogger(__name__)
 
@@ -58,10 +57,7 @@ _COMPANY_ALIAS_TO_TICKER: dict[str, str] = {
     "berkshire": "BRK.B",
 }
 
-_ANALYSIS_TABS = {"history", "debate", "summary", "transcript"}
-_VOICE_MANIFEST_PATH = (
-    Path(__file__).resolve().parents[3] / "contracts/kai/voice-action-manifest.v1.json"
-)
+_ANALYSIS_TABS = {"history", "debate", "summary"}
 
 
 # ---------------------------------------------------------------------------
@@ -69,22 +65,12 @@ _VOICE_MANIFEST_PATH = (
 # ---------------------------------------------------------------------------
 
 
-@lru_cache(maxsize=1)
 def get_manifest_action_ids() -> frozenset[str]:
-    """Return action IDs from the generated Kai compatibility manifest when available."""
-    if not _VOICE_MANIFEST_PATH.exists():
-        logger.warning("kai_tool.manifest_missing path=%s", _VOICE_MANIFEST_PATH)
-        return frozenset()
-
-    try:
-        payload = json.loads(_VOICE_MANIFEST_PATH.read_text(encoding="utf-8"))
-    except Exception:
-        logger.exception("kai_tool.manifest_read_failed path=%s", _VOICE_MANIFEST_PATH)
-        return frozenset()
-
-    actions = payload.get("actions", []) if isinstance(payload, dict) else []
+    """Return action IDs from the sole generated action gateway."""
     return frozenset(
-        str(action.get("id")) for action in actions if isinstance(action, dict) and action.get("id")
+        str(action.get("action_id"))
+        for action in list_action_gateway_actions()
+        if str(action.get("action_id") or "").strip()
     )
 
 
@@ -196,7 +182,7 @@ async def handle_kai_open_history(args: dict[str, Any]) -> list[TextContent]:
     """
     Navigate to the Analysis History tab.
 
-    Optional slot: tab (str) — "history" | "debate" | "summary" | "transcript"
+    Optional slot: tab (str) — "history" | "debate" | "summary"
     """
     tab = str(args.get("tab") or "history").strip().lower()
     if tab not in _ANALYSIS_TABS:
@@ -227,16 +213,6 @@ async def handle_kai_open_profile(args: dict[str, Any]) -> list[TextContent]:
     return _ok(
         action_id="route.profile",
         message="Opening your profile.",
-        completion_mode="route_settle",
-    )
-
-
-async def handle_kai_open_optimize(args: dict[str, Any]) -> list[TextContent]:
-    """Navigate to the Optimize tab."""
-    logger.info("kai_tool.navigate action=route.kai_optimize")
-    return _ok(
-        action_id="route.kai_optimize",
-        message="Opening portfolio optimization.",
         completion_mode="route_settle",
     )
 

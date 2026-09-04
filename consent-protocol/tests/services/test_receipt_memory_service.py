@@ -366,7 +366,10 @@ async def test_preview_service_falls_back_to_ephemeral_artifact_when_cache_table
 
 @pytest.mark.asyncio
 async def test_enrichment_service_times_out_and_returns_none(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "developer_api_key")
     monkeypatch.setenv("GOOGLE_API_KEY", "test-key")
+    monkeypatch.delenv("ENVIRONMENT", raising=False)
+    monkeypatch.delenv("HUSHH_DEPLOY_ENV", raising=False)
     monkeypatch.setenv("KAI_RECEIPT_MEMORY_LLM_ENABLED", "true")
     monkeypatch.setenv("KAI_RECEIPT_MEMORY_LLM_TIMEOUT_SECONDS", "0.01")
 

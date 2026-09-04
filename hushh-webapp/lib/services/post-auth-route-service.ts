@@ -3,11 +3,11 @@
 import { OneSetupGateService } from "@/lib/services/one-setup-gate-service";
 import { PreVaultOnboardingService } from "@/lib/services/pre-vault-onboarding-service";
 import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
-import { RiaService } from "@/lib/services/ria-service";
 import {
   buildOneSetupRoute,
   buildPhoneMandateRoute,
   buildProfileVaultRoute,
+  isFirebaseSessionOnlyRoute,
   normalizeInternalRouteHref,
   ROUTES,
 } from "@/lib/navigation/routes";
@@ -22,7 +22,15 @@ const NO_VAULT_DEFAULT_ROUTE = ROUTES.ONE_HOME;
 
 function normalizeRedirectPath(path: string | null | undefined): string {
   if (!path || !path.trim()) return DEFAULT_HOME_ROUTE;
-  if (path === ROUTES.PHONE_MANDATE || path.startsWith(`${ROUTES.PHONE_MANDATE}?`)) {
+  // `/` is the public welcome route, not an authenticated destination. Login
+  // historically supplied it as a placeholder and the legacy persona router
+  // then promoted some users to `/ria`. Organic authentication always enters
+  // the private-agent home; explicit internal deep links remain untouched.
+  if (path === ROUTES.HOME) return DEFAULT_HOME_ROUTE;
+  if (
+    path === ROUTES.PHONE_MANDATE ||
+    path.startsWith(`${ROUTES.PHONE_MANDATE}?`)
+  ) {
     return DEFAULT_HOME_ROUTE;
   }
   return path;
@@ -33,8 +41,8 @@ function hasCompletePreVaultAnswers(
 ): boolean {
   return Boolean(
     answers?.investment_horizon &&
-      answers?.drawdown_response &&
-      answers?.volatility_preference,
+    answers?.drawdown_response &&
+    answers?.volatility_preference,
   );
 }
 
@@ -50,7 +58,10 @@ function inviteRedirectTargetFor(path: string): string | null {
   if (isOneLocationInviteRedirect(path)) return path;
   try {
     const url = new URL(path, "https://one.local");
-    if (url.pathname !== ROUTES.PROFILE && url.pathname !== ROUTES.PROFILE_SECURITY) {
+    if (
+      url.pathname !== ROUTES.PROFILE &&
+      url.pathname !== ROUTES.PROFILE_SECURITY
+    ) {
       return null;
     }
     const returnTo = url.searchParams.get("return_to");
@@ -90,46 +101,42 @@ export class PostAuthRouteService {
     hostname?: string | null;
     enableFirstRunSetupGate?: boolean;
   }): Promise<string> {
-    const hasExplicitRedirect = Boolean(params.redirectPath && params.redirectPath.trim());
-    const fallbackRoute = normalizeRedirectPath(params.redirectPath);
+    const requestedRoute = normalizeRedirectPath(params.redirectPath);
+    const safeExplicitRedirect = normalizeInternalRouteHref(requestedRoute);
+    const hasExplicitRedirect = Boolean(
+      params.redirectPath &&
+      params.redirectPath.trim() &&
+      params.redirectPath !== ROUTES.HOME &&
+      safeExplicitRedirect,
+    );
+    const fallbackRoute = safeExplicitRedirect ?? DEFAULT_HOME_ROUTE;
     const fallbackUrl = new URL(fallbackRoute, "https://one.local");
+    if (
+      hasExplicitRedirect &&
+      safeExplicitRedirect &&
+      isFirebaseSessionOnlyRoute(fallbackUrl.pathname)
+    ) {
+      return safeExplicitRedirect;
+    }
     const isSetupHubRedirect = fallbackUrl.pathname === ROUTES.ONE_SETUP;
     const setupReturnTo = normalizeInternalRouteHref(
       fallbackUrl.searchParams.get("return_to"),
     );
-    const remoteState = await PreVaultUserStateService.bootstrapState(params.userId);
-    const canOverrideWithPersona =
-      !params.redirectPath ||
-      fallbackRoute === ROUTES.HOME ||
-      fallbackRoute === ROUTES.ONE_HOME ||
-      fallbackRoute === ROUTES.KAI_HOME ||
-      fallbackRoute === ROUTES.LEGACY_KAI_HOME ||
-          fallbackRoute === ROUTES.ONE_SETUP ||
-          fallbackRoute === ROUTES.ONE_SETUP_FINANCE ||
-          fallbackRoute === ROUTES.ONE_SETUP_KAI ||
-      fallbackRoute === ROUTES.LEGACY_ONE_KAI_ONBOARDING ||
-      fallbackRoute === ROUTES.LEGACY_KAI_ONBOARDING;
-
-    if (params.idToken && canOverrideWithPersona) {
-      try {
-        const personaState = await RiaService.getPersonaState(params.idToken, {
-          userId: params.userId,
-        });
-        if (personaState.iam_schema_ready && personaState.active_persona === "ria") {
-          return ROUTES.RIA_HOME;
-        }
-      } catch (error) {
-        console.warn("[PostAuthRouteService] Failed to resolve persona state:", error);
-      }
-    }
-
+    const remoteState = await PreVaultUserStateService.bootstrapState(
+      params.userId,
+      { idToken: params.idToken },
+    );
+    // Native auth bridges can restore a valid Firebase session before their
+    // local user object has hydrated `phoneNumber`. A positive backend claim
+    // is authoritative for this login decision; an unknown/false claim still
+    // follows the normal fail-closed phone mandate.
+    const phoneVerified =
+      params.phoneVerified === true || remoteState.phoneVerified === true;
     if (remoteState.hasVault) {
-      const setupResolved = PreVaultUserStateService.isSetupResolved(remoteState);
+      const setupResolved =
+        PreVaultUserStateService.isSetupResolved(remoteState);
       const inviteRedirectTarget = inviteRedirectTargetFor(fallbackRoute);
-      if (
-        remoteState.setupCompleted === false &&
-        !setupResolved
-      ) {
+      if (remoteState.setupCompleted === false && !setupResolved) {
         if (hasExplicitRedirect && isSetupHubRedirect) return fallbackRoute;
         return hasExplicitRedirect && fallbackRoute !== PRE_VAULT_ROUTE
           ? buildOneSetupRoute({ returnTo: fallbackRoute })
@@ -149,9 +156,11 @@ export class PostAuthRouteService {
         inviteRedirectTarget &&
         shouldRequirePhoneMandate({
           phoneNumber: params.phoneNumber,
-          phoneVerified: params.phoneVerified,
+          phoneVerified,
           hasVault: true,
-          hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+          hostname:
+            params.hostname ??
+            (typeof window === "undefined" ? null : window.location.hostname),
           pathname: fallbackRoute,
         })
       ) {
@@ -178,11 +187,13 @@ export class PostAuthRouteService {
       const pendingResolved =
         pending?.completed === true &&
         Boolean(pending.completed_at) &&
-        (pending.skipped === true || hasCompletePreVaultAnswers(pending.answers));
+        (pending.skipped === true ||
+          hasCompletePreVaultAnswers(pending.answers));
 
       if (remoteUnset && pendingResolved) {
         const completedAtMs =
-          pending.completed_at && !Number.isNaN(Date.parse(pending.completed_at))
+          pending.completed_at &&
+          !Number.isNaN(Date.parse(pending.completed_at))
             ? Date.parse(pending.completed_at)
             : Date.now();
         try {
@@ -194,7 +205,7 @@ export class PostAuthRouteService {
         } catch (error) {
           console.warn(
             "[PostAuthRouteService] Failed local->remote pre-vault onboarding bridge:",
-            error
+            error,
           );
         }
         setupResolved = true;
@@ -211,12 +222,16 @@ export class PostAuthRouteService {
     if (
       shouldRequirePhoneMandate({
         phoneNumber: params.phoneNumber,
-        phoneVerified: params.phoneVerified,
+        phoneVerified,
         hasVault: false,
-        hostname: params.hostname ?? (typeof window === "undefined" ? null : window.location.hostname),
+        hostname:
+          params.hostname ??
+          (typeof window === "undefined" ? null : window.location.hostname),
       })
     ) {
-      return buildPhoneMandateRoute(inviteRedirectTarget ?? resolvedNoVaultRoute);
+      return buildPhoneMandateRoute(
+        inviteRedirectTarget ?? resolvedNoVaultRoute,
+      );
     }
 
     if (resolvedNoVaultRoute === NO_VAULT_DEFAULT_ROUTE) {

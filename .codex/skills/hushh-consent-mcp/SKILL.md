@@ -1,6 +1,6 @@
 ---
 name: hushh-consent-mcp
-description: Use when operating the Hussh Consent MCP connector directly for domain discovery, consent request/status checks, token validation, or scoped export verification.
+description: Use when operating the Hussh Consent MCP core lifecycle or campaign compatibility tools: search_user_scopes, request_consent, check_consent_status, get_encrypted_scoped_export, and prepare_campaign_context.
 ---
 
 # Hussh Consent MCP Skill
@@ -9,10 +9,10 @@ description: Use when operating the Hussh Consent MCP connector directly for dom
 
 - Primary scope: `hushh-consent-mcp-ops`
 - Trigger on direct connector tasks against the Hussh Consent MCP surface:
-  - `discover_user_domains`
+  - `search_user_scopes`
+  - `prepare_campaign_context` (Hussh ADK compatibility)
   - `request_consent`
   - `check_consent_status`
-  - `validate_token`
   - `get_encrypted_scoped_export`
 - Use this when the question is about what the connector returns right now, not when changing backend consent logic.
 - Avoid overlap with `backend`, `mcp-developer-surface`, and `security-audit`.
@@ -36,7 +36,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Verifying whether a specific user resolves to any discoverable domains/scopes.
+1. Verifying whether a specific user resolves to any requestable scopes.
 2. Comparing prod vs UAT connector behavior for the same identifier.
 3. Debugging connector startup/config mismatches across Codex, Claude Desktop, or other MCP hosts.
 4. Verifying whether a missing result is a connector/config issue versus an actual empty discovery response.
@@ -56,14 +56,14 @@ Non-owned surfaces:
 ## Workflow
 
 1. Verify the local host config first if the issue smells like a connector startup failure.
-2. When discovery returns no domains, check at least two environments when available before concluding it is a user-data issue.
+2. When scope search returns no matches, check at least two environments when available before concluding it is an information issue.
 3. Distinguish clearly between:
    - connector failed to start
-   - connector connected but returned an empty discovery result
+   - connector connected but returned an empty scope-search result
    - environment mismatch between local, UAT, and production
-4. Default discovery should stay compact: domains plus top-level requestable scopes. Deep leaf-path scope expansion is debug-only.
+4. Default scope search should stay compact and paginated. Deep leaf-path expansion is debug-only.
 5. When auditing PKM parity, compare connector output to the backend metadata route and manifest-backed domain truth for the same user before concluding discovery is wrong.
-6. Report the raw connector result concisely before inferring causes.
+6. Report only the safe structured connector result before inferring causes; never surface identifiers or tokens.
 7. If the connector returns empty in multiple environments, treat that as a valid empty response until proven otherwise.
 
 ## Handoff Rules

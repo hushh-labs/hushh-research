@@ -38,6 +38,11 @@ flowchart TB
 
 This document describes the queue-first CI model and how to stay aligned with it so code changes do not fail CI or deploy from the wrong authority gate. Run the local mirror before opening or updating a pull request, and before commits that touch core authority surfaces.
 
+The canonical state-changing operator procedure is the
+[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This page defines CI behavior; it does not redefine Admin bypass or deployment
+authority.
+
 **Workflow files:** [.github/workflows/ci.yml](../../../.github/workflows/ci.yml), [.github/workflows/queue-validation.yml](../../../.github/workflows/queue-validation.yml), [.github/workflows/main-post-merge-smoke.yml](../../../.github/workflows/main-post-merge-smoke.yml)  
 **Pre-PR mirror:** [`./bin/hushh codex pre-pr`](./cli.md)  
 **Underlying local lane:** [`./bin/hushh ci`](./cli.md)  
@@ -184,8 +189,16 @@ Local/UAT release rehearsal should additionally run the Kai no-write PKM drill b
 The canonical blocker for that broader surface is:
 
 1. [scripts/ci/pkm-upgrade-gate.sh](../../../scripts/ci/pkm-upgrade-gate.sh)
-2. `integration-check.sh` now runs this gate on every blocking CI pass
-3. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
+2. [scripts/ci/resolve-uat-verification-plan.py](../../../scripts/ci/resolve-uat-verification-plan.py) is the single changed-SHA selector used by PR, queue, post-merge, and UAT lanes
+3. `integration-check.sh` runs the PKM gate only when that selector finds a PKM upgrade, stored-shape, migration, or fixture change; selector-policy changes are covered by always-on classifier contract tests. Ordinary UI, consent, MCP, RIA, and provider changes keep their own focused checks without repeating the PKM cycle
+4. a missing or unproven comparison base fails closed to the full PKM/reviewer plan
+5. when `PKM_UPGRADE_RUNTIME_AUDIT_BASE_URL` is set for a selected PKM release, the same gate also runs the live Playwright investor / RIA / PKM audits against that runtime
+
+Every selected plan is written as a `*-verification-plan` workflow artifact and
+includes the changed files, each lane's `required`/`skipped` state, and its
+reason. This is evidence only: authority checks, migrations, deployment
+provenance, runtime health, and directly affected frontend/backend checks remain
+mandatory regardless of the expensive-lane selection.
 
 ## When CI Runs
 
@@ -293,7 +306,7 @@ The secret gate is intentionally stricter than raw regex scanning:
 2. `scripts/ci/subtree-sync-check.sh`
 3. `npm run verify:investor-language`
 4. Native build/smoke checks (`./bin/hushh native ios --mode uat`, `./bin/hushh native android --mode uat`) for native release lanes
-5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness
+5. `scripts/ops/verify-env-secrets-parity.py` for release preflight and deployment readiness; it fails closed when the Firebase Admin credential and public Firebase client configuration name different projects, without rendering either value
 6. Broad full-suite pytest runs and Kai accuracy/compliance suites
 
 Do not add new CI/parity scripts without replacing or consolidating an existing check.
@@ -327,11 +340,13 @@ Practical maintainer rule:
 
 ## Branch Lanes
 
-1. `main` is the only integration branch for day-to-day development.
+1. `integration/pr-train` is the intake branch for non-maintainer contributor and agent work; governed maintainers may open branches cut from `origin/main` directly to `main`. `main` remains the sole promotion authority for UAT and production.
 2. A successful `Main Post-Merge Smoke` run produces the only deployable source of truth: the green `main` SHA.
 3. UAT deploys only by an explicit manual dispatch of that green `main` SHA through `.github/workflows/deploy-uat.yml`.
-4. Manual UAT dispatch is limited to `kushaltrivedi5`, `Akash-292`, `RGlodAkshat`, and `ankitkumarsingh1702`.
-5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only `kushaltrivedi5` may trigger it.
+4. Manual UAT dispatch is limited to the current
+   `uat.manual_dispatch_users` cohort in `config/ci-governance.json`; do not
+   transcribe actor names into this document.
+5. Production deploys only through a manual SHA dispatch in `.github/workflows/deploy-production.yml`, and only actors listed in `production.manual_dispatch_users` may trigger it.
 6. Manual UAT or production redeploys must use a SHA that is reachable from `origin/main` and already green in post-merge smoke.
 7. Feature or hotfix branches never deploy directly; they merge through `main`.
 
@@ -535,10 +550,10 @@ Blocking rule:
 
 The production deploy workflow (`.github/workflows/deploy-production.yml`) enforces additional DB governance before backend deploy:
 
-1. Supabase backup posture gate:
-- validates logical backup freshness from GCS manifests via `scripts/ops/logical_backup_freshness_check.py`
+1. Cloud SQL backup posture gate:
+- validates Cloud SQL automated backups + PITR via `scripts/ops/cloudsql_backup_freshness_check.py`
 - requires latest successful backup age within configured threshold (`BACKUP_MAX_AGE_HOURS`, default `30`)
-- optional manual predeploy backup execution via workflow input `run_predeploy_backup_job=true`
+- optional on-demand Cloud SQL backup via workflow input `run_predeploy_backup_job=true`
 
 2. Migration governance + drift gate:
 - checks migration filename monotonicity (`consent-protocol/db/migrations`)
@@ -547,13 +562,13 @@ The production deploy workflow (`.github/workflows/deploy-production.yml`) enfor
 - checks live DB schema contract in read-only mode
 
 3. Manifest artifact:
-- emits a production migration release manifest with logical backup evidence (`backup_object_uri`, checksum, completion timestamp)
+- emits a production migration release manifest with Cloud SQL backup evidence (backup id, completion timestamp)
 
 UAT deploys use a separate latest-integrated contract:
 
 - `consent-protocol/db/contracts/uat_integrated_schema.json`
 
-The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
+The daily scheduled workflow `.github/workflows/prod-cloudsql-backup-posture.yml` runs the same backup posture policy and uploads a report artifact.
 
 ---
 
@@ -568,6 +583,8 @@ The daily scheduled workflow `.github/workflows/prod-supabase-backup-posture.yml
 
 ## Upstream CI (consent-protocol standalone)
 
-The consent-protocol has its own full CI pipeline at [hushh-labs/consent-protocol](https://github.com/hushh-labs/consent-protocol/actions). It now runs on all branches plus merge queue and includes: secret scan, lint, typecheck, test, security scan, Docker build verification, and a final status gate.
+The optional consent-protocol mirror has its own full CI pipeline at [hushh-labs/consent-protocol](https://github.com/hushh-labs/consent-protocol/actions). It runs on all branches plus merge queue and includes: secret scan, lint, typecheck, test, security scan, Docker build verification, and a final status gate.
 
-The monorepo `protocol-check` job is a lightweight mirror. For full coverage, PRs to the upstream repo are the authoritative gate.
+The monorepo is authoritative. Its protocol and release gates determine merge
+and deploy readiness. Mirror publication and mirror CI are optional maintainer
+operations and must not delay a monorepo release or UAT deploy.

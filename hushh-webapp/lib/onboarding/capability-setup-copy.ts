@@ -32,6 +32,12 @@ export interface CapabilitySetupCopy {
   /** Short continuation action after the capability has started. */
   resumeActionLabel: string;
   /**
+   * One short premise and one consent-safe promise for the optional cinematic
+   * entry screen. This is presentation-only: it never changes setup state.
+   */
+  introPremise?: string;
+  introPromise?: string;
+  /**
    * Where "Set up" / "Explore" routes for this capability. Always the
    * setup-scoped handoff route (`/one/setup/<id>`) so the hard setup gate
    * never bounces a first-time tap.
@@ -61,6 +67,8 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: string;
     actionLabel: string;
     resumeActionLabel: string;
+    introPremise?: string;
+    introPromise?: string;
     exploreTitle?: string;
     exploreBlurb?: string;
     exploreBullets?: readonly string[];
@@ -68,103 +76,118 @@ const SETUP_COPY_BY_ID: Record<
   }
 > = {
   finance: {
-    setupTitle: "Set up your finances",
-    setupBlurb:
-      "Tell One how you like to invest so it can read your portfolio and surface analysis that fits you.",
+    setupTitle: "Set up your money",
+    setupBlurb: "See your money clearly.",
     actionLabel: "Set up Finance",
     resumeActionLabel: "Finish Finance",
+    introPremise: "Access your finances in one place.",
+    introPromise: "Only the accounts you share.",
     setupBullets: [
-      "Share how you like to invest in a few quick taps.",
-      "One reads your portfolio and tailors the analysis to you.",
-      "Hand off to a real advisor whenever you want.",
+      "Tell One how you like to invest.",
+      "One reads your portfolio and tailors what it shows you.",
+      "Hand off to a real advisor any time.",
     ],
   },
   gmail: {
     setupTitle: "Connect Gmail",
-    setupBlurb:
-      "Connect Gmail so One can understand the brands you care about and build a private memory of recent interactions.",
+    setupBlurb: "One learns what you care about.",
     actionLabel: "Connect Gmail",
     resumeActionLabel: "Finish Gmail",
+    introPremise: "Your mail, made useful.",
+    introPromise: "Connected only with your yes.",
     setupBullets: [
-      "Connect Gmail once, with your approval.",
-      "One learns your brand affinities from the interactions you approve.",
-      "Keep a private memory of recent interactions, ready when you need it.",
+      "Connect Gmail once, with your yes.",
+      "One learns the brands you care about.",
+      "What it remembers stays private to you.",
+    ],
+  },
+  calendar: {
+    setupTitle: "Connect your calendar",
+    setupBlurb: "One keeps track of your day.",
+    actionLabel: "Connect Calendar",
+    resumeActionLabel: "Finish Calendar",
+    introPremise: "Stay ahead of your schedule.",
+    introPromise: "See what's ahead, and make time for what matters.",
+    setupBullets: [
+      "Connect Google Calendar with the access you choose.",
+      "Ask One what's on today.",
+      "Approve every meeting change before it happens.",
     ],
   },
   email: {
-    setupTitle: "Let One draft for you",
-    setupBlurb:
-      "Let One draft for you when you invoke it from email at one@hushh.ai.",
-    actionLabel: "Set up drafting",
-    resumeActionLabel: "Finish drafting setup",
+    // "KYC" is an abbreviation nobody meets for the first time and understands.
+    // The row now says what actually happens; the destination keeps the name.
+    setupTitle: "Identity checks",
+    setupBlurb: "Verify with your approval.",
+    actionLabel: "Set up KYC",
+    resumeActionLabel: "Finish KYC",
+    introPremise: "Replies, ready when you are.",
+    introPromise: "You approve every reply.",
     setupBullets: [
-      "Invoke One from email at one@hushh.ai when you want a draft.",
-      "One prepares replies and approvals you can review before sending.",
-      "Everything stays a draft until you choose to send it.",
-      "You are always in control of what goes out.",
+      "Turn drafting on or off any time.",
+      "Every draft is yours to review before it sends.",
     ],
   },
   location: {
     setupTitle: "Set up location",
-    setupBlurb:
-      "Set up location so you can share it with the trusted people you choose, whenever you want.",
+    setupBlurb: "Share only when you choose.",
     actionLabel: "Choose location",
     resumeActionLabel: "Finish location",
+    introPremise: "Be easier to reach when it matters.",
+    introPromise: "Private until you choose to share.",
     setupBullets: [
-      "Choose the trusted people who can receive a location share.",
-      "Start and stop sharing whenever you want.",
-      "Your location stays private unless you choose to share it.",
+      "Pick the people who can see where you are.",
+      "Start and stop sharing any time.",
+      "Private unless you choose to share.",
     ],
   },
   ria: {
-    setupTitle: "Set up RIA",
-    setupBlurb:
-      "Create and verify your advisor profile so One can open the right professional workspace for you.",
+    setupTitle: "Set up your advisor profile",
+    setupBlurb: "Build your advisor workspace.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
+    introPremise: "A workspace built for your practice.",
+    introPromise: "You review every detail first.",
     setupBullets: [
       "Verify your advisor or firm credentials.",
-      "Choose the services you offer and review your profile.",
-      "Submit only when the profile is accurate.",
+      "Choose the services you offer.",
+      "Submit only when the profile is right.",
     ],
   },
   pkm: {
     setupTitle: "Save what matters",
-    setupBlurb:
-      "Keep notes and personal details in one private place that only you and One can open.",
+    setupBlurb: "Notes only you can open.",
     actionLabel: "Save what matters",
     resumeActionLabel: "Finish saving",
     setupBullets: [
-      "Save notes and personal details in one place.",
-      "Only you and One can ever open it.",
-      "One recalls what matters exactly when you need it.",
+      "Save notes and details in one place.",
+      "Only you and One can open it.",
+      "One recalls them when you need them.",
     ],
   },
   consent: {
     setupTitle: "Review who has access",
-    setupBlurb:
-      "See every request to use your personal information, approve what you trust, and pull access back any time.",
+    setupBlurb: "Approve or pull back access.",
     actionLabel: "Review access",
     resumeActionLabel: "Review access",
     exploreTitle: "Here's your access center",
-    exploreBlurb:
-      "Nothing to set up. This is where you see and control who can use your personal information.",
+    exploreBlurb: "Nothing to set up. See and control who can use your data.",
     exploreBullets: [
-      "Every request to use your personal information shows up here.",
+      "Every request to use your data shows up here.",
       "Approve what you trust, decline the rest.",
-      "Pull access back at any time, instantly.",
+      "Pull access back any time, instantly.",
     ],
   },
   "connected-systems": {
-    setupTitle: "Link your record to external systems",
-    setupBlurb:
-      "Choose the external systems where One can find or create your record, only with your approval.",
-    actionLabel: "Link your record",
-    resumeActionLabel: "Finish linking",
+    setupTitle: "Connect your CRM",
+    setupBlurb: "Find records with your approval.",
+    actionLabel: "Set up CRM",
+    resumeActionLabel: "Finish CRM",
+    introPremise: "Start with the record you already have.",
+    introPromise: "Nothing changes without your yes.",
     setupBullets: [
-      "See every CRM system currently available to your account.",
-      "Check whether your record already exists before creating one.",
-      "One creates or updates a record only after your approval.",
+      "One looks for your record first, then creates one if needed.",
+      "Nothing happens without your yes.",
     ],
   },
 };
@@ -178,6 +201,8 @@ function toSetupCopy(cap: OneCapability): CapabilitySetupCopy {
     setupBlurb: extra?.setupBlurb ?? cap.description,
     actionLabel: extra?.actionLabel ?? `Set up ${cap.title}`,
     resumeActionLabel: extra?.resumeActionLabel ?? `Finish ${cap.title}`,
+    introPremise: extra?.introPremise,
+    introPromise: extra?.introPromise,
     // Every tile routes through the onboarding-scoped handoff so the hard gate
     // never bounces a first-time tap. The handoff resolves the gate and
     // forwards to the canonical capability destination.

@@ -158,7 +158,10 @@ ALTER TABLE pkm_events
       'legacy_cutover',
       'scope_exposure_update',
       'default_projection_publish',
-      'default_projection_revoke'
+      'default_projection_revoke',
+      'upgrade_commit',
+      'upgrade_rollback',
+      'domain_delete'
     )
   );
 

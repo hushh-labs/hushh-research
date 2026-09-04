@@ -1,0 +1,29 @@
+{
+  "skill_name": "planning-board",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "summarize what moved on the Engineering Core board last week",
+        "top_k": 3
+      },
+      {
+        "prompt": "create an issue-backed board item for the vault unlock bug and set its sprint field",
+        "top_k": 3
+      },
+      {
+        "prompt": "triage the overdue GitHub project board tasks and normalize their labels",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "branch protection is blocking the merge queue on GitHub Actions, fix the workflow",
+        "owner": "repo-operations"
+      },
+      {
+        "prompt": "review this incoming pull request for trust-boundary regressions and true merge readiness",
+        "owner": "pr-governance-review"
+      }
+    ]
+  }
+}

@@ -46,19 +46,19 @@ export function resolveKaiCircleCtas(params: {
     } else {
       ctas.push({
         id: "ask_to_setup_one_location",
-        label: "Ask to Setup Onepoint",
+        label: "Ask to Setup Location",
         enabled: true,
-        reason: "They need a Onepoint recipient key before private sharing.",
+        reason: "They need a Location recipient key before private sharing.",
       });
     }
   } else {
     ctas.push({
       id: "request_location",
-      label: "Request Location",
+      label: "Request location",
       enabled: viewerCapabilities?.canRequestLocation !== false,
       reason:
         viewerCapabilities?.hasLocationRecipientKey === false
-          ? "Your Onepoint key will be set up before sending the request."
+          ? "Your Location key will be set up before sending the request."
           : null,
     });
   }

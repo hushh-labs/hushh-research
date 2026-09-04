@@ -72,11 +72,25 @@ vi.mock("lucide-react", () => ({
   MapPin: () => <span />,
   Mail: () => <span />,
   Phone: () => <span />,
+  UsersRound: () => <span />,
+  FileCheck2: () => <span />,
+  BookMarked: () => <span />,
+  KeyRound: () => <span />,
+  Store: () => <span />,
+  ContactRound: () => <span />,
 }));
 
 vi.mock("@/components/app-ui/fullscreen-flow-shell", () => ({
   FullscreenFlowShell: ({ children }: { children: React.ReactNode }) => (
     <div data-testid="flow-shell">{children}</div>
+  ),
+}));
+
+// This suite owns the RIA workflow contract. The cinematic intro has separate
+// coverage, so bypass its session-only presentation layer here.
+vi.mock("@/components/onboarding/setup/capability-cinematic-intro", () => ({
+  CapabilityCinematicIntroGate: ({ children }: { children: React.ReactNode }) => (
+    <>{children}</>
   ),
 }));
 
@@ -214,7 +228,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-services", () => ({
     <div data-testid="step-services">
       <span data-testid="services-bio">{bio}</span>
       <button data-testid="draft-bio" onClick={onDraftBio}>
-        Ask Kai to draft a bio
+        Ask One to draft a bio
       </button>
       <span data-testid="services-city">{city}</span>
       <span data-testid="services-area">{areaLocality}</span>
@@ -252,7 +266,7 @@ vi.mock("@/components/ria/onboarding/onboarding-step-review", () => ({
         Edit Services
       </button>
       <button data-testid="ask-kai-update" onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
+        Ask One to update anything
       </button>
     </div>
   ),
@@ -279,6 +293,13 @@ vi.mock("@/lib/navigation/routes", () => ({
       ? candidate
       : null;
   },
+  buildOneSetupCapabilityRoute: (capabilityId: string) =>
+    `/one/setup/${capabilityId}`,
+}));
+
+vi.mock("@/lib/navigation/profile-routes", () => ({
+  buildProfileRoute: ({ panel }: { panel?: string | null } = {}) =>
+    panel === "regulatory" ? "/one/profile/regulatory" : "/one/profile",
 }));
 
 vi.mock("@/lib/navigation/kai-command-bar-events", () => ({
@@ -459,6 +480,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("clears stale regulator fields before applying a fresh verification result", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_number"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_number",
       onboardingType: "individual",
@@ -537,6 +561,9 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs stale verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(
+      new URLSearchParams("step=license_details"),
+    );
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "license_details",
       onboardingType: "individual",
@@ -604,6 +631,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("repairs conflicting verified draft location from the license API on load", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -786,10 +814,10 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
-  it("loads existing draft and restores saved step", async () => {
+  it("loads an existing draft but still opens at the welcome step", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
-      onboardingType: "individual",
+      onboardingType: "firm",
       licenseNumber: "111222",
       licenseVerificationStatus: "found",
       advisorName: "Saved Advisor",
@@ -803,9 +831,19 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
     });
+
+    // Entering RIA setup never resumes mid-wizard — the saved step pointer is
+    // ignored so step 1 (and its cinematic intro) is never skipped...
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-services")).toBeNull();
+    // ...while every other saved field still prefills the flow.
+    expect(screen.getByTestId("welcome-type").textContent).toBe("firm");
   });
 
   it("drafts a bio from verified onboarding fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -842,12 +880,12 @@ describe("RiaOnboardingPage", () => {
       );
     });
     expect(mocks.toast.success).toHaveBeenCalledWith(
-      "Bio drafted",
-      expect.any(Object),
+      "Bio drafted. Review the draft before submitting your profile.",
     );
   });
 
   it("opens Kai command from the review update action", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -875,13 +913,11 @@ describe("RiaOnboardingPage", () => {
     });
 
     expect(mocks.openKaiCommandBar).toHaveBeenCalledTimes(1);
-    expect(mocks.toast.info).toHaveBeenCalledWith(
-      "Kai command opened",
-      expect.any(Object),
-    );
+    expect(mocks.toast.info).toHaveBeenCalledWith("Command bar opened");
   });
 
   it("does not force a second live verification after license verification", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -933,6 +969,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("does not submit onboarding twice while the first request is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -980,6 +1017,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("turns provider unavailable submit errors into actionable verification copy", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",
@@ -1015,10 +1053,7 @@ describe("RiaOnboardingPage", () => {
       ).toBeTruthy();
     });
     expect(mocks.toast.error).toHaveBeenCalledWith(
-      "Could not submit verification",
-      expect.objectContaining({
-        description: expect.stringMatching(/regulator-backed CRD/i),
-      }),
+      expect.stringMatching(/regulator-backed CRD/i),
     );
   });
 
@@ -1054,6 +1089,36 @@ describe("RiaOnboardingPage", () => {
     await waitFor(() => {
       expect(mocks.routerReplace).toHaveBeenCalledWith("/ria/profile");
     });
+  });
+
+  it("keeps a draft/submitted/rejected advisor in the wizard instead of bouncing to profile", async () => {
+    // Regression: `exists: true` alone used to count as "established" and
+    // send the advisor straight to /ria/profile, even mid-verification. The
+    // Clients page's own gate still blocked them (not verified), so the
+    // "Complete verification" CTA became a dead end -- profile had nothing
+    // for them to finish. Only an actually-verified status may redirect.
+    for (const status of ["draft", "submitted", "rejected"]) {
+      mocks.routerReplace.mockClear();
+      mocks.usePersonaState.mockReturnValue({
+        refresh: mocks.refreshPersonaState,
+        riaCapability: "setup",
+        loading: false,
+        refreshing: false,
+        riaOnboardingStatus: {
+          exists: true,
+          advisory_status: status,
+          verification_status: status,
+        },
+      });
+
+      const { unmount } = render(<RiaOnboardingPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
+      });
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/ria/profile");
+      unmount();
+    }
   });
 
   it("keeps a switch advisor in the wizard when re-verifying via ?edit=license", async () => {
@@ -1107,6 +1172,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("keeps the user on the services step when Continue is pressed with empty required fields", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=services"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "individual",
@@ -1141,6 +1207,7 @@ describe("RiaOnboardingPage", () => {
   });
 
   it("completes onboarding and routes to the RIA profile when verification is pending", async () => {
+    mocks.useSearchParams.mockReturnValue(new URLSearchParams("step=review"));
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "review",
       onboardingType: "individual",

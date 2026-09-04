@@ -30,7 +30,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. UAT deploys where scope must stay `frontend`, `backend`, or `all`.
+1. UAT deploys where `scope=auto` resolves `frontend`, `backend`, or `all` from target-to-deployed-service baselines.
 2. Cloud Build timing, skipped-lane, and deploy summary proof.
 3. Cloud Run service evidence: project, region, revision, image, timeout, env, traffic, and request-id logs.
 
@@ -48,19 +48,21 @@ Non-owned surfaces:
 3. `deploy/frontend.cloudbuild.yaml`
 4. `deploy/backend.cloudbuild.yaml`
 5. `docs/reference/operations/branch-governance.md`
-6. `.codex/skills/uat-scoped-deploy/references/deploy-proof.md`
-7. `.codex/skills/uat-scoped-deploy/references/anti-rationalization.md`
+6. `.codex/skills/repo-operations/references/admin-release-sop.md`
+7. `.codex/skills/uat-scoped-deploy/references/deploy-proof.md`
+8. `.codex/skills/uat-scoped-deploy/references/anti-rationalization.md`
 
 ## Workflow
 
-1. Classify the intended scope from changed paths and user request: `frontend`, `backend`, or `all`.
-2. Use `scope=frontend` for UI/auth-route-only changes and `scope=backend` for protocol/API-only changes.
-3. Use the merge queue for the ordinary PR path. For an explicitly authorized admin landing, use the documented direct-main admin preflight, require all PR checks to be green, then merge the exact reviewed head with `gh pr merge --admin --merge --match-head-commit <sha>`; `--admin` bypasses the queue and is never a substitute for verification.
+1. Default to `scope=auto`; let the resolver compare the target SHA with each service's currently deployed SHA and record both requested and resolved scope.
+2. Force `frontend`, `backend`, or `all` only after target-to-deployed-service delta proof establishes that the override covers every accumulated runtime change.
+3. Use `admin-release-sop.md` for the queue-first path and any explicitly authorized Admin PR landing; do not duplicate or reinterpret its exact-head authority gate here.
 4. Wait for `Main Post-Merge Smoke` to succeed for the landed `main` SHA, then trigger UAT with that exact SHA. Keep merge, smoke, and UAT deploy as separate evidence.
 5. Watch the GitHub run until terminal success or a concrete blocker; confirm skipped lanes from run steps.
 6. Before Cloud Run `describe`, run the evidence helper to discover the actual project/region tuple.
 7. Capture touched-service revision, image, labels, timeout, traffic, env contracts, request IDs, and logs.
 8. Report run URL, scope, skipped lanes, timings, revisions, and remaining risk; never call queued work done.
+9. Read the `uat-verification-plan` artifact from the exact changed-SHA selector. PKM upgrade rehearsal and candidate evaluator are required only for PKM upgrade/storage/migration contracts; reviewer BYOK is independently selected for vault/reviewer contracts. A missing deployed SHA fails closed. Never replace this selector with a workflow-local path list.
 
 ## Handoff Rules
 

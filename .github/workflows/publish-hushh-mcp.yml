@@ -4,12 +4,13 @@ on:
   workflow_dispatch:
     inputs:
       dist_tag:
-        description: "npm dist-tag to publish (beta only; latest promotion is a separate authenticated dist-tag action)"
+        description: "npm dist-tag to publish after package verification"
         required: true
-        default: beta
+        default: latest
         type: choice
         options:
           - beta
+          - latest
 
 permissions:
   contents: read
@@ -21,6 +22,9 @@ jobs:
     environment: npm-publish
     env:
       PACKAGE_DIR: packages/hushh-mcp
+      # Both release verification and npm's prepack lifecycle generate the
+      # canonical gateway contract. They must use the synced Python runtime.
+      HUSHH_MCP_PYTHON: ${{ github.workspace }}/consent-protocol/.venv/bin/python
 
     steps:
       - name: Assert main-only release dispatch
@@ -41,6 +45,11 @@ jobs:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
           package-manager-cache: false
+
+      - uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
 
       - name: Install package dependencies
         working-directory: ${{ env.PACKAGE_DIR }}
@@ -64,8 +73,11 @@ jobs:
 
       - name: Publish package
         working-directory: ${{ env.PACKAGE_DIR }}
-        # OIDC is selected by npm automatically. Do not add NODE_AUTH_TOKEN.
-        run: npm publish --tag beta --provenance
+        # The granular npm token is held only in the protected npm-publish
+        # environment. OIDC remains available for provenance generation.
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --tag "${{ inputs.dist_tag }}" --provenance
 
       - name: Verify exact published package from a clean npm cache
         shell: bash
@@ -73,5 +85,25 @@ jobs:
           set -euo pipefail
           PACKAGE_NAME="$(node -p "require('./packages/hushh-mcp/package.json').name")"
           PACKAGE_VERSION="$(node -p "require('./packages/hushh-mcp/package.json').version")"
-          npm cache clean --force
-          npx --yes "${PACKAGE_NAME}@${PACKAGE_VERSION}" --help
+          PACKAGE_SPEC="${PACKAGE_NAME}@${PACKAGE_VERSION}"
+          for attempt in $(seq 1 12); do
+            PUBLISHED_METADATA="$(npm view "${PACKAGE_SPEC}" version dist.integrity dist.shasum dist.attestations --json 2>/dev/null || true)"
+            if [ -n "${PUBLISHED_METADATA}" ] && PUBLISHED_METADATA="${PUBLISHED_METADATA}" node <<'NODE'
+          const metadata = JSON.parse(process.env.PUBLISHED_METADATA);
+          if (!metadata.version || !metadata["dist.integrity"] || !metadata["dist.shasum"]) {
+            throw new Error("Published package metadata is missing version or integrity fields.");
+          }
+          if (!metadata["dist.attestations"]) {
+            throw new Error("Published package is missing npm provenance attestations.");
+          }
+          NODE
+            then
+              break
+            fi
+            if [ "${attempt}" -eq 12 ]; then
+              echo "Published package metadata was not visible after 60 seconds." >&2
+              exit 1
+            fi
+            sleep 5
+          done
+          HUSHH_MCP_PACKAGE_SPEC="${PACKAGE_SPEC}" npm --prefix packages/hushh-mcp run verify:packed-runtime

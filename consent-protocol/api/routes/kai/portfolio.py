@@ -23,7 +23,6 @@ import io
 import json
 import logging
 import math
-import os
 import re
 import time
 from collections import Counter
@@ -56,11 +55,11 @@ from api.routes.kai.import_run_manager import (
     PortfolioImportRunRecord,
 )
 from hushh_mcp.constants import (
+    GEMINI_MODEL,
     KAI_LLM_TEMPERATURE,
     KAI_LLM_THINKING_ENABLED,
     KAI_PORTFOLIO_IMPORT_ENABLE_THINKING,
     KAI_PORTFOLIO_IMPORT_MAX_OUTPUT_TOKENS,
-    KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL,
     KAI_PORTFOLIO_IMPORT_THINKING_LEVEL,
 )
 from hushh_mcp.kai_import import (
@@ -76,6 +75,7 @@ from hushh_mcp.kai_import import (
     evaluate_import_quality_gate_v2,
     run_stream_pass_v2,
 )
+from hushh_mcp.runtime_providers import build_managed_runtime_client
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.portfolio_import_service import (
     ImportResult,
@@ -138,12 +138,12 @@ _HOLDING_KEY_HINTS = frozenset(
 
 
 def _resolve_portfolio_import_model() -> str:
-    """Resolve operator override while keeping the documented Flash default."""
-    for key in ("KAI_PORTFOLIO_IMPORT_MODEL", "KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL"):
-        candidate = os.getenv(key, "").strip()
-        if candidate:
-            return candidate
-    return KAI_PORTFOLIO_IMPORT_PRIMARY_MODEL
+    """Portfolio import runs the fleet text model, like every other text agent.
+
+    It used to consult two environment keys that no lane set, in front of a constant
+    that was already equal to the fleet model: three names for one answer.
+    """
+    return GEMINI_MODEL
 
 
 _POSITIONS_PAGE_KEYWORDS = (
@@ -2698,9 +2698,7 @@ async def _portfolio_import_stream_generator(
     hard_timeout_seconds = PORTFOLIO_IMPORT_TIMEOUT_SECONDS
     stream = CanonicalSSEStream("portfolio_import")
 
-    from google import genai
     from google.genai import types
-    from google.genai.types import HttpOptions
 
     thinking_enabled = KAI_PORTFOLIO_IMPORT_ENABLE_THINKING and KAI_LLM_THINKING_ENABLED
     extraction_model = _resolve_portfolio_import_model()
@@ -2716,7 +2714,7 @@ async def _portfolio_import_stream_generator(
             )
             await asyncio.sleep(0.1)
 
-            client = genai.Client(http_options=HttpOptions(api_version="v1"))
+            client = build_managed_runtime_client("gemini")
             logger.info(
                 "SSE: Portfolio import model=%s strict_json=true no_pre_gate=true thinking=%s",
                 extraction_model,

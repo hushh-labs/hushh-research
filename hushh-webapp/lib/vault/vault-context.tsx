@@ -31,6 +31,14 @@ import React, {
   ReactNode,
 } from "react";
 import { useAuth } from "@/lib/firebase/auth-context";
+import { clearAgentPkmContext } from "@/lib/agent/agent-pkm-memory";
+import {
+  clearAgentChatHistoryCache,
+  warmAgentChatHistoryCache,
+} from "@/lib/agent/agent-chat-history-cache";
+import { clearGeminiRuntimeConnectionCache } from "@/lib/connections/gemini-runtime-configuration";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { HushhConsent } from "@/lib/capacitor";
 import { trackGrowthFunnelStepCompleted } from "@/lib/observability/growth";
@@ -40,10 +48,8 @@ import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge
 import { PkmUpgradeOrchestrator } from "@/lib/services/pkm-upgrade-orchestrator";
 import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator";
 import { VaultService } from "@/lib/services/vault-service";
-import {
-  markSessionUnlocked,
-  resetSessionUnlocked,
-} from "@/lib/vault/vault-session-latch";
+import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
+import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 
 // ============================================================================
 // Types
@@ -90,17 +96,35 @@ interface VaultProviderProps {
   children: ReactNode;
 }
 
+function isGmailRoute(routePath: string): boolean {
+  return (
+    routePath.startsWith("/one/gmail") ||
+    routePath.startsWith("/one/setup/gmail") ||
+    routePath.startsWith("/one/email")
+  );
+}
+
 export function VaultProvider({ children }: VaultProviderProps) {
   // Access Auth Context to listen for logout
   const { user } = useAuth();
 
   // SECURITY: Vault key stored in React state = memory only
   // This is NOT accessible via sessionStorage.getItem() - XSS protection
-  const [vaultKey, setVaultKey] = useState<string | null>(null);
+  const [storedVaultKey, setVaultKey] = useState<string | null>(null);
 
   // VAULT_OWNER consent token (also memory-only for security)
-  const [vaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
-  const [tokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [storedVaultOwnerToken, setVaultOwnerToken] = useState<string | null>(null);
+  const [storedTokenExpiresAt, setTokenExpiresAt] = useState<number | null>(null);
+  const [vaultUserId, setVaultUserId] = useState<string | null>(null);
+  const currentUserId = user?.uid ?? null;
+  const vaultIdentityMatches = Boolean(
+    currentUserId && vaultUserId === currentUserId,
+  );
+  // Never expose credentials across an auth identity transition, including the
+  // render before the cleanup effect below has run.
+  const vaultKey = vaultIdentityMatches ? storedVaultKey : null;
+  const vaultOwnerToken = vaultIdentityMatches ? storedVaultOwnerToken : null;
+  const tokenExpiresAt = vaultIdentityMatches ? storedTokenExpiresAt : null;
   const lastUpgradeKickoffKeyRef = useRef<string | null>(null);
   // Mirror of tokenExpiresAt so the app-resume listener can read the latest
   // expiry without re-subscribing every time the token changes.
@@ -111,22 +135,33 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
 
   const lockVault = useCallback(() => {
-    resetSessionUnlocked();
     console.log("🔒 Vault locked (key + token cleared from memory)");
-    if (user?.uid && vaultOwnerToken) {
+    const lockedUserId = vaultUserId;
+    if (lockedUserId && storedVaultOwnerToken) {
       void PkmUpgradeOrchestrator.pauseForLocalAuthResume({
-        userId: user.uid,
-        vaultOwnerToken,
+        userId: lockedUserId,
+        vaultOwnerToken: storedVaultOwnerToken,
       }).catch((error) => {
         console.warn("[VaultProvider] Failed to pause PKM upgrade for local auth resume:", error);
       });
     }
-    if (user?.uid) {
-      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: user.uid });
+    if (lockedUserId) {
+      // The Agent's decrypted working set is strictly session-memory-only.
+      // Clear it synchronously with the vault credentials, rather than waiting
+      // for an Agent workspace to remain mounted and notice the lock.
+      clearAgentPkmContext(lockedUserId);
+      clearAgentChatHistoryCache(lockedUserId);
+      clearGeminiRuntimeConnectionCache(lockedUserId);
+      PreVaultSensitiveDraftService.clearForUser(lockedUserId);
+      CacheService.getInstance().invalidate(
+        CACHE_KEYS.PKM_DECRYPTED_BLOB(lockedUserId),
+      );
+      ConsentExportRefreshOrchestrator.pauseForLocalAuthResume({ userId: lockedUserId });
     }
     setVaultKey(null);
     setVaultOwnerToken(null);
     setTokenExpiresAt(null);
+    setVaultUserId(null);
     lastUpgradeKickoffKeyRef.current = null;
 
     if (Capacitor.getPlatform() === "ios") {
@@ -135,39 +170,47 @@ export function VaultProvider({ children }: VaultProviderProps) {
       });
     }
 
-    if (user?.uid) {
-      CacheSyncService.onVaultStateChanged(user.uid);
+    if (lockedUserId) {
+      CacheSyncService.onVaultStateChanged(lockedUserId);
       void import("@/lib/kai/kai-financial-resource")
         .then(({ KaiFinancialResourceService }) => {
-          KaiFinancialResourceService.invalidate(user.uid, { includeDevice: false });
+          KaiFinancialResourceService.invalidate(lockedUserId, { includeDevice: false });
         })
         .catch(() => undefined);
       void import("@/lib/pkm/pkm-domain-resource")
         .then(({ PkmDomainResourceService }) => {
-          PkmDomainResourceService.invalidateDomain(user.uid, "financial");
+          PkmDomainResourceService.invalidateDomain(lockedUserId, "financial");
         })
         .catch(() => undefined);
     }
     VaultService.invalidateVaultStateCache();
-  }, [user?.uid, vaultOwnerToken]);
+  }, [storedVaultOwnerToken, vaultUserId]);
 
-  // Auto-Lock on Sign Out
-  // If AuthContext reports no user, we MUST clear the decrypted key from memory immediately.
+  // Auto-lock on sign-out or account switch. The public context is already
+  // fail-closed during the render where the UID changes; this effect erases the
+  // stale material and identity-bound route latch from memory.
   useEffect(() => {
-    if (!user && vaultKey) {
-      console.log("🔒 [VaultProvider] User signed out - Formatting memory...");
+    if (
+      vaultUserId &&
+      currentUserId !== vaultUserId &&
+      (storedVaultKey || storedVaultOwnerToken)
+    ) {
+      console.log("🔒 [VaultProvider] Auth identity changed - clearing vault memory...");
       lockVault();
     }
-  }, [user, vaultKey, lockVault]);
+  }, [
+    currentUserId,
+    lockVault,
+    storedVaultKey,
+    storedVaultOwnerToken,
+    vaultUserId,
+  ]);
 
-  // App-resume expiry guard (iOS/Android + web). Proactively lock when the
-  // memory-only VAULT_OWNER token has reached its known expiry. Other backend
-  // validation failures are handled by ApiService's shared web/native response
-  // path, which requests the same fail-closed re-unlock flow.
+  // InteractionRuntime owns native/browser lifecycle collection. VaultProvider
+  // remains the security authority and only reacts to its active transition.
+  // This avoids competing Capacitor listeners while preserving the memory-only
+  // expiry rule on iOS, Android, and web.
   useEffect(() => {
-    let removeListener: (() => void) | null = null;
-    let cancelled = false;
-
     const relockIfTokenExpired = () => {
       const expiresAt = tokenExpiresAtRef.current;
       // Only act when a token exists AND is actually past expiry. A missing
@@ -180,34 +223,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
       }
     };
 
-    if (Capacitor.isNativePlatform()) {
-      void import("@capacitor/app")
-        .then(({ App }) => App.addListener("appStateChange", ({ isActive }) => {
-          if (isActive) relockIfTokenExpired();
-        }))
-        .then((handle) => {
-          if (cancelled) {
-            void handle.remove();
-            return;
-          }
-          removeListener = () => void handle.remove();
-        })
-        .catch((error) => {
-          console.warn("[VaultProvider] Failed to register app-resume expiry guard:", error);
-        });
-    } else if (typeof document !== "undefined") {
-      const onVisible = () => {
-        if (document.visibilityState === "visible") relockIfTokenExpired();
-      };
-      document.addEventListener("visibilitychange", onVisible);
-      removeListener = () =>
-        document.removeEventListener("visibilitychange", onVisible);
-    }
-
-    return () => {
-      cancelled = true;
-      if (removeListener) removeListener();
-    };
+    relockIfTokenExpired();
+    return appInteractionCoordinator.subscribeLifecycle(() => {
+      if (appInteractionCoordinator.getLifecycleSnapshot().state === "active") {
+        relockIfTokenExpired();
+      }
+    });
   }, [lockVault]);
 
   // Listen for vault-lock-requested events (e.g., when VAULT_OWNER token is revoked)
@@ -282,24 +303,49 @@ export function VaultProvider({ children }: VaultProviderProps) {
       return;
     }
 
-    void import("@/lib/kai/kai-financial-resource")
-      .then(({ KaiFinancialResourceService }) =>
-        KaiFinancialResourceService.hydrateFromSecureCache({
-          userId: user.uid,
-          vaultKey,
-        })
-      )
-      .catch(() => null);
+    const hydrateFinancialCaches = () => {
+      void import("@/lib/kai/kai-financial-resource")
+        .then(({ KaiFinancialResourceService }) =>
+          KaiFinancialResourceService.hydrateFromSecureCache({
+            userId: user.uid,
+            vaultKey,
+          })
+        )
+        .catch(() => null);
 
-    void import("@/lib/pkm/pkm-domain-resource")
-      .then(({ PkmDomainResourceService }) =>
-        PkmDomainResourceService.hydrateFromSecureCache({
-          userId: user.uid,
-          domain: "financial",
-          vaultKey,
-        })
-      )
-      .catch(() => null);
+      void import("@/lib/pkm/pkm-domain-resource")
+        .then(({ PkmDomainResourceService }) =>
+          PkmDomainResourceService.hydrateFromSecureCache({
+            userId: user.uid,
+            domain: "financial",
+            vaultKey,
+          })
+        )
+        .catch(() => null);
+    };
+
+    const routePath =
+      typeof window === "undefined" ? "" : window.location.pathname;
+    if (!isGmailRoute(routePath)) {
+      hydrateFinancialCaches();
+      return;
+    }
+
+    // Gmail needs its connection status immediately after unlock. Financial
+    // cache hydration is unrelated to that decision, so leave it until the
+    // browser has yielded rather than competing for the first backend slots.
+    if ("requestIdleCallback" in window) {
+      const requestIdle = window.requestIdleCallback as (
+        callback: IdleRequestCallback,
+        options?: IdleRequestOptions,
+      ) => number;
+      const cancelIdle = window.cancelIdleCallback as (handle: number) => void;
+      const idleHandle = requestIdle(hydrateFinancialCaches, { timeout: 4_000 });
+      return () => cancelIdle(idleHandle);
+    }
+
+    const timeoutId = globalThis.setTimeout(hydrateFinancialCaches, 1_000);
+    return () => globalThis.clearTimeout(timeoutId);
   }, [user?.uid, vaultKey]);
 
   useEffect(() => {
@@ -366,6 +412,26 @@ export function VaultProvider({ children }: VaultProviderProps) {
   const prefetchDashboardData = useCallback(
     async (userId: string, token: string, key: string, routePath?: string) => {
       try {
+        // Agent history must not wait on Firebase token resolution. The Agent
+        // workspace joins this protected, memory-only single-flight cache, so
+        // starting it here lets the post-unlock work continue while optional
+        // Firebase-authenticated consent warming resolves below.
+        void warmAgentChatHistoryCache({
+          userId,
+          vaultOwnerToken: token,
+        }).catch((error) => {
+          console.warn("[VaultContext] Agent chat history warm-up failed:", error);
+        });
+        if (isLocalCrmBuildEnabled()) {
+          void import("@/lib/services/connected-systems-resource-service")
+            .then(({ ConnectedSystemsResourceService }) =>
+              ConnectedSystemsResourceService.warmBindingStatuses({
+                userId,
+                vaultOwnerToken: token,
+              })
+            )
+            .catch(() => undefined);
+        }
         // The consent center warm step needs a Firebase ID token (its proxy is
         // Firebase-authenticated). Fetch it best-effort; the orchestrator
         // skips consent-center warming gracefully if it is unavailable.
@@ -388,13 +454,22 @@ export function VaultProvider({ children }: VaultProviderProps) {
 
   const unlockVault = useCallback(
     (key: string, token: string, expiresAt: number) => {
-      markSessionUnlocked();
+      const unlockingUserId = user?.uid?.trim() ?? "";
+      if (!unlockingUserId) {
+        setVaultKey(null);
+        setVaultOwnerToken(null);
+        setTokenExpiresAt(null);
+        setVaultUserId(null);
+        console.warn("[VaultProvider] Refused vault unlock without an authenticated user.");
+        return;
+      }
       console.log(
         "🔓 Vault unlocked (key + token in memory only - XSS protected)"
       );
       setVaultKey(key);
       setVaultOwnerToken(token);
       setTokenExpiresAt(expiresAt);
+      setVaultUserId(unlockingUserId);
 
       if (user?.uid && Capacitor.getPlatform() === "ios") {
         void (async () => {
@@ -437,11 +512,27 @@ export function VaultProvider({ children }: VaultProviderProps) {
         });
       }
 
-      if (user?.uid) {
+      if (user?.uid && !routePath.startsWith("/one/setup")) {
         const warmRoutePath = routePath || undefined;
         const scheduleWarm = () => {
           void prefetchDashboardData(user.uid, token, key, warmRoutePath);
         };
+
+        if (isGmailRoute(routePath)) {
+          // Gmail's protected route resource fetches connection status as soon
+          // as the owner token reaches React state. Keep the dashboard/PKM/RIA/
+          // location warmups off that critical path.
+          if ("requestIdleCallback" in window) {
+            const requestIdle = window.requestIdleCallback as (
+              callback: IdleRequestCallback,
+              options?: IdleRequestOptions,
+            ) => number;
+            requestIdle(scheduleWarm, { timeout: 4_000 });
+          } else {
+            globalThis.setTimeout(scheduleWarm, 1_000);
+          }
+          return;
+        }
 
         // Warm the current route's caches immediately after unlock so the first
         // paint of the revealed page (e.g. /one, /consents) hits a warm cache

@@ -4,8 +4,8 @@ This directory contains configuration files and data lists used across the proje
 
 ## Contents
 
-- `available_models.txt` - List of available Gemini 3 models
 - `ci-governance.json` - Canonical branch, merge queue, protected pipeline, and deploy-environment governance policy
+- `runtime-topology-maintenance.json` - Authored semantic-route, compatibility, retirement, and maintenance-profile metadata for the generated runtime topology index
 
 ## Usage
 
@@ -14,8 +14,9 @@ These files are typically referenced by:
 - Documentation
 - CI/CD workflows
 
-Model policy:
-- `available_models.txt` is intentionally Gemini 3 only.
+Runtime model policy is enforced by
+`consent-protocol/hushh_mcp/runtime_providers/registry.py` and the authored
+product-agent manifests. Do not add a parallel text-file allowlist.
 
 ## Adding New Config Files
 

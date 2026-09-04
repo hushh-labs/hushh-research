@@ -10,7 +10,9 @@
       "entryCue": "Say ‘Claim your One’ whenever you are ready.",
       "proactivity": "on_entry",
       "primaryActionId": "onboarding.claim_one",
-      "happyPathActionIds": ["onboarding.claim_one"],
+      "happyPathActionIds": [
+        "onboarding.claim_one"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -46,7 +48,9 @@
       "entryCue": "You can say “Open Agents” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_agents",
-      "happyPathActionIds": ["route.one_agents"],
+      "happyPathActionIds": [
+        "route.one_agents"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -80,9 +84,11 @@
       "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_gmail",
+      "primaryActionId": "setup.open_connections",
       "happyPathActionIds": [
+        "setup.open_connections",
         "setup.open_gmail",
+        "setup.open_calendar",
         "setup.open_location",
         "setup.open_email",
         "setup.open_finance",
@@ -106,16 +112,90 @@
     }
   },
   {
-    "route": "/developers",
+    "route": "/welcome",
     "mode": "standard",
-    "shellVerification": {
-      "file": "components/developers/developer-docs-hub.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion"
-      ]
-    },
+    "exemptionReason": "Foundation public route owns the unified public knowledge workspace and its route-backed tabs.",
+    "voicePlaybook": {
+      "playbookId": "route.welcome",
+      "purpose": "Help the person navigate the public research, notes, and developer workspace.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/r/[slug]",
+    "mode": "redirect",
+    "exemptionReason": "Public referral landing route. It records the attribution on the server before anyone signs in, keeps the opaque id it is given, and hands off to the normal sign-in journey; it owns no signed-in app shell of its own and never reveals who the referrer is.",
+    "voicePlaybook": {
+      "playbookId": "route.r.slug",
+      "purpose": "Explain that the referral link is being opened and the person is being taken into sign-in.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/circle/join",
+    "mode": "redirect",
+    "exemptionReason": "Public Circle join landing route reads the invite code from the query string and redirects into the in-app Join-with-code flow; it owns no signed-in app shell of its own.",
+    "voicePlaybook": {
+      "playbookId": "route.circle.join",
+      "purpose": "Help the person understand and use the circle join screen through its generated controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/developers",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=developers public workspace.",
     "voicePlaybook": {
       "playbookId": "route.developers",
       "purpose": "Help the person understand and use the developers screen through its generated controls.",
@@ -144,7 +224,11 @@
     "mode": "standard",
     "shellVerification": {
       "file": "components/agent/agent-screen.tsx",
-      "includes": ["AppPageShell", "AppPageContentRegion", "AgentChatWorkspace"]
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion",
+        "AgentChatWorkspace"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.agent",
@@ -173,7 +257,9 @@
     "route": "/login",
     "mode": "hidden",
     "interactionLayerPolicy": {
-      "allowedFamilies": ["legal_document"]
+      "allowedFamilies": [
+        "legal_document"
+      ]
     },
     "exemptionReason": "Auth-only route intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
@@ -183,7 +269,9 @@
       "entryCue": "Say ‘Continue with Google’ or ‘Continue with Apple’.",
       "proactivity": "on_entry",
       "primaryActionId": "auth.sign_in_google",
-      "happyPathActionIds": ["auth.sign_in_google"],
+      "happyPathActionIds": [
+        "auth.sign_in_google"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -194,6 +282,33 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Authentication completes only after the provider popup returns a verified Firebase user session.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/oauth/authorize",
+    "mode": "hidden",
+    "exemptionReason": "OAuth authorization is a short-lived connector handoff and intentionally bypasses signed-in app chrome.",
+    "voicePlaybook": {
+      "playbookId": "route.oauth.authorize",
+      "purpose": "Help the person approve or cancel a verified MCP connector authorization request.",
+      "screen": "app",
+      "entryCue": "Review the connector request, then authorize it or cancel.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Authorization completes only after the verified registered redirect receives the backend-issued OAuth code.",
       "nextRoute": null,
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
@@ -242,10 +357,12 @@
       "playbookId": "route.one.kyc",
       "purpose": "Help the person understand and use the kyc screen through its generated controls.",
       "screen": "one_kyc",
-      "entryCue": "You can say “Open Email” to use the primary control on this screen.",
+      "entryCue": "You can say “Open KYC” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_kyc",
-      "happyPathActionIds": ["route.one_kyc"],
+      "happyPathActionIds": [
+        "route.one_kyc"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -265,7 +382,9 @@
     "route": "/one/location",
     "mode": "standard",
     "interactionLayerPolicy": {
-      "allowedFamilies": ["vault_setup"]
+      "allowedFamilies": [
+        "vault_setup"
+      ]
     },
     "shellVerification": {
       "file": "app/one/location/page.tsx",
@@ -283,7 +402,9 @@
       "entryCue": "You can say “Open Location” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_location",
-      "happyPathActionIds": ["route.one_location"],
+      "happyPathActionIds": [
+        "route.one_location"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -300,12 +421,156 @@
     }
   },
   {
+    "route": "/one/location/map",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.location.map",
+      "purpose": "Show fresh, authorized private location shares on an immersive map. Center the camera from one foreground-only device fix on entry; publish that location only after the person explicitly taps Locate me.",
+      "screen": "one_location_map",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that a shared location is unavailable.",
+        "cancelled": "Return to the Location hub.",
+        "failed": "Keep the map state safe and offer a retry.",
+        "timeout": "Keep the current map visible and offer a retry.",
+        "callbackError": "Return to the Location hub.",
+        "routeMismatch": "Use the verified current route."
+      },
+      "completionBoundary": "Entry may capture one foreground-only device fix for camera focus. No location is published to private recipients until the person taps Locate me.",
+      "nextRoute": "/one/location",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally without inventing a map control."
+    }
+  },
+  {
+    "route": "/one/location/check-in",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.location.check-in",
+      "purpose": "Let the person pick a real place within 500 m and become briefly discoverable to opted-in people there. Distinct from the map, which shows only people who already share with this account.",
+      "screen": "one_location_check_in",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that nearby check-in is unavailable on this account.",
+        "cancelled": "Return to the Location hub.",
+        "failed": "Keep the chosen place selected and offer a retry.",
+        "timeout": "Keep the place list visible and offer a retry.",
+        "callbackError": "Return to the Location hub.",
+        "routeMismatch": "Use the verified current route."
+      },
+      "completionBoundary": "A foreground fix is captured to list nearby places and, at confirmation, to anchor the check-in. Nothing is published until the person confirms; nearby people receive a display name only.",
+      "nextRoute": "/one/location",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally without inventing a check-in control."
+    }
+  },
+  {
+    "route": "/one/location/check-in/hotel",
+    "mode": "hidden",
+    "persistentChrome": "none",
+    "interactionLayerPolicy": {
+      "allowedFamilies": []
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.location.check-in.hotel",
+      "purpose": "Fail closed unless a supported hotel stay is explicitly eligible for online check-in.",
+      "screen": "one_location_check_in",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Return to nearby check-in without exposing unsupported stay details.",
+        "cancelled": "Return to nearby check-in.",
+        "failed": "Keep hotel check-in unavailable unless eligibility is verified.",
+        "timeout": "Keep hotel check-in unavailable unless eligibility is verified.",
+        "callbackError": "Return to nearby check-in.",
+        "routeMismatch": "Use the verified current route."
+      },
+      "completionBoundary": "No hotel check-in completes until a real provider verifies an opaque eligible stay.",
+      "nextRoute": "/one/location/check-in",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally without inventing a hotel check-in control."
+    }
+  },
+  {
+    "route": "/c/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public Wallet Profile route is a standalone unauthenticated scan surface outside the signed-in app shell.",
+    "voicePlaybook": {
+      "playbookId": "route.wallet.card.public.token",
+      "purpose": "Help the person read the shared profile and use its generated contact controls.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/one/location/request/[token]",
     "mode": "hidden",
-    "exemptionReason": "Public one-location invite route is a standalone external-request form outside the signed-in app shell.",
+    "exemptionReason": "Legacy public one-location link path. Forwards to /one/location/view/[token]; kept only so links minted before the rename keep resolving.",
     "voicePlaybook": {
       "playbookId": "route.one.location.request.token",
-      "purpose": "Help the person understand and use the request screen through its generated controls.",
+      "purpose": "Forwarding route only: say nothing and let the redirect complete.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/location/view/[token]",
+    "mode": "hidden",
+    "exemptionReason": "Public one-location live-location view is a standalone recipient page outside the signed-in app shell.",
+    "voicePlaybook": {
+      "playbookId": "route.one.location.view.token",
+      "purpose": "Help the person read the shared live location through its generated controls.",
       "screen": "app",
       "entryCue": "",
       "proactivity": "ambient",
@@ -395,12 +660,12 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.gmail",
-      "purpose": "Help the person understand and use the gmail screen through its generated controls.",
+      "purpose": "Connect Gmail for receipt sync and use purchase-memory review through its dedicated agent workspace.",
       "screen": "gmail",
-      "entryCue": "You can say “Open Receipts Page” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.profile_receipts",
-      "happyPathActionIds": ["route.profile_receipts"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -411,7 +676,79 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/gmail",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/email",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/email/email-agent-page-client.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.email",
+      "purpose": "Explain Gmail connection and hand the owner to One for approval-gated email drafting.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/calendar",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/calendar/calendar-agent-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceCard"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.calendar",
+      "purpose": "Connect Google Calendar and use the Calendar Agent for schedule summaries, availability, and confirmed meeting changes.",
+      "screen": "calendar",
+      "entryCue": "Connect Calendar when you want schedule help from One.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Calendar changes happen only after the person confirms the exact proposal in chat.",
+      "nextRoute": null,
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -463,7 +800,9 @@
       "entryCue": "You can say “Open Memory” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.one_pkm",
-      "happyPathActionIds": ["route.one_pkm"],
+      "happyPathActionIds": [
+        "route.one_pkm"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -475,6 +814,44 @@
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": "/one/pkm",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/pkm/recent",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.pkm.recent",
+      "purpose": "Help the person browse the latest memories One has kept, through its generated controls.",
+      "screen": "pkm_recent",
+      "entryCue": "You can say “Open Memory” to return to the Memory home from this list.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.one_pkm",
+      "happyPathActionIds": [
+        "route.one_pkm"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/pkm/recent",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -493,13 +870,13 @@
       ]
     },
     "voicePlaybook": {
-      "playbookId": "route.one.marketplace",
-      "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
+      "playbookId": "route.one.marketplace.standalone",
+      "purpose": "Standalone consent-first Marketplace route. One has no actions on this surface.",
       "screen": "one_marketplace",
-      "entryCue": "You can say “Open Information Marketplace” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.one_marketplace",
-      "happyPathActionIds": ["route.one_marketplace"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -510,9 +887,120 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/marketplace",
+      "nextRoute": null,
       "returnPolicy": "stay",
-      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
+    "route": "/one/wallet-card",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.wallet.card",
+      "purpose": "Help the owner review, update, pause, rotate or remove what their Wallet profile shares.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
+    "route": "/one/wallet",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/profile/pkm-settings-shell.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one_wallet",
+      "purpose": "Help the owner store, list, reveal, or remove vault-encrypted wallet cards without card secrets entering chat.",
+      "screen": "one_wallet",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [
+        "wallet.list",
+        "wallet.add",
+        "wallet.reveal"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
+    }
+  },
+  {
+    "route": "/one/puppy",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/puppy/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.puppy",
+      "purpose": "Let the owner talk to Puppy One, the agent running on their own machine, and see which local model answered.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally without inventing a control."
     }
   },
   {
@@ -527,7 +1015,9 @@
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
-      "requiredInputs": ["utterance"],
+      "requiredInputs": [
+        "utterance"
+      ],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -589,7 +1079,9 @@
       "entryCue": "You can say “Open Connected Systems Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_connected_systems",
-      "happyPathActionIds": ["route.profile_connected_systems"],
+      "happyPathActionIds": [
+        "route.profile_connected_systems"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -642,7 +1134,7 @@
     }
   },
   {
-    "route": "/connect",
+    "route": "/one/connect",
     "mode": "standard",
     "shellVerification": {
       "file": "app/connect/page-client.tsx",
@@ -656,8 +1148,8 @@
     },
     "voicePlaybook": {
       "playbookId": "route.connect",
-      "purpose": "Help the person understand and use the connect screen through its generated controls.",
-      "screen": "app",
+      "purpose": "Find people, send connection requests, and manage who you are connected to.",
+      "screen": "connect",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -678,10 +1170,39 @@
     }
   },
   {
+    "route": "/one/connect/settings",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects legacy Gemini settings links to the canonical Profile preference.",
+    "voicePlaybook": {
+      "playbookId": "route.connect.settings",
+      "purpose": "Redirect a legacy Gemini settings link to the canonical Profile preference.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after navigation settles on the canonical Profile preference.",
+      "nextRoute": "/one/profile/preferences/gemini",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/register-phone",
     "mode": "hidden",
     "interactionLayerPolicy": {
-      "allowedFamilies": ["country_picker"]
+      "allowedFamilies": [
+        "country_picker"
+      ]
     },
     "exemptionReason": "Mandatory post-login phone verification flow intentionally bypasses the signed-in app shell.",
     "voicePlaybook": {
@@ -691,8 +1212,12 @@
       "entryCue": "Say your phone number including country code, or type it below.",
       "proactivity": "on_entry",
       "primaryActionId": "phone_mandate.submit_number",
-      "happyPathActionIds": ["phone_mandate.submit_number"],
-      "requiredInputs": ["phone_number"],
+      "happyPathActionIds": [
+        "phone_mandate.submit_number"
+      ],
+      "requiredInputs": [
+        "phone_number"
+      ],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -735,10 +1260,11 @@
     }
   },
   {
-    "route": "/consents",
+    "route": "/one/consent",
     "mode": "standard",
+    "pageTopLocalOffset": "16px",
     "shellVerification": {
-      "file": "components/consent/consent-center-page.tsx",
+      "file": "app/one/consent/page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageHeaderRegion",
@@ -753,7 +1279,9 @@
       "entryCue": "You can say “Open RIA Requests” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_requests_compat",
-      "happyPathActionIds": ["route.ria_requests_compat"],
+      "happyPathActionIds": [
+        "route.ria_requests_compat"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -764,15 +1292,81 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria/requests",
+      "nextRoute": "/one/consent",
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/feed",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/feed/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.feed",
+      "purpose": "Help the person browse recent cross-domain activity (consent, location, finance, KYC, connected systems, connections) through its generated controls.",
+      "screen": "one_feed",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/consents",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only preserves inbound access-manager links while redirecting to the canonical /one/consent workspace.",
+    "voicePlaybook": {
+      "playbookId": "route.consents.legacy",
+      "purpose": "Redirect a legacy access-manager link to the canonical One consent workspace.",
+      "screen": "consents",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the browser settles navigation to the canonical One consent workspace.",
+      "nextRoute": "/one/consent",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/kai",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai market surface.",
+    "exemptionReason": "Compatibility route only redirects to the canonical One-owned Finance Market tab.",
+    "shellVerification": {
+      "file": "app/kai/page.tsx",
+      "includes": [
+        "ClientRedirect"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
@@ -791,7 +1385,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "nextRoute": "/one/kai?tab=market",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -800,22 +1394,84 @@
     "route": "/one/kai",
     "mode": "standard",
     "shellVerification": {
-      "file": "components/kai/views/kai-market-preview-view.tsx",
+      "file": "components/kai/kai-market-hub-page.tsx",
       "includes": [
         "AppPageShell",
         "AppPageContentRegion",
-        "SurfaceStack",
-        "SectionHeader"
+        "SwipeViews"
       ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai",
       "purpose": "Help the person understand and use the kai screen through its generated controls.",
       "screen": "kai_market",
-      "entryCue": "You can say “Open Market Home” to use the primary control on this screen.",
+      "entryCue": "Use Market, Portfolio, or Analysis to choose the active finance view.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_home",
-      "happyPathActionIds": ["route.kai_home"],
+      "happyPathActionIds": [
+        "route.kai_home"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the selected Finance view settles in the browser.",
+      "nextRoute": "/one/kai?tab=market",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/news",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-market-news-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion",
+        "KaiWorkspaceHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.news",
+      "purpose": "Help the person read current market headlines through the visible Market News workspace.",
+      "screen": "kai_market_news",
+      "entryCue": "Your latest market headlines are ready to read.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Headlines are read only from the current Market News page; external articles open through their visible links.",
+      "nextRoute": "/one/kai?tab=market",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/market",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects to the canonical /one/kai Finance Market tab.",
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.market",
+      "purpose": "Help the person move between Market, Portfolio, and Analysis through the shared Finance workspace.",
+      "screen": "kai_market",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -826,8 +1482,8 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "stay",
+      "nextRoute": "/one/kai?tab=market",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -874,10 +1530,10 @@
       "playbookId": "route.one.kai.analysis",
       "purpose": "Help the person understand and use the analysis screen through its generated controls.",
       "screen": "kai_analysis",
-      "entryCue": "You can say “Open Analysis Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_analysis",
-      "happyPathActionIds": ["route.kai_analysis"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -888,7 +1544,7 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/analysis",
+      "nextRoute": "/one/kai?tab=analysis",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
@@ -926,7 +1582,9 @@
     "exemptionReason": "Compatibility redirect route only launches the canonical analysis entry.",
     "shellVerification": {
       "file": "app/kai/dashboard/analysis/page.tsx",
-      "includes": ["AppPageShell"]
+      "includes": [
+        "AppPageShell"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.kai.dashboard.analysis",
@@ -984,7 +1642,10 @@
     "exemptionReason": "Fullscreen import flow uses FullscreenFlowShell instead of standard AppPageShell.",
     "shellVerification": {
       "file": "app/one/kai/import/page.tsx",
-      "includes": ["FullscreenFlowShell", "KaiFlow"]
+      "includes": [
+        "FullscreenFlowShell",
+        "KaiFlow"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.import",
@@ -993,7 +1654,9 @@
       "entryCue": "You can say “Open Portfolio Import” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.kai_import",
-      "happyPathActionIds": ["route.kai_import"],
+      "happyPathActionIds": [
+        "route.kai_import"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1012,11 +1675,11 @@
   {
     "route": "/kai/investments",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/investments surface.",
+    "exemptionReason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.kai.investments",
-      "purpose": "Help the person understand and use the investments screen through its generated controls.",
-      "screen": "kai_investments",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1038,24 +1701,16 @@
   },
   {
     "route": "/one/kai/investments",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/kai/views/investments-master-view.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Retired Investments endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.investments",
-      "purpose": "Help the person understand and use the investments screen through its generated controls.",
-      "screen": "kai_investments",
-      "entryCue": "You can say “Open Investments Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_investments",
-      "happyPathActionIds": ["route.kai_investments"],
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1066,19 +1721,19 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/investments",
-      "returnPolicy": "stay",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/kai/funding-trade",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/funding-trade surface.",
+    "exemptionReason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.kai.funding.trade",
-      "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-      "screen": "kai_funding_trade",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1100,20 +1755,12 @@
   },
   {
     "route": "/one/kai/funding-trade",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "components/kai/views/funding-trade-view.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "Retired Fund + Trade endpoint redirects to the canonical /one/kai?tab=portfolio workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.funding.trade",
-      "purpose": "Help the person understand and use the funding trade screen through its generated controls.",
-      "screen": "kai_funding_trade",
+      "purpose": "Compatibility redirect to the canonical Portfolio workspace.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1129,7 +1776,7 @@
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
       "nextRoute": null,
-      "returnPolicy": "stay",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1167,7 +1814,7 @@
     "voicePlaybook": {
       "playbookId": "route.one.kai.onboarding",
       "purpose": "Help the person understand and use the onboarding screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_market",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1199,7 +1846,9 @@
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
-      "requiredInputs": ["investment_horizon"],
+      "requiredInputs": [
+        "investment_horizon"
+      ],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -1228,24 +1877,68 @@
     },
     "voicePlaybook": {
       "playbookId": "route.one.setup.gmail",
-      "purpose": "Connect Gmail, review the receipt signal it creates, then finish this capability and return to setup.",
+      "purpose": "Connect Gmail for receipt sync, then explicitly finish or skip Gmail setup.",
       "screen": "one_setup_gmail",
-      "entryCue": "Connect Gmail to review receipt emails and the brands they help One understand.",
+      "entryCue": "Connect Gmail when you are ready, or say skip Gmail setup.",
       "proactivity": "on_entry",
       "primaryActionId": "setup.connect_gmail",
-      "happyPathActionIds": ["setup.connect_gmail", "setup.finish_gmail", "setup.skip_gmail"],
+      "happyPathActionIds": [
+        "setup.connect_gmail",
+        "setup.finish_gmail",
+        "setup.skip_gmail"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
-        "cancelled": "Keep Gmail setup available and return to the current setup screen.",
-        "failed": "Explain that Gmail setup is still incomplete and offer a safe retry.",
-        "timeout": "Keep the Gmail goal active and offer one safe retry.",
-        "callbackError": "Return to Gmail setup and show the connector recovery state without claiming success.",
+        "cancelled": "Keep Gmail setup open and preserve the active goal.",
+        "failed": "Explain that Gmail still needs a verified connection before it can finish.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Gmail setup completes only after the connector reports a verified connection and the setup hub route settles.",
+      "completionBoundary": "Gmail setup finishes only after a verified connection and the setup hub route settles.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/calendar",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/calendar/calendar-agent-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SetupCompletionFooter"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.calendar",
+      "purpose": "Connect Google Calendar, then explicitly finish or skip Calendar setup.",
+      "screen": "one_setup_calendar",
+      "entryCue": "Connect Calendar when you are ready, or say skip Calendar setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.connect_calendar",
+      "happyPathActionIds": [
+        "setup.connect_calendar",
+        "setup.finish_calendar",
+        "setup.skip_calendar"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Calendar setup open and preserve the active goal.",
+        "failed": "Explain that Calendar still needs a verified connection before it can finish.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Calendar setup finishes only after a verified connection and the setup hub route settles.",
       "nextRoute": "/one/setup",
-      "returnPolicy": "return_to_hub",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1253,63 +1946,265 @@
     "route": "/one/setup/location",
     "mode": "standard",
     "interactionLayerPolicy": {
-      "allowedFamilies": ["vault_setup"]
+      "allowedFamilies": [
+        "vault_setup"
+      ]
     },
-    "shellVerification": { "file": "app/one/setup/location/page.tsx", "includes": ["OneLocationAgentPage", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": {
+      "file": "app/one/setup/location/location-onboarding-setup-client.tsx",
+      "includes": [
+        "OneLocationAgentPage",
+        "mode=\"setup\""
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.location", "purpose": "Request device location permission, then explicitly finish or skip Location setup.", "screen": "one_setup_location", "entryCue": "Allow Location when you are ready, or say skip Location setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_location", "happyPathActionIds": ["setup.skip_location", "setup.finish_location"], "requiredInputs": [],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Location setup open and preserve the active goal.", "failed": "Explain that permission is still needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "Location setup finishes only after device permission is granted and the hub route settles.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.location",
+      "purpose": "Request device location permission, then explicitly finish or skip Location setup.",
+      "screen": "one_setup_location",
+      "entryCue": "Allow Location when you are ready, or say skip Location setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.skip_location",
+      "happyPathActionIds": [
+        "setup.skip_location",
+        "setup.finish_location"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Location setup open and preserve the active goal.",
+        "failed": "Explain that permission is still needed before finishing.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified current route and its generated actions only.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Location setup finishes only after device permission is granted and the hub route settles.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/setup/email",
     "mode": "standard",
-    "shellVerification": { "file": "app/one/setup/email/page.tsx", "includes": ["OneKycPage", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": {
+      "file": "app/one/setup/email/email-onboarding-setup-client.tsx",
+      "includes": [
+        "PageHeader",
+        "SettingsGroup",
+        "SetupCapabilityTerminalFooter"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.email", "purpose": "Set up the verified email identity and connector One uses to draft with you.", "screen": "one_setup_email", "entryCue": "Set up your verified email identity, or say skip KYC setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_email", "happyPathActionIds": ["setup.skip_email", "setup.finish_email"], "requiredInputs": [],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep KYC setup open and preserve the active goal.", "failed": "Explain what remains to set up without claiming completion.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Use the verified current route and its generated actions only.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "KYC setup finishes only after a verified email identity and client connector are ready.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.email",
+      "purpose": "Choose whether One automatically prepares KYC responses for review.",
+      "screen": "one_setup_email",
+      "entryCue": "Choose automatic response preparation, or say skip KYC setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.skip_email",
+      "happyPathActionIds": [
+        "setup.skip_email",
+        "setup.finish_email"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep KYC setup open and preserve the active goal.",
+        "failed": "Explain what remains to set up without claiming completion.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Use the verified current route and its generated actions only.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "KYC setup finishes after the automatic response-preparation preference has loaded and the hub route settles.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/setup/finance",
     "mode": "flow",
     "exemptionReason": "Finance preferences use the existing full-height wizard inside the setup route.",
+    "shellVerification": {
+      "file": "app/one/setup/kai/page.tsx",
+      "includes": [
+        "--top-content-pad"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.finance", "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.", "screen": "one_setup_finance", "entryCue": "Answer the visible Finance question to continue.", "proactivity": "on_entry", "primaryActionId": "kai.setup.answer_horizon", "happyPathActionIds": ["kai.setup.answer_horizon", "kai.setup.answer_drawdown", "kai.setup.answer_volatility", "kai.setup.launch_dashboard", "setup.skip_finance"], "requiredInputs": ["investment_horizon"],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Finance setup open and preserve the active goal.", "failed": "Explain that Finance setup is still incomplete and offer a safe retry.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to Finance setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.", "nextRoute": "/one/setup/finance/import", "returnPolicy": "navigate", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.finance",
+      "purpose": "Collect Finance preferences before choosing Plaid, a statement, or a later source choice.",
+      "screen": "one_setup_finance",
+      "entryCue": "Answer the visible Finance question to continue.",
+      "proactivity": "on_entry",
+      "primaryActionId": "kai.setup.answer_horizon",
+      "happyPathActionIds": [
+        "kai.setup.answer_horizon",
+        "kai.setup.answer_drawdown",
+        "kai.setup.answer_volatility",
+        "kai.setup.launch_dashboard",
+        "setup.skip_finance"
+      ],
+      "requiredInputs": [
+        "investment_horizon"
+      ],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Finance setup open and preserve the active goal.",
+        "failed": "Explain that Finance setup is still incomplete and offer a safe retry.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Finance setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Preferences advance to the Finance source choice; only the import route can make Finance ready.",
+      "nextRoute": "/one/setup/finance/import",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/setup/finance/import",
     "mode": "flow",
     "exemptionReason": "Finance source selection uses the existing import flow inside the setup route.",
+    "shellVerification": {
+      "file": "app/one/setup/finance/import/finance-import-onboarding-setup-client.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.finance.import", "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.", "screen": "one_setup_finance_import", "entryCue": "Choose how you want to add a portfolio, or set it up later.", "proactivity": "on_entry", "primaryActionId": "setup.skip_finance", "happyPathActionIds": ["setup.finish_finance", "setup.skip_finance"], "requiredInputs": [],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep Finance setup open and preserve the active goal.", "failed": "Explain that a source still needs to settle before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to Finance setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "Finance finishes only after a verified Plaid connection, statement save, or explicit later choice and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.finance.import",
+      "purpose": "Choose Plaid, a statement, or a later source choice for Finance setup.",
+      "screen": "one_setup_finance_import",
+      "entryCue": "Choose how you want to add a portfolio, or set it up later.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.skip_finance",
+      "happyPathActionIds": [
+        "setup.finish_finance",
+        "setup.skip_finance"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep Finance setup open and preserve the active goal.",
+        "failed": "Explain that a source still needs to settle before finishing.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Finance setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Finance finishes only after a verified Plaid connection, statement save, or explicit later choice and hub settlement.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/setup/ria",
     "mode": "flow",
     "exemptionReason": "RIA onboarding retains its existing full-screen verification flow inside the setup route.",
+    "shellVerification": {
+      "file": "app/ria/onboarding/page.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.ria", "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.", "screen": "one_setup_ria", "entryCue": "Complete your RIA profile when ready, or say skip RIA setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_ria", "happyPathActionIds": ["setup.skip_ria", "setup.finish_ria"], "requiredInputs": [],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep RIA setup open and preserve the active goal.", "failed": "Explain that the profile has not been accepted yet.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to RIA setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "RIA setup finishes only after a non-rejected profile submission and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.ria",
+      "purpose": "Submit an RIA profile, then explicitly finish or skip its setup.",
+      "screen": "one_setup_ria",
+      "entryCue": "Complete your RIA profile when ready, or say skip RIA setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.skip_ria",
+      "happyPathActionIds": [
+        "setup.skip_ria",
+        "setup.finish_ria"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep RIA setup open and preserve the active goal.",
+        "failed": "Explain that the profile has not been accepted yet.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to RIA setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "RIA setup finishes only after a non-rejected profile submission and hub settlement.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/setup/connected-systems",
     "mode": "standard",
-    "shellVerification": { "file": "app/one/setup/connected-systems/page.tsx", "includes": ["ConnectedSystemsPanel", "SetupCapabilityTerminalFooter"] },
+    "shellVerification": {
+      "file": "app/one/setup/connected-systems/connected-systems-onboarding-setup-client.tsx",
+      "includes": [
+        "ConnectedSystemsPanel",
+        "presentation=\"setup\"",
+        "SetupCapabilityTerminalFooter"
+      ]
+    },
     "voicePlaybook": {
-      "playbookId": "route.one.setup.connected.systems", "purpose": "Link an active CRM record before explicitly finishing or skipping setup.", "screen": "one_setup_connected_systems", "entryCue": "Choose a CRM to find or create your record, or say skip linking setup.", "proactivity": "on_entry", "primaryActionId": "setup.skip_connected_systems", "happyPathActionIds": ["setup.skip_connected_systems", "setup.finish_connected_systems"], "requiredInputs": [],
-      "recoveries": { "blocked": "Explain the current guard and retain the goal.", "cancelled": "Keep linked systems setup open and preserve the active goal.", "failed": "Explain that an active record binding is needed before finishing.", "timeout": "Retain the goal and offer a safe retry.", "callbackError": "Return to linked systems setup without claiming success.", "routeMismatch": "Use the verified current route and its generated actions only." },
-      "completionBoundary": "Linked systems setup finishes only after an active CRM record binding and hub settlement.", "nextRoute": "/one/setup", "returnPolicy": "return_to_hub", "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      "playbookId": "route.one.setup.connected.systems",
+      "purpose": "Connect an active CRM record before explicitly finishing or skipping setup.",
+      "screen": "one_setup_connected_systems",
+      "entryCue": "Choose a CRM to find or create your record, or say skip CRM setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.skip_connected_systems",
+      "happyPathActionIds": [
+        "setup.skip_connected_systems",
+        "setup.finish_connected_systems"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Keep linked systems setup open and preserve the active goal.",
+        "failed": "Explain that an active record binding is needed before finishing.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to linked systems setup without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "CRM setup finishes only after an active CRM record binding and hub settlement.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/connections",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/gemini-runtime-configuration-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.connections",
+      "purpose": "Choose private Gemini runtime configuration before feature-specific setup without exposing an API key to the agent.",
+      "screen": "one_setup_connections",
+      "entryCue": "Choose Hussh managed Gemini now, or record BYOK and add the encrypted key after setup.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.finish_connections",
+      "happyPathActionIds": [
+        "setup.finish_connections"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Setup records only a strict non-secret runtime preference; a BYOK key is validated and encrypted only after setup through the vault-backed configuration mutation.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
@@ -1342,11 +2237,11 @@
   {
     "route": "/kai/optimize",
     "mode": "redirect",
-    "exemptionReason": "Compatibility redirect route only launches the canonical /one/kai/optimize surface.",
+    "exemptionReason": "Compatibility redirect for the retired Optimize workspace returns to the canonical Portfolio tab.",
     "voicePlaybook": {
       "playbookId": "route.kai.optimize",
-      "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-      "screen": "kai_optimize",
+      "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+      "screen": "kai_portfolio_dashboard",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1360,33 +2255,24 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
     "route": "/one/kai/optimize",
-    "mode": "standard",
-    "shellVerification": {
-      "file": "app/one/kai/optimize/page.tsx",
-      "includes": [
-        "AppPageShell",
-        "AppPageHeaderRegion",
-        "AppPageContentRegion",
-        "SurfaceStack",
-        "PageHeader"
-      ]
-    },
+    "mode": "redirect",
+    "exemptionReason": "One-release compatibility redirect for the retired Optimize workspace.",
     "voicePlaybook": {
       "playbookId": "route.one.kai.optimize",
-      "purpose": "Help the person understand and use the optimize screen through its generated controls.",
-      "screen": "kai_optimize",
-      "entryCue": "You can say “Open Optimize Surface” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.kai_optimize",
-      "happyPathActionIds": ["route.kai_optimize"],
+      "purpose": "Compatibility redirect only; the retired Optimize workspace exposes no actions.",
+      "screen": "kai_portfolio_dashboard",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1396,9 +2282,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/one/kai/optimize",
-      "returnPolicy": "stay",
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1409,7 +2295,7 @@
     "voicePlaybook": {
       "playbookId": "route.kai.plaid.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_plaid_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1434,12 +2320,15 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/plaid/oauth/return/page.tsx",
-      "includes": ["AppPageShell", "AppPageContentRegion"]
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.plaid.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_plaid_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1466,7 +2355,7 @@
     "voicePlaybook": {
       "playbookId": "route.kai.alpaca.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_alpaca_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1491,12 +2380,15 @@
     "mode": "standard",
     "shellVerification": {
       "file": "app/one/kai/alpaca/oauth/return/page.tsx",
-      "includes": ["AppPageShell", "AppPageContentRegion"]
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.alpaca.oauth.return",
       "purpose": "Help the person understand and use the return screen through its generated controls.",
-      "screen": "kai",
+      "screen": "kai_alpaca_oauth_return",
       "entryCue": "",
       "proactivity": "ambient",
       "primaryActionId": null,
@@ -1545,10 +2437,14 @@
   },
   {
     "route": "/one/kai/portfolio",
-    "mode": "standard",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route only redirects to the canonical Finance Portfolio tab.",
     "shellVerification": {
       "file": "app/one/kai/portfolio/page.tsx",
-      "includes": ["AppPageShell", "AppPageContentRegion"]
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.one.kai.portfolio",
@@ -1568,8 +2464,140 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
+      "nextRoute": "/one/kai?tab=portfolio",
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/holdings",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "KaiFlow"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.holdings",
+      "purpose": "Review the positions in the active portfolio without exposing the Finance tab pager.",
+      "screen": "kai_portfolio_holdings",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route exposes read and source-authorized holding controls only.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/allocation",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "KaiFlow"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.allocation",
+      "purpose": "Review portfolio allocation using only real source-backed composition.",
+      "screen": "kai_portfolio_allocation",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route is read-only unless a visible source-authorized control is selected.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/performance",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "KaiFlow"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.performance",
+      "purpose": "Review source-backed portfolio value and performance evidence.",
+      "screen": "kai_portfolio_performance",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The route never fabricates a time series when source history is unavailable.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/kai/portfolio/sources",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/kai/kai-portfolio-detail-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "KaiFlow"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.kai.portfolio.sources",
+      "purpose": "Choose and manage the active portfolio source.",
+      "screen": "kai_portfolio_sources",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Source changes settle only after the existing portfolio source service confirms them.",
+      "nextRoute": "/one/kai?tab=portfolio",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -1589,10 +2617,10 @@
       "playbookId": "route.marketplace",
       "purpose": "Help the person understand and use the marketplace screen through its generated controls.",
       "screen": "marketplace",
-      "entryCue": "You can say “Continue Browsing Marketplace” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.marketplace_browse_from_ria_profile",
-      "happyPathActionIds": ["route.marketplace_browse_from_ria_profile"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1624,10 +2652,10 @@
       "playbookId": "route.marketplace.ria",
       "purpose": "Help the person understand and use the ria screen through its generated controls.",
       "screen": "marketplace_ria_profile",
-      "entryCue": "You can say “Open Marketplace RIA Profile” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "route.marketplace_ria_profile",
-      "happyPathActionIds": ["route.marketplace_ria_profile"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1655,7 +2683,9 @@
       "proactivity": "ambient",
       "primaryActionId": null,
       "happyPathActionIds": [],
-      "requiredInputs": ["utterance"],
+      "requiredInputs": [
+        "utterance"
+      ],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
         "cancelled": "Respect the cancellation and retain a safe next step.",
@@ -1725,7 +2755,7 @@
     }
   },
   {
-    "route": "/profile",
+    "route": "/one/profile",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1744,7 +2774,9 @@
       "entryCue": "You can say “Open Profile” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile",
-      "happyPathActionIds": ["route.profile"],
+      "happyPathActionIds": [
+        "route.profile"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1761,7 +2793,34 @@
     }
   },
   {
-    "route": "/profile/account",
+    "route": "/one/profile/regulatory",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility redirect to the canonical RIA profile.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.regulatory_compat",
+      "purpose": "Compatibility redirect only; advisor profile management lives at /ria/profile.",
+      "screen": "profile_regulatory",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The compatibility redirect has no completion authority.",
+      "nextRoute": "/ria/profile",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/account",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1797,7 +2856,7 @@
     }
   },
   {
-    "route": "/profile/account/phone",
+    "route": "/one/profile/account/phone",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1833,7 +2892,7 @@
     }
   },
   {
-    "route": "/profile/preferences",
+    "route": "/one/profile/preferences",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1869,7 +2928,7 @@
     }
   },
   {
-    "route": "/profile/preferences/kai",
+    "route": "/one/profile/preferences/kai",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1905,7 +2964,43 @@
     }
   },
   {
-    "route": "/profile/preferences/device",
+    "route": "/one/profile/preferences/gemini",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.gemini",
+      "purpose": "Help the person manage Gemini preferences without exposing a credential to the private agent.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Saving or removing a key is an explicit encrypted-vault mutation, never a voice action.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/preferences/device",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1941,7 +3036,115 @@
     }
   },
   {
-    "route": "/profile/security",
+    "route": "/one/profile/preferences/voice",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.voice",
+      "purpose": "Help the person manage One's own voice controls -- on/off, tap-confirmation, and which domains it may act in.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/preferences/voice/changelog",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.voice.changelog",
+      "purpose": "A read-only list of voice engine updates and fixes. Nothing to act on here.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/preferences/voice/examples",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.preferences.voice.examples",
+      "purpose": "A read-only list of example phrases for what voice can do. Nothing to act on here.",
+      "screen": "profile_preferences",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/security",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -1960,7 +3163,9 @@
       "entryCue": "You can say “Open Vault Security Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_security_panel",
-      "happyPathActionIds": ["route.profile_security_panel"],
+      "happyPathActionIds": [
+        "route.profile_security_panel"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -1971,13 +3176,13 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/profile/security",
+      "nextRoute": "/one/profile/security",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
-    "route": "/profile/security/vault",
+    "route": "/one/profile/security/vault",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2013,7 +3218,7 @@
     }
   },
   {
-    "route": "/profile/security/session",
+    "route": "/one/profile/security/session",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2049,7 +3254,69 @@
     }
   },
   {
-    "route": "/profile/my-data",
+    "route": "/one/profile/security/devices",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/one/profile/security/devices/page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.security.devices",
+      "purpose": "Help the person review and revoke computers connected to their private agent.",
+      "screen": "profile_security_devices",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Revocation completes only after the backend confirms the device is revoked and the list refreshes.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/security/devices/authorize",
+    "mode": "hidden",
+    "exemptionReason": "Trusted-device authorization is a short-lived browser-to-Hermes handoff and intentionally bypasses the signed-in app chrome.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.security.devices.authorize",
+      "purpose": "Help the person review and approve a verified Hermes device authorization request.",
+      "screen": "app",
+      "entryCue": "Review the device request, then approve it or leave without granting access.",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Authorization completes only after the verified loopback redirect receives the backend-issued one-time code.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/my-data",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2085,7 +3352,7 @@
     }
   },
   {
-    "route": "/profile/my-data/domain",
+    "route": "/one/profile/my-data/domain",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2121,7 +3388,7 @@
     }
   },
   {
-    "route": "/profile/access",
+    "route": "/one/profile/access",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2157,7 +3424,7 @@
     }
   },
   {
-    "route": "/profile/access/connection",
+    "route": "/one/profile/access/connection",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2193,7 +3460,7 @@
     }
   },
   {
-    "route": "/profile/connected-systems",
+    "route": "/one/profile/connected-systems",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2229,7 +3496,7 @@
     }
   },
   {
-    "route": "/profile/gmail",
+    "route": "/one/profile/gmail",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2256,7 +3523,7 @@
     }
   },
   {
-    "route": "/profile/gmail/connection",
+    "route": "/one/profile/gmail/connection",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2283,7 +3550,7 @@
     }
   },
   {
-    "route": "/profile/gmail/actions",
+    "route": "/one/profile/gmail/actions",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /one/gmail.",
     "voicePlaybook": {
@@ -2310,7 +3577,45 @@
     }
   },
   {
-    "route": "/profile/support",
+    "route": "/one/profile/referrals",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "app/profile/profile-workspace-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader",
+        "SurfaceStack"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.profile.support",
+      "purpose": "Help the person understand and use the support screen through its generated controls.",
+      "screen": "profile_referrals_panel",
+      "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.profile_referrals_panel",
+      "happyPathActionIds": [
+        "route.profile_referrals_panel"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/one/profile/referrals",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/support",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2329,7 +3634,9 @@
       "entryCue": "You can say “Open Support Panel” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.profile_support_panel",
-      "happyPathActionIds": ["route.profile_support_panel"],
+      "happyPathActionIds": [
+        "route.profile_support_panel"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2340,13 +3647,13 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/profile/support",
+      "nextRoute": "/one/profile/support",
       "returnPolicy": "stay",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
   {
-    "route": "/profile/support/routing",
+    "route": "/one/profile/support/routing",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2382,7 +3689,7 @@
     }
   },
   {
-    "route": "/profile/support/compose",
+    "route": "/one/profile/support/compose",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/profile-workspace-page.tsx",
@@ -2418,11 +3725,15 @@
     }
   },
   {
-    "route": "/profile/gmail/oauth/return",
+    "route": "/one/profile/gmail/oauth/return",
     "mode": "standard",
     "shellVerification": {
       "file": "app/profile/gmail/oauth/return/page-client.tsx",
-      "includes": ["AppPageShell", "AppPageContentRegion", "HushhLoader"]
+      "includes": [
+        "AppPageShell",
+        "AppPageContentRegion",
+        "HushhLoader"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.profile.gmail.oauth.return",
@@ -2448,7 +3759,88 @@
     }
   },
   {
-    "route": "/profile/receipts",
+    "route": "/profile/google/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "Legacy Google Calendar OAuth callback; the canonical callback remains under /one/profile/google/oauth/return.",
+    "voicePlaybook": {
+      "playbookId": "route.legacy.profile.google.oauth.return",
+      "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the server verifies state and stores the connection.",
+      "nextRoute": "/one/calendar",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/google/oauth/return",
+    "mode": "redirect",
+    "exemptionReason": "OAuth callback completes Calendar authorization and returns to the Calendar agent.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.google.oauth.return",
+      "purpose": "Finish the verified Google Calendar authorization callback without exposing credentials.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and explain that the connection was not completed.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "The callback completes only after the server verifies state and stores the connection.",
+      "nextRoute": "/one/calendar",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/integrations",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility-only redirect; Calendar is now a first-class One agent at /one/calendar.",
+    "voicePlaybook": {
+      "playbookId": "route.profile.integrations",
+      "purpose": "Redirect a legacy Connected apps bookmark to Calendar without retaining a profile integration surface.",
+      "screen": "calendar",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Return to Calendar and retain a safe retry.",
+        "timeout": "Retain the goal and offer a safe retry.",
+        "callbackError": "Return to Calendar without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the Calendar route settles.",
+      "nextRoute": "/one/calendar",
+      "returnPolicy": "navigate",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/profile/receipts",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /gmail.",
     "voicePlaybook": {
@@ -2475,7 +3867,7 @@
     }
   },
   {
-    "route": "/profile/pkm",
+    "route": "/one/profile/pkm",
     "mode": "redirect",
     "exemptionReason": "Compatibility redirect route forwards to canonical /pkm.",
     "voicePlaybook": {
@@ -2502,7 +3894,7 @@
     }
   },
   {
-    "route": "/profile/pkm-agent-lab",
+    "route": "/one/profile/pkm-agent-lab",
     "mode": "standard",
     "shellVerification": {
       "file": "components/profile/pkm-settings-shell.tsx",
@@ -2516,12 +3908,12 @@
     },
     "voicePlaybook": {
       "playbookId": "route.profile.pkm.agent.lab",
-      "purpose": "Help the person understand and use the pkm agent lab screen through its generated controls.",
+      "purpose": "Redirect non-local builds to the product Memory workspace; local developer tooling is intentionally not action-discoverable.",
       "screen": "profile_pkm_agent_lab",
-      "entryCue": "You can say “Generate PKM capture preview” to use the primary control on this screen.",
-      "proactivity": "on_entry",
-      "primaryActionId": "profile.pkm.preview_capture",
-      "happyPathActionIds": ["profile.pkm.preview_capture"],
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2531,9 +3923,9 @@
         "callbackError": "Return to the verified callback recovery path without claiming success.",
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
-      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": null,
-      "returnPolicy": "stay",
+      "completionBoundary": "Non-local builds complete only after redirect settlement to the product Memory route.",
+      "nextRoute": "/one/pkm",
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   },
@@ -2556,7 +3948,9 @@
       "entryCue": "You can say “Open RIA Home” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_home",
-      "happyPathActionIds": ["route.ria_home"],
+      "happyPathActionIds": [
+        "route.ria_home"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2591,7 +3985,9 @@
       "entryCue": "You can say “Open RIA Clients” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_clients",
-      "happyPathActionIds": ["route.ria_clients"],
+      "happyPathActionIds": [
+        "route.ria_clients"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2626,7 +4022,9 @@
       "entryCue": "You can say “Open RIA Client Workspace” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_client_workspace",
-      "happyPathActionIds": ["route.ria_client_workspace"],
+      "happyPathActionIds": [
+        "route.ria_client_workspace"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2661,7 +4059,9 @@
       "entryCue": "You can say “Return To Client Information Explorer” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_account.open_workspace_fallback",
-      "happyPathActionIds": ["ria.client_account.open_workspace_fallback"],
+      "happyPathActionIds": [
+        "ria.client_account.open_workspace_fallback"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2696,7 +4096,9 @@
       "entryCue": "You can say “Return To Client Access” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "ria.client_request.open_access_fallback",
-      "happyPathActionIds": ["ria.client_request.open_access_fallback"],
+      "happyPathActionIds": [
+        "ria.client_request.open_access_fallback"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2713,12 +4115,50 @@
     }
   },
   {
+    "route": "/ria/claim",
+    "mode": "flow",
+    "exemptionReason": "Claim-by-phone is a fullscreen setup flow (phone, match, passcode, pick, done) that owns its own compact content rhythm.",
+    "shellVerification": {
+      "file": "app/ria/claim/page.tsx",
+      "includes": [
+        "FullscreenFlowShell"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.ria.claim",
+      "purpose": "Help the person claim their SEC advisor or firm profile with their office number.",
+      "screen": "ria_claim",
+      "entryCue": "You can say “Claim RIA Profile” to use the primary control on this screen.",
+      "proactivity": "on_entry",
+      "primaryActionId": "route.ria_claim",
+      "happyPathActionIds": [
+        "route.ria_claim"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
+      "nextRoute": "/ria/claim",
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
     "route": "/ria/onboarding",
     "mode": "flow",
     "exemptionReason": "RIA onboarding is a five-step fullscreen setup flow that owns its own compact content rhythm.",
     "shellVerification": {
       "file": "app/ria/onboarding/page.tsx",
-      "includes": ["FullscreenFlowShell", "OnboardingShell"]
+      "includes": [
+        "FullscreenFlowShell",
+        "OnboardingShell"
+      ]
     },
     "voicePlaybook": {
       "playbookId": "route.ria.onboarding",
@@ -2727,7 +4167,9 @@
       "entryCue": "You can say “Open RIA Onboarding” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_onboarding",
-      "happyPathActionIds": ["route.ria_onboarding"],
+      "happyPathActionIds": [
+        "route.ria_onboarding"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2762,7 +4204,9 @@
       "entryCue": "You can say “Open RIA Picks” to use the primary control on this screen.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_picks",
-      "happyPathActionIds": ["route.ria_picks"],
+      "happyPathActionIds": [
+        "route.ria_picks"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2861,8 +4305,8 @@
   },
   {
     "route": "/blog",
-    "mode": "hidden",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=blog public workspace.",
     "voicePlaybook": {
       "playbookId": "route.blog",
       "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -2888,8 +4332,8 @@
   },
   {
     "route": "/blog/[slug]",
-    "mode": "hidden",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "standard",
+    "exemptionReason": "Standard mode to show the top app bar and breadcrumbs.",
     "voicePlaybook": {
       "playbookId": "route.blog.slug",
       "purpose": "Help the person understand and use the blog screen through its generated controls.",
@@ -2915,8 +4359,8 @@
   },
   {
     "route": "/research",
-    "mode": "hidden",
-    "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
+    "mode": "redirect",
+    "exemptionReason": "Compatibility route redirects to the canonical /welcome?tab=research public workspace.",
     "voicePlaybook": {
       "playbookId": "route.research",
       "purpose": "Help the person understand and use the research screen through its generated controls.",
@@ -2942,7 +4386,7 @@
   },
   {
     "route": "/research/protocol",
-    "mode": "hidden",
+    "mode": "standard",
     "exemptionReason": "Foundation public route intentionally uses the shared ambient public canvas outside the signed-in shell.",
     "voicePlaybook": {
       "playbookId": "route.research.protocol",
@@ -2970,14 +4414,24 @@
   {
     "route": "/ria/profile",
     "mode": "standard",
+    "shellVerification": {
+      "file": "app/ria/profile/page.tsx",
+      "includes": [
+        "RiaPageShell",
+        "RiaProfileSection"
+      ]
+    },
     "voicePlaybook": {
       "playbookId": "route.ria.profile",
-      "purpose": "Help the person understand and use the profile screen through its generated controls.",
-      "screen": "ria_profile",
-      "entryCue": "You can say “Open RIA Profile” to use the primary control on this screen.",
+      "purpose": "Help the advisor view and manage their RIA profile.",
+      "screen": "profile_regulatory",
+      "entryCue": "You can say “Open RIA Profile” to return here.",
       "proactivity": "on_entry",
       "primaryActionId": "route.ria_profile",
-      "happyPathActionIds": ["route.ria_profile"],
+      "happyPathActionIds": [
+        "route.ria_profile",
+        "ria.profile.edit_services"
+      ],
       "requiredInputs": [],
       "recoveries": {
         "blocked": "Explain the current guard and retain the goal.",
@@ -2988,8 +4442,81 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "Completion is spoken only after the correlated browser settlement succeeds.",
-      "nextRoute": "/ria/profile",
+      "nextRoute": null,
       "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/people/[personRef]",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/person-profile-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "PageHeader",
+        "SectionCard",
+        "usePublishVoiceSurfaceMetadata"
+      ]
+    },
+    "interactionLayerPolicy": {
+      "allowedFamilies": [
+        "information_request_review"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.people.person_profile",
+      "purpose": "Help the signed-in viewer understand relationship, requestable information, grants, and request history without exposing private values.",
+      "screen": "one_person_profile",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": "people.profile.review_information_request",
+      "happyPathActionIds": [
+        "people.profile.connect",
+        "people.profile.review_information_request",
+        "people.profile.cancel_connection_request",
+        "people.profile.remove_connection",
+        "people.profile.manage_consent"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the relationship, vault, or field-selection guard without implying access.",
+        "cancelled": "Respect the cancellation and preserve the current profile state.",
+        "failed": "Acknowledge the failure without claiming the request, connection, or consent changed.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Keep the profile open and explain that the action could not be verified.",
+        "routeMismatch": "Use only the verified public person profile route and its generated actions."
+      },
+      "completionBoundary": "Completion is spoken only after the browser settles the exact mounted action; information values still require a separate active grant and local decryption.",
+      "nextRoute": null,
+      "returnPolicy": "stay",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never infer or expose private information."
+    }
+  },
+  {
+    "route": "/products/hushh-tech/launch",
+    "mode": "hidden",
+    "exemptionReason": "Cross-product sign-in handoff intentionally suppresses the signed-in app shell while it validates and completes the one-time launch.",
+    "voicePlaybook": {
+      "playbookId": "route.products.hushh.tech.launch",
+      "purpose": "Complete the verified Hushh Tech sign-in handoff without exposing credentials.",
+      "screen": "app",
+      "entryCue": "",
+      "proactivity": "ambient",
+      "primaryActionId": null,
+      "happyPathActionIds": [],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain that the handoff cannot continue and return to Hushh Tech.",
+        "cancelled": "Respect the cancellation and return to Hushh Tech.",
+        "failed": "Return to Hushh Tech without claiming sign-in succeeded.",
+        "timeout": "Return to Hushh Tech and offer one safe retry.",
+        "callbackError": "Return to Hushh Tech without exposing the launch code.",
+        "routeMismatch": "Use only the verified Hushh Tech launch route."
+      },
+      "completionBoundary": "The handoff completes only after the signed-in Firebase user receives a bound one-time launch code and the browser reaches the exact allowlisted Hushh Tech callback.",
+      "nextRoute": null,
+      "returnPolicy": "navigate",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
     }
   }

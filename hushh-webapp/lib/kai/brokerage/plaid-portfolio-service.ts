@@ -19,6 +19,7 @@ export interface PlaidLinkTokenResponse {
   redirect_uri?: string | null;
   request_id?: string | null;
   resume_session_id?: string | null;
+  environment?: string | null;
 }
 
 export interface PlaidRefreshResponse {
@@ -208,6 +209,7 @@ export class PlaidPortfolioService {
     itemId?: string;
     updateMode?: boolean;
     redirectUri?: string;
+    environment?: string | null;
   }): Promise<PlaidLinkTokenResponse> {
     const path = params.updateMode
       ? "/api/kai/plaid/link-token/update"
@@ -222,6 +224,7 @@ export class PlaidPortfolioService {
         user_id: params.userId,
         item_id: params.itemId,
         redirect_uri: params.redirectUri || null,
+        environment: params.environment || null,
       }),
     });
     if (!response.ok) {
@@ -240,6 +243,7 @@ export class PlaidPortfolioService {
     vaultOwnerToken?: string | null;
     metadata?: Record<string, unknown> | null;
     resumeSessionId?: string | null;
+    environment?: string | null;
   }): Promise<PlaidPortfolioStatusResponse> {
     const response = await ApiService.apiFetch("/api/kai/plaid/exchange-public-token", {
       method: "POST",
@@ -252,6 +256,7 @@ export class PlaidPortfolioService {
         public_token: params.publicToken,
         metadata: params.metadata || null,
         resume_session_id: params.resumeSessionId || null,
+        environment: params.environment || null,
       }),
     });
     if (!response.ok) {

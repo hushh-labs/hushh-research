@@ -37,7 +37,7 @@ function SectionCard({
   return (
     <section className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
       <div className="flex items-center justify-between gap-3 px-[18px] pb-[11px] pt-[15px]">
-        <span className="text-[13px] font-bold uppercase tracking-[2px] text-[color:var(--ria-gold)]">
+        <span className="ui-text-section-label">
           {label}
         </span>
         <button
@@ -209,27 +209,19 @@ export function OnboardingStepReview({
       {/* Canonical onboarding state: profile goes live as Pending Verification;
           the verified badge is a separate later layer (design shows gold). */}
       <div
-        className="flex items-start gap-3 rounded-[18px] border p-4"
-        style={{
-          background: "rgba(201,139,46,0.08)",
-          borderColor: "rgba(201,139,46,0.3)",
-        }}
+        className="flex items-start gap-3 rounded-[18px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 text-[color:var(--app-secondary-label)]"
       >
         <ShieldCheck
-          className="mt-0.5 h-[22px] w-[22px] shrink-0 text-[color:var(--ria-gold)]"
+          className="mt-0.5 h-[22px] w-[22px] shrink-0 text-[color:var(--app-accent)]"
           strokeWidth={1.7}
         />
-        <span
-          className="text-[13.5px] font-medium leading-[1.45]"
-          style={{ color: "var(--ria-amber-note)" }}
-        >
-          Goes live as Pending Verification now. The verified badge unlocks after
-          Phase 2 onboarding.
+        <span className="text-[13.5px] font-medium leading-[1.45]">
+          Goes live as Pending Verification. Verified unlocks after Phase 2.
         </span>
       </div>
 
       <RiaAiActionPill onClick={onAskKaiUpdateAnything}>
-        Ask Kai to update anything
+        Ask One to update anything
       </RiaAiActionPill>
     </div>
   );

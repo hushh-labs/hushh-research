@@ -5,6 +5,10 @@
 
 Canonical visual owner: [Quality and Design System Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
+The cross-layer visual, shell, material, and AX rules are maintained in
+[One UX and AX Design Contract](./design.md). This document owns implementation
+layering and primitive placement beneath that contract.
+
 ## Purpose
 This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the standalone design-system root, and makes app-ui the semantic composition layer above it.
 
@@ -21,7 +25,7 @@ This contract keeps shadcn as the vendor primitive layer, makes Morphy UX the st
 2. Use Morphy when the change belongs to the reusable design-system layer.
 3. Keep `components/ui` overwrite-safe with `npx shadcn@latest add ... --overwrite`.
 4. Do not place app-specific components inside `components/ui`.
-5. Shared segmented tabs live in `@/lib/morphy-ux/ui/segmented-tabs` and are re-exported through `SettingsSegmentedTabs` for app-level composition.
+5. Tab ownership is semantic and canonical. Route/query-owned workspace navigation uses `TopShellTabs` backed by `TOP_SHELL_TAB_REGISTRY`; locally selectable views and filters use `SegmentedTabs` from `@/lib/morphy-ux/ui/segmented-tabs`. Do not introduce compatibility names or route-local tab primitives. `SegmentedTabs` owns `tablist`/`tab` semantics, selected state, and roving Arrow/Home/End keyboard focus. The paired swipeable content pager is `SwipeViews` at `@/lib/morphy-ux/ui/swipe-views` (see Lean Route Headers And Responsive Lists below) — use it instead of a new carousel/tab-content implementation whenever a page has more than one locally-selectable view.
 6. Morphy button, card, and surface primitives must compose stock primitives.
 7. The liquid-glass lab is experimental and not part of the Kai production design contract.
 8. `AppPageShell` and `FullscreenFlowShell` own the route container contract; feature files must not replace that contract with route-local `max-w-* mx-auto px-*` wrappers.
@@ -105,8 +109,17 @@ Forbidden:
 2. Avoid legacy references and hardcoded old theme narratives in feature code.
 3. Keep backgrounds and surfaces aligned with the current neutral app direction.
 4. Shared shell and surface layout tokens live in `hushh-webapp/app/globals.css`.
-5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (iOS Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. The RIA persona surface intentionally keeps its own gold identity regardless of the accent preference. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
+5. Color identity is the **Foundation** system with ONE switchable accent: the `--app-accent-*` family in `hushh-webapp/app/globals.css` (iOS Blue by default, Molten Gold under `html[data-accent="gold"]`, toggled in Profile → Preferences → Accent and persisted at `hushh.app.accent.v1` via `lib/theme/accent.ts`). Accent is emphasis ONLY; ink (`--primary`) carries primary, gray carries support. Legacy names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`, `--morphy-primary-*`, `--tone-blue*`) alias the accent family, so consumers written against them follow the preference automatically. Never hardcode an accent hex in component source; `npm run verify:accent-tokens` (part of `verify:design-system`) enforces this. RIA compatibility tokens must resolve through that same family; no persona may retint shared app chrome or bypass the active accent. The full Foundation Color Contract lives in [app-surface-design-system.md](./app-surface-design-system.md#foundation-color-contract).
 5a. Promotion path for feature design systems: when a route (e.g. One Location) proves out a surface grammar, promote its tokens to `lib/morphy-ux/tokens/surfaces.ts` and its primitives to `lib/morphy-ux/ui/surface-primitives.tsx`, leave a re-export shim at the feature path, and consume the `--app-accent-*` family for any accent usage so the promoted pieces stay accent-neutral.
+5b. Portable PDF artifacts use the Morphy-owned
+    `lib/morphy-ux/pdf-document-formatter.mjs`. The Markdown/PDF script is a
+    generator only: it reads Foundation tokens from `app/globals.css` and uses
+    a named `technical`, `partner`, or `founder` formatter profile. Light and
+    dark wordmarks use the same `hu` ink and `ssh` foil tokens as the app;
+    `molten-gold-light` and `molten-gold` are the explicit light and dark Gold
+    variants. Diagram labels inherit the profile's print-safe type scale, and
+    Mermaid is rendered locally to SVG before PDF generation. Protocol code
+    blocks retain the Sublime Monokai surface in every profile.
 6. Use the container tokens below instead of ad hoc `max-w-*` route wrappers:
    - `--app-shell-reading`
    - `--app-shell-standard`
@@ -114,6 +127,14 @@ Forbidden:
 7. Use shared gutter tokens instead of route-local page padding:
    - `--page-inline-gutter-standard`
    - `--page-surface-overscan`
+8. **Apple design grammar** (adopted principles; enforced by `verify:accent-tokens`):
+   - Radius grammar: shapes carry meaning. `--app-radius-pill` = action signal (CTAs, chips, search, toggles); `--app-radius-lg` (18px) = compact utility cards (the shipped `--app-card-radius-*` 20/22/24 contract remains canonical for app cards); `--app-radius-sm` (8px) = compact utility rects. Do not invent radii between the stops in new components.
+   - Press physics: the system-wide active state is the `.press-scale` utility (`--motion-press-scale: 0.95`, transform-only, reduced-motion aware), layered with the md-ripple. Wired into the Morphy Button and all segmented primitives; do not write per-component press styles.
+   - Weight ladder: 300 / 400 / 600 / 700. Weight 500 (`font-medium`) is deliberately absent from `lib/morphy-ux`; labels are 400, active/strong emphasis is 600, weight 300 is a rare opt-in "airy" cue (`.type-lead-airy`).
+   - Typography rungs: `.type-lead` (28/400), `.type-lead-airy` (24/300), `.type-tagline` (21/600), `.type-dense-link` (17/400/2.41) join the Foundation scale for editorial/marketing surfaces.
+   - Elevation doctrine: UI elevation comes from surface change and backdrop blur, not chrome shadows. `--app-shadow-product` is the single photographic drop-shadow, reserved for imagery resting on a surface; `--app-blur-frosted` is the frosted-chrome baseline.
+   - Tile system: full-bleed marketing/onboarding tiles alternate light and near-black (`--app-tile-dark-1/2/3`); the color change is the divider (no borders, no rounding, no shadows between tiles). In-copy links on dark tiles use `--app-accent-link-on-dark`.
+   - Legal note: SF Pro resolves via the system font stack only (`--font-app-*`); never bundle Apple font files. The measured scales and principles above are facts, not copied assets.
 
 ## Guardrails
 Use these commands from `hushh-webapp`:
@@ -171,3 +192,110 @@ Reference:
 Use that companion doc when building any Apple-like settings surface so spacing, grouping, responsive behavior, and action-row semantics stay consistent.
 
 Body section headings are not page headers. `SectionHeader` and `SettingsGroup` must use compact accessible headings above row text, below page-title scale, and independent from global `h1`/`h2` element rules. `SettingsGroup` must keep eyebrow text inline with the section title and avoid a separate eyebrow/title/description three-line stack inside page content.
+
+## Lean Route Headers And Responsive Lists
+
+Signed-in routes use `AppPageHeaderRegion` with the shared `PageHeader`: a compact title, an optional single-line description, and no route-local hero or duplicate agent selector. A registry-resolved customer mark may appear as the shared header's right-aligned action only when it identifies the record currently being managed; keep its asset path in the public CRM logo registry, not in route code. RIA uses the same shell and resolves its accent through the Foundation `--app-accent-*` family.
+
+Finance follows the Profile workspace geometry exactly: `AppPageShell` at the
+`reading` measure and one shared outer gutter. Market, Portfolio, and Analysis
+are query-selected content inside `/one/kai`; they do not get a wider dashboard
+canvas, another fixed header, or a route-local tab bar. The top shell owns the
+single contextual tab row, and a tab may own only its one ordinary `PageHeader`.
+
+Persistent chrome uses the single ambient material system in
+`components/app-ui/ambient-chrome-mask.tsx`: both edges use a neutral theme
+feather with the shared, subtle `--app-shared-chrome-mask-blur` readability
+filter; the top mask keeps the shell legible through its visible tab stack and
+uses only a short, eased tail below the underline. The bottom mask uses the
+same short, eased edge treatment and contracts with the scroll-hidden
+navigation slot while retaining the Agent Bar tail. Those edges must remain
+present on mobile and desktop wherever the signed-in top/bottom shell is
+present.
+
+Persistent chrome text and icons inherit the neutral theme foreground through
+`currentColor`; do not pin descendant `text-foreground` or
+`text-muted-foreground` classes. Lucide icons use the shared
+`--lucide-stroke-width: 1.6` baseline, with a deliberate component-level
+override only when a compact control needs it.
+
+The top shell’s Finance, Location, Consent Center, and public Explore tab sets
+use equal fixed tracks from the central registry. They remain visible and
+interactive above the ambient mask on every responsive surface; route bodies
+may supply only the paired pager, never another tab row.
+
+`TopShellTabs` and `SegmentedTabs` keep distinct navigation semantics but share
+one Morphy visual anatomy: a quiet neutral rail, one moving solid selection
+surface, readable active/inactive labels, and the same focus and motion
+grammar. Location is the visual reference for every tab set; route-specific
+underlines, borders, and alternate active pills are prohibited.
+
+`SwipeViews` (`@/lib/morphy-ux/ui/swipe-views`) is that paired pager and the
+one canonical primitive for any route or panel with more than one
+locally-selectable content view, whether the selection is query-backed
+(Finance, Location, Consent Center, the Analysis workspace's Debate/Summary/
+Detailed split) or purely local state (Marketplace, Profile's PKM Agent Lab).
+It keeps every pane mounted (`aria-hidden`, never unmounted) and reports
+selection in two stages — `onSelectionChange` fires immediately for the
+visible selection pill, `onSelectionCommit` fires after the drag settles for
+the URL or state write that should not sit in the pointer/scroll hot path.
+Use `panelInset="page"` when the surrounding shell has cancelled its own
+gutter (Finance/Location's full-bleed layout); use the default
+`panelInset="none"` when the shell already provides normal padding
+(Marketplace, Profile, Analysis, Consent Center). Do not build a new
+swipeable-pane implementation, and do not reach for the stock shadcn
+`components/ui/carousel` for tab content — `SwipeViews` is the only one with
+the tab-selection swipe-progress sync (`lib/navigation/top-shell-tab-swipe-progress.ts`)
+that the top shell's pill relies on.
+
+Motion has one standard content-enter expression across One and every
+specialist surface: opacity `0 → 1`, vertical settle `8px → 0`,
+`--motion-page-enter-duration`, and `--motion-ease-emphasized`. The shared
+GSAP route/async-mount hook owns automatic semantic mounts; `.motion-step-enter`
+is the matching declarative utility for controlled component and layout swaps.
+Do not create a second route-transition engine or shorten a component-local
+fallback into a separate motion language. High-churn rails and tables opt out
+of automatic enters and may animate a stable inner layout root only.
+
+`SettingsGroup` and `SettingsRow` are the standard responsive list system for Profile, agents, and Connected Systems. Groups use the compact utility radius, inset separators, text truncation, and mobile-stacked trailing controls. Do not make a desktop `DataTable` the only way to operate a narrow route.
+
+## Bounded Managers And Decision Sheets
+
+Tabbed managers with a dense row rail (including Consent Center) keep their list
+surface within the available viewport between the shared top tabs and bottom
+chrome. The toolbar and pagination are fixed inside that surface; only the row
+rail scrolls with `overscroll-contain`. Keep server pagination authoritative and
+reachable, rather than expanding a page of rows beyond a mobile viewport.
+
+Consent request review uses `AdaptiveDetailSurface`/`SettingsDetailPanel` as the
+single record-detail owner. On mobile, a direct decision may opt into the
+canonical bottom `SheetContent` transport: it retains the drag handle, scroll
+handoff, velocity dismissal, focus, Escape, and outside-click behavior. Such a
+sheet may omit the redundant X only when those paths remain available. Its body
+is a flat key/value definition list followed by the decision controls—never a
+second `Request details` heading, explanatory subheader, or nested detail card.
+Canonical detail headers use the Morphy active glass material and standard blur
+token across dialog, drawer, and sheet transports. Decision actions stay direct
+under the request details; do not add a `Your decision` heading, helper copy,
+or a second rounded card around Allow/Don't allow.
+
+Counterparty identity media uses the supplied image when available; the fallback
+is a compact type-specific glyph with initials inside a token-based, theme-safe
+well. Do not use light-only hard-coded brand hues, favicon inference, or status
+color as the sole identifier.
+
+CRM field editors use one responsive table surface, never a second settings
+card or an `Information` heading. Put field view, schema refresh, and record
+refresh in one compact toolbar; keep reset and the one red icon-only destructive
+control together at its trailing edge. The field/value columns must fit the
+route width without horizontal action-column scrolling, editable rows use a
+compact right-aligned trailing edit control, and pagination fixes the table to
+the selected row count. While an explicit record refresh is in flight, withhold
+the editable values until the read settles. Never render a second leading trash
+icon or a wrapping raw record identifier.
+
+Data-table pagination uses two symmetric paired groups: rows-per-page with its
+visible range, and current-page status with its page-jump controls. The shared
+bottom ambient material stays inside the measured fixed chrome footprint; its
+blur is clipped by the same edge dissolve as the tint and must never extend over
+the final route component.

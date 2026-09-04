@@ -48,15 +48,25 @@ function loadGoogleMaps(): Promise<void> {
   loadPromise = Promise.all([
     loader.importLibrary("maps"),
     loader.importLibrary("marker"),
+    // "places" powers the reverse-geocode fallback in LocationPickerMap. This
+    // key has the Places API (New) enabled but NOT the classic Geocoding API,
+    // so the picker resolves the pinned address via Places nearest-place lookup
+    // (the same path the backend/Your Map uses) instead of google.maps.Geocoder.
+    loader.importLibrary("places"),
   ]).then(() => undefined);
   return loadPromise;
+
 }
 
-export function useGoogleMaps(): { status: MapsLoadStatus } {
+export function useGoogleMaps({ enabled = true }: { enabled?: boolean } = {}): {
+  status: MapsLoadStatus;
+} {
   const [status, setStatus] = useState<MapsLoadStatus>("loading");
 
   useEffect(() => {
     let cancelled = false;
+
+    if (!enabled) return;
 
     // A prior map instance may have already tripped auth failure.
     if (authFailed) {
@@ -81,7 +91,7 @@ export function useGoogleMaps(): { status: MapsLoadStatus } {
       cancelled = true;
       authListeners.delete(onAuthFailure);
     };
-  }, []);
+  }, [enabled]);
 
   return { status };
 }

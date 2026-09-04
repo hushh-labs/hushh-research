@@ -21,6 +21,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     public let jsName = "HushhAuth"
     public let pluginMethods: [CAPPluginMethod] = [
         CAPPluginMethod(name: "signIn", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "connectGmail", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signInWithApple", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "signOut", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "getIdToken", returnType: CAPPluginReturnPromise),
@@ -38,7 +39,26 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     private var appleSignInCall: CAPPluginCall?
 
     // MARK: - Keychain Helpers
-    private let keychainService = "com.hushh.pda.auth"
+    private static let keychainServiceName = "com.hushh.pda.auth"
+    private let keychainService = HushhAuthPlugin.keychainServiceName
+
+    /// Debug-test reset authority for a genuine first-launch authentication
+    /// cadence. App uninstall does not clear iOS Keychain items, so Firebase
+    /// sign-out alone can leave this plugin's cached identity/token restorable.
+    /// Production code never calls this; user sign-out uses the instance path.
+    static func clearPersistedSessionForNativeReset() {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainServiceName
+        ]
+        SecItemDelete(query as CFDictionary)
+        HusshIMessageSessionStore.shared.clearSilently()
+        OneVoiceInvocationCoordinator.shared.cancelPending(outcome: "sign_out")
+        OneSystemActionInvocationCoordinator.shared.cancelAll(
+            outcome: "sign_out",
+            clearEntityIndex: true
+        )
+    }
 
     private func keychainSet(_ value: String, forKey key: String) {
         guard let data = value.data(using: .utf8) else { return }
@@ -90,13 +110,15 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         email: String?,
         displayName: String?,
         photoUrl: String?,
-        emailVerified: Bool
+        emailVerified: Bool,
+        phoneNumber: String?
     ) {
         keychainSet(uid, forKey: "hushh_user_id")
         keychainSetOptional(email, forKey: "hushh_user_email")
         keychainSetOptional(displayName, forKey: "hushh_user_display_name")
         keychainSetOptional(photoUrl, forKey: "hushh_user_photo_url")
         keychainSet(emailVerified ? "true" : "false", forKey: "hushh_user_email_verified")
+        keychainSetOptional(phoneNumber, forKey: "hushh_user_phone_number")
     }
 
     private func publishIMessageIdentitySilently(
@@ -132,7 +154,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             "email": keychainGet("hushh_user_email") ?? "",
             "displayName": keychainGet("hushh_user_display_name") ?? "",
             "photoUrl": keychainGet("hushh_user_photo_url") ?? "",
-            "emailVerified": (keychainGet("hushh_user_email_verified") ?? "false") == "true"
+            "emailVerified": (keychainGet("hushh_user_email_verified") ?? "false") == "true",
+            "phoneNumber": keychainGet("hushh_user_phone_number") ?? ""
         ]
     }
 
@@ -214,7 +237,9 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // Ensure Firebase is initialized before any FirebaseAuth call.
     private func ensureFirebaseConfigured() -> Bool {
-        if FirebaseApp.app() != nil {
+        // Avoid FirebaseApp.app(): it logs an error for the expected
+        // first-launch state before this plugin configures Firebase.
+        if FirebaseApp.allApps?.isEmpty == false {
             return true
         }
         guard Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist") != nil else {
@@ -256,7 +281,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ [\(self.TAG)] Google Sign-In failed: \(error.localizedDescription)")
+                print("❌ [\(self.TAG)] Google Sign-In failed")
                 call.reject("Sign-in failed: \(error.localizedDescription)")
                 return
             }
@@ -268,14 +293,14 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             }
             
             let accessToken = user.accessToken.tokenString
-            print("✅ [\(self.TAG)] Got Google account: \(user.profile?.email ?? "unknown")")
+            print("✅ [\(self.TAG)] Google account received")
             
             // Exchange for Firebase credential
             let credential = GoogleAuthProvider.credential(withIDToken: idToken, accessToken: accessToken)
             
             Auth.auth().signIn(with: credential) { authResult, error in
                 if let error = error {
-                    print("❌ [\(self.TAG)] Firebase sign-in failed: \(error.localizedDescription)")
+                    print("❌ [\(self.TAG)] Firebase sign-in failed")
                     call.reject("Firebase sign-in failed: \(error.localizedDescription)")
                     return
                 }
@@ -285,7 +310,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     return
                 }
                 
-                print("✅ [\(self.TAG)] Firebase sign-in success! UID: \(firebaseUser.uid)")
+                print("✅ [\(self.TAG)] Firebase sign-in succeeded")
                 
                 // Get Firebase ID token
                 firebaseUser.getIDToken { firebaseIdToken, error in
@@ -307,7 +332,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         email: firebaseUser.email,
                         displayName: firebaseUser.displayName,
                         photoUrl: firebaseUser.photoURL?.absoluteString,
-                        emailVerified: firebaseUser.isEmailVerified
+                        emailVerified: firebaseUser.isEmailVerified,
+                        phoneNumber: firebaseUser.phoneNumber
                     )
                     self.publishIMessageIdentitySilently(
                         uid: firebaseUser.uid,
@@ -325,7 +351,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                             "email": firebaseUser.email ?? "",
                             "displayName": firebaseUser.displayName ?? "",
                             "photoUrl": firebaseUser.photoURL?.absoluteString ?? "",
-                            "emailVerified": firebaseUser.isEmailVerified
+                            "emailVerified": firebaseUser.isEmailVerified,
+                            "phoneNumber": firebaseUser.phoneNumber ?? ""
                         ]
                     ]
                     
@@ -333,6 +360,69 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.resolve(response)
                 }
             }
+        }
+    }
+
+    /// Requests incremental Gmail consent without changing the Firebase session.
+    /// The one-time server authorization code is returned to JavaScript only so
+    /// it can be exchanged immediately by the authenticated backend.
+    @objc func connectGmail(_ call: CAPPluginCall) {
+        guard ensureFirebaseConfigured() else {
+            call.reject("Missing GoogleService-Info.plist (Firebase not configured)")
+            return
+        }
+
+        guard let viewController = bridge?.viewController else {
+            call.reject("No view controller available")
+            return
+        }
+
+        guard let serverClientId = call.getString("serverClientId")?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !serverClientId.isEmpty else {
+            call.reject("Missing Google server client ID")
+            return
+        }
+
+        guard let path = Bundle.main.path(forResource: "GoogleService-Info", ofType: "plist"),
+              let plist = NSDictionary(contentsOfFile: path),
+              let clientId = plist["CLIENT_ID"] as? String else {
+            call.reject("Missing GoogleService-Info.plist or CLIENT_ID")
+            return
+        }
+
+        let configuration = GIDConfiguration(
+            clientID: clientId,
+            serverClientID: serverClientId
+        )
+        GIDSignIn.sharedInstance.configuration = configuration
+
+        let gmailScopes = [
+            "https://www.googleapis.com/auth/gmail.readonly",
+            "https://www.googleapis.com/auth/gmail.send"
+        ]
+        GIDSignIn.sharedInstance.signIn(
+            withPresenting: viewController,
+            hint: nil,
+            additionalScopes: gmailScopes
+        ) { result, error in
+            if let error = error {
+                // kGIDSignInErrorCodeCanceled is -5. Avoid surfacing the SDK
+                // error string so a normal cancellation remains a calm UI state.
+                let isCanceled = (error as NSError).code == -5
+                call.reject(
+                    isCanceled ? "Gmail connection was cancelled" : "Gmail sign-in failed: \(error.localizedDescription)",
+                    isCanceled ? "USER_CANCELLED" : nil
+                )
+                return
+            }
+
+            guard let serverAuthCode = result?.serverAuthCode,
+                  !serverAuthCode.isEmpty else {
+                call.reject("Google did not return a Gmail authorization code")
+                return
+            }
+
+            call.resolve(["serverAuthCode": serverAuthCode])
         }
     }
     
@@ -344,7 +434,7 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         do {
             try Auth.auth().signOut()
         } catch {
-            print("⚠️ [\(TAG)] Firebase sign out error: \(error.localizedDescription)")
+            print("⚠️ [\(TAG)] Firebase sign out failed")
         }
         
         // Sign out from Google
@@ -360,7 +450,13 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
         keychainDelete("hushh_user_display_name")
         keychainDelete("hushh_user_photo_url")
         keychainDelete("hushh_user_email_verified")
+        keychainDelete("hushh_user_phone_number")
         HusshIMessageSessionStore.shared.clearSilently()
+        OneVoiceInvocationCoordinator.shared.cancelPending(outcome: "sign_out")
+        OneSystemActionInvocationCoordinator.shared.cancelAll(
+            outcome: "sign_out",
+            clearEntityIndex: true
+        )
         
         print("✅ [\(TAG)] Signed out")
         call.resolve()
@@ -412,7 +508,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                 "email": user.email ?? "",
                 "displayName": user.displayName ?? "",
                 "photoUrl": user.photoURL?.absoluteString ?? "",
-                "emailVerified": user.isEmailVerified
+                "emailVerified": user.isEmailVerified,
+                "phoneNumber": user.phoneNumber ?? ""
             ]
             call.resolve(["user": userData])
         } else if freshCachedIdToken() != nil, let cached = cachedUserData() {
@@ -498,7 +595,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
             return
         }
         
-        print("✅ [\(TAG)] Got Apple credential for: \(appleIDCredential.email ?? "(hidden email)")")
+        print("✅ [\(TAG)] Apple credential received")
         
         // Exchange for Firebase credential using Apple-specific method
         let credential = OAuthProvider.appleCredential(
@@ -511,7 +608,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
             guard let self = self else { return }
             
             if let error = error {
-                print("❌ [\(self.TAG)] Firebase sign-in failed: \(error.localizedDescription)")
+                print("❌ [\(self.TAG)] Firebase sign-in failed")
                 self.appleSignInCall?.reject("Firebase sign-in failed: \(error.localizedDescription)")
                 self.appleSignInCall = nil
                 return
@@ -523,7 +620,7 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                 return
             }
             
-            print("✅ [\(self.TAG)] Firebase Apple sign-in success! UID: \(firebaseUser.uid)")
+            print("✅ [\(self.TAG)] Firebase Apple sign-in succeeded")
             
             // Get Firebase ID token
             firebaseUser.getIDToken { firebaseIdToken, error in
@@ -554,7 +651,8 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                     email: firebaseUser.email ?? appleIDCredential.email,
                     displayName: displayName,
                     photoUrl: firebaseUser.photoURL?.absoluteString,
-                    emailVerified: firebaseUser.isEmailVerified
+                    emailVerified: firebaseUser.isEmailVerified,
+                    phoneNumber: firebaseUser.phoneNumber
                 )
                 self.publishIMessageIdentitySilently(
                     uid: firebaseUser.uid,
@@ -572,7 +670,8 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
                         "email": firebaseUser.email ?? appleIDCredential.email ?? "",
                         "displayName": displayName,
                         "photoUrl": firebaseUser.photoURL?.absoluteString ?? "",
-                        "emailVerified": firebaseUser.isEmailVerified
+                        "emailVerified": firebaseUser.isEmailVerified,
+                        "phoneNumber": firebaseUser.phoneNumber ?? ""
                     ]
                 ]
                 
@@ -586,9 +685,9 @@ extension HushhAuthPlugin: ASAuthorizationControllerDelegate {
     public func authorizationController(controller: ASAuthorizationController,
                                         didCompleteWithError error: Error) {
         if let authError = error as? ASAuthorizationError {
-            print("❌ [\(TAG)] Apple Sign-In failed: code=\(authError.code.rawValue) description=\(error.localizedDescription)")
+            print("❌ [\(TAG)] Apple Sign-In failed: code=\(authError.code.rawValue)")
         } else {
-            print("❌ [\(TAG)] Apple Sign-In failed: \(error.localizedDescription)")
+            print("❌ [\(TAG)] Apple Sign-In failed")
         }
         
         // Check for user cancellation

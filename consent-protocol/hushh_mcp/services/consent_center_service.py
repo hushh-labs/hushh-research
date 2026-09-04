@@ -53,18 +53,32 @@ def _one_location_consent_center_enabled() -> bool:
     return True
 
 
+def _consent_summary_v2_enabled() -> bool:
+    # Defaults ON: the v2 path fetches each surface's underlying data (Location
+    # state, marketplace requests, ...) ONCE and derives all three counts
+    # (pending/active/previous) from it, instead of the legacy path's
+    # `asyncio.gather` over three `_get_surface_count` calls that each
+    # independently re-run the exact same underlying fetches. For the
+    # investor actor -- the default, and the common case -- that meant
+    # `list_state()` alone (already ~18-21 SQL round trips) ran three times
+    # per summary load instead of once, which was most of why this endpoint
+    # was measured at ~77 queries and 37-47s+. The explicit opt-out below is
+    # the rollback lever if something about the derived counts turns out to
+    # disagree with the legacy scalar counts in a way this flip did not
+    # anticipate.
+    return str(os.getenv("CONSENT_CENTER_SUMMARY_V2_ENABLED") or "").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
+
+
 class ConsentCenterService:
     """Compose investor + RIA consent surfaces into one UI/MCP read model."""
 
     _PENDING_STATUSES = {"pending", "request_pending", "sent"}
     _ACTIVE_STATUSES = {"active"}
-    _CONNECTION_TEMPLATE_IDS = {
-        "ria_financial_summary_v1",
-        "investor_advisor_disclosure_v1",
-        "ria_kai_specialized_v1",
-    }
-    _PORTFOLIO_SCOPE_PREFIXES = ("attr.financial.", "pkm.read")
-    _RIA_DISCLOSURE_SCOPE_PREFIX = "attr.ria."
 
     def __init__(self) -> None:
         self._consent_db = ConsentDBService()
@@ -182,6 +196,13 @@ class ConsentCenterService:
             if not counterpart_id and normalized_agent.startswith("investor:"):
                 counterpart_id = normalized_agent.split(":", 1)[1] or None
             return "investor", counterpart_id
+        if metadata.get("requester_actor_type") == "person" or normalized_agent.startswith(
+            "one_person:"
+        ):
+            counterpart_id = metadata.get("requester_entity_id")
+            if not counterpart_id and normalized_agent.startswith("one_person:"):
+                counterpart_id = normalized_agent.split(":", 1)[1] or None
+            return "person", counterpart_id
         if normalized_agent in {"self", ""}:
             return "self", None
         return "developer", normalized_agent or None
@@ -203,6 +224,12 @@ class ConsentCenterService:
             ).strip()
             if investor_label:
                 return investor_label
+        if metadata.get("requester_actor_type") == "person":
+            person_label = str(
+                metadata.get("requester_label") or metadata.get("requester_entity_id") or ""
+            ).strip()
+            if person_label:
+                return person_label
         return str(agent_id or "").strip()
 
     @staticmethod
@@ -463,37 +490,11 @@ class ConsentCenterService:
 
     @staticmethod
     def _is_connection_entry(entry: dict[str, Any], *, actor: str) -> bool:
-        counterpart_type = str(entry.get("counterpart_type") or "").strip().lower()
-        if actor == "ria" and counterpart_type != "investor":
-            return False
-        if actor == "investor" and counterpart_type != "ria":
-            return False
-
-        metadata = ConsentCenterService._metadata(entry.get("metadata"))
-        request_origin = str(metadata.get("request_origin") or "").strip().lower()
-        bundle_id = str(metadata.get("bundle_id") or "").strip()
-        scope_template_id = str(
-            metadata.get("scope_template_id") or entry.get("scope") or ""
-        ).strip()
-        relationship_state = str(entry.get("relationship_state") or "").strip().lower()
-
-        if bundle_id or request_origin == "direct_ria_request_bundle":
-            return False
-        if scope_template_id in ConsentCenterService._CONNECTION_TEMPLATE_IDS:
-            return True
-        if request_origin in {"direct_ria_request", "marketplace_investor_connect"}:
-            return True
-        if entry.get("kind") == "invite":
-            return True
-        return relationship_state in {
-            "approved",
-            "request_pending",
-            "invited",
-            "revoked",
-            "expired",
-            "discovered",
-            "disconnected",
-        }
+        # A social connection is only the explicit proposal envelope. Generic
+        # consent rows and historical advisor relationship metadata are never
+        # silently reclassified as a connection review.
+        del actor
+        return str(entry.get("kind") or "") == "connection_request"
 
     @classmethod
     def _filter_mode_entries(
@@ -508,254 +509,86 @@ class ConsentCenterService:
         return [entry for entry in entries if not cls._is_connection_entry(entry, actor=actor)]
 
     @classmethod
-    def _connection_direction(cls, *, actor: str, scope: str | None) -> str:
-        normalized_scope = str(scope or "").strip().lower()
-        if actor == "ria":
-            if normalized_scope.startswith(cls._RIA_DISCLOSURE_SCOPE_PREFIX):
-                return "incoming"
-            return "outgoing"
-        if normalized_scope.startswith(cls._RIA_DISCLOSURE_SCOPE_PREFIX):
-            return "outgoing"
-        return "incoming"
-
-    @classmethod
     def _connection_surface_for_status(cls, status: str) -> str:
         normalized = str(status or "").strip().lower()
-        if normalized in {"request_pending", "invited"}:
+        if normalized == "pending":
             return "pending"
-        if normalized == "approved":
+        if normalized == "accepted":
             return "active"
         return "previous"
 
-    @classmethod
-    def _connection_scope_description(cls, scope: str | None) -> str | None:
+    @staticmethod
+    def _connection_scope_description(scope: str | None) -> str | None:
         normalized = str(scope or "").strip()
-        if not normalized:
-            return None
-        return get_scope_description(normalized)
+        return get_scope_description(normalized) if normalized else None
 
     @staticmethod
-    def _scope_display_metadata(scope: str | None) -> dict[str, Any]:
-        normalized = str(scope or "").strip()
-        if not normalized:
-            return {"scope_icon_name": None, "scope_color_hex": None}
-        from hushh_mcp.consent.scope_helpers import get_scope_display_metadata
-
-        meta = get_scope_display_metadata(normalized)
-        return {
-            "scope_icon_name": meta.get("icon_name"),
-            "scope_color_hex": meta.get("color_hex"),
-        }
-
-    @classmethod
-    def _connection_summary(cls, *, actor: str, scope: str | None, status: str) -> str | None:
-        direction = cls._connection_direction(actor=actor, scope=scope)
-        normalized_status = str(status or "").strip().lower()
-        scope_label = cls._connection_scope_description(scope)
-        if normalized_status == "approved":
-            if direction == "incoming":
-                return f"Granted access: {scope_label or 'Shared access'}"
-            return f"Connected with {scope_label or 'shared access'}"
-        if normalized_status == "request_pending":
-            if direction == "incoming":
-                return f"Waiting on your review for {scope_label or 'shared access'}"
-            return f"Waiting for their review of {scope_label or 'shared access'}"
-        if normalized_status == "invited":
-            return "Invite is waiting for acceptance"
-        if normalized_status in {"revoked", "disconnected"}:
-            return "Connection has ended"
-        if normalized_status == "expired":
-            return "Connection request expired"
-        return scope_label
-
-    @classmethod
-    def _connection_allowed_next_action(cls, *, actor: str, scope: str | None, status: str) -> str:
-        normalized_status = str(status or "").strip().lower()
-        direction = cls._connection_direction(actor=actor, scope=scope)
-        if normalized_status == "request_pending":
-            return "review_request" if direction == "incoming" else "await_decision"
-        if normalized_status == "approved":
-            return "open_workspace" if direction == "outgoing" else "connected"
-        if normalized_status == "invited":
-            return "await_acceptance"
-        if normalized_status in {"revoked", "expired", "disconnected"}:
-            return "reconnect"
-        return "none"
-
-    @classmethod
-    def _connection_kind(cls, *, actor: str, scope: str | None, status: str) -> str:
-        normalized_status = str(status or "").strip().lower()
-        if normalized_status == "approved":
-            return "active_grant"
-        if normalized_status == "invited":
-            return "invite"
-        if normalized_status == "request_pending":
-            direction = cls._connection_direction(actor=actor, scope=scope)
-            return "incoming_request" if direction == "incoming" else "outgoing_request"
-        return "history"
-
-    def _normalize_relationship_connection(
-        self,
+    def _normalize_connection_request(
         item: dict[str, Any],
         *,
-        actor: str,
+        viewer_user_id: str,
     ) -> dict[str, Any]:
-        relationship_status = str(
-            item.get("relationship_status") or item.get("status") or "request_pending"
-        ).strip()
-        normalized_status = relationship_status.lower()
-        scope = str(item.get("granted_scope") or "").strip() or None
-        counterpart_type = "investor" if actor == "ria" else "ria"
-        counterpart_id = (
-            item.get("investor_user_id")
-            if actor == "ria"
-            else item.get("ria_user_id") or item.get("user_id")
-        )
-        counterpart_label = (
-            item.get("investor_display_name")
-            if actor == "ria"
-            else item.get("ria_display_name") or item.get("display_name")
-        )
-        counterpart_secondary_label = (
-            item.get("investor_headline") or item.get("investor_secondary_label")
-            if actor == "ria"
-            else item.get("ria_headline") or item.get("strategy_summary")
-        )
-        counterpart_email = item.get("investor_email") if actor == "ria" else item.get("ria_email")
-        metadata = {
-            "connection_surface": True,
-            "scope_template_id": item.get("scope_template_id"),
-            "request_origin": item.get("request_origin"),
-            "ria_profile_id": item.get("ria_profile_id"),
-            "ria_user_id": item.get("ria_user_id"),
-            "investor_user_id": item.get("investor_user_id"),
-            "portfolio_explorer_ready": bool(
-                actor == "ria"
-                and normalized_status == "approved"
-                and any(
-                    str(scope_item.get("scope") or "").startswith("attr.financial.")
-                    or str(scope_item.get("scope") or "") == "pkm.read"
-                    for scope_item in list(item.get("granted_scopes") or [])
-                )
-            ),
-        }
-        if actor == "ria":
-            metadata.update(
-                {
-                    "relationship_shares": item.get("relationship_shares") or [],
-                    "picks_feed_status": item.get("picks_feed_status"),
-                }
-            )
-
+        status = str(item.get("status") or "pending").strip().lower()
+        requester_user_id = str(item.get("requesterUserId") or "")
+        direction = "outgoing" if requester_user_id == viewer_user_id else "incoming"
+        action = "REQUESTED" if status == "pending" else status.upper()
         return {
-            "id": str(item.get("id") or item.get("invite_id") or counterpart_id or ""),
-            "kind": self._connection_kind(actor=actor, scope=scope, status=normalized_status),
-            "status": "active" if normalized_status == "approved" else normalized_status,
-            "action": "CONSENT_GRANTED"
-            if normalized_status == "approved"
-            else "REQUESTED"
-            if normalized_status in {"request_pending", "invited"}
-            else normalized_status.upper(),
-            "scope": scope,
-            "scope_description": self._connection_scope_description(scope),
-            **self._scope_display_metadata(scope),
-            "counterpart_type": counterpart_type,
-            "counterpart_id": counterpart_id,
-            "counterpart_label": counterpart_label or counterpart_id or "Connection",
-            "counterpart_image_url": None,
-            "counterpart_website_url": item.get("disclosures_url") if actor == "investor" else None,
-            "request_id": item.get("last_request_id"),
-            "invite_id": item.get("invite_id"),
-            "relationship_state": relationship_status,
-            "allowed_next_action": self._connection_allowed_next_action(
-                actor=actor,
-                scope=scope,
-                status=normalized_status,
+            "id": str(item.get("id") or ""),
+            "request_id": str(item.get("id") or ""),
+            "kind": "connection_request",
+            "status": status,
+            "action": action,
+            "counterpart_type": "self",
+            "counterpart_id": item.get("counterpartUserId"),
+            "counterpart_label": item.get("counterpartDisplayName") or "Someone",
+            "relationship_state": status,
+            "allowed_next_action": (
+                "review_request"
+                if status == "pending" and direction == "incoming"
+                else "await_decision"
+                if status == "pending"
+                else "connected"
+                if status == "accepted"
+                else "none"
             ),
-            "issued_at": item.get("created_at")
-            or item.get("updated_at")
-            or item.get("consent_granted_at")
-            or item.get("invite_expires_at"),
-            "expires_at": item.get("consent_expires_at") or item.get("invite_expires_at"),
-            "request_url": item.get("request_url"),
-            "reason": self._connection_summary(actor=actor, scope=scope, status=normalized_status),
-            "counterpart_email": counterpart_email,
-            "counterpart_secondary_label": counterpart_secondary_label,
-            "technical_identity": {"user_id": counterpart_id} if counterpart_id else None,
-            "additional_access_summary": self._connection_summary(
-                actor=actor,
-                scope=scope,
-                status=normalized_status,
-            ),
-            "metadata": metadata,
+            "issued_at": item.get("createdAt"),
+            "reason": item.get("message") or "wants to connect with you",
+            # Presentation-only proposals contain opaque handles and safe
+            # labels. Capabilities, information, and PKM remain server-side.
+            "metadata": {
+                "connection_direction": direction,
+                "scope_proposals": list(item.get("scopes") or []),
+            },
         }
-
-    async def _load_investor_connection_entries(self, user_id: str) -> list[dict[str, Any]]:
-        conn = await self._ria._conn()
-        try:
-            await self._ria._ensure_iam_schema_ready(conn)
-            rows = await conn.fetch(
-                """
-                SELECT
-                  rel.id,
-                  rel.investor_user_id,
-                  rel.ria_profile_id,
-                  rel.status,
-                  rel.granted_scope,
-                  rel.last_request_id,
-                  rel.consent_granted_at,
-                  rel.revoked_at,
-                  rel.created_at,
-                  rel.updated_at,
-                  rp.user_id AS ria_user_id,
-                  COALESCE(mp.display_name, rp.display_name, rp.legal_name) AS ria_display_name,
-                  mp.headline AS ria_headline,
-                  mp.strategy_summary,
-                  rp.disclosures_url,
-                  consent.expires_at AS consent_expires_at
-                FROM advisor_investor_relationships rel
-                JOIN ria_profiles rp ON rp.id = rel.ria_profile_id
-                LEFT JOIN marketplace_public_profiles mp
-                  ON mp.user_id = rp.user_id
-                  AND mp.profile_type = 'ria'
-                LEFT JOIN LATERAL (
-                  SELECT expires_at
-                  FROM consent_audit
-                  WHERE request_id = rel.last_request_id
-                  ORDER BY issued_at DESC
-                  LIMIT 1
-                ) consent ON TRUE
-                WHERE rel.investor_user_id = $1
-                ORDER BY rel.updated_at DESC
-                """,
-                user_id,
-            )
-            return [
-                self._normalize_relationship_connection(dict(row), actor="investor") for row in rows
-            ]
-        except IAMSchemaNotReadyError:
-            return []
-        except Exception:
-            return []
-        finally:
-            await conn.close()
-
-    async def _load_ria_connection_entries(self, user_id: str) -> list[dict[str, Any]]:
-        try:
-            payload = await self._ria.list_ria_clients(user_id, page=1, limit=200)
-        except (IAMSchemaNotReadyError, RIAIAMPolicyError):
-            return []
-        return [
-            self._normalize_relationship_connection(item, actor="ria")
-            for item in list(payload.get("items") or [])
-        ]
 
     async def _load_connection_entries_for_actor(
         self, user_id: str, *, actor: str
     ) -> list[dict[str, Any]]:
-        if actor == "ria":
-            return await self._load_ria_connection_entries(user_id)
-        return await self._load_investor_connection_entries(user_id)
+        del actor
+        try:
+            incoming, outgoing = await asyncio.gather(
+                run_in_threadpool(
+                    ConnectionsService().list_requests,
+                    user_id,
+                    direction="incoming",
+                    include_resolved=True,
+                ),
+                run_in_threadpool(
+                    ConnectionsService().list_requests,
+                    user_id,
+                    direction="outgoing",
+                    include_resolved=True,
+                ),
+            )
+        except Exception as exc:  # never block the consent surface
+            logger.warning(
+                "consent_center.connection_entries_failed user=%s error=%s", user_id, exc
+            )
+            return []
+        return [
+            self._normalize_connection_request(item, viewer_user_id=user_id)
+            for item in [*(incoming or []), *(outgoing or [])]
+        ]
 
     @staticmethod
     def _paginate_entries(
@@ -1454,6 +1287,10 @@ class ConsentCenterService:
                 "counterpart_id": r.get("counterpartUserId"),
                 "counterpart_label": r.get("counterpartDisplayName") or "Someone",
                 "reason": r.get("message") or "wants to connect with you",
+                # Presentation-only proposal metadata.  Values, internal
+                # capability keys, and participant identities never cross this
+                # boundary.
+                "metadata": {"scope_proposals": list(r.get("scopes") or [])},
             }
             for r in (rows or [])
         ]
@@ -1755,6 +1592,11 @@ class ConsentCenterService:
                 history_entries = [*history_entries, *marketplace_buckets["history"]]
             outgoing_entries = [*outgoing_entries, *marketplace_buckets["outgoing_requests"]]
 
+        connection_requests = await self._load_connection_entries_for_actor(
+            user_id,
+            actor=normalized_actor,
+        )
+
         return {
             "user_id": user_id,
             "persona_state": persona_state,
@@ -1774,6 +1616,10 @@ class ConsentCenterService:
             "history": history_entries,
             "invites": invite_entries,
             "developer_requests": developer_requests,
+            # This is intentionally isolated from generic consent lists. A
+            # connection review renders only the explicit connection proposal
+            # envelope and its per-capability proposal state.
+            "connection_requests": connection_requests,
             "requestor_groups": {
                 "pending": investor_pending_groups,
                 "active": investor_active_groups,
@@ -1787,31 +1633,108 @@ class ConsentCenterService:
     ) -> dict[str, Any]:
         normalized_actor = "ria" if actor == "ria" else "investor"
         normalized_mode = "connections" if mode == "connections" else "consents"
-        # Fetch the three surface counts concurrently instead of serially. Each
-        # count does its own DB work (and identity hydration), so running them
-        # one-after-another tripled the request latency and held pool
-        # connections far longer than needed, which exhausted the pool under
-        # load and produced cascading connection-acquire timeouts.
-        pending_count, active_count, previous_count = await asyncio.gather(
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="pending",
-                mode=normalized_mode,
-            ),
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="active",
-                mode=normalized_mode,
-            ),
-            self._get_surface_count(
-                user_id,
-                actor=normalized_actor,
-                surface="previous",
-                mode=normalized_mode,
-            ),
-        )
+        if not _consent_summary_v2_enabled():
+            pending_count, active_count, previous_count = await asyncio.gather(
+                *(
+                    self._get_surface_count(
+                        user_id,
+                        actor=normalized_actor,
+                        surface=surface,
+                        mode=normalized_mode,
+                    )
+                    for surface in ("pending", "active", "previous")
+                )
+            )
+        elif normalized_mode == "connections":
+            entries = await self._load_connection_entries_for_actor(user_id, actor=normalized_actor)
+            pending_count, active_count, previous_count = (
+                sum(
+                    1
+                    for entry in entries
+                    if self._connection_surface_for_status(
+                        str(entry.get("relationship_state") or entry.get("status") or "")
+                    )
+                    == surface
+                )
+                for surface in ("pending", "active", "previous")
+            )
+        elif normalized_actor == "investor":
+            (
+                location_buckets,
+                marketplace_buckets,
+                pending_entries,
+                active_entries,
+                previous_entries,
+                connection_count,
+            ) = await asyncio.gather(
+                self._location_buckets_async(user_id),
+                self._marketplace_buckets_async(user_id),
+                self._load_investor_pending_entries(user_id),
+                self._load_investor_active_entries(user_id),
+                self._load_investor_previous_entries(user_id),
+                self._incoming_connection_request_count(user_id),
+            )
+
+            def contributor_count(surface: str) -> int:
+                bucket = {
+                    "pending": "incoming_requests",
+                    "active": "active_grants",
+                    "previous": "history",
+                }[surface]
+                return len(location_buckets[bucket]) + len(marketplace_buckets[bucket])
+
+            pending_count = (
+                len(
+                    self._collapse_consent_chains(
+                        self._filter_mode_entries(
+                            pending_entries,
+                            actor=normalized_actor,
+                            mode=normalized_mode,
+                        )
+                    )
+                )
+                + contributor_count("pending")
+                + connection_count
+            )
+            active_count = len(
+                self._collapse_consent_chains(
+                    self._filter_mode_entries(
+                        active_entries,
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
+            ) + contributor_count("active")
+            previous_count = len(
+                self._group_history_identifier_trails(
+                    self._filter_mode_entries(
+                        previous_entries,
+                        actor=normalized_actor,
+                        mode=normalized_mode,
+                    )
+                )
+            ) + contributor_count("previous")
+        else:
+            pending_count, active_count, previous_count = await asyncio.gather(
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="pending",
+                    mode=normalized_mode,
+                ),
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="active",
+                    mode=normalized_mode,
+                ),
+                self._get_surface_count(
+                    user_id,
+                    actor=normalized_actor,
+                    surface="previous",
+                    mode=normalized_mode,
+                ),
+            )
         return {
             "user_id": user_id,
             "actor": normalized_actor,

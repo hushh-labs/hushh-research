@@ -8,6 +8,70 @@ This document is the canonical contract for app-facing surfaces across Kai, RIA,
 
 Profile remains the reference implementation for settings rows. This document expands that language into the broader page-shell, header, and content-surface system.
 
+## Visual Map
+
+Tokens in `globals.css` feed one shell composition, which feeds shared
+primitives. Route surfaces consume primitives and never re-derive the recipe.
+
+```mermaid
+flowchart TB
+  subgraph tokens["Token layer: hushh-webapp/app/globals.css"]
+    accent["--app-accent family<br/>iOS Blue default, Molten Gold opt-in<br/>lib/theme/accent.ts"]
+    metrics["--app-shell-reading, -standard, -expanded<br/>--top-shell-reserved-height, --page-top-start"]
+    surfacetok["--app-card-surface, -shadow, -radius, -border<br/>--ambient-chrome top and bottom"]
+  end
+
+  subgraph shell["Shell layer"]
+    frame["AppShellFrame + AmbientChromeController<br/>app/providers.tsx"]
+    top["AppTopShell: hidden, bar, bar-with-tabs<br/>components/app-ui/top-app-bar.tsx"]
+    page["AppPageShell and FullscreenFlowShell<br/>components/app-ui/app-page-shell.tsx"]
+    bottom["AppBottomShell: bottom nav plus Agent Bar<br/>components/app-ui/app-bottom-shell.tsx"]
+  end
+
+  subgraph primitives["Shared primitives"]
+    surfaces["SurfaceCard, SurfaceStack, SurfaceInset<br/>lib/morphy-ux/surfaces.tsx"]
+    control["ShellActionSurface + MaterialRipple<br/>components/app-ui/shell-action-surface.tsx"]
+    headers["PageHeader, SectionHeader<br/>components/app-ui/page-sections.tsx"]
+    settings["SettingsGroup, SettingsRow, AdaptiveDetailSurface<br/>components/app-ui/settings-ui.tsx"]
+    feedback["morphyToast, DialogOverlay scrim<br/>AppStreamPanel"]
+  end
+
+  subgraph nav["Navigation contract: hushh-webapp/lib/navigation"]
+    bottomnav["app-bottom-nav.ts, top-shell-back.ts"]
+    routecontract["app-route-layout.contract.json"]
+  end
+
+  routes["Route surfaces<br/>/one/kai, /one/consent, /one/feed, RIA, Profile, Marketplace"]
+
+  subgraph gates["Enforcement"]
+    gaccent["npm run verify:accent-tokens"]
+    groutes["npm run verify:routes"]
+    gcache["npm run audit:cache-coherence"]
+  end
+
+  accent --> frame
+  metrics --> frame
+  surfacetok --> frame
+  frame --> top
+  frame --> page
+  frame --> bottom
+  top --> control
+  bottom --> control
+  page --> surfaces
+  bottomnav --> bottom
+  routecontract --> page
+  surfaces --> headers
+  surfaces --> settings
+  surfaces --> feedback
+  control --> routes
+  headers --> routes
+  settings --> routes
+  feedback --> routes
+  routes --> gaccent
+  routes --> groutes
+  routes --> gcache
+```
+
 ## Agent Copy Ownership
 
 The app uses the Hussh / One / Kai / Nav / KYC ontology from [../../vision/agent-ontology.md](../../vision/agent-ontology.md).
@@ -52,26 +116,82 @@ Persona-facing surfaces are for everyday users, not implementers.
 
 Rules:
 
-1. Use plain labels such as `Personal Data`, `saved details`, `sharing`, and `access`.
+1. Use plain labels such as `Personal information`, `saved details`, `sharing`, and `access`.
 2. Do not expose implementation terms in consumer UI, including `PKM`, `manifest`, `schema`, `export`, `token`, `runtime`, `debug`, `dummy save`, route names, correlation ids, thread ids, workflow ids, consent ids, hashes, timings, or raw provider errors.
 3. Background notifications must summarize what the user can understand or do. Diagnostics belong in logs, metadata, developer routes, or an explicit debug-only view.
 4. Error copy should explain the next user action. Keep low-level failure details out of visible app text unless the route is explicitly developer-facing.
-5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal Data, Access Center, or the relevant workspace, not labs or raw explorer tools.
+5. Route links from consumer notifications must point to consumer surfaces such as Profile, Personal information, Access Center, or the relevant workspace, not labs or raw explorer tools.
 6. Row-level saves, deletes, refreshes, and short-lived failures must use the shadcn Sonner notification stack. Do not add inline route banners for transient row actions because they shift page layout and create loading bounce.
 7. Destructive actions must use the shadcn AlertDialog confirmation pattern before mutation. Keep the in-flight state inside the dialog or the initiating row action, not as a page-level loader.
 8. Async actionables (deletes, resets, disconnects, sends, and any mutation that waits for a backend ack or status) must surface a single branded loading -> success/error lifecycle through `morphyToast.promise` from `@/lib/morphy-ux/morphy`, tied to the real action promise. The toast stays in its loading state while the promise is pending and morphs in place to success or error once the ack lands. Do not hand-roll a `loading` toast plus a separate `success`/`error` toast, and do not fire a success toast before the promise resolves. Pre-flight guards that are not failures of the action itself (for example a required vault unlock) stay outside the promise as an `info`/`error` toast. Use `variant: "destructive"` for destructive actionables so the toast accent matches the action.
-8. Email Helper draft previews must not expose raw data structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
-9. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
+9. Email Helper draft previews must not expose raw information structure terms such as `changes`, `entities`, hashes, provenance, parser metadata, or internal ids. Use readable sections, facts, and tables from the approved render model.
+10. Dense email tables, especially portfolios and holdings, should remain complete and readable on mobile through horizontal scrolling. Do not force all table columns to fit the viewport when that creates overlap.
+
+## Concise Product Copy Contract
+
+Signed-in product UI should feel minimal, calm, and easy to understand in a few seconds.
+
+Rules:
+
+1. Headlines should usually be 2-6 words.
+2. Supporting text is optional. When present, keep it to one short sentence that helps the next action.
+3. Button labels should usually be 1-3 words.
+4. Do not repeat the same idea in the title, subtitle, row body, and button.
+5. Do not explain what a visible control already communicates.
+6. Prefer `View details`, `Request sent`, `Profile updated`, and similarly direct phrases over procedural copy.
+7. Empty states should name what happens next, not describe the full system.
+8. Use whitespace for hierarchy. Do not fill quiet space with helper text, badges, chips, or extra cards.
+9. Preserve required compliance, consent, security, and destructive-action warnings, but write them as short user-facing decisions.
+10. Every shared component should render concise copy by default so route screens do not solve clarity with local typography overrides.
+
+## Shell and navigation ownership
+
+The standard navigation is four layers, not one component. Every signed-in
+surface uses all four, and a surface that skips one is the reason a back button
+goes missing.
+
+| Layer | What owns it | Where |
+| --- | --- | --- |
+| Persistent chrome | `AppTopShell` / `AppBottomShell`, mounted once above the route Suspense boundary | `hushh-webapp/app/providers.tsx` |
+| Route mode (`standard`, `flow`, `redirect`, `hidden`, plus `persistentChrome`) | The route layout contract | `hushh-webapp/lib/navigation/app-route-layout.contract.json` |
+| Container and width | `AppPageShell` with its header and content regions, or `FullscreenFlowShell` for a `flow` | `hushh-webapp/components/app-ui/` |
+| Trail, back target, title | `resolveTopShellBreadcrumb`, then `resolveTopShellBackAction`, then `PageHeader` | `hushh-webapp/lib/navigation/top-shell-breadcrumbs.ts` |
+
+The law, which holds for every signed-in route:
+
+1. A screen has exactly **one** back control, **one** breadcrumb and **one**
+   title, and the breadcrumb's last crumb **is** that title.
+2. **The back control is derived from the breadcrumb, not from the page.** A
+   `standard` route with no breadcrumb entry gets no back button and no native
+   left-edge back gesture, on web and on device. Declaring the breadcrumb is
+   therefore not decoration; it is how the route becomes navigable.
+3. A `standard` route declares a breadcrumb, or carries an explicit
+   `exemptionReason` in the route layout contract saying why it does not.
+4. The top bar owns back. A route-local back button is reserved for a surface
+   that genuinely sits outside the shared shell, and never appears alongside the
+   shell's own.
+5. A `flow` renders through `FullscreenFlowShell` and draws no back control of
+   its own. Never hand-roll a full-height wrapper to clear the header; the top
+   shell is the single authority for header clearance.
+6. `shellVerification` in the route layout contract must name the file that
+   really renders the primitives. When a shell moves into a client component,
+   the declaration moves with it.
+
+`PkmSettingsShell` is not a second shell. It is a composition of exactly these
+primitives, and surfaces that use it are conformant.
 
 ## Shell Contract
 
 1. The top shell is the single authority for header clearance.
-2. Standard routes must reserve top space through `--top-shell-reserved-height`, not raw `env(safe-area-inset-top)`.
-3. Standard page roots own their own start spacing through `padding-top: var(--page-top-start)`.
-4. Do not solve overlap by adding bottom padding to the fixed top bar or by inserting route-local spacer nodes above page content.
-5. Shared page-shell wrappers such as `RiaPageShell` and consent/profile/Kai route roots must apply the same page-start token.
-6. Raw safe-area math is allowed only for true fullscreen or overlay surfaces that do not participate in the normal shell.
-7. Native iOS stays aligned with:
+2. The top shell is one public visual component with three route-declared
+   modes: `hidden`, `bar`, and `bar-with-tabs`. A tab row cannot exist without
+   its parent bar.
+3. Standard routes must reserve top space through `--top-shell-reserved-height`, not raw `env(safe-area-inset-top)`.
+4. Standard page roots own their own start spacing through `padding-top: var(--page-top-start)`.
+5. Do not solve overlap by adding bottom padding to the fixed top bar or by inserting route-local spacer nodes above page content.
+6. Shared page-shell wrappers such as `RiaPageShell` and consent/profile/Kai route roots must apply the same page-start token.
+7. Raw safe-area math is allowed only for true fullscreen or overlay surfaces that do not participate in the normal shell.
+8. Native iOS stays aligned with:
    - `ios.contentInset = "never"`
    - `SystemBars.insetsHandling = "css"`
 
@@ -81,36 +201,92 @@ surfaces reserve the existing Agent Bar through
 `--onboarding-agent-bar-clearance`. Route content must not reposition the Agent
 Bar or recreate that safe-area calculation locally. Terminal setup actions stay
 in normal flow and use the shared scroll tail so their final control can be
-scrolled fully above fixed chrome on compact viewports.
-8. Decorative glass fade is visual-only and must never add extra content spacing.
-9. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm.
-10. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks.
-11. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent.
-12. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior.
-13. `AppPageShell` owns route width and horizontal gutters for signed-in routes.
-14. The canonical shell widths are:
+scrolled fully above fixed chrome on compact viewports. 9. Decorative glass fade is visual-only and must never add extra content spacing. 10. Signed-in app pages default to `compact` density through `AppPageShell`; route-level spacing overrides are the exception, not the norm. 11. Compact density tightens page headers, section headers, card padding, list/table rows, and pagination spacing through shared CSS variables rather than page-local class tweaks. 12. Back, persona, shield, and bell interactions must use the shared shell action surface so ripple, focus, contrast, and badge positioning stay consistent. 13. Dropdown-triggered shell actions must accept a wrapper or render-trigger contract when the shell owns interaction behavior. 14. `AppPageShell` owns route width and horizontal gutters for signed-in routes. 15. The canonical shell widths are:
 
 - `reading`
 - `standard`
 - `expanded`
 
-15. The canonical container tokens are:
+16. The canonical container tokens are:
 
 - `--app-shell-reading: 54rem`
 - `--app-shell-standard: 90rem`
 - `--app-shell-expanded: 96rem`
 
-16. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
-17. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
-18. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
-19. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
-20. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
-21. Signed-in nested routes must expose a back affordance through the shared top bar when they drill below a parent workspace route.
-22. Route-local inline back buttons are reserved for contexts that do not participate in the shared shell, such as modal, sheet, or fullscreen-flow surfaces.
-23. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
-24. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
-25. Top-shell menus and popovers use the shared top-shell content wrappers. They share width, collision padding, visual treatment, and mobile centering; a centered trigger must not own a route-local panel offset.
-26. The Agent Bar binds to the shared bottom-chrome motion state and measures its own viewport-clear distance. Do not subscribe the voice tree to scroll frames or calculate a second route-local bottom offset.
+17. Signed-in app routes default to `standard`; use `reading` only for narrow detail/settings pages and `expanded` for dashboard/table-heavy routes.
+18. Route files must not add their own outer `max-w-* mx-auto px-*` shells when `AppPageShell` or `FullscreenFlowShell` already owns the page container.
+19. `top-app-bar` and fixed route-tab chrome must align to the same `standard` shell width as page content.
+20. Mobile uses page gutters, not a second outer card container. Surface padding belongs inside cards, lists, sheets, and insets.
+21. `SurfaceStack` overscan is allowed only as shared shell breathing on tablet/desktop; mobile defaults stay edge-aware and minimal.
+22. Signed-in nested routes must expose a back affordance through the shared top bar when they drill below a parent workspace route.
+23. Route-local inline back buttons are reserved for contexts that do not participate in the shared shell, such as modal, sheet, or fullscreen-flow surfaces.
+24. Signed-in route verification is contract-driven. `hushh-webapp/lib/navigation/app-route-layout.contract.json` is the browser coverage source of truth for `npm run verify:routes`.
+25. Signed-in route work is not complete until the route-contract Playwright sweep passes with the reviewer login and vault-unlock path.
+26. Top-shell menus and popovers use the shared top-shell content wrappers. They share width, collision padding, visual treatment, and mobile centering; a centered trigger must not own a route-local panel offset.
+27. The Agent Bar binds to the shared bottom-chrome motion state and measures its own viewport-clear distance. Do not subscribe the voice tree to scroll frames or calculate a second route-local bottom offset.
+28. The top shell remains fixed at the safe-area origin and never subscribes to
+    bottom-chrome scroll-hide progress. Query-backed workspace tab selection is
+    also the shared scroll-reset key, so click, swipe, history, and direct query
+    entry cannot inherit another panel's scroll depth.
+29. Back navigation has one authored contract in
+    `lib/navigation/top-shell-back.ts`. The visible top-bar back control and
+    native iOS left-edge gesture must invoke that same action; neither may use
+    browser history as its parent resolver. The left edge wins over contextual
+    tab swipes, appears only when the route exposes a back action, and never
+    runs over a modal surface. Android preserves platform system-back behavior.
+30. Persistent signed-in chrome uses `AmbientChromeMask` as the one shared
+    compositor. Both edges paint a neutral `--background` to transparent
+    feather with `--foreground` ink and the shared subtle readability blur;
+    route colors must not tint either bar.
+    The sampling engine remains limited to publishing the top surface tone for
+    native system-bar icon contrast and must not recolor web chrome. Do not set
+    global `--background` from a sample or add a route-local blur/tint recipe.
+    The top mask height is the currently visible shell height plus a short,
+    mode-specific tail: `bar-with-tabs` stays solid through the visible tab
+    underline and its dissolve moves with partial or full header collapse,
+    then ends before the first bounded route surface. The route-body gap below
+    a tab row is reading space, not mask geometry; never include it in the
+    solid chrome height. Its material wash and
+    multi-stop tail must be visually checked in the running shell: never make
+    a fully opaque slab followed by a one-step cutoff to solve readability.
+    Tabbed managers may use
+    a positive route-local body offset when they need additional reading space;
+    they must not compensate with a second mask or route-local gradient.
+    Sticky route labels align to `--top-shell-live-height`, never raw
+    `top: 0`, so they remain below the same live mask boundary as the bar
+    collapses.
+    The top row, contextual tabs, and top mask all follow the same live scroll
+    progress variables directly; do not add an independent CSS transition that
+    continues after the gesture or makes the edge lag the bottom compositor.
+31. `AppBottomShell` is the only persistent bottom compositor. It owns the
+    bottom mask, safe-area stack, and scroll-hide transform; the mask contracts
+    by the live hidden navigation travel while retaining the Agent Bar tail, then renders the
+    bottom navigation and Agent Bar as separate accessible slots. Keep route
+    visibility in its route-derived model; never recreate fixed bottom wrappers
+    or move either slot inside a page Suspense boundary.
+32. `FoundationPublicAmbient` is the canonical Foundation canvas for every
+    route, signed in or signed out. Routes may place opaque cards or fullscreen
+    experiences above it, but must not introduce a competing page-level canvas.
+    Light mode is a neutral white canvas with a visible technical grain at
+    ordinary display brightness; it is a shared canvas treatment, not an
+    accent wash or route-local gradient.
+33. Finance is a single shared workspace at `/one/kai?tab=`. Its Market,
+    Portfolio, and Analysis content inherits the Profile reading measure and
+    one shared outer gutter. The top shell owns contextual tabs; each tab may
+    have one primary `PageHeader`, never another fixed header or wider
+    route-local dashboard shell.
+34. A query-owned tab selection is a `contextual` interaction intent: it
+    commits immediately, settles against `pathname + search`, and never plays
+    the full screen route crossfade. Full pathname changes use the shared
+    `300ms` exit and `360ms` enter envelope. `SwipeViews` publishes selection
+    on Embla `select`; `settle` may only reconcile a different final snap.
+    A top-tab press requests compositor motion before query settlement, and
+    drag progress writes only to the owning tab strip—not an inherited root
+    variable that invalidates the whole document. Vertical pane-content
+    changes must not reinitialize the horizontal pager; only viewport-width
+    changes may do so. Every shared tab strip uses the Location-proven Morphy
+    rail and one moving solid selection surface attached to the same live swipe
+    position; route-specific underline variants are not allowed.
 
 ## Pixel Grid And Symmetry Contract
 
@@ -124,6 +300,24 @@ Rules:
 4. Content-aware tabs and dropdowns should appear only where they add navigation value. If the route body already shows the same launcher choices, hide the duplicate top selector.
 5. Progress and setup strips must be full-width within the same content column and use `overflow-hidden` only on the strip itself when needed to prevent visual bleed.
 6. When changing a shared visual pattern, update the owning component test to lock the layout primitive that prevents drift, such as fixed cell width, shared inset, or selector visibility.
+7. A primary completion action below a bounded list or table sits in its own
+   centered action row. It uses the Morphy CTA grammar (`min-h-14`, full width
+   within a `30rem` reading cap); table utilities stay in the toolbar and must
+   not pull the completion action to an edge.
+8. On narrow screens, every paginated-table footer row is a full-width,
+   edge-paired control: interactive controls on the left, their status text on
+   the right. That means rows-per-page left / range right, then page navigation
+   left / page count right. Do not split either pair into separate alignment
+   groups or distribute them inconsistently across the row.
+9. Repeated table action cells use one fixed icon-well geometry. A read-only
+   state keeps the same `size-8` rounded neutral well as its editable peer;
+   only interaction semantics and foreground tone change. Do not mix bare
+   status glyphs with circular icon controls in the same column.
+10. A manager whose PageHeader already names its primary collection renders a
+    live summary/action row directly above the grouped list; it does not add a
+    second generic section title or restate the header's purpose. Breadcrumbs
+    provide location, the PageHeader provides the single route title, and list
+    rows provide the information.
 
 ## Agent Chat Stream Surface Contract
 
@@ -133,7 +327,9 @@ Rules:
 
 1. Active assistant stream panels use the full available chat-column width (`w-full max-w-none`). Do not cap active stream panels with the normal assistant bubble width. Completed historical assistant messages may keep a readable max width.
 2. The stream surface has three distinct regions:
-   - `Progress` for app-owned tool, route, stage, cancellation, and settlement events.
+   - `Activity` for app-owned tool, route, stage, cancellation, settlement, and
+     bounded specialist events. AG-UI `ACTIVITY_SNAPSHOT`/`ACTIVITY_DELTA`
+     content enters this surface only through the versioned app registry.
    - `Thinking` only for optional provider telemetry when available.
    - `Response` only for real assistant/model text from SSE `token` frames or explicit final assistant text.
 3. Do not show placeholder text such as `Preparing response` inside the `Response` region. Waiting states belong to `Progress` or a small status line outside the response body.
@@ -142,6 +338,18 @@ Rules:
 6. Marketplace opportunity accordions in Agent Chat receive workspace-preloaded data. The accordion may show a lightweight loading row only while the workspace fetch is genuinely pending.
 7. Mobile chat history uses the shared shell glass family (`chrome-glass-surface` / `.bar-glass` semantics) and flat bottom-nav/top-bar control recipes. Do not ship a flat white drawer or show desktop collapse controls in mobile mode.
 8. Agent Chat session continuity is a surface contract: consecutive user commands reuse the active `conversationId`; reset only on explicit New chat, selecting history, user change, or vault session reset.
+9. Structured model responses use a versioned, app-owned component registry.
+   AG-UI transports typed tool results and activity snapshots/deltas; Morphy
+   owns the visual component. Unknown activity types fail closed. Never mount
+   model-authored React, HTML, classes, routes, or arbitrary action identifiers.
+10. Tool-based generative UI must preserve the readable assistant response and
+    add inspectable evidence rather than replacing the answer with a dashboard.
+    Consumer surfaces show labels, descriptions, grouping, sensitivity, and one
+    governed next action; raw tool names, arguments, opaque references, and
+    backend payloads remain hidden.
+11. An AG-UI interrupt is an awaiting-review lifecycle, not completion. Keep
+    the turn and its Activity visible until the person resolves or cancels the
+    authored HITL surface and the resumed run reaches a terminal event.
 
 ## Page Header Contract
 
@@ -202,19 +410,27 @@ The signed-in bottom navigation is a shared shell surface, not a route-local tab
 
 Rules:
 
-1. Each navigation scope (`one`, `investor`, `ria`) owns a FIXED top-level set. The set does not change as the user moves through subroutes. Do not inject a per-subroute tab into the bar.
-2. The bottom bar uses fixed per-scope sizing. Routes with fewer actions keep the same per-item size and the pill ends at the last real action; do not add fake disabled tabs, empty slots, or stretch narrow bars wider.
-3. Subroutes collapse onto their parent top-level tab (finance is the reference pattern). A subroute keeps its parent tab highlighted and never surfaces its own bottom-nav entry. The One scope collapses `/one/gmail`, `/one/pkm`, `/one/connected-systems`, `/one/location`, and `/consents` onto the `One` (dashboard) tab; profile subroutes keep the `Profile` tab.
-4. The One scope is the fixed set `One / Connect / Profile` on direct One routes. Consent/Personal Data/Gmail/Location/Systems are subroutes of the One Agents dashboard, not their own tabs. Common routes such as Connect and Profile may preserve the prior app-family scope for same-session navigation, so entering them from Finance keeps the Finance tab set and entering them from RIA keeps the RIA tab set.
-5. `Search` belongs to the shared command dock, not the segmented navigation and not the agent chat trigger. The detached Search bubble must align to the same bottom row as the route pill instead of overlapping it.
-6. Investor finance routes own the fixed finance-family set `Market`, `Portfolio`, `Analysis`, `Connect`, and `Profile`. All finance subroutes collapse onto one of these via `activeKaiRouteTabFromPath`.
-7. RIA routes own advisory-family actions such as `RIA`, `Clients`, `Connect`, and `Picks`.
-8. Do not expose finance-specific tabs on generic One routes unless the route is inside the finance workspace.
-9. Use canonical route constants through `lib/navigation/app-bottom-nav.ts`; route files must not build their own bottom-nav arrays.
-10. Treat Search as an action that opens `KaiCommandBarGlobal` command/action discovery. Do not route Search to `/agent`, do not open agent chat from Search, and do not duplicate Search inside the segmented route nav.
-11. Bottom-nav active state should use border, fill, and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
-12. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
-13. The pending-consent count badge homes on exactly one tab per scope: the `Dashboard` tab in the One scope and the `Guardian` tab in the investor/ria scopes. Do not duplicate the consent badge onto the Profile tab or any subroute tab.
+1. The primary bottom utility bar is fixed and constant on all signed-in standard routes: `One`, `Connect`, and `Search`. Search is part of the same segmented control and opens `KaiCommandBarGlobal`; it does not route to `/agent` or open agent chat.
+2. Profile remains the rightmost signed-in top-bar action, using the signed-in image or shared generic fallback.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Contextual workspace tabs are rendered by the shared top shell from the central route registry; they never become route-local or bottom-navigation chrome.
+4. Consent Center owns `Requests`, `Active`, `History`, and `Connections` in
+   the same shared top shell. Do not render a second in-page segmented control;
+   tab changes clear transient search, pagination, and detail selection while
+   preserving valid advisor context.
+5. Finance uses one canonical workspace pathname: `/one/kai`. Portfolio
+   and Analysis are URL-backed selections at
+   `/one/kai?tab=portfolio` and
+   `/one/kai?tab=analysis`; route inventories normalize those URLs to
+   the shared pathname without discarding their tab state.
+6. Use canonical route constants through `lib/navigation/app-bottom-nav.ts` and `lib/navigation/*-route-tabs.ts`; route files must not build their own shell navigation arrays.
+7. The Agent Bar and bottom utility bar share the measured bottom-chrome stack with a 6px resting join. The three bottom segments use the Agent Bar's shared frame and remain centered with equal widths on both wide and narrow screens. Do not add component- or route-local offsets.
+8. Bottom active state uses fill and icon-color contrast. Avoid hover bounce, active icon scaling, or springy overshoot that shifts attention away from the current route.
+9. Use familiar symmetric icons for global anchors. Agent/search entry points should read as search or conversation access, not decorative sparkle automation.
+10. The pending-consent count belongs on the One utility only; never duplicate it onto Profile or a workspace tab.
+11. Top and bottom shell material uses the same subtle-blur sampled-tint,
+    feathered-mask, foreground-contrast, and reduced-motion-safe OKLCH spring
+    contract. A dark or gradient surface must not acquire a milky light chrome
+    band.
 
 ## Row and Card Interaction Contract
 
@@ -225,17 +441,35 @@ Rules:
 3. The trailing slot stays pinned right unless the design explicitly calls for a stacked mobile layout.
 4. Use one interaction layer per surface.
 5. `SettingsRow` is the default interactive list row contract and should be reused outside Profile when the surface is row-like.
+   Inset separators align beneath a real leading icon/visual; a text-only row
+   uses a symmetric full-width hairline rather than a fabricated icon inset.
+   Profile nested routes inherit `separatorInset` and compact row density from
+   their stack boundary through `SettingsPresentationProvider`; child panels
+   must not fall back to the older full-width-divider or comfortable-density
+   treatment merely because they are rendered below Account, Appearance,
+   Security, Memory, Access, Support, Gmail, or Connected Systems.
 6. Standalone actions should use the shared `Button` primitive so ripple, loading, and emphasis stay consistent across the app.
 7. Do not ship raw clickable pills or text links for primary app actions when a shared button or row primitive already exists.
 8. Browse-heavy managers should prefer compact row/tape treatments over card-per-item layouts when the user is scanning lists, holdings, picks, requests, or rosters.
+9. A browse-heavy manager with top-shell tabs must bound its grouped list to the
+   visible workspace. Keep the toolbar and pagination pinned within the group;
+   the row rail, not the document, owns vertical scrolling. Consent request
+   review uses the canonical adaptive detail surface with a flat definition
+   list and decision controls—no duplicate request heading, supporting copy,
+   or nested detail card.
+10. A detail overlay is its own raised surface. Its evidence sections use flat
+    headings and hairline-separated rows inside that surface; do not put a
+    `SettingsGroup`, card, or rounded inset around each section unless it is a
+    separately actionable task.
 
 ## Route Loading Contract
 
 1. Cold App Router segment fallbacks use `RouteLoadingState` from
    `components/app-ui`, choosing `app`, `onboarding`, or `ambient` shell
    geometry. Do not use a route-local blank or centered-text fallback.
-2. `HushhLoader` remains for transition-only and action-local status; feature
-   skeletons remain appropriate when they preserve a known route's geometry.
+2. `HushhLoader` remains for transition-only and action-local status. Route
+   transitions and cold guards use a compact labeled loading indicator, not
+   skeleton cards that replace a usable app surface.
 3. A safe warm or stale cache render remains visible during refresh. A fallback
    must never replace it with a page-wide loader, and it must never expose
    protected or vault-backed content before the existing guards settle.
@@ -250,7 +484,7 @@ Rules:
 2. The flat-control recipe is: `rounded-full` shape, base fill `bg-black/[0.05] dark:bg-white/[0.07]`, hover fill `hover:bg-black/[0.08] dark:hover:bg-white/[0.1]`, press feedback `active:scale-90` for icon controls and `active:scale-[0.97]` for pill controls, and `transition-[color,background-color,transform] duration-200`. Do not add visible borders, drop shadows, or per-control backdrop blur to flat controls.
 3. Icon controls use `h-9 w-9` and color contrast (`text-muted-foreground hover:text-foreground`). Pill controls use `h-9 px-3.5 text-[14px]` with platform text color (`text-[#1d1d1f] dark:text-[#f5f5f7]`).
 4. When using `morphy-ux` `Button`, a flat control maps to `variant="none" effect="fade"`. Do not mix `effect="glass"` and `effect="fade"` between sibling controls in the same group. The vault unlock methods (Vault Key, Passkey, Recovery Key) must all share one effect so the buttons read as a uniform set.
-5. Bars use the shared `.bar-glass` and `.bar-glass-top` surfaces; cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
+5. Persistent bars use `AmbientChromeMask` through `AppTopShell` or `AppBottomShell`; the controller is mounted once in `AppShellFrame`, and both edges consume the neutral theme feather and foreground contract. Foundation/onboarding presentation may add toggles, but may not fork a local bar, blur, tint, or width recipe. Cards use the `--app-card-*` tokens. Controls live on top of those surfaces and stay flat.
 6. Focus state is the shared Foundation ring `focus-visible:ring-2 focus-visible:ring-accent/70` (gold, theme-aware via the accent token). Do not invent per-control focus styling and do not reintroduce off-palette `ring-sky-*`/`ring-blue-*`.
 
 ## Foundation Color Contract
@@ -264,8 +498,8 @@ inline script in `app/layout.tsx`, managed by `lib/theme/accent.ts`). All
 legacy accent names (`--foundation-gold-*`, `--color-accent-*`, `--brand-*`,
 `--morphy-primary-*`, `--tone-blue*`, `--accent`, `--ring`) alias the family
 and flip automatically in `.dark`, so existing consumers follow the preference
-with zero churn. The RIA persona surface (`body[data-persona-surface="ria"]`)
-intentionally keeps its own gold identity regardless of the accent preference.
+with zero churn. RIA compatibility aliases resolve through this same family;
+RIA must not override the shared shell or impose a separate persona palette.
 This contract governs how the tokens are USED in component code.
 
 ### The Foundation law
@@ -316,15 +550,15 @@ collide with the amber/warning semantic).
 
 ### Mapping cheat-sheet
 
-| Off-palette (from) | Foundation (to) |
-|---|---|
-| `bg-blue-50`, `dark:bg-blue-950/40` | `bg-accent-surface` (no `dark:` needed) |
-| `text-blue-500/600/700` | `text-accent-strong` |
-| `bg-blue-500/600` accent fill | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA |
-| `hover:bg-blue-600` | `hover:opacity-90` |
-| `border-blue-*` | `border-accent-border` |
-| `ring-blue-*`, `focus:ring-blue-*` | `ring-accent` / `focus-visible:ring-accent/70` |
-| `from-blue-500 to-purple-600` brand gradient | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]` |
+| Off-palette (from)                                         | Foundation (to)                                                                  |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `bg-blue-50`, `dark:bg-blue-950/40`                        | `bg-accent-surface` (no `dark:` needed)                                          |
+| `text-blue-500/600/700`                                    | `text-accent-strong`                                                             |
+| `bg-blue-500/600` accent fill                              | `bg-accent` (gold) — OR `bg-primary` (ink) if it's a PRIMARY CTA                 |
+| `hover:bg-blue-600`                                        | `hover:opacity-90`                                                               |
+| `border-blue-*`                                            | `border-accent-border`                                                           |
+| `ring-blue-*`, `focus:ring-blue-*`                         | `ring-accent` / `focus-visible:ring-accent/70`                                   |
+| `from-blue-500 to-purple-600` brand gradient               | `from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)]`              |
 | brand hex `#0071e3`/`#0066cc` (+ dark `#0a84ff`/`#2997ff`) | `text-[color:var(--app-accent-deep)]` text / `bg-[color:var(--app-accent)]` fill |
 
 NOTE: `MaterialRipple variant="blue"` and the `morphy-ux` `gradients.primary`
@@ -355,39 +589,62 @@ Every floating surface that takes modal focus shares one backdrop language so op
 Rules:
 
 1. The canonical scrim is `bg-black/22 backdrop-blur-[8px]` plus the `-webkit-backdrop-filter` fallback, sitting at `z-[499]` directly below the surface at `z-[500]`. Radix overlays (`DialogOverlay`, sheet, drawer, alert dialog) already carry this via their `data-state` motion classes.
-2. Dialogs, sheets, drawers, the command palette, and contextual vault unlock prompts inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Every vault unlock sheet suppresses persistent top chrome, bottom navigation, and the Agent Bar while it is open. The non-dismissible `VaultLockGuard` is the credential-gate exception: its drawer uses one opaque theme canvas without blur or backdrop fade, so route chrome and Agent Bar are fully covered rather than visibly competing beneath an unlock form.
+2. Dialogs, sheets, drawers, and the command palette inherit the scrim through `DialogOverlay`; do not add a second hand-rolled scrim on top. Vault create, unlock, recovery, passkey, and biometric credential surfaces are the focused credential exception: every entry point uses one opaque neutral theme canvas without blur, suppressing persistent top chrome, bottom navigation, and the Agent Bar so route content never competes beneath the form. The non-dismissible `VaultLockGuard` uses the same canvas but also suppresses backdrop animation; contextual vault prompts remain dismissible and retain their standard enter/exit motion except while a newly generated one-time recovery key is disclosed. That disclosure blocks Escape and outside-pointer dismissal until the person explicitly confirms the key was saved.
    Passkey or biometric enrollment is an explicit choice within vault setup or Security; never auto-open that prompt merely because a person navigated to a signed-in route.
 3. Popovers that take modal focus opt into the same backdrop with `PopoverContent withBackdrop`. The scrim renders as `data-slot="popover-scrim"` and animates through the shared `overlay-scrim-in` / `overlay-scrim-out` keyframes registered in `globals.css`. Do not hand-roll a popover scrim with ad hoc opacity or blur values.
 4. Scrim animation tokens (`--motion-overlay-*`) are shared. Do not override per-surface enter/exit durations, and honor the reduced-motion media query already wired in `globals.css`.
 5. Non-modal helper popovers (tooltips, inline hint bubbles, hover cards) do not take a backdrop. Reserve `withBackdrop` for surfaces that should pull focus away from the page.
+6. The shared `SheetContent` owns bottom-sheet physics: the mobile drag handle,
+   4px engagement threshold, scroll-top handoff, distance/velocity dismissal,
+   and non-flashing spring-back. Bottom sheets inherit this behavior by default;
+   do not reimplement pointer handlers in a feature sheet. Surface colors and
+   content spacing remain feature-owned.
+7. `AdaptiveDetailSurface` is the single cross-app record-detail container. It
+   owns responsive Drawer/Dialog transport, close affordance, header, body,
+   footer, keyboard clearance, and portal-safe surface tokens. Do not create a
+   Kai-, CRM-, consent-, or route-local detail shell. Activity is the deliberate
+   exception in transport only: its desktop view remains a non-modal anchored
+   dropdown and its mobile view remains the shared Sheet, while both retain the
+   same surface tokens and compact header/body anatomy. Entity details place
+   supplied identity media in the shared `leading` header slot, followed by one
+   entity title and one concise metadata line. The body begins with new evidence;
+   it must not repeat that identity block, title, subtitle, or implementation
+   diagnostics in a nested card.
 
-## Consent Inbox And Notification Contract
+## Activity And Notification Contract
+
+The dropdown-based `ActivityInbox` this section used to specify no longer exists.
+It was replaced by a dedicated route, and `__tests__/components/top-app-bar.contract.test.ts`
+actively asserts that `top-app-bar.tsx` contains no `<ActivityInbox`,
+`<ConsentInboxDropdown`, or `<DebateTaskCenter`.
 
 Rules:
 
-1. The bell is one notification surface for background tasks and push events, not a tabbed mini-app.
-2. The shield is the consent inbox.
-3. The shield badge must come from consent-center summary data for the active persona, not notification-local counters.
-4. The first-party shield inbox should reuse the cached `pending page 1` manager payload and render the first `5` rows from that list instead of creating a second cache lane.
-5. The inbox dropdown must stay compact:
-   - fixed width
-   - bounded height
-   - internal scroll only
-   - no pagination chrome inside the dropdown
-6. Bell and shield dropdowns should share the same top-shell dropdown chrome:
-   - same radius
-   - same border/backdrop treatment
-   - same header/body/footer spacing
-   - same device-width scaling rules
-7. Bell, shield, profile, and compatibility aliases must converge on the same `/consents` manager when the user chooses to open the full workspace.
-8. Delivery diagnostics do not belong in the bell or shield inbox.
-9. Notifications remain visible until dismissed and should be ordered newest-first.
-10. Consent-review actions triggered from toasts or push taps must use in-app router navigation for internal app routes so vault-backed sessions are not cold-restarted.
-11. The bell is a two-level async surface:
-    - primary work for long-running/recoverable tasks such as PKM upgrade, portfolio import, Plaid refresh, consent export refresh
-    - passive work for cache warm, silent refresh, and reconciliation
-12. Passive work should only surface after a short threshold, stay grouped under `Background activity`, and autoclear after success.
-13. Failed passive work must promote into the primary task list and remain visible until dismissed.
+1. `/one/feed` is the one signed-in activity surface. It owns presentation only:
+   a fixed header, a scrolling list, sticky day dividers, and inline actions. It
+   does not own either domain's data or actions.
+2. The consent adapter remains the authority for active-persona summary data,
+   cached pending previews, consent-change events, and manager routing. Its
+   pending count must never be derived from feed-local counters.
+3. The task adapter remains the authority for background-task subscriptions,
+   navigation, cancellation, retry, dismissal, and vault checks. Do not turn task
+   activity into consent state or invent an acknowledgement model for it.
+4. The feed uses the canonical list system (`SettingsGroup` / `SettingsRow`), not
+   a card stack, so it reads as one continuous descending stream.
+5. Rows are ordered newest-first by wall-clock time and grouped into day
+   sections. Items that need the user appear above history.
+6. Irreversible inline actions (deny, decline, cancel) require a confirming
+   second tap and auto-disarm; a stray tap must not reject a request.
+7. Consent, Profile, and compatibility aliases must converge on the same
+   `/one/consent` manager when the user opens the full workspace.
+8. Delivery diagnostics do not belong in the feed. Task notifications remain
+   visible until dismissed.
+9. Consent-review actions triggered from toasts or push taps must use in-app
+   router navigation for internal app routes so vault-backed sessions are not
+   cold-restarted.
+10. Passive background work should only surface after a short threshold and
+    autoclear after success. Failed passive work must promote into the primary
+    list and remain visible until dismissed.
 
 ## Scroll Stability Contract
 
@@ -450,6 +707,7 @@ Use the `Subtle Apple` depth model:
 7. Do not tint outer card chrome to communicate state.
 8. If a surface needs more presence, move from `surface` to `surface-feature` or `hero`; do not invent a new route-local shadow recipe.
 9. Analysis/workspace sections should avoid duplicate summary chrome. Use one primary card for the main read and then secondary cards only when they add new information.
+10. `SettingsGroup` is the shared grouped-list card: it uses `--app-card-shadow-standard` so every settings surface receives the same depth. Route callers must not supply a local shadow replacement.
 
 ### Information Density And Evidence
 
@@ -470,6 +728,18 @@ Use the `Subtle Apple` depth model:
 9. Persona-facing surfaces should bias toward shorter, clearer, more descriptive copy over decorative narrative.
 10. The design system should challenge poor UX proactively; weak hierarchy, vague detail, or obvious asymmetry should be treated as design defects, not stylistic preferences.
 11. Voice or agent-aware controls must not advertise executable action ids unless the generated gateway can execute or route them. If a control is local-only, coming soon, incompatible on the route, or not wired to the gateway, show it as state/context only and omit the executable action id.
+
+### Local Time Display Contract
+
+1. Product UI formats timestamp instants through
+   `lib/utils/local-date-time.ts`, which uses the device locale and local clock
+   settings without showing a zone label.
+2. Do not set `timeZone` or `timeZoneName` in user-facing application UI.
+   Backend/agent request context may continue to carry the device zone when it
+   needs it to reason about the user’s local time.
+3. Calendar-only dates (`YYYY-MM-DD`, statement periods, transaction dates)
+   are not timestamp instants. Keep them in a calendar-date formatter so an
+   offset never silently moves their day.
 
 ### Ripple Ownership and Clipping
 
@@ -548,14 +818,18 @@ Rules:
 7. Preview widgets should prefer a shared first-page cache when they open the same underlying manager surface; use `top=n` only for dedicated preview-only fetches.
 8. Empty or single-page list views must not render pagination chrome.
 9. Shared paginated list primitives should provide direct page-number navigation plus optional instant list-level swipe. Do not reimplement carousel-like paging per route.
+10. A stock-analysis preview is a reversible decision state. It must retain a
+    visible path to the recommendations/history view and to the shared stock
+    search; a selected ticker must never trap a person in a preview or require
+    browser navigation to research a different stock.
 
 ## RIA Information Architecture
 
 1. `RIA` is a lightweight workspace shell, not a second dense operations dashboard.
-2. The RIA bottom navigation is scoped to the RIA route family: `RIA / Clients / Connect / Picks`.
-3. `/consents` is the single consent/request workspace for both investor and RIA personas.
-4. `/ria/requests` remains only as a compatibility alias into `/consents`, not as a second consent system.
-5. The shell should contextualize `/consents` as `Profile > Privacy` for breadcrumb and primary-nav highlighting while preserving `/consents` as the canonical URL.
+2. RIA workspace navigation lives in the top shell: `Home / Clients / Picks`. The fixed bottom utilities remain `One / Connect / Search`; Profile remains the rightmost top-bar action.
+3. `/one/consent` is the single consent/request workspace for both investor and RIA personas.
+4. `/ria/requests` remains only as a compatibility alias into `/one/consent`, not as a second consent system.
+5. The shell contextualizes `/one/consent` as `One > Consent Center`; legacy `/consents` preserves inbound links by redirecting to that canonical URL.
 6. Advanced PKM tools such as `PKM Agent Lab` should inherit the standard profile/privacy shell contract instead of introducing a separate hidden-route layout language.
 7. Relationship views should stay grouped around:
    - relationship state
@@ -563,7 +837,7 @@ Rules:
    - available scope metadata
    - current grants
 8. Workspace data views should open only after consent is active; pre-consent relationship surfaces stay metadata-only.
-9. Persona-facing profile copy should use plain-language terms such as `Personal Data`; keep `PKM` for developer-only surfaces.
+9. Persona-facing profile copy should use plain-language terms such as `Personal information`; keep `PKM` for developer-only surfaces.
 10. Profile-family vault actions should live in the shared top app bar instead of route-local hero chrome.
 11. Settings/menu group treatment should stay compositionally consistent from mobile through desktop rather than switching into a separate desktop card language.
 

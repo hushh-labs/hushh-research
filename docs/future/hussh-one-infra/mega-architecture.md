@@ -57,7 +57,7 @@ The practical design goal is to let One coordinate user-approved outcomes while 
 | --- | --- | --- |
 | Experience | One relationship, Kai finance workflows, Nav consent guidance, KYC identity tasks | Current runtime is transitional: One Voice is direct, while several action/planner contracts remain Kai-era compatibility surfaces. |
 | Trust and policy | PCHP, auth, consent scopes, audit logs, data access policy | Current authority; do not bypass. |
-| Memory | PKM, vault, scoped personal data, derived user context | Current canonical memory boundary. |
+| Memory | PKM, vault, scoped personal information, derived user context | Current canonical memory boundary. |
 | Access | Hussh API, MCP, generated contracts, encrypted scoped export | Current developer access pattern. |
 | Enterprise workflow | Salesforce, Agentforce, MuleSoft, Flex Gateway, CRM | Future partner endpoint, not trust authority. |
 | Private compute | Mac Mini, OpenClaw, local MCP, App Intents | Future private edge and local tool plane. |

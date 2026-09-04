@@ -1,10 +1,15 @@
+import fs from "node:fs";
+
 /**
  * Signed-in UI interaction flows shared by Playwright route verification
  * and native iOS UI interaction audit.
  *
  * Step types:
  * - ensure_persona: { persona: "ria" | "investor" }
- * - click_bottom_nav: { label: string }
+ * - ensure_ria_workspace: {}
+ * - click_bottom_nav: { label: "One" | "Connect" | "Search" }
+ * - click_top_tab: { label: string }
+ * - click_shell_action: { ariaLabel: string }
  * - click_button: { name: string, regex?: boolean }  // case-insensitive exact match unless regex=true
  * - click_voice_control: { controlId: string }
  * - click_testid: { testId: string }
@@ -22,7 +27,16 @@
  * - wait_beacon: { routeIds: string[], dataStates?: string[] }
  * - assert_url_includes: { value: string }
  * - assert_visible_testid: { testId: string }
+ * - assert_not_visible_testid: { testId: string }
+ * - assert_viewport_visible_testid: { testId: string }
+ * - assert_ria_workspace_admission: accepts either an activated RIA workspace
+ *   or the canonical reviewer’s RIA onboarding admission state.
  * - open_ria_workspace: {}
+ *
+ * `requiresRiaWorkspace` flows are not executable for the canonical shared
+ * reviewer while its RIA application is pending. The native runner records an
+ * explicit `onboarding_admission` conditional skip in that case; it never
+ * treats an onboarding screen as a successful workspace interaction.
  */
 
 export const TERMINAL_DATA_STATES = [
@@ -33,22 +47,64 @@ export const TERMINAL_DATA_STATES = [
   "error",
 ];
 
+const KAI_MARKET_ROUTE = "/one/kai";
+const KAI_PORTFOLIO_ROUTE = `${KAI_MARKET_ROUTE}?tab=portfolio`;
+const KAI_ANALYSIS_ROUTE = `${KAI_MARKET_ROUTE}?tab=analysis`;
+const locationOnboardingContract = JSON.parse(
+  fs.readFileSync(
+    new URL("../../lib/onboarding/one-location-onboarding.contract.json", import.meta.url),
+    "utf8",
+  ),
+);
+const LOCATION_ONBOARDING_CHECKPOINTS = locationOnboardingContract.screens.map(
+  (screen) => screen.testId,
+);
+
 export const UI_FLOWS = [
   {
+    id: "native-reviewer-location-intro-fresh-session",
+    route: "/one/setup/location",
+    description: "Location setup traverses every screen once without mutating reviewer capability state",
+    watchdog: {
+      checkpoints: LOCATION_ONBOARDING_CHECKPOINTS,
+      maxCheckpointRegressions: 0,
+      maxNoProgressMs: 20_000,
+    },
+    steps: [
+      { type: "ensure_persona", persona: "investor" },
+      { type: "navigate_route", route: "/one/setup/location" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
+      { type: "click_button", name: "Get started" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
+      { type: "click_button", name: "Continue" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
+      // "Not now" rather than "Check my contacts": the reviewer run must not
+      // trigger an OS contacts prompt, and declining is the path every person
+      // who skips this step takes anyway.
+      { type: "click_button", name: "Not now" },
+      { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
+      // Stop here rather than pressing the final CTA. It settles the reviewer's
+      // Location capability, and this flow's contract is to traverse every
+      // screen once *without* mutating capability state.
+      { type: "wait_button", name: "Finish" },
+    ],
+  },
+  {
     id: "shell-investor-kai-analysis",
-    route: "/one/kai/analysis",
+    route: KAI_ANALYSIS_ROUTE,
     description: "Investor shell: Market -> Analysis",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Market" },
-      { type: "click_bottom_nav", label: "Analysis" },
-      { type: "wait_beacon", routeIds: ["/one/kai/analysis"] },
+      { type: "click_top_tab", label: "Analysis" },
+      { type: "assert_url_includes", value: "tab=analysis" },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
+      { type: "assert_viewport_visible_testid", testId: "top-app-bar-tabs" },
       { type: "assert_visible_testid", testId: "kai-analysis-primary" },
     ],
   },
   {
     id: "native-investor-kai-debate-preview-start",
-    route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
+    route: `${KAI_ANALYSIS_ROUTE}&ticker=AAPL&pick_source=default`,
     description:
       "Investor analysis preview: select list source and start debate without active-run loop",
     stepTimeoutMs: 60000,
@@ -56,11 +112,11 @@ export const UI_FLOWS = [
       { type: "ensure_persona", persona: "investor" },
       {
         type: "navigate_route",
-        route: "/one/kai/analysis?ticker=AAPL&pick_source=default",
+        route: `${KAI_ANALYSIS_ROUTE}&ticker=AAPL&pick_source=default`,
       },
       {
         type: "wait_beacon",
-        routeIds: ["/one/kai/analysis"],
+        routeIds: [KAI_MARKET_ROUTE],
         dataStates: ["loaded"],
         timeoutMs: 60000,
       },
@@ -75,27 +131,25 @@ export const UI_FLOWS = [
   },
   {
     id: "shell-investor-kai-portfolio",
-    route: "/one/kai/portfolio",
+    route: KAI_PORTFOLIO_ROUTE,
     description: "Investor shell: Portfolio tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
+      { type: "click_top_tab", label: "Portfolio" },
+      { type: "assert_url_includes", value: "tab=portfolio" },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     ],
   },
   {
     id: "shell-investor-kai-import",
     route: "/one/kai/import",
-    description: "Investor shell: Portfolio -> import CTA",
+    description: "Investor shell: Portfolio -> import route",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "click_bottom_nav", label: "Portfolio" },
-      { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
-      {
-        type: "click_button",
-        name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
-        regex: true,
-      },
+      { type: "click_top_tab", label: "Portfolio" },
+      { type: "assert_url_includes", value: "tab=portfolio" },
+      { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
+      { type: "navigate_route", route: "/one/kai/import" },
       { type: "wait_beacon", routeIds: ["/one/kai/import"] },
     ],
   },
@@ -103,92 +157,85 @@ export const UI_FLOWS = [
     id: "shell-ria-home",
     route: "/ria",
     description: "RIA shell: Home tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Home" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Home" },
       { type: "wait_beacon", routeIds: ["/ria"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
+      { type: "assert_visible_testid", testId: "ria-home-primary" },
     ],
   },
   {
     id: "shell-ria-clients",
     route: "/ria/clients",
     description: "RIA shell: Clients tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Clients" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Clients" },
       { type: "wait_beacon", routeIds: ["/ria/clients"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
     ],
   },
   {
     id: "shell-ria-picks",
     route: "/ria/picks",
     description: "RIA shell: Picks tab",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Picks" },
+      { type: "ensure_ria_workspace" },
+      { type: "click_top_tab", label: "Picks" },
       { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "assert_visible_testid", testId: "ria-action-bar" },
-      { type: "assert_visible_testid", testId: "ria-picks-primary" },
     ],
   },
   {
     id: "shell-marketplace",
     route: "/marketplace",
     description: "RIA shell: Connect / marketplace",
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
+      { type: "ensure_ria_workspace" },
       { type: "click_bottom_nav", label: "Connect" },
       { type: "wait_beacon", routeIds: ["/marketplace"] },
     ],
   },
   {
     id: "shell-profile",
-    route: "/profile",
+    route: "/one/profile",
     description: "Profile tab from shell",
     steps: [
-      { type: "click_bottom_nav", label: "Profile" },
-      { type: "wait_beacon", routeIds: ["/profile"] },
+      { type: "ensure_persona", persona: "investor" },
+      { type: "click_shell_action", ariaLabel: "Open Profile" },
+      { type: "wait_beacon", routeIds: ["/one/profile"] },
       { type: "assert_visible_testid", testId: "profile-primary" },
     ],
   },
   {
     id: "shell-consents",
-    route: "/consents",
+    route: "/one/consent",
     description: "One shell: Consent tab",
     steps: [
       { type: "ensure_persona", persona: "investor" },
-      { type: "navigate_route", route: "/consents" },
-      { type: "wait_beacon", routeIds: ["/consents"] },
+      { type: "navigate_route", route: "/one/consent" },
+      { type: "wait_beacon", routeIds: ["/one/consent"] },
       { type: "assert_visible_testid", testId: "consent-manager-primary" },
     ],
   },
   {
-    id: "ria-picks-source-category-tabs",
-    route: "/ria/picks",
-    description: "RIA picks source + category segmented controls",
+    id: "ria-workspace-admission",
+    route: "/ria",
+    description: "RIA workspace resolves to fixed tabs or the verified onboarding admission state",
     steps: [
       { type: "ensure_persona", persona: "ria" },
-      { type: "click_bottom_nav", label: "Picks" },
-      { type: "wait_beacon", routeIds: ["/ria/picks"] },
-      { type: "click_button", name: "^my list", regex: true },
-      { type: "assert_url_includes", value: "source=my" },
-      { type: "click_button", name: "^kai list", regex: true },
-      { type: "assert_url_includes", value: "source=kai" },
-      { type: "click_button", name: "avoid" },
-      { type: "assert_url_includes", value: "category=avoid" },
-      { type: "click_button", name: "top picks" },
-      { type: "assert_url_includes", value: "category=top-picks" },
-      { type: "click_button", name: "screening" },
-      { type: "assert_url_includes", value: "category=screening" },
+      { type: "assert_ria_workspace_admission" },
     ],
   },
   {
     id: "ria-workspace-account-detail",
     route: "/ria/clients/[userId]/accounts/[accountId]",
     description: "RIA workspace -> taxable brokerage account",
+    requiresRiaWorkspace: true,
     steps: [
+      { type: "ensure_ria_workspace" },
       { type: "open_ria_workspace", timeoutMs: 120000 },
       {
         type: "wait_button",
@@ -207,7 +254,9 @@ export const UI_FLOWS = [
     id: "ria-workspace-access-panel",
     route: "/ria/clients/[userId]",
     description: "RIA workspace sharing/access panel",
+    requiresRiaWorkspace: true,
     steps: [
+      { type: "ensure_ria_workspace" },
       { type: "open_ria_workspace", timeoutMs: 120000 },
       { type: "click_button", name: "^(sharing|access)$", regex: true },
       { type: "assert_visible_testid", testId: "ria-client-workspace-access" },
@@ -218,8 +267,9 @@ export const UI_FLOWS = [
     route: "/marketplace",
     description: "Marketplace open workspace card when present",
     optional: true,
+    requiresRiaWorkspace: true,
     steps: [
-      { type: "ensure_persona", persona: "ria" },
+      { type: "ensure_ria_workspace" },
       { type: "click_bottom_nav", label: "Connect" },
       { type: "wait_beacon", routeIds: ["/marketplace"] },
       {
@@ -250,8 +300,9 @@ export const KAI_IMPORT_E2E_FLOW = {
   steps: [
     { type: "ensure_persona", persona: "investor" },
     { type: "assert_no_persona_mismatch_prompt", timeoutMs: 15000 },
-    { type: "click_bottom_nav", label: "Portfolio" },
-    { type: "wait_beacon", routeIds: ["/one/kai/portfolio"] },
+    { type: "click_top_tab", label: "Portfolio" },
+    { type: "assert_url_includes", value: "tab=portfolio" },
+    { type: "wait_beacon", routeIds: [KAI_MARKET_ROUTE] },
     {
       type: "click_button",
       name: "^(upload statement|import statement|import portfolio|connect portfolio)$",
@@ -292,7 +343,7 @@ export const KAI_IMPORT_E2E_FLOW = {
     },
     {
       type: "wait_beacon",
-      routeIds: ["/one/kai/portfolio"],
+      routeIds: [KAI_MARKET_ROUTE],
       dataStates: ["loaded"],
       timeoutMs: 180000,
     },
@@ -336,7 +387,7 @@ export const ONE_VOICE_NATIVE_CONTROL_FLOW = {
       timeoutMs: 90000,
       allowPermissionFallback: true,
     },
-    { type: "end_voice_if_active", timeoutMs: 15000 },
+    { type: "end_voice_if_active", timeoutMs: 2000 },
     {
       type: "wait_voice_mode",
       modes: ["idle", "error"],

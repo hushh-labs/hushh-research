@@ -4,20 +4,37 @@ Directional edges (owner_user_id -> trusted_user_id). Written ONLY through the
 Hushh One agent path; read in-process by any agent. Identity is resolved through
 the broad discovery directory `list_directory_candidates`, read-only.
 
-This is now the single source of truth for the One Location trust graph: the
-legacy one_location_network_connections (SOS) table was migrated in (079) and
-dropped in (080).
+This is now the single source of truth for the One Location trust graph.
+Migration 079 copied the legacy one_location_network_connections (SOS) graph;
+the legacy table has no runtime service owner and remains pending a separately
+preflighted forward-only schema retirement.
 """
 
 from __future__ import annotations
 
 import json
 import logging
+from datetime import datetime, timezone
 from typing import Any, Callable
 
 from db.db_client import get_db
 
 logger = logging.getLogger(__name__)
+
+
+def _iso(value: Any) -> str | None:
+    """Stringify a DB-driver datetime before it leaves this service.
+
+    Read in-process by any agent, including live voice tools whose result
+    goes through a plain json.dumps that a raw datetime crashes.
+    """
+    if value is None:
+        return None
+    if isinstance(value, datetime):
+        if value.tzinfo is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return str(value.astimezone(timezone.utc).isoformat())
+    return str(value)
 
 
 class TrustedConnectionsError(RuntimeError):
@@ -192,7 +209,7 @@ class TrustedConnectionsService:
                 "trustedUserId": str(r.get("trusted_user_id") or ""),
                 "displayName": r.get("display_name"),
                 "label": r.get("label"),
-                "createdAt": r.get("created_at"),
+                "createdAt": _iso(r.get("created_at")),
             }
             for r in rows
         ]

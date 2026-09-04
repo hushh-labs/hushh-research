@@ -1,30 +1,76 @@
-#!/usr/bin/env node
-
 import fs from "fs/promises";
 import path from "path";
-import { fileURLToPath } from "url";
+import { fileURLToPath, pathToFileURL } from "url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const REPO_ROOT = path.resolve(__dirname, "../../..");
 const WEBAPP_ROOT = path.resolve(REPO_ROOT, "hushh-webapp");
+const BACKEND_ROOT = path.resolve(REPO_ROOT, "consent-protocol");
 const CONTRACT_SUFFIX = ".voice-action-contract.json";
 const GATEWAY_OUTPUT_PATH = path.resolve(
   REPO_ROOT,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
-const MANIFEST_OUTPUT_PATH = path.resolve(
-  REPO_ROOT,
-  "contracts/kai/voice-action-manifest.v1.json",
-);
 const WEBAPP_GATEWAY_OUTPUT_PATH = path.resolve(
   WEBAPP_ROOT,
   "contracts/kai/kai-action-gateway.vnext.json",
 );
-const WEBAPP_MANIFEST_OUTPUT_PATH = path.resolve(
-  WEBAPP_ROOT,
-  "contracts/kai/voice-action-manifest.v1.json",
+// Each deployable gets the gateway inside its OWN Docker build context, because
+// that is the only thing its image can COPY. `deploy/backend.cloudbuild.yaml`
+// builds with context `consent-protocol`, so a backend that reads the repo-root
+// copy resolves a path that does not exist in the image and silently serves zero
+// actions — which is exactly how every deployed environment ran with voice
+// actions dead while localhost worked. The frontend has always had its own copy
+// for the same reason; this is the backend's.
+const BACKEND_GATEWAY_OUTPUT_PATH = path.resolve(
+  BACKEND_ROOT,
+  "contracts/kai/kai-action-gateway.vnext.json",
 );
+const CAPABILITY_GUARD_COVERAGE_PATH = path.resolve(
+  WEBAPP_ROOT,
+  "contracts/kai/capability-guard-coverage.v1.json",
+);
+
+// Mirrors GLOBAL_NAV_ACTION_IDS in hushh-webapp/lib/voice/screen-context-builder.ts.
+// There is no automated cross-file sync for this; bump both together. Used only to
+// decide alias-collision risk below -- a global-nav id can appear alongside any
+// screen's own actions, so it always counts as co-occurring with everything.
+const GLOBAL_NAV_ACTION_IDS = new Set([
+  "route.one_agents",
+  "route.kai_home",
+  "route.ria_home",
+  "route.profile",
+  "route.one_location",
+  "route.one_pkm",
+  "route.consents",
+  "route.profile_connected_systems",
+  "route.voice_settings",
+  "route.one_feed",
+]);
+
+// Alias collisions the guard below is allowed to ignore. Empty, and meant to
+// stay that way: an entry here is a known-broken pair kept only long enough
+// for a follow-up PR to resolve it, never a permanent exemption. The 12
+// pre-existing pairs seeded when this guard was introduced (#6081-#6085) were
+// all retired in the PR that emptied this set -- each resolved by removing the
+// shared alias from whichever action had the weaker claim to it, so a bare
+// phrase now resolves to exactly one action.
+const KNOWN_ALIAS_COLLISIONS = new Set([]);
+
+// The frontend gateway parser (lib/voice/kai-action-gateway.ts) only knows
+// how to keep an action whose execution_target.path is one of these -- any
+// other value makes it drop the whole action, silently, everywhere (#6122:
+// location.find_contacts and ria.clients.switch_to_nearby vanished this way
+// for a release before anyone noticed). Failing the build here means a
+// typo'd or newly-invented path is caught at authoring time instead.
+const KNOWN_EXECUTION_TARGET_PATHS = new Set([
+  "kai_command",
+  "voice_tool",
+  "route",
+  "local_handler",
+  "control",
+]);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
@@ -33,12 +79,11 @@ const AGENT_PERSONAS = new Set([
   "nav",
   "agent_kyc",
   "agent_nav",
+  "agent_wallet",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
-  "agent_gmail",
   "agent_location",
-  "agent_personal_information",
 ]);
 const DEFAULT_TRIGGER = {
   primary: "voice",
@@ -230,6 +275,25 @@ function normalizeGoalStep(raw, actionId) {
   if (isPlainObject(raw.slots)) normalized.slots = raw.slots;
   const settlementTarget = normalizeSettlementTarget(raw.settlement_target);
   if (settlementTarget) normalized.settlement_target = settlementTarget;
+  if (type === "action") {
+    if (!actionRef) {
+      throw new Error(`${actionId}: goal action step requires action_id`);
+    }
+    if (!settlementTarget) {
+      throw new Error(
+        `${actionId}: goal action step requires an explicit settlement_target`,
+      );
+    }
+  }
+  if (type === "choice") {
+    const actionIds = uniqueStrings(raw.action_ids);
+    if (actionIds.length === 0) {
+      throw new Error(`${actionId}: goal choice step requires action_ids`);
+    }
+    normalized.action_ids = actionIds;
+    normalized.carry_explicit_choice = raw.carry_explicit_choice === true;
+    normalized.requires_fresh_context = raw.requires_fresh_context !== false;
+  }
   return normalized;
 }
 
@@ -311,17 +375,15 @@ function createDefaultGoalWorkflowSteps(action) {
       action_id: action.action_id,
       label: action.label,
       failure_behavior: "stop",
-      settlement_target:
-        action.execution_target.status === "wired" &&
-        action.execution_target.path === "route"
-          ? {
+      ...(action.execution_target.status === "wired" &&
+      action.execution_target.path === "route"
+        ? {
+            settlement_target: {
               route: action.execution_target.target,
               screen: action.reachability.screens[0],
-            }
-          : {
-              route: action.reachability.routes[0],
-              screen: action.reachability.screens[0],
             },
+          }
+        : {}),
     },
   ];
 }
@@ -400,6 +462,17 @@ function normalizeExecutionTarget(raw, actionId) {
         `${actionId}: wired execution_target requires path and target`,
       );
     }
+    if (!KNOWN_EXECUTION_TARGET_PATHS.has(pathValue)) {
+      throw new Error(
+        `${actionId}: execution_target.path "${pathValue}" is not one of ` +
+          `${[...KNOWN_EXECUTION_TARGET_PATHS].join(", ")} -- the frontend ` +
+          `gateway parser silently drops the entire action for an ` +
+          `unrecognized path (see kai-action-gateway.ts's ` +
+          `validateExecutionTarget). Add the new path to ` +
+          `KNOWN_EXECUTION_TARGET_PATHS here and to the matching union in ` +
+          `kai-action-gateway.ts if it is genuinely new.`,
+      );
+    }
     const normalized = {
       status,
       path: pathValue,
@@ -428,14 +501,7 @@ function normalizeExecutionTarget(raw, actionId) {
   }
 
   if (status === "dead") {
-    const reason = cleanString(raw.reason);
-    if (!reason) {
-      throw new Error(`${actionId}: dead execution_target requires reason`);
-    }
-    return {
-      status,
-      reason,
-    };
+    throw new Error(`${actionId}: dead actions must be removed from their authored contract`);
   }
 
   throw new Error(
@@ -538,6 +604,20 @@ function deriveDefaultStateChanges(action) {
     action.execution_target.path === "route"
   ) {
     return [`current route becomes ${action.execution_target.target}`];
+  }
+  const firstWorkflowStep = action.goal?.workflow_steps?.find(
+    (step) => step?.type === "action" && step?.settlement_target?.route,
+  );
+  if (firstWorkflowStep?.settlement_target?.route) {
+    return [
+      `current route becomes ${firstWorkflowStep.settlement_target.route}`,
+    ];
+  }
+  // A local handler may navigate to a destination that cannot be derived from
+  // the source surface. Its authored goal must name that destination rather
+  // than letting generated output claim the current route.
+  if (action.execution_target.path === "local_handler") {
+    return ["The mounted action reports its browser-observed outcome."];
   }
   if (action.reachability.routes.length > 0) {
     return [`current route becomes ${action.reachability.routes[0]}`];
@@ -730,31 +810,6 @@ async function listContractFiles(startDir) {
   return files;
 }
 
-function toLegacyManifestAction(action) {
-  return {
-    id: action.action_id,
-    label: action.label,
-    meaning: action.meaning,
-    speaker_persona: action.speaker_persona,
-    delegate_agent_id: action.delegate_agent_id,
-    aliases: action.aliases,
-    scope: {
-      routes: action.reachability.routes,
-      screens: action.reachability.screens,
-      hidden_navigable: action.reachability.hidden_navigable,
-      navigation_prerequisites: action.reachability.navigation_prerequisites,
-    },
-    guard_ids: action.guard_ids,
-    risk_level: action.risk_level,
-    execution_policy: action.execution_policy,
-    activation_policy: action.activation_policy,
-    execution_hint: action.execution_target,
-    external_callback: action.external_callback,
-    goal: action.goal,
-    map_references: action.docs_references,
-  };
-}
-
 async function readContracts() {
   const contractFiles = (await listContractFiles(WEBAPP_ROOT)).sort();
   if (contractFiles.length === 0) {
@@ -767,6 +822,11 @@ async function readContracts() {
 
   for (const contractPath of contractFiles) {
     const raw = JSON.parse(await fs.readFile(contractPath, "utf8"));
+    // Keep paused source contracts for explicit future enablement, but never
+    // publish their actions to One, voice, Search, or generated discovery.
+    if (cleanString(raw.availability) === "paused") {
+      continue;
+    }
     const normalized = normalizeSurface(contractPath, raw);
     surfaces.push(normalized.surface);
     for (const action of normalized.actions) {
@@ -785,8 +845,103 @@ async function readContracts() {
   return {
     surfaces,
     actions,
-    contractFiles,
+    contractFiles: surfaces.map((surface) =>
+      path.resolve(REPO_ROOT, surface.contract_file),
+    ),
   };
+}
+
+// A bare alias owned by two actions is not just noisy: the backend ranker
+// (consent-protocol/hushh_mcp/one_adk/action_tools.py `_relevance_score`)
+// scores a full-phrase exact alias match at +90, well clear of label (+20) or
+// meaning (+5) -- so whichever action happens to own a shared alias wins
+// outright, and no amount of better `meaning` text on the other side can
+// out-argue it. This only matters when both actions could plausibly be in
+// the same per-turn candidate set at once; two actions on unrelated,
+// never-co-visible screens sharing a word is not a real routing risk.
+function validateAliasCollisions(actions) {
+  const wired = actions.filter(
+    (action) => action.execution_target?.status === "wired",
+  );
+  const ownersByAlias = new Map();
+  for (const action of wired) {
+    for (const alias of action.aliases) {
+      const key = alias.trim().toLowerCase();
+      if (!key) continue;
+      if (!ownersByAlias.has(key)) ownersByAlias.set(key, []);
+      ownersByAlias.get(key).push(action);
+    }
+  }
+
+  const canCoOccur = (a, b) => {
+    if (a.surface_id === b.surface_id) return true;
+    if (GLOBAL_NAV_ACTION_IDS.has(a.action_id) || GLOBAL_NAV_ACTION_IDS.has(b.action_id)) {
+      return true;
+    }
+    const aScreens = new Set(a.reachability?.screens || []);
+    return (b.reachability?.screens || []).some((screen) => aScreens.has(screen));
+  };
+
+  const offenders = [];
+  for (const [alias, owners] of ownersByAlias) {
+    if (owners.length < 2) continue;
+    for (let i = 0; i < owners.length; i += 1) {
+      for (let j = i + 1; j < owners.length; j += 1) {
+        const [a, b] = [owners[i], owners[j]].sort((x, y) =>
+          x.action_id.localeCompare(y.action_id),
+        );
+        if (!canCoOccur(a, b)) continue;
+        const collisionKey = `${alias}::${a.action_id}::${b.action_id}`;
+        if (KNOWN_ALIAS_COLLISIONS.has(collisionKey)) continue;
+        offenders.push(`"${alias}": ${a.action_id} vs ${b.action_id}`);
+      }
+    }
+  }
+
+  if (offenders.length > 0) {
+    throw new Error(
+      "Alias collision(s) between actions that can appear in the same turn " +
+        "(same surface, shared reachable screen, or global nav):\n  " +
+        offenders.join("\n  ") +
+        "\nMove or remove the alias from one action, or -- only if this is a " +
+        "genuine, deliberate, low-stakes overlap -- add it to " +
+        "KNOWN_ALIAS_COLLISIONS in this file with a one-line reason.",
+    );
+  }
+}
+
+async function validateCapabilityGuardCoverage(contracts) {
+  const raw = JSON.parse(
+    await fs.readFile(CAPABILITY_GUARD_COVERAGE_PATH, "utf8"),
+  );
+  if (!isPlainObject(raw) || !isPlainObject(raw.guards)) {
+    throw new Error(
+      "capability guard coverage must contain a guards object",
+    );
+  }
+
+  for (const action of contracts.actions) {
+    for (const guardId of action.guard_ids) {
+      const coverage = raw.guards[guardId];
+      if (!isPlainObject(coverage)) {
+        throw new Error(
+          `${action.action_id}: guard \"${guardId}\" has no capability projection or server validator coverage`,
+        );
+      }
+      const kind = cleanString(coverage.kind);
+      const predicate = cleanString(coverage.predicate);
+      const validator = cleanString(coverage.validator);
+      if (
+        (kind === "projection" && predicate) ||
+        (kind === "server_only" && validator)
+      ) {
+        continue;
+      }
+      throw new Error(
+        `${action.action_id}: guard \"${guardId}\" coverage must declare a projection predicate or server-only validator`,
+      );
+    }
+  }
 }
 
 function createGatewayPayload(contracts) {
@@ -798,16 +953,6 @@ function createGatewayPayload(contracts) {
     ),
     surfaces: contracts.surfaces,
     actions: contracts.actions,
-  };
-}
-
-function createLegacyManifestPayload(contracts) {
-  return {
-    schema_version: "kai.voice_action_manifest.v1",
-    source_registry:
-      "generated from colocated One Voice/Kai compatibility action contracts",
-    source_gateway: "contracts/kai/kai-action-gateway.vnext.json",
-    actions: contracts.actions.map((action) => toLegacyManifestAction(action)),
   };
 }
 
@@ -837,17 +982,15 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  validateAliasCollisions(contracts.actions);
+  await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
-  const legacyManifestPayload = createLegacyManifestPayload(contracts);
-
   const gatewayText = `${JSON.stringify(gatewayPayload, null, 2)}\n`;
-  const manifestText = `${JSON.stringify(legacyManifestPayload, null, 2)}\n`;
 
   const outputResults = await Promise.all([
     writeIfChanged(GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
-    writeIfChanged(MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
     writeIfChanged(WEBAPP_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
-    writeIfChanged(WEBAPP_MANIFEST_OUTPUT_PATH, manifestText, checkOnly),
+    writeIfChanged(BACKEND_GATEWAY_OUTPUT_PATH, gatewayText, checkOnly),
   ]);
 
   if (checkOnly) {
@@ -865,7 +1008,20 @@ async function main() {
   );
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+// Only auto-run when executed directly (`node generate-kai-action-gateway.mjs`),
+// not when imported by a test -- importing this module must not perform file
+// I/O or throw as a side effect of loading it.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}
+
+export {
+  validateAliasCollisions,
+  KNOWN_ALIAS_COLLISIONS,
+  GLOBAL_NAV_ACTION_IDS,
+  normalizeExecutionTarget,
+  KNOWN_EXECUTION_TARGET_PATHS,
+};

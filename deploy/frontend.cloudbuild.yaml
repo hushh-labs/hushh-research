@@ -2,7 +2,87 @@
 # Deploy to: Cloud Run (service name configurable via substitutions)
 
 steps:
-  # Step 1: Build Docker image with runtime-specific environment variables (using Secrets)
+  # Step 1: Resolve the environment-specific Google Contacts browser client.
+  #
+  # The Docker Cloud Builder image intentionally contains only the Docker CLI;
+  # it does not contain gcloud. Resolve the optional Secret Manager value in a
+  # Cloud SDK step, then hand the public client id to the Docker step through
+  # Cloud Build's ephemeral /workspace volume.
+  - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+
+        require_non_negative_int() {
+          local name="$1"
+          local value="$2"
+          if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
+            echo "${name} must be a non-negative integer, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_positive_int() {
+          local name="$1"
+          local value="$2"
+          require_non_negative_int "${name}" "${value}"
+          if [[ "${value}" -lt 1 ]]; then
+            echo "${name} must be at least 1, got '${value}'." >&2
+            exit 1
+          fi
+        }
+        require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
+        require_positive_int "_CLOUD_RUN_CONCURRENCY" "${_CLOUD_RUN_CONCURRENCY}"
+        require_positive_int "_CLOUD_RUN_TIMEOUT_SECONDS" "${_CLOUD_RUN_TIMEOUT_SECONDS}"
+        if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
+          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
+          exit 1
+        fi
+
+        google_contacts_client_id_file="/workspace/.google-contacts-client-id"
+        google_contacts_secret_error="$$(mktemp)"
+        trap 'rm -f "$${google_contacts_secret_error}"' EXIT
+
+        : > "$${google_contacts_client_id_file}"
+        chmod 600 "$${google_contacts_client_id_file}"
+
+        # Google Contacts rolls out one environment at a time. A missing value
+        # is a hard UAT failure; production/dev remain dark until their own
+        # explicit OAuth client setup is complete.
+        if gcloud secrets versions access latest \
+          --secret=NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID \
+          --project="$PROJECT_ID" \
+          > "$${google_contacts_client_id_file}" \
+          2> "$${google_contacts_secret_error}"; then
+          GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(tr -d '\r\n' < "$${google_contacts_client_id_file}")"
+          if [[ -z "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" ]]; then
+            echo "Google Contacts OAuth client configuration is empty."
+            exit 1
+          fi
+          case "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" in
+            *.apps.googleusercontent.com) ;;
+            *)
+              echo "Google Contacts OAuth client configuration is invalid."
+              exit 1
+              ;;
+          esac
+          printf '%s' "$${GOOGLE_CONTACTS_CLIENT_ID_VAL}" \
+            > "$${google_contacts_client_id_file}"
+        elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}" \
+          && [[ "${_DEPLOY_ENV}" == "uat" ]]; then
+            echo "Missing UAT Google Contacts OAuth client configuration."
+            exit 1
+        elif grep -Eq '(^|[[:space:]])NOT_FOUND(:|[[:space:]])' "$${google_contacts_secret_error}"; then
+          echo "Google Contacts is not configured for ${_DEPLOY_ENV}; keeping the browser fallback dark."
+        else
+          echo "Unable to access Google Contacts OAuth client configuration."
+          exit 1
+        fi
+    id: "resolve-google-contacts-client-config"
+
+  # Step 2: Build Docker image with runtime-specific environment variables (using Secrets)
   - name: "gcr.io/cloud-builders/docker"
     entrypoint: "bash"
     args:
@@ -28,7 +108,25 @@ steps:
             exit 1
           fi
         done
-        docker build \
+
+        google_contacts_client_id_file="/workspace/.google-contacts-client-id"
+        if [[ ! -f "$${google_contacts_client_id_file}" ]]; then
+          echo "Google Contacts OAuth client resolver artifact is missing."
+          exit 1
+        fi
+        GOOGLE_CONTACTS_CLIENT_ID_VAL="$$(cat "$${google_contacts_client_id_file}")"
+        trap 'rm -f "$${google_contacts_client_id_file}"' EXIT
+
+        # Registry layer cache (buildx, mode=max): caches the npm ci + next build layers
+        # so an unchanged package-lock turns dependency install into a cache hit. First
+        # build after this lands is cold (seeds :buildcache); later builds are minutes.
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/hushh-webapp:buildcache,mode=max \
+          --push \
           -t gcr.io/$PROJECT_ID/hushh-webapp:manual \
           -t gcr.io/$PROJECT_ID/hushh-webapp:latest \
           -t gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG} \
@@ -45,9 +143,14 @@ steps:
           --build-arg NEXT_PUBLIC_APP_URL=$$NEXT_PUBLIC_APP_URL_VAL \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
+          --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
+          --build-arg NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN=${_ONE_LOCATION_NEARBY_CHECK_IN} \
+          --build-arg NEXT_PUBLIC_LOCATION_MAP_DEMO=${_LOCATION_MAP_DEMO} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_DEBUG=false \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE=1 \
           --build-arg NEXT_PUBLIC_GTM_ID=$$NEXT_PUBLIC_GTM_ID_VAL \
+          --build-arg "NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID=$$GOOGLE_CONTACTS_CLIENT_ID_VAL" \
+          --build-arg NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL \
           --build-arg NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=$$NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL \
           -f hushh-webapp/Dockerfile \
           hushh-webapp
@@ -63,28 +166,10 @@ steps:
       "NEXT_PUBLIC_FIREBASE_VAPID_KEY_VAL",
       "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL",
       "NEXT_PUBLIC_GTM_ID_VAL",
+      "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL",
       "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
     ]
     id: "build-frontend-image"
-
-  # Step 2: Push Docker image to Container Registry
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:manual"
-    id: "push-frontend-image"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:latest"
-    id: "push-frontend-latest"
-
-  - name: "gcr.io/cloud-builders/docker"
-    args:
-      - "push"
-      - "gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
-    id: "push-frontend-version"
 
   # Step 3: Deploy to Cloud Run
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
@@ -93,6 +178,27 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+
+        secrets="BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest,APPLE_TEAM_ID=APPLE_TEAM_ID:latest,NEXT_PUBLIC_IOS_BUNDLE_ID=NEXT_PUBLIC_IOS_BUNDLE_ID:latest,NEXT_PUBLIC_ANDROID_APP_ID=NEXT_PUBLIC_ANDROID_APP_ID:latest,ANDROID_SHA256_CERT_FINGERPRINTS=ANDROID_SHA256_CERT_FINGERPRINTS:latest"
+
+        if [[ -n "${_RATE_LIMIT_STORAGE_URI_SECRET}" ]]; then
+          if ! gcloud secrets describe "${_RATE_LIMIT_STORAGE_URI_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
+            echo "Missing required shared rate-limit secret ${_RATE_LIMIT_STORAGE_URI_SECRET}."
+            exit 1
+          fi
+          secrets="${secrets},RATE_LIMIT_STORAGE_URI=${_RATE_LIMIT_STORAGE_URI_SECRET}:latest"
+        fi
+
+        # `hushh-mail-api` key for One's lifecycle mail. Optional on purpose, the
+        # same way backend.cloudbuild.yaml treats its add-on secrets: binding a
+        # secret that does not exist yet would fail the whole deploy. While it is
+        # absent the webapp reports `not_configured` and sign-in is unaffected.
+        if gcloud secrets describe MAIL_API_KEY --project="$PROJECT_ID" >/dev/null 2>&1; then
+          secrets="${secrets},MAIL_API_KEY=MAIL_API_KEY:latest"
+        else
+          echo "Skipping optional secret MAIL_API_KEY; not found in project ${PROJECT_ID}."
+        fi
+
         cmd=(
           gcloud run deploy "${_FRONTEND_SERVICE}"
           "--image=gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
@@ -100,15 +206,25 @@ steps:
           "--platform=managed"
           "--allow-unauthenticated"
           "--port=8080"
-          "--memory=512Mi"
+          "--memory=${_CLOUD_RUN_MEMORY}"
           "--cpu=1"
-          "--timeout=120"
-          "--max-instances=10"
-          "--min-instances=1"
+          "--timeout=${_CLOUD_RUN_TIMEOUT_SECONDS}"
+          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
+          "--max=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min=${_CLOUD_RUN_MIN_INSTANCES}"
+          "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
+          "--min-instances=0"
           "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
-          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000"
-          "--set-secrets=BACKEND_URL=BACKEND_URL:latest,DEVELOPER_API_URL=BACKEND_URL:latest,FIREBASE_ADMIN_CREDENTIALS_JSON=FIREBASE_ADMIN_CREDENTIALS_JSON:latest"
+          "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},HUSSH_TECH_CLIENT_ENABLED=${_HUSHH_TECH_CLIENT_ENABLED},HUSSH_TECH_PROXY_AUDIENCE=${_HUSHH_TECH_PROXY_AUDIENCE},HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
+          "--set-secrets=${secrets}"
         )
+
+        if [[ -n "${_VPC_CONNECTOR}" ]]; then
+          cmd+=("--vpc-connector=${_VPC_CONNECTOR}" "--vpc-egress=private-ranges-only")
+        fi
+        if [[ -n "${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}" ]]; then
+          cmd+=("--service-account=${_FRONTEND_RUNTIME_SERVICE_ACCOUNT}")
+        fi
 
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
           cmd+=("--no-traffic")
@@ -117,20 +233,52 @@ steps:
         "${cmd[@]}"
     id: "deploy-frontend"
 
-# Images to store in Container Registry
-images:
-  - "gcr.io/$PROJECT_ID/hushh-webapp:manual"
-  - "gcr.io/$PROJECT_ID/hushh-webapp:latest"
-  - "gcr.io/$PROJECT_ID/hushh-webapp:${_IMAGE_TAG}"
+# NOTE: no top-level `images:` block — `docker buildx build --push` (Step 2) already
+# pushes every tag. Listing images here would make Cloud Build re-push from the local
+# daemon, which is empty under the buildx docker-container driver, and fail.
 
-# Build timeout
-timeout: "1200s"
+# Build timeout: 1800s headroom for the one-time cold seeding build; cached builds are minutes.
+timeout: "1800s"
 
 substitutions:
   _FRONTEND_SERVICE: hushh-webapp
+  _FRONTEND_RUNTIME_SERVICE_ACCOUNT: ""
   _REGION: us-central1
   _APP_ENV: production
+  # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
+  # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
+  _ONE_WALLET_CARD_ENABLED: "false"
+  # Wallet (payment cards) tile, /one/wallet, and chat widgets. Default off;
+  # Offers nearby check-in in a production build. Default off: the check-in
+  # point is client-supplied and unattestable, so the backend admits production
+  # callers by cohort and this only avoids collecting a location for a flow that
+  # would then be refused. Turning this on alone changes nothing server-side.
+  _ONE_LOCATION_NEARBY_CHECK_IN: "false"
+  # Shows the operator preview of fifty fictional people on the location map
+  # (`?demo=people`). Default off, and the UAT web lane is the only caller that
+  # turns it on. `isLocationMapDemoAvailable()` keeps a hard production floor
+  # underneath this, so the flag can only ever widen a non-production build.
+  #
+  # This is an explicit opt-in rather than an `APP_ENV != "production"` check
+  # because the App Store and Play Store binaries are stamped
+  # `NEXT_PUBLIC_APP_ENV=uat` — they ship against the UAT backend — so an
+  # environment-shaped gate reads every store install as non-production and
+  # hands real users a map of fabricated people.
+  _LOCATION_MAP_DEMO: "false"
+  _HUSHH_TECH_CLIENT_ENABLED: "false"
+  _HUSHH_TECH_PROXY_AUDIENCE: ""
+  _HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS: "0"
+  _RATE_LIMIT_STORAGE_URI_SECRET: ""
+  _VPC_CONNECTOR: ""
+  # `hushh-mail-api` in hushh-tech-prod. One key per consuming project, so this
+  # single endpoint serves UAT and production.
+  _MAIL_API_ENDPOINT: "https://hushh-mail-api-646258530541.us-central1.run.app"
   _CLOUD_RUN_NO_TRAFFIC: "false"
+  _CLOUD_RUN_MEMORY: "512Mi"
+  _CLOUD_RUN_TIMEOUT_SECONDS: "120"
+  _CLOUD_RUN_CONCURRENCY: "80"
+  _CLOUD_RUN_MIN_INSTANCES: "1"
+  _CLOUD_RUN_MAX_INSTANCES: "10"
   _IMAGE_TAG: v2.1.2
   _DEPLOY_ENV: manual
   _DEPLOY_SOURCE: manual
@@ -162,6 +310,8 @@ availableSecrets:
       env: "NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID_VAL"
     - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GTM_ID/versions/latest
       env: "NEXT_PUBLIC_GTM_ID_VAL"
+    - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY/versions/latest
+      env: "NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY_VAL"
     - versionName: projects/$PROJECT_ID/secrets/NEXT_PUBLIC_GOOGLE_MAPS_API_KEY/versions/latest
       env: "NEXT_PUBLIC_GOOGLE_MAPS_API_KEY_VAL"
 

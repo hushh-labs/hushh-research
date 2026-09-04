@@ -235,7 +235,7 @@ class TestRIAPicksParseRequest:
 class TestRIAPicksSyncRequest:
     def test_valid_defaults_pass(self):
         r = RIAPicksSyncRequest()
-        assert r.retire_legacy is True
+        assert r.top_picks == []
 
     def test_top_picks_over_5000_raises(self):
         with pytest.raises(ValidationError):
@@ -248,6 +248,10 @@ class TestRIAPicksSyncRequest:
     def test_package_note_too_long_raises(self):
         with pytest.raises(ValidationError):
             RIAPicksSyncRequest(package_note="n" * 1001)
+
+    def test_investor_debate_thesis_too_long_raises(self):
+        with pytest.raises(ValidationError):
+            RIAPicksSyncRequest(investor_debate_thesis="n" * 2001)
 
 
 # ---------------------------------------------------------------------------

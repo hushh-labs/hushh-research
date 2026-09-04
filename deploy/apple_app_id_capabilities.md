@@ -210,7 +210,7 @@ Your app already has proper privacy configurations in `Info.plist`:
 ```xml
 <!-- Google Sign-In Configuration -->
 <key>GIDClientID</key>
-<string>1006304528804-0kmnav8igjf7qbb3e4a2656d56ecvscm.apps.googleusercontent.com</string>
+<string>1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91.apps.googleusercontent.com</string>
 
 <key>CFBundleURLTypes</key>
 <!-- URL scheme for Google OAuth -->

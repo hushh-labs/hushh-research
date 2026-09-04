@@ -8,11 +8,13 @@ verifies the recent consent/PKM/RIA integration lanes together:
 - strict zero-knowledge developer consent/export flow
 - asymmetric scope reuse behavior
 - consent export refresh queue + refresh upload
-- RIA implicit picks-share relationship gating
+- RIA package sync (the explicit two-account capability rehearsal is browser-only)
 
-The full and connection_portfolio scenarios mutate smoke-user state and should
-stay on local/UAT maintainer overlays. The MCP transport scenario is safe for any
-environment that has a valid developer token.
+The full scenario mutates smoke-user state and should stay on local/UAT
+maintainer overlays. The MCP transport scenario is safe for any environment
+that has a valid developer token. Explicit RIA Picks authorization requires
+two independent accounts and is deliberately exercised by the reviewer
+rehearsal, not this single-account smoke.
 """
 
 from __future__ import annotations
@@ -20,10 +22,12 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import hashlib
 import json
 import os
 import sys
 import time
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -49,6 +53,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from api.utils.fcm_messages import build_push_message  # noqa: E402
+from hushh_mcp.consent.export_envelope import (  # noqa: E402
+    ConsentExportAadV2,
+    ConsentExportEnvelopeSubmissionV2,
+    canonical_aad_bytes,
+    canonical_envelope_submission_bytes,
+    connector_key_fingerprint,
+    digest_bytes,
+    scope_handle_for_machine_scope,
+)
 
 # Scoped-export decrypt + scope-narrowing utilities live in the shared
 # hushh_mcp.consent.export_projection module so the local stdio MCP server
@@ -69,6 +82,34 @@ UAT_SMOKE_USER_ID_KEY = "UAT_SMOKE_USER_ID"
 UAT_SMOKE_PASSPHRASE_KEY = "UAT_SMOKE_PASSPHRASE"  # noqa: S105
 KAI_TEST_USER_ID_KEY = "KAI_TEST_USER_ID"
 KAI_TEST_PASSPHRASE_KEY = "KAI_TEST_PASSPHRASE"  # noqa: S105
+# Keep these operational smoke constants aligned with domain_contracts.py. Importing
+# the services package before dotenv loading would eagerly require runtime secrets.
+CURRENT_PKM_CONTRACT_VERSION = "6.0.0"
+CURRENT_READABLE_PROJECTION_VERSION = "6.0.0"
+CURRENT_READABLE_SUMMARY_VERSION = 6
+FINANCIAL_DOMAIN_CONTRACT_VERSION = 4
+SAMPLE_BROKERAGE_PATH = (
+    REPO_ROOT / "hushh-webapp" / "public" / "demo-mode" / "portfolio-template.json"
+)
+
+_BLOCKED_EXTERNAL_PATH_PARTS = {
+    "changes",
+    "created_at",
+    "debug",
+    "debug_fields",
+    "entity_id",
+    "hash",
+    "metadata",
+    "parser_metadata",
+    "provenance",
+    "schema_version",
+    "source_agent",
+    "timestamps",
+    "updated_at",
+    "workflow",
+    "workflow_id",
+    "workflow_state",
+}
 
 
 def _b64encode(value: bytes) -> str:
@@ -138,6 +179,135 @@ def _partition_domain_segments(domain_data: dict[str, Any]) -> dict[str, Any]:
     return segmented
 
 
+def _normalize_manifest_segment(value: str) -> str:
+    if str(value or "").strip().lower() == "_items":
+        return "_items"
+    return "".join(
+        char.lower() if char.isalnum() or char == "_" else "_" for char in str(value or "").strip()
+    ).strip("_")
+
+
+def _manifest_sensitivity(path: str) -> str | None:
+    normalized = path.lower()
+    if any(token in normalized for token in ("ssn", "tax", "account_number", "routing")):
+        return "restricted"
+    if any(token in normalized for token in ("risk", "holdings", "portfolio", "income")):
+        return "confidential"
+    return None
+
+
+def _build_manifest_artifacts(
+    *,
+    domain: str,
+    domain_data: dict[str, Any],
+    previous_manifest: dict[str, Any] | None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Mirror the web PKM manifest builder for a pre-encrypted UAT write."""
+    descriptors: dict[str, dict[str, Any]] = {}
+
+    def _walk(value: Any, path: list[str]) -> None:
+        if value is None:
+            return
+        current_path = ".".join(path)
+        if current_path:
+            path_type = (
+                "array"
+                if isinstance(value, list)
+                else "object"
+                if isinstance(value, dict)
+                else "leaf"
+            )
+            externalizable = path_type == "leaf" and not any(
+                part in _BLOCKED_EXTERNAL_PATH_PARTS for part in current_path.split(".")
+            )
+            descriptors[current_path] = {
+                "json_path": current_path,
+                "parent_path": ".".join(path[:-1]) if len(path) > 1 else None,
+                "path_type": path_type,
+                "exposure_eligibility": externalizable,
+                "consent_label": current_path.replace(".", " ").replace("_", " ").title(),
+                "sensitivity_label": _manifest_sensitivity(current_path),
+                "segment_id": path[0] if path else "root",
+                "source_agent": "pkm_structure_agent",
+            }
+        if isinstance(value, list):
+            sample = next((item for item in value if item is not None), None)
+            if sample is not None:
+                _walk(sample, [*path, "_items"])
+            return
+        if not isinstance(value, dict):
+            return
+        for raw_key, child in value.items():
+            segment = _normalize_manifest_segment(str(raw_key))
+            if segment:
+                _walk(child, [*path, segment])
+
+    _walk(domain_data, [])
+    paths = [descriptors[path] for path in sorted(descriptors)]
+    json_paths = [path["json_path"] for path in paths]
+    top_level_scope_paths = sorted({path.split(".", 1)[0] for path in json_paths})
+    externalizable_paths = [
+        path["json_path"]
+        for path in paths
+        if path["exposure_eligibility"] and path["path_type"] == "leaf"
+    ]
+    previous_paths = {
+        str(path.get("json_path") or "")
+        for path in (previous_manifest or {}).get("paths") or []
+        if isinstance(path, dict)
+    }
+    has_new_paths = any(path not in previous_paths for path in json_paths)
+    action = (
+        "extend_domain"
+        if previous_manifest and has_new_paths
+        else ("match_existing_domain" if previous_manifest else "create_domain")
+    )
+    previous_version = int((previous_manifest or {}).get("manifest_version") or 0)
+    manifest_version = max(1, previous_version + (1 if action != "match_existing_domain" else 0))
+    summary_projection = {
+        "manifest_version": manifest_version,
+        "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+        "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+        "pkm_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+        "readable_projection_version": CURRENT_READABLE_PROJECTION_VERSION,
+        "consumer_visible": True,
+        "internal_only": False,
+        "path_count": len(json_paths),
+        "externalizable_path_count": len(externalizable_paths),
+        "top_level_scope_count": len(top_level_scope_paths),
+    }
+    structure_decision = {
+        "action": action,
+        "target_domain": domain,
+        "json_paths": json_paths,
+        "top_level_scope_paths": top_level_scope_paths,
+        "externalizable_paths": externalizable_paths,
+        "summary_projection": summary_projection,
+        "sensitivity_labels": {
+            path["json_path"]: path["sensitivity_label"]
+            for path in paths
+            if path.get("sensitivity_label")
+        },
+        "confidence": 1.0,
+        "source_agent": "pkm_structure_agent",
+        "writer_id": "uat_reviewer_sample_import",
+        "structure_agent_id": "pkm_structure_agent",
+        "contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+    }
+    manifest = {
+        "manifest_version": manifest_version,
+        "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+        "readable_summary_version": CURRENT_READABLE_SUMMARY_VERSION,
+        "upgraded_at": None,
+        "summary_projection": summary_projection,
+        "top_level_scope_paths": top_level_scope_paths,
+        "externalizable_paths": externalizable_paths,
+        "paths": paths,
+        "source_agent": "pkm_structure_agent",
+    }
+    return structure_decision, manifest
+
+
 @dataclass
 class AuthSession:
     firebase_id_token: str
@@ -202,7 +372,12 @@ class UatKaiSmoke:
     def remote_mcp_url(self) -> str:
         if not self.developer_token:
             raise RuntimeError("Developer token is required for remote MCP smoke.")
-        return f"{self.backend_url.rstrip('/')}/mcp/?token={quote_plus(self.developer_token)}"
+        return f"{self.backend_url.rstrip('/')}/mcp/"
+
+    def _developer_auth_headers(self) -> dict[str, str]:
+        if not self.developer_token:
+            raise RuntimeError("Developer token is required for developer API smoke.")
+        return {"Authorization": f"Bearer {self.developer_token}"}
 
     def _db_connection_url(self) -> str:
         db_user = _require(self.config, "DB_USER")
@@ -260,6 +435,7 @@ class UatKaiSmoke:
     async def _run_remote_mcp_transport_async(self) -> tuple[set[str], set[str]]:
         async with streamablehttp_client(
             self.remote_mcp_url(),
+            headers=self._developer_auth_headers(),
             timeout=self.timeout,
             sse_read_timeout=max(self.timeout, 60),
         ) as (read_stream, write_stream, _get_session_id):
@@ -276,6 +452,7 @@ class UatKaiSmoke:
     async def _run_remote_mcp_consent_async(self, *, scope: str) -> None:
         async with streamablehttp_client(
             self.remote_mcp_url(),
+            headers=self._developer_auth_headers(),
             timeout=self.timeout,
             sse_read_timeout=max(self.timeout, 60),
         ) as (read_stream, write_stream, _get_session_id):
@@ -285,16 +462,16 @@ class UatKaiSmoke:
                 tools_result = await session.list_tools()
                 tool_names = {tool.name for tool in getattr(tools_result, "tools", [])}
                 required_tools = {
-                    "discover_user_domains",
+                    "search_user_scopes",
+                    "prepare_campaign_context",
                     "request_consent",
                     "check_consent_status",
                     "get_encrypted_scoped_export",
-                    "validate_token",
-                    "list_scopes",
                 }
-                missing_tools = sorted(required_tools - tool_names)
-                if missing_tools:
-                    raise RuntimeError(f"Remote MCP missing expected tools: {missing_tools}")
+                if tool_names != required_tools:
+                    raise RuntimeError(
+                        f"Remote MCP tool contract mismatch: expected={sorted(required_tools)} actual={sorted(tool_names)}"
+                    )
 
                 resources_result = await session.list_resources()
                 resource_uris = {
@@ -312,7 +489,10 @@ class UatKaiSmoke:
                     )
 
                 discovered = self._parse_mcp_json(
-                    await session.call_tool("discover_user_domains", {"user_id": self.user_id})
+                    await session.call_tool(
+                        "search_user_scopes",
+                        {"user_identifier": self.user_id, "query": "", "limit": 50},
+                    )
                 )
                 scopes = {
                     str(item.get("name") or item.get("scope") or "").strip()
@@ -320,17 +500,15 @@ class UatKaiSmoke:
                     if isinstance(item, dict)
                 }
                 if scope not in scopes:
-                    raise RuntimeError(
-                        f"discover_user_domains did not expose {scope}: {discovered}"
-                    )
+                    raise RuntimeError(f"search_user_scopes did not expose {scope}: {discovered}")
 
                 requested = self._parse_mcp_json(
                     await session.call_tool(
                         "request_consent",
                         {
-                            "user_id": self.user_id,
+                            "user_identifier": self.user_id,
                             "scope": scope,
-                            "reason": "Kai MCP streamable regression smoke",
+                            "purpose": "Kai MCP streamable regression smoke",
                             "expiry_hours": 24,
                             "approval_timeout_minutes": 60,
                             "connector_public_key": self.connector.public_key_b64,
@@ -340,12 +518,12 @@ class UatKaiSmoke:
                     )
                 )
                 request_status = str(requested.get("status") or "").strip().lower()
-                request_id = str(requested.get("request_id") or "").strip()
-                consent_token = str(requested.get("consent_token") or "").strip()
+                request_id = str(requested.get("request_ref") or "").strip()
+                grant_ref = str(requested.get("grant_ref") or "").strip()
                 if request_status == "pending":
                     if not request_id:
                         raise RuntimeError(
-                            f"MCP request_consent returned no request_id: {requested}"
+                            f"MCP request_consent returned no request_ref: {requested}"
                         )
                     self.approve_pending_request(
                         request_id=request_id,
@@ -355,36 +533,25 @@ class UatKaiSmoke:
                     status_payload = self._parse_mcp_json(
                         await session.call_tool(
                             "check_consent_status",
-                            {
-                                "user_id": self.user_id,
-                                "scope": scope,
-                                "request_id": request_id,
-                            },
+                            {"request_ref": request_id},
                         )
                     )
                     if str(status_payload.get("status") or "").strip().lower() != "granted":
                         raise RuntimeError(
                             f"MCP check_consent_status did not reach granted: {status_payload}"
                         )
-                    consent_token = str(status_payload.get("consent_token") or "").strip()
-                elif request_status not in {"granted", "already_granted"}:
+                    grant_ref = str(status_payload.get("grant_ref") or "").strip()
+                elif request_status != "granted":
                     raise RuntimeError(f"Unexpected MCP request_consent status: {requested}")
 
-                if not consent_token:
-                    raise RuntimeError("MCP consent flow did not return a consent token.")
-
-                validated = self._parse_mcp_json(
-                    await session.call_tool("validate_token", {"token": consent_token})
-                )
-                if not validated.get("valid"):
-                    raise RuntimeError(f"MCP validate_token failed: {validated}")
+                if not grant_ref:
+                    raise RuntimeError("MCP consent flow did not return a grant_ref.")
 
                 encrypted_export = self._parse_mcp_json(
                     await session.call_tool(
                         "get_encrypted_scoped_export",
                         {
-                            "user_id": self.user_id,
-                            "consent_token": consent_token,
+                            "grant_ref": grant_ref,
                             "expected_scope": scope,
                         },
                     )
@@ -394,16 +561,50 @@ class UatKaiSmoke:
                         f"MCP get_encrypted_scoped_export failed: {encrypted_export}"
                     )
 
-                decrypted_export = self._decrypt_scoped_export(encrypted_export)
-                narrowed_export = narrow_decrypted_export(decrypted_export, scope)
-                quality_metrics = (
-                    narrowed_export.get("financial", {})
-                    .get("analytics", {})
-                    .get("quality_metrics", {})
+                crypto = encrypted_export.get("crypto") or {}
+                resource = encrypted_export.get("resource") or {}
+                decrypted_export = self._decrypt_scoped_export(
+                    {
+                        **crypto,
+                        "resource_link": resource,
+                        "export_envelope": crypto.get("export_envelope"),
+                    }
                 )
-                if not isinstance(quality_metrics, dict) or not quality_metrics:
+                narrowed_export = narrow_decrypted_export(decrypted_export, scope)
+                financial_information = narrowed_export.get("financial") or {}
+                if not isinstance(financial_information, dict) or not financial_information:
                     raise RuntimeError(
-                        "MCP encrypted scoped export decrypted successfully but did not materialize financial analytics."
+                        "MCP encrypted scoped export decrypted successfully but did not materialize approved financial information."
+                    )
+                serialized_export = json.dumps(narrowed_export, sort_keys=True)
+                forbidden_values = (
+                    self.user_id,
+                    self.developer_token,
+                    self.auth.firebase_id_token if self.auth else None,
+                    self.auth.vault_owner_token if self.auth else None,
+                )
+                if any(value and value in serialized_export for value in forbidden_values):
+                    raise RuntimeError(
+                        "MCP scoped export exposed an internal identifier or credential."
+                    )
+
+                revoked = self.revoke_scope_access(scope=scope)
+                if str((revoked or {}).get("status") or "").strip().lower() != "revoked":
+                    raise RuntimeError(
+                        "MCP reviewer grant could not be revoked after verification."
+                    )
+                denied_export = self._parse_mcp_json(
+                    await session.call_tool(
+                        "get_encrypted_scoped_export",
+                        {
+                            "grant_ref": grant_ref,
+                            "expected_scope": scope,
+                        },
+                    )
+                )
+                if str(denied_export.get("error_code") or "") != "GRANT_NOT_FOUND":
+                    raise RuntimeError(
+                        "MCP revoked grant did not produce the stable denial contract."
                     )
 
     def _request(
@@ -755,14 +956,20 @@ class UatKaiSmoke:
         manifest = self._fetch_domain_manifest(domain)
         blob_payload = self._fetch_domain_blob(domain)
         domain_data = self._decrypt_domain_blob(blob_payload)
-        projected = project_domain_data_for_scope(domain, scope, domain_data)
+        approved_paths = manifest.get("externalizable_paths") or []
+        projected = project_domain_data_for_scope(
+            domain,
+            scope,
+            domain_data,
+            approved_paths=approved_paths,
+        )
         export_payload = {
             **projected,
             "__export_metadata": {
                 "scope": scope,
                 "source_domain": domain,
                 "manifest_version": manifest.get("manifest_version"),
-                "approved_paths": manifest.get("externalizable_paths") or [],
+                "approved_paths": approved_paths,
                 "approved_segment_ids": blob_payload.get("segment_ids") or [],
                 "export_timestamp": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
             },
@@ -779,11 +986,24 @@ class UatKaiSmoke:
         *,
         connector_public_key_b64: str,
         connector_key_id: str,
-    ) -> dict[str, str]:
+        aad: ConsentExportAadV2 | None = None,
+    ) -> dict[str, Any]:
         plaintext = json.dumps(payload, separators=(",", ":")).encode("utf-8")
         export_key = os.urandom(32)
         export_iv = os.urandom(12)
-        export_ciphertext = AESGCM(export_key).encrypt(export_iv, plaintext, None)
+        aad_bytes = canonical_aad_bytes(aad) if aad is not None else None
+        export_ciphertext = AESGCM(export_key).encrypt(export_iv, plaintext, aad_bytes)
+        ciphertext = export_ciphertext[:-16]
+
+        envelope = None
+        if aad is not None:
+            envelope = ConsentExportEnvelopeSubmissionV2(
+                export_id=aad.export_id,
+                aad=aad,
+                aad_sha256=digest_bytes(aad_bytes or b""),
+                ciphertext_sha256=digest_bytes(ciphertext),
+                ciphertext_bytes=len(ciphertext),
+            )
 
         sender_private = X25519PrivateKey.generate()
         connector_public_key = X25519PublicKey.from_public_bytes(
@@ -795,14 +1015,17 @@ class UatKaiSmoke:
         wrapping_key_bytes = wrapping_key.finalize()
 
         wrapped_iv = os.urandom(12)
-        wrapped = AESGCM(wrapping_key_bytes).encrypt(wrapped_iv, export_key, None)
+        wrapping_aad = (
+            canonical_envelope_submission_bytes(envelope) if envelope is not None else None
+        )
+        wrapped = AESGCM(wrapping_key_bytes).encrypt(wrapped_iv, export_key, wrapping_aad)
         sender_public_key = sender_private.public_key().public_bytes(
             encoding=serialization.Encoding.Raw,
             format=serialization.PublicFormat.Raw,
         )
 
-        return {
-            "encryptedData": _b64encode(export_ciphertext[:-16]),
+        package: dict[str, Any] = {
+            "encryptedData": _b64encode(ciphertext),
             "encryptedIv": _b64encode(export_iv),
             "encryptedTag": _b64encode(export_ciphertext[-16:]),
             "wrappedExportKey": _b64encode(wrapped[:-16]),
@@ -812,6 +1035,27 @@ class UatKaiSmoke:
             "wrappingAlg": "X25519-AES256-GCM",
             "connectorKeyId": connector_key_id,
         }
+        if envelope is not None:
+            package["version"] = 2
+            package["exportEnvelope"] = envelope.model_dump(mode="json")
+        return package
+
+    def _fetch_pending_request(self, request_id: str) -> dict[str, Any]:
+        response = self._request(
+            "GET",
+            "/api/consent/pending/lookup",
+            headers=self._vault_headers(),
+            params={"userId": self.user_id, "request_id": request_id},
+        ).json()
+        matching = [
+            item
+            for item in (response.get("items") or [])
+            if isinstance(item, dict)
+            and str(item.get("request_id") or item.get("id") or "") == request_id
+        ]
+        if len(matching) != 1:
+            raise RuntimeError("The reviewer vault could not resolve the pending request.")
+        return matching[0]
 
     def _fetch_export_ciphertext(self, package: dict[str, Any]) -> bytes:
         """Resolve ciphertext bytes from an export package.
@@ -823,6 +1067,18 @@ class UatKaiSmoke:
         inline = package.get("encrypted_data")
         if inline:
             return _b64decode(str(inline))
+
+        resource = package.get("resource_link") or package.get("resource") or {}
+        resource_uri = str(resource.get("uri") or "").strip()
+        if resource_uri:
+            response = self.session.get(
+                resource_uri,
+                headers=self._developer_auth_headers(),
+                timeout=self.timeout,
+            )
+            if response.status_code != 200:
+                raise RuntimeError(f"scoped-export resource fetch failed: {response.status_code}")
+            return response.content
 
         download = package.get("download") or {}
         download_body = download.get("json_body") or {}
@@ -842,8 +1098,7 @@ class UatKaiSmoke:
         response = self._request(
             "POST",
             "/api/v1/scoped-export/download",
-            params={"token": self.developer_token},
-            headers={"Content-Type": "application/json"},
+            headers={**self._developer_auth_headers(), "Content-Type": "application/json"},
             json_body={"user_id": user_id, "consent_token": consent_token},
         )
         if response.status_code != 200:
@@ -860,6 +1115,7 @@ class UatKaiSmoke:
             tag_b64=str(package["tag"]),
             ciphertext=ciphertext,
             connector_private_key=self.connector_private,
+            export_envelope=package.get("export_envelope"),
         )
 
     def request_developer_consent(
@@ -883,8 +1139,7 @@ class UatKaiSmoke:
         response = self._request(
             "POST",
             "/api/v1/request-consent",
-            params={"token": self.developer_token},
-            headers={"Content-Type": "application/json"},
+            headers={**self._developer_auth_headers(), "Content-Type": "application/json"},
             json_body=payload,
         )
         return response.json()
@@ -899,10 +1154,29 @@ class UatKaiSmoke:
         export_payload, source_content_revision, source_manifest_revision = (
             self._build_export_payload(scope)
         )
+        pending = self._fetch_pending_request(request_id)
+        metadata = pending.get("metadata") or {}
+        app_id = str(metadata.get("developer_app_id") or "").strip()
+        scope_handle = str(metadata.get("scope_handle") or "").strip() or (
+            scope_handle_for_machine_scope(self.user_id, scope)
+        )
+        if not app_id:
+            raise RuntimeError("The pending consent request has no developer app reference.")
+        aad = ConsentExportAadV2(
+            app_id=app_id,
+            grant_id=request_id,
+            export_id=str(uuid.uuid4()),
+            revision=1,
+            machine_scope=scope,
+            scope_handle=scope_handle,
+            recipient_key_fingerprint=connector_key_fingerprint(self.connector.public_key_b64),
+            expires_at_ms=int(time.time() * 1000) + (duration_hours * 60 * 60 * 1000),
+        )
         encrypted_package = self._encrypt_export_payload(
             export_payload,
             connector_public_key_b64=self.connector.public_key_b64,
             connector_key_id=self.connector.key_id,
+            aad=aad,
         )
         payload = {
             "userId": self.user_id,
@@ -925,11 +1199,10 @@ class UatKaiSmoke:
             "GET",
             "/api/v1/consent-status",
             params={
-                "token": self.developer_token,
                 "user_id": self.user_id,
                 "scope": scope,
             },
-            headers={"Content-Type": "application/json"},
+            headers={**self._developer_auth_headers(), "Content-Type": "application/json"},
         )
         return response.json()
 
@@ -984,8 +1257,7 @@ class UatKaiSmoke:
         response = self._request(
             "POST",
             "/api/v1/scoped-export",
-            params={"token": self.developer_token},
-            headers={"Content-Type": "application/json"},
+            headers={**self._developer_auth_headers(), "Content-Type": "application/json"},
             json_body={
                 "user_id": self.user_id,
                 "consent_token": consent_token,
@@ -1031,6 +1303,284 @@ class UatKaiSmoke:
         result = response.json()
         result["marker"] = marker
         return result
+
+    def _build_confirmed_portfolio_mutation_plan(
+        self,
+        *,
+        manifest: dict[str, Any],
+        source_revision: int,
+    ) -> dict[str, Any]:
+        impact = self._request(
+            "GET",
+            f"/api/pkm/memory/mutation-impact/{quote_plus(self.user_id)}/financial",
+            headers=self._vault_headers(),
+            params={"scope_path": "portfolio"},
+        ).json()
+        registry = manifest.get("scope_registry") or []
+        source_handle = next(
+            (
+                str(entry.get("scope_handle") or "").strip()
+                for entry in registry
+                if isinstance(entry, dict)
+                and str((entry.get("summary_projection") or {}).get("top_level_scope_path") or "")
+                == "portfolio"
+                and str(entry.get("scope_handle") or "").strip()
+            ),
+            "",
+        )
+        if not source_handle:
+            digest = hashlib.sha256(
+                f"{self.user_id}:financial:portfolio".encode("utf-8")
+            ).hexdigest()
+            source_handle = f"s_{digest[:12]}"
+        plan_id = f"pkm_plan_{uuid.uuid4().hex}"
+        return {
+            "version": 2,
+            "plan_id": plan_id,
+            "operation": "update",
+            "source_scope_handle": source_handle,
+            "target_scope_handle": source_handle,
+            "proposed_domain": "financial",
+            "proposed_scope": "portfolio",
+            "friendly_domain_name": "Financial",
+            "friendly_scope_name": "Portfolio",
+            "confidence": 1.0,
+            "explanation": "The reviewer approved loading the canonical sample brokerage into the financial portfolio.",
+            "affected_grant_ids": impact.get("affected_grant_ids") or [],
+            "affected_export_ids": impact.get("affected_export_ids") or [],
+            "sharing_impact": {
+                "active_recipient_count": int(impact.get("active_recipient_count") or 0),
+                "recipient_labels": impact.get("recipient_labels") or [],
+                "enters_next_export_revision": impact.get("enters_next_export_revision") is True,
+                "summary": str(impact.get("summary") or "No active recipients are affected."),
+            },
+            "semantic_contract_version": CURRENT_PKM_CONTRACT_VERSION,
+            "writer_id": "uat_reviewer_sample_import",
+            "structure_agent_id": "pkm_structure_agent",
+            "source_revision": max(0, int(source_revision or 0)),
+            "confirmation_receipt": {
+                "version": 2,
+                "receipt_id": f"pkm_receipt_{uuid.uuid4().hex}",
+                "plan_id": plan_id,
+                "confirmed_by_user_id": self.user_id,
+                "confirmed_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "surface": "import",
+                "displayed_domain": "financial",
+                "displayed_scope": "portfolio",
+                "sharing_impact_acknowledged": True,
+            },
+        }
+
+    def load_sample_brokerage_into_pkm(self) -> str:
+        """Load the canonical web sample into the reviewer vault and return its MCP scope."""
+        sample = json.loads(SAMPLE_BROKERAGE_PATH.read_text(encoding="utf-8"))
+        holdings = sample.get("holdings") or []
+        if not isinstance(holdings, list) or not holdings:
+            raise RuntimeError("The canonical sample brokerage fixture has no holdings.")
+
+        current_manifest = self._fetch_domain_manifest("financial")
+        blob_payload = self._fetch_domain_blob("financial")
+        current_domain = self._decrypt_domain_blob(blob_payload)
+        if not isinstance(current_domain, dict):
+            raise RuntimeError("The reviewer financial domain is not a JSON object.")
+
+        now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+        snapshot_id = f"stmt_uat_sample_{int(time.time())}"
+        captured_sections = sorted(
+            key
+            for key, value in sample.items()
+            if value not in (None, "", [], {}) and key not in {"domain_intent"}
+        )
+        canonical_portfolio = {
+            **sample,
+            "source_metadata": {
+                "source_type": "statement",
+                "source_label": "Statement",
+                "source_id": snapshot_id,
+                "active_snapshot_id": snapshot_id,
+                "is_editable": True,
+            },
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "portfolio",
+                "source": "uat_reviewer_sample_import",
+                "captured_sections": captured_sections,
+                "updated_at": now_iso,
+            },
+        }
+        existing_documents = current_domain.get("documents")
+        if not isinstance(existing_documents, dict):
+            existing_documents = {}
+        prior_statements = [
+            statement
+            for statement in (existing_documents.get("statements") or [])
+            if isinstance(statement, dict)
+            and not str(statement.get("id") or "").startswith("stmt_uat_sample_")
+        ]
+        snapshot = {
+            "id": snapshot_id,
+            "imported_at": now_iso,
+            "schema_version": 2,
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "documents",
+                "source": "uat_reviewer_sample_import",
+                "updated_at": now_iso,
+            },
+            "source": {
+                "brokerage": (sample.get("account_info") or {}).get("brokerage"),
+                "statement_period_start": (sample.get("account_info") or {}).get(
+                    "statement_period_start"
+                ),
+                "statement_period_end": (sample.get("account_info") or {}).get(
+                    "statement_period_end"
+                ),
+                "account_type": (sample.get("account_info") or {}).get("account_type"),
+            },
+            "account_info": sample.get("account_info"),
+            "account_summary": sample.get("account_summary"),
+            "holdings": holdings,
+            "asset_allocation": sample.get("asset_allocation"),
+            "canonical_v2": sample,
+            "parse_context": {
+                "parse_fallback": sample.get("parse_fallback") is True,
+                "sparse_sections": [],
+                "fallback_merge_applied": False,
+            },
+        }
+        statements = [snapshot, *prior_statements][:25]
+        documents = {
+            **existing_documents,
+            "schema_version": 1,
+            "statements": statements,
+            "domain_intent": {
+                "primary": "financial",
+                "secondary": "documents",
+                "source": "uat_reviewer_sample_import",
+                "captured_sections": captured_sections,
+                "updated_at": now_iso,
+            },
+        }
+        existing_sources = current_domain.get("sources")
+        if not isinstance(existing_sources, dict):
+            existing_sources = {}
+        existing_statement_source = existing_sources.get("statement")
+        if not isinstance(existing_statement_source, dict):
+            existing_statement_source = {}
+        next_domain = {
+            **current_domain,
+            "schema_version": 3,
+            "domain_intent": {
+                "primary": "financial",
+                "source": "domain_registry_prepopulate",
+                "contract_version": 2,
+                "updated_at": now_iso,
+            },
+            "portfolio": canonical_portfolio,
+            "documents": documents,
+            "sources": {
+                **existing_sources,
+                "active_source": "statement",
+                "statement": {
+                    **existing_statement_source,
+                    "source_type": "statement",
+                    "source_label": "Statement",
+                    "is_editable": True,
+                    "active_snapshot_id": snapshot_id,
+                    "snapshot_count": len(statements),
+                    "snapshots": statements,
+                    "updated_at": now_iso,
+                },
+            },
+            "updated_at": now_iso,
+        }
+        structure_decision, manifest = _build_manifest_artifacts(
+            domain="financial",
+            domain_data=next_domain,
+            previous_manifest=current_manifest,
+        )
+        summary = next(
+            (
+                domain.get("summary")
+                for domain in self.fetch_pkm_metadata().get("domains", [])
+                if str(domain.get("key") or "") == "financial"
+            ),
+            {},
+        )
+        if not isinstance(summary, dict):
+            summary = {}
+        account_info = sample.get("account_info") or {}
+        summary = {
+            **summary,
+            "intent_source": "uat_reviewer_sample_import",
+            "active_source": "statement",
+            "attribute_count": len(holdings),
+            "item_count": len(holdings),
+            "holdings_count": len(holdings),
+            "investable_positions_count": len(
+                [holding for holding in holdings if holding.get("is_investable") is True]
+            ),
+            "cash_positions_count": len(
+                [holding for holding in holdings if holding.get("is_cash_equivalent") is True]
+            ),
+            "documents_count": len(statements),
+            "last_brokerage": account_info.get("brokerage"),
+            "last_statement_total_value": sample.get("total_value"),
+            "domain_contract_version": FINANCIAL_DOMAIN_CONTRACT_VERSION,
+            "intent_map": [
+                "portfolio",
+                "analytics",
+                "profile",
+                "documents",
+                "analysis_history",
+                "runtime",
+                "analysis.decisions",
+            ],
+            "last_updated": now_iso,
+        }
+        source_revision = int(blob_payload.get("data_version") or 0)
+        mutation_plan = self._build_confirmed_portfolio_mutation_plan(
+            manifest=current_manifest,
+            source_revision=source_revision,
+        )
+        response = self._request(
+            "POST",
+            "/api/pkm/store-domain",
+            headers={**self._vault_headers(), "Content-Type": "application/json"},
+            json_body={
+                "user_id": self.user_id,
+                "domain": "financial",
+                "encrypted_blob": self._encrypt_domain_blob(next_domain),
+                "summary": summary,
+                "structure_decision": structure_decision,
+                "manifest": manifest,
+                "source_agent": "uat_reviewer_sample_import",
+                "expected_data_version": source_revision,
+                "mutation_plan": mutation_plan,
+            },
+        ).json()
+        if response.get("success") is not True:
+            raise RuntimeError("The sample brokerage PKM write did not succeed.")
+
+        stored_domain = self._decrypt_domain_blob(self._fetch_domain_blob("financial"))
+        stored_holdings = (stored_domain.get("portfolio") or {}).get("holdings") or []
+        stored_manifest = self._fetch_domain_manifest("financial")
+        if len(stored_holdings) != len(holdings):
+            raise RuntimeError("The sample brokerage PKM readback did not preserve every holding.")
+        if "portfolio" not in (stored_manifest.get("top_level_scope_paths") or []):
+            raise RuntimeError(
+                "The sample brokerage manifest did not expose the portfolio section."
+            )
+        if not any(
+            str(path).startswith("portfolio.")
+            for path in (stored_manifest.get("externalizable_paths") or [])
+        ):
+            raise RuntimeError("The sample brokerage manifest has no exportable portfolio fields.")
+        self.log(
+            "Loaded the canonical sample brokerage into the reviewer PKM "
+            f"with {len(stored_holdings)} holdings and verified encrypted readback."
+        )
+        return "attr.financial.portfolio.*"
 
     def list_refresh_jobs(self) -> dict[str, Any]:
         response = self._request(
@@ -1123,137 +1673,6 @@ class UatKaiSmoke:
                 "source_data_version": package.get("source_data_version"),
                 "source_manifest_revision": package.get("source_manifest_revision"),
             },
-        )
-        return response.json()
-
-    def request_ria_consent(self) -> dict[str, Any]:
-        templates = self._request(
-            "GET",
-            "/api/ria/request-scopes",
-            headers=self._firebase_auth_headers(),
-        ).json()["items"]
-
-        def _scope_name(scope_entry: dict[str, Any]) -> str:
-            return str(scope_entry.get("name") or scope_entry.get("scope") or "").strip()
-
-        selected_template = None
-        selected_scope = None
-        preferred_scope_names = [
-            "attr.financial.*",
-            "attr.financial.analytics.*",
-        ]
-        for preferred_scope in preferred_scope_names:
-            for item in templates:
-                for scope in item.get("scopes") or []:
-                    if _scope_name(scope) == preferred_scope:
-                        selected_template = item
-                        selected_scope = preferred_scope
-                        break
-                if selected_template:
-                    break
-            if selected_template:
-                break
-        if not selected_template:
-            for item in templates:
-                for scope in item.get("scopes") or []:
-                    scope_name = _scope_name(scope)
-                    if scope_name.startswith("attr.financial."):
-                        selected_template = item
-                        selected_scope = scope_name
-                        break
-                if selected_template:
-                    break
-        if not selected_template:
-            for item in templates:
-                scopes = item.get("scopes") or []
-                if scopes:
-                    selected_template = item
-                    selected_scope = _scope_name(scopes[0]) or None
-                    if selected_scope:
-                        break
-        if not selected_template or not selected_scope:
-            raise RuntimeError("No usable RIA investor-data scope template was found.")
-        self.log(
-            "Selected RIA request template "
-            f"{selected_template['template_id']} with scope {selected_scope}."
-        )
-        response = self._request(
-            "POST",
-            "/api/ria/requests",
-            headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
-            json_body={
-                "subject_user_id": self.user_id,
-                "scope_template_id": selected_template["template_id"],
-                "selected_scope": selected_scope,
-                "reason": "Kai UAT regression self-relationship check",
-            },
-        )
-        return response.json()
-
-    def request_ria_consent_bundle(self, *, selected_scopes: list[str]) -> dict[str, Any]:
-        templates = self._request(
-            "GET",
-            "/api/ria/request-scopes",
-            headers=self._firebase_auth_headers(),
-        ).json()["items"]
-        target_template = next(
-            (
-                item
-                for item in templates
-                if str(item.get("template_id") or "") == "ria_financial_summary_v1"
-            ),
-            None,
-        )
-        if not isinstance(target_template, dict):
-            raise RuntimeError("ria_financial_summary_v1 template was not available.")
-        template_scopes = {
-            str(scope.get("name") or scope.get("scope") or "").strip()
-            for scope in (target_template.get("scopes") or [])
-        }
-        chosen_scopes = [scope for scope in selected_scopes if scope in template_scopes]
-        if not chosen_scopes:
-            raise RuntimeError(
-                f"Requested bundle scopes are not supported by the template: {selected_scopes}"
-            )
-        response = self._request(
-            "POST",
-            "/api/ria/request-bundles",
-            headers={**self._firebase_auth_headers(), "Content-Type": "application/json"},
-            json_body={
-                "subject_user_id": self.user_id,
-                "scope_template_id": target_template["template_id"],
-                "selected_scopes": chosen_scopes,
-                "reason": "Kai UAT portfolio sharing regression",
-            },
-        )
-        return response.json()
-
-    def approve_ria_request(self, *, request_id: str) -> dict[str, Any]:
-        response = self._request(
-            "POST",
-            "/api/consent/pending/approve",
-            headers={**self._vault_headers(), "Content-Type": "application/json"},
-            json_body={
-                "userId": self.user_id,
-                "requestId": request_id,
-                "durationHours": 24,
-            },
-        )
-        return response.json()
-
-    def get_ria_client_detail(self) -> dict[str, Any]:
-        response = self._request(
-            "GET",
-            f"/api/ria/clients/{quote_plus(self.user_id)}",
-            headers=self._firebase_auth_headers(),
-        )
-        return response.json()
-
-    def get_ria_workspace(self) -> dict[str, Any]:
-        response = self._request(
-            "GET",
-            f"/api/ria/workspace/{quote_plus(self.user_id)}",
-            headers=self._firebase_auth_headers(),
         )
         return response.json()
 
@@ -1423,298 +1842,27 @@ class UatKaiSmoke:
         picks_upload = self.upload_ria_picks()
         if str(picks_upload.get("status") or "").lower() != "synced":
             raise RuntimeError(f"RIA pick upload failed: {picks_upload}")
-        ria_request = self.request_ria_consent()
-        if str(ria_request.get("status") or "").lower() != "requested":
-            raise RuntimeError(f"RIA request creation failed: {ria_request}")
-        ria_summary = self.get_consent_center_summary(actor="ria", mode="connections")
-        ria_preview = self.get_consent_center_list(
-            actor="ria",
-            surface="pending",
-            top=5,
-            mode="connections",
+        self.log(
+            "RIA Picks package sync passed; explicit two-account capability rehearsal is required separately."
         )
-        if ria_preview.get("page") != 1 or ria_preview.get("limit") != 5:
-            raise RuntimeError(f"Unexpected RIA consent preview pagination contract: {ria_preview}")
-        if len(ria_preview.get("items") or []) > 5:
-            raise RuntimeError(f"RIA consent preview returned more than 5 rows: {ria_preview}")
-        if int((ria_summary.get("counts") or {}).get("pending") or 0) < 1:
-            raise RuntimeError(
-                f"Expected at least one pending RIA connection after request: {ria_summary}"
-            )
-        if not any(
-            str(item.get("request_id") or item.get("id") or "")
-            == str(ria_request.get("request_id") or "")
-            for item in (ria_preview.get("items") or [])
-        ):
-            raise RuntimeError(
-                f"Expected RIA pending preview to include the new request: {ria_request} {ria_preview}"
-            )
-        self.log("RIA connections summary + top-5 preview contract passed.")
-        self.approve_ria_request(request_id=str(ria_request["request_id"]))
-        client_detail = self.get_ria_client_detail()
-        relationship_shares = client_detail.get("relationship_shares") or []
-        if not relationship_shares:
-            raise RuntimeError(f"Expected implicit relationship share grant, got: {client_detail}")
-        picks_feed_status = str(client_detail.get("picks_feed_status") or "")
-        if picks_feed_status not in {"ready", "pending"}:
-            raise RuntimeError(f"Unexpected picks feed status: {client_detail}")
-        ria_connections_active = self.get_consent_center_list(
-            actor="ria",
-            surface="active",
-            top=5,
-            mode="connections",
-        )
-        if not any(
-            str(item.get("counterpart_id") or "") == self.user_id
-            for item in (ria_connections_active.get("items") or [])
-        ):
-            raise RuntimeError(
-                "Expected active connections view to include the approved investor connection: "
-                f"{ria_connections_active}"
-            )
-        workspace = self.get_ria_workspace()
-        if not workspace.get("workspace_ready"):
-            raise RuntimeError(
-                f"Expected workspace_ready after connection approval, got: {workspace}"
-            )
-        financial_summary = (workspace.get("domain_summaries") or {}).get("financial") or {}
-        if not isinstance(financial_summary, dict) or not financial_summary:
-            raise RuntimeError(
-                f"Expected financial domain summary to materialize for the granted scope, got: {workspace}"
-            )
-        available_domains = [str(domain) for domain in (workspace.get("available_domains") or [])]
-        if "financial" not in available_domains:
-            raise RuntimeError(
-                f"Expected overview-only workspace to remain financial-scoped, got: {workspace}"
-            )
-        granted_scopes = [
-            str(item.get("scope") or "") for item in (workspace.get("granted_scopes") or [])
-        ]
-        if "attr.financial.*" not in granted_scopes and "pkm.read" not in granted_scopes:
-            raise RuntimeError(
-                f"Expected attr.financial.* or pkm.read grant in workspace payload: {workspace}"
-            )
-        self.log("Connection-led Kai portfolio overview workspace path passed.")
-
-        full_portfolio_bundle = self.request_ria_consent_bundle(
-            selected_scopes=["attr.financial.*", "pkm.read"]
-        )
-        if str(full_portfolio_bundle.get("status") or "").lower() != "requested":
-            raise RuntimeError(
-                f"Expected full portfolio access bundle to remain pending, got: {full_portfolio_bundle}"
-            )
-        investor_access_summary = self.get_consent_center_summary(actor="investor", mode="consents")
-        investor_access_preview = self.get_consent_center_list(
-            actor="investor",
-            surface="pending",
-            top=10,
-            mode="consents",
-        )
-        if int((investor_access_summary.get("counts") or {}).get("pending") or 0) < 1:
-            raise RuntimeError(
-                "Expected consent-only inbox to carry the Kai portfolio access bundle: "
-                f"{investor_access_summary}"
-            )
-        if not set(
-            str(request_id) for request_id in (full_portfolio_bundle.get("request_ids") or [])
-        ) <= {
-            str(item.get("request_id") or item.get("id") or "")
-            for item in (investor_access_preview.get("items") or [])
-        }:
-            raise RuntimeError(
-                "Expected investor consent-only inbox to include the Kai portfolio access bundle requests: "
-                f"{full_portfolio_bundle} {investor_access_preview}"
-            )
-        for request_id in list(full_portfolio_bundle.get("request_ids") or []):
-            self.approve_ria_request(request_id=str(request_id))
-        expanded_workspace = self.get_ria_workspace()
-        expanded_granted_scopes = [
-            str(item.get("scope") or "")
-            for item in (expanded_workspace.get("granted_scopes") or [])
-        ]
-        if "pkm.read" not in expanded_granted_scopes:
-            raise RuntimeError(
-                f"Expected expanded connection grant to include pkm.read: {expanded_workspace}"
-            )
-        expanded_financial_summary = (expanded_workspace.get("domain_summaries") or {}).get(
-            "financial"
-        ) or {}
-        if not isinstance(expanded_financial_summary, dict) or not expanded_financial_summary:
-            raise RuntimeError(
-                "Expanded portfolio access did not retain readable financial summary output: "
-                f"{expanded_workspace}"
-            )
-        self.log("Connection-led Kai portfolio access bundle expansion passed.")
-
-        market_home = self.get_market_insights()
-        ria_source = next(
-            (
-                source
-                for source in (market_home.get("pick_sources") or [])
-                if str(source.get("kind") or "") == "ria"
-            ),
-            None,
-        )
-        if not isinstance(ria_source, dict):
-            raise RuntimeError(
-                f"Expected Kai market home to expose an ria:* source, got: {market_home}"
-            )
-        explicit_market_home = self.get_market_insights(pick_source=str(ria_source["id"]))
-        if str(explicit_market_home.get("active_pick_source") or "") != str(ria_source["id"]):
-            raise RuntimeError(
-                f"Expected Kai market home to resolve the ria:* source, got: {explicit_market_home.get('active_pick_source')}"
-            )
-        if not explicit_market_home.get("pick_rows"):
-            raise RuntimeError(
-                "Expected active RIA pick rows once the implicit share grant is active."
-            )
-        self.log("RIA implicit picks-share relationship gate passed.")
 
         self.log("All live Kai UAT smoke checks passed.")
-
-    def run_connection_portfolio(self) -> None:
-        self.authenticate()
-        self.derive_vault_key()
-
-        metadata = self.fetch_pkm_metadata()
-        self.log(
-            f"PKM metadata reachable with domains={[domain.get('key') for domain in metadata.get('domains', [])]}."
-        )
-
-        ria_status = self.ensure_ria_profile()
-        self.log(
-            f"RIA profile ready with verification_status={ria_status.get('verification_status')}."
-        )
-        picks_upload = self.upload_ria_picks()
-        if str(picks_upload.get("status") or "").lower() != "synced":
-            raise RuntimeError(f"RIA pick upload failed: {picks_upload}")
-
-        ria_request = self.request_ria_consent()
-        if str(ria_request.get("status") or "").lower() != "requested":
-            raise RuntimeError(f"RIA request creation failed: {ria_request}")
-
-        pending_connections = self.get_consent_center_list(
-            actor="ria",
-            surface="pending",
-            top=10,
-            mode="connections",
-        )
-        if not any(
-            str(item.get("request_id") or item.get("id") or "")
-            == str(ria_request.get("request_id") or "")
-            for item in (pending_connections.get("items") or [])
-        ):
-            raise RuntimeError(
-                "Expected pending connections to include the new relationship request: "
-                f"{ria_request} {pending_connections}"
-            )
-
-        self.approve_ria_request(request_id=str(ria_request["request_id"]))
-
-        active_connections = self.get_consent_center_list(
-            actor="ria",
-            surface="active",
-            top=10,
-            mode="connections",
-        )
-        if not any(
-            str(item.get("counterpart_id") or "") == self.user_id
-            for item in (active_connections.get("items") or [])
-        ):
-            raise RuntimeError(
-                "Expected active connections to include the approved investor relationship: "
-                f"{active_connections}"
-            )
-
-        overview_workspace = self.get_ria_workspace()
-        if not overview_workspace.get("workspace_ready"):
-            raise RuntimeError(
-                f"Expected connection-led workspace to be ready after approval: {overview_workspace}"
-            )
-        overview_financial = (overview_workspace.get("domain_summaries") or {}).get(
-            "financial"
-        ) or {}
-        if not isinstance(overview_financial, dict) or not overview_financial:
-            raise RuntimeError(
-                "Expected connection-led overview scope to materialize financial data: "
-                f"{overview_workspace}"
-            )
-        overview_scopes = [
-            str(item.get("scope") or "")
-            for item in (overview_workspace.get("granted_scopes") or [])
-        ]
-        if "attr.financial.*" not in overview_scopes and "pkm.read" not in overview_scopes:
-            raise RuntimeError(
-                "Expected attr.financial.* or pkm.read in the workspace payload: "
-                f"{overview_workspace}"
-            )
-        self.log("Connection approval -> Kai portfolio overview workspace path passed.")
-
-        bundle_payload = self.request_ria_consent_bundle(
-            selected_scopes=["attr.financial.*", "pkm.read"]
-        )
-        if str(bundle_payload.get("status") or "").lower() != "requested":
-            raise RuntimeError(
-                f"Expected expanded portfolio bundle to be pending, got: {bundle_payload}"
-            )
-
-        investor_access_preview = self.get_consent_center_list(
-            actor="investor",
-            surface="pending",
-            top=10,
-            mode="consents",
-        )
-        bundle_request_ids = {
-            str(request_id) for request_id in (bundle_payload.get("request_ids") or [])
-        }
-        preview_ids = {
-            str(item.get("request_id") or item.get("id") or "")
-            for item in (investor_access_preview.get("items") or [])
-        }
-        if not bundle_request_ids <= preview_ids:
-            raise RuntimeError(
-                "Expected investor consent inbox to contain the Kai portfolio access bundle: "
-                f"{bundle_payload} {investor_access_preview}"
-            )
-
-        for request_id in list(bundle_payload.get("request_ids") or []):
-            self.approve_ria_request(request_id=str(request_id))
-
-        expanded_workspace = self.get_ria_workspace()
-        expanded_scopes = [
-            str(item.get("scope") or "")
-            for item in (expanded_workspace.get("granted_scopes") or [])
-        ]
-        if "pkm.read" not in expanded_scopes:
-            raise RuntimeError(
-                f"Expected expanded portfolio access to include pkm.read: {expanded_workspace}"
-            )
-        expanded_financial = (expanded_workspace.get("domain_summaries") or {}).get(
-            "financial"
-        ) or {}
-        if not isinstance(expanded_financial, dict) or not expanded_financial:
-            raise RuntimeError(
-                "Expanded workspace lost readable financial output after the bundle grant: "
-                f"{expanded_workspace}"
-            )
-        self.log("Connection-led Kai portfolio access bundle expansion passed.")
-        self.log("Connection portfolio UAT smoke passed.")
 
     def run_mcp_transport(self) -> None:
         if not self.developer_token:
             self.authenticate()
         tool_names, resource_uris = asyncio.run(self._run_remote_mcp_transport_async())
         required_tools = {
-            "discover_user_domains",
+            "search_user_scopes",
+            "prepare_campaign_context",
             "request_consent",
             "check_consent_status",
             "get_encrypted_scoped_export",
-            "validate_token",
-            "list_scopes",
         }
-        missing_tools = sorted(required_tools - tool_names)
-        if missing_tools:
-            raise RuntimeError(f"Remote MCP missing expected tools: {missing_tools}")
+        if tool_names != required_tools:
+            raise RuntimeError(
+                f"Remote MCP tool contract mismatch: expected={sorted(required_tools)} actual={sorted(tool_names)}"
+            )
         expected_resources = {
             "hushh://info/server",
             "hushh://info/protocol",
@@ -1731,10 +1879,9 @@ class UatKaiSmoke:
     def run_mcp_consent(self) -> None:
         self.authenticate()
         self.derive_vault_key()
-        scope = "attr.financial.analytics.quality_metrics"
+        scope = self.load_sample_brokerage_into_pkm()
         for reset_scope in (
             scope,
-            "attr.financial.analytics.*",
             "attr.financial.*",
             "pkm.read",
         ):
@@ -1786,7 +1933,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--timeout", type=int, default=DEFAULT_TIMEOUT)
     parser.add_argument(
         "--scenario",
-        choices=["full", "connection_portfolio", "mcp_transport", "mcp_consent", "push_delivery"],
+        choices=["full", "mcp_transport", "mcp_consent", "push_delivery"],
         default="full",
     )
     parser.add_argument("--push-platform", default="web")
@@ -1812,9 +1959,7 @@ def main() -> int:
         web_env=args.web_env,
         timeout=args.timeout,
     )
-    if args.scenario == "connection_portfolio":
-        runner.run_connection_portfolio()
-    elif args.scenario == "mcp_transport":
+    if args.scenario == "mcp_transport":
         runner.run_mcp_transport()
     elif args.scenario == "mcp_consent":
         runner.run_mcp_consent()

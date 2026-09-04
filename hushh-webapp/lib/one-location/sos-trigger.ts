@@ -11,6 +11,7 @@ import {
   saveSosIncident,
   type SosIncident,
 } from "@/lib/one-location/sos-incident";
+import { ONE_LOCATION_SHARE_NOTE_MAX_LENGTH } from "@/lib/one-location/message-limits";
 import type {
   OneLocationGrant,
   OneLocationNetworkConnection,
@@ -108,6 +109,19 @@ export function selectShareReadyRecipients(
   return recipients.filter((r) => r.canReceiveLocation === true);
 }
 
+/**
+ * Fail-closed Save My Soul selection. An empty or unavailable membership list
+ * never falls back to every connected person.
+ */
+export function selectSmsRecipients(
+  recipients: OneLocationRecipient[],
+  smsContactUserIds: string[] | undefined,
+): OneLocationRecipient[] {
+  const selectedIds = new Set(smsContactUserIds ?? []);
+  if (selectedIds.size === 0) return [];
+  return recipients.filter((recipient) => selectedIds.has(recipient.userId));
+}
+
 // ---------------------------------------------------------------------------
 // 4. Panic execution
 // ---------------------------------------------------------------------------
@@ -117,6 +131,8 @@ export interface RunSosPanicParams {
   /** Only share-ready recipients — caller must pre-filter with isSosShareReadyRecipient. */
   recipients: SosShareReadyRecipient[];
   point: PlainLocationPoint;
+  /** Optional short message shown in the recipient notification. */
+  note?: string | null;
   /**
    * Caller-supplied publish function so the core stays decoupled from the
    * encrypt+store implementation (and is therefore easy to unit-test).
@@ -125,8 +141,31 @@ export interface RunSosPanicParams {
     grant: OneLocationGrant,
     recipient: SosShareReadyRecipient,
     point: PlainLocationPoint,
-  ) => Promise<void>;
+  ) => Promise<boolean | null | void>;
 }
+
+/**
+ * Per-recipient outcome for one alert.
+ *
+ * `alerted` is `true` when the backend handed a push to FCM, `false` when the
+ * recipient had no device to deliver to (notifications never enabled, or the
+ * token was reaped after an uninstall), and `null` when the backend did not
+ * report — which must never be shown as a failure.
+ */
+export type SosDeliveryOutcome = {
+  userId: string;
+  displayName: string;
+  alerted: boolean | null;
+};
+
+/**
+ * `SosIncident` plus per-recipient delivery, so a caller can say which contacts
+ * were actually reached instead of a blanket "sent". Extends `SosIncident` so
+ * existing callers that only persist/read incident fields are unaffected.
+ */
+export type SosPanicResult = SosIncident & {
+  delivery: SosDeliveryOutcome[];
+};
 
 /**
  * Creates one 8-hour SOS grant per recipient, publishes an encrypted location
@@ -145,17 +184,26 @@ export interface RunSosPanicParams {
  */
 export async function runSosPanic(
   params: RunSosPanicParams,
-): Promise<SosIncident> {
-  const { vaultOwnerToken, recipients, point, publish } = params;
+): Promise<SosPanicResult> {
+  const { vaultOwnerToken, recipients, point, publish, note } = params;
+  const normalizedNote = note?.trim() || null;
+
+  if (
+    normalizedNote &&
+    normalizedNote.length > ONE_LOCATION_SHARE_NOTE_MAX_LENGTH
+  ) {
+    throw new SosPanicError("Message is too long", null);
+  }
 
   if (!recipients.length) {
-    throw new SosPanicError("No SOS recipients provided.", null);
+    throw new SosPanicError("No SMS contacts provided.", null);
   }
 
   // Capture a single timestamp used for both the success incident and any
   // partial incident — prevents clock skew between the two code paths.
   const startedAt = new Date().toISOString();
   const grantIds: string[] = [];
+  const delivery: SosDeliveryOutcome[] = [];
 
   try {
     for (const recipient of recipients) {
@@ -164,17 +212,25 @@ export async function runSosPanic(
         recipientUserId: recipient.userId,
         recipientKeyId: recipient.keyId,
         durationHours: 8,
-        reason: "sos_panic",
+        reason: normalizedNote || "sos_panic",
+        shareKind: "sos",
       });
       // Record the grant id BEFORE publish so it is never orphaned even if
       // publish throws for this or a later recipient.
       grantIds.push(grant.id);
-      await publish(grant, recipient, point);
+      const alerted = await publish(grant, recipient, point);
+      delivery.push({
+        userId: recipient.userId,
+        displayName: recipient.displayName,
+        alerted: typeof alerted === "boolean" ? alerted : null,
+      });
     }
 
     const incident: SosIncident = { grantIds, startedAt };
+    // Only incident fields are persisted; delivery is per-attempt UI feedback
+    // and would be stale the moment it was read back from storage.
     saveSosIncident(incident);
-    return incident;
+    return { ...incident, delivery };
   } catch (error) {
     // Build partial incident from whatever grants were successfully created.
     const partial: SosIncident | null = grantIds.length

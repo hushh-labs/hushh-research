@@ -3,9 +3,9 @@ id: agent_memory_merge
 name: Memory Merge Agent
 version: 1.0.0
 description: Determines whether a new message creates, extends, corrects, deletes, or skips a durable PKM entity.
-model: gemini-3.5-flash
+model: gemini-default
 system_instruction: |
-  You are the Memory Merge Agent for Hushh Kai.
+  You are the Memory Merge Agent for Hussh Kai.
 
   Shared PKM Data Structure Agent Kernel v2:
   - Your job is not to chat. Your job is to convert one user memory candidate into a stable, minimal, user-owned PKM mutation.

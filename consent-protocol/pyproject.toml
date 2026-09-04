@@ -8,6 +8,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
+    "ag-ui-adk==0.7.0",
+    "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
     "cryptography>=44.0.0",
     "defusedxml>=0.7.1",
@@ -32,7 +34,7 @@ dependencies = [
     "grpcio-status==1.76.0",
     "gunicorn==25.3.0",
     "httpx>=0.27.1,<0.29",
-    "mcp==1.26.0",
+    "mcp==1.28.1",
     "opentelemetry-api>=1.33.0",
     "opentelemetry-exporter-gcp-trace>=1.8.0",
     "opentelemetry-instrumentation-fastapi>=0.54b0",
@@ -58,6 +60,8 @@ dependencies = [
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
     "pycountry>=26.2.16",
+    "redis==5.3.1",
+    "cachetools==7.1.7",
 ]
 
 [dependency-groups]
@@ -122,6 +126,8 @@ ignore = [
 "tests/*" = ["S101", "S105"]  # Allow assert + placeholder credential fixtures in tests
 "api/routes/*" = ["B008"]  # Redundant with global; FastAPI Depends() pattern
 "scripts/*" = ["S101", "S106", "S108"]  # Verification scripts: assert-driven checks + isolated offline tmp db
+"hushh_mcp/operons/kai/__init__.py" = ["F401"]  # PEP 562 lazy barrel: TYPE_CHECKING imports mirror the runtime __getattr__ export table for static type resolution
+"tests/operons/kai/test_package_import_safety.py" = ["S603"]  # Import-safety probe intentionally subprocesses a fixed, in-repo source string, never external input
 
 [tool.ruff.format]
 # Enable ruff format for consistent Python formatting
@@ -172,6 +178,24 @@ module = [
     "api.routes.session",
 ]
 follow_imports = "skip"
+
+# hushh_mcp/one_adk/action_tools.py calls these two services' methods
+# directly (backend-direct voice actions bypassing the @hushh_tool layer,
+# e.g. create_grant, request_access, list_verified_recipients,
+# search_directory, create_request), so a signature change there is a real,
+# silent break for action_tools.py -- not just debt local to the service.
+# More specific overrides win over the hushh_mcp.services.* wildcard above,
+# so this un-skips exactly these two modules as import dependencies without
+# adding them to `files` as scan targets or touching the wildcard itself.
+[[tool.mypy.overrides]]
+module = [
+    "hushh_mcp.services.one_location_agent_service",
+    "hushh_mcp.services.connections_service",
+    # A pure table plus one classifier. Cheap to check, and its return types are
+    # what `google_maps_service` builds a response contract on.
+    "hushh_mcp.services.place_taxonomy",
+]
+follow_imports = "normal"
 
 [tool.bandit]
 exclude_dirs = ["tests", "__pycache__"]

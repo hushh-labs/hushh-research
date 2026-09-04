@@ -11,7 +11,7 @@ import {
 describe("consent sheet route helpers", () => {
   it("keeps internal relative app routes relative", () => {
     expect(normalizeInternalAppHref("/consents?tab=pending")).toBe(
-      "/consents?tab=pending",
+      "/one/consent?tab=pending",
     );
   });
 
@@ -20,7 +20,7 @@ describe("consent sheet route helpers", () => {
       normalizeInternalAppHref(
         "http://localhost:3000/consents?tab=pending&requestId=req_123",
       ),
-    ).toBe("/consents?tab=pending&requestId=req_123");
+    ).toBe("/one/consent?tab=pending&requestId=req_123");
   });
 
   it("normalizes Email Helper workflow links to internal app routes", () => {
@@ -43,16 +43,16 @@ describe("consent sheet route helpers", () => {
         requestId: "req_123",
         bundleId: "bundle_123",
       }),
-    ).toBe("/consents?tab=pending&requestId=req_123&bundleId=bundle_123");
+    ).toBe("/one/consent?tab=pending&requestId=req_123&bundleId=bundle_123");
   });
 
   it("keeps the bare consent manager on the One access view by default", () => {
-    expect(buildConsentCenterHref("pending")).toBe("/consents?tab=pending");
+    expect(buildConsentCenterHref("pending")).toBe("/one/consent?tab=pending");
   });
 
   it("builds explicit RIA consent manager links for advisor-only entry points", () => {
     expect(buildRiaConsentManagerHref("pending")).toBe(
-      "/consents?tab=pending&actor=ria&view=outgoing",
+      "/one/consent?tab=pending&actor=ria&view=outgoing",
     );
   });
 
@@ -63,7 +63,7 @@ describe("consent sheet route helpers", () => {
         from: "/kai/analysis?tab=history",
       }),
     ).toBe(
-      "/consents?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory",
+      "/one/consent?tab=pending&requestId=req_123&from=%2Fkai%2Fanalysis%3Ftab%3Dhistory",
     );
   });
 
@@ -74,8 +74,8 @@ describe("consent sheet route helpers", () => {
       ),
     ).toEqual({
       kind: "internal",
-      href: "/consents?tab=pending&requestId=req_123",
-      pathname: "/consents",
+      href: "/one/consent?tab=pending&requestId=req_123",
+      pathname: "/one/consent",
     });
   });
 
@@ -127,13 +127,13 @@ describe("path resolver safety — dangerous edge case handling", () => {
   it("resolveConsentNavigationTarget falls back to /consents for null href", () => {
     const result = resolveConsentNavigationTarget(null);
     expect(result.kind).toBe("internal");
-    expect(result.href).toContain("/consents");
+    expect(result.href).toContain("/one/consent");
   });
 
   it("resolveConsentNavigationTarget falls back to /consents for empty string href", () => {
     const result = resolveConsentNavigationTarget("");
     expect(result.kind).toBe("internal");
-    expect(result.href).toContain("/consents");
+    expect(result.href).toContain("/one/consent");
   });
 
   // ── Bare relative traversal — classifies as external, never internal ─────

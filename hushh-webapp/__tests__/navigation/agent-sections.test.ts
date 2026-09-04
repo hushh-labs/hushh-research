@@ -8,6 +8,18 @@ import {
 import { ROUTES } from "@/lib/navigation/routes";
 
 describe("agent sections", () => {
+  it("lists One first while preserving the internal root action id", () => {
+    const sections = getAgentSections();
+
+    expect(sections[0]).toMatchObject({
+      id: "agents",
+      label: "One",
+      href: ROUTES.ONE_HOME,
+      voiceRouteActionId: "route.one_agents",
+    });
+    expect(resolveAgentSectionForPath(ROUTES.ONE_HOME)?.label).toBe("One");
+  });
+
   it("exposes Finance and RIA as standalone adjacent top-level agents", () => {
     const sections = getAgentSections();
     const ids = sections.map((section) => section.id);
@@ -26,13 +38,14 @@ describe("agent sections", () => {
   it("routes the RIA agent to the RIA workspace with the ria nav scope", () => {
     const ria = getAgentSection("ria");
     expect(ria).not.toBeNull();
-    expect(ria?.href).toBe(ROUTES.RIA_HOME);
+    expect(ria?.href).toBe(ROUTES.RIA_PROFILE);
     expect(ria?.bottomNavScope).toBe("ria");
     expect(ria?.routeFamily).toBe("ria");
     expect(ria?.voiceRouteActionId).toBe("route.ria_home");
   });
 
   it("resolves RIA workspace paths back to the RIA agent", () => {
+    expect(resolveAgentSectionForPath(ROUTES.RIA_PROFILE)?.id).toBe("ria");
     expect(resolveAgentSectionForPath(ROUTES.RIA_HOME)?.id).toBe("ria");
     expect(resolveAgentSectionForPath(`${ROUTES.RIA_PICKS}`)?.id).toBe("ria");
   });
@@ -42,5 +55,31 @@ describe("agent sections", () => {
     expect(finance?.href).toBe(ROUTES.KAI_HOME);
     expect(finance?.bottomNavScope).toBe("investor");
     expect(finance?.label).toBe("Finance");
+  });
+
+  it("keeps Finance selected throughout its onboarding workspace", () => {
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE)?.id).toBe(
+      "finance",
+    );
+    expect(
+      resolveAgentSectionForPath(ROUTES.ONE_SETUP_FINANCE_IMPORT)?.id,
+    ).toBe("finance");
+    expect(resolveAgentSectionForPath(ROUTES.KAI_PLAID_OAUTH_RETURN)?.id).toBe(
+      "finance",
+    );
+  });
+
+  it("keeps Gmail and Calendar visible as One agents through setup and callback routes", () => {
+    expect(getAgentSection("gmail")?.href).toBe(ROUTES.GMAIL);
+    expect(getAgentSection("calendar")?.href).toBe(ROUTES.CALENDAR);
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_GMAIL)?.id).toBe(
+      "gmail",
+    );
+    expect(resolveAgentSectionForPath(ROUTES.ONE_SETUP_CALENDAR)?.id).toBe(
+      "calendar",
+    );
+    expect(
+      resolveAgentSectionForPath(ROUTES.PROFILE_GOOGLE_OAUTH_RETURN)?.id,
+    ).toBe("calendar");
   });
 });

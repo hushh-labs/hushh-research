@@ -37,7 +37,28 @@ class DomainSubintentEntry:
     status: str = "active_intent"
 
 
+@dataclass(frozen=True)
+class DomainSharingPolicy:
+    """Server-owned external-sharing boundary for a canonical PKM domain."""
+
+    domain_key: str
+    allow_domain_wildcard: bool = True
+    allowed_manifest_path_prefixes: tuple[str, ...] | None = None
+    denied_manifest_path_prefixes: tuple[str, ...] = ()
+    denied_manifest_path_parts: frozenset[str] = frozenset()
+    requestable_scopes: frozenset[str] | None = None
+    allow_public_projection: bool = True
+
+
 CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
+    DomainContractEntry(
+        domain_key="identity",
+        display_name="Identity",
+        icon_name="user-round",
+        color_hex="#0F766E",
+        description="Owner-authored identity details and personal profile facts",
+        status="active_core",
+    ),
     DomainContractEntry(
         domain_key="financial",
         display_name="Financial",
@@ -103,6 +124,22 @@ CANONICAL_DOMAIN_REGISTRY: tuple[DomainContractEntry, ...] = (
         status="active_core",
     ),
     DomainContractEntry(
+        domain_key="source_library",
+        display_name="Source Library",
+        icon_name="library",
+        color_hex="#2563EB",
+        description="Owner-reviewed knowledge derived from locally bound sources",
+        status="active_core",
+    ),
+    DomainContractEntry(
+        domain_key="wallet",
+        display_name="Wallet",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Owner-stored credit and debit cards, encrypted client-side under the vault key",
+        status="active_core",
+    ),
+    DomainContractEntry(
         domain_key="entertainment",
         display_name="Entertainment",
         icon_name="tv",
@@ -163,12 +200,12 @@ RETIRED_DOMAIN_REGISTRY_KEYS: tuple[str, ...] = (
     "kai_preferences",
 )
 
-CURRENT_PKM_MODEL_VERSION = 5
-CURRENT_PKM_CONTRACT_VERSION = "5.0.0"
-CURRENT_READABLE_PROJECTION_VERSION = "5.0.0"
-CURRENT_READABLE_SUMMARY_VERSION = 5
-GENERIC_DOMAIN_CONTRACT_VERSION = 3
-DYNAMIC_DOMAIN_CONTRACT_VERSION = 3
+CURRENT_PKM_MODEL_VERSION = 6
+CURRENT_PKM_CONTRACT_VERSION = "6.0.0"
+CURRENT_READABLE_PROJECTION_VERSION = "6.0.0"
+CURRENT_READABLE_SUMMARY_VERSION = 6
+GENERIC_DOMAIN_CONTRACT_VERSION = 4
+DYNAMIC_DOMAIN_CONTRACT_VERSION = 4
 FINANCIAL_DOMAIN_SCHEMA_VERSION = 3
 FINANCIAL_DOMAIN_CONTRACT_VERSION = GENERIC_DOMAIN_CONTRACT_VERSION
 FINANCIAL_INTENT_MAP: tuple[str, ...] = (
@@ -231,8 +268,116 @@ FINANCIAL_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
     ),
 )
 
-CANONICAL_SUBINTENT_KEYS = tuple(entry.domain_key for entry in FINANCIAL_SUBINTENT_REGISTRY)
+SOURCE_LIBRARY_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
+    DomainSubintentEntry(
+        domain_key="source_library.knowledge",
+        parent_domain="source_library",
+        display_name="Source Library Knowledge",
+        icon_name="library",
+        color_hex="#2563EB",
+        description="Owner-reviewed facts and summaries derived from bound sources",
+    ),
+)
+
+WALLET_SUBINTENT_REGISTRY: tuple[DomainSubintentEntry, ...] = (
+    DomainSubintentEntry(
+        domain_key="wallet.summary",
+        parent_domain="wallet",
+        display_name="Card Summaries",
+        icon_name="credit-card",
+        color_hex="#B45309",
+        description="Card nicknames, brand, last four digits, expiry, and issuing region",
+    ),
+    DomainSubintentEntry(
+        domain_key="wallet.secrets",
+        parent_domain="wallet",
+        display_name="Card Secrets",
+        icon_name="key-round",
+        color_hex="#B45309",
+        description="Full card number, CVV, PIN, and cardholder name, revealed only on explicit owner consent",
+    ),
+)
+
+CANONICAL_SUBINTENT_REGISTRY = (
+    *FINANCIAL_SUBINTENT_REGISTRY,
+    *SOURCE_LIBRARY_SUBINTENT_REGISTRY,
+    *WALLET_SUBINTENT_REGISTRY,
+)
+CANONICAL_SUBINTENT_KEYS = tuple(entry.domain_key for entry in CANONICAL_SUBINTENT_REGISTRY)
 CANONICAL_REGISTRY_KEYS = tuple(sorted({*CANONICAL_DOMAIN_KEYS, *CANONICAL_SUBINTENT_KEYS}))
+
+# These domains are protocol-reserved and writable only through first-party
+# owner-authorized PKM paths.  They must never be invented or repurposed by the
+# semantic structure agent as arbitrary user domains.
+OWNER_MANAGED_RESERVED_DOMAIN_SLUGS = frozenset({"source_library", "wallet"})
+
+DOMAIN_SHARING_POLICY_REGISTRY: dict[str, DomainSharingPolicy] = {
+    "identity": DomainSharingPolicy(
+        domain_key="identity",
+        allow_public_projection=False,
+    ),
+    "financial": DomainSharingPolicy(
+        domain_key="financial",
+        allow_domain_wildcard=False,
+        denied_manifest_path_prefixes=("analysis_history",),
+        denied_manifest_path_parts=frozenset(
+            {
+                "agent_votes",
+                "debate_transcript",
+                "raw_card",
+                "stream_diagnostics",
+                "transcript",
+            }
+        ),
+    ),
+    "source_library": DomainSharingPolicy(
+        domain_key="source_library",
+        allow_domain_wildcard=False,
+        # Source Library is an owner-only capability boundary.  Its provider
+        # files and private PKM organization are addressed through local,
+        # object-level references rather than exported ``attr.*`` authority.
+        allowed_manifest_path_prefixes=(),
+        denied_manifest_path_parts=frozenset(
+            {
+                "artifact",
+                "artifacts",
+                "artifact_id",
+                "audit",
+                "audit_receipt",
+                "catalog",
+                "content_hash",
+                "file_locator",
+                "file_path",
+                "operational_policy",
+                "policy",
+                "provider_id",
+                "provider_identifier",
+                "raw_content",
+                "raw_extract",
+                "source_title",
+            }
+        ),
+        requestable_scopes=frozenset(),
+        allow_public_projection=False,
+    ),
+    "wallet": DomainSharingPolicy(
+        domain_key="wallet",
+        allow_domain_wildcard=False,
+        # Reserved owner-managed domain, but deliberately shareable: external
+        # systems may request card summaries or full card secrets as exactly
+        # these branch wildcards, and every grant is an explicit owner approval
+        # delivered through the consent-gated encrypted export path.  The
+        # domain-level wildcard and exact-path scopes stay non-requestable.
+        allowed_manifest_path_prefixes=("summary", "secrets"),
+        requestable_scopes=frozenset(
+            {
+                "attr.wallet.summary.*",
+                "attr.wallet.secrets.*",
+            }
+        ),
+        allow_public_projection=False,
+    ),
+}
 
 
 def normalize_domain_key(domain: str) -> str:
@@ -254,6 +399,9 @@ RESERVED_DYNAMIC_DOMAIN_SLUGS = frozenset(
         "internal",
         "mcp",
         "pkm",
+        # `__quarantine_v1` normalizes to this slug. It is encrypted internal
+        # preservation storage, never a user-authored or shareable domain.
+        "quarantine_v1",
         "scope",
         "scopes",
         "system",
@@ -302,6 +450,8 @@ def validate_dynamic_top_level_domain(
         raise ValueError("invalid_domain_slug")
     if candidate in RESERVED_DYNAMIC_DOMAIN_SLUGS:
         raise ValueError("reserved_domain_slug")
+    if candidate in OWNER_MANAGED_RESERVED_DOMAIN_SLUGS and not allow_internal:
+        raise ValueError("owner_managed_domain_slug")
     if not allow_internal and candidate in INTERNAL_ONLY_DOMAIN_SLUGS:
         raise ValueError("internal_domain_slug")
     return candidate
@@ -356,6 +506,34 @@ def get_canonical_domain_metadata(domain_key: str) -> DomainContractEntry | None
     return None
 
 
+def get_canonical_subintent_metadata(domain_key: str) -> DomainSubintentEntry | None:
+    """Return authored metadata for a canonical subintent branch, if registered.
+
+    ``domain_key`` is the fully-qualified branch key (e.g. ``financial.profile``).
+    Only financial subintents are registered today; every other branch returns
+    None so callers compose a display label from the parent domain + branch name.
+    Kept parallel to :func:`get_canonical_domain_metadata` so scope-display code
+    can prefer a branch's authored name/description/icon over a generic one.
+    """
+
+    key = normalize_domain_key(domain_key)
+    for entry in CANONICAL_SUBINTENT_REGISTRY:
+        if entry.domain_key == key:
+            return entry
+    return None
+
+
+def get_domain_sharing_policy(domain_key: str) -> DomainSharingPolicy:
+    """Return the explicit policy or the generic dynamic-domain default."""
+
+    key = canonical_top_level_domain(domain_key)
+    return DOMAIN_SHARING_POLICY_REGISTRY.get(key, DomainSharingPolicy(domain_key=key))
+
+
+def is_owner_managed_reserved_domain(domain_key: str) -> bool:
+    return canonical_top_level_domain(domain_key) in OWNER_MANAGED_RESERVED_DOMAIN_SLUGS
+
+
 def canonical_domain_metadata_map() -> dict[str, dict[str, str]]:
     return {
         entry.domain_key: {
@@ -384,7 +562,7 @@ def domain_registry_payload() -> list[dict[str, object]]:
                 "parent_domain": None,
             }
         )
-    for subintent in FINANCIAL_SUBINTENT_REGISTRY:
+    for subintent in CANONICAL_SUBINTENT_REGISTRY:
         payload.append(
             {
                 "domain_key": subintent.domain_key,

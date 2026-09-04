@@ -99,7 +99,7 @@ Rules:
 4. Preserve query params only when they are part of the route contract or a shareable/recoverable workspace state.
 5. Search overlays must respect the top shell and bottom command chrome instead of using route-local viewport math.
 
-## Pattern: Dynamic Bottom Navigation
+## Pattern: Persistent Bottom Utilities and Workspace Tabs
 
 Use the shared bottom-nav resolver for signed-in app routes.
 
@@ -113,14 +113,12 @@ import {
 
 Rules:
 
-1. Keep the segmented bottom bar scoped to the active route family. Do not add universal `One`, `Search`, or `Profile` tabs to every route.
-2. Keep bottom-nav items at the same size as the five-action bar. Routes with fewer actions should end the pill at the last real action instead of rendering empty slots, stretching shorter bars, or adding disabled placeholders.
-3. `/one` and `/profile` may show the compact root switch `One / Connect / Profile`; One sub-app routes may add one meaningful current-context action.
-4. Keep `Search` in the shared command dock, separate from both segmented route navigation and agent chat, and align the detached Search bubble to the same bottom row as the route pill.
-5. Let the active route family decide the contextual slots instead of showing finance-only tabs everywhere; `/one` uses dashboard tiles for mode entry, and `/one/kai/*` owns Market/Portfolio/Connect/Analysis.
-6. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
-7. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
-8. Keep bottom-nav motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
+1. Keep the signed-in primary bottom utility bar constant: `One`, `Connect`, and `Search`. Search is a third segment, never a detached control. The three equal-width segments use the Agent Bar frame and remain centered at every breakpoint.
+2. Keep the bar compact and fixed. The agent bar joins it with a 6px visual gutter; do not add route-local navigation or empty slots.
+3. Finance owns `Market`, `Portfolio`, and `Analysis`; RIA owns `Home`, `Clients`, and `Picks`. Those context tabs render only in the shared top shell. Profile remains the rightmost signed-in top-bar action.
+4. Route files should link to canonical destinations such as `/one/gmail`, `/one/pkm`, and `/one/connected-systems`; legacy Profile panels may redirect, but should not own new mode navigation.
+5. `Search` opens `KaiCommandBarGlobal` command/action discovery through `openKaiCommandBar`; do not route Search to `/agent` or call `agentPopover.openAgent`.
+6. Keep navigation motion stable. Prefer fill, outline, and color changes over bounce, active icon scaling, or spring overshoot.
 
 ## Pattern: Nested Route Back Navigation
 
@@ -188,7 +186,7 @@ Use plain-language labels on persona-facing surfaces. Internal architecture term
 Rules:
 
 1. Do not surface abbreviations such as `PKM` in consumer-facing profile, privacy, or settings copy.
-2. Prefer descriptive labels such as `Personal Data` when the surface is user-facing.
+2. Prefer descriptive labels such as `Personal information` when the surface is user-facing.
 3. Developer-only routes such as `PKM Agent Lab` may keep internal product terms when the audience is explicitly technical.
 4. Consumer notifications and background-task rows must not show implementation diagnostics such as manifests, schemas, timings, tokens, correlation ids, route names, raw provider errors, or dummy-save language.
 5. Put diagnostics in logs, task metadata, or developer-only panels. The default copy should tell the user what is happening and what they can do next.
@@ -339,3 +337,20 @@ Rules:
 1. The whole row owns hover, press, and ripple.
 2. Inner text blocks must not create a second hover state.
 3. Use `asChild` for link rows so anchors inherit the same interaction contract.
+
+## Pattern: Identity-First Detail Surfaces
+
+Use `AdaptiveDetailSurface` (or an existing compatibility adapter such as
+`KaiControlSurface`) for entity drill-ins.
+
+Rules:
+
+1. Put the supplied logo, avatar, or semantic glyph in the shared `leading`
+   header slot.
+2. Follow it with one entity title and one concise metadata line.
+3. Start the body with new evidence such as price, status, or the primary
+   decision—not another identity card.
+4. Do not repeat the title, subtitle, thesis, or the same badges in multiple
+   body sections.
+5. Hide repair flags, provider diagnostics, and other implementation state from
+   consumer details; expose only actionable freshness or availability states.

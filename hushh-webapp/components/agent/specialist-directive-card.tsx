@@ -7,6 +7,7 @@ import { Check, ExternalLink, ShieldCheck, ShieldOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { ClarificationCard } from "@/components/one-location/redesign/clarification-card";
 import type { ClientPrompt } from "@/lib/one-location/types";
+import { formatLocalDateTime } from "@/lib/utils/local-date-time";
 
 // ─── Action mode (existing contract, unchanged) ───────────────────────────────
 
@@ -26,7 +27,10 @@ export function SpecialistDirectiveCard({
   busy,
 }: SpecialistCardProps) {
   return (
-    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3">
+    <div
+      className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
+      data-testid="specialist-directive-card"
+    >
       <p className="text-sm font-medium text-foreground/90">{summary}</p>
       <div className="mt-3 flex gap-2">
         <button
@@ -34,6 +38,7 @@ export function SpecialistDirectiveCard({
           onClick={onConfirm}
           disabled={busy}
           className="rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          data-testid="specialist-directive-confirm"
         >
           {busy ? "Working…" : confirmLabel}
         </button>
@@ -42,6 +47,7 @@ export function SpecialistDirectiveCard({
           onClick={onCancel}
           disabled={busy}
           className="rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
+          data-testid="specialist-directive-cancel"
         >
           Cancel
         </button>
@@ -151,15 +157,15 @@ export type SpecialistConsentRequiredCardProps = {
 
 function agentDisplayName(agentId: string): string {
   if (agentId === "agent_nav") return "Nav";
-  if (agentId === "agent_location") return "Onepoint";
-  if (agentId === "agent_kai") return "Kai";
+  if (agentId === "agent_location") return "Location";
+  if (agentId === "agent_kai") return "Finance";
   if (agentId === "agent_kyc") return "KYC";
   return agentId.replace(/^agent_/, "").replace(/_/g, " ") || "This agent";
 }
 
 function scopeDisplayName(scope: string): string {
   if (scope === "agent.nav.review") return "review your consent and privacy access";
-  if (scope === "agent.location.manage") return "manage Onepoint requests";
+  if (scope === "agent.location.manage") return "manage Location requests";
   if (scope === "agent.one.orchestrate") return "coordinate specialist agents";
   return scope || "the required permission";
 }
@@ -237,16 +243,7 @@ export type SpecialistConsentActionsCardProps = {
 };
 
 function formatConsentExpiry(value?: string | null): string | null {
-  if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(date);
+  return formatLocalDateTime(value);
 }
 
 function consentActionSet(item: SpecialistConsentActionItem): Set<string> {

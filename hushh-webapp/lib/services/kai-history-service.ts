@@ -2,7 +2,7 @@
  * Kai Analysis History Service
  *
  * Manages analysis history within the encrypted PKM financial domain.
- * Uses FIFO strategy: max 3 analyses per ticker, newest first.
+ * Retains the newest three analyses per ticker, newest first.
  *
  * Canonical storage path:
  *   financial.analysis_history
@@ -11,7 +11,7 @@
  * {
  *   "financial": {
  *     "analysis_history": {
- *     "AMZN": [entry3, entry2, entry1],  // newest first, max 3
+ *     "AMZN": [entry3, entry2, entry1],  // newest first
  *     "AAPL": [entry2, entry1],
  *     }
  *   }
@@ -23,11 +23,11 @@ import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentDomainContractVersion } from "@/lib/personal-knowledge-model/upgrade-contracts";
 import { PkmWriteCoordinator } from "@/lib/services/pkm-write-coordinator";
 
-
-const MAX_HISTORY_PER_TICKER = 3;
 const FINANCIAL_DOMAIN = "financial";
 const FINANCIAL_SCHEMA_VERSION = 3;
-const FINANCIAL_CONTRACT_VERSION = currentDomainContractVersion(FINANCIAL_DOMAIN);
+const MAX_HISTORY_PER_TICKER = 3;
+const FINANCIAL_CONTRACT_VERSION =
+  currentDomainContractVersion(FINANCIAL_DOMAIN);
 const FINANCIAL_INTENT_MAP = [
   "portfolio",
   "profile",
@@ -58,6 +58,77 @@ export interface AnalysisHistoryEntry {
 
 export type AnalysisHistoryMap = Record<string, AnalysisHistoryEntry[]>;
 
+function compactTranscriptRound(
+  round: Record<string, any>,
+): Record<string, Record<string, unknown>> {
+  return Object.fromEntries(
+    Object.entries(round || {}).map(([agent, rawState]) => {
+      const state =
+        rawState && typeof rawState === "object" && !Array.isArray(rawState)
+          ? (rawState as Record<string, unknown>)
+          : {};
+      return [
+        agent,
+        {
+          stage: typeof state.stage === "string" ? state.stage : "complete",
+          text: typeof state.text === "string" ? state.text : "",
+          thoughts: Array.isArray(state.thoughts)
+            ? state.thoughts.map((value) => String(value))
+            : [],
+          ...(typeof state.statusMessage === "string"
+            ? { statusMessage: state.statusMessage }
+            : {}),
+          ...(typeof state.error === "string" ? { error: state.error } : {}),
+        },
+      ];
+    }),
+  );
+}
+
+/**
+ * Persist the decision card once and keep only the text needed to replay each
+ * analyst turn. Rich metrics already live in `raw_card`; copying them into
+ * every transcript agent doubled the encrypted financial blob and made each
+ * later history append progressively slower.
+ */
+export function compactAnalysisHistoryEntryForStorage(
+  entry: AnalysisHistoryEntry,
+): AnalysisHistoryEntry {
+  if (!entry.debate_transcript) return entry;
+  return {
+    ...entry,
+    debate_transcript: {
+      round1: compactTranscriptRound(entry.debate_transcript.round1),
+      round2: compactTranscriptRound(entry.debate_transcript.round2),
+    },
+  };
+}
+
+/**
+ * Stable, URL-safe identity for a stored analysis. Runs use their persisted
+ * run id; older records retain a deterministic ticker-and-timestamp fallback.
+ */
+export function getAnalysisHistoryEntryRouteId(
+  entry: AnalysisHistoryEntry,
+): string {
+  const runId = extractRunId(entry);
+  if (runId) return `run:${runId}`;
+  return `saved:${entry.ticker.toUpperCase()}:${entry.timestamp}`;
+}
+
+export function findAnalysisHistoryEntryByRouteId(
+  historyMap: AnalysisHistoryMap,
+  routeId: string,
+): AnalysisHistoryEntry | null {
+  const wanted = String(routeId || "").trim();
+  if (!wanted) return null;
+  return (
+    Object.values(historyMap)
+      .flat()
+      .find((entry) => getAnalysisHistoryEntryRouteId(entry) === wanted) ?? null
+  );
+}
+
 function sanitizeTicker(value: unknown): string {
   const ticker = String(value ?? "")
     .trim()
@@ -66,7 +137,9 @@ function sanitizeTicker(value: unknown): string {
   return ticker;
 }
 
-function sanitizeHistoryMap(rawMap: Record<string, unknown>): AnalysisHistoryMap {
+function sanitizeHistoryMap(
+  rawMap: Record<string, unknown>,
+): AnalysisHistoryMap {
   const sanitized: AnalysisHistoryMap = {};
 
   for (const [rawKey, maybeEntries] of Object.entries(rawMap)) {
@@ -74,19 +147,26 @@ function sanitizeHistoryMap(rawMap: Record<string, unknown>): AnalysisHistoryMap
 
     const keyTicker = sanitizeTicker(rawKey);
     const entries = maybeEntries
-      .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object" && !Array.isArray(entry))
+      .filter(
+        (entry): entry is Record<string, unknown> =>
+          Boolean(entry) && typeof entry === "object" && !Array.isArray(entry),
+      )
       .map((entry) => {
         const ticker = sanitizeTicker(entry.ticker) || keyTicker;
         if (!ticker) return null;
 
-        const rawTimestamp = typeof entry.timestamp === "string" ? entry.timestamp.trim() : "";
-        const timestamp = rawTimestamp.length > 0 ? rawTimestamp : new Date(0).toISOString();
+        const rawTimestamp =
+          typeof entry.timestamp === "string" ? entry.timestamp.trim() : "";
+        const timestamp =
+          rawTimestamp.length > 0 ? rawTimestamp : new Date(0).toISOString();
         const decision =
           typeof entry.decision === "string" && entry.decision.trim().length > 0
             ? entry.decision.trim()
             : "hold";
         const confidenceRaw =
-          typeof entry.confidence === "number" ? entry.confidence : Number(entry.confidence);
+          typeof entry.confidence === "number"
+            ? entry.confidence
+            : Number(entry.confidence);
         const confidence = Number.isFinite(confidenceRaw) ? confidenceRaw : 0;
 
         const normalized: AnalysisHistoryEntry = {
@@ -96,13 +176,19 @@ function sanitizeHistoryMap(rawMap: Record<string, unknown>): AnalysisHistoryMap
           confidence,
           consensus_reached: Boolean(entry.consensus_reached),
           agent_votes:
-            entry.agent_votes && typeof entry.agent_votes === "object" && !Array.isArray(entry.agent_votes)
+            entry.agent_votes &&
+            typeof entry.agent_votes === "object" &&
+            !Array.isArray(entry.agent_votes)
               ? (entry.agent_votes as Record<string, string>)
               : {},
           final_statement:
-            typeof entry.final_statement === "string" ? entry.final_statement : "",
+            typeof entry.final_statement === "string"
+              ? entry.final_statement
+              : "",
           raw_card:
-            entry.raw_card && typeof entry.raw_card === "object" && !Array.isArray(entry.raw_card)
+            entry.raw_card &&
+            typeof entry.raw_card === "object" &&
+            !Array.isArray(entry.raw_card)
               ? (entry.raw_card as Record<string, unknown>)
               : {},
         };
@@ -112,7 +198,8 @@ function sanitizeHistoryMap(rawMap: Record<string, unknown>): AnalysisHistoryMap
           typeof entry.debate_transcript === "object" &&
           !Array.isArray(entry.debate_transcript)
         ) {
-          normalized.debate_transcript = entry.debate_transcript as AnalysisHistoryEntry["debate_transcript"];
+          normalized.debate_transcript =
+            entry.debate_transcript as AnalysisHistoryEntry["debate_transcript"];
         }
 
         return normalized;
@@ -131,9 +218,11 @@ function sanitizeHistoryMap(rawMap: Record<string, unknown>): AnalysisHistoryMap
 
 function normalizeTickerKey(
   historyMap: AnalysisHistoryMap,
-  ticker: string
+  ticker: string,
 ): string | null {
-  const wanted = String(ticker || "").trim().toUpperCase();
+  const wanted = String(ticker || "")
+    .trim()
+    .toUpperCase();
   const canonicalWanted = wanted.replace(/[^A-Z0-9]/g, "");
   if (!wanted && !canonicalWanted) return null;
   if (Object.prototype.hasOwnProperty.call(historyMap, wanted)) return wanted;
@@ -153,7 +242,10 @@ function toEpochMs(value: string | null | undefined): number | null {
   return Number.isFinite(epoch) ? epoch : null;
 }
 
-function timestampsMatch(left: string | null | undefined, right: string | null | undefined): boolean {
+function timestampsMatch(
+  left: string | null | undefined,
+  right: string | null | undefined,
+): boolean {
   const leftTrimmed = typeof left === "string" ? left.trim() : "";
   const rightTrimmed = typeof right === "string" ? right.trim() : "";
   if (!leftTrimmed || !rightTrimmed) return false;
@@ -188,13 +280,46 @@ function extractRunId(entry: AnalysisHistoryEntry): string | null {
   return extractStreamId(entry);
 }
 
+export function prependAnalysisHistoryEntry(
+  existing: readonly AnalysisHistoryEntry[],
+  entry: AnalysisHistoryEntry,
+): { entries: AnalysisHistoryEntry[]; changed: boolean } {
+  const entries = [...existing];
+  const incomingRunId = extractRunId(entry);
+  if (incomingRunId) {
+    const existingIndex = entries.findIndex(
+      (candidate) => extractRunId(candidate) === incomingRunId,
+    );
+    if (existingIndex >= 0) {
+      const current = entries[existingIndex];
+      if (
+        current &&
+        timestampsMatch(current.timestamp, entry.timestamp) &&
+        String(current.decision || "") === String(entry.decision || "") &&
+        Number(current.confidence || 0) === Number(entry.confidence || 0)
+      ) {
+        return { entries, changed: false };
+      }
+      entries.splice(existingIndex, 1);
+    }
+  }
+  entries.unshift(entry);
+  return {
+    entries: entries.slice(0, MAX_HISTORY_PER_TICKER),
+    changed: true,
+  };
+}
+
 function buildHistorySummary(
   historyMap: AnalysisHistoryMap,
   lastTicker?: string,
-  lastTimestamp?: string
+  lastTimestamp?: string,
 ): Record<string, unknown> {
   const tickers = Object.keys(historyMap);
-  const totalAnalyses = Object.values(historyMap).reduce((sum, arr) => sum + arr.length, 0);
+  const totalAnalyses = Object.values(historyMap).reduce(
+    (sum, arr) => sum + arr.length,
+    0,
+  );
 
   const summary: Record<string, unknown> = {
     domain_contract_version: FINANCIAL_CONTRACT_VERSION,
@@ -218,7 +343,9 @@ function buildHistorySummary(
   return summary;
 }
 
-function flattenHistoryEntries(historyMap: AnalysisHistoryMap): AnalysisHistoryEntry[] {
+function flattenHistoryEntries(
+  historyMap: AnalysisHistoryMap,
+): AnalysisHistoryEntry[] {
   return Object.values(historyMap)
     .flatMap((entries) => entries)
     .sort((left, right) => {
@@ -228,7 +355,9 @@ function flattenHistoryEntries(historyMap: AnalysisHistoryMap): AnalysisHistoryE
     });
 }
 
-function buildDecisionProjection(historyMap: AnalysisHistoryMap): Array<Record<string, unknown>> {
+function buildDecisionProjection(
+  historyMap: AnalysisHistoryMap,
+): Array<Record<string, unknown>> {
   return flattenHistoryEntries(historyMap).map((entry, index) => ({
     id: index + 1,
     ticker: entry.ticker,
@@ -237,10 +366,6 @@ function buildDecisionProjection(historyMap: AnalysisHistoryMap): Array<Record<s
     created_at: entry.timestamp,
     metadata: {
       consensus_reached: entry.consensus_reached,
-      final_statement: entry.final_statement,
-      agent_votes: entry.agent_votes,
-      stream_id: extractStreamId(entry),
-      debate_run_id: extractRunId(entry),
       source: "analysis_history",
     },
   }));
@@ -258,7 +383,9 @@ function buildDecisionWriteProjections(historyMap: AnalysisHistoryMap) {
   ] as const;
 }
 
-function selectFinancialDomain(fullBlob: Record<string, unknown>): Record<string, unknown> {
+function selectFinancialDomain(
+  fullBlob: Record<string, unknown>,
+): Record<string, unknown> {
   const raw = fullBlob[FINANCIAL_DOMAIN];
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
     return {};
@@ -266,9 +393,15 @@ function selectFinancialDomain(fullBlob: Record<string, unknown>): Record<string
   return { ...(raw as Record<string, unknown>) };
 }
 
-function extractHistoryMap(fullBlob: Record<string, unknown>): AnalysisHistoryMap {
+function extractHistoryMap(
+  fullBlob: Record<string, unknown>,
+): AnalysisHistoryMap {
   const financialRaw = fullBlob[FINANCIAL_DOMAIN];
-  if (financialRaw && typeof financialRaw === "object" && !Array.isArray(financialRaw)) {
+  if (
+    financialRaw &&
+    typeof financialRaw === "object" &&
+    !Array.isArray(financialRaw)
+  ) {
     const financial = financialRaw as Record<string, unknown>;
     const canonicalHistory = financial.analysis_history;
     if (
@@ -283,7 +416,9 @@ function extractHistoryMap(fullBlob: Record<string, unknown>): AnalysisHistoryMa
   return {};
 }
 
-function extractHistoryMapFromFinancialDomain(financialDomain: Record<string, unknown>): AnalysisHistoryMap {
+function extractHistoryMapFromFinancialDomain(
+  financialDomain: Record<string, unknown>,
+): AnalysisHistoryMap {
   const canonicalHistory = financialDomain.analysis_history;
   if (
     canonicalHistory &&
@@ -303,7 +438,9 @@ function buildFinancialDomainWithHistory(params: {
   const existingFinancial = selectFinancialDomain(params.fullBlob);
   const existingAnalysisRaw = existingFinancial.analysis;
   const existingAnalysis =
-    existingAnalysisRaw && typeof existingAnalysisRaw === "object" && !Array.isArray(existingAnalysisRaw)
+    existingAnalysisRaw &&
+    typeof existingAnalysisRaw === "object" &&
+    !Array.isArray(existingAnalysisRaw)
       ? (existingAnalysisRaw as Record<string, unknown>)
       : {};
 
@@ -351,7 +488,7 @@ function buildFinancialDomainWithHistory(params: {
 export class KaiHistoryService {
   /**
    * Save a new analysis result to history.
-   * Implements FIFO: prepends new entry, pops oldest if > MAX_HISTORY_PER_TICKER.
+   * Prepends the new entry and retains prior analyses until explicit deletion.
    *
    * Uses fetch-decrypt-merge-encrypt-save cycle to avoid overwriting other domains.
    */
@@ -361,7 +498,8 @@ export class KaiHistoryService {
     vaultOwnerToken?: string;
     entry: AnalysisHistoryEntry;
   }): Promise<boolean> {
-    const { userId, vaultKey, vaultOwnerToken, entry } = params;
+    const { userId, vaultKey, vaultOwnerToken } = params;
+    const entry = compactAnalysisHistoryEntryForStorage(params.entry);
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -383,35 +521,15 @@ export class KaiHistoryService {
                 : ({} as Record<string, unknown>);
 
           const historyMap: AnalysisHistoryMap = extractHistoryMap(fullBlob);
-          const tickerHistory = historyMap[entry.ticker] || [];
-          const incomingRunId = extractRunId(entry);
-
-          if (incomingRunId) {
-            const existingIndex = tickerHistory.findIndex(
-              (candidate) => extractRunId(candidate) === incomingRunId
-            );
-            if (existingIndex >= 0) {
-              const existing = tickerHistory[existingIndex];
-              if (existing) {
-                const sameTimestamp = timestampsMatch(existing.timestamp, entry.timestamp);
-                const sameDecision =
-                  String(existing.decision || "") === String(entry.decision || "");
-                const sameConfidence =
-                  Number(existing.confidence || 0) === Number(entry.confidence || 0);
-                if (sameTimestamp && sameDecision && sameConfidence) {
-                  throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
-                }
-              }
-              tickerHistory.splice(existingIndex, 1);
-            }
+          const merged = prependAnalysisHistoryEntry(
+            historyMap[entry.ticker] || [],
+            entry,
+          );
+          if (!merged.changed) {
+            throw new Error("KAI_HISTORY_IDEMPOTENT_NOOP");
           }
 
-          tickerHistory.unshift(entry);
-          if (tickerHistory.length > MAX_HISTORY_PER_TICKER) {
-            tickerHistory.splice(MAX_HISTORY_PER_TICKER);
-          }
-
-          historyMap[entry.ticker] = tickerHistory;
+          historyMap[entry.ticker] = merged.entries;
           const nowIso = new Date().toISOString();
           return {
             domainData: buildFinancialDomainWithHistory({
@@ -419,7 +537,11 @@ export class KaiHistoryService {
               historyMap,
               nowIso,
             }),
-            summary: buildHistorySummary(historyMap, entry.ticker, entry.timestamp),
+            summary: buildHistorySummary(
+              historyMap,
+              entry.ticker,
+              entry.timestamp,
+            ),
             writeProjections: [...buildDecisionWriteProjections(historyMap)],
           };
         },
@@ -428,7 +550,11 @@ export class KaiHistoryService {
       // Invalidate caches after successful save
       if (result.success) {
         const savedHistoryMap = extractHistoryMap(result.fullBlob);
-        CacheSyncService.onAnalysisHistoryStored(userId, savedHistoryMap, entry.ticker);
+        CacheSyncService.onAnalysisHistoryStored(
+          userId,
+          savedHistoryMap,
+          entry.ticker,
+        );
         CacheSyncService.onAnalysisHistoryMutated(userId, entry.ticker, {
           preserveHistoryCache: true,
         });
@@ -436,7 +562,10 @@ export class KaiHistoryService {
 
       return result.success;
     } catch (error) {
-      if (error instanceof Error && error.message === "KAI_HISTORY_IDEMPOTENT_NOOP") {
+      if (
+        error instanceof Error &&
+        error.message === "KAI_HISTORY_IDEMPOTENT_NOOP"
+      ) {
         return true;
       }
       console.error("[KaiHistory] Failed to save analysis:", error);
@@ -478,17 +607,20 @@ export class KaiHistoryService {
     }
 
     try {
-      const financialDomain = await PersonalKnowledgeModelService.loadDomainData({
-        userId,
-        domain: FINANCIAL_DOMAIN,
-        vaultKey,
-        vaultOwnerToken,
-      });
+      const financialDomain =
+        await PersonalKnowledgeModelService.loadDomainData({
+          userId,
+          domain: FINANCIAL_DOMAIN,
+          vaultKey,
+          vaultOwnerToken,
+        });
       const historyMap =
         financialDomain &&
         typeof financialDomain === "object" &&
         !Array.isArray(financialDomain)
-          ? extractHistoryMapFromFinancialDomain(financialDomain as Record<string, unknown>)
+          ? extractHistoryMapFromFinancialDomain(
+              financialDomain as Record<string, unknown>,
+            )
           : {};
       CacheSyncService.onAnalysisHistoryStored(userId, historyMap);
       return historyMap;
@@ -509,7 +641,8 @@ export class KaiHistoryService {
     timestamp: string;
     streamId?: string | null;
   }): Promise<boolean> {
-    const { userId, vaultKey, vaultOwnerToken, ticker, timestamp, streamId } = params;
+    const { userId, vaultKey, vaultOwnerToken, ticker, timestamp, streamId } =
+      params;
 
     try {
       const result = await PkmWriteCoordinator.saveMergedDomain({
@@ -558,7 +691,8 @@ export class KaiHistoryService {
                 wantedTimestamp.length > 0 &&
                 timestampsMatch(String(entry.timestamp || ""), wantedTimestamp);
               const byStreamId =
-                wantedStreamId !== null && extractStreamId(entry) === wantedStreamId;
+                wantedStreamId !== null &&
+                extractStreamId(entry) === wantedStreamId;
               return !(byTimestamp || byStreamId);
             });
 
@@ -575,7 +709,10 @@ export class KaiHistoryService {
           if (historyMap[tickerKey].length === 0) {
             delete historyMap[tickerKey];
           }
-          if (historyMap[tickerKey]?.length === originalLen && historyMap[tickerKey]) {
+          if (
+            historyMap[tickerKey]?.length === originalLen &&
+            historyMap[tickerKey]
+          ) {
             throw new Error("KAI_HISTORY_NOT_FOUND");
           }
 
@@ -595,7 +732,11 @@ export class KaiHistoryService {
       if (result.success) {
         const nextMap = extractHistoryMap(result.fullBlob);
         const resolvedTickerKey = normalizeTickerKey(nextMap, ticker) || ticker;
-        CacheSyncService.onAnalysisHistoryStored(userId, nextMap, resolvedTickerKey);
+        CacheSyncService.onAnalysisHistoryStored(
+          userId,
+          nextMap,
+          resolvedTickerKey,
+        );
         CacheSyncService.onAnalysisHistoryMutated(userId, resolvedTickerKey, {
           preserveHistoryCache: true,
         });

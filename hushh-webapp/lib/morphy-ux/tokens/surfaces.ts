@@ -18,22 +18,21 @@
 
 /** Standard rounded card surface — matches SurfaceCard (app-card tokens). */
 export const CARD_SURFACE =
-  "rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]";
+  "rounded-[var(--app-card-radius-standard,24px)] border-0 bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]";
 
 /** Soft inset surface used for sub-cards / list rows inside a card. */
 export const SUBCARD_SURFACE =
-  "rounded-[var(--app-card-radius-compact,16px)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)]";
+  "rounded-[var(--app-card-radius-standard,24px)] border-0 bg-[color:var(--app-card-surface-default-solid)] shadow-[var(--app-card-shadow-standard)]";
 
 /** Section heading (e.g. "Trusted Circle", "Device readiness"). */
-export const SECTION_HEADING =
-  "text-lg font-semibold leading-tight tracking-tight text-foreground";
+export const SECTION_HEADING = "ui-text-section-label";
+export const SECTION_TITLE = "ui-text-section-title";
 
 /** Primary screen title (header). */
-export const SCREEN_TITLE =
-  "text-2xl font-semibold leading-tight tracking-tight text-foreground";
+export const SCREEN_TITLE = "ui-text-page-title";
 
 /** Muted secondary copy. */
-export const MUTED_TEXT = "text-sm leading-snug text-muted-foreground";
+export const MUTED_TEXT = "ui-text-row-description";
 
 /**
  * Accent utility classes. These follow the active accent preference
@@ -55,9 +54,26 @@ export const PILL_LIVE =
 export const PILL_NEUTRAL =
   "border-border/70 bg-muted/60 text-muted-foreground";
 
-/** Small uppercase eyebrow label. */
-export const EYEBROW =
-  "text-xs font-semibold uppercase tracking-[0.08em] text-muted-foreground";
+/** Shared readable section label. */
+export const EYEBROW = "ui-text-section-label";
+
+/**
+ * The eyebrow above a screen title. Deliberately NOT `EYEBROW`.
+ *
+ * `EYEBROW` and `SECTION_HEADING` are the same string, and that string resolves
+ * to 15px/500 in the same grey as `.ui-text-page-subtitle` (`--app-section-label`
+ * and `--app-secondary-label` are the identical hex in both themes). So above a
+ * title the eyebrow and the description underneath differed by font-weight
+ * alone, and the eyebrow read as a stray first line of body copy rather than a
+ * label — which is exactly how it was reported.
+ *
+ * 12px/600 with a little tracking against a 28px/700 title and a 15px/400
+ * description gives three unmistakable levels. Sentence case, not uppercase:
+ * `scripts/design/verify-apple-hierarchy.mjs` fails this file for shouting, and
+ * several of these eyebrows are phrases ("Copy, share or revoke"), not labels.
+ */
+export const SCREEN_EYEBROW =
+  "text-[12px] font-semibold leading-4 tracking-[0.04em] text-[color:var(--app-section-label)]";
 
 /** Warning / caution banner surface. */
 export const WARNING_SURFACE =

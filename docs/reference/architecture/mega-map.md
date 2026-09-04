@@ -3,14 +3,19 @@
 ## Visual Context
 
 Canonical visual owner: [Architecture Index](./README.md). This page is the
-human-readable contract for the generated `hussh-mega-map.svg` artifact and its
-regeneration flow.
+human-readable contract for the generated Mega Map SVGs and their regeneration
+flow.
 
-> One source-grounded picture of the entire Hussh platform — seven layers (what
-> it is) plus ten end-to-end user-story flows (how it connects) — published as a
-> living SVG. Status colors are honest, not aspirational.
+> One source-grounded picture of the entire Hussh platform — a layered stack
+> (what it is) plus ten end-to-end user-story flows (how it connects) —
+> published as a living SVG. Status colors are honest, not aspirational.
 
-**Status as of 2026-06-10.**
+The layer count depends on the audience: the **public** map has seven layers, and
+the **internal** map adds the commerce / payments / agent-economy layer for
+eight. The layer list on this page is the public seven.
+
+Everything here describes `hussh-mega-map.gen.py`, which is the source of truth.
+If this page and the generator disagree, the generator wins.
 
 ## What this is
 
@@ -30,18 +35,23 @@ entry surface to encrypted memory and back out through a governed channel.
 
 ## Files
 
+All paths are repo root.
+
 | File | Purpose |
 | --- | --- |
-| `hussh-mega-map.gen.py` (repo root) | The re-runnable generator. Edit the `LAYERS` and `FLOWS` data, re-run, re-publish. |
-| `hussh-mega-map.svg` (repo root) | Rendered vector output. Zoom-crisp at any scale; this is the canonical artifact. |
+| `hussh-mega-map.gen.py` | The re-runnable generator and the canonical artifact. Edit the `LAYERS_ALL`, `FLOWS_ALL`, and `GLOSS_ALL` data, re-run, re-publish. |
+| `hussh-mega-map.dark.svg` | Internal map, eight layers, dark theme. |
+| `hussh-mega-map.light.svg` | Internal map, eight layers, light theme. |
+| `hussh-mega-map.dark.public.svg` | Public map, seven layers (commerce layer withheld), dark theme. |
+| `hussh-mega-map.light.public.svg` | Public map, seven layers, light theme. |
 
-Regenerate:
+Regenerate (one run writes all four, next to the generator):
 
 ```bash
-python3 hussh-mega-map.gen.py        # writes hussh-mega-map.svg
+python3 hussh-mega-map.gen.py
 ```
 
-## The seven layers (what it is)
+## The seven public layers (what it is)
 
 1. **Experience · Interaction** — where a person or an AI meets Hussh: Web
    (Next.js shared React shell), iOS/Android (Capacitor native, secure enclave),

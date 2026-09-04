@@ -1,5 +1,9 @@
 # Branch Governance
 
+The canonical state-changing operator procedure is the
+[Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md).
+This page defines branch policy and governed cohorts; it does not redefine the
+exact-head Admin PR landing or environment dispatch sequence.
 
 ## Lane decision: WHO authored the code (the one rule that prevents drift)
 
@@ -59,8 +63,8 @@ This repo runs on a dedicated PR-train branch, a protected promotion branch, and
 
 1. **If you are a maintainer shipping your own code to `main`, branch from `origin/main`** and open your PR directly into `main` — do not route maintainer milestones through `integration/pr-train` (that couples them to train-only commits and makes a clean landing on `main` impossible). Branch from `integration/pr-train` only when your work is genuinely train-lane work (e.g. coordinating a contributor train).
 2. Contributor PRs may still be opened to `main` for a familiar GitHub intake experience; maintainers or automation retarget normal intake to `integration/pr-train` before review, approval, queue, merge, maintainer patch, or harvest.
-3. Merge all normal feature/fix/docs work into `integration/pr-train`.
-4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean.
+3. Merge non-maintainer contributor and agent feature/fix/docs work into `integration/pr-train`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`.
+4. Promote `integration/pr-train` into `main` through a PR after the train is green and ancestry-clean; direct maintainer PRs use the same CI, queue, and post-merge gates.
 5. Non-maintainer feature, contributor, or agent PRs must not target `main`; CI blocks them unless the head branch is `integration/pr-train` (or a registered promote branch). Governed maintainers (anyone in `main.review_bypass_users` / `main.merge_queue_bypass_users`) may open a direct PR into `main` from any branch; the `CI Status Gate`, merge queue, and `Main Post-Merge Smoke Gate` still apply, so this removes only the train detour, not the safety gates.
 6. Continue follow-up fixes on the active development branch by default; do not create extra temporary branches for routine polish, validation follow-up, or same-lane fixes.
 7. Create a new branch only when isolation is materially required, such as a post-merge hotfix from `main`, a deploy blocker that must land independently, or unrelated in-flight changes on the current branch.
@@ -131,7 +135,7 @@ Before deleting a local backup branch, classify its unique commits as:
 2. Production deploys only through a manual workflow dispatch with an explicit green `main` SHA.
 3. The workflow validates that the SHA is reachable from `origin/main`.
 4. The workflow also validates that `Main Post-Merge Smoke Gate` succeeded for that SHA before deployment starts.
-5. Only `kushaltrivedi5` may dispatch the production workflow after the SHA preflight passes.
+5. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow after the SHA preflight passes.
 6. The canonical GitHub deployment environment for this lane is `production`.
 
 ## Protected Surfaces & Trust Model
@@ -179,15 +183,20 @@ outside it, and the boundaries are enforced, not informal:
 |---|---|---|---|
 | Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
 | UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
-| Production deploy cohort | `kushaltrivedi5` only | dispatch production deploy | `production.manual_dispatch_users` |
+| Production deploy cohort | `kushaltrivedi5`, `ankitkumarsingh1702` | dispatch production deploy | `production.manual_dispatch_users` |
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 - **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
   in the UAT sandbox — no more, no less. The two lists are held equal and any
   independent drift fails the check.
-- **Production == owner only.** `production.manual_dispatch_users` must be exactly
-  `["kushaltrivedi5"]`; any widening fails the check.
+- **Production == approved dispatch cohort.** `production.manual_dispatch_users`
+  must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
+  widening or narrowing fails the check.
+- **Deploy identity variables are present.** Each deployment environment must
+  contain every name declared in its `required_environment_variables` policy.
+  These are GitHub environment variables consumed through `vars.*`, not
+  environment secrets. The verifier checks names only and never renders values.
 
 ### Rule: deploy-actor lists are governance, not routine config
 
@@ -208,7 +217,7 @@ cannot actually approve on `main`).
 #      main.review_bypass_users
 #      main.merge_queue_bypass_users
 #      uat.manual_dispatch_users        (held equal to the merge cohort)
-#    Leave production.manual_dispatch_users = ["kushaltrivedi5"] unless the owner says otherwise.
+#    Leave production.manual_dispatch_users unchanged unless the owner says otherwise.
 
 # 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
 python3 scripts/ci/apply-governance.py
@@ -253,7 +262,7 @@ at workflow runtime.
 6. Block force-pushes.
 7. Block branch deletion.
 8. Require at least 1 independent PR approval and approval of the most recent push.
-9. Use this branch as the only normal PR landing branch.
+9. Use this branch as the normal PR landing branch for non-maintainer contributor and agent work.
 
 ### `main`
 
@@ -267,7 +276,7 @@ at workflow runtime.
 8. Block branch deletion.
 9. Require at least 1 independent PR approval on `main`; CI status plus merge queue remain required merge gates.
 10. Use review bypass plus the dedicated `Allowed Maintainers to Approve` team for the sanctioned maintainer bypass cohort only; do not rely on overlapping push restrictions.
-11. Keep ordinary development off `main`; only promote from `integration/pr-train` except explicit emergency hotfixes.
+11. Keep non-maintainer contributor and agent development off `main`; governed maintainer-authored branches cut from `origin/main` may open directly to `main`, while train work promotes from `integration/pr-train`.
 
 Current operating note:
 
@@ -284,7 +293,7 @@ Current operating note:
 - the sanctioned review-bypass cohort is intentional policy and should not be reported as governance drift when it matches `config/ci-governance.json`
 - if an admin needs to proceed on a green PR, verify whether the live ruleset allows queue entry; do not assume approval is implicitly satisfied
 - bypass actors may waive review through branch protection and bypass queue through the dedicated owner team path
-- direct pushes to `main` are not the default bypass model; the preferred path is a green `integration/pr-train` promotion PR plus bypass merge when justified
+- direct pushes to `main` are not the bypass model; use a green PR, either a governed maintainer-authored direct-main PR or a green `integration/pr-train` promotion PR, and bypass merge only when explicitly justified
 - CI should still gate the landing decision; bypass is for review policy, not for skipping validation
 
 ### Retired release branches
@@ -299,7 +308,7 @@ The production workflow uses one active GitHub environment name:
 
 | Environment | Intended use |
 |---|---|
-| `production` | Owner-only production deploy lane for `kushaltrivedi5` |
+| `production` | Governed production deploy lane for `kushaltrivedi5` and `ankitkumarsingh1702` |
 
 The UAT workflow uses one active GitHub environment name:
 
@@ -309,8 +318,8 @@ The UAT workflow uses one active GitHub environment name:
 
 Operational rules:
 
-1. Only `kushaltrivedi5` may dispatch the production workflow.
-2. Other developers may still merge to `main` through PR flow, but production dispatch remains owner-only.
+1. Only actors listed in `production.manual_dispatch_users` may dispatch the production workflow.
+2. Other developers may still merge to `main` through PR flow, but production dispatch remains restricted to the production dispatch cohort.
 3. `production` should not require reviewers and should not allow admin bypass.
 4. Verify the live setup with `../../../scripts/ci/verify-production-environment-governance.sh`.
 5. Verify both deploy lanes together with `../../../scripts/ci/verify-deployment-environment-governance.py`.

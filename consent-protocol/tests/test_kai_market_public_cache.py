@@ -138,6 +138,38 @@ def test_repair_quote_symbol_normalizes_known_provider_aliases():
     assert market_insights._repair_quote_symbol("MSFT") == ("MSFT", False)
 
 
+def test_market_overview_includes_all_four_supported_benchmark_proxies():
+    quote = {"price": 100.0, "change_percent": 1.25, "fetched_at": "2026-07-16T00:00:00Z"}
+    overview = market_insights._build_market_overview(
+        quote,
+        quote,
+        quote,
+        quote,
+        {
+            "label": "Volatility",
+            "value": 18.0,
+            "delta_pct": 0.2,
+            "as_of": None,
+            "source": "test",
+            "degraded": False,
+        },
+        {
+            "label": "Market Status",
+            "value": "Open",
+            "delta_pct": None,
+            "as_of": None,
+            "source": "test",
+            "degraded": False,
+        },
+    )
+
+    by_label = {row["label"]: row for row in overview}
+    assert by_label["DOW 30"]["symbol"] == "DIA"
+    assert by_label["Russell 2000"]["symbol"] == "IWM"
+    assert by_label["DOW 30"]["value"] == 100.0
+    assert by_label["Russell 2000"]["delta_pct"] == 1.25
+
+
 @pytest.mark.asyncio
 async def test_concurrent_public_module_failure_degrades_without_collapsing_home(monkeypatch):
     async def _fake_resolve_pick_source_rows(*_args, **_kwargs):
@@ -168,10 +200,12 @@ async def test_concurrent_public_module_failure_degrades_without_collapsing_home
                 "live",
                 False,
             )
-        if key == "movers:us":
+        if key == "movers:v2:us":
             return ({}, {"movers:gainers": "partial"}), False, 0, "live", False
         if key == "sectors:us":
             return ([], "partial"), False, 0, "live", False
+        if key.startswith("sparklines:"):
+            return {}, False, 0, "live", False
         if key.startswith("recommendation:"):
             symbol = key.split(":", 1)[1]
             return (

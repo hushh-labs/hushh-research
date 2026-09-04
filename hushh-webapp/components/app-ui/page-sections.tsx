@@ -4,6 +4,13 @@ import type { ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
+import {
+  AgentTitle,
+  MajorSectionTitle,
+  PageSubtitle,
+  PageTitle,
+  SectionLabel,
+} from "@/components/app-ui/typography";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 
@@ -15,6 +22,7 @@ type SectionAccent =
   | "marketplace"
   | "developers"
   | "research"
+  | "location"
   | "success"
   | "warning"
   | "critical"
@@ -28,92 +36,86 @@ type SectionAccent =
 const ACCENT_STYLES: Record<SectionAccent, {
   eyebrow: string;
   icon: string;
-  divider: string;
 }> = {
   neutral: {
     eyebrow: "text-muted-foreground",
     icon:
-      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
-    divider: "bg-border/50",
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   kai: {
-    eyebrow: "text-violet-700 dark:text-violet-300",
-    icon: "border border-violet-500/12 bg-violet-500/[0.06] text-violet-700 shadow-[var(--shadow-xs)] dark:border-violet-400/16 dark:bg-violet-400/[0.08] dark:text-violet-200",
-    divider: "bg-violet-300/50 dark:bg-violet-400/30",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   ria: {
     // RIA sub-agent = Apple-clean gold. Var-driven so it flips to the DS gold
     // (#C8923A) inside body[data-persona-surface="ria"] and stays the Foundation
     // gold elsewhere. Mirrors the marketplace accent entry.
-    eyebrow: "text-accent-strong",
-    icon: "border border-accent-border bg-accent-surface text-accent-strong shadow-[var(--shadow-xs)]",
-    divider: "bg-accent/40",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   consent: {
-    eyebrow: "text-amber-700 dark:text-amber-300",
-    icon: "border border-amber-500/12 bg-amber-500/[0.06] text-amber-700 shadow-[var(--shadow-xs)] dark:border-amber-400/16 dark:bg-amber-400/[0.08] dark:text-amber-200",
-    divider: "bg-amber-300/50 dark:bg-amber-400/30",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   marketplace: {
-    eyebrow: "text-accent-strong",
-    icon: "border border-accent-border bg-accent-surface text-accent-strong shadow-[var(--shadow-xs)]",
-    divider: "bg-accent/40",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   developers: {
-    eyebrow: "text-[#9B651E] dark:text-[#E2B35C]",
-    icon: "border border-[#B88635]/20 bg-[#B88635]/[0.08] text-[#9B651E] shadow-[var(--shadow-xs)] dark:border-[#E2B35C]/25 dark:bg-[#E2B35C]/[0.10] dark:text-[#E2B35C]",
-    divider: "bg-[#B88635]/35 dark:bg-[#E2B35C]/30",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   research: {
-    eyebrow: "text-[#9B651E] dark:text-[#E2B35C]",
-    icon: "border border-[#B88635]/20 bg-[#B88635]/[0.08] text-[#9B651E] shadow-[var(--shadow-xs)] dark:border-[#E2B35C]/25 dark:bg-[#E2B35C]/[0.10] dark:text-[#E2B35C]",
-    divider: "bg-[#B88635]/35 dark:bg-[#E2B35C]/30",
+    eyebrow: "text-muted-foreground",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+  },
+  location: {
+    eyebrow: "text-muted-foreground",
+    icon: "bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)] shadow-none",
   },
   success: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
     icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
-    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   warning: {
     eyebrow: "text-amber-700 dark:text-amber-300",
     icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
-    divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   critical: {
     eyebrow: "text-rose-700 dark:text-rose-300",
     icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
-    divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   default: {
     eyebrow: "text-muted-foreground",
     icon:
-      "border border-black/10 bg-white text-black shadow-[0_10px_28px_-18px_rgba(0,0,0,0.28)] dark:border-white/10 dark:bg-white/8 dark:text-white dark:shadow-none",
-    divider: "bg-border/50",
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   sky: {
     eyebrow: "text-muted-foreground",
-    icon: "bg-[color:var(--app-card-surface-compact)] text-foreground shadow-[var(--shadow-xs)]",
-    divider: "bg-border/50",
+    icon:
+      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   emerald: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
     icon: "bg-emerald-500/10 text-emerald-700 dark:bg-emerald-400/10 dark:text-emerald-200",
-    divider: "bg-emerald-300/50 dark:bg-emerald-400/30",
   },
   amber: {
     eyebrow: "text-amber-700 dark:text-amber-300",
     icon: "bg-amber-500/10 text-amber-700 dark:bg-amber-400/10 dark:text-amber-200",
-    divider: "bg-amber-300/50 dark:bg-amber-400/30",
   },
   rose: {
     eyebrow: "text-rose-700 dark:text-rose-300",
     icon: "bg-rose-500/10 text-rose-700 dark:bg-rose-400/10 dark:text-rose-200",
-    divider: "bg-rose-300/50 dark:bg-rose-400/30",
   },
   violet: {
     eyebrow: "text-violet-700 dark:text-violet-300",
     icon: "bg-violet-500/10 text-violet-700 dark:bg-violet-400/10 dark:text-violet-200",
-    divider: "bg-violet-300/50 dark:bg-violet-400/30",
   },
 };
 
@@ -129,7 +131,12 @@ function HeaderLeading({
   iconSize: "md" | "lg";
 }) {
   if (leading) {
-    return <div className="shrink-0 self-start">{leading}</div>;
+    // Centred, not top-pinned. `self-start` aligned a 44px tile to the top of a
+    // copy column whose first line is a 20px eyebrow, so against the much
+    // larger title beneath it the tile read as floating above the heading
+    // rather than belonging to it. The `icon` branch below keeps `self-stretch`
+    // — that one spans the whole column by design.
+    return <div className="shrink-0 self-center">{leading}</div>;
   }
 
   if (!icon) {
@@ -153,6 +160,7 @@ export function PageHeader({
   icon,
   leading,
   accent = "default",
+  titleRole = "page",
   className,
   testId = "page-header",
 }: {
@@ -165,13 +173,16 @@ export function PageHeader({
   icon?: LucideIcon;
   leading?: ReactNode;
   accent?: SectionAccent;
+  titleRole?: "page" | "agent";
   className?: string;
   testId?: string;
 }) {
   const styles = ACCENT_STYLES[accent];
+  const TitleComponent = titleRole === "agent" ? AgentTitle : PageTitle;
   return (
     <header
       className={cn("space-y-[var(--page-header-stack-gap)]", className)}
+      data-ui-role={titleRole === "agent" ? "agent-hero" : "page-header"}
       data-slot="page-header"
       data-page-primary="true"
       data-testid={testId}
@@ -183,7 +194,10 @@ export function PageHeader({
             leading={leading}
             iconSize="lg"
             iconClassName={cn(
-              "flex w-10 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-3 sm:w-12 sm:px-3",
+              "flex shrink-0 items-center justify-center",
+              titleRole === "agent"
+                ? "h-11 w-11 rounded-[10px]"
+                : "h-[34px] w-[34px] rounded-[8px]",
               styles.icon
             )}
           />
@@ -198,26 +212,27 @@ export function PageHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--page-header-copy-gap)]">
               {eyebrow ? (
-                <p
+                <SectionLabel
+                  as="p"
                   className={cn(
-                    "text-xs font-medium uppercase tracking-[0.16em]",
                     styles.eyebrow
                   )}
                   data-slot="page-header-eyebrow"
                 >
                   {eyebrow}
-                </p>
+                </SectionLabel>
               ) : null}
-              <h1 className="text-[28px] font-medium tracking-normal leading-[1.08] text-foreground sm:text-[34px]">
+              <TitleComponent>
                 {title}
-              </h1>
+              </TitleComponent>
               {description && !descriptionFullWidth ? (
-                <div
-                  className="max-w-2xl line-clamp-1 text-sm leading-6 text-muted-foreground"
+                <PageSubtitle
+                  as="div"
+                  className="max-w-2xl"
                   data-slot="page-header-description"
                 >
                   {description}
-                </div>
+                </PageSubtitle>
               ) : null}
             </div>
             {actions ? (
@@ -235,14 +250,13 @@ export function PageHeader({
         </div>
       </div>
       {description && descriptionFullWidth ? (
-        <div
-          className="line-clamp-1 text-sm leading-6 text-muted-foreground"
+        <PageSubtitle
+          as="div"
           data-slot="page-header-description"
         >
           {description}
-        </div>
+        </PageSubtitle>
       ) : null}
-      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </header>
   );
 }
@@ -280,6 +294,7 @@ export function SectionHeader({
         "space-y-[var(--section-header-stack-gap)] py-1 sm:py-1.5",
         className,
       )}
+      data-ui-role="section-header"
       data-testid={testId}
     >
       <div className="flex items-stretch gap-3">
@@ -289,7 +304,7 @@ export function SectionHeader({
             leading={leading}
             iconSize="md"
             iconClassName={cn(
-              "flex w-9 shrink-0 items-center justify-center rounded-[var(--app-card-radius-feature)] px-2 py-2.5 sm:w-10 sm:px-2.5",
+              "flex h-[29px] w-[29px] shrink-0 items-center justify-center rounded-[7px]",
               styles.icon
             )}
           />
@@ -301,25 +316,25 @@ export function SectionHeader({
           >
             <div className="min-w-0 flex-1 space-y-[var(--section-header-copy-gap)]">
               {eyebrow ? (
-                <p className={cn("text-xs font-medium uppercase tracking-[0.16em]", styles.eyebrow)}>
+                <SectionLabel as="p" className={styles.eyebrow}>
                   {eyebrow}
-                </p>
+                </SectionLabel>
               ) : null}
-              <div
+              <MajorSectionTitle
+                as="div"
                 role="heading"
                 aria-level={2}
                 data-slot="section-header-title"
-                className="text-[13px] font-medium leading-tight tracking-normal text-foreground sm:text-[14px]"
               >
                 {title}
-              </div>
+              </MajorSectionTitle>
               {description ? (
-                <div
-                  className="line-clamp-1 text-sm leading-6 text-muted-foreground"
+                <PageSubtitle
+                  as="div"
                   data-slot="section-header-description"
                 >
                   {description}
-                </div>
+                </PageSubtitle>
               ) : null}
             </div>
             {actions ? (
@@ -333,7 +348,6 @@ export function SectionHeader({
           </div>
         </div>
       </div>
-      <div className={cn("h-px w-full", styles.divider)} aria-hidden="true" />
     </div>
   );
 }

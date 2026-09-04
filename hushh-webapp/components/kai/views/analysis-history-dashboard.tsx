@@ -6,7 +6,6 @@ import {
   TrendingDown,
   Minus,
 
-  BarChart3,
   MessageSquareText,
   Trash2,
   Loader2,
@@ -14,6 +13,21 @@ import {
 import { cn } from "@/lib/utils";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { Badge } from "@/components/ui/badge";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+} from "@/components/ui/sheet";
+import { useIsMobile } from "@/hooks/use-mobile";
 // Search is provided globally via Kai layout (bottom bar)
 import {
   KaiHistoryService,
@@ -23,12 +37,6 @@ import {
 import { DataTable } from "@/components/app-ui/data-table";
 import { getColumns, type HistoryEntryWithVersion } from "./columns";
 import { toast } from "sonner";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -154,6 +162,85 @@ function decisionStyles(decision: string, ownsPosition?: boolean | null): {
     icon: <Icon icon={Minus} size={12} aria-hidden="true" />,
     label: presentation.label,
   };
+}
+
+function VersionOptions({
+  entries,
+  onOpen,
+  onDelete,
+}: {
+  entries: HistoryEntryWithVersion[];
+  onOpen: (entry: HistoryEntryWithVersion) => void;
+  onDelete: (entry: HistoryEntryWithVersion) => void;
+}) {
+  if (entries.length === 0) {
+    return <p className="text-sm text-muted-foreground">No saved versions found.</p>;
+  }
+
+  return (
+    <div className="space-y-2">
+      {entries.map((entry) => {
+        const rawCard =
+          entry.raw_card && typeof entry.raw_card === "object"
+            ? (entry.raw_card as Record<string, unknown>)
+            : null;
+        const ownsPosition =
+          typeof rawCard?.owns_position === "boolean"
+            ? rawCard.owns_position
+            : typeof rawCard?.is_position_owned === "boolean"
+              ? rawCard.is_position_owned
+              : null;
+        const styles = decisionStyles(entry.decision, ownsPosition);
+        const timestamp = entry.timestamp ? new Date(entry.timestamp) : null;
+
+        return (
+          <div key={`${entry.ticker}-${entry.timestamp}`} className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="sm"
+              className="h-auto min-w-0 flex-1 justify-between border border-transparent px-3 py-3 hover:border-border/40"
+              onClick={() => onOpen(entry)}
+            >
+              <div className="flex min-w-0 flex-col items-start gap-1">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-semibold">v{entry.version}</span>
+                  <span
+                    className={cn(
+                      "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
+                      styles.bg,
+                      styles.text,
+                      styles.border,
+                    )}
+                  >
+                    {styles.icon}
+                    {styles.label}
+                  </span>
+                </div>
+                <span className="truncate text-xs text-muted-foreground">
+                  {timestamp ? format(timestamp, "PPpp") : ""}
+                </span>
+              </div>
+              <span className="text-xs text-muted-foreground">Open</span>
+            </Button>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              size="icon-sm"
+              className="h-9 w-9 shrink-0 border border-transparent text-red-600 hover:border-red-500/30 hover:bg-red-500/10 dark:text-red-400"
+              onClick={() => onDelete(entry)}
+              title="Delete this version"
+              aria-label="Delete this version"
+            >
+              <Icon icon={Trash2} size="sm" aria-hidden="true" />
+            </Button>
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -549,16 +636,13 @@ function removeTickerFromHistoryMap(
 
 function EmptyState() {
   return (
-      <div className="flex max-w-xl flex-col items-start justify-center space-y-4 px-1 py-8">
-      <div className="rounded-full border border-primary/10 bg-primary/5 p-3">
-        <Icon icon={BarChart3} size={24} className="text-primary/70" aria-hidden="true" />
-      </div>
+    <div className="flex max-w-xl flex-col items-start justify-center space-y-2 px-1 py-8">
       <div className="space-y-2 text-left">
           <h3 className="text-[20px] font-medium leading-tight tracking-normal text-foreground">
             No analyses yet
           </h3>
         <p className="max-w-md text-[15px] leading-6 text-muted-foreground">
-          Search for a stock ticker below and let Agent Kai&apos;s multi-agent
+          Search for a stock ticker below and let Agent One&apos;s multi-agent
           debate engine give you a data-driven recommendation.
         </p>
       </div>
@@ -716,6 +800,7 @@ export function AnalysisHistoryDashboard({
   showDebateInputs = true,
   ephemeralEntry,
 }: AnalysisHistoryDashboardProps) {
+  const isMobile = useIsMobile();
   const [entries, setEntries] = useState<HistoryEntryWithVersion[]>([]);
   const [loading, setLoading] = useState(true);
   const [debateSnapshot, setDebateSnapshot] = useState<DebateInputsSnapshot | null>(null);
@@ -942,7 +1027,15 @@ export function AnalysisHistoryDashboard({
   }, [pendingDelete, deleteInFlight, executeDeleteEntry, executeDeleteTicker]);
 
   // ----- Columns -----
-  const openVersions = useCallback((ticker: string) => {
+  const closeVersions = useCallback(() => {
+    setVersionsOpen(false);
+    setVersionsTicker(null);
+  }, []);
+
+  const openVersions = useCallback((
+    ticker: string,
+    _event?: React.MouseEvent<HTMLTableRowElement> | React.KeyboardEvent<HTMLTableRowElement>,
+  ) => {
     setVersionsTicker(ticker);
     setVersionsOpen(true);
   }, []);
@@ -999,7 +1092,7 @@ export function AnalysisHistoryDashboard({
   // ----- Loading state -----
   if (loading) {
     return (
-      <div className="w-full pb-safe">
+      <div className="w-full">
         <SurfaceCard className="overflow-hidden">
           <SurfaceCardContent className="flex min-h-52 items-center justify-center p-6">
             <HushhLoader variant="inline" label="Loading analysis history…" />
@@ -1012,7 +1105,7 @@ export function AnalysisHistoryDashboard({
   // ----- Empty state -----
   if (entries.length === 0) {
     return (
-      <div className="w-full space-y-6 pb-safe">
+      <div className="w-full space-y-6">
         <EmptyState />
         {showDebateInputs ? (
           <DebateInputsCard
@@ -1028,12 +1121,12 @@ export function AnalysisHistoryDashboard({
 
   // ----- Populated state -----
   return (
-    <div className="w-full space-y-6 pb-safe">
+    <div className="w-full space-y-6">
       {/* Data Table */}
       <DataTable
         columns={columns}
         data={entries}
-        onRowClick={onViewHistory}
+        onRowClick={(entry, event) => openVersions(entry.ticker, event)}
         searchKey="ticker"
         globalSearchKeys={["ticker", "companyName", "searchText"]}
         searchPlaceholder="Search analysis history by ticker or company..."
@@ -1061,98 +1154,45 @@ export function AnalysisHistoryDashboard({
         />
       ) : null}
 
-      {/* Versions Modal */}
-      <Dialog
-        open={versionsOpen}
-        onOpenChange={(open) => {
-          setVersionsOpen(open);
-          if (!open) setVersionsTicker(null);
-        }}
-      >
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-md sm:w-full">
-          <DialogHeader>
-            <DialogTitle>
-              {versionsTicker ? `${versionsTicker} — Previous Versions` : "Previous Versions"}
-            </DialogTitle>
-          </DialogHeader>
-
-          {versionsForTicker.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No previous versions found.</div>
-          ) : (
-            <div className="space-y-2">
-              {versionsForTicker.map((entry) => {
-                const rawCard =
-                  entry.raw_card && typeof entry.raw_card === "object"
-                    ? (entry.raw_card as Record<string, unknown>)
-                    : null;
-                const ownsPosition =
-                  typeof rawCard?.owns_position === "boolean"
-                    ? rawCard.owns_position
-                    : typeof rawCard?.is_position_owned === "boolean"
-                      ? rawCard.is_position_owned
-                      : null;
-                const styles = decisionStyles(entry.decision, ownsPosition);
-                const ts = entry.timestamp ? new Date(entry.timestamp) : null;
-
-                return (
-                  <div
-                    key={`${entry.ticker}-${entry.timestamp}`}
-                    className="flex items-center gap-2"
-                  >
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="sm"
-                      showRipple={false}
-                      className="min-w-0 flex-1 justify-between h-auto py-3 px-3 border border-transparent hover:border-border/40"
-                      onClick={() => {
-                        onViewHistory(entry);
-                        setVersionsOpen(false);
-                        setVersionsTicker(null);
-                      }}
-                    >
-                      <div className="flex min-w-0 flex-col items-start gap-1">
-                        <div className="flex items-center gap-2">
-                          <span className="text-sm font-semibold">v{entry.version}</span>
-                          <span
-                            className={cn(
-                              "inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider",
-                              styles.bg,
-                              styles.text,
-                              styles.border
-                            )}
-                          >
-                            {styles.icon}
-                            {styles.label}
-                          </span>
-                        </div>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {ts ? format(ts, "PPpp") : ""}
-                        </span>
-                      </div>
-                      <span className="text-xs text-muted-foreground">Open</span>
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="none"
-                      effect="fade"
-                      size="icon-sm"
-                      showRipple={false}
-                      className="h-9 w-9 shrink-0 border border-transparent text-red-600 hover:border-red-500/30 hover:bg-red-500/10 dark:text-red-400"
-                      onClick={() => setPendingDelete({ kind: "entry", entry })}
-                      title="Delete this version"
-                      aria-label="Delete this version"
-                    >
-                      <Icon icon={Trash2} size="sm" aria-hidden="true" />
-                    </Button>
-                  </div>
-                );
-              })}
+      {isMobile ? (
+        <Sheet open={versionsOpen} onOpenChange={(open) => !open && closeVersions()} modal>
+          <SheetContent side="bottom" className="rounded-t-3xl p-0 sm:mx-auto sm:max-w-md">
+            <SheetHeader className="border-b border-border/60 px-5 py-4 text-left">
+              <SheetTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</SheetTitle>
+              <SheetDescription>Choose a saved version to review.</SheetDescription>
+            </SheetHeader>
+            <div className="px-4 pb-[calc(1rem+var(--app-safe-area-bottom-effective))] pt-3">
+              <VersionOptions
+                entries={versionsForTicker}
+                onOpen={(entry) => {
+                  onViewHistory(entry);
+                  closeVersions();
+                }}
+                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
+              />
             </div>
-          )}
-        </DialogContent>
-      </Dialog>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <Dialog open={versionsOpen} onOpenChange={(open) => !open && closeVersions()}>
+          <DialogContent className="w-[min(28rem,calc(100vw-1.5rem))] p-0 sm:max-w-md">
+            <DialogHeader className="border-b border-border/60 px-4 py-3 text-left">
+              <DialogTitle>{versionsTicker ? `${versionsTicker} history` : "Analysis history"}</DialogTitle>
+              <DialogDescription>Choose a saved version to review.</DialogDescription>
+            </DialogHeader>
+            <div className="max-h-[min(28rem,calc(100vh-10rem))] overflow-y-auto p-3">
+              <VersionOptions
+                entries={versionsForTicker}
+                onOpen={(entry) => {
+                  onViewHistory(entry);
+                  closeVersions();
+                }}
+                onDelete={(entry) => setPendingDelete({ kind: "entry", entry })}
+              />
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <AlertDialog
         open={Boolean(pendingDelete)}
@@ -1160,7 +1200,7 @@ export function AnalysisHistoryDashboard({
           if (!open && !deleteInFlight) setPendingDelete(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent className="z-[800]" overlayClassName="z-[799]">
           <AlertDialogHeader>
             <AlertDialogTitle>
               {pendingDelete?.kind === "ticker" ? "Delete all versions?" : "Delete this version?"}

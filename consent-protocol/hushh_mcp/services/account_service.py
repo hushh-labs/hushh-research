@@ -8,6 +8,7 @@ from typing import Any, Dict, Literal
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 
 logger = logging.getLogger(__name__)
 
@@ -28,9 +29,12 @@ class AccountService:
     """
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "contact_sync_lookup_budgets": text(
+                "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
+            ),
             "actor_identity_cache": text(
                 "DELETE FROM actor_identity_cache WHERE user_id = :user_id"
             ),
@@ -38,6 +42,13 @@ class AccountService:
                 "DELETE FROM actor_verified_email_aliases WHERE user_id = :user_id"
             ),
             "actor_profiles": text("DELETE FROM actor_profiles WHERE user_id = :user_id"),
+            "one_action_directive_ledger": text(
+                "DELETE FROM one_action_directive_ledger WHERE user_id = :user_id"
+            ),
+            "agent_chat_messages": text("DELETE FROM agent_chat_messages WHERE user_id = :user_id"),
+            "agent_chat_conversations": text(
+                "DELETE FROM agent_chat_conversations WHERE user_id = :user_id"
+            ),
             "consent_export_refresh_jobs": text(
                 "DELETE FROM consent_export_refresh_jobs WHERE user_id = :user_id"
             ),
@@ -54,6 +65,7 @@ class AccountService:
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
+            "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
             ),
@@ -116,6 +128,19 @@ class AccountService:
                 "DELETE FROM pkm_default_available_projections WHERE user_id = :user_id"
             ),
             "pkm_migration_state": text("DELETE FROM pkm_migration_state WHERE user_id = :user_id"),
+            "pkm_upgrade_claims": text("DELETE FROM pkm_upgrade_claims WHERE user_id = :user_id"),
+            "pkm_domain_commits": text("DELETE FROM pkm_domain_commits WHERE user_id = :user_id"),
+            "pkm_domain_revision_segments": text(
+                """
+                DELETE FROM pkm_domain_revision_segments
+                WHERE revision_id IN (
+                  SELECT revision_id FROM pkm_domain_revisions WHERE user_id = :user_id
+                )
+                """
+            ),
+            "pkm_domain_revisions": text(
+                "DELETE FROM pkm_domain_revisions WHERE user_id = :user_id"
+            ),
             "pkm_upgrade_runs": text("DELETE FROM pkm_upgrade_runs WHERE user_id = :user_id"),
             "pkm_upgrade_steps": text(
                 """
@@ -140,6 +165,9 @@ class AccountService:
                    OR referred_by_user_id = :user_id
                 """
             ),
+            "one_location_auto_approve_preferences": text(
+                "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
+            ),
             "one_location_envelopes": text(
                 """
                 DELETE FROM one_location_envelopes
@@ -155,6 +183,52 @@ class AccountService:
                    OR recipient_user_id = :user_id
                 """
             ),
+            "one_location_nearby_presences": text(
+                """
+                DELETE FROM one_location_nearby_presences
+                WHERE owner_user_id = :user_id
+                """
+            ),
+            "one_location_nearby_visits": text(
+                """
+                DELETE FROM one_location_nearby_visits
+                WHERE owner_user_id = :user_id
+                """
+            ),
+            # Deleting the rows is not the whole deletion: an average that still
+            # counts a departed person's rating has not forgotten them. The
+            # aggregate for every place they rated is recomputed from what is
+            # left, in the same pass.
+            "one_location_place_ratings": text(
+                """
+                WITH removed AS (
+                  DELETE FROM one_location_place_ratings
+                  WHERE author_user_id = :user_id
+                  RETURNING place_id
+                ), touched AS (
+                  SELECT DISTINCT place_id FROM removed
+                )
+                UPDATE one_location_place_rating_aggregates AS agg
+                SET
+                  rating_count = COALESCE(fresh.rating_count, 0),
+                  rating_sum = COALESCE(fresh.rating_sum, 0),
+                  updated_at = NOW()
+                FROM touched
+                LEFT JOIN LATERAL (
+                  SELECT COUNT(*) AS rating_count, SUM(rating) AS rating_sum
+                  FROM one_location_place_ratings
+                  WHERE place_id = touched.place_id AND aggregatable
+                ) AS fresh ON TRUE
+                WHERE agg.place_id = touched.place_id
+                """
+            ),
+            "one_location_sms_contacts": text(
+                """
+                DELETE FROM one_location_sms_contacts
+                WHERE owner_user_id = :user_id
+                   OR contact_user_id = :user_id
+                """
+            ),
             "one_location_public_invite_submissions": text(
                 """
                 DELETE FROM one_location_public_invite_submissions
@@ -165,11 +239,68 @@ class AccountService:
             "one_location_public_invites": text(
                 "DELETE FROM one_location_public_invites WHERE owner_user_id = :user_id"
             ),
+            "one_wallet_cards": text("DELETE FROM one_wallet_cards WHERE user_id = :user_id"),
             "one_location_circle_invites": text(
                 """
                 DELETE FROM one_location_circle_invites
                 WHERE owner_user_id = :user_id
                    OR claimed_by_user_id = :user_id
+                """
+            ),
+            "one_location_circle_member_invites": text(
+                """
+                DELETE FROM one_location_circle_member_invites
+                WHERE inviter_user_id = :user_id
+                   OR invitee_user_id = :user_id
+                """
+            ),
+            "one_location_circle_memberships": text(
+                "DELETE FROM one_location_circle_memberships WHERE user_id = :user_id"
+            ),
+            # Scope proposals hold plain (no ON DELETE) foreign keys into
+            # connection_requests, so they must be cleared first — including
+            # rows owned by OTHER users that reference this user's requests,
+            # or the request delete below fails the whole account deletion.
+            "connection_scope_proposal_events": text(
+                """
+                DELETE FROM connection_scope_proposal_events
+                WHERE actor_user_id = :user_id
+                   OR connection_scope_proposal_id IN (
+                        SELECT id FROM connection_scope_proposals
+                        WHERE owner_user_id = :user_id
+                           OR receiver_user_id = :user_id
+                           OR connection_request_id IN (
+                                SELECT id FROM connection_requests
+                                WHERE requester_user_id = :user_id
+                                   OR addressee_user_id = :user_id
+                           )
+                   )
+                """
+            ),
+            "connection_scope_proposals": text(
+                """
+                DELETE FROM connection_scope_proposals
+                WHERE owner_user_id = :user_id
+                   OR receiver_user_id = :user_id
+                   OR connection_request_id IN (
+                        SELECT id FROM connection_requests
+                        WHERE requester_user_id = :user_id
+                           OR addressee_user_id = :user_id
+                   )
+                """
+            ),
+            "connection_requests": text(
+                """
+                DELETE FROM connection_requests
+                WHERE requester_user_id = :user_id
+                   OR addressee_user_id = :user_id
+                """
+            ),
+            "connections": text(
+                """
+                DELETE FROM connections
+                WHERE user_a_id = :user_id
+                   OR user_b_id = :user_id
                 """
             ),
             "trusted_connections": text(
@@ -179,6 +310,16 @@ class AccountService:
                    OR trusted_user_id = :user_id
                 """
             ),
+            "trusted_device_challenges": text(
+                "DELETE FROM trusted_device_challenges WHERE user_id = :user_id"
+            ),
+            "trusted_device_authorizations": text(
+                "DELETE FROM trusted_device_authorizations WHERE user_id = :user_id"
+            ),
+            "trusted_device_audit_events": text(
+                "DELETE FROM trusted_device_audit_events WHERE user_id = :user_id"
+            ),
+            "trusted_devices": text("DELETE FROM trusted_devices WHERE user_id = :user_id"),
             "one_location_recipient_keys": text(
                 "DELETE FROM one_location_recipient_keys WHERE user_id = :user_id"
             ),
@@ -201,6 +342,7 @@ class AccountService:
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
+            "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
             "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
             "world_model_index_v2": text(
                 "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
@@ -235,7 +377,9 @@ class AccountService:
                 """
                 SELECT user_id, domain, manifest_version, structure_decision,
                        summary_projection, top_level_scope_paths, domain_contract_version,
-                       readable_summary_version, upgraded_at, created_at, updated_at
+                       readable_summary_version, pkm_contract_version,
+                       readable_projection_version, latest_upgrade_commit_id,
+                       upgraded_at, created_at, updated_at
                 FROM pkm_manifests
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
@@ -257,6 +401,33 @@ class AccountService:
                 FROM pkm_blobs
                 WHERE user_id = :user_id
                 ORDER BY updated_at DESC
+                """
+            ),
+            "encrypted_pkm_recovery_revisions": text(
+                """
+                SELECT revision_id, user_id, domain, source_content_revision,
+                       source_manifest_revision, is_origin, archive_reason,
+                       source_commit_id, manifest_snapshot, path_rows_snapshot,
+                       scope_rows_snapshot, index_domain_summary_snapshot,
+                       index_domain_present, retention_expires_at, restored_count,
+                       last_restored_at, created_at
+                FROM pkm_domain_revisions
+                WHERE user_id = :user_id
+                ORDER BY created_at DESC
+                """
+            ),
+            "encrypted_pkm_recovery_segments": text(
+                """
+                SELECT segments.revision_id, segments.segment_id, segments.ciphertext,
+                       segments.iv, segments.tag, segments.algorithm,
+                       segments.original_content_revision,
+                       segments.original_manifest_revision, segments.size_bytes,
+                       segments.created_at
+                FROM pkm_domain_revision_segments AS segments
+                JOIN pkm_domain_revisions AS revisions
+                  ON revisions.revision_id = segments.revision_id
+                WHERE revisions.user_id = :user_id
+                ORDER BY segments.created_at DESC, segments.segment_id
                 """
             ),
             "consent_audit": text(
@@ -292,11 +463,11 @@ class AccountService:
         }
 
     @property
-    def supabase(self):
+    def db(self):
         """Get database client."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _load_actor_profile(self, user_id: str) -> dict[str, Any] | None:
         try:
@@ -348,6 +519,28 @@ class AccountService:
         self._table_exists_cache[table_name] = exists
         return exists
 
+    def _column_exists(self, conn, table_name: str, column_name: str) -> bool:
+        cache_key = f"{table_name}.{column_name}"
+        cached = self._table_exists_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        exists = bool(
+            conn.execute(
+                text(
+                    """
+                    SELECT 1 FROM information_schema.columns
+                    WHERE table_schema = 'public'
+                      AND table_name = :table_name
+                      AND column_name = :column_name
+                    """
+                ),
+                {"table_name": table_name, "column_name": column_name},
+            ).scalar()
+        )
+        self._table_exists_cache[cache_key] = exists
+        return exists
+
     def _delete_user_rows_if_table_exists(
         self,
         conn,
@@ -374,6 +567,318 @@ class AccountService:
         for table_name in table_names:
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
+
+    def _delete_owned_named_circles(
+        self,
+        conn,
+        *,
+        user_id: str,
+        results: dict[str, bool],
+    ) -> None:
+        """Delete owned Circles without orphaning grant audit or SMS state."""
+        core_tables = (
+            "one_location_circles",
+            "one_location_circle_memberships",
+            "one_location_circle_invite_codes",
+        )
+        if not all(self._table_exists(conn, table_name) for table_name in core_tables):
+            for table_name in core_tables:
+                results[table_name] = True
+            results["one_location_circle_member_invites"] = True
+            results["connection_origins"] = True
+            return
+
+        params = {"user_id": user_id}
+        member_invites_exist = self._table_exists(
+            conn,
+            "one_location_circle_member_invites",
+        )
+        # A shared bearer code may already be known by any departing member.
+        # Lock every active Circle in deterministic order, then revoke its code
+        # and cancel invitations authored by this account before membership
+        # rows are removed later in account cleanup. PostgreSQL is the shared
+        # coordination tier; this Circle-first seam can move to a distributed
+        # lock without changing account-deletion semantics.
+        circle_lock_query = (
+            text(
+                """
+                SELECT
+                  circle.id,
+                  circle.owner_user_id = :user_id AS is_owner,
+                  EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = :user_id
+                      AND membership.status = 'active'
+                  ) AS has_active_membership
+                FROM one_location_circles circle
+                WHERE circle.owner_user_id = :user_id
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_memberships membership
+                     WHERE membership.circle_id = circle.id
+                       AND membership.user_id = :user_id
+                       AND membership.status = 'active'
+                   )
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_member_invites member_invite
+                     WHERE member_invite.circle_id = circle.id
+                       AND (
+                         member_invite.inviter_user_id = :user_id
+                         OR member_invite.invitee_user_id = :user_id
+                       )
+                       AND member_invite.status = 'pending'
+                   )
+                ORDER BY circle.id
+                FOR UPDATE OF circle
+                """
+            )
+            if member_invites_exist
+            else text(
+                """
+                SELECT
+                  circle.id,
+                  circle.owner_user_id = :user_id AS is_owner,
+                  EXISTS (
+                    SELECT 1
+                    FROM one_location_circle_memberships membership
+                    WHERE membership.circle_id = circle.id
+                      AND membership.user_id = :user_id
+                      AND membership.status = 'active'
+                  ) AS has_active_membership
+                FROM one_location_circles circle
+                WHERE circle.owner_user_id = :user_id
+                   OR EXISTS (
+                     SELECT 1
+                     FROM one_location_circle_memberships membership
+                     WHERE membership.circle_id = circle.id
+                       AND membership.user_id = :user_id
+                       AND membership.status = 'active'
+                   )
+                ORDER BY circle.id
+                FOR UPDATE OF circle
+                """
+            )
+        )
+        departing_circle_rows = conn.execute(circle_lock_query, params).mappings().all()
+        departing_circle_ids = [
+            str(row.get("id") or "").strip()
+            for row in departing_circle_rows
+            if str(row.get("id") or "").strip()
+            and (bool(row.get("is_owner")) or bool(row.get("has_active_membership")))
+        ]
+        if departing_circle_ids:
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_invite_codes
+                    SET status = 'revoked', revoked_at = NOW(),
+                        updated_at = NOW()
+                    WHERE circle_id =
+                          ANY(CAST(:departing_circle_ids AS UUID[]))
+                      AND status = 'active'
+                    """
+                ),
+                {
+                    **params,
+                    "departing_circle_ids": departing_circle_ids,
+                },
+            )
+        if member_invites_exist:
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circle_member_invites
+                    SET status = 'cancelled', cancelled_at = NOW(),
+                        updated_at = NOW()
+                    WHERE inviter_user_id = :user_id
+                      AND status = 'pending'
+                    """
+                ),
+                params,
+            )
+        circle_rows = [row for row in departing_circle_rows if bool(row.get("is_owner"))]
+        circle_ids = {
+            str(row.get("id") or "").strip()
+            for row in circle_rows
+            if str(row.get("id") or "").strip()
+        }
+        affected_member_rows = (
+            conn.execute(
+                text(
+                    """
+                    SELECT DISTINCT membership.user_id
+                    FROM one_location_circles circle
+                    JOIN one_location_circle_memberships membership
+                      ON membership.circle_id = circle.id
+                     AND membership.status = 'active'
+                    WHERE circle.owner_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+            .mappings()
+            .all()
+        )
+        affected_member_ids = {
+            str(row.get("user_id") or "").strip()
+            for row in affected_member_rows
+            if str(row.get("user_id") or "").strip()
+        }
+
+        if circle_ids and self._table_exists(conn, "connection_origins"):
+            from hushh_mcp.services.connection_graph_service import (
+                ConnectionGraphService,
+            )
+            from hushh_mcp.services.one_location_circle_service import (
+                OneLocationCircleService,
+            )
+
+            for circle_id in sorted(circle_ids):
+                ConnectionGraphService.revoke_named_circle_origins(
+                    conn,
+                    source_circle_id=circle_id,
+                )
+                OneLocationCircleService._reconcile_circle_sourced_grants(
+                    conn,
+                    circle_id=circle_id,
+                )
+
+        if self._table_exists(conn, "one_location_events") and self._table_exists(
+            conn, "one_location_share_grants"
+        ):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM one_location_events event
+                    USING one_location_share_grants share_grant,
+                          one_location_circles circle
+                    WHERE event.grant_id = share_grant.id
+                      AND share_grant.source_circle_id = circle.id
+                      AND circle.owner_user_id = :user_id
+                    """
+                ),
+                params,
+            )
+
+        if self._table_exists(conn, "one_location_circle_member_invites"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM one_location_circle_member_invites member_invite
+                    WHERE member_invite.inviter_user_id = :user_id
+                       OR member_invite.invitee_user_id = :user_id
+                       OR member_invite.circle_id IN (
+                         SELECT circle.id
+                         FROM one_location_circles circle
+                         WHERE circle.owner_user_id = :user_id
+                       )
+                    """
+                ),
+                params,
+            )
+
+        conn.execute(
+            text(
+                """
+                DELETE FROM one_location_circle_invite_codes invite_code
+                WHERE invite_code.created_by_user_id = :user_id
+                   OR invite_code.circle_id IN (
+                     SELECT circle.id
+                     FROM one_location_circles circle
+                     WHERE circle.owner_user_id = :user_id
+                   )
+                """
+            ),
+            params,
+        )
+        if self._table_exists(conn, "connection_origins"):
+            conn.execute(
+                text(
+                    """
+                    DELETE FROM connection_origins origin
+                    USING one_location_circles circle
+                    WHERE origin.source_circle_id = circle.id
+                      AND circle.owner_user_id = :user_id
+                      AND origin.origin_kind = 'named_circle'
+                      AND origin.status = 'revoked'
+                    """
+                ),
+                params,
+            )
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "is_system"
+        ):
+            # Migration 160 added `one_location_circles_block_system_delete`, a
+            # trigger that refuses to hard- or soft-delete a Circle with
+            # is_system=true (the SMS/Emergency Circle) so an ordinary product
+            # code path can't silently switch off a user's SOS roster. That
+            # protection has no meaning once the SAME owner's account is being
+            # fully deleted or reset to fresh: the identity the Circle served
+            # is being wiped along with it, so demote it first in this same
+            # transaction and let the delete below proceed normally.
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET is_system = FALSE
+                    WHERE owner_user_id = :user_id
+                      AND is_system
+                    """
+                ),
+                params,
+            )
+        # Migration 163 widened that same trigger to fire on `system_kind IS
+        # NOT NULL` as well, because Trusted is deliberately NOT `is_system`.
+        # Clearing only the flag therefore stopped being enough to open the
+        # escape hatch: 163 backfills `system_kind = 'sms'` onto every existing
+        # SMS Circle, so the row demoted above still trips the trigger on the
+        # DELETE below, and a Trusted Circle trips it having never been
+        # `is_system` at all. That is incident #5574 -- account deletion 500s --
+        # arriving a second time by a different column.
+        #
+        # Guarded on the column so a database that predates 163 still deletes.
+        if self._table_exists(conn, "one_location_circles") and self._column_exists(
+            conn, "one_location_circles", "system_kind"
+        ):
+            conn.execute(
+                text(
+                    """
+                    UPDATE one_location_circles
+                    SET system_kind = NULL
+                    WHERE owner_user_id = :user_id
+                      AND system_kind IS NOT NULL
+                    """
+                ),
+                params,
+            )
+        conn.execute(
+            text(
+                """
+                DELETE FROM one_location_circles
+                WHERE owner_user_id = :user_id
+                """
+            ),
+            params,
+        )
+
+        if self._table_exists(conn, "one_location_sms_contacts"):
+            from hushh_mcp.services.one_location_circle_service import (
+                OneLocationCircleService,
+            )
+
+            for member_user_id in sorted(affected_member_ids):
+                OneLocationCircleService._cleanup_ineligible_sms_contacts(
+                    conn,
+                    user_id=member_user_id,
+                )
+
+        results["one_location_circle_invite_codes"] = True
+        results["one_location_circle_member_invites"] = True
+        results["connection_origins"] = True
+        results["one_location_circles"] = True
 
     async def delete_account(
         self,
@@ -435,6 +940,9 @@ class AccountService:
         self._delete_optional_user_tables(
             conn,
             table_names=[
+                "one_action_directive_ledger",
+                "agent_chat_messages",
+                "agent_chat_conversations",
                 "kai_funding_trade_events",
                 "kai_funding_trade_intents",
                 "kai_funding_transfer_events",
@@ -452,14 +960,24 @@ class AccountService:
                 "kai_gmail_connections",
                 "kai_receipt_memory_artifacts",
                 "kai_portfolio_source_preferences",
+                "kai_analyze_runs",
                 "consent_export_refresh_jobs",
                 "consent_exports",
                 "connected_system_audit_events",
                 "connected_system_record_bindings",
                 "connected_system_intents",
+                "trusted_device_challenges",
+                "trusted_device_authorizations",
+                "trusted_device_audit_events",
+                "trusted_devices",
                 "pkm_default_available_projections",
+                "pkm_upgrade_claims",
+                "pkm_domain_commits",
+                "pkm_domain_revision_segments",
+                "pkm_domain_revisions",
                 "pkm_upgrade_steps",
                 "pkm_upgrade_runs",
+                "one_wallet_cards",
             ],
             params=params,
             results=results,
@@ -543,26 +1061,6 @@ class AccountService:
                 params,
             )
         results["ria_pick_share_artifacts"] = True
-        if self._table_exists(conn, "ria_pick_uploads"):
-            if self._table_exists(conn, "ria_profiles"):
-                conn.execute(
-                    text(
-                        """
-                        DELETE FROM ria_pick_uploads
-                        WHERE uploaded_by_user_id = :user_id
-                           OR ria_profile_id IN (
-                             SELECT id FROM ria_profiles WHERE user_id = :user_id
-                           )
-                        """
-                    ),
-                    params,
-                )
-            else:
-                conn.execute(
-                    text("DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"),
-                    params,
-                )
-        results["ria_pick_uploads"] = True
         if self._table_exists(conn, "advisor_investor_relationships"):
             if self._table_exists(conn, "ria_profiles"):
                 conn.execute(
@@ -603,17 +1101,36 @@ class AccountService:
         results["push_tokens"] = True
         self._delete_user_rows_if_table_exists(conn, table_name="one_kyc_workflows", params=params)
         results["one_kyc_workflows"] = True
+        self._delete_owned_named_circles(
+            conn,
+            user_id=user_id,
+            results=results,
+        )
         for table_name in (
+            "one_location_auto_approve_preferences",
             "one_location_events",
+            "one_location_nearby_presences",
+            "one_location_nearby_visits",
+            "one_location_place_ratings",
+            "one_location_sms_contacts",
             "one_location_referrals",
             "one_location_public_invite_submissions",
             "one_location_public_invites",
             "one_location_circle_invites",
+            "one_location_circle_member_invites",
+            "one_location_circle_memberships",
+            "connection_scope_proposal_events",
+            "connection_scope_proposals",
+            "connection_requests",
+            "connections",
             "trusted_connections",
             "one_location_access_requests",
             "one_location_envelopes",
             "one_location_share_grants",
             "one_location_recipient_keys",
+            # Feed is a derived projection. Clear it after every source table so
+            # present or future source-cleanup fan-out cannot recreate a row.
+            "feed_events",
         ):
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
@@ -632,6 +1149,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._clear_user_data_tables(conn, user_id, results)
 
                 # Re-seed the profile spine to a clean One default so the dashboard
@@ -643,6 +1161,11 @@ class AccountService:
                         SET personas = ARRAY['investor']::text[],
                             last_active_persona = 'investor',
                             investor_marketplace_opt_in = FALSE,
+                            contact_discoverable = FALSE,
+                            contact_sync_consent_enabled_at = NULL,
+                            contact_sync_consent_rule_version =
+                                contact_sync_consent_rule_version + 1,
+                            contact_sync_consent_contract_version = NULL,
                             updated_at = NOW()
                         WHERE user_id = :user_id
                         """
@@ -732,6 +1255,10 @@ class AccountService:
             "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
             "pkm_upgrade_steps": False,
+            "pkm_upgrade_claims": False,
+            "pkm_domain_commits": False,
+            "pkm_domain_revision_segments": False,
+            "pkm_domain_revisions": False,
             "world_model_index_v2": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
@@ -767,20 +1294,36 @@ class AccountService:
             "relationship_share_events": False,
             "relationship_share_grants": False,
             "ria_pick_share_artifacts": False,
-            "ria_pick_uploads": False,
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
             "one_kyc_workflows": False,
+            "one_location_auto_approve_preferences": False,
             "one_location_events": False,
+            "one_location_nearby_presences": False,
+            "one_location_nearby_visits": False,
+            "one_location_place_ratings": False,
+            "one_location_sms_contacts": False,
             "one_location_referrals": False,
             "one_location_access_requests": False,
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
             "one_location_public_invites": False,
             "one_location_circle_invites": False,
+            "one_location_circle_invite_codes": False,
+            "one_location_circle_member_invites": False,
+            "one_location_circle_memberships": False,
+            "one_location_circles": False,
+            "connection_requests": False,
+            "connections": False,
+            "connection_origins": False,
             "trusted_connections": False,
+            "trusted_device_challenges": False,
+            "trusted_device_authorizations": False,
+            "trusted_device_audit_events": False,
+            "trusted_devices": False,
             "one_location_share_grants": False,
             "one_location_recipient_keys": False,
+            "feed_events": False,
             "runtime_persona_state": False,
             "vault_key_wrappers": False,
             "vault_keys": False,
@@ -789,9 +1332,13 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                lock_connection_graph_users(conn, user_ids=[user_id])
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
+                        "one_action_directive_ledger",
+                        "agent_chat_messages",
+                        "agent_chat_conversations",
                         "kai_funding_trade_events",
                         "kai_funding_trade_intents",
                         "kai_funding_transfer_events",
@@ -814,7 +1361,15 @@ class AccountService:
                         "connected_system_audit_events",
                         "connected_system_record_bindings",
                         "connected_system_intents",
+                        "trusted_device_challenges",
+                        "trusted_device_authorizations",
+                        "trusted_device_audit_events",
+                        "trusted_devices",
                         "pkm_default_available_projections",
+                        "pkm_upgrade_claims",
+                        "pkm_domain_commits",
+                        "pkm_domain_revision_segments",
+                        "pkm_domain_revisions",
                         "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
                     ],
@@ -911,28 +1466,6 @@ class AccountService:
                         params,
                     )
                 results["ria_pick_share_artifacts"] = True
-                if self._table_exists(conn, "ria_pick_uploads"):
-                    if self._table_exists(conn, "ria_profiles"):
-                        conn.execute(
-                            text(
-                                """
-                                DELETE FROM ria_pick_uploads
-                                WHERE uploaded_by_user_id = :user_id
-                                   OR ria_profile_id IN (
-                                     SELECT id FROM ria_profiles WHERE user_id = :user_id
-                                   )
-                                """
-                            ),
-                            params,
-                        )
-                    else:
-                        conn.execute(
-                            text(
-                                "DELETE FROM ria_pick_uploads WHERE uploaded_by_user_id = :user_id"
-                            ),
-                            params,
-                        )
-                results["ria_pick_uploads"] = True
                 if self._table_exists(conn, "advisor_investor_relationships"):
                     if self._table_exists(conn, "ria_profiles"):
                         conn.execute(
@@ -982,17 +1515,43 @@ class AccountService:
                     params=params,
                 )
                 results["one_kyc_workflows"] = True
+                self._delete_owned_named_circles(
+                    conn,
+                    user_id=user_id,
+                    results=results,
+                )
                 for table_name in (
+                    # This budget is deliberately preserved by persona reset so
+                    # reset cannot become a rate-limit bypass. A full account
+                    # deletion removes the identity, so its FK-free budget row
+                    # must be purged here as well.
+                    "contact_sync_lookup_budgets",
+                    "one_location_auto_approve_preferences",
                     "one_location_events",
+                    "one_location_nearby_presences",
+                    "one_location_nearby_visits",
+                    "one_location_place_ratings",
+                    "one_location_nearby_visits",
+                    "one_location_place_ratings",
+                    "one_location_sms_contacts",
                     "one_location_referrals",
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",
+                    "one_location_circle_member_invites",
+                    "one_location_circle_memberships",
+                    "connection_scope_proposal_events",
+                    "connection_scope_proposals",
+                    "connection_requests",
+                    "connections",
                     "trusted_connections",
                     "one_location_access_requests",
                     "one_location_envelopes",
                     "one_location_share_grants",
                     "one_location_recipient_keys",
+                    "one_wallet_cards",
+                    # Last derived-data cleanup, before the identity/vault spine.
+                    "feed_events",
                 ):
                     self._delete_user_rows_if_table_exists(
                         conn,
@@ -1177,6 +1736,10 @@ class AccountService:
             "pkm_migration_state": False,
             "pkm_upgrade_runs": False,
             "pkm_upgrade_steps": False,
+            "pkm_upgrade_claims": False,
+            "pkm_domain_commits": False,
+            "pkm_domain_revision_segments": False,
+            "pkm_domain_revisions": False,
             "plaid_items": False,
             "plaid_refresh_runs": False,
             "plaid_link_sessions": False,
@@ -1231,8 +1794,33 @@ class AccountService:
                 )
                 results["pkm_default_available_projections"] = True
                 self._delete_user_rows_if_table_exists(
-                    conn, table_name="pkm_upgrade_steps", params=params
+                    conn, table_name="pkm_upgrade_claims", params=params
                 )
+                results["pkm_upgrade_claims"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_domain_commits", params=params
+                )
+                results["pkm_domain_commits"] = True
+                if self._table_exists(conn, "pkm_domain_revision_segments"):
+                    conn.execute(
+                        text(
+                            """
+                            DELETE FROM pkm_domain_revision_segments
+                            WHERE revision_id IN (
+                              SELECT revision_id FROM pkm_domain_revisions
+                              WHERE user_id = :user_id
+                            )
+                            """
+                        ),
+                        params,
+                    )
+                results["pkm_domain_revision_segments"] = True
+                self._delete_user_rows_if_table_exists(
+                    conn, table_name="pkm_domain_revisions", params=params
+                )
+                results["pkm_domain_revisions"] = True
+                if self._table_exists(conn, "pkm_upgrade_steps"):
+                    conn.execute(self._delete_by_user_queries["pkm_upgrade_steps"], params)
                 results["pkm_upgrade_steps"] = True
                 self._delete_user_rows_if_table_exists(
                     conn, table_name="pkm_upgrade_runs", params=params
@@ -1397,6 +1985,18 @@ class AccountService:
                         conn,
                         table_name="pkm_blobs",
                         query_name="encrypted_pkm_blobs",
+                        params=params,
+                    ),
+                    "encrypted_pkm_recovery_revisions": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="pkm_domain_revisions",
+                        query_name="encrypted_pkm_recovery_revisions",
+                        params=params,
+                    ),
+                    "encrypted_pkm_recovery_segments": self._fetch_optional_many_rows(
+                        conn,
+                        table_name="pkm_domain_revision_segments",
+                        query_name="encrypted_pkm_recovery_segments",
                         params=params,
                     ),
                     "consent_audit": self._fetch_optional_many_rows(

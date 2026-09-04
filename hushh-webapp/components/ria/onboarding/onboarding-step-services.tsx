@@ -9,11 +9,11 @@ import {
   ScrollText,
 } from "lucide-react";
 import type { LucideIcon } from "lucide-react";
+import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
+import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import {
-  RiaAiActionPill,
-  RiaSelectControl,
-} from "@/components/ria/ui/ria-primitives";
+import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
 
 const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
   { label: "Portfolio Management", icon: BarChart3 },
@@ -24,15 +24,9 @@ const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
 
 const FEE_OPTIONS = ["Fee-only", "AUM %", "Flat", "Hourly"];
 
-function GroupShell({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="overflow-hidden rounded-[22px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] shadow-[0_8px_24px_rgba(62,48,30,0.05)]">
-      {children}
-    </div>
-  );
-}
 
-/** Gold uppercase section label (FEE STRUCTURE / SHORT BIO / BUSINESS LOCATION). */
+
+/** Section label that follows the shared readable settings scale. */
 function SectionLabel({
   children,
   htmlFor,
@@ -40,16 +34,15 @@ function SectionLabel({
   children: React.ReactNode;
   htmlFor?: string;
 }) {
-  const cls =
-    "text-[12px] font-semibold uppercase tracking-[2px] text-[color:var(--ria-gold)]";
-  if (htmlFor) {
-    return (
-      <label htmlFor={htmlFor} className={cn("block", cls)}>
-        {children}
-      </label>
-    );
-  }
-  return <p className={cls}>{children}</p>;
+  return (
+    <AppSectionLabel
+      as={htmlFor ? "label" : "p"}
+      htmlFor={htmlFor}
+      className="block px-[6px]"
+    >
+      {children}
+    </AppSectionLabel>
+  );
 }
 
 function TextRow({
@@ -98,7 +91,7 @@ function TextRow({
           onChange={(event) => onChange(event.target.value)}
           placeholder={placeholder}
           className={cn(
-            "min-w-0 flex-1 bg-transparent text-right font-medium text-[color:var(--ria-ink)] outline-none placeholder:text-[color:var(--ria-faint)]",
+            "min-w-0 flex-1 bg-transparent text-right font-medium text-foreground outline-none placeholder:text-[color:var(--ria-faint)]",
             dense ? "text-[14px]" : "text-[16px]",
             inputMode === "numeric" && "tabular-nums"
           )}
@@ -209,12 +202,10 @@ export function OnboardingStepServices({
           {AVAILABLE_SERVICES.map(({ label, icon: Icon }, i) => {
             const selected = servicesOffered.includes(label);
             return (
-              <button
+              <label
                 key={label}
-                type="button"
-                aria-pressed={selected}
-                onClick={() => toggleService(label)}
-                className="flex min-h-[60px] w-full items-center gap-[14px] px-[18px] py-3 text-left"
+                htmlFor={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
+                className="flex min-h-[60px] w-full cursor-pointer items-center gap-[14px] px-[18px] py-3 text-left"
                 style={
                   i > 0
                     ? { borderTop: "1px solid var(--ria-divider-inner)" }
@@ -231,18 +222,23 @@ export function OnboardingStepServices({
                     style={{ color: "var(--ria-gold)" }}
                   />
                 </span>
-                <span className="min-w-0 flex-1 text-[16px] font-medium leading-5 text-[color:var(--ria-ink)]">
+                <span className="min-w-0 flex-1 text-[16px] font-medium leading-5 text-foreground">
                   {label}
                 </span>
-                <RiaSelectControl checked={selected} variant="radio" />
-              </button>
+                <Checkbox
+                  id={`ria-service-${label.toLowerCase().replaceAll(" ", "-")}`}
+                  checked={selected}
+                  onCheckedChange={() => toggleService(label)}
+                  className="h-[26px] w-[26px] rounded-[7px] border-2 border-[color:var(--ria-select-border)] bg-transparent shadow-none data-[state=checked]:!border-white data-[state=checked]:!bg-white data-[state=checked]:!text-black"
+                />
+              </label>
             );
           })}
         </div>
         {showServiceError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one service to continue.
           </p>
@@ -264,10 +260,10 @@ export function OnboardingStepServices({
                 style={
                   selected
                     ? {
-                        background: "rgba(242,223,192,0.5)",
-                        borderColor: "rgba(201,139,46,0.5)",
+                        background: "var(--app-accent-tint)",
+                        borderColor: "var(--app-accent)",
                         borderWidth: "1.5px",
-                        color: "var(--ria-fee-active)",
+                        color: "var(--app-accent)",
                         fontWeight: 600,
                       }
                     : {
@@ -286,7 +282,7 @@ export function OnboardingStepServices({
         {showFeeError ? (
           <p
             role="alert"
-            className="text-[13px] leading-5 text-amber-600 dark:text-amber-400"
+            className="text-[13px] leading-5 text-[color:var(--ria-warning-text)]"
           >
             Select at least one fee structure to continue.
           </p>
@@ -306,14 +302,14 @@ export function OnboardingStepServices({
           value={minEngagementAmount}
           onChange={(event) => onMinEngagementChange(event.target.value)}
           placeholder="250,000"
-          className="w-24 bg-transparent text-right text-[16px] font-medium tabular-nums text-[color:var(--ria-ink)] outline-none placeholder:text-[color:var(--ria-faint)]"
+          className="w-24 bg-transparent text-right text-[16px] font-medium tabular-nums text-foreground outline-none placeholder:text-[color:var(--ria-faint)]"
         />
       </div>
 
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
         <RiaAiActionPill onClick={onDraftBio}>
-          Ask Kai to draft a bio
+          Ask One to draft a bio
         </RiaAiActionPill>
         {hasBio && !bioEditing ? (
           <button
@@ -322,7 +318,7 @@ export function OnboardingStepServices({
             onClick={() => setBioEditing(true)}
             className="block w-full rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ria-gold)] focus-visible:ring-offset-2"
           >
-            <span className="block text-[15px] leading-[1.5] text-[color:var(--ria-ink)]">
+            <span className="block text-[15px] leading-[1.5] text-foreground">
               {bio}
             </span>
           </button>
@@ -337,14 +333,14 @@ export function OnboardingStepServices({
             }}
             onChange={(event) => onBioChange(event.target.value)}
             placeholder="Briefly describe your approach..."
-            className="min-h-[122px] w-full resize-none rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-[15px] leading-[1.5] text-[color:var(--ria-ink)] outline-none transition-colors placeholder:text-[color:var(--ria-faint)] focus:border-[color:var(--ria-gold)]"
+            className="min-h-[122px] w-full resize-none rounded-[18px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)] px-[18px] py-4 text-[15px] leading-[1.5] text-foreground outline-none transition-colors placeholder:text-[color:var(--ria-faint)] focus:border-[color:var(--ria-gold)]"
           />
         )}
       </div>
 
       <div className="space-y-3">
         <SectionLabel>Business Location</SectionLabel>
-        <GroupShell>
+        <SettingsGroup embedded separatorInset>
           <TextRow
             label="Street"
             value={fullStreetAddress}
@@ -381,7 +377,7 @@ export function OnboardingStepServices({
             autoComplete="postal-code"
             dense
           />
-        </GroupShell>
+        </SettingsGroup>
 
         <div className="relative overflow-hidden rounded-[16px] border border-[color:var(--ria-divider-outer)] bg-[color:var(--card)]">
           {staticMapPreviewSrc ? (

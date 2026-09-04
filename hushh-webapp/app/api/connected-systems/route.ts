@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { isLocalCrmProductAvailable } from "@/lib/connected-systems/crm-product-availability";
 import {
   createUpstreamHeaders,
   resolveRequestId,
@@ -11,6 +12,9 @@ import {
 
 export async function GET(request: NextRequest) {
   const requestId = resolveRequestId(request);
+  if (!isLocalCrmProductAvailable({ hostname: request.nextUrl.hostname })) {
+    return withRequestIdJson(requestId, { detail: "Not found" }, { status: 404 });
+  }
   const url = `${getPythonApiUrl()}/api/connected-systems${request.nextUrl.search}`;
   const authHeader = request.headers.get("authorization");
   const consentHeader =

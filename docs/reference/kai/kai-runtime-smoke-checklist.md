@@ -36,15 +36,17 @@ Runtime truth note:
    - `/one/kai/import`
    - `/one/kai`
    - `/one/kai/plaid/oauth/return`
-   - `/one/kai/portfolio`
+   - `/one/kai?tab=portfolio`
+   - `/one/kai/portfolio/holdings`
+   - `/one/kai/portfolio/allocation`
+   - `/one/kai/portfolio/performance`
+   - `/one/kai/portfolio/sources`
    - `/one/kai/analysis`
-   - `/one/kai/optimize`
  4. Verify required voice routes are present and reachable in the protected API surface:
    - `/api/kai/voice/capability`
    - `/api/kai/voice/realtime/session`
    - `/api/kai/voice/plan`
    - `/api/kai/voice/compose`
-   - `/api/kai/voice/tts`
 
 ## 0a) Voice Runtime Sanity
 1. Open a signed-in Kai route where voice is eligible.
@@ -103,8 +105,8 @@ Runtime truth note:
 2. Open the shield inbox and confirm:
    - at most 5 rows are shown,
    - internal scroll appears only when needed,
-   - `Open consent manager` opens `/consents` for the active persona.
-3. Confirm empty pending state does not show pagination chrome in either the inbox or `/consents`.
+   - `Open consent manager` opens `/one/consent` for the active persona.
+3. Confirm empty pending state does not show pagination chrome in either the inbox or `/one/consent`.
 
 ## 4) Debate Output Reliability
 1. Run stock analysis from dashboard/portfolio flow.

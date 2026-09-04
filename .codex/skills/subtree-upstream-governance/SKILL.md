@@ -1,6 +1,6 @@
 ---
 name: subtree-upstream-governance
-description: Use when changing upstream-first coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.
+description: Use when changing optional-mirror coordination, subtree sync policy, or maintainer-only subtree governance between consent-protocol and hushh-research.
 ---
 
 # Hussh Subtree Upstream Governance Skill
@@ -8,7 +8,7 @@ description: Use when changing upstream-first coordination, subtree sync policy,
 ## Purpose and Trigger
 
 - Primary scope: `subtree-upstream-governance-intake`
-- Trigger on upstream-first sync rules, subtree metadata parity, maintainer-only subtree docs, or sync validation between `consent-protocol` upstream and `hushh-research`.
+- Trigger on optional-mirror policy, subtree metadata parity, maintainer-only subtree docs, or elected sync validation between the standalone mirror and `hushh-research`.
 - Avoid overlap with `repo-operations`, `docs-governance`, and `backend`.
 
 ## Coverage and Ownership
@@ -32,7 +32,7 @@ Non-owned surfaces:
 
 ## Do Use
 
-1. Upstream-first routing rules for `consent-protocol`.
+1. Monorepo-authoritative and optional-mirror routing rules for `consent-protocol`.
 2. Subtree sync and parity validation.
 3. Maintainer-only subtree docs and contributor-invisible subtree policy.
 4. Coordinating license or onboarding parity across upstream and subtree surfaces.
@@ -52,10 +52,10 @@ Non-owned surfaces:
 
 ## Workflow
 
-1. Keep upstream-first rules explicit and keep subtree mechanics out of normal contributor onboarding.
-2. Treat subtree sync metadata drift as a governance problem, not a casual local workaround.
+1. Keep monorepo authority and optional-mirror status explicit, and keep subtree mechanics out of normal contributor onboarding.
+2. Treat subtree sync metadata drift as advisory unless a maintainer has explicitly elected a mirror publication operation.
 3. Keep root and subtree license and onboarding contracts aligned when the same policy spans both.
-4. Run a second subtree/parity check after edits.
+4. Run a second docs/governance parity check after edits; run subtree sync only for an elected mirror update.
 5. For cross-repo contract changes that affect release authority, contributor docs, or licensing, run a third verification before calling the subtree contract stable.
 
 ## Handoff Rules
@@ -69,7 +69,6 @@ Non-owned surfaces:
 ## Required Checks
 
 ```bash
-./scripts/ci/subtree-sync-check.sh
 python3 scripts/licenses/verify_apache_surface.py
 ./bin/hushh docs verify
 ```

@@ -1,0 +1,29 @@
+{
+  "skill_name": "oss-license-governance",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "regenerate THIRD_PARTY_NOTICES.md from the lockfiles and make sure NOTICE still matches",
+        "top_k": 3
+      },
+      {
+        "prompt": "add SPDX headers so REUSE coverage passes for the new scripts directory",
+        "top_k": 3
+      },
+      {
+        "prompt": "the package manifest says MIT but we ship Apache-2.0, fix the license metadata for the published package",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "update the subtree sync policy and optional-mirror coordination between consent-protocol and this repo",
+        "owner": "subtree-upstream-governance"
+      },
+      {
+        "prompt": "the CI deploy pipeline and branch protection settings need updating for the release",
+        "owner": "repo-operations"
+      }
+    ]
+  }
+}

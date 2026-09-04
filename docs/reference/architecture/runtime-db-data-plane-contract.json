@@ -1,5 +1,5 @@
 {
-  "schema_version": 1,
+  "schema_version": 2,
   "description": "Canonical runtime DB data-plane contract. Table families, not individual rows, define ownership, data class, retention, deletion, and trust boundaries.",
   "allowed_data_classes": [
     "personal_encrypted",
@@ -13,12 +13,85 @@
   "growth_watch_tables": [
     "pkm_events",
     "pkm_manifest_paths",
+    "pkm_domain_revisions",
+    "pkm_domain_commits",
     "kai_gmail_sync_runs",
+    "google_oauth_attempts",
+    "google_calendar_action_proposals",
     "agent_chat_messages",
+    "one_action_directive_ledger",
     "kai_funding_webhook_events",
     "kai_funding_transfer_events",
     "kai_funding_trade_events",
     "one_kyc_workflows"
+  ],
+  "retention_registry": [
+    {
+      "family_id": "kai_gmail_receipts_provider_cache",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "gmail_retention_report"
+    },
+    {
+      "family_id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "google_integrations_retention_report"
+    },
+    {
+      "family_id": "gmail_owner_approved_delivery",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "gmail_owner_delivery_retention_report"
+    },
+    {
+      "family_id": "kai_brokerage_provider_cache",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "plaid_retention_report"
+    },
+    {
+      "family_id": "pkm_encrypted_memory",
+      "owner": "vault-pkm-governance",
+      "mode": "report_only",
+      "job_id": "pkm_revision_retention_report"
+    },
+    {
+      "family_id": "one_action_directive_authority",
+      "owner": "one-voice-governance",
+      "mode": "report_only",
+      "job_id": "directive_ledger_retention_report"
+    },
+    {
+      "family_id": "one_location_agent",
+      "owner": "backend-runtime-governance",
+      "mode": "report_only",
+      "job_id": "location_retention_report"
+    },
+    {
+      "family_id": "information_marketplace_requests",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "marketplace_retention_report"
+    },
+    {
+      "family_id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "person_information_request_retention_report"
+    },
+    {
+      "family_id": "one_email_kyc_workflow",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "kyc_retention_report"
+    },
+    {
+      "family_id": "funding_trading_audit",
+      "owner": "iam-consent-governance",
+      "mode": "report_only",
+      "job_id": "regulated_funding_retention_report"
+    }
   ],
   "table_families": [
     {
@@ -95,13 +168,15 @@
       "data_class": "personal_encrypted",
       "lifecycle_status": "current",
       "exact_tables": [
-        "pkm_blobs"
+        "pkm_blobs",
+        "pkm_domain_revisions",
+        "pkm_domain_revision_segments"
       ],
-      "primary_access_path": "PKM store/read/delete domain routes and client-side vault unlock flows",
-      "retention_policy": "Retain until account deletion or explicit domain deletion.",
+      "primary_access_path": "PKM coherent snapshot, atomic store, owner rollback, delete-domain routes, and client-side vault unlock flows",
+      "retention_policy": "Retain the first encrypted pre-v7 origin revision for the account lifetime; retain ordinary rollback revisions for 90 days; delete on account or explicit domain deletion.",
       "deletion_behavior": "Delete by user and domain for domain deletion; delete all user rows on account deletion.",
-      "trust_boundary": "Ciphertext segments only; backend does not inspect plaintext PKM payloads.",
-      "plaintext_posture": "ciphertext_only",
+      "trust_boundary": "Ciphertext segments plus structural revision metadata only; backend does not inspect plaintext PKM payloads.",
+      "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "medium_per_user_domain"
     },
     {
@@ -111,14 +186,46 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly",
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly",
       "retention_policy": "Retain while account exists or until the user deletes an Agent chat conversation.",
       "deletion_behavior": "Delete selected conversation rows with cascading encrypted messages; delete all user rows on account deletion; do not persist transient tool debug events.",
       "trust_boundary": "Message titles and content persist as AES-GCM ciphertext. Backend may decrypt only with vault service key for current Agent LLM context; frontend tool debug events remain live-only and are not stored.",
       "plaintext_posture": "ciphertext_and_metadata",
       "expected_row_growth": "high_per_user_chat"
+    },
+    {
+      "id": "one_person_information_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references.",
+      "retention_policy": "Pending bundles persist until resolved or expired; terminal bundle and item metadata remains only for the bounded consent-audit and replay window before compaction.",
+      "deletion_behavior": "Cancel pending bundles before account deletion where possible, then delete bundles and items where the deleting account is requester or owner; canonical consent audit receipts remain governed by their separate audit retention contract.",
+      "trust_boundary": "Stores requester/owner principals, opaque scope references, purpose, duration, status, and timestamps. It stores no requested information values, decrypted exports, vault keys, raw Firebase identifiers in consumer responses, or standing access; a pending request grants nothing.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_request"
+    },
+    {
+      "id": "one_action_directive_authority",
+      "owner": "backend-agents-operons",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_action_directive_ledger"
+      ],
+      "primary_access_path": "One action directive issuance, confirmation, exactly-once consumption, settlement, cancellation, and expiry",
+      "retention_policy": "Short-lived authority metadata only; expire terminal and abandoned directives by expires_at and compact them after the replay window.",
+      "deletion_behavior": "Delete all user rows on account deletion; otherwise remove expired rows after the bounded replay and audit window.",
+      "trust_boundary": "Stores generated action identifiers, revisions, state, timing, and keyed fingerprints only; never prompts, slots, credentials, consent exports, decrypted PKM, or protected information.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_agent_session"
     },
     {
       "id": "pkm_metadata_and_scope",
@@ -162,12 +269,14 @@
       "exact_tables": [
         "pkm_migration_state",
         "pkm_upgrade_runs",
-        "pkm_upgrade_steps"
+        "pkm_upgrade_steps",
+        "pkm_domain_commits",
+        "pkm_upgrade_claims"
       ],
-      "primary_access_path": "client-side PKM cutover and generic PKM upgrade orchestration",
+      "primary_access_path": "client-side PKM cutover, server-issued upgrade claims, idempotent commit receipts, and generic PKM upgrade orchestration",
       "retention_policy": "Retain active and recent terminal runs; compact terminal rows after 30 days unless needed for incident review.",
       "deletion_behavior": "Delete all user rows on account deletion.",
-      "trust_boundary": "Run/checkpoint metadata only; decrypt/transform/re-encrypt remains client-side after vault unlock.",
+      "trust_boundary": "Run, claim, revision, aggregate preservation, and commit metadata only; decrypt/transform/re-encrypt remains client-side after vault unlock.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_workflow"
     },
@@ -218,14 +327,15 @@
       "glob_tables": [
         "ria_*",
         "advisor_investor_relationships",
+        "connection_scope_proposal*",
         "marketplace_investor_actions",
         "marketplace_public_profiles",
         "relationship_share_*"
       ],
-      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, invite, and share-grant services",
-      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants.",
+      "primary_access_path": "RIA profile, marketplace deck actions, client relationship, bilateral connection-scope proposal, invite, and share-grant services",
+      "retention_policy": "Retain while relationship/profile or deck lead exists; expire or disconnect relationship-scoped grants and preserve append-only scope-proposal audit metadata.",
       "deletion_behavior": "Delete or disconnect user-scoped relationships and marketplace deck actions on account/persona deletion.",
-      "trust_boundary": "Professional and relationship metadata only; no decrypted investor PKM without consent export.",
+      "trust_boundary": "Professional and relationship metadata only; scope proposals contain opaque handles and capability lifecycle metadata, never decrypted investor PKM or an information export.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_relationship"
     },
@@ -280,28 +390,185 @@
       "expected_row_growth": "high_provider_sync"
     },
     {
+      "id": "gmail_owner_approved_delivery",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "gmail_owner_send_actions",
+        "google_email_send_actions"
+      ],
+      "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Terminal action metadata is retained only for bounded delivery-state reconciliation and compacted by the owner-approved delivery retention process.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse and terminal metadata is compacted without retaining email content.",
+      "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
+      "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
+      "expected_row_growth": "low_per_user_action"
+    },
+    {
+      "id": "gmail_personal_information_request_monitor",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "gmail_personal_information_request_preferences",
+        "gmail_personal_information_request_scan_states",
+        "gmail_personal_information_requests"
+      ],
+      "primary_access_path": "Email Agent opt-in personal Gmail monitor, owner review queue, and scheduled eligible-user scanner",
+      "retention_policy": "Keep all monitor queue and scan-deduplication metadata for no longer than 30 days. Full Gmail messages and attachments are processed transiently and are never persisted by this workflow.",
+      "deletion_behavior": "Cascade-delete preferences, scan state, and workflow metadata with the vault owner. Turning monitoring off immediately deletes its queue and scan metadata, clears monitor coordination metadata, and blocks in-flight classification inserts.",
+      "trust_boundary": "Stores explicit monitoring preference, a monotonic opt-in generation, opaque Gmail History baseline/page-token/intra-page offset/lease metadata, Gmail provider identifiers, timestamps, classifier confidence, requested field labels, exact manifest leaf scope handles and segment identifiers, attachment-presence metadata, and keyed source/sender fingerprints. The history baseline is captured at opt-in so only later inbox messages are considered; the generation prevents stale scans from writing after consent changes. It never stores email subject/body/headers/addresses, attachment content, OAuth tokens, PKM values, decrypted exports, or generated drafts.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "bounded_recent_inbox_metadata_per_user"
+    },
+    {
+      "id": "google_integrations_provider_state",
+      "owner": "backend-runtime-governance",
+      "data_class": "provider_cache",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "google_provider_connections",
+        "google_service_grants",
+        "google_oauth_attempts",
+        "google_calendar_action_proposals"
+      ],
+      "primary_access_path": "Google OAuth connection service and confirmation-bound Calendar live-read/action service",
+      "retention_policy": "OAuth attempts expire after ten minutes. Calendar proposals are deleted after execution or failure and are unusable after ten minutes; the next Calendar mutation purges expired proposals. Provider credentials and grants remain only while the user keeps the service connected.",
+      "deletion_behavior": "Cascade-delete with the actor profile; service disconnect locally disables the relevant grant and removes its short-lived proposals. Account-level Google revocation is separate because it affects sibling services.",
+      "trust_boundary": "AES-GCM encrypted OAuth credential envelopes; no Calendar event cache or PKM projection is written by this v1 service.",
+      "plaintext_posture": "encrypted_tokens_and_short_lived_workflow_metadata",
+      "expected_row_growth": "low_provider_workflow"
+    },
+    {
+      "id": "kai_analyze_run_store",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "kai_analyze_runs"
+      ],
+      "primary_access_path": "Kai analyze (\"debate\") resumable-run store added in migration 125. The analyze run manager writes exactly one terminal-checkpoint row per run at the completed/failed/canceled transition and reads it back only when a resumed GET /run/{id}/stream lands on a Cloud Run instance that never created the run, replaying the already-delivered terminal DecisionCard instead of returning ANALYZE_RUN_NOT_FOUND. Gated by KAI_ANALYZE_DURABLE_RUN_STORE (default off); when off no row is ever written or read.",
+      "retention_policy": "Coarse single terminal row per run with a bounded TTL (6h default) carried in expires_at; never written per streamed frame, to respect the DB_SQLALCHEMY_MAX_OVERFLOW=0 pool pin. Expired rows are opportunistically deleted on the next terminal write.",
+      "deletion_behavior": "Delete rows where the deleting account is the run owner (user_id) on account deletion; rows also self-expire via expires_at and are compacted opportunistically.",
+      "trust_boundary": "Backend stores only the run's terminal envelope (run_id, user_id, debate_session_id, ticker, risk_profile, status, timestamps, and the terminal DecisionCard payload the same user already received in-stream), keyed by run_id and user_id. It stores no raw PKM values, provider tokens, or per-frame stream history, and enables only same-user cross-instance stream resume.",
+      "plaintext_posture": "terminal_result_and_metadata",
+      "expected_row_growth": "low_per_user_run"
+    },
+    {
       "id": "one_location_agent",
       "owner": "iam-consent-governance",
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
         "one_location_access_requests",
+        "one_location_auto_approve_preferences",
+        "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
         "one_location_events",
+        "one_location_map_preferences",
+        "one_location_nearby_check_in_preferences",
+        "one_location_nearby_presences",
         "one_location_network_connections",
         "one_location_public_invite_submissions",
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
-        "one_location_share_grants"
+        "one_location_sms_contacts",
+        "one_location_share_grants",
+        "one_location_sos_voice_preferences"
       ],
-      "primary_access_path": "One Location Agent verified-recipient directory, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
-      "retention_policy": "Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is owner, recipient, requester, referrer, referred user, or key owner; revoke active grants before deletion where possible.",
-      "trust_boundary": "Coordinates exist only on owner and recipient devices. Backend stores recipient public keys, grant metadata, ciphertext envelopes, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata; it must not store latitude, longitude, addresses, map previews, movement trails, or raw public tokens. Public invite links can request access or reveal only an explicit public snapshot; Invite to One links create metadata-only network readiness and never reveal private grants, ciphertext, or owner identity beyond a safe label.",
+      "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
+      "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
+      "deletion_behavior": "Delete standing automatic-approval preferences and rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants, nearby presence, and join codes before deletion where possible.",
+      "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
+    },
+    {
+      "id": "one_location_place_rating_visits",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_encrypted",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption.",
+      "retention_policy": "Each visit expires seven days after check-in and is deleted by the Location retention purge on its own expires_at, independently of the twelve-hour window used for terminal presence rows.",
+      "deletion_behavior": "Rows cascade on actor_profiles deletion and are also deleted explicitly by the account service for the owning user.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user_bounded_by_ttl"
+    },
+    {
+      "id": "one_location_place_ratings",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets.",
+      "retention_policy": "A rating is retained while the account exists and is updated in place on a revisit. The aggregate is derived state, recomputed from the surviving rows on every insert, update and delete.",
+      "deletion_behavior": "Ratings cascade on actor_profiles deletion and are deleted explicitly by the account service, which recomputes every affected place aggregate in the same statement -- an average that still counts a deleted rating has not deleted it.",
+      "trust_boundary": "backend_runtime",
+      "plaintext_posture": "provider_place_id_and_label",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "one_referral_program",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_agent_engagement_sessions",
+        "one_referral_attributions",
+        "one_referral_codes",
+        "one_referral_events",
+        "one_referral_policies",
+        "one_referral_relationships",
+        "one_referral_risk_reviews"
+      ],
+      "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only.",
+      "retention_policy": "Pending attributions expire with the policy attribution window and are swept. Relationships and their event ledger are retained for the life of the referrer's account as the audit trail behind a public count. Engagement sessions are closed or abandoned once their heartbeat gap passes and are retained only long enough to reconcile a qualification decision.",
+      "deletion_behavior": "Every table cascades from actor_profiles, so deleting either account removes its codes, attributions, engagement sessions, events and risk reviews. A relationship is deleted with either side; the referrer's public count is derived from live rows, so it falls accordingly.",
+      "trust_boundary": "The slug is public and is never a credential: resolving one proves nothing about who holds it, and the referred user still signs in through the existing identity flow. Installation and network signals are stored only as salted hashes for abuse velocity, never raw and never returned to any client. Internal risk reason codes never reach a user-facing surface.",
+      "plaintext_posture": "metadata_only_no_referred_user_identifiers_exposed",
+      "expected_row_growth": "low_per_user_referral"
+    },
+    {
+      "id": "one_location_named_circle_relationships",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_location_circles",
+        "one_location_circle_member_invites",
+        "one_location_circle_memberships"
+      ],
+      "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection.",
+      "retention_policy": "Active memberships persist while the Circle exists. Pending targeted invitations are marked expired opportunistically after their bounded invitation window. Accepted, declined, cancelled, and expired targeted invitations are compacted by the scheduled One Location terminal-work retention endpoint after its bounded retention window, and are deleted immediately with the Circle or either account. Left, removed, and deleted membership state otherwise remains for bounded reconciliation before compaction.",
+      "deletion_behavior": "Delete owned Circles and every invitation or membership referencing the deleting account. Before Circle hard deletion or membership exit, revoke only that Circle's active connection origins, recompute the canonical connection, and explicitly delete the revoked Circle origins; the source-Circle foreign key restricts bypassing this lifecycle. Preserve direct, imported, legacy-invite, or other-Circle origins. Reassign Circle-sourced active location grants to a surviving direct or other-Circle relationship and revoke them only when no eligible relationship remains.",
+      "trust_boundary": "Joining a named Circle creates mutual connection metadata but never creates a trusted_connections edge, SMS selection, location grant, capability token, envelope, coordinate, or map projection. Existing direct connections require a targeted Circle invitation and invitee acceptance before membership. Location and Save My Soul authority remain separate explicit user actions.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_user_relationship"
+    },
+    {
+      "id": "one_wallet_card",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_projection",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_wallet_cards"
+      ],
+      "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses",
+      "retention_policy": "Retain one row while the owner keeps a card; a revoked card is retained as a tombstone so an already-printed QR can answer honestly, and is hard-deleted on account deletion or reset.",
+      "deletion_behavior": "Soft revoke by setting status='revoked' and revoked_at, which invalidates the share token immediately; hard-delete on account deletion or reset, before actor_profiles tears down the identity spine.",
+      "trust_boundary": "Stores only the owner-selected allowlisted card payload (name, headline, organisation, coarse location label, summary, skills, contact links), the SHA-256 hash of the share token, and aggregate scan counters. Plaintext share tokens are never stored. No per-scan rows, IP addresses, user agents, geolocation, or referrers are recorded. The card grants no vault, PKM, or marketplace access, and is deliberately not published through pkm_default_available_projections.",
+      "plaintext_posture": "user_published_safe_projection",
+      "expected_row_growth": "low_per_user"
     },
     {
       "id": "information_marketplace_requests",
@@ -342,7 +609,7 @@
       "exact_tables": [
         "trusted_connections"
       ],
-      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer→inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table (dropped in migration 080).",
+      "primary_access_path": "Generalized directional trusted-connection graph. Written only via Agent One (add/remove/list intents delegated to the agent_connections lane) and via circle-invite claim (one-way claimer\u2192inviter edge); read in-process by any backend agent (e.g. Location, Email) through TrustedConnectionsService for SOS recipient resolution and check-in targeting. People are resolved read-only through the One Location verified-recipient directory. Supersedes the former one_location_network_connections table; its forward-only removal is pending live row-count, retention, and backup preflight.",
       "retention_policy": "Active directed edges persist as the owner's relationship graph; revoked edges are retained only for bounded operational review before compaction.",
       "deletion_behavior": "Delete rows where the deleting account is the owner or the trusted user; revoke active edges before deletion where possible.",
       "trust_boundary": "Backend stores only connection metadata (owner and trusted-user references, status, source, resolution method, optional label, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
@@ -356,14 +623,63 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "connection_requests",
-        "connections"
+        "connections",
+        "connection_origins",
+        "contact_sync_lookup_budgets",
+        "connection_voice_preferences"
       ],
-      "primary_access_path": "Two-way (mutual) connection graph added in migration 085. connection_requests holds the directional handshake (requester→addressee, status pending/accepted/rejected/cancelled); connections holds the accepted mutual edge canonicalized as user_a_id < user_b_id. Written only via ConnectionsService (create/accept/reject/cancel/remove), exposed under /api/one/connections/* and driven by Agent One's add-connection intent. On accept the service also mirrors two directional trusted_connections edges (source='connection') so existing Location/SOS readers keep working unchanged. People are resolved read-only through the One Location verified-recipient directory.",
-      "retention_policy": "Active connections persist as the users' mutual relationship graph; revoked connections and terminal requests (rejected/cancelled) are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete rows where the deleting account is either party (requester/addressee, or user_a/user_b); revoke active connections and their mirrored trusted_connections edges before deletion where possible.",
-      "trust_boundary": "Backend stores only connection metadata (user references, status, source, optional plaintext message on a request, timestamps). It stores no raw contact identifiers, coordinates, or PKM values, and a connection grants no data access on its own.",
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active.",
+      "retention_policy": "Active origins keep their canonical connection active. Revoked canonical connection rows persist for the lifetime of either account because they are the durable disconnect-suppression tombstone that prevents contact sync from resurrecting a relationship; an explicit request/accept may reactivate them. Revoked origins and terminal requests may be compacted under their bounded operational policy without deleting that canonical tombstone. Lookup-budget buckets contain counts only and are pruned after two days on the next sync by that user.",
+      "deletion_behavior": "Delete rows where the deleting account is either party. Membership leave/removal/Circle deletion revokes only the matching named_circle origins and recomputes each canonical pair; direct and other-Circle origins survive. connection_origins cascade when their canonical connection is deleted. AccountService explicitly deletes contact_sync_lookup_budgets; the table deliberately has no vault FK so a Firebase-authenticated pre-vault account is handled by explicit route policy rather than an incidental constraint failure.",
+      "trust_boundary": "Backend stores only connection and source-provenance metadata (user references, Circle reference, status, source, optional plaintext message on a direct request, timestamps) plus aggregate lookup counts. It stores no contact hash, phone digits, or address-book rows. A connection or contact/Circle origin grants no location access, automatic all_contacts approval, SMS selection, capability, envelope, coordinate, PKM value, or information access on its own.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_per_user_connection"
+    },
+    {
+      "id": "trusted_device_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_devices"
+      ],
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, advisory remote-revoke seal telemetry, and advisory liveness heartbeats through TrustedDeviceService.",
+      "retention_policy": "Retain active device registrations while the account exists; retain revoked metadata only for bounded security review before compaction.",
+      "deletion_behavior": "Delete all device rows on account deletion; explicit device revocation immediately disables new challenges and records the revocation timestamp.",
+      "trust_boundary": "Public P-256 device keys and device metadata only, including PKM device-sync cursors, remote-revoke seal timestamps, and device-reported liveness heartbeats reduced to an allow-list of runtime scalars (machine identifier, configured model, busy flag, active session count, next cron run); never private keys, Firebase tokens, vault passphrases, vault keys, decrypted PKM, filesystem paths, or developer credentials.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "trusted_device_authorization_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_device_authorizations",
+        "trusted_device_challenges"
+      ],
+      "primary_access_path": "Short-lived PKCE authorization codes and single-use proof-of-possession challenges consumed atomically through TrustedDeviceService.",
+      "retention_policy": "Authorization and challenge rows expire within minutes; consumed and expired rows are compacted after the bounded replay-investigation window.",
+      "deletion_behavior": "Delete all user-bound rows on account deletion; revocation prevents new challenges and existing challenges remain unusable after expiry or first consumption.",
+      "trust_boundary": "Stores hashes, public device keys, redirect metadata, opaque identifiers, and expiry/consumption timestamps only; no bearer tokens, private device keys, vault secrets, decrypted PKM, or raw nonce values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_transient_security_nonces"
+    },
+    {
+      "id": "trusted_device_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "trusted_device_audit_events"
+      ],
+      "primary_access_path": "Metadata-only trusted-device authorization, challenge, capability issuance, use, and revocation audit events written by TrustedDeviceService.",
+      "retention_policy": "Long-retention security audit metadata; compact only under the regulated audit-retention policy and redact optional metadata before deleting authority history.",
+      "deletion_behavior": "Account export may include safe event metadata; hard-delete user-linked runtime audit rows on account deletion unless a separate legally mandated retention system owns an immutable copy.",
+      "trust_boundary": "Event type, user/device references, timestamps, and allowlisted metadata only; never authorization codes, nonce values, signatures, tokens, private keys, vault secrets, or decrypted information.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
     },
     {
       "id": "relay_ticket_replay_guard",
@@ -435,10 +751,11 @@
       "lifecycle_status": "current",
       "exact_tables": [
         "one_email_mailbox_state",
+        "one_email_kyc_preferences",
         "one_kyc_workflows",
         "one_kyc_client_connectors"
       ],
-      "primary_access_path": "One mailbox intake, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
+      "primary_access_path": "One mailbox intake, account-scoped automatic-preparation preference, KYC workflow status, per-user public client connector metadata, consent continuation, transient approved Gmail send, and encrypted PKM writeback receipt",
       "retention_policy": "Active workflow metadata retained while open; legacy dev/UAT draft_body rows are redacted by migration and terminal metadata is compacted by retention jobs.",
       "deletion_behavior": "Delete user-linked workflows on account deletion; keep mailbox watch state without user data.",
       "trust_boundary": "Metadata only plus public connector metadata and send/writeback hashes; no raw full email threads, connector private keys, consent export plaintext, vault contents, broad decrypted PKM, or review draft plaintext. Approved outgoing email body may be handled transiently only for Gmail send and must not be logged or persisted.",
@@ -452,13 +769,15 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "connected_system_intents",
-        "connected_system_record_bindings"
+        "connected_system_record_bindings",
+        "connected_system_zk_contexts",
+        "connected_system_intent_approval_challenges"
       ],
-      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows",
-      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. Record bindings retain the current external CRM record id and workflow metadata only.",
+      "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including encrypted-fields request envelopes and local-owner approval",
+      "retention_policy": "Pending intents may retain the allowlisted CRM payload required to execute an approved write; terminal rows retain field names, ids, status, and sanitized result summaries only. CRM-ZK contexts and approval challenges expire or are consumed and are compacted promptly. Record bindings retain active and disconnected external CRM record pointers with workflow metadata so recovery does not erase linkage history.",
       "deletion_behavior": "Delete user-linked workflow rows on account deletion; compact terminal rows after the operational review window.",
-      "trust_boundary": "External CRM handoff is outside the Hussh zero-knowledge boundary when plaintext is sent to Salesforce. Store only purpose-bound workflow state and scrub terminal payload values.",
-      "plaintext_posture": "pending_allowlisted_payload_then_metadata",
+      "trust_boundary": "External CRM handoff is outside the Hussh encrypted-fields boundary when plaintext is sent to Salesforce. crm-encrypted-fields.v1 rows hold only recipient public-key metadata, encrypted field envelopes, hashes, and approval metadata; browser and MuleSoft handle field values, Hussh never decrypts them. Scrub terminal payload values.",
+      "plaintext_posture": "pending_allowlisted_or_encrypted_envelope_then_metadata",
       "expected_row_growth": "low_workflow"
     },
     {
@@ -469,12 +788,58 @@
       "exact_tables": [
         "connected_system_audit_events"
       ],
-      "primary_access_path": "Connected Systems read/create/update approval audit and CRM readback result classification",
+      "primary_access_path": "Connected Systems read/create/update approval audit, owner-confirmed local disconnect, and CRM readback result classification",
       "retention_policy": "Retain metadata audit rows for operational review; never retain raw CRM request, MCP result, or readback payload values in audit events.",
       "deletion_behavior": "Preserve regulated audit metadata where required; redact user linkage if account deletion or legal process requires it.",
       "trust_boundary": "Metadata-only audit evidence for external CRM actions. No vault data, raw PKM, full CRM payloads, credentials, or MCP tokens.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "connected_system_owner_key_metadata",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "connected_system_owner_signing_keys"
+      ],
+      "primary_access_path": "Connected Systems CRM-ZK owner public-key registration, signature verification, rotation, and revocation",
+      "retention_policy": "Retain the active public signing-key metadata while the owner connection is active; retain retired/revoked metadata only for the bounded operational and audit review window.",
+      "deletion_behavior": "Delete user-linked key metadata on account deletion and mark keys revoked before connector disconnection completes.",
+      "trust_boundary": "Public SPKI, algorithm, status, and fingerprint metadata only. The owner private signing key remains device-local and is never stored or reconstructed by the service.",
+      "plaintext_posture": "public_key_metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "enterprise_crm_registry_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "crm_registry_audit_events"
+      ],
+      "primary_access_path": "Operator CRM registry validation, activation, update, and deactivation audit trail.",
+      "retention_policy": "Retain configuration fingerprints, revisions, capability names, validation outcomes, and sanitized summaries for operational and security review; never retain decrypted credentials or provider response payloads.",
+      "deletion_behavior": "Operator-managed audit evidence is not user-delete scoped; redact operator linkage only when required by access-governance or legal policy.",
+      "trust_boundary": "Metadata-only evidence for registry administration. No client credentials, access tokens, CRM records, vault material, PKM information, or raw validation responses.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_append_only"
+    },
+    {
+      "id": "legacy_crm_zk_key_registry",
+      "owner": "iam-consent-governance",
+      "data_class": "reference",
+      "lifecycle_status": "legacy_migration",
+      "exact_tables": [
+        "crm_zk_recipient_keys",
+        "crm_zk_uat_recipient_keys"
+      ],
+      "primary_access_path": "Historical recipient-key metadata retained solely for completed CRM-ZK and CRM-ZK-UAT workflow history; no active runtime, route, or registry loader reads these tables.",
+      "retention_policy": "Retain non-secret public-key and lifecycle metadata only for the bounded operational and audit review window; no new rows are created after profile retirement.",
+      "deletion_behavior": "Operator-managed historical reference metadata; do not delete rows needed to explain completed intents or audit records. Purge only under the approved retention process.",
+      "trust_boundary": "Public key, fingerprint, profile, environment, and lifecycle metadata only. No private keys, CRM credentials, record values, ciphertext envelopes, or owner information.",
+      "plaintext_posture": "historical_public_key_metadata_only",
+      "expected_row_growth": "none_retired"
     },
     {
       "id": "enterprise_crm_registry",
@@ -483,14 +848,107 @@
       "lifecycle_status": "customer0",
       "exact_tables": [
         "enterprise_crm_registry",
-        "crm_operation_endpoints"
+        "crm_operation_endpoints",
+        "crm_encrypted_fields_recipient_keys"
       ],
-      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL + per-operation MCP tool catalog for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
-      "retention_policy": "Retain active enterprise CRM integration config and per-operation tool catalog while the integration is provisioned; deactivate via is_active rather than delete to preserve audit lineage.",
+      "primary_access_path": "DB-backed Connected Systems resolution: gateway URL, per-operation MCP tool catalog, and pinned CRM encrypted-fields recipient public-key registry for enterprise CRM integrations (replaces hardcoded ConnectedSystemDefinition)",
+      "retention_policy": "Retain active enterprise CRM integration config, per-operation tool catalog, and recipient public-key records while the integration is provisioned; retire or revoke keys and deactivate the registry rather than delete active history.",
       "deletion_behavior": "Operator-managed reference config; not user-delete scoped. crm_operation_endpoints cascade-delete with their parent crm_id.",
-      "trust_boundary": "Client credentials stored only as AES-256-GCM envelopes (matches vault/encrypt.py EncryptedPayload), decrypted at request time with VAULT_DATA_KEY; gateway/base/token URLs are non-secret config in plaintext. No raw long-lived secrets at rest.",
-      "plaintext_posture": "config_urls_plaintext_credentials_encrypted",
+      "trust_boundary": "MuleSoft bearer rows contain no CRM credentials: gateway authentication is process secret configuration and CRM credentials remain in MuleSoft. Header-auth rows retain encrypted legacy credentials. Recipient public keys and fingerprints are non-secret verification material. Gateway URLs are non-secret config. No raw long-lived secrets at rest.",
+      "plaintext_posture": "config_urls_and_public_keys_plaintext_gateway_or_legacy_encrypted_credentials",
       "expected_row_growth": "low_reference"
+    },
+    {
+      "id": "crm_schema_mapping_cache",
+      "owner": "backend-agents-operons",
+      "data_class": "provider_cache",
+      "lifecycle_status": "customer0",
+      "exact_tables": [
+        "crm_schema_mapping_cache",
+        "crm_schema_catalog_cache"
+      ],
+      "primary_access_path": "Connected Systems provider-schema catalogue and mapper caches for a CRM object schema fingerprint and the tool-less field-role proposal used by verified-identity lookup and create-field selection.",
+      "retention_policy": "Retain catalogue rows only through their bounded fresh/stale windows and ready mappings through their 24-hour TTL; invalidate immediately when the registry revision or CRM schema changes, or when schema validation fails. These caches rebuild from the active provider and are never durable user memory.",
+      "deletion_behavior": "Not user-delete scoped. Rows cascade-delete with the provisioned CRM registry row and can be invalidated without affecting CRM records or user bindings.",
+      "trust_boundary": "Public CRM schema metadata and normalized field-role keys only. Never store CRM records, verified profile values, record IDs, credentials, consent/vault material, prompts, telemetry plaintext, or unvalidated model output.",
+      "plaintext_posture": "public_schema_metadata_and_normalized_field_keys_only",
+      "expected_row_growth": "low_ttl_cache"
+    },
+    {
+      "id": "hushh_tech_client_identity_state",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_account_links",
+        "hushh_tech_shadow_records"
+      ],
+      "primary_access_path": "UAT-only HushhTech product linking and allowlisted compatibility metadata routes",
+      "retention_policy": "Retain active synthetic links and checked-in synthetic shadow metadata only while the UAT cohort is enabled; revoked links may remain through the bounded QA review window.",
+      "deletion_behavior": "Revoke or delete Firebase-linked mapping rows on account or fixture teardown; delete synthetic shadow rows when the checked-in fixture is retired. No production legacy record is copied into this family.",
+      "trust_boundary": "Firebase UID is the canonical identity. Legacy UUID is provenance only. Shadow rows contain allowlisted synthetic profile, onboarding, access-state, and report-asset metadata; never email mapping evidence, owner tokens, private-place values, PKM plaintext, connector private keys, or production Supabase data.",
+      "plaintext_posture": "synthetic_uat_metadata_only",
+      "expected_row_growth": "low_uat_cohort"
+    },
+    {
+      "id": "hushh_tech_client_launch_workflows",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_launch_authorizations"
+      ],
+      "primary_access_path": "single-use Hussh Research to HushhTech PKCE launch authorize and exchange",
+      "retention_policy": "Codes expire after 60 seconds; retain consumed hashes for a 24-hour replay-investigation window, then compact opportunistically on the next authorization.",
+      "deletion_behavior": "Delete expired and consumed rows after the replay window; cascade user-linked rows on canonical actor deletion.",
+      "trust_boundary": "Hashed launch codes, Firebase UID, exact audience/redirect, PKCE challenge, and timestamps only. No bearer tokens, custom tokens, verifiers, private keys, or account lookup evidence persist.",
+      "plaintext_posture": "hashes_and_workflow_metadata_only",
+      "expected_row_growth": "short_lived_per_launch"
+    },
+    {
+      "id": "hushh_tech_client_link_audit",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_link_events"
+      ],
+      "primary_access_path": "append-only synthetic link activation, conflict, relink, recovery, import, and revocation audit",
+      "retention_policy": "Retain metadata through UAT QA and incident review; compact only under the approved UAT retention process.",
+      "deletion_behavior": "Database enforcement rejects row updates and deletes. Link and actor identifiers are immutable audit provenance without foreign-key cascades, so parent teardown cannot rewrite history; later compaction requires the approved UAT audit-retention process.",
+      "trust_boundary": "Mapping identifiers, event type, app binding, fixture hash, and bounded proof-session metadata only. No email or phone mapping, session proof body, tokens, secrets, production data, or decrypted Research information.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "low_append_only_uat"
+    },
+    {
+      "id": "hushh_tech_client_migration_workflows",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_migration_runs"
+      ],
+      "primary_access_path": "strict checked-in JSONL synthetic shadow importer dry-run, apply, checkpoint, and deterministic replay",
+      "retention_policy": "Retain fixture checksums, counts, checkpoints, and terminal state for UAT reconciliation while the synthetic cohort exists.",
+      "deletion_behavior": "Delete with synthetic fixture teardown after QA evidence no longer depends on the run; no destructive down-migration is required for rollback.",
+      "trust_boundary": "Fixture names, hashes, counts, checkpoints, stable error codes, and timestamps only. The importer has no Supabase connection/export mode and never stores production rows or credentials.",
+      "plaintext_posture": "synthetic_workflow_metadata_only",
+      "expected_row_growth": "low_per_fixture"
+    },
+    {
+      "id": "hushh_tech_client_migration_audit",
+      "owner": "backend-runtime-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "uat_synthetic",
+      "exact_tables": [
+        "hushh_tech_migration_events"
+      ],
+      "primary_access_path": "append-only synthetic importer start, transactional per-record outcome, failure, and completion evidence",
+      "retention_policy": "Retain bounded event metadata and fixture hashes through UAT reconciliation and QA evidence review; compact only under the approved UAT audit-retention process.",
+      "deletion_behavior": "Database enforcement rejects row updates and deletes. Later compaction requires the approved UAT audit-retention process and is never part of importer replay or rollback.",
+      "trust_boundary": "Run identifiers, fixture hashes, phases, outcomes, sequences, timestamps, stable error codes, synthetic record identifiers, record types, record hashes, counts, and tombstone flags only. No fixture payload, production row, identity evidence, credential, or decrypted Research information.",
+      "plaintext_posture": "synthetic_audit_metadata_and_hashes_only",
+      "expected_row_growth": "low_append_only_per_fixture_record"
     },
     {
       "id": "developer_access",
@@ -506,6 +964,111 @@
       "trust_boundary": "Developer metadata and token hashes/wrappers only; no user PKM payloads.",
       "plaintext_posture": "metadata_and_token_hashes",
       "expected_row_growth": "low_developer"
+    },
+    {
+      "id": "feed_events",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "feed_events"
+      ],
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking",
+      "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
+      "deletion_behavior": "Hard-delete with account deletion.",
+      "trust_boundary": "Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "preference_world_model",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "pwm_documents"
+      ],
+      "primary_access_path": "the owner's own Personal World Model doc behind /api/pwm (cross-device preference sync)",
+      "retention_policy": "Retain while the account exists; one row per owner, overwritten in place on update.",
+      "deletion_behavior": "Hard-delete on account deletion, an explicit DELETE /api/pwm, or an empty PUT.",
+      "trust_boundary": "The owner's own plaintext preference metadata, keyed by and returned only to the verified uid; never another party's data and never vault ciphertext.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "low_per_user"
+    },
+    {
+      "id": "subscription_fabric_grants",
+      "owner": "iam-consent-governance",
+      "data_class": "personal_metadata",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_subscription_grants"
+      ],
+      "primary_access_path": "PCHP RFC-002 subscription grants: owner-issued, subscriber-scoped read access to PWM fields (/api/fabric/grants)",
+      "retention_policy": "Retain while the grant is active or for audit; revoked/expired grants compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion; revoke (fail-closed status) on owner revocation or expiry.",
+      "trust_boundary": "Grant metadata only (subscriber, scopes, purpose, price, handle fingerprint); never the PWM values and never the plaintext handle.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "subscription_fabric_receipts",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_receipts"
+      ],
+      "primary_access_path": "PCHP RFC-002 hash-chained receipt ledger for grant/read/revoke events (/api/fabric/receipts)",
+      "retention_policy": "Long-retention append-only audit chain; redact payload detail rather than deleting chain rows.",
+      "deletion_behavior": "Account export may include safe receipt metadata; deletion redacts user linkage only if legally required, preserving chain integrity.",
+      "trust_boundary": "Signed, hash-chained receipt metadata only (hashes, signatures, scope + field-path labels); no PWM values.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_append_only"
+    },
+    {
+      "id": "subscription_fabric_requests",
+      "owner": "iam-consent-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "fabric_consent_requests"
+      ],
+      "primary_access_path": "brand-initiated PCHP RFC-002 pairing requests: create, code lookup, approve/deny, single handle claim (/api/fabric/requests)",
+      "retention_policy": "Short-lived pairing workflow: requests expire in minutes; terminal rows compacted per retention policy.",
+      "deletion_behavior": "Delete on account deletion for bound rows; expired/denied/claimed rows are terminal and compactable.",
+      "trust_boundary": "Workflow state and grant metadata only; the signed handle is held solely between approval and its single claim, then cleared. Never PWM values; uid binds only at approval from the verified token.",
+      "plaintext_posture": "metadata_only",
+      "expected_row_growth": "medium_per_consent"
+    },
+    {
+      "id": "one_agent_model_preference",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_model_preferences"
+      ],
+      "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference",
+      "retention_policy": "Retain one row per person while the account exists; absent row means the deployment default.",
+      "deletion_behavior": "Cascade-delete with the actor profile on account deletion.",
+      "trust_boundary": "Model identifier only, validated against the server-side catalog on write; carries no user information and grants no access.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "one row per person who chooses a model"
+    },
+    {
+      "id": "one_agent_message_feedback",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "one_agent_message_feedback"
+      ],
+      "primary_access_path": "message feedback service, written from the Agent One chat thumbs control via /api/one/agent-chat/feedback and read for response-quality reporting",
+      "retention_policy": "Retain one row per rated assistant turn while the conversation exists.",
+      "deletion_behavior": "Cascade-delete with the ADK session on conversation deletion and with the actor profile on account deletion; clearing a rating deletes the row.",
+      "trust_boundary": "Rating and message reference only; never message content, prompt or model output, so no vault key and no decrypt path are involved.",
+      "plaintext_posture": "metadata_only_with_keyed_source_fingerprints",
+      "expected_row_growth": "at most one row per assistant turn a person chooses to rate"
     }
   ]
 }

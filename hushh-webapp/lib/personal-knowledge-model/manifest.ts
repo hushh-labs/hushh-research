@@ -30,6 +30,37 @@ export type StructureDecision = {
   contract_version: number;
 };
 
+export type PkmScopeRegistryEntry = {
+  scope_handle: string;
+  scope_label: string;
+  segment_ids: string[];
+  sensitivity_tier?: string;
+  scope_kind?: string;
+  scope_origin?: "dynamic" | "reserved";
+  scope_origin_code?: "d" | "r";
+  source_kind?: "manifest_branch" | "reserved_registry";
+  exposure_enabled?: boolean;
+  visibility_posture?: "private" | "consent_required";
+  default_projection_ready?: boolean;
+  default_projection_updated_at?: string | null;
+  owner_consent_override?: boolean;
+  summary_projection?: Record<string, unknown> & {
+    top_level_scope_path?: string;
+    materialization_state?: "materialized" | "empty" | "unknown";
+    materialized_leaf_count?: number;
+    source_manifest_revision?: number;
+    consumer_visible?: boolean;
+    internal_only?: boolean;
+    visibility_reason?: string;
+    storage_mode?: string;
+  };
+};
+
+export type PkmScopeMaterialization = {
+  state: "materialized" | "empty" | "unknown";
+  materialized_leaf_count: number;
+};
+
 export type DomainManifest = {
   user_id?: string;
   domain: string;
@@ -38,6 +69,7 @@ export type DomainManifest = {
   pkm_contract_version?: string;
   readable_summary_version?: number;
   readable_projection_version?: string;
+  latest_upgrade_commit_id?: string | null;
   upgraded_at?: string | null;
   structure_decision?: Record<string, unknown>;
   summary_projection: Record<string, unknown>;
@@ -49,28 +81,20 @@ export type DomainManifest = {
   last_structured_at?: string | null;
   last_content_at?: string | null;
   paths: PathDescriptor[];
-  scope_registry?: Array<{
-    scope_handle: string;
-    scope_label: string;
-    segment_ids: string[];
-    sensitivity_tier?: string;
-    scope_kind?: string;
-    exposure_enabled?: boolean;
-    visibility_posture?: "private" | "consent_required";
-    default_projection_ready?: boolean;
-    default_projection_updated_at?: string | null;
-    summary_projection?: Record<string, unknown> & {
-      top_level_scope_path?: string;
-      consumer_visible?: boolean;
-      internal_only?: boolean;
-      visibility_reason?: string;
-      storage_mode?: string;
-    };
-  }>;
+  scope_registry?: PkmScopeRegistryEntry[];
 };
 
+/** The key whose children are a collection keyed by entity id, not structure. */
+const ENTITY_MAP_KEY = "entities";
+/** One representative subtree standing for every entry of an `entities` map. */
+const ENTITY_COLLECTION_SEGMENT = "_entities";
+
 function normalizePathSegment(segment: string): string {
-  if (String(segment).trim().toLowerCase() === "_items") return "_items";
+  const normalized = String(segment).trim().toLowerCase();
+  // Synthetic collection segments survive verbatim; the rule below would strip
+  // their leading underscore and turn them into ordinary keys.
+  if (normalized === "_items") return "_items";
+  if (normalized === ENTITY_COLLECTION_SEGMENT) return ENTITY_COLLECTION_SEGMENT;
   return String(segment)
     .trim()
     .toLowerCase()
@@ -146,6 +170,25 @@ function isExternalizablePath(path: string, pathType: PathDescriptor["path_type"
   return !path.split(".").some((part) => BLOCKED_EXTERNAL_PATH_PARTS.has(part));
 }
 
+function countMaterializedLeaves(value: unknown, path: string[] = []): number {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === "string") return value.trim().length > 0 ? 1 : 0;
+  if (typeof value === "number" || typeof value === "boolean") return 1;
+  if (Array.isArray(value)) {
+    return value.reduce(
+      (count, item) => count + countMaterializedLeaves(item, [...path, "_items"]),
+      0
+    );
+  }
+  if (typeof value !== "object") return 0;
+
+  return Object.entries(value as Record<string, unknown>).reduce((count, [rawKey, child]) => {
+    const normalizedKey = normalizePathSegment(rawKey);
+    if (!normalizedKey || BLOCKED_EXTERNAL_PATH_PARTS.has(normalizedKey)) return count;
+    return count + countMaterializedLeaves(child, [...path, normalizedKey]);
+  }, 0);
+}
+
 function countEntityMaps(value: unknown): number {
   if (!value || typeof value !== "object") return 0;
   if (Array.isArray(value)) {
@@ -179,7 +222,7 @@ function walkValue(
       !!value && typeof value === "object" && !isArray;
     const sensitivityLabel = inferSensitivityLabel(pathKey);
     const pathType: PathDescriptor["path_type"] = isArray ? "array" : isObject ? "object" : "leaf";
-    descriptors.set(pathKey, {
+    const nextDescriptor: PathDescriptor = {
       json_path: pathKey,
       parent_path: path.length > 1 ? joinPath(path.slice(0, -1)) : null,
       path_type: pathType,
@@ -188,13 +231,36 @@ function walkValue(
       sensitivity_label: sensitivityLabel,
       segment_id: path[0] || "root",
       source_agent: "pkm_structure_agent",
-    });
+    };
+    const existingDescriptor = descriptors.get(pathKey);
+    if (!existingDescriptor) {
+      descriptors.set(pathKey, nextDescriptor);
+    } else if (existingDescriptor.path_type !== nextDescriptor.path_type) {
+      // A heterogeneous array can contain scalar, object, and array values at
+      // the same logical `_items` path. The manifest contract has one path type,
+      // so retain the safest container type and never expose the ambiguous
+      // container itself. Descendant paths from every item are still recorded.
+      const typeRank: Record<PathDescriptor["path_type"], number> = {
+        leaf: 0,
+        object: 1,
+        array: 2,
+      };
+      descriptors.set(pathKey, {
+        ...existingDescriptor,
+        path_type:
+          typeRank[nextDescriptor.path_type] > typeRank[existingDescriptor.path_type]
+            ? nextDescriptor.path_type
+            : existingDescriptor.path_type,
+        exposure_eligibility: false,
+      });
+    }
   }
 
   if (Array.isArray(value)) {
-    const sample = value.find((item) => item !== undefined && item !== null);
-    if (sample !== undefined) {
-      walkValue(sample, [...path, "_items"], descriptors);
+    for (const item of value) {
+      if (item !== undefined) {
+        walkValue(item, [...path, "_items"], descriptors);
+      }
     }
     return;
   }
@@ -204,6 +270,22 @@ function walkValue(
   }
 
   const record = value as Record<string, unknown>;
+  // An `entities` map is a homogeneous collection keyed by entity id -- the
+  // same shape as an array, just keyed. Walking each key made the manifest grow
+  // with the DATA rather than the SHAPE: a portfolio of a hundred holdings
+  // emitted a hundred near-identical subtrees, pushed the path list past the
+  // server's 1000-path cap, and the save died with a 422 that got surfaced as
+  // "Backend returned failure on store". It also wrote every ticker the person
+  // owns into the manifest, which is holdings data sitting in a structure
+  // descriptor. Collapse to one representative subtree, exactly as arrays do.
+  if (path[path.length - 1] === ENTITY_MAP_KEY) {
+    for (const childValue of Object.values(record)) {
+      if (childValue !== undefined) {
+        walkValue(childValue, [...path, ENTITY_COLLECTION_SEGMENT], descriptors);
+      }
+    }
+    return;
+  }
   for (const [rawKey, childValue] of Object.entries(record)) {
     const normalizedKey = normalizePathSegment(rawKey);
     if (!normalizedKey) {
@@ -255,6 +337,16 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
   const nextManifestVersion = Math.max(1, params.previousManifest?.manifest_version || 0) + (
     action === "match_existing_domain" ? 0 : 1
   );
+  const scopeMaterialization: Record<string, PkmScopeMaterialization> = {};
+  for (const [rawScope, value] of Object.entries(params.domainData)) {
+    const scope = normalizePathSegment(rawScope);
+    if (!scope || BLOCKED_EXTERNAL_PATH_PARTS.has(scope)) continue;
+    const materializedLeafCount = countMaterializedLeaves(value, [scope]);
+    scopeMaterialization[scope] = {
+      state: materializedLeafCount > 0 ? "materialized" : "empty",
+      materialized_leaf_count: materializedLeafCount,
+    };
+  }
   const summaryProjection = {
     manifest_version: nextManifestVersion,
     domain_contract_version: currentDomainContractVersion(normalizedDomain),
@@ -267,6 +359,7 @@ export function buildPersonalKnowledgeModelStructureArtifacts(params: {
     path_count: jsonPaths.length,
     externalizable_path_count: externalizablePaths.length,
     top_level_scope_count: topLevelScopePaths.length,
+    scope_materialization: scopeMaterialization,
   };
 
   const structureDecision: StructureDecision = {
@@ -325,6 +418,22 @@ function extractPathValue(value: unknown, segments: string[]): unknown {
       .filter((item) => item !== undefined);
     return extracted.length ? extracted : undefined;
   }
+  if (segment === ENTITY_COLLECTION_SEGMENT) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return undefined;
+    }
+    // One collapsed path stands for every entity, so project each one and keep
+    // the entity ids as keys -- the manifest no longer enumerates them, but the
+    // projected data still has to say which entity each value belongs to.
+    const extracted: Record<string, unknown> = {};
+    for (const [key, item] of Object.entries(value as Record<string, unknown>)) {
+      const child = extractPathValue(item, rest);
+      if (child !== undefined) {
+        extracted[key] = child;
+      }
+    }
+    return Object.keys(extracted).length ? extracted : undefined;
+  }
 
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return undefined;
@@ -349,6 +458,18 @@ function rebuildProjectedValue(segments: string[], value: unknown): unknown {
       return [];
     }
     return value.map((item) => rebuildProjectedValue(rest, item));
+  }
+  if (segment === ENTITY_COLLECTION_SEGMENT) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return {};
+    }
+    // Mirrors the keyed shape extractPathValue produced for this segment.
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        rebuildProjectedValue(rest, item),
+      ]),
+    );
   }
 
   return {

@@ -1,39 +1,125 @@
 "use client";
 
-/**
- * One speaks with a single fixed voice identity across surfaces. Full-duplex
- * realtime voice (the primary lane) uses the Gemini Live relay's server-side
- * voice; this constant keeps the turn-based chat TTS lane consistent with
- * that posture. There is deliberately no per-device voice picker: a future
- * user-selectable voice belongs server-side (Live speech_config) so one
- * setting governs both lanes.
- */
-export const DEFAULT_AGENT_GEMINI_TTS_VOICE = "Sulafat";
+// One Live is the only interactive audio owner. Other surfaces may request a
+// session, but only the persistent Agent Bar can acquire the microphone,
+// create the Live transport, or render native-audio playback.
+export const AGENT_CONVERSATION_REQUEST_EVENT =
+  "hushh:agent-conversation-request";
+export const AGENT_CONVERSATION_READY_EVENT = "hushh:agent-conversation-ready";
+export const AGENT_CONVERSATION_OUTCOME_EVENT =
+  "hushh:agent-conversation-outcome";
 
-// Dispatched by the agent bar's conversational-mode control to request the
-// agent workspace auto-start a voice turn once it has opened and is ready.
-export const AGENT_CONVERSATION_REQUEST_EVENT = "hushh:agent-conversation-request";
+export type AgentConversationRequestSource = "agent_chat" | "siri_app_shortcut";
+
+export type AgentConversationRequest = {
+  source?: AgentConversationRequestSource;
+  requestId?: string;
+};
+
+export type AgentConversationOutcome = {
+  source: AgentConversationRequestSource;
+  requestId: string;
+  outcome: "accepted" | "failed";
+};
+
+export type AgentConversationDispatchResult =
+  "dispatched" | "queued" | "duplicate";
+
+let ownerReady = false;
+let queuedRequest: AgentConversationRequest | null = null;
+const knownRequestIds = new Set<string>();
+
+function normalizedRequest(
+  request: AgentConversationRequest = {},
+): AgentConversationRequest {
+  return {
+    source: request.source ?? "agent_chat",
+    requestId: request.requestId?.trim() || undefined,
+  };
+}
+
+function dispatchRequest(request: AgentConversationRequest): void {
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationRequest>(
+      AGENT_CONVERSATION_REQUEST_EVENT,
+      { detail: request },
+    ),
+  );
+}
 
 /**
- * Ask the agent workspace to start conversational (voice) mode. Safe to call
- * before the workspace mounts; the workspace re-checks the pending request on
- * mount. Callers should also open the agent surface (openAgent) alongside this.
+ * Ask the persistent Agent Bar to start One Live. Existing no-argument callers
+ * remain compatible. A request received before the sole owner mounts is held
+ * as one metadata-only slot; duplicate ids are coalesced.
  */
-export function requestAgentConversation(): void {
+export function requestAgentConversation(
+  request: AgentConversationRequest = {},
+): AgentConversationDispatchResult {
+  if (typeof window === "undefined") return "queued";
+  const normalized = normalizedRequest(request);
+  if (normalized.requestId && knownRequestIds.has(normalized.requestId)) {
+    return "duplicate";
+  }
+  if (normalized.requestId) knownRequestIds.add(normalized.requestId);
+
+  if (!ownerReady) {
+    queuedRequest = normalized;
+    return "queued";
+  }
+  dispatchRequest(normalized);
+  return "dispatched";
+}
+
+export function markAgentConversationOwnerReady(): () => void {
+  if (typeof window === "undefined") return () => undefined;
+  ownerReady = true;
+  window.dispatchEvent(new Event(AGENT_CONVERSATION_READY_EVENT));
+  if (queuedRequest) {
+    const pending = queuedRequest;
+    queuedRequest = null;
+    queueMicrotask(() => {
+      if (ownerReady) dispatchRequest(pending);
+      else queuedRequest = pending;
+    });
+  }
+  return () => {
+    ownerReady = false;
+  };
+}
+
+export function isAgentConversationOwnerReady(): boolean {
+  return ownerReady;
+}
+
+export function acknowledgeAgentConversation(
+  outcome: AgentConversationOutcome,
+): void {
   if (typeof window === "undefined") return;
-  window.dispatchEvent(new CustomEvent(AGENT_CONVERSATION_REQUEST_EVENT));
+  window.dispatchEvent(
+    new CustomEvent<AgentConversationOutcome>(
+      AGENT_CONVERSATION_OUTCOME_EVENT,
+      { detail: outcome },
+    ),
+  );
+}
+
+/** Test-only reset for the module-scoped metadata broker. */
+export function resetAgentConversationBrokerForTests(): void {
+  ownerReady = false;
+  queuedRequest = null;
+  knownRequestIds.clear();
 }
 
 const DISABLED_FLAG_VALUES = new Set(["0", "false", "off", "disabled", "no"]);
 
 export function isAgentGeminiVoiceEnabled(): boolean {
-  const configured =
-    process.env.NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED ??
-    process.env.AGENT_GEMINI_VOICE_ENABLED;
-  if (configured === undefined || configured === null || String(configured).trim() === "") {
+  const configured = process.env.NEXT_PUBLIC_AGENT_GEMINI_VOICE_ENABLED;
+  if (
+    configured === undefined ||
+    configured === null ||
+    String(configured).trim() === ""
+  ) {
     return true;
   }
   return !DISABLED_FLAG_VALUES.has(String(configured).trim().toLowerCase());
 }
-
-

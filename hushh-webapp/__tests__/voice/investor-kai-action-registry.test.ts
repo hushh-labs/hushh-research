@@ -53,10 +53,14 @@ describe("investor-kai-action-registry", () => {
     expect(unresolvedWired).toEqual([]);
   });
 
-  it("exposes command and voice lookup for wired map entries", () => {
-    const commandAction = getInvestorKaiActionByKaiCommand("dashboard");
-    expect(commandAction?.id).toBe("route.kai_dashboard");
-    expect(commandAction?.wiring.status).toBe("wired");
+  it("keeps route actions out of the legacy command binding while resolving generated voice tools", () => {
+    // Finance navigation is a generated route action, not an independently
+    // executable command-bar binding.
+    expect(getInvestorKaiActionByKaiCommand("dashboard")).toBeNull();
+    expect(getInvestorKaiActionById("route.kai_dashboard")?.wiring).toMatchObject({
+      status: "wired",
+      binding: { kind: "route", href: "/one/kai?tab=portfolio" },
+    });
 
     const voiceAction = getInvestorKaiActionByVoiceToolCall({
       tool_name: "resume_active_analysis",
@@ -65,86 +69,40 @@ describe("investor-kai-action-registry", () => {
     expect(voiceAction?.id).toBe("analysis.resume_active");
     expect(voiceAction?.wiring.status).toBe("wired");
 
-    const pkmPreviewAction = getInvestorKaiActionByVoiceToolCall({
+    const removedPkmPreviewAction = getInvestorKaiActionByVoiceToolCall({
       tool_name: "capture_pkm_memory",
       args: {
         message: "I prefer quiet hotel rooms away from elevators.",
         mode: "preview",
       },
     });
-    expect(pkmPreviewAction?.id).toBe("profile.pkm.preview_capture");
-    expect(pkmPreviewAction?.wiring.status).toBe("wired");
+    expect(removedPkmPreviewAction).toBeNull();
 
-    const pkmSaveAction = getInvestorKaiActionById("profile.pkm.save_capture");
-    expect(pkmSaveAction?.risk.executionPolicy).toBe("manual_only");
-    expect(pkmSaveAction?.wiring.status).toBe("unwired");
+    expect(getInvestorKaiActionById("profile.pkm.save_capture")).toBeNull();
   });
 
-  it("marks legacy/dead actions explicitly", () => {
+  it("contains no dead action contracts", () => {
     const deadActions = listInvestorKaiActions().filter(
       (action) => action.wiring.status === "dead"
     );
-    expect(deadActions.length).toBeGreaterThan(0);
-    expect(deadActions.some((action) => action.id === "analysis.open_transcript_tab_legacy")).toBe(
-      true
-    );
+    expect(deadActions).toEqual([]);
   });
 
-  it("keeps Gmail and support backend effect paths aligned with live profile APIs", () => {
-    expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "route.profile_receipts")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "GET /api/kai/gmail/status/{user_id} (proxied)",
-        effect: "Reads Gmail connector status on mount.",
-      },
-      {
-        api: "GET /api/kai/gmail/receipts/{user_id} (proxied)",
-        effect: "Reads paginated receipt items.",
-      },
-    ]);
+  it("publishes the re-enabled Gmail workspace while retaining support effects", () => {
+    for (const actionId of [
+      "route.profile_receipts",
+      "profile.gmail.connect",
+      "profile.gmail.sync_now",
+      "profile.gmail.disconnect",
+    ]) {
+      expect(INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === actionId)).toBeDefined();
+    }
 
     expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.connect")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "POST /api/kai/gmail/connect/start (proxied)",
-        effect: "Generates OAuth authorize URL and state nonce.",
-      },
-    ]);
-
-    expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.sync_now")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "POST /api/kai/gmail/sync (proxied)",
-        effect: "Queues sync job.",
-      },
-      {
-        api: "GET /api/kai/gmail/sync/{run_id} (proxied)",
-        effect: "Polls sync run status.",
-      },
-    ]);
-
-    expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.preview")
+      INVESTOR_KAI_ACTION_REGISTRY.find(
+        (action) => action.id === "profile.receipts_memory.preview",
+      ),
     ).toBeUndefined();
-    expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.receipts_memory.save")
-    ).toBeUndefined();
-
-    expect(
-      INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.gmail.disconnect")
-        ?.expectedEffects.backendEffects
-    ).toEqual([
-      {
-        api: "POST /api/kai/gmail/disconnect (proxied)",
-        effect: "Revokes connector state in backend.",
-      },
-    ]);
 
     expect(
       INVESTOR_KAI_ACTION_REGISTRY.find((action) => action.id === "profile.support.submit_message")
@@ -157,32 +115,27 @@ describe("investor-kai-action-registry", () => {
     ]);
   });
 
-  it("lists surface-specific actions for Gmail and PKM routes", () => {
+  it("discovers Gmail actions while keeping localhost-only PKM Lab actions hidden", () => {
     const gmailActions = listInvestorKaiActionsForSurface({
       screen: "gmail",
       href: "/one/gmail",
       pathname: "/one/gmail",
     }).map((action) => action.id);
 
-    expect(gmailActions).toEqual(
-      expect.arrayContaining([
-        "profile.gmail.connect",
-        "profile.gmail.sync_now",
-        "profile.gmail.disconnect",
-      ])
-    );
+    expect(gmailActions).toEqual([
+      "route.profile_receipts",
+      "profile.gmail.connect",
+      "profile.gmail.sync_now",
+      "profile.gmail.disconnect",
+    ]);
 
     const pkmActions = listInvestorKaiActionsForSurface({
       screen: "profile_pkm_agent_lab",
-      href: "/profile/pkm-agent-lab",
-      pathname: "/profile/pkm-agent-lab",
+      href: "/one/profile/pkm-agent-lab",
+      pathname: "/one/profile/pkm-agent-lab",
     }).map((action) => action.id);
 
-    expect(pkmActions).toEqual(
-      expect.arrayContaining([
-        "profile.pkm.preview_capture",
-        "profile.pkm.save_capture",
-      ])
-    );
+    expect(pkmActions).not.toContain("profile.pkm.preview_capture");
+    expect(pkmActions).not.toContain("profile.pkm.save_capture");
   });
 });

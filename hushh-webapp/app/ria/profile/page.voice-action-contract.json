@@ -1,7 +1,7 @@
 {
   "schema_version": "kai.local_action_contract.v1",
   "surface_id": "ria_profile",
-  "surface_title": "RIA Advisor Profile",
+  "surface_title": "RIA Profile",
   "docs_references": [
     "docs/reference/kai/kai-action-gateway-vnext.md"
   ],
@@ -16,30 +16,31 @@
     {
       "action_id": "route.ria_profile",
       "label": "Open RIA Profile",
-      "meaning": "Opens the advisor's own RIA profile built during onboarding, with view and edit of services, fees, bio, and business location.",
+      "meaning": "Navigates to the advisor profile management route.",
       "aliases": [
-        "open my ria profile",
+        "open ria profile",
+        "open regulatory profile",
         "view advisor profile",
         "edit my advisor profile"
       ],
       "search_keywords": [
         "profile",
+        "regulatory",
+        "ria",
         "advisor",
-        "services",
-        "fees",
-        "bio",
-        "business location"
+        "license",
+        "crd"
       ],
       "reachability": {
         "routes": [
           "/ria/profile"
         ],
         "screens": [
-          "ria_profile"
+          "profile_regulatory"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [
-          "RIA persona must be provisioned (onboarding complete) before the profile is available."
+          "RIA persona must be provisioned before the advisor profile is available."
         ],
         "active_personas": [
           "ria"
@@ -56,9 +57,7 @@
         "path": "route",
         "target": "/ria/profile"
       },
-      "control_ids": [
-        "ria_profile_route"
-      ],
+      "control_ids": [],
       "state_exposure": [],
       "docs_references": [
         "hushh-webapp/app/ria/profile/page.tsx"
@@ -68,7 +67,7 @@
     {
       "action_id": "ria.profile.edit_services",
       "label": "Edit RIA services and fees",
-      "meaning": "Opens the profile edit panel to update services, fee structure, minimum engagement, bio, and business location.",
+      "meaning": "Opens the advisor profile editor to update services, fee structure, minimum engagement, bio, and business location.",
       "aliases": [
         "edit my services",
         "update my fees",
@@ -86,7 +85,7 @@
           "/ria/profile"
         ],
         "screens": [
-          "ria_profile"
+          "profile_regulatory"
         ],
         "hidden_navigable": false,
         "active_personas": [
@@ -109,7 +108,8 @@
       ],
       "state_exposure": [],
       "docs_references": [
-        "hushh-webapp/app/ria/profile/page.tsx"
+        "hushh-webapp/app/ria/profile/page.tsx",
+        "hushh-webapp/components/ria/profile/ria-profile-section.tsx"
       ],
       "speaker_persona": "one"
     }

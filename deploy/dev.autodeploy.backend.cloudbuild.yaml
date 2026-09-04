@@ -59,7 +59,8 @@ steps:
 
   # Reuse the shared backend build config verbatim so this lane cannot
   # drift from what the Actions lane deploys. Traffic goes live directly
-  # (_CLOUD_RUN_NO_TRAFFIC=false): this lane has no separate promote step.
+  # The shared build deploys a no-traffic candidate and runs the exact-identity
+  # GenAI probe before this orchestrator promotes it.
   - id: "submit-backend-build"
     name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
@@ -67,7 +68,8 @@ steps:
       - "-c"
       - |
         set -euo pipefail
-        SUBSTITUTIONS="_BACKEND_SERVICE=consent-protocol##_REGION=${_REGION}##_CLOUDSQL_INSTANCES=${_CLOUDSQL_INSTANCE}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_CLOUD_RUN_NO_TRAFFIC=false##_RUNTIME_ENVIRONMENT=uat##_IMAGE_TAG=dev-${COMMIT_SHA}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=cloudbuild-trigger##_DEPLOY_SHA=${COMMIT_SHA}##_GITHUB_RUN_ID=cb-${BUILD_ID}"
+        SUBSTITUTIONS="_BACKEND_SERVICE=consent-protocol##_REGION=${_REGION}##_CLOUDSQL_INSTANCES=${_CLOUDSQL_INSTANCE}##_PLAID_CLIENT_ID_SECRET=PLAID_CLIENT_ID##_PLAID_SECRET_SECRET=PLAID_SECRET##_PLAID_ACCESS_TOKEN_KEY_SECRET=PLAID_ACCESS_TOKEN_KEY##_FINNHUB_API_KEY_SECRET=FINNHUB_API_KEY##_PMP_API_KEY_SECRET=PMP_API_KEY##_NEWSAPI_KEY_SECRET=NEWSAPI_KEY##_GMAIL_OAUTH_CLIENT_ID_SECRET=GMAIL_OAUTH_CLIENT_ID##_GMAIL_OAUTH_CLIENT_SECRET_SECRET=GMAIL_OAUTH_CLIENT_SECRET##_GMAIL_OAUTH_REDIRECT_URI_SECRET=GMAIL_OAUTH_REDIRECT_URI##_GMAIL_OAUTH_TOKEN_KEY_SECRET=GMAIL_OAUTH_TOKEN_KEY##_OPENAI_API_KEY_SECRET=OPENAI_API_KEY##_GOOGLE_MAPS_API_KEY_SECRET=GOOGLE_MAPS_API_KEY##_VOICE_RUNTIME_CONFIG_JSON_SECRET=VOICE_RUNTIME_CONFIG_JSON##_HUSHH_DEVELOPER_TOKEN_SECRET=HUSHH_DEVELOPER_TOKEN##_HUSHH_UAT_PHONE_TEST_NUMBERS_SECRET=HUSHH_UAT_PHONE_TEST_NUMBERS##_HUSHH_UAT_PHONE_TEST_CODE_SECRET=HUSHH_UAT_PHONE_TEST_CODE##_REVIEWER_UID_SECRET=REVIEWER_UID##_REVIEWER_VAULT_PASSPHRASE_SECRET=REVIEWER_VAULT_PASSPHRASE##_RIA_INTELLIGENCE_VERIFY_BASE_URL_SECRET=RIA_INTELLIGENCE_VERIFY_BASE_URL##_ONE_EMAIL_WATCH_RENEW_TOKEN_SECRET=ONE_EMAIL_WATCH_RENEW_TOKEN##_ONE_EMAIL_ADDRESS=one@hushh.ai##_ONE_EMAIL_DELEGATED_USER=one@hushh.ai##_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}##_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}##_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=one-email-pubsub-push@hushh-pda.iam.gserviceaccount.com##_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=true##_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=true##_ONE_EMAIL_KYC_DEFAULT_SCOPE=attr.identity.*##_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=true##_APP_REVIEW_MODE=true##_CLOUD_RUN_NO_TRAFFIC=true##_RUNTIME_ENVIRONMENT=uat##_IMAGE_TAG=dev-${COMMIT_SHA}##_DEPLOY_ENV=dev##_DEPLOY_SOURCE=cloudbuild-trigger##_DEPLOY_SHA=${COMMIT_SHA}##_GITHUB_RUN_ID=cb-${BUILD_ID}"
+        SUBSTITUTIONS="${SUBSTITUTIONS}##_RUNTIME_SERVICE_ACCOUNT=consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com"
         gcloud builds submit \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
@@ -85,7 +87,7 @@ steps:
         set -euo pipefail
         revision="$(gcloud run services describe consent-protocol \
           --project="$PROJECT_ID" --region="${_REGION}" \
-          --format='value(status.latestReadyRevisionName)')"
+          --format='value(status.latestCreatedRevisionName)')"
         deployed_sha="$(gcloud run revisions describe "${revision}" \
           --project="$PROJECT_ID" --region="${_REGION}" \
           --format='value(metadata.labels.deploy-sha)')"
@@ -93,6 +95,16 @@ steps:
           echo "Provenance mismatch: latest ready revision ${revision} carries deploy-sha '${deployed_sha}', expected '${COMMIT_SHA}'."
           exit 1
         fi
+        runtime_identity="$(gcloud run revisions describe "${revision}" \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --format='value(spec.serviceAccountName)')"
+        if [ "${runtime_identity}" != "consent-protocol-runtime@hushh-pda-dev.iam.gserviceaccount.com" ]; then
+          echo "Runtime identity mismatch on ${revision}: '${runtime_identity}'."
+          exit 1
+        fi
+        gcloud run services update-traffic consent-protocol \
+          --project="$PROJECT_ID" --region="${_REGION}" \
+          --to-revisions="${revision}=100" --quiet
         url="$(gcloud run services describe consent-protocol \
           --project="$PROJECT_ID" --region="${_REGION}" \
           --format='value(status.url)')"

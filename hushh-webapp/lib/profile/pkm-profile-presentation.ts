@@ -105,6 +105,7 @@ export type PkmProfileSummaryPresentation = {
 const CONSUMER_HIDDEN_DOMAIN_KEYS = new Set([
   "kyc_connector",
   "kyc_workflow",
+  "runtime_secrets",
 ]);
 
 const INTERNAL_ONLY_TOP_LEVEL_SCOPE_PATHS = new Set([
@@ -201,43 +202,51 @@ export function isConsumerVisiblePkmDomain(domain: DomainSummary): boolean {
   return true;
 }
 
-function inferSourceLabels(
-  domain: DomainSummary,
-  presentation: NaturalDomainPresentation
-): string[] {
-  const labels = new Set<string>();
-  const readableSourceLabel = presentation.sourceLabel?.trim();
-  if (readableSourceLabel && !/^pkm upgrade$/i.test(readableSourceLabel)) {
-    labels.add(readableSourceLabel);
-  }
+/**
+ * Memory-only visibility rule.  Reserved empty scopes remain canonical for
+ * future writes, but they should not create an empty folder in the consumer
+ * workspace.  Legacy `unknown` state deliberately remains visible: hiding it
+ * could hide saved information that has not yet been restructured.
+ */
+export function isConsumerBrowsablePkmDomain(domain: DomainSummary): boolean {
+  if (!isConsumerVisiblePkmDomain(domain)) return false;
+  const raw = domain.summary?.scope_materialization;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return true;
+  const entries = Object.values(raw as Record<string, unknown>).filter(
+    (entry): entry is Record<string, unknown> =>
+      Boolean(entry) && typeof entry === "object" && !Array.isArray(entry)
+  );
+  if (entries.length === 0) return true;
+  return !entries.every(
+    (entry) =>
+      String(entry.state || "").trim().toLowerCase() === "empty" &&
+      Number(entry.materialized_leaf_count || 0) === 0
+  );
+}
 
-  const key = normalizeToken(domain.key);
-  if (key.includes("receipt") || key.includes("gmail") || key.includes("merchant")) {
-    labels.add("Gmail receipts");
+function friendlySourceLabel(value: string | null | undefined): string | null {
+  const label = String(value || "").trim();
+  const normalized = label.toLowerCase();
+  if (!normalized || normalized === "saved memory") return null;
+  if (/upgrade|migration|schema|manifest|structure agent|runtime secret/.test(normalized)) {
+    return null;
   }
-  if (
-    key.includes("portfolio") ||
-    key.includes("financial") ||
-    key.includes("brokerage") ||
-    key.includes("holding") ||
-    key.includes("investment")
-  ) {
-    labels.add("Portfolio imports");
+  if (/gmail|receipt/.test(normalized)) return "From Gmail";
+  if (/portfolio|brokerage|plaid|alpaca|investment import/.test(normalized)) {
+    return "From a portfolio import";
   }
-  if (key.includes("preference") || key.includes("risk") || key.includes("profile")) {
-    labels.add("Manual preferences");
+  if (/finance setup|financial profile|onboarding/.test(normalized)) {
+    return "From Finance setup";
   }
-  if (key.includes("identity") || key.includes("contact")) {
-    labels.add("Account profile");
+  if (/conversation|chat/.test(normalized)) return "From a conversation";
+  if (/location/.test(normalized)) return "From Location setup";
+  if (/kyc|identity setup/.test(normalized)) return "From identity setup";
+  if (/edit/.test(normalized)) return "Edited by you";
+  if (/manual|user/.test(normalized)) return "Added by you";
+  if (/^(from|edited by|added by)\b/i.test(label) && !/[_:]/.test(label)) {
+    return label;
   }
-  if (labels.size === 0) {
-    if (key.includes("ria") || key.includes("advisor")) {
-      labels.add("Advisor package");
-    } else {
-      labels.add("Saved memory");
-    }
-  }
-  return Array.from(labels).slice(0, 3);
+  return null;
 }
 
 function toStatus(
@@ -290,6 +299,7 @@ function isConsumerHighlightUseful(value: string): boolean {
 export function buildPkmDomainPresentation(params: {
   domain: DomainSummary;
   activeGrants: ConsentCenterEntry[];
+  sharingResolved?: boolean;
   manifest?: DomainManifest | null;
   upgradeState?: PkmUpgradeDomainState | null;
 }): PkmDomainPresentation {
@@ -312,7 +322,8 @@ export function buildPkmDomainPresentation(params: {
     };
   });
 
-  const sourceLabels = inferSourceLabels(params.domain, presentation);
+  const friendlySource = friendlySourceLabel(presentation.sourceLabel);
+  const sourceLabels = friendlySource ? [friendlySource] : [];
   const detailCount = resolveDomainDetailCount(params.domain);
   const updatedAt = newestTimestamp([
     presentation.updatedAt,
@@ -328,7 +339,9 @@ export function buildPkmDomainPresentation(params: {
   const attentionFlags: string[] = [];
   if (status === "missing") attentionFlags.push("Needs information");
   if (status === "stale") attentionFlags.push("Refresh recommended");
-  if (accessEntries.length > 0) attentionFlags.push("Shared");
+  if (params.sharingResolved !== false && accessEntries.length > 0) {
+    attentionFlags.push("Shared");
+  }
   const permissions = buildPkmDomainPermissionPresentation({
     domain: params.domain,
     manifest: params.manifest || null,
@@ -355,7 +368,10 @@ export function buildPkmDomainPresentation(params: {
     status,
     statusLabel,
     accessEntries,
-    accessSummary: summarizeAccess(accessEntries),
+    accessSummary:
+      params.sharingResolved === false
+        ? "Access status unavailable"
+        : summarizeAccess(accessEntries),
     accessCount: accessEntries.length,
     attentionFlags,
     permissionCount: permissions.length,
@@ -512,26 +528,27 @@ function normalizeVisibilityPosture(params: {
 
 function visibilityPostureCopy(params: {
   posture: PkmVisibilityPosture;
-  defaultProjectionReady: boolean;
   readerSummary: ReturnType<typeof summarizePermissionReaders>;
 }): { label: string; description: string; counterpartSummary: string } {
+  if (params.readerSummary.activeReaderCount > 0) {
+    return {
+      label: "Approved for sharing",
+      description: "These recipients have an active, consented grant for this section.",
+      counterpartSummary: params.readerSummary.counterpartSummary,
+    };
+  }
   if (params.posture === "private") {
     return {
-      label: "Private",
-      description: "Only you can see this section.",
-      counterpartSummary:
-        params.readerSummary.activeReaderCount > 0
-          ? params.readerSummary.counterpartSummary
-          : "Hidden from new sharing",
+      label: "Private to your private agent",
+      description:
+        "One can use this after you unlock your vault. Sharing is disabled for external recipients.",
+      counterpartSummary: "Sharing disabled",
     };
   }
   return {
-    label: "Ask first",
-    description: "One asks you before sharing this section.",
-    counterpartSummary:
-      params.readerSummary.activeReaderCount > 0
-        ? params.readerSummary.counterpartSummary
-        : "One will ask before sharing",
+    label: "Consent required to share",
+    description: "One can use this privately after unlock and asks before sharing it externally.",
+    counterpartSummary: "Consent required for every new recipient",
   };
 }
 
@@ -713,7 +730,6 @@ export function buildPkmDomainPermissionPresentation(params: {
         : "Section-level sharing will appear once this domain manifest is ready.";
       const postureCopy = visibilityPostureCopy({
         posture: entry.visibilityPosture,
-        defaultProjectionReady: entry.defaultProjectionReady,
         readerSummary,
       });
       return {

@@ -14,10 +14,10 @@ describe("waitForVoiceActionSettlement", () => {
         screen: "home",
         subview: null,
       },
-      expectedRoute: "/profile",
+      expectedRoute: "/one/profile",
       expectedScreen: "profile",
       getCurrentRoute: () => ({
-        pathname: "/profile",
+        pathname: "/one/profile",
         screen: "profile",
         subview: null,
       }),
@@ -27,7 +27,7 @@ describe("waitForVoiceActionSettlement", () => {
     });
 
     expect(result).toEqual({
-      route_after: "/profile",
+      route_after: "/one/profile",
       screen_after: "profile",
       settled_by: "screen",
       data: undefined,

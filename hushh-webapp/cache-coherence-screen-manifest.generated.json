@@ -1,6 +1,5 @@
 {
   "schema_version": "hushh.cache_coherence_screen_manifest.v1",
-  "generated_at": "2026-05-21",
   "purpose": "Screen-level cache posture manifest used to keep warm-cache UX, TTL, route inventory, and reviewer verification aligned.",
   "sources": {
     "physical_pages": "app/**/page.tsx",
@@ -11,19 +10,19 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 99,
-    "physical_page_count": 99,
-    "route_contract_count": 99,
-    "surface_map_count": 99,
+    "total_screens": 139,
+    "physical_page_count": 139,
+    "route_contract_count": 139,
+    "surface_map_count": 139,
     "class_counts": {
-      "public/static": 3,
-      "realtime/SSE": 2,
-      "hidden flow": 12,
-      "vault-backed": 36,
-      "redirect/alias": 29,
+      "public/static": 2,
+      "realtime/SSE": 1,
+      "redirect/alias": 45,
+      "vault-backed": 53,
+      "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
-      "PKM-secure": 2
+      "PKM-secure": 6
     },
     "pages_missing_route_contract": [],
     "routes_missing_surface_map": []
@@ -134,26 +133,23 @@
     {
       "route": "/blog",
       "page_file": "app/blog/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/blog",
@@ -172,15 +168,13 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/blog/[slug]",
       "page_file": "app/blog/[slug]/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -222,10 +216,10 @@
       ]
     },
     {
-      "route": "/connect",
-      "page_file": "app/connect/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
+      "route": "/c/[token]",
+      "page_file": "app/c/[token]/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -246,7 +240,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fconnect",
+      "reviewer_fixture": "/c/[token]",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -267,20 +261,56 @@
       ]
     },
     {
+      "route": "/circle/join",
+      "page_file": "app/circle/join/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/circle/join",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
       "route": "/connected-systems",
       "page_file": "app/connected-systems/page.tsx",
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "CONNECTED_SYSTEMS",
-        "CONNECTED_SYSTEM_INTENTS"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "pkm_metadata",
-        "pkm_projection"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -353,9 +383,9 @@
     {
       "route": "/consents",
       "page_file": "app/consents/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "realtime/SSE",
-      "cache_policy": "memory-only+sse-background",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [
         "CONSENT_CENTER_SUMMARY",
         "CONSENT_CENTER_LIST"
@@ -364,36 +394,31 @@
         "consent_list"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.SHORT with active stream patching",
-      "warm_source": "ConsentCenterService memory cache",
-      "refresh_trigger": "SSE stream patch plus stale-aware background refresh",
-      "mutation_invalidator": "CacheSyncService.onConsentMutated",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "background refresh",
-        "cold loader when missing"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "stream patch latency through route_refresh_completed"
+        "route_readiness_completed"
       ],
-      "realtime_policy": "cached shell/data renders first; stream patches active view state and cache through service-layer adapters only",
+      "realtime_policy": "FCM consent changes invalidate the shared cache and retained-data refresh the visible summary/list; visible SSE fallback reconciles when push is unavailable",
       "reviewer_fixture": "/login?redirect=%2Fconsents",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": true,
+        "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
-        "sse_or_streaming": true,
+        "sse_or_streaming": false,
         "native_beacon": false
       },
       "findings": []
@@ -401,14 +426,14 @@
     {
       "route": "/developers",
       "page_file": "app/developers/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "public/static",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
       "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
-        "public_static"
+        "unknown"
       ],
-      "sensitivity_class": "public",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -533,16 +558,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_MARKET_HOME",
-        "KAI_MARKET_HOME_BASELINE",
-        "KAI_DASHBOARD_PROFILE_PICKS"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -578,16 +598,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -668,16 +683,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -713,16 +723,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -758,16 +763,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -779,7 +779,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Ffunding-trade",
+      "reviewer_fixture": "/kai/funding-trade",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -803,16 +803,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -848,16 +843,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -869,7 +859,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Finvestments",
+      "reviewer_fixture": "/kai/investments",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -893,16 +883,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -938,16 +923,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -959,7 +939,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fkai%2Foptimize",
+      "reviewer_fixture": "/kai/optimize",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -983,16 +963,11 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [
-        "KAI_FINANCIAL_RESOURCE",
-        "STOCK_CONTEXT",
-        "PKM_METADATA"
-      ],
+      "cache_keys": [],
       "resource_classes": [
-        "market_data",
-        "financial_resource"
+        "unknown"
       ],
-      "sensitivity_class": "encrypted-user-data",
+      "sensitivity_class": "app-metadata",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -1340,6 +1315,51 @@
       ]
     },
     {
+      "route": "/oauth/authorize",
+      "page_file": "app/oauth/authorize/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/oauth/authorize",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one",
       "page_file": "app/one/page.tsx",
       "route_contract_mode": "standard",
@@ -1386,8 +1406,8 @@
       ]
     },
     {
-      "route": "/one/connected-systems",
-      "page_file": "app/one/connected-systems/page.tsx",
+      "route": "/one/calendar",
+      "page_file": "app/one/calendar/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
@@ -1410,7 +1430,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnected-systems",
+      "reviewer_fixture": "/one/calendar",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1431,8 +1451,8 @@
       ]
     },
     {
-      "route": "/one/connected-systems/[systemId]",
-      "page_file": "app/one/connected-systems/[systemId]/page.tsx",
+      "route": "/one/connect",
+      "page_file": "app/one/connect/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
@@ -1455,7 +1475,192 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fconnect",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/connect/settings",
+      "page_file": "app/one/connect/settings/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fconnect%2Fsettings",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/connected-systems",
+      "page_file": "app/one/connected-systems/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "CONNECTED_SYSTEMS_REGISTRY",
+        "CONNECTED_SYSTEM_SCHEMA"
+      ],
+      "resource_classes": [
+        "crm_registry_metadata",
+        "crm_schema_metadata"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable",
+      "warm_source": "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "explicit refresh plus CacheService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconnected-systems",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/connected-systems/[systemId]",
+      "page_file": "app/one/connected-systems/[systemId]/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "CONNECTED_SYSTEMS_REGISTRY",
+        "CONNECTED_SYSTEM_SCHEMA"
+      ],
+      "resource_classes": [
+        "crm_registry_metadata",
+        "crm_schema_metadata"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable",
+      "warm_source": "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "explicit refresh plus CacheService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
       "reviewer_fixture": "/one/connected-systems/[systemId]",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "review native route beacon coverage"
+      ]
+    },
+    {
+      "route": "/one/consent",
+      "page_file": "app/one/consent/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "CONSENT_CENTER_SUMMARY",
+        "CONSENT_CENTER_LIST"
+      ],
+      "resource_classes": [
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "UnlockWarmOrchestrator plus ConsentCenterService memory cache",
+      "refresh_trigger": "FCM/SSE consent-change reconciliation plus stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService.onConsentMutated",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "FCM consent changes invalidate the shared cache and retained-data refresh the visible summary/list; visible SSE fallback reconciles when push is unavailable",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fconsent",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1472,9 +1677,107 @@
         "native_beacon": false
       },
       "findings": [
-        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
+    },
+    {
+      "route": "/one/email",
+      "page_file": "app/one/email/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Femail",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/feed",
+      "page_file": "app/one/feed/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "FEED_LIST",
+        "FEED_UNREAD_COUNT",
+        "CONSENT_CENTER_SUMMARY",
+        "CONSENT_CENTER_LIST",
+        "ONE_LOCATION_STATE",
+        "CONNECTIONS_INCOMING"
+      ],
+      "resource_classes": [
+        "notification_activity",
+        "consent_list",
+        "location_state",
+        "connection_requests"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.SHORT",
+      "warm_source": "FeedService plus domain-owned actionable resource caches",
+      "refresh_trigger": "foreground push/action signal, visible focus/resume, and 45-second visible polling; explicit retry forces",
+      "mutation_invalidator": "CacheSyncService Feed read lifecycle plus domain mutation invalidators",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "push/action signals refresh the visible Feed; hidden tabs defer until visible; polling is visibility-scoped and concurrent requests dedupe",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Ffeed",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
     },
     {
       "route": "/one/gmail",
@@ -1524,24 +1827,32 @@
       "page_file": "app/one/kai/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_policy": "device-resource",
+      "cache_keys": [
+        "KAI_MARKET_HOME",
+        "KAI_MARKET_HOME_BASELINE",
+        "KAI_DASHBOARD_PROFILE_PICKS"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
-        "cold loader"
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
       ],
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai",
@@ -1549,18 +1860,20 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": true,
+        "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": true,
+        "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
-        "native_beacon": true
+        "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/one/kai/alpaca/oauth/return",
@@ -1568,15 +1881,19 @@
       "route_contract_mode": "standard",
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
       "resource_classes": [
         "auth_state"
       ],
       "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1584,7 +1901,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Falpaca%2Foauth%2Freturn",
@@ -1611,15 +1929,20 @@
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1627,14 +1950,15 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fanalysis%3Fticker%3DAAPL",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": false,
+        "cache_service": true,
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
@@ -1647,36 +1971,37 @@
         "native_beacon": false
       },
       "findings": [
-        "no local cache primitive detected in page/contract source",
         "loader detected; verify warm cache path avoids blocking loader"
       ]
     },
     {
       "route": "/one/kai/funding-trade",
       "page_file": "app/one/kai/funding-trade/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Ffunding-trade",
+      "reviewer_fixture": "/one/kai/funding-trade",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1688,14 +2013,11 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": true,
+        "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source",
-        "loader detected; verify warm cache path avoids blocking loader"
-      ]
+      "findings": []
     },
     {
       "route": "/one/kai/import",
@@ -1703,15 +2025,20 @@
       "route_contract_mode": "flow",
       "screen_class": "hidden flow",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1719,7 +2046,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fimport",
@@ -1745,29 +2073,31 @@
     {
       "route": "/one/kai/investments",
       "page_file": "app/one/kai/investments/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Finvestments",
+      "reviewer_fixture": "/one/kai/investments",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1779,14 +2109,103 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": true,
+        "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source",
-        "loader detected; verify warm cache path avoids blocking loader"
-      ]
+      "findings": []
+    },
+    {
+      "route": "/one/kai/market",
+      "page_file": "app/one/kai/market/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fmarket",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/kai/news",
+      "page_file": "app/one/kai/news/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "device-resource",
+      "cache_keys": [
+        "KAI_MARKET_NEWS"
+      ],
+      "resource_classes": [
+        "market_data"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "route resource loader with memory/device stale cache; personalized symbols are added only after vault unlock",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "plain device stale render",
+        "background refresh",
+        "cold loader when missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fnews",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
     },
     {
       "route": "/one/kai/onboarding",
@@ -1794,11 +2213,16 @@
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "none",
       "warm_source": "none",
       "refresh_trigger": "none",
@@ -1831,29 +2255,31 @@
     {
       "route": "/one/kai/optimize",
       "page_file": "app/one/kai/optimize/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Foptimize",
+      "reviewer_fixture": "/one/kai/optimize",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -1864,14 +2290,12 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": true,
+        "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/kai/plaid/oauth/return",
@@ -1879,15 +2303,19 @@
       "route_contract_mode": "standard",
       "screen_class": "auth/pre-vault",
       "cache_policy": "memory-only",
-      "cache_keys": [],
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
       "resource_classes": [
         "auth_state"
       ],
       "sensitivity_class": "auth-state",
       "ttl_class": "single-use",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1895,7 +2323,8 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fplaid%2Foauth%2Freturn",
@@ -1919,18 +2348,68 @@
     {
       "route": "/one/kai/portfolio",
       "page_file": "app/one/kai/portfolio/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/kai/portfolio/allocation",
+      "page_file": "app/one/kai/portfolio/allocation/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
       ],
-      "sensitivity_class": "app-metadata",
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
       "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
       "best_available_ux_path": [
         "fresh memory",
         "cold loader"
@@ -1938,10 +2417,164 @@
       "readiness_kpis": [
         "route_readiness_completed",
         "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_refresh_completed",
+        "warmup_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fallocation",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/holdings",
+      "page_file": "app/one/kai/portfolio/holdings/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fholdings",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/performance",
+      "page_file": "app/one/kai/portfolio/performance/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fperformance",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/kai/portfolio/sources",
+      "page_file": "app/one/kai/portfolio/sources/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "KAI_FINANCIAL_RESOURCE",
+        "STOCK_CONTEXT",
+        "PKM_METADATA"
+      ],
+      "resource_classes": [
+        "market_data",
+        "financial_resource"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "UnlockWarmOrchestrator plus route resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fkai%2Fportfolio%2Fsources",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2002,16 +2635,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/location",
@@ -2046,7 +2677,7 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": false,
+        "cache_sync": true,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": true,
@@ -2056,6 +2687,96 @@
       },
       "findings": [
         "loader detected; verify warm cache path avoids blocking loader"
+      ]
+    },
+    {
+      "route": "/one/location/check-in",
+      "page_file": "app/one/location/check-in/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Flocation%2Fcheck-in",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": true
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/location/check-in/hotel",
+      "page_file": "app/one/location/check-in/hotel/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/location/check-in/hotel",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
       ]
     },
     {
@@ -2104,6 +2825,51 @@
       ]
     },
     {
+      "route": "/one/location/map",
+      "page_file": "app/one/location/map/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Flocation%2Fmap",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/one/location/request/[token]",
       "page_file": "app/one/location/request/[token]/page.tsx",
       "route_contract_mode": "hidden",
@@ -2129,6 +2895,51 @@
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/one/location/request/[token]",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/location/view/[token]",
+      "page_file": "app/one/location/view/[token]/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/location/view/[token]",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2206,6 +3017,145 @@
       "sensitivity_class": "app-metadata",
       "ttl_class": "CACHE_TTL.MEDIUM",
       "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/pkm/recent",
+      "page_file": "app/one/pkm/recent/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm%2Frecent",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/profile",
+      "page_file": "app/one/profile/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "KAI_PROFILE",
+        "PKM_METADATA",
+        "VAULT_STATUS"
+      ],
+      "resource_classes": [
+        "vault_metadata",
+        "pkm_metadata"
+      ],
+      "sensitivity_class": "user-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed",
+        "warmup_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/access",
+      "page_file": "app/one/profile/access/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
       "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
       "mutation_invalidator": "CacheSyncService user/session invalidation",
       "best_available_ux_path": [
@@ -2218,7 +3168,1424 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Faccess",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/access/connection",
+      "page_file": "app/one/profile/access/connection/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/account",
+      "page_file": "app/one/profile/account/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Faccount",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/account/phone",
+      "page_file": "app/one/profile/account/phone/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Faccount%2Fphone",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/connected-systems",
+      "page_file": "app/one/profile/connected-systems/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "CONNECTED_SYSTEMS_REGISTRY",
+        "CONNECTED_SYSTEM_SCHEMA"
+      ],
+      "resource_classes": [
+        "crm_registry_metadata",
+        "crm_schema_metadata"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable",
+      "warm_source": "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "explicit refresh plus CacheService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fconnected-systems",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/gmail",
+      "page_file": "app/one/profile/gmail/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fgmail",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/gmail/actions",
+      "page_file": "app/one/profile/gmail/actions/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Factions",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/gmail/connection",
+      "page_file": "app/one/profile/gmail/connection/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Fconnection",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/gmail/oauth/return",
+      "page_file": "app/one/profile/gmail/oauth/return/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "auth/pre-vault",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "auth_state"
+      ],
+      "sensitivity_class": "auth-state",
+      "ttl_class": "single-use",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fgmail%2Foauth%2Freturn",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": true,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/google/oauth/return",
+      "page_file": "app/one/profile/google/oauth/return/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/google/oauth/return",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/integrations",
+      "page_file": "app/one/profile/integrations/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/integrations",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/my-data",
+      "page_file": "app/one/profile/my-data/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fmy-data",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/my-data/domain",
+      "page_file": "app/one/profile/my-data/domain/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/pkm",
+      "page_file": "app/one/profile/pkm/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpkm",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/pkm-agent-lab",
+      "page_file": "app/one/profile/pkm-agent-lab/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "secure-resource",
+      "cache_keys": [
+        "PKM_METADATA",
+        "PKM_DOMAIN_RESOURCE",
+        "PKM_UPGRADE_STATUS"
+      ],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
+      "warm_source": "Vault unlock plus secure resource cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "secure device stale render",
+        "background refresh",
+        "cold loader when locked or missing"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/profile/pkm-agent-lab",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/profile/preferences",
+      "page_file": "app/one/profile/preferences/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/device",
+      "page_file": "app/one/profile/preferences/device/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fdevice",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/gemini",
+      "page_file": "app/one/profile/preferences/gemini/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fgemini",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/kai",
+      "page_file": "app/one/profile/preferences/kai/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fkai",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/voice",
+      "page_file": "app/one/profile/preferences/voice/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/voice/changelog",
+      "page_file": "app/one/profile/preferences/voice/changelog/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fchangelog",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/preferences/voice/examples",
+      "page_file": "app/one/profile/preferences/voice/examples/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fpreferences%2Fvoice%2Fexamples",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/receipts",
+      "page_file": "app/one/profile/receipts/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [
+        "Gmail receipts resource cache",
+        "PKM_DOMAIN_RESOURCE"
+      ],
+      "resource_classes": [
+        "pkm_metadata",
+        "pkm_projection"
+      ],
+      "sensitivity_class": "encrypted-user-data",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Freceipts",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/referrals",
+      "page_file": "app/one/profile/referrals/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Freferrals",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/regulatory",
+      "page_file": "app/one/profile/regulatory/page.tsx",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
+      "best_available_ux_path": [
+        "static render"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fregulatory",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/security",
+      "page_file": "app/one/profile/security/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/security/devices",
+      "page_file": "app/one/profile/security/devices/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "TRUSTED_DEVICES"
+      ],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/security/devices/authorize",
+      "page_file": "app/one/profile/security/devices/authorize/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fdevices%2Fauthorize",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": true
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/profile/security/session",
+      "page_file": "app/one/profile/security/session/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fsession",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/security/vault",
+      "page_file": "app/one/profile/security/vault/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsecurity%2Fvault",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/support",
+      "page_file": "app/one/profile/support/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsupport",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/support/compose",
+      "page_file": "app/one/profile/support/compose/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/profile/support/routing",
+      "page_file": "app/one/profile/support/routing/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fprofile%2Fsupport%2Frouting",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/puppy",
+      "page_file": "app/one/puppy/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/one/puppy",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2272,7 +4639,7 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": true,
@@ -2280,7 +4647,6 @@
         "native_beacon": true
       },
       "findings": [
-        "no local cache primitive detected in page/contract source",
         "loader detected; verify warm cache path avoids blocking loader"
       ]
     },
@@ -2325,8 +4691,8 @@
       "findings": []
     },
     {
-      "route": "/one/setup/connected-systems",
-      "page_file": "app/one/setup/connected-systems/page.tsx",
+      "route": "/one/setup/calendar",
+      "page_file": "app/one/setup/calendar/page.tsx",
       "route_contract_mode": "standard",
       "screen_class": "vault-backed",
       "cache_policy": "memory-only",
@@ -2349,7 +4715,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+      "reviewer_fixture": "/one/setup/calendar",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2368,6 +4734,96 @@
       "findings": [
         "no local cache primitive detected in page/contract source"
       ]
+    },
+    {
+      "route": "/one/setup/connected-systems",
+      "page_file": "app/one/setup/connected-systems/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "PKM-secure",
+      "cache_policy": "memory-only",
+      "cache_keys": [
+        "CONNECTED_SYSTEMS_REGISTRY",
+        "CONNECTED_SYSTEM_SCHEMA"
+      ],
+      "resource_classes": [
+        "crm_registry_metadata",
+        "crm_schema_metadata"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM when mapping is ready; CACHE_TTL.SHORT when unavailable",
+      "warm_source": "ConnectedSystemsPanel user-scoped memory cache with stale-aware background refresh",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "explicit refresh plus CacheService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fconnected-systems",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": true,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
+    },
+    {
+      "route": "/one/setup/connections",
+      "page_file": "app/one/setup/connections/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fconnections",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
     },
     {
       "route": "/one/setup/email",
@@ -2403,16 +4859,14 @@
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
-        "resource_wrapper": false,
+        "resource_wrapper": true,
         "direct_fetch": false,
         "api_service": false,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/one/setup/finance",
@@ -2451,7 +4905,7 @@
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
-        "hushh_loader": false,
+        "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": false
       },
@@ -2680,6 +5134,141 @@
       ]
     },
     {
+      "route": "/one/wallet",
+      "page_file": "app/one/wallet/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService PKM/portfolio/write-through hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fcards",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/one/wallet-card",
+      "page_file": "app/one/wallet-card/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fwallet-card",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/people/[personRef]",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/people/00000000-0000-4000-8000-000000000001",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
       "route": "/pkm",
       "page_file": "app/pkm/page.tsx",
       "route_contract_mode": "redirect",
@@ -2765,61 +5354,10 @@
       "findings": []
     },
     {
-      "route": "/profile",
-      "page_file": "app/profile/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [
-        "KAI_PROFILE",
-        "PKM_METADATA",
-        "VAULT_STATUS"
-      ],
-      "resource_classes": [
-        "vault_metadata",
-        "pkm_metadata"
-      ],
-      "sensitivity_class": "user-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed",
-        "warmup_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/access",
-      "page_file": "app/profile/access/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
+      "route": "/products/hushh-tech/launch",
+      "page_file": "app/products/hushh-tech/launch/page.tsx",
+      "route_contract_mode": "hidden",
+      "screen_class": "hidden flow",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -2840,7 +5378,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Faccess",
+      "reviewer_fixture": "/products/hushh-tech/launch",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -2848,10 +5386,10 @@
         "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
@@ -2861,188 +5399,8 @@
       ]
     },
     {
-      "route": "/profile/access/connection",
-      "page_file": "app/profile/access/connection/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Faccess%2Fconnection%3Fid%3Ddemo_connection",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/account",
-      "page_file": "app/profile/account/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Faccount",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/account/phone",
-      "page_file": "app/profile/account/phone/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Faccount%2Fphone",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/connected-systems",
-      "page_file": "app/profile/connected-systems/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fconnected-systems",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/gmail",
-      "page_file": "app/profile/gmail/page.tsx",
+      "route": "/profile/google/oauth/return",
+      "page_file": "app/profile/google/oauth/return/page.tsx",
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
@@ -3062,7 +5420,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail",
+      "reviewer_fixture": "/profile/google/oauth/return",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3081,8 +5439,8 @@
       "findings": []
     },
     {
-      "route": "/profile/gmail/actions",
-      "page_file": "app/profile/gmail/actions/page.tsx",
+      "route": "/r/[slug]",
+      "page_file": "app/r/[slug]/page.tsx",
       "route_contract_mode": "redirect",
       "screen_class": "redirect/alias",
       "cache_policy": "none",
@@ -3102,7 +5460,7 @@
         "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Factions",
+      "reviewer_fixture": "/r/[slug]",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3119,721 +5477,6 @@
         "native_beacon": false
       },
       "findings": []
-    },
-    {
-      "route": "/profile/gmail/connection",
-      "page_file": "app/profile/gmail/connection/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
-      "best_available_ux_path": [
-        "static render"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Fconnection",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
-      "route": "/profile/gmail/oauth/return",
-      "page_file": "app/profile/gmail/oauth/return/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "auth/pre-vault",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "auth_state"
-      ],
-      "sensitivity_class": "auth-state",
-      "ttl_class": "single-use",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fgmail%2Foauth%2Freturn",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": true,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
-      "route": "/profile/my-data",
-      "page_file": "app/profile/my-data/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fmy-data",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/my-data/domain",
-      "page_file": "app/profile/my-data/domain/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fmy-data%2Fdomain%3Fkey%3Dfinance",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/pkm",
-      "page_file": "app/profile/pkm/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
-      "cache_keys": [],
-      "resource_classes": [
-        "pkm_metadata",
-        "pkm_projection"
-      ],
-      "sensitivity_class": "encrypted-user-data",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
-      "best_available_ux_path": [
-        "static render"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fpkm",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
-      "route": "/profile/pkm-agent-lab",
-      "page_file": "app/profile/pkm-agent-lab/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "PKM-secure",
-      "cache_policy": "secure-resource",
-      "cache_keys": [
-        "PKM_METADATA",
-        "PKM_DOMAIN_RESOURCE",
-        "PKM_UPGRADE_STATUS"
-      ],
-      "resource_classes": [
-        "pkm_metadata",
-        "pkm_projection"
-      ],
-      "sensitivity_class": "encrypted-user-data",
-      "ttl_class": "CACHE_TTL.SESSION for metadata; secure resource revision controls payload freshness",
-      "warm_source": "Vault unlock plus secure resource cache",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "secure device stale render",
-        "background refresh",
-        "cold loader when locked or missing"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/profile/pkm-agent-lab",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/preferences",
-      "page_file": "app/profile/preferences/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fpreferences",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/preferences/device",
-      "page_file": "app/profile/preferences/device/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fpreferences%2Fdevice",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/preferences/kai",
-      "page_file": "app/profile/preferences/kai/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fpreferences%2Fkai",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/receipts",
-      "page_file": "app/profile/receipts/page.tsx",
-      "route_contract_mode": "redirect",
-      "screen_class": "redirect/alias",
-      "cache_policy": "none",
-      "cache_keys": [
-        "Gmail receipts resource cache",
-        "PKM_DOMAIN_RESOURCE"
-      ],
-      "resource_classes": [
-        "pkm_metadata",
-        "pkm_projection"
-      ],
-      "sensitivity_class": "encrypted-user-data",
-      "ttl_class": "none",
-      "warm_source": "none",
-      "refresh_trigger": "none",
-      "mutation_invalidator": "none",
-      "best_available_ux_path": [
-        "static render"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Freceipts",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": false,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": []
-    },
-    {
-      "route": "/profile/security",
-      "page_file": "app/profile/security/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsecurity",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/security/session",
-      "page_file": "app/profile/security/session/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsecurity%2Fsession",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/security/vault",
-      "page_file": "app/profile/security/vault/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsecurity%2Fvault",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/support",
-      "page_file": "app/profile/support/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsupport",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/support/compose",
-      "page_file": "app/profile/support/compose/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsupport%2Fcompose%3Fkind%3Dsupport_request",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
-    },
-    {
-      "route": "/profile/support/routing",
-      "page_file": "app/profile/support/routing/page.tsx",
-      "route_contract_mode": "standard",
-      "screen_class": "vault-backed",
-      "cache_policy": "memory-only",
-      "cache_keys": [],
-      "resource_classes": [
-        "unknown"
-      ],
-      "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
-      "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
-      ],
-      "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
-      ],
-      "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fprofile%2Fsupport%2Frouting",
-      "surface_map_present": true,
-      "route_contract_present": true,
-      "evidence": {
-        "cache_service": false,
-        "use_stale_resource": false,
-        "device_cache": false,
-        "secure_cache": false,
-        "cache_sync": true,
-        "resource_wrapper": false,
-        "direct_fetch": false,
-        "api_service": false,
-        "hushh_loader": false,
-        "sse_or_streaming": false,
-        "native_beacon": false
-      },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
     },
     {
       "route": "/register-phone",
@@ -3881,26 +5524,23 @@
     {
       "route": "/research",
       "page_file": "app/research/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
-      "cache_policy": "memory-only",
+      "route_contract_mode": "redirect",
+      "screen_class": "redirect/alias",
+      "cache_policy": "none",
       "cache_keys": [],
       "resource_classes": [
         "unknown"
       ],
       "sensitivity_class": "app-metadata",
-      "ttl_class": "CACHE_TTL.MEDIUM",
-      "warm_source": "Route-local resource loader",
-      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
-      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "ttl_class": "none",
+      "warm_source": "none",
+      "refresh_trigger": "none",
+      "mutation_invalidator": "none",
       "best_available_ux_path": [
-        "fresh memory",
-        "cold loader"
+        "static render"
       ],
       "readiness_kpis": [
-        "route_readiness_completed",
-        "cache_resource_resolved",
-        "route_refresh_completed"
+        "route_readiness_completed"
       ],
       "realtime_policy": "not realtime",
       "reviewer_fixture": "/research",
@@ -3919,15 +5559,13 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": [
-        "no local cache primitive detected in page/contract source"
-      ]
+      "findings": []
     },
     {
       "route": "/research/protocol",
       "page_file": "app/research/protocol/page.tsx",
-      "route_contract_mode": "hidden",
-      "screen_class": "hidden flow",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
       "cache_policy": "memory-only",
       "cache_keys": [],
       "resource_classes": [
@@ -4005,7 +5643,7 @@
       "route_contract_present": true,
       "evidence": {
         "cache_service": false,
-        "use_stale_resource": true,
+        "use_stale_resource": false,
         "device_cache": false,
         "secure_cache": false,
         "cache_sync": false,
@@ -4016,7 +5654,55 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
+    },
+    {
+      "route": "/ria/claim",
+      "page_file": "app/ria/claim/page.tsx",
+      "route_contract_mode": "flow",
+      "screen_class": "hidden flow",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "ria_workspace",
+        "consent_list"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "RIA service memory/device cache",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "RIA service invalidation plus CacheSyncService consent hooks",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fria%2Fclaim",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": true,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/ria/clients",
@@ -4345,11 +6031,11 @@
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
-        "cache_service": true,
+        "cache_service": false,
         "use_stale_resource": false,
-        "device_cache": true,
+        "device_cache": false,
         "secure_cache": false,
-        "cache_sync": true,
+        "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
         "api_service": false,
@@ -4357,7 +6043,9 @@
         "sse_or_streaming": false,
         "native_beacon": false
       },
-      "findings": []
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     },
     {
       "route": "/ria/requests",
@@ -4481,6 +6169,52 @@
         "native_beacon": false
       },
       "findings": []
+    },
+    {
+      "route": "/welcome",
+      "page_file": "app/welcome/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/welcome",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": false,
+        "direct_fetch": false,
+        "api_service": false,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": [
+        "no local cache primitive detected in page/contract source"
+      ]
     }
-  ]
+  ],
+  "content_sha256": "8c371c16d5b19a341103d2bb936624de7bd7b35de1a8de0aee06a7dff63dd009"
 }

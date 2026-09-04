@@ -8,10 +8,9 @@ import { logRequestAudit } from "@/lib/cache/request-audit-log";
 import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import {
   buildFinancialDomainSummary,
+  getFinancialCompatibilityView,
   getActiveSource as getStoredActiveSource,
   getActiveStatementSnapshotId,
-  getPlaidPortfolio,
-  getStatementPortfolio,
   getStatementSnapshotOptions,
   isPlaidMirrorStale,
   setActivePlaidSource,
@@ -45,6 +44,7 @@ interface KaiFinancialResourceRequest {
   vaultOwnerToken?: string | null;
   vaultKey?: string | null;
   initialStatementPortfolio?: PortfolioData | null;
+  skipEmptyFinancialProbe?: boolean;
 }
 
 interface KaiFinancialResourceAuditMeta {
@@ -114,22 +114,23 @@ function buildResource(params: {
   cacheTier: KaiFinancialResourceAuditMeta["cacheTier"];
   source: KaiFinancialResourceAuditMeta["source"];
 }): KaiFinancialResource {
+  const compatibilityView = getFinancialCompatibilityView(params.financialDomain);
   const statementPortfolio =
-    getStatementPortfolio(params.financialDomain) ??
+    compatibilityView.statementPortfolio ??
     (params.initialStatementPortfolio && hasPortfolioHoldings(params.initialStatementPortfolio)
       ? params.initialStatementPortfolio
       : null);
   const statementSnapshots = getStatementSnapshotOptions(params.financialDomain);
   const activeStatementSnapshotId = getActiveStatementSnapshotId(params.financialDomain);
   const plaidPortfolio =
-    getPlaidPortfolio(params.financialDomain) ??
+    compatibilityView.plaidPortfolio ??
     ((params.plaidStatus?.aggregate?.portfolio_data as PortfolioData | null | undefined) ?? null);
   const availableSources = resolveAvailableSources({
     statementPortfolio,
     plaidPortfolio,
   });
   const storedActiveSource =
-    params.plaidStatus?.source_preference ?? getStoredActiveSource(params.financialDomain);
+    params.plaidStatus?.source_preference ?? compatibilityView.activeSource;
   const hasSavedStatementSnapshot = Boolean(activeStatementSnapshotId);
   const desiredSource: PortfolioSource =
     storedActiveSource === "plaid" ||
@@ -168,6 +169,14 @@ function buildResource(params: {
       source: params.source,
     },
   };
+}
+
+function hasPlaidSource(status: PlaidPortfolioStatusResponse | null): boolean {
+  return (
+    Number(status?.aggregate?.item_count || 0) > 0 ||
+    Number(status?.aggregate?.account_count || 0) > 0 ||
+    hasPortfolioHoldings(status?.aggregate?.portfolio_data)
+  );
 }
 
 function primePortfolioCaches(resource: KaiFinancialResource): void {
@@ -228,15 +237,23 @@ async function refreshDerivedMarketCaches(params: KaiFinancialResourceRequest): 
 async function loadNetworkResource(
   params: KaiFinancialResourceRequest
 ): Promise<KaiFinancialResource | null> {
-  const [financialContext, loadedPlaidStatus] = await Promise.all([
-    loadFinancialContext(params),
-    params.vaultOwnerToken
-      ? PlaidPortfolioService.getStatus({
-          userId: params.userId,
-          vaultOwnerToken: params.vaultOwnerToken,
-        }).catch(() => null)
-      : Promise.resolve(null),
-  ]);
+  const loadedPlaidStatus = params.vaultOwnerToken
+    ? await PlaidPortfolioService.getStatus({
+        userId: params.userId,
+        vaultOwnerToken: params.vaultOwnerToken,
+      }).catch(() => null)
+    : null;
+  const canUseSetupEmptyState =
+    Boolean(params.skipEmptyFinancialProbe) &&
+    !hasPortfolioHoldings(params.initialStatementPortfolio) &&
+    !hasPlaidSource(loadedPlaidStatus);
+  const financialContext = canUseSetupEmptyState
+    ? {
+        fullBlob: {},
+        financial: null,
+        expectedDataVersion: undefined,
+      }
+    : await loadFinancialContext(params);
 
   let nextFinancial = financialContext.financial;
   const storedActiveSource =
@@ -552,10 +569,12 @@ export function useKaiFinancialResource(
         params.vaultOwnerToken ? "vault-owner-token" : "no-vault-owner-token",
         params.backgroundRefresh === false ? "no-background-refresh" : "background-refresh",
         params.initialStatementPortfolio ? "has-initial-statement-snapshot" : "no-initial-statement-snapshot",
+        params.skipEmptyFinancialProbe ? "skip-empty-financial-probe" : "probe-financial-domain",
       ].join(":"),
     [
       params.backgroundRefresh,
       params.initialStatementPortfolio,
+      params.skipEmptyFinancialProbe,
       params.userId,
       params.vaultKey,
       params.vaultOwnerToken,

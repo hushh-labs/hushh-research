@@ -12,14 +12,23 @@ MAX_LOG_STRING_LENGTH = 160
 
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 _PHONE_RE = re.compile(r"^\+?[0-9][0-9 .()\-]{6,}$")
-_UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{8,}$")
+_UID_LIKE_RE = re.compile(r"^(?=.*[A-Za-z])(?=.*[-_])[A-Za-z0-9_-]{24,128}$")
 _TOKEN_PREFIXES = ("HCT:", "Bearer ")
 _TOKEN_VALUE_RE = re.compile(r"\b(?:Bearer\s+|HCT:)[A-Za-z0-9._~+/=-]+")
 _QUERY_SECRET_RE = re.compile(
     r"([?&](?:access_token|api[_-]?key|apikey|auth|client_secret|key|"
-    r"private_key|refresh_token|secret|signature|token)=)([^&\s\"'<>]+)",
+    r"private_key|refresh_token|secret|signature|token|"
+    # A person's position is as sensitive as a credential and leaks the same
+    # way. httpx logs every outbound request URL at INFO, so any provider call
+    # that carries coordinates in its query string — the advisor directory, the
+    # Maps geocoder — would otherwise write a home address to a retained log.
+    r"lat|latitude|latlng|lng|lon|longitude|coords|coordinates|postal_?code|zip)=)"
+    r"([^&\s\"'<>]+)",
     flags=re.IGNORECASE,
 )
+
+_SQL_PARAMS_MARKER = "[parameters:"
+_SQL_BACKGROUND_MARKER = "(Background on this error at:"
 
 _SENSITIVE_EXACT_KEYS = {
     "authorization",
@@ -39,6 +48,7 @@ _SENSITIVE_EXACT_KEYS = {
     "public_key",
     "refresh_token",
     "user_id",
+    "user_identifier",
     "wrapped_export_key",
 }
 
@@ -60,6 +70,7 @@ _SENSITIVE_KEY_TERMS = (
     "signature",
     "token",
     "user_id",
+    "user_identifier",
     "wrapped_key",
 )
 
@@ -85,12 +96,41 @@ def _is_sensitive_string(value: str) -> bool:
     )
 
 
+def _redact_sql_bound_parameters(value: str) -> str:
+    """Strip SQLAlchemy's bound-parameter blob out of an error string.
+
+    ``StatementError.__str__`` appends ``[SQL: ...] [parameters: {...}]`` unless
+    the engine was built with ``hide_parameters=True``, which none of ours are.
+    Every DBAPI failure therefore reprints each bound value — emails, phone
+    numbers, wallet card payloads — into whatever consumes the message.
+
+    Redaction runs to the ``(Background on this error at: ...)`` suffix or to the
+    end of the string rather than trying to balance brackets, because a bound
+    value may itself contain ``]`` and a partial match would leak a fragment.
+    The static ``[SQL: ...]`` statement text carries no values and is kept.
+    """
+    start = value.find(_SQL_PARAMS_MARKER)
+    if start == -1:
+        return value
+    tail_at = value.find(_SQL_BACKGROUND_MARKER, start)
+    tail = value[tail_at:] if tail_at != -1 else ""
+    return f"{value[:start]}{_SQL_PARAMS_MARKER} {REDACTED}]{tail}"
+
+
 def _redact_sensitive_substrings(value: str) -> str:
     redacted = _TOKEN_VALUE_RE.sub(REDACTED, value)
-    return _QUERY_SECRET_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
+    redacted = _QUERY_SECRET_RE.sub(lambda match: f"{match.group(1)}{REDACTED}", redacted)
+    return _redact_sql_bound_parameters(redacted)
 
 
 def _safe_scalar(value: Any) -> Any:
+    if isinstance(value, BaseException):
+        # ``logger.warning("... %s", exc)`` keeps the exception object in
+        # record.args, so it is only stringified by the handler — after this
+        # filter has run. Render it here instead, or a DBAPI error's bound
+        # parameters walk straight past every rule above. Deliberately not
+        # length-truncated: exception text is the diagnostic.
+        return _redact_sensitive_substrings(str(value))
     if isinstance(value, str):
         if _is_sensitive_string(value):
             return REDACTED
@@ -124,6 +164,19 @@ def redact_log_value(value: Any) -> Any:
         return _safe_scalar(str(value))
 
     return _safe_scalar(value)
+
+
+def redact_log_field(key: str, value: Any) -> Any:
+    """Redact a scalar using its semantic field name.
+
+    A standalone string cannot be classified as a user identifier without
+    also destroying useful non-sensitive log messages. Callers logging a
+    known field therefore supply the field name so the same key policy used
+    for structured mappings is applied deterministically.
+    """
+    if _is_sensitive_key(key):
+        return REDACTED
+    return redact_log_value(value)
 
 
 def redact_mcp_arguments(value: Any) -> Any:

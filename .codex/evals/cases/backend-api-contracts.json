@@ -1,0 +1,29 @@
+{
+  "skill_name": "backend-api-contracts",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "the Next.js proxy under hushh-webapp/app/api returns a different shape than consent-protocol/api/routes",
+        "top_k": 3
+      },
+      {
+        "prompt": "changing the request payload for this route, what else needs to move to keep the proxy contract aligned",
+        "top_k": 3
+      },
+      {
+        "prompt": "document the new response envelope in docs/reference/architecture/api-contracts.md and align the proxy",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "this is about which service owns the route and where runtime ownership sits, not the wire shape",
+        "owner": "backend-runtime-governance"
+      },
+      {
+        "prompt": "the Capacitor plugin bridge contract between iOS and Android is out of sync",
+        "owner": "mobile-plugin-contracts"
+      }
+    ]
+  }
+}

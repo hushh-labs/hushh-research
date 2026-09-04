@@ -29,6 +29,54 @@ Founder-language mapping:
 - `Capability Tokens` remain explicit here because agent entry points, tools, and operons validate concrete token scopes
 - `Separation of Duties` is implemented through the DNA model: agents orchestrate, tools expose callable surfaces, operons hold business logic, and services touch persistence
 
+## Visual Map
+
+A contributor authors only the two boxes on the left; everything downstream is
+generated, loaded, or gated. The registry is a build artifact, and consent is
+re-checked at each entry point and again per tool call.
+
+```mermaid
+flowchart LR
+  subgraph author["1. What a contributor authors"]
+    yaml["hushh_mcp/agents/NAME/agent.yaml<br/>the only authored manifest source"]
+    tools["hushh_mcp/agents/NAME/tools.py<br/>hushh_tool decorator with a scope"]
+  end
+
+  subgraph contract["2. Strict contract and generated registry"]
+    loader["AgentManifestV2 + ManifestLoader<br/>hushh_mcp/hushh_adk/manifest.py<br/>extra forbid, rejects unknown fields"]
+    gen["scripts/generate_product_agent_registry.py"]
+    registry["contracts/agents/product-agent-registry.v2.json<br/>generated, do not hand-edit"]
+    verify["verify_agent_hierarchy_contract.py<br/>verify_adk_a2a_compliance.py"]
+  end
+
+  subgraph entry["3. Entry points that hold consent"]
+    onetree["hushh_mcp/one_adk/agent_tree.py<br/>loads one and kai manifests,<br/>dispatches via adk_bridge/dispatch.py"]
+    bridge["hushh_mcp/adk_bridge/NAME_agent.py<br/>A2A entry, requires X-Consent-Token<br/>plus the specialist scope"]
+    route["api/routes/NAME/*.py APIRouter<br/>wired in server.py"]
+  end
+
+  subgraph exec["4. Execution layers"]
+    ctx["HushhContext<br/>contextvars: user_id + consent_token"]
+    tooldec["hushh_tool wrapper<br/>validate_token_with_db + user_id match"]
+    operons["hushh_mcp/operons/DOMAIN/*.py<br/>calculators, fetchers, llm, storage"]
+    services["hushh_mcp/services/*<br/>only layer that touches the DB"]
+  end
+
+  yaml --> loader
+  yaml --> gen
+  gen --> registry
+  registry --> verify
+  loader --> onetree
+  route --> bridge
+  route --> services
+  onetree --> ctx
+  bridge --> ctx
+  ctx --> tooldec
+  tools --> tooldec
+  tooldec --> operons
+  operons --> services
+```
+
 ---
 
 ## The DNA Model
@@ -66,6 +114,14 @@ Hussh agents are built from four composable layers. Each layer has a single resp
 | Service  | DatabaseClient   | Agents, Tools    |
 
 **Exception**: Impure operons (fetchers, LLM, storage) may use consent validation and external APIs, but never import service classes directly.
+
+### Import-Safe Package Rule
+
+Operon package entrypoints must stay lightweight. Importing a pure gene must
+not initialize model clients, provider SDKs, storage, environment loaders, or
+mutable runtime state. Preserve convenient package-level exports through lazy
+resolution or similarly explicit compatibility facades, and prove the boundary
+with a fresh-process import test.
 
 ---
 
@@ -304,7 +360,7 @@ id: agent_my_domain
 name: MyDomain Agent
 version: "1.0.0"
 description: Analyzes user data for the my_domain domain.
-model: gemini-3.5-flash
+model: gemini-3.7-flash
 system_instruction: |
   You are a Hussh agent specializing in [domain].
   Always respect user consent and privacy.
@@ -479,9 +535,11 @@ draft{ subject, body } }`. The renderer wraps the LLM body in Gmail-safe HTML
 chrome. The subset invariant and draft value-provenance check run
 fail-closed before the draft is surfaced.
 
-**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Sends the full values
-for the approved domain again; scope-expansion attempts are blocked and route
-back to `needs_confirm`.
+**Redraft (`POST /kyc/workflows/{id}/redraft-full`):** Reuses every memory-only
+decrypted export for the workflow's exact approved scopes so the LLM can revise
+the response from the user's instruction. The backend requires exact scope and
+export-revision parity before the provider call, never persists or logs the
+plaintext, and rejects scope-expansion attempts with a typed error.
 
 Additional plumbing (unchanged):
 

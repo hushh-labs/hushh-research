@@ -14,6 +14,16 @@ import type {
   OneLocationActivityResponse,
 } from "@/lib/one-location/types";
 import { cn } from "@/lib/utils";
+import {
+  CARD_SURFACE,
+  SUBCARD_SURFACE,
+} from "@/components/one-location/redesign/tokens";
+import {
+  CaptionText,
+  HelperText,
+  RowDescription,
+  SectionLabel,
+} from "@/components/app-ui/typography";
 
 const ACTIVITY_RANGE_OPTIONS: {
   value: OneLocationActivityRange;
@@ -26,7 +36,7 @@ const ACTIVITY_RANGE_OPTIONS: {
 ];
 
 const activityPanelClassName =
-  "w-full min-w-0 max-w-full overflow-hidden rounded-[24px] border border-black/[0.04] bg-white/95 shadow-[0_1px_2px_rgba(0,0,0,0.03),0_14px_34px_rgba(15,23,42,0.06)] backdrop-blur-xl dark:border-white/[0.08] dark:bg-[#1c1c1e]/90 dark:shadow-[0_12px_38px_rgba(0,0,0,0.24)]";
+  cn("w-full min-w-0 max-w-full overflow-hidden", CARD_SURFACE);
 
 function activityRangeLabel(range: OneLocationActivityRange): string {
   return (
@@ -37,23 +47,24 @@ function activityRangeLabel(range: OneLocationActivityRange): string {
 
 function activityEventToneClassName(kind: OneLocationActivityKind): string {
   if (kind === "share") {
-    return "bg-[#eaf9ef] text-[#2dbd5a] dark:bg-emerald-400/15 dark:text-emerald-200";
+    return "bg-[color:var(--app-success)]/12 text-[color:var(--app-success)] dark:bg-[color:var(--app-success)]/15";
   }
   if (kind === "request") {
-    return "bg-[#e7f0fd] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15 dark:text-[color:var(--app-accent)]";
+    return "bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15";
   }
-  return "bg-[#fff3e6] text-[#ff9500] dark:bg-orange-400/15 dark:text-orange-200";
+  return "bg-[color:var(--app-warning)]/12 text-[color:var(--app-warning)] dark:bg-[color:var(--app-warning)]/15";
 }
 
 function ActivitySectionLabel({ title }: { title: string }) {
   return (
-    <div
+    <SectionLabel
+      as="div"
       role="heading"
       aria-level={2}
-      className="ml-1 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 text-[12px] font-semibold uppercase tracking-[0.12em] text-[#8e8e93] dark:text-white/45"
+      className="mt-7 flex min-w-0 max-w-full flex-wrap items-center gap-1.5 px-[6px]"
     >
       {title}
-    </div>
+    </SectionLabel>
   );
 }
 
@@ -67,16 +78,16 @@ function ActivityMetricTile({
   detail: string;
 }) {
   return (
-    <div className="min-w-0 rounded-[18px] border border-black/[0.04] bg-[#f7f7fa] p-3.5 dark:border-white/[0.08] dark:bg-white/[0.07]">
-      <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
+    <div className={cn("min-w-0 p-3.5", SUBCARD_SURFACE)}>
+      <HelperText>
         {label}
-      </p>
-      <p className="mt-1 text-[24px] font-semibold leading-none text-[#1c1c1e] dark:text-white">
+      </HelperText>
+      <p className="mt-1 text-[24px] font-semibold leading-none text-foreground">
         {value}
       </p>
-      <p className="mt-1 break-words text-[11px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+      <HelperText className="mt-1 break-words [overflow-wrap:anywhere]">
         {detail}
-      </p>
+      </HelperText>
     </div>
   );
 }
@@ -91,14 +102,14 @@ function EmptyActivityState({
   description: string;
 }) {
   return (
-    <div className="flex flex-col items-center justify-center gap-2 rounded-[18px] border border-dashed border-black/[0.08] bg-[#f7f7fa] p-5 text-center dark:border-white/[0.12] dark:bg-white/[0.05]">
-      <Icon className="h-5 w-5 text-[#8e8e93]" aria-hidden="true" />
-      <p className="text-[14px] font-semibold text-[#1c1c1e] dark:text-white">
+    <div className={cn("flex flex-col items-center justify-center gap-2 border-dashed p-5 text-center", SUBCARD_SURFACE)}>
+      <Icon className="h-5 w-5 text-muted-foreground" aria-hidden="true" />
+      <p className="text-[15px] font-semibold leading-5 text-foreground">
         {title}
       </p>
-      <p className="max-w-[320px] text-[12px] leading-5 text-[#8e8e93] dark:text-white/55">
+      <RowDescription className="max-w-[320px]">
         {description}
-      </p>
+      </RowDescription>
     </div>
   );
 }
@@ -128,7 +139,7 @@ export function OneLocationActivityDashboard({
       <div className={cn(activityPanelClassName, "space-y-4 p-4")}>
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
           <div className="flex min-w-0 items-start gap-3">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#e7f0fd] text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15 dark:text-[color:var(--app-accent)]">
+            <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)] dark:bg-[color:var(--app-accent)]/15">
               {loading ? (
                 <Loader2 className="h-4 w-4 animate-spin" aria-hidden="true" />
               ) : (
@@ -136,10 +147,10 @@ export function OneLocationActivityDashboard({
               )}
             </span>
             <div className="min-w-0">
-              <h3 className="text-[16px] font-semibold tracking-normal text-[#1c1c1e] dark:text-white">
+              <h3 className="text-[17px] font-semibold leading-[22px] tracking-normal text-foreground">
                 Activity history
               </h3>
-              <p className="mt-1 break-words text-[13px] leading-5 text-[#6e6e73] [overflow-wrap:anywhere] dark:text-white/60">
+              <p className="mt-1 break-words text-[15px] leading-5 text-muted-foreground [overflow-wrap:anywhere]">
                 {error ||
                   `${activityRangeLabel(range)} of shares, requests, views, and link responses.`}
               </p>
@@ -151,7 +162,7 @@ export function OneLocationActivityDashboard({
               onRangeChange(value as OneLocationActivityRange)
             }
           >
-            <SelectTrigger className="h-9 w-full rounded-[12px] border-black/[0.04] bg-white text-[13px] shadow-sm sm:w-[132px] dark:border-white/[0.08] dark:bg-white/[0.07]">
+            <SelectTrigger className="h-9 w-full rounded-[12px] border-border/60 bg-[color:var(--app-card-surface-compact)] text-[13px] shadow-none sm:w-[132px]">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -187,10 +198,10 @@ export function OneLocationActivityDashboard({
 
         {activity.buckets.length ? (
           <div
-            aria-label={`Onepoint activity chart for ${activityRangeLabel(
+            aria-label={`Location activity chart for ${activityRangeLabel(
               range,
             )}`}
-            className="min-w-0 max-w-full overflow-hidden rounded-[14px] border border-black/[0.04] bg-white/70 p-3 dark:border-white/[0.08] dark:bg-white/[0.04]"
+            className={cn("min-w-0 max-w-full overflow-hidden p-3", SUBCARD_SURFACE)}
           >
             <div className="flex h-32 min-w-0 items-end gap-1.5 sm:gap-2">
               {activity.buckets.map((bucket) => {
@@ -202,13 +213,13 @@ export function OneLocationActivityDashboard({
                   >
                     <div className="flex h-24 w-full items-end">
                       <div
-                        className="flex w-full flex-col justify-end overflow-hidden rounded-t-[8px] bg-[#e5e5ea] dark:bg-white/10"
+                        className="flex w-full flex-col justify-end overflow-hidden rounded-t-[8px] bg-[color:var(--app-neutral-fill-strong)] dark:bg-white/10"
                         style={{ height: `${height}%` }}
                         title={`${bucket.label}: ${bucket.total} activities`}
                       >
                         {bucket.publicActivity > 0 ? (
                           <span
-                            className="block bg-[#ff9500]"
+                            className="block bg-[color:var(--app-warning)]"
                             style={{
                               flexGrow: bucket.publicActivity,
                               minHeight: 3,
@@ -223,22 +234,22 @@ export function OneLocationActivityDashboard({
                         ) : null}
                         {bucket.shares > 0 ? (
                           <span
-                            className="block bg-[#34c759]"
+                            className="block bg-[color:var(--app-success)]"
                             style={{ flexGrow: bucket.shares, minHeight: 3 }}
                           />
                         ) : null}
                       </div>
                     </div>
-                    <span className="max-w-full truncate text-[10px] font-semibold text-[#8e8e93] dark:text-white/45">
+                    <CaptionText className="max-w-full truncate">
                       {bucket.label}
-                    </span>
+                    </CaptionText>
                   </div>
                 );
               })}
             </div>
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px] font-semibold text-[#8e8e93] dark:text-white/50">
+            <HelperText as="div" className="mt-3 flex flex-wrap gap-2">
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-[#34c759]" />
+                <span className="h-2 w-2 rounded-full bg-[color:var(--app-success)]" />
                 Shares
               </span>
               <span className="inline-flex items-center gap-1">
@@ -246,10 +257,10 @@ export function OneLocationActivityDashboard({
                 Requests
               </span>
               <span className="inline-flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-[#ff9500]" />
+                <span className="h-2 w-2 rounded-full bg-[color:var(--app-warning)]" />
                 Links
               </span>
-            </div>
+            </HelperText>
           </div>
         ) : (
           <EmptyActivityState
@@ -261,30 +272,30 @@ export function OneLocationActivityDashboard({
 
         {recentEvents.length ? (
           <div className="space-y-2">
-            <p className="ml-1 text-[11px] font-semibold uppercase tracking-[0.08em] text-[#8e8e93] dark:text-white/45">
+            <SectionLabel as="p" className="ml-1">
               Recent history
-            </p>
+            </SectionLabel>
             <div className="min-w-0 space-y-2">
               {recentEvents.map((event) => (
                 <div
                   key={event.id}
-                  className="flex min-w-0 items-start gap-3 overflow-hidden rounded-[14px] bg-[#f7f7fa] p-3 dark:bg-white/[0.07]"
+                  className={cn("flex min-w-0 items-start gap-3 overflow-hidden p-3", SUBCARD_SURFACE)}
                 >
                   <span
                     className={cn(
-                      "mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
+                      "mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px]",
                       activityEventToneClassName(event.kind),
                     )}
                   >
                     <Clock3 className="h-4 w-4" aria-hidden="true" />
                   </span>
                   <div className="min-w-0 flex-1">
-                    <p className="break-words text-[14px] font-semibold text-[#1c1c1e] [overflow-wrap:anywhere] dark:text-white">
+                    <p className="break-words text-[15px] font-semibold leading-5 text-foreground [overflow-wrap:anywhere]">
                       {event.title}
                     </p>
-                    <p className="mt-0.5 break-words text-[12px] font-medium text-[#8e8e93] [overflow-wrap:anywhere] dark:text-white/55">
+                    <RowDescription className="mt-0.5 break-words [overflow-wrap:anywhere]">
                       {event.detail}
-                    </p>
+                    </RowDescription>
                   </div>
                 </div>
               ))}

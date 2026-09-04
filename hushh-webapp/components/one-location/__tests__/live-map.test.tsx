@@ -21,11 +21,17 @@ const point: PlainLocationPoint = {
   sourcePlatform: "web",
 };
 
+// `google.maps.event` is real API surface: cleanup detaches the marker and
+// clears listeners on both instances, because dropping a ref does not stop a
+// Maps instance from running. A mock without it passes only by omission.
+const mapsEvent = () => ({ clearInstanceListeners: vi.fn() });
+
 afterEach(() => {
   mockStatus.current = "loading";
   // @ts-expect-error test cleanup
   delete globalThis.google;
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("LiveMap", () => {
@@ -59,13 +65,13 @@ describe("LiveMap", () => {
   it("creates an interactive map + marker when ready", () => {
     // vitest 4.x requires non-arrow implementations for mocks called with `new`.
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker } };
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
     mockStatus.current = "ready";
 
     render(<LiveMap point={point} />);
@@ -75,15 +81,15 @@ describe("LiveMap", () => {
     expect(screen.queryByTitle("Live location map preview")).toBeNull();
   });
 
-  it("constructs the map with the app theme's color scheme", () => {
+  it("constructs a quiet preview map with the app theme's color scheme", () => {
     const Marker = vi.fn(function () {
-      return { getPosition: () => null, setPosition: vi.fn() };
+      return { getPosition: () => null, setPosition: vi.fn(), setMap: vi.fn() };
     });
     const Map = vi.fn(function () {
       return { panTo: vi.fn() };
     });
     // @ts-expect-error test global
-    globalThis.google = { maps: { Map, Marker } };
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
     mockStatus.current = "ready";
     mockTheme.current = "dark";
 
@@ -91,9 +97,62 @@ describe("LiveMap", () => {
 
     expect(Map).toHaveBeenCalledWith(
       expect.anything(),
-      expect.objectContaining({ colorScheme: "DARK" }),
+      expect.objectContaining({
+        colorScheme: "DARK",
+        disableDefaultUI: true,
+        keyboardShortcuts: false,
+      }),
     );
     mockTheme.current = "light";
+  });
+
+  it("restores the marker-centered zoom when an explicit refresh is requested", () => {
+    const markerSetPosition = vi.fn();
+    const mapPanTo = vi.fn();
+    const mapSetZoom = vi.fn();
+    const cancelAnimationFrame = vi.fn();
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn(() => 42),
+    );
+    vi.stubGlobal("cancelAnimationFrame", cancelAnimationFrame);
+    const Marker = vi.fn(function () {
+      return {
+        getPosition: () => ({
+          lat: () => point.latitude,
+          lng: () => point.longitude,
+        }),
+        setPosition: markerSetPosition,
+        setMap: vi.fn(),
+      };
+    });
+    const Map = vi.fn(function () {
+      return { panTo: mapPanTo, setZoom: mapSetZoom };
+    });
+    // @ts-expect-error test global
+    globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
+    mockStatus.current = "ready";
+
+    const { rerender } = render(
+      <LiveMap point={point} viewportResetKey={0} />,
+    );
+    markerSetPosition.mockClear();
+    mapPanTo.mockClear();
+    mapSetZoom.mockClear();
+    cancelAnimationFrame.mockClear();
+
+    rerender(<LiveMap point={point} viewportResetKey={1} />);
+
+    expect(cancelAnimationFrame).toHaveBeenCalledWith(42);
+    expect(markerSetPosition).toHaveBeenCalledWith({
+      lat: point.latitude,
+      lng: point.longitude,
+    });
+    expect(mapSetZoom).toHaveBeenCalledWith(16);
+    expect(mapPanTo).toHaveBeenCalledWith({
+      lat: point.latitude,
+      lng: point.longitude,
+    });
   });
 
   it("applies a dark filter to the iframe fallback so it cannot glow white", () => {
@@ -134,6 +193,7 @@ describe("LiveMap", () => {
                 }
               : null,
           setPosition: markerSetPositionSpy,
+          setMap: vi.fn(),
         };
       });
 
@@ -142,7 +202,7 @@ describe("LiveMap", () => {
       });
 
       // @ts-expect-error test global
-      globalThis.google = { maps: { Map, Marker } };
+      globalThis.google = { maps: { Map, Marker, event: mapsEvent() } };
       mockStatus.current = "ready";
 
       // Fix performance.now() so `start` is always 0 for deterministic t calculation.

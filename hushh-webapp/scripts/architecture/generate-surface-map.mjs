@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createHash } from "node:crypto";
 import path from "node:path";
 import process from "node:process";
 
@@ -19,26 +20,43 @@ function readJson(filePath) {
   return JSON.parse(read(filePath));
 }
 
+function toPosixPath(filePath) {
+  return filePath.split(path.sep).join("/");
+}
+
 function routeValuesFromRoutesTs(source) {
   return [
     ...new Set(
       [...source.matchAll(/\b[A-Z0-9_]+:\s*"([^"]+)"/g)].map(
-        (match) => match[1],
+        (match) => match[1] || "/",
       ),
     ),
   ].sort();
 }
 
 function routeValuesFromAppPages() {
-  return walkFiles(path.join(appRoot, "app"), (filePath) =>
-    filePath.endsWith("/page.tsx"),
+  return walkFiles(
+    path.join(appRoot, "app"),
+    (filePath) => path.basename(filePath) === "page.tsx",
   )
     .map((filePath) => {
-      const relative = path.relative(path.join(appRoot, "app"), filePath);
+      const relative = toPosixPath(
+        path.relative(path.join(appRoot, "app"), filePath),
+      );
       const route = relative.replace(/(?:^|\/)page\.tsx$/, "");
       return route ? `/${route}` : "/";
     })
     .sort();
+}
+
+/**
+ * Route constants can deliberately include a query-backed workspace view.
+ * They still resolve to the physical pathname and inherit that route's shell
+ * contract, but must remain distinct in the generated inventory so cache and
+ * native checks cannot silently miss a canonical tab selection.
+ */
+function pathnameForRoute(route) {
+  return String(route || "/").split(/[?#]/, 1)[0] || "/";
 }
 
 function walkFiles(dir, predicate, results = []) {
@@ -55,17 +73,19 @@ function walkFiles(dir, predicate, results = []) {
 }
 
 function routeToPageFile(route) {
-  const candidate = route === "/" ? "app/page.tsx" : `app${route}/page.tsx`;
+  const pathname = pathnameForRoute(route);
+  const candidate = pathname === "/" ? "app/page.tsx" : `app${pathname}/page.tsx`;
   const absolute = path.join(appRoot, candidate);
   return fs.existsSync(absolute) ? candidate : null;
 }
 
 function routeToVoiceContractFile(route) {
-  const base = route === "/" ? "app" : `app${route}`;
+  const pathname = pathnameForRoute(route);
+  const base = pathname === "/" ? "app" : `app${pathname}`;
   const candidates = [
     `${base}/page.voice-action-contract.json`,
     `${base}/page-client.voice-action-contract.json`,
-    ...(route === "/one/setup/[capability]"
+    ...(pathname === "/one/setup/[capability]"
       ? [`${base}/one-onboarding-capability-step.voice-action-contract.json`]
       : []),
   ].filter((candidate) => fs.existsSync(path.join(appRoot, candidate)));
@@ -78,9 +98,11 @@ function routeToVoiceContractFile(route) {
 }
 
 function apiTemplateFromRouteFile(filePath) {
-  const relative = path.relative(path.join(appRoot, "app/api"), filePath);
+  const relative = toPosixPath(
+    path.relative(path.join(appRoot, "app/api"), filePath),
+  );
   const withoutRoute = relative.replace(/\/route\.ts$/, "");
-  const parts = withoutRoute.split(path.sep).map((part) => {
+  const parts = withoutRoute.split("/").map((part) => {
     const catchAll = part.match(/^\[\.\.\.(.+)\]$/);
     if (catchAll) return `{${catchAll[1]}*}`;
     const dynamic = part.match(/^\[(.+)\]$/);
@@ -135,6 +157,234 @@ function routeSort(left, right) {
 }
 
 const routeOverrides = {
+  "/people/[personRef]": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/person-profile-service.ts",
+        service_methods: [
+          "getPublic",
+          "getViewer",
+          "createInformationRequest",
+          "getInformationRequestExports",
+          "cancelInformationRequest",
+          "connect",
+          "cancelConnectionRequest",
+          "removeConnection",
+        ],
+        nextjs_api_route: "/api/{public/people/{personRef},one/{path*}}",
+        nextjs_proxy_file:
+          "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/{public/people/*,one/people/*,one/information-requests/*}",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      public_projection:
+        "Signed-out reads expose minimal public identity only and use an unguessable immutable reference.",
+      authenticated_projection:
+        "Relationship, requestable scope metadata, grant metadata, and request history are viewer-relative; social connection grants no information.",
+      plaintext_boundary:
+        "Granted values remain encrypted through the backend and decrypt only after an explicit reveal in the unlocked client.",
+    },
+  },
+  "/one/calendar": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/google-calendar-service.ts",
+        service_methods: [
+          "status",
+          "startConnect",
+          "disconnect",
+          "executeProposal",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/one/calendar/{status,connect/*,proposals/*}",
+        native_transport:
+          "Web-only Google OAuth; Calendar does not claim native authorization support.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      oauth_connection:
+        "Google refresh tokens remain server-encrypted; the browser receives only connection status and an authorization URL.",
+      mutation_authority:
+        "Calendar creates, reschedules, and cancellations remain short-lived proposals and execute only after explicit owner confirmation in One chat.",
+    },
+  },
+  "/one/setup/calendar": {
+    api_dependencies: [
+      {
+        service_file: "lib/services/google-calendar-service.ts",
+        service_methods: ["status", "startConnect", "disconnect"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/calendar/{status,connect/*}",
+        native_transport:
+          "Web-only Google OAuth; Calendar setup does not claim native authorization support.",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      oauth_connection:
+        "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL.",
+    },
+  },
+  "/one/location": {
+    api_dependencies: [
+      {
+        service_file: "lib/one-location/service.ts",
+        service_methods: [
+          "getState",
+          "listCircles",
+          "getCircle",
+          "createNamedCircle",
+          "updateNamedCircle",
+          "deleteNamedCircle",
+          "createNamedCircleInviteCode",
+          "revokeNamedCircleInviteCode",
+          "resolveNamedCircleCode",
+          "joinNamedCircle",
+          "removeNamedCircleMember",
+          "leaveNamedCircle",
+          "listNamedCircleEligibleConnections",
+          "createNamedCircleMemberInvites",
+          "listNamedCircleMemberInvites",
+          "acceptNamedCircleMemberInvite",
+          "declineNamedCircleMemberInvite",
+          "cancelNamedCircleMemberInvite",
+          "addSmsContact",
+          "removeSmsContact",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/one/location/{circles,circle-codes,circle-member-invites,sms-contacts}/*",
+        native_transport:
+          "CapacitorHttp direct backend via the shared One Location service",
+      },
+      {
+        service_file: "lib/services/connections-service.ts",
+        service_methods: ["syncContacts"],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family: "/api/one/connections/contact-sync",
+        native_transport:
+          "CapacitorHttp direct backend via ConnectionsService after local contact normalization and hashing",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        package: "@capacitor/share",
+        integration:
+          "Native iOS and Android share sheets for text-only Circle invite codes; code values never enter URLs",
+      },
+      {
+        package: "HushhContacts",
+        integration:
+          "Read-only local address-book source; raw contact records stay in WebView memory while normalized phone hashes are sent through ConnectionsService",
+        ios: "CNContactStore read on a background queue with limited-access and truncation metadata",
+        android:
+          "READ_CONTACTS content-provider scan on Dispatchers.IO with distinct-contact totals and truncation metadata",
+      },
+    ],
+    thread_and_consent_contract: {
+      membership_authority:
+        "Circle join creates source-aware connections with active members, but never creates a trusted edge, SMS selection, location grant, envelope, or capability",
+      location_authority:
+        "Every live-location share remains recipient-specific, encrypted, duration-bounded, and explicitly confirmed",
+      circle_targeting_authority:
+        "Share and Check-In expand only the explicitly selected Circle's current ready members; SMS adds an explicit current-member snapshot, and future members are never auto-selected",
+      circle_invitation_authority:
+        "Every active member may share the shared Circle code or invite their own direct connections; invitees still accept, while rotation, revocation, rename, removal, and deletion remain owner-governed",
+      invite_code_storage:
+        "Active members may re-read the shared code under private no-store responses; only its keyed digest and derivation version persist, and raw codes never enter URLs or durable client storage",
+    },
+  },
+  "/one/location/map": {
+    api_dependencies: [
+      {
+        service_file: "lib/one-location/service.ts",
+        service_methods: [
+          "getMapState",
+          "updateMapPreferences",
+          "getState",
+          "storeEnvelope",
+          "captureCurrentPosition",
+          "getPermissionState",
+          "openLocationSettings",
+          "openAppSettings",
+          "nearbyPlaces",
+          "placesAutocomplete",
+          "placeDetails",
+          "getNearbyPresence",
+          "checkInNearby",
+          "checkoutNearby",
+          "requestNearbyConnection",
+        ],
+        nextjs_api_route: "/api/one/{path*}",
+        nextjs_proxy_file: "app/api/one/[...path]/route.ts",
+        backend_endpoint_family:
+          "/api/one/location/{map-state,map-preferences,grants/*/envelopes,maps/*,nearby-presence*}",
+        native_transport: "CapacitorHttp direct backend via the shared One Location service",
+      },
+    ],
+    native_plugin_dependencies: [
+      {
+        package: "@capacitor/google-maps",
+        integration: "Capacitor sync-managed native renderer; no handwritten plugin bridge",
+        ios: "Restricted bundle-ID Maps SDK key passed to GoogleMap.create",
+        android: "Restricted package/SHA Maps SDK key plus transparent map route layers",
+      },
+      {
+        package: "@capacitor/app",
+        integration: "Foreground lifecycle gates the bounded map refresh loop",
+      },
+      {
+        package: "HushhLocation",
+        integration:
+          "Foreground-only permission, bounded one-shot position capture, and native settings recovery",
+        ios: "When-in-use Core Location; full-accuracy checks; no background mode",
+        android:
+          "Fine/coarse foreground permission; coarse-only capture avoids the GPS provider; no background permission",
+      },
+    ],
+    thread_and_consent_contract: {
+      baseline_transport:
+        "Active recipient-scoped ciphertext only; no public or iframe fallback",
+      coordinate_storage:
+        "Live-share map coordinates stay in foreground renderer memory. Nearby presence captures a final check-in point and stores it only under AES-256-GCM plus a rotating spatial token; accuracy is request-memory-only, and peers receive no coordinates.",
+      location_capture:
+        "After renderer consent, Map takes one bounded foreground fix for camera focus. Locate me publishes only on an explicit tap. Nearby check-in takes a fresh bounded fix only for an explicit, time-boxed check-in.",
+      visibility:
+        "Ghost Mode remains the map default. Local/UAT nearby discovery requires separate explicit visibility consent, returns a roster without peer coordinates, and fails closed in production.",
+    },
+  },
+  "/one/kai/news": {
+    api_dependencies: [
+      {
+        service_file: "lib/kai/kai-market-news-resource.ts",
+        service_methods: ["getStaleFirst", "refresh", "invalidateUser"],
+        nextjs_api_route: "/api/kai/{path*}",
+        nextjs_proxy_file: "app/api/kai/[...path]/route.ts",
+        backend_endpoint_family: "/api/kai/market/news/*",
+        native_transport:
+          "CapacitorHttp direct backend via ApiService.apiFetch on native",
+      },
+    ],
+    native_plugin_dependencies: [],
+    thread_and_consent_contract: {
+      baseline_transport: "Firebase-authenticated public market snapshot",
+      personalized_transport:
+        "VAULT_OWNER token scopes tracked-symbol headlines; token stays memory-only",
+      cache_boundary:
+        "browser page cache contains only public provider headlines; server cursor slices its cached snapshot",
+    },
+  },
   "/connected-systems": {
     api_dependencies: [
       {
@@ -162,7 +412,7 @@ const routeOverrides = {
       terminal_payload_storage:
         "field names, record id, result class, and sanitized summaries only",
       external_plaintext_boundary:
-        "Salesforce CRM MCP transport is outside the ZK boundary until private VPC proxy replaces Customer 0 CloudHub endpoint.",
+        "Salesforce CRM MCP transport is outside the ZK boundary. Hussh reaches MuleSoft Managed Omni Gateway over Streamable HTTP; MuleSoft Private Space owns the downstream CRM network boundary.",
     },
   },
   "/gmail": {
@@ -361,6 +611,9 @@ function validateVoicePlaybook(route, value) {
   ) {
     throw new Error(`Route ${route} proactive playbook requires an entryCue`);
   }
+  if (value.proactivity === "on_entry" && !String(value.primaryActionId || "").trim()) {
+    throw new Error(`Route ${route} proactive playbook requires a primaryActionId`);
+  }
   return value;
 }
 
@@ -395,18 +648,18 @@ function buildSurfaceMap() {
   const inventoryByRoute = new Map(
     (inventory.routes || []).map((route) => [route.route, route]),
   );
-  const apiRoutes = walkFiles(path.join(appRoot, "app/api"), (filePath) =>
-    filePath.endsWith("/route.ts"),
+  const apiRoutes = walkFiles(
+    path.join(appRoot, "app/api"),
+    (filePath) => path.basename(filePath) === "route.ts",
   )
     .map((filePath) => ({
       template: apiTemplateFromRouteFile(filePath),
-      file: path.relative(appRoot, filePath),
+      file: toPosixPath(path.relative(appRoot, filePath)),
     }))
     .sort((left, right) => left.template.localeCompare(right.template));
 
   return {
     schema_version: "hushh.frontend_native_surface_map.v1",
-    generated_at: "2026-05-21",
     purpose:
       "Scaffolded contract mapping app routes to Next.js API, backend, native parity, plugin, and voice/action surfaces.",
     sources: {
@@ -422,7 +675,10 @@ function buildSurfaceMap() {
     routes: routes.map((route) => {
       const pageFile = routeToPageFile(route);
       const voiceContractFile = routeToVoiceContractFile(route);
-      const routeContractEntry = contractByRoute.get(route) || null;
+      const routeContractEntry =
+        contractByRoute.get(route) ||
+        contractByRoute.get(pathnameForRoute(route)) ||
+        null;
       if (!routeContractEntry) {
         throw new Error(
           `Route ${route} is missing from app-route-layout.contract.json`,
@@ -486,15 +742,22 @@ function buildSurfaceMap() {
               },
             }
           : null,
-        native: inventoryByRoute.get(route) || null,
+        native:
+          inventoryByRoute.get(route) ||
+          inventoryByRoute.get(pathnameForRoute(route)) ||
+          null,
         shell: shellForPage(pageFile),
         voice_action_contract_file: voiceContractFile,
         voice_action_contract_ids: readVoiceActionIds(voiceContractFile),
-        api_dependencies: routeOverrides[route]?.api_dependencies || [],
+        api_dependencies:
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.api_dependencies || [],
         native_plugin_dependencies:
-          routeOverrides[route]?.native_plugin_dependencies || [],
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.native_plugin_dependencies || [],
         thread_and_consent_contract:
-          routeOverrides[route]?.thread_and_consent_contract || null,
+          (routeOverrides[route] || routeOverrides[pathnameForRoute(route)])
+            ?.thread_and_consent_contract || null,
       };
     }),
   };
@@ -504,8 +767,17 @@ function stableJson(value) {
   return `${JSON.stringify(value, null, 2)}\n`;
 }
 
+function withContentDigest(value) {
+  return {
+    ...value,
+    content_sha256: createHash("sha256")
+      .update(JSON.stringify(value))
+      .digest("hex"),
+  };
+}
+
 const check = process.argv.includes("--check");
-const next = stableJson(buildSurfaceMap());
+const next = stableJson(withContentDigest(buildSurfaceMap()));
 
 if (check) {
   const current = fs.existsSync(outputPath) ? read(outputPath) : "";

@@ -38,6 +38,10 @@ from hushh_mcp.constants import (
     KAI_OPTIMIZE_STREAM_TIMEOUT_SECONDS,
 )
 from hushh_mcp.operons.kai.fetchers import RealtimeDataUnavailable, fetch_market_data
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 from hushh_mcp.services.renaissance_service import get_renaissance_service
 
 logger = logging.getLogger(__name__)
@@ -388,12 +392,9 @@ async def analyze_portfolio_losers(
     )
 
     # LLM synthesis (Optimize Portfolio: criteria-first, JSON-only output)
-    # SDK auto-configures from GOOGLE_API_KEY and GOOGLE_GENAI_USE_VERTEXAI env vars
-    from google import genai
     from google.genai import types as genai_types
-    from google.genai.types import HttpOptions
 
-    client = genai.Client(http_options=HttpOptions(api_version="v1"))
+    client = build_managed_runtime_client("gemini")
     model_to_use = GEMINI_MODEL
     logger.info(f"Optimize Portfolio: Using Vertex AI with model {model_to_use}")
     cash_positions_excluded, cash_value_excluded = _summarize_excluded_cash_positions(
@@ -434,7 +435,11 @@ async def analyze_portfolio_losers(
                 include_thoughts=False,
                 thinking_level=thinking_level,
             )
-        config = genai_types.GenerateContentConfig(**config_kwargs)
+        config = build_generate_content_config(
+            genai_types,
+            model_to_use,
+            **config_kwargs,
+        )
         resp = await client.aio.models.generate_content(
             model=model_to_use,
             contents=prompt,
@@ -864,11 +869,9 @@ async def analyze_portfolio_losers_stream(
                     {"stage": "thinking", "message": "AI reasoning about portfolio health..."},
                 )
 
-                from google import genai
                 from google.genai import types as genai_types
-                from google.genai.types import HttpOptions
 
-                client = genai.Client(http_options=HttpOptions(api_version="v1"))
+                client = build_managed_runtime_client("gemini")
                 model_to_use = GEMINI_MODEL
                 logger.info(f"Optimize Portfolio Stream: Using Vertex AI with model {model_to_use}")
 
@@ -898,7 +901,11 @@ async def analyze_portfolio_losers_stream(
                         include_thoughts=bool(KAI_LLM_STREAM_INCLUDE_THOUGHTS),
                         thinking_level=thinking_level,
                     )
-                config = genai_types.GenerateContentConfig(**config_kwargs)
+                config = build_generate_content_config(
+                    genai_types,
+                    model_to_use,
+                    **config_kwargs,
+                )
 
                 # Stream the response
                 full_response = ""

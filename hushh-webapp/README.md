@@ -47,7 +47,7 @@ flowchart TB
   resources --> api
 ```
 
-Next.js + React + Capacitor client for Kai and consent-first personal data flows.
+Next.js + React + Capacitor client for Kai and consent-first private information flows.
 
 ## Scope
 
@@ -66,8 +66,10 @@ Core invariants:
 - `/login` -> auth-only surface (Google/Apple + disabled phone)
 - `/one/onboarding` -> optional setup hub, questionnaire, and persona
 - `/one/kai/import` -> import/connect flow + vault introduction
-- `/one/kai` -> signed-in info home + first-time bottom-nav tour
-- `/one/kai/portfolio` -> portfolio analytics/dashboard
+- `/one/kai?tab=market` -> Finance market
+- `/one/kai?tab=portfolio` -> portfolio analytics/dashboard
+- `/one/kai?tab=analysis` -> analysis workspace
+- `/kai`, `/one/kai/market`, `/one/kai/portfolio`, and `/one/kai/analysis` -> compatibility redirects
 
 Guard flow:
 - `KaiOnboardingGuard` blocks non-onboarding `/one/kai/*` when onboarding is incomplete.
@@ -136,7 +138,7 @@ cd hushh-webapp
 npm run typecheck
 npm test
 npm run build
-npm run ios:test
+npm run ios:cold:audit
 ```
 
 Backend tests (monorepo sibling):

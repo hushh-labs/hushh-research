@@ -94,14 +94,17 @@ def get_owned_prs(repo: str, days: int) -> list[dict]:
 def get_owned_issues(repo: str, days: int) -> list[dict]:
     """Issues the operator is assigned to, updated recently (open and closed)."""
     since = (dt.datetime.now() - dt.timedelta(days=days)).strftime("%Y-%m-%d")
-    return _gh_json([
-        "issue", "list", "--repo", repo,
-        "--state", "all",
-        "--search", f"assignee:{OPERATOR_LOGIN} updated:>={since}",
-        "--limit", "15", # Kept small for fast execution
-        "--json",
-        "number,title,state,url,assignees,labels,createdAt,updatedAt,body",
-    ])
+    try:
+        return _gh_json([
+            "issue", "list", "--repo", repo,
+            "--state", "all",
+            "--search", f"assignee:{OPERATOR_LOGIN} updated:>={since}",
+            "--limit", "15", # Kept small for fast execution
+            "--json",
+            "number,title,state,url,assignees,labels,createdAt,updatedAt,body",
+        ])
+    except Exception:
+        return []
 
 
 def is_owned_by_operator(item: dict) -> bool:
@@ -116,9 +119,24 @@ def is_owned_by_operator(item: dict) -> bool:
 
 
 def extract_referenced_issues(text: str) -> list[int]:
+    """Extract issue numbers from GitHub closing-keyword references only.
+
+    IMPORTANT: the keyword prefix is REQUIRED, not optional. An earlier
+    version made the keyword group optional (`(?:close|...)?`), which matched
+    ANY bare `#NNN` anywhere in the body -- including CSS hex colors like
+    `#007aff` (captured as issue #007) and narrative cross-references to
+    OTHER PRs ("pairs with #4441", "mirrors #4442") that are not closing
+    references at all. Verified 2026-07-14: this false-matched 4 of ~37 PRs
+    that were actually unlinked, silently marking them "linked" in state and
+    suppressing the unlinked-PR warning that should have fired. A matched
+    non-issue number (e.g. a PR number) also risks get_issue_json()'s
+    pr-view fallback treating a PR as a linkable "issue" -- never let that
+    reach ensure_issue_on_project/update_task; PRs must never land on the
+    board (see board sync SOP: "PRs are NOT board items").
+    """
     if not text:
         return []
-    pattern = r"(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved|ref|refs)?\s*#(\d+)"
+    pattern = r"(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)"
     return [int(n) for n in re.findall(pattern, text, re.IGNORECASE)]
 
 
@@ -330,6 +348,7 @@ _SECTOR_BY_REPO = {
     "hushh-labs/HushhVoice": "HushhVoice",
     "RGlodAkshat/HushhVoice": "HushhVoice",
     "hushh-labs/HusshOne": "Hussh One",
+    "hushh-labs/hussh-one-hermes": "Hussh One",
     "hushh-labs/hermes-agent": "Hussh One",
 }
 
@@ -426,7 +445,7 @@ def sync_taxonomy_fields(dry_run: bool = False) -> tuple[list[str], bool]:
 
 
 def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
-    tracked_repos = ["hushh-labs/hushh-research", "hushh-labs/hushh-search-console"]
+    tracked_repos = ["hushh-labs/hushh-research", "hushh-labs/hushh-search-console", "hushh-labs/hussh-one-hermes"]
     has_changes = False
     prev_state = _load_state()
     cur_state: dict[str, str] = {}
@@ -505,6 +524,27 @@ def sync_board_cycle(dry_run: bool = False) -> tuple[str, bool]:
         refs = set(extract_referenced_issues(pr.get("body", "")))
         refs.update(extract_referenced_issues(pr.get("headRefName", "")))
         r = pr["repo"]
+
+        # Unlinked-merge guard (Hussh Research SOP gap, 2026-07-09): a merged/
+        # closed owned PR with ZERO issue references cannot drive any board
+        # item to Done -- the completion is invisible to this sync. Flag it in
+        # the report instead of silently reporting a clean "no changes" run,
+        # so the operator notices and backfills issues/Closes-# links rather
+        # than the board silently drifting behind real shipped work.
+        unlinked_key = f"{r}-pr#{pr['number']}-unlinked"
+        if not refs:
+            if prev_state.get(unlinked_key) != "flagged":
+                pr_title = pr.get("title", "")
+                out.append(
+                    f"- \u26a0\ufe0f **{r}#{pr['number']}** ({pr_title!r}) merged/closed with "
+                    f"NO issue references -- board not updated. Add `Closes #NNNN` to the PR body "
+                    f"and re-run sync, or backfill an issue for this work."
+                )
+                has_changes = True
+            cur_state[unlinked_key] = "flagged"
+        else:
+            cur_state[unlinked_key] = "linked"
+
         for num in refs:
             try:
                 details = board_ops.get_issue_json(r, num)

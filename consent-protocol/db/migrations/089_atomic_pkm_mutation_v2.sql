@@ -35,6 +35,16 @@ BEGIN
   IF jsonb_typeof(p_segment_rows) <> 'array' OR jsonb_array_length(p_segment_rows) = 0 THEN
     RAISE EXCEPTION 'segment_rows_required';
   END IF;
+  IF EXISTS (
+    SELECT 1
+    FROM jsonb_to_recordset(COALESCE(p_scope_rows, '[]'::JSONB)) AS scope_row(
+      visibility_posture TEXT
+    )
+    WHERE scope_row.visibility_posture IS NULL
+      OR scope_row.visibility_posture NOT IN ('private', 'consent_required')
+  ) THEN
+    RAISE EXCEPTION 'unsupported_pkm_scope_visibility_posture';
+  END IF;
 
   -- Serialize all writers for this user/domain, including the first write.
   PERFORM pg_advisory_xact_lock(hashtextextended(p_user_id || ':' || p_domain, 0));
@@ -146,12 +156,16 @@ BEGIN
   SELECT p_user_id, p_domain, row_data.scope_handle, row_data.scope_label,
     row_data.segment_ids, row_data.sensitivity_tier, row_data.scope_kind,
     row_data.exposure_enabled, row_data.manifest_version, row_data.summary_projection,
-    CASE WHEN row_data.visibility_posture = 'private' THEN 'private' ELSE 'consent_required' END,
-    FALSE, NULL, FALSE
+    row_data.visibility_posture,
+    COALESCE(row_data.default_projection_ready, FALSE),
+    row_data.default_projection_updated_at,
+    COALESCE(row_data.owner_consent_override, FALSE)
   FROM jsonb_to_recordset(COALESCE(p_scope_rows, '[]'::JSONB)) AS row_data(
     scope_handle TEXT, scope_label TEXT, segment_ids TEXT[], sensitivity_tier TEXT,
     scope_kind TEXT, exposure_enabled BOOLEAN, manifest_version INTEGER,
-    summary_projection JSONB, visibility_posture TEXT
+    summary_projection JSONB, visibility_posture TEXT,
+    default_projection_ready BOOLEAN, default_projection_updated_at TIMESTAMPTZ,
+    owner_consent_override BOOLEAN
   );
 
   PERFORM merge_pkm_domain_summary(p_user_id, p_domain, COALESCE(p_summary_patch, '{}'::JSONB), ARRAY[p_domain]);

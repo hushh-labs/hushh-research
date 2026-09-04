@@ -52,6 +52,12 @@ class TestStaticScopes:
             ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST.value == "cap.location.live.refer_request"
         )
 
+    def test_nearby_presence_capability_scope_values(self):
+        """Nearby presence is separate from live-location sharing."""
+        assert ConsentScope.CAP_LOCATION_NEARBY_PUBLISH.value == ("cap.location.nearby.publish")
+        assert ConsentScope.CAP_LOCATION_NEARBY_DISCOVER.value == ("cap.location.nearby.discover")
+        assert ConsentScope.CAP_LOCATION_NEARBY_REVOKE.value == ("cap.location.nearby.revoke")
+
     def test_retired_scopes_are_not_active_enum_members(self):
         assert SCOPE_POLICY_VERSION == 2
         assert "agent.one.orchestrate" in RETIRED_SCOPE_VALUES
@@ -106,11 +112,15 @@ class TestStaticScopes:
         assert ConsentScope.CAP_LOCATION_LIVE_REQUEST in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_REVOKE in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_PUBLISH in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_DISCOVER in cap_scopes
+        assert ConsentScope.CAP_LOCATION_NEARBY_REVOKE in cap_scopes
         assert ConsentScope.CAP_LOCATION_LIVE_VIEW not in ConsentScope.agent_scopes()
 
     def test_external_requestable_scope_contract(self):
         assert ConsentScope.is_external_requestable_scope("cap.one.invoke")
         assert ConsentScope.is_external_requestable_scope("attr.financial.portfolio.*")
+        assert not ConsentScope.is_external_requestable_scope("attr.source_library.knowledge.*")
         assert not ConsentScope.is_external_requestable_scope("attr.financial.*")
         assert not ConsentScope.is_external_requestable_scope("attr.financial.portfolio.value")
         assert not ConsentScope.is_external_requestable_scope("pkm.read")
@@ -176,3 +186,8 @@ class TestDynamicScopes:
         assert (
             ConsentScope.check_access("attr.subscriptions.netflix", ["attr.financial.*"]) is False
         )
+
+    def test_retired_source_library_grant_never_authorizes(self):
+        scope = "attr.source_library.knowledge.*"
+        assert ConsentScope.check_access(scope, [scope]) is False
+        assert ConsentScope.check_access(scope, ["vault.owner"]) is True

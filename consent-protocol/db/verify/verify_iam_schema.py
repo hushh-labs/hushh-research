@@ -28,8 +28,43 @@ REQUIRED_TABLES = (
     "marketplace_public_profiles",
     "relationship_share_grants",
     "relationship_share_events",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
+    "ria_pick_legacy_retirements",
     "runtime_persona_state",
 )
+
+REQUIRED_COLUMNS = {
+    "relationship_share_grants": (
+        "connection_request_id",
+        "connection_scope_proposal_id",
+    ),
+    "relationship_share_events": (
+        "connection_request_id",
+        "connection_scope_proposal_id",
+    ),
+    "connection_scope_proposals": (
+        "connection_request_id",
+        "scope_handle",
+        "capability_key",
+        "direction",
+        "owner_user_id",
+        "receiver_user_id",
+        "status",
+        "expires_at",
+    ),
+    "connection_scope_proposal_events": (
+        "connection_scope_proposal_id",
+        "event_type",
+    ),
+    "ria_pick_legacy_retirements": (
+        "legacy_upload_id",
+        "owner_user_id",
+        "ria_profile_id",
+        "top_pick_count",
+        "retired_at",
+    ),
+}
 
 REQUIRED_TEMPLATE_IDS = (
     "ria_financial_summary_v1",
@@ -37,9 +72,39 @@ REQUIRED_TEMPLATE_IDS = (
     "investor_advisor_disclosure_v1",
 )
 
+_CONNECT_ATTEMPTS = 3
+_CONNECT_TIMEOUT_SECONDS = 10
+
+
+async def _connect_with_retry() -> asyncpg.Connection:
+    """Tolerate a Cloud SQL proxy reconnect while local preflight is starting."""
+
+    for attempt in range(1, _CONNECT_ATTEMPTS + 1):
+        try:
+            return await asyncpg.connect(
+                get_database_url(),
+                ssl=get_database_ssl(),
+                timeout=_CONNECT_TIMEOUT_SECONDS,
+            )
+        except (asyncpg.PostgresConnectionError, OSError) as exc:
+            if attempt == _CONNECT_ATTEMPTS:
+                raise RuntimeError(
+                    "database connection was unavailable after "
+                    f"{_CONNECT_ATTEMPTS} attempts ({type(exc).__name__})"
+                ) from exc
+            print(
+                "Database connection reset during IAM schema verification; "
+                f"retrying ({attempt}/{_CONNECT_ATTEMPTS})..."
+            )
+            await asyncio.sleep(attempt)
+
 
 async def main() -> int:
-    conn = await asyncpg.connect(get_database_url(), ssl=get_database_ssl())
+    try:
+        conn = await _connect_with_retry()
+    except RuntimeError as exc:
+        print(f"IAM schema verification FAILED: {exc}")
+        return 1
     try:
         failures: list[str] = []
 
@@ -50,6 +115,22 @@ async def main() -> int:
                 failures.append(f"Missing table: {table}")
             else:
                 existing_tables.add(table)
+
+        for table, expected_columns in REQUIRED_COLUMNS.items():
+            if table not in existing_tables:
+                continue
+            rows = await conn.fetch(
+                """
+                SELECT column_name
+                FROM information_schema.columns
+                WHERE table_schema = 'public' AND table_name = $1
+                """,
+                table,
+            )
+            actual_columns = {str(row["column_name"]) for row in rows}
+            for column in expected_columns:
+                if column not in actual_columns:
+                    failures.append(f"Missing column: {table}.{column}")
 
         if "consent_scope_templates" in existing_tables:
             try:

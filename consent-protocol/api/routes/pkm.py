@@ -6,18 +6,32 @@ Canonical API surface for PKM.
 """
 
 import logging
+import os
+import time
 from typing import Literal
 
-from fastapi import APIRouter, BackgroundTasks, Body, Depends, Header, HTTPException, Path, status
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    Depends,
+    Header,
+    HTTPException,
+    Path,
+    Query,
+    status,
+)
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from api.routes.pkm_routes_shared import (
+    DeleteDomainRequest,
     DeleteDomainResponse,
     DomainDataResponse,
     DomainManifestResponse,
     DomainRegistryResponse,
     PersonalKnowledgeModelMetadataResponse,
+    PkmDeviceSyncResponse,
     PkmUpgradeStatusResponse,
     ReconcilePkmResponse,
     StartOrResumeUpgradeRequest,
@@ -37,7 +51,13 @@ from api.routes.pkm_routes_shared import (
     delete_domain_data as _delete_domain_data,
 )
 from api.routes.pkm_routes_shared import (
+    delete_domain_data_confirmed as _delete_domain_data_confirmed,
+)
+from api.routes.pkm_routes_shared import (
     fail_upgrade_run as _fail_upgrade_run,
+)
+from api.routes.pkm_routes_shared import (
+    get_device_sync_events as _get_device_sync_events,
 )
 from api.routes.pkm_routes_shared import (
     get_domain_data as _get_domain_data,
@@ -82,8 +102,12 @@ from api.routes.pkm_routes_shared import (
     validate_store_domain as _validate_store_domain,
 )
 from hushh_mcp.pricing import SlicePricingInput, compute_suggested_price
+from hushh_mcp.services.domain_contracts import validate_dynamic_top_level_domain
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.pkm_agent_lab_service import get_pkm_agent_lab_service
+from hushh_mcp.services.pkm_mutation_contracts import (
+    PKM_MAX_AFFECTED_SHARING_IDS,
+)
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/pkm", tags=["pkm"])
@@ -118,7 +142,9 @@ async def require_pkm_metadata_access(
 
 class PKMAgentLabStructureRequest(BaseModel):
     user_id: str = Field(min_length=1, max_length=128)
-    message: str = Field(min_length=1, max_length=12000)
+    # Imported personal profiles routinely exceed a short chat-message limit.
+    # Keep a hard bound for abuse protection while accepting a complete export.
+    message: str = Field(min_length=1, max_length=50000)
     current_domains: list[str] = Field(default_factory=list, max_length=256)
     current_manifests: list[dict] = Field(default_factory=list, max_length=256)
     simulated_state: dict | None = None
@@ -146,6 +172,19 @@ class PKMAgentLabStructureResponse(BaseModel):
     preview_summary: dict = Field(default_factory=dict)
     performance: dict = Field(default_factory=dict)
     context_plan: dict = Field(default_factory=dict)
+
+
+class PKMMutationSharingImpactResponse(BaseModel):
+    active_recipient_count: int = Field(ge=0)
+    recipient_labels: list[str] = Field(default_factory=list, max_length=100)
+    enters_next_export_revision: bool = False
+    summary: str = Field(min_length=1, max_length=512)
+    affected_grant_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
+    affected_export_ids: list[str] = Field(
+        default_factory=list, max_length=PKM_MAX_AFFECTED_SHARING_IDS
+    )
 
 
 @router.post("/store-domain", response_model=StoreDomainResponse)
@@ -191,6 +230,51 @@ async def get_domain_manifest(
     return await _get_domain_manifest(user_id, domain, token_data)
 
 
+@router.get(
+    "/memory/mutation-impact/{user_id}/{domain}",
+    response_model=PKMMutationSharingImpactResponse,
+)
+async def get_pkm_mutation_sharing_impact(
+    user_id: str = Path(..., min_length=1, max_length=128),
+    domain: str = Path(..., min_length=1, max_length=64),
+    scope_path: str = Query(..., min_length=1, max_length=256),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    if token_data.get("user_id") != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Token user_id does not match request user_id",
+        )
+    try:
+        canonical_domain = validate_dynamic_top_level_domain(domain, allow_internal=True)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "PKM_DOMAIN_INVALID", "message": str(exc)},
+        ) from exc
+    normalized_scope = scope_path.strip().split(".", 1)[0]
+    if not normalized_scope:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={"code": "PKM_SCOPE_INVALID", "message": "A reviewable scope is required."},
+        )
+    try:
+        return await get_pkm_service().get_mutation_sharing_impact(
+            user_id=user_id,
+            domain=canonical_domain,
+            scope_path=normalized_scope,
+        )
+    except Exception as exc:
+        logger.warning("PKM mutation-impact preflight unavailable: %s", type(exc).__name__)
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "PKM_SHARING_IMPACT_UNAVAILABLE",
+                "message": "Current recipients could not be verified. Try again.",
+            },
+        ) from exc
+
+
 @router.delete("/domain-data/{user_id}/{domain}", response_model=DeleteDomainResponse)
 async def delete_domain_data(
     user_id: str = Path(..., max_length=128),
@@ -198,6 +282,29 @@ async def delete_domain_data(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     return await _delete_domain_data(user_id, domain, token_data)
+
+
+@router.post("/delete-domain", response_model=DeleteDomainResponse)
+async def delete_domain_data_confirmed(
+    request: DeleteDomainRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _delete_domain_data_confirmed(request, token_data)
+
+
+@router.get("/device-sync/{user_id}", response_model=PkmDeviceSyncResponse)
+async def get_device_sync_events(
+    user_id: str = Path(..., max_length=128),
+    after_cursor: int = Query(default=0, ge=0),
+    limit: int = Query(default=100, ge=1, le=500),
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    return await _get_device_sync_events(
+        user_id,
+        after_cursor,
+        limit,
+        token_data,
+    )
 
 
 @router.post("/reconcile/{user_id}", response_model=ReconcilePkmResponse)
@@ -292,24 +399,50 @@ async def get_stock_context(
     return await _get_stock_context(request, token_data)
 
 
-@router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)
-async def preview_pkm_structure(
+async def _generate_pkm_memory_proposals(
     request: PKMAgentLabStructureRequest,
-    token_data: dict = Depends(require_vault_owner_token),
+    token_data: dict,
+    *,
+    ingestion_id: str | None = None,
+    chunk_index: int | None = None,
 ):
     if token_data.get("user_id") != request.user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Token user_id does not match request user_id",
         )
-    service = get_pkm_agent_lab_service()
-    payload = await service.generate_structure_preview(
-        user_id=request.user_id,
-        message=request.message,
-        current_domains=request.current_domains,
-        current_manifests=request.current_manifests,
-        simulated_state=request.simulated_state,
+    safe_ingestion_id = (
+        "".join(
+            character
+            for character in str(ingestion_id or "")
+            if character.isalnum() or character in "-_"
+        )[:96]
+        or "none"
     )
+    started_at = time.perf_counter()
+    logger.info(
+        "pkm.memory_proposal.started ingestion_id=%s chunk_index=%s message_chars=%s",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+    )
+    service = get_pkm_agent_lab_service()
+    try:
+        payload = await service.generate_structure_preview(
+            user_id=request.user_id,
+            message=request.message,
+            current_domains=request.current_domains,
+            current_manifests=request.current_manifests,
+            simulated_state=request.simulated_state,
+        )
+    except Exception:
+        logger.exception(
+            "pkm.memory_proposal.failed ingestion_id=%s chunk_index=%s message_chars=%s error_code=proposal_generation_failed",
+            safe_ingestion_id,
+            chunk_index or 0,
+            len(request.message),
+        )
+        raise
     pkm_service = get_pkm_service()
     preview_cards = payload.get("preview_cards") or []
     total_active_recipients = 0
@@ -358,13 +491,58 @@ async def preview_pkm_structure(
                 },
             ) from exc
         card["sharing_impact"] = sharing_impact
+        if (
+            card.get("write_mode") == "can_save"
+            and int(sharing_impact.get("active_recipient_count") or 0) > 0
+        ):
+            card["write_mode"] = "confirm_first"
+            card["requires_confirmation"] = True
+            card.setdefault("validation_hints", []).append("auto_save_blocked_by_active_recipients")
         total_active_recipients += int(sharing_impact.get("active_recipient_count") or 0)
     payload["preview_cards"] = preview_cards
     payload["preview_summary"] = {
         **(payload.get("preview_summary") or {}),
         "active_recipient_count": total_active_recipients,
     }
+    logger.info(
+        "pkm.memory_proposal.completed ingestion_id=%s chunk_index=%s message_chars=%s card_count=%s duration_ms=%.2f",
+        safe_ingestion_id,
+        chunk_index or 0,
+        len(request.message),
+        len(preview_cards),
+        (time.perf_counter() - started_at) * 1000,
+    )
     return PKMAgentLabStructureResponse(**payload)
+
+
+@router.post("/memory/proposals", response_model=PKMAgentLabStructureResponse)
+async def propose_pkm_memory(
+    request: PKMAgentLabStructureRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+    x_pkm_ingestion_id: str | None = Header(default=None, alias="X-PKM-Ingestion-Id"),
+    x_pkm_chunk_index: int | None = Header(default=None, alias="X-PKM-Chunk-Index"),
+):
+    """Product-safe alias over the existing review-before-save proposal pipeline."""
+    return await _generate_pkm_memory_proposals(
+        request,
+        token_data,
+        ingestion_id=x_pkm_ingestion_id,
+        chunk_index=x_pkm_chunk_index,
+    )
+
+
+@router.post("/agent-lab/structure", response_model=PKMAgentLabStructureResponse)
+async def preview_pkm_structure(
+    request: PKMAgentLabStructureRequest,
+    token_data: dict = Depends(require_vault_owner_token),
+):
+    """Local developer-lab compatibility route; product callers use memory/proposals."""
+    environment = (
+        str(os.getenv("ENVIRONMENT") or os.getenv("HUSHH_DEPLOY_ENV") or "").strip().lower()
+    )
+    if environment not in {"development", "dev", "local", "test"}:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    return await _generate_pkm_memory_proposals(request, token_data)
 
 
 class SlicePriceRequest(BaseModel):

@@ -14,14 +14,13 @@ Operational matrix for runtime audits without expanding automated test suites.
 | `/one/kai/import` | `GET` | Import-first onboarding screen reachable |
 | `/one/kai` | `GET` | Home route reachable (full/onboarding chrome by state) |
 | `/one/kai/plaid/oauth/return` | `GET` | Plaid OAuth return page resumes Link without vault-key persistence |
-| `/one/kai/portfolio` | `GET` | Portfolio route reachable |
+| `/one/kai?tab=portfolio` | `GET` | Portfolio overview route reachable |
+| `/one/kai/portfolio/{holdings,allocation,performance,sources}` | `GET` | Finite Portfolio detail route reachable without Finance tabs |
 | `/one/kai/analysis` | `GET` | Analysis route reachable |
-| `/one/kai/optimize` | `GET` | Optimize route reachable |
 | `/api/kai/voice/capability` | `POST` | Voice capability contract reachable and gated correctly for the current user/runtime |
 | `/api/kai/voice/realtime/session` | `POST` | Realtime voice session contract reachable; response includes client secret plus English transcription model/language/prompt metadata |
 | `/api/kai/voice/plan` | `POST` | Voice planning contract reachable with canonical planner fields plus legacy response envelope |
 | `/api/kai/voice/compose` | `POST` | Post-execution voice composition contract reachable for final spoken reply generation |
-| `/api/kai/voice/tts` | `POST` | Voice TTS contract reachable for explicit synthesized playback |
 | `/api/kai/plaid/status/{user_id}` | `GET` | Plaid aggregate status and source metadata available |
 | `/api/kai/plaid/oauth/resume` | `POST` | OAuth resume session can mint a fresh Link continuation |
 | `/api/kai/plaid/exchange-public-token` | `POST` | Public-token exchange syncs read-only holdings + transactions |

@@ -4,12 +4,29 @@ on:
   push:
     branches:
       - main
+  # Recovery trigger. A push-only gate is unrecoverable when its run is lost:
+  # on 2026-08-06 a run sat queued for five hours holding the concurrency group,
+  # the next merge to main never got a run at all, and because every deploy lane
+  # requires a green "Main Post-Merge Smoke Gate" on the exact SHA, that commit
+  # could never be deployed. The push event cannot be replayed, and a check-run
+  # cannot be published by hand because that API is GitHub-App-only. Being able
+  # to re-run this for a specific SHA is the only way out that does not involve
+  # weakening the gate.
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: "Exact main SHA to smoke-test (blank = current main)"
+        required: false
+        type: string
 
 permissions:
   contents: read
 
 concurrency:
-  group: smoke-${{ github.workflow }}-${{ github.ref }}
+  # Keyed by the SHA under test, not just the ref. With a ref-only key a stuck
+  # run blocks every later commit; keyed by SHA, a wedged run can only ever
+  # block re-runs of its own commit.
+  group: smoke-${{ github.workflow }}-${{ github.event.inputs.sha || github.sha }}
   cancel-in-progress: true
 
 env:
@@ -23,6 +40,25 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          # On a dispatch this MUST be the requested SHA. Checking out the ref
+          # would publish a "Main Post-Merge Smoke Gate" result attributed to a
+          # different commit than the one actually tested, which is worse than
+          # no result at all.
+          ref: ${{ github.event.inputs.sha || github.sha }}
+
+      - name: Assert the dispatched SHA is on main
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.sha != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "${{ github.event.inputs.sha }}" origin/main; then
+            echo "Refusing: ${{ github.event.inputs.sha }} is not an ancestor of origin/main." >&2
+            exit 1
+          fi
+          echo "Confirmed ${{ github.event.inputs.sha }} is on main."
 
       - uses: actions/setup-node@v6
         with:
@@ -43,6 +79,17 @@ jobs:
           python-version: ${{ env.PYTHON_VERSION }}
           protocol-dir: ./consent-protocol
 
+      - name: Resolve change-aware verification plan
+        id: verification-plan
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/resolve-uat-verification-plan.py \
+            --target-sha "${{ github.sha }}" \
+            --base-sha "${{ github.event.before }}" \
+            --github-output "$GITHUB_OUTPUT" \
+            --json-output "$RUNNER_TEMP/main-smoke-verification-plan.json"
+
       - name: Run compact post-merge smoke bundle
         run: bash scripts/ci/orchestrate.sh smoke
         env:
@@ -59,3 +106,14 @@ jobs:
           NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: "dummy-project.appspot.com"
           NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
           NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
+          CI_RUN_PKM_UPGRADE_GATE: ${{ steps.verification-plan.outputs.run_pkm_upgrade_gate }}
+          CI_VERIFICATION_PLAN_REASON: ${{ steps.verification-plan.outputs.reason }}
+          CI_VERIFICATION_PLAN_FILE: ${{ runner.temp }}/main-smoke-verification-plan.json
+
+      - name: Upload verification-plan artifact
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: main-smoke-verification-plan
+          path: ${{ runner.temp }}/main-smoke-verification-plan.json
+          if-no-files-found: error

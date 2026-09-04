@@ -34,6 +34,8 @@ vi.mock("@/lib/services/api-service", () => ({
 const pkmGetMetadataMock = vi.fn();
 const pkmGetDomainDataMock = vi.fn();
 const pkmLoadDomainDataMock = vi.fn();
+const pkmLoadDomainSnapshotMock = vi.fn();
+const pkmGetDomainSnapshotMock = vi.fn();
 const pkmGetDomainManifestMock = vi.fn();
 const pkmStoreMergedDomainMock = vi.fn();
 const pkmValidatePreparedDomainStoreMock = vi.fn();
@@ -81,6 +83,8 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
     getMetadata: (...a: unknown[]) => pkmGetMetadataMock(...a),
     getDomainData: (...a: unknown[]) => pkmGetDomainDataMock(...a),
     loadDomainData: (...a: unknown[]) => pkmLoadDomainDataMock(...a),
+    loadDomainSnapshot: (...a: unknown[]) => pkmLoadDomainSnapshotMock(...a),
+    getDomainSnapshot: (...a: unknown[]) => pkmGetDomainSnapshotMock(...a),
     getDomainManifest: (...a: unknown[]) => pkmGetDomainManifestMock(...a),
     storeMergedDomain: (...a: unknown[]) => pkmStoreMergedDomainMock(...a),
     validatePreparedDomainStore: (...a: unknown[]) => pkmValidatePreparedDomainStoreMock(...a),
@@ -93,6 +97,7 @@ const updateStepMock = vi.fn();
 const completeRunMock = vi.fn();
 const failRunMock = vi.fn();
 const getUpgradeStatusMock = vi.fn();
+const issueClaimMock = vi.fn();
 vi.mock("@/lib/services/pkm-upgrade-service", () => {
   class RouteUnavailable extends Error {
     constructor(msg?: string) {
@@ -108,6 +113,7 @@ vi.mock("@/lib/services/pkm-upgrade-service", () => {
       completeRun: (...a: unknown[]) => completeRunMock(...a),
       failRun: (...a: unknown[]) => failRunMock(...a),
       getStatus: (...a: unknown[]) => getUpgradeStatusMock(...a),
+      issueClaim: (...a: unknown[]) => issueClaimMock(...a),
     },
   };
 });
@@ -133,6 +139,22 @@ vi.mock("@/lib/personal-knowledge-model/upgrade-registry", () => ({
   runDomainUpgrade: vi.fn(() => ({
     domainData: { upgraded: true },
     newDomainContractVersion: 2,
+    pkmContractVersion: "6.0.0",
+    readableProjectionVersion: "6.0.0",
+    capabilitiesApplied: [],
+    compatibility: { blockedReasons: [] },
+    losslessValidation: {
+      receipt: {
+        schemaVersion: "pkm_preservation_receipt.v1",
+        totalSourceOccurrences: 1,
+        preserved: 1,
+        moved: 0,
+        equalValueDeduplicated: 0,
+        quarantined: 0,
+        rejected: 0,
+        complete: true,
+      },
+    },
     notes: ["Upgraded"],
   })),
   buildReadableUpgradeSummary: vi.fn(() => ({
@@ -254,6 +276,42 @@ function setupSuccessfulUpgradeMocks() {
     manifest_version: 1,
     summary_projection: {},
   });
+  pkmLoadDomainSnapshotMock.mockResolvedValue({
+    data: { pantry: { favorite: "tea" } },
+    snapshot: {
+      contentRevision: 3,
+      manifestRevision: 1,
+      manifest: {
+        domain: "food",
+        manifest_version: 1,
+        summary_projection: {},
+      },
+      etag: "snapshot-etag",
+      encryptedBlob: {
+        ciphertext: "cipher",
+        iv: "iv",
+        tag: "tag",
+        dataVersion: 3,
+      },
+    },
+  });
+  pkmGetDomainSnapshotMock.mockResolvedValue(null);
+  issueClaimMock.mockImplementation(async ({ userId, runId, domain }) => ({
+    schemaVersion: "pkm_upgrade_claim.v1",
+    claimId: "claim-abc",
+    commitId: "commit-abc",
+    ownerUserId: userId,
+    runId,
+    domain,
+    sourceContentRevision: 3,
+    sourceManifestRevision: 1,
+    targetDomainContractVersion: 2,
+    targetReadableSummaryVersion: 1,
+    targetPkmContractVersion: "6.0.0",
+    targetReadableProjectionVersion: "6.0.0",
+    expiresAt: "2026-07-15T19:00:00Z",
+    mode: "real",
+  }));
   pkmStoreMergedDomainMock.mockResolvedValue({
     success: true,
     conflict: false,
@@ -396,7 +454,24 @@ describe("PkmUpgradeOrchestrator", () => {
 
   describe("manifest compatibility and failure metadata", () => {
     it("treats a missing manifest as a supported compatibility path", async () => {
-      pkmGetDomainManifestMock.mockResolvedValueOnce(null);
+      pkmLoadDomainSnapshotMock.mockResolvedValueOnce({
+        data: { pantry: { favorite: "tea" } },
+        snapshot: {
+          contentRevision: 3,
+          manifestRevision: 0,
+          manifest: null,
+          etag: "snapshot-etag",
+          encryptedBlob: { ciphertext: "cipher", iv: "iv", tag: "tag" },
+        },
+      });
+      issueClaimMock.mockResolvedValueOnce({
+        ...(await issueClaimMock({
+          userId: "user-upgrade-1",
+          runId: "run-abc",
+          domain: "food",
+        })),
+        sourceManifestRevision: 0,
+      });
 
       await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).resolves.toBeUndefined();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
@@ -412,7 +487,7 @@ describe("PkmUpgradeOrchestrator", () => {
         userId: "user-upgrade-1",
         domain: "food",
       });
-      pkmGetDomainManifestMock.mockRejectedValueOnce(manifestError);
+      pkmLoadDomainSnapshotMock.mockRejectedValueOnce(manifestError);
 
       await expect(PkmUpgradeOrchestrator.ensureRunning(BASE_PARAMS)).rejects.toThrow(
         /Failed to serialize Personal Knowledge Model manifest response/
@@ -447,10 +522,8 @@ describe("PkmUpgradeOrchestrator", () => {
       expect(pkmValidatePreparedDomainStoreMock).not.toHaveBeenCalled();
       expect(pkmStoreMergedDomainMock).toHaveBeenCalledTimes(1);
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Saved details updated",
-        expect.objectContaining({
-          description: "Your saved details are up to date.",
-        })
+        "Saved details updated. Your saved details are up to date.",
+        expect.objectContaining({ id: expect.any(String) })
       );
     });
 
@@ -568,10 +641,8 @@ describe("PkmUpgradeOrchestrator", () => {
         null
       );
       expect(toastSuccessMock).toHaveBeenCalledWith(
-        "Saved details updated",
-        expect.objectContaining({
-          description: "Your saved details are up to date.",
-        })
+        "Saved details updated. Your saved details are up to date.",
+        expect.objectContaining({ id: expect.any(String) })
       );
     });
 

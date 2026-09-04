@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { type LucideIcon } from "lucide-react";
+import { PlugZap } from "lucide-react";
+import { toast } from "sonner";
 
 import {
   AppPageContentRegion,
@@ -10,13 +11,22 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
-import { CapabilitySetupTile } from "@/components/onboarding/setup/capability-setup-tile";
+import {
+  CapabilitySetupTile,
+  SetupNavigationTile,
+} from "@/components/onboarding/setup/capability-setup-tile";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SettingsGroup } from "@/components/app-ui/settings-ui";
+import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { Button } from "@/lib/morphy-ux/button";
 import styles from "./one-setup-hub.module.css";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { useVault } from "@/lib/vault/vault-context";
-import { normalizeInternalRouteHref, ROUTES } from "@/lib/navigation/routes";
+import {
+  isOneSetupSurfaceRoute,
+  normalizeInternalRouteHref,
+  ROUTES,
+} from "@/lib/navigation/routes";
 import { acknowledgeOneSetupExit } from "@/lib/services/one-setup-exit-service";
 import {
   CAPABILITY_SETUP_COPY,
@@ -24,6 +34,8 @@ import {
 } from "@/lib/onboarding/capability-setup-copy";
 import {
   getOneSetupCapability,
+  lucideCapabilityIcon,
+  type OneCapabilityIcon,
   type OneCapabilityTone,
 } from "@/lib/onboarding/one-capabilities";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
@@ -35,6 +47,11 @@ import {
   type CapabilityStatus,
 } from "@/lib/services/capability-setup-state-service";
 import { getCapabilityStatusDisplay } from "@/lib/onboarding/capability-status-display";
+import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-service";
+import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
+import { FinanceSetupDraftService } from "@/lib/services/finance-setup-draft-service";
+import { PostUnlockSyncService } from "@/lib/services/post-unlock-sync-service";
+import { notifyGeminiRuntimeConfigurationChanged } from "@/lib/connections/gemini-runtime-configuration";
 
 /**
  * OneSetupHub: the `/one/setup` hub screen.
@@ -56,16 +73,72 @@ export function OneSetupHub() {
   const searchParams = useSearchParams();
   const { user } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
-  const { byId, isLoading } = useCapabilitySetupStates({
+  const { byId, isLoading, isEnriching } = useCapabilitySetupStates({
     enrichVault: true,
     enrichOauth: true,
+    enrichRia: true,
   });
   const [dismissing, setDismissing] = useState(false);
-  const returnTo = useMemo(
-    () => normalizeInternalRouteHref(searchParams.get("return_to")),
-    [searchParams],
-  );
+  const [finalizationError, setFinalizationError] = useState<string | null>(null);
+  const [vaultInvitationOpen, setVaultInvitationOpen] = useState(false);
+  const [vaultDialogOpen, setVaultDialogOpen] = useState(false);
+  const finalizationInFlightRef = useRef<Promise<void> | null>(null);
+  const [runtimeChoiceSnapshot, setRuntimeChoiceSnapshot] = useState<{
+    userId: string | null;
+    state: "loading" | "required" | "complete";
+  }>({ userId: null, state: "loading" });
+  const runtimeChoiceState =
+    runtimeChoiceSnapshot.userId === (user?.uid ?? null)
+      ? runtimeChoiceSnapshot.state
+      : "loading";
+  const returnTo = useMemo(() => {
+    const raw = normalizeInternalRouteHref(searchParams.get("return_to"));
+    if (!raw) return null;
+    // Never send the master exit back onto a setup surface. A stray
+    // `?return_to=/one/setup` (e.g. from a capability/connector sub-flow that
+    // returns to the hub) would make Skip/Finish replace /one/setup with
+    // itself and look like a no-op. Fall through to home instead.
+    const path = raw.split(/[?#]/)[0] ?? raw;
+    return isOneSetupSurfaceRoute(path) ? null : raw;
+  }, [searchParams]);
   const completionTarget = returnTo || ROUTES.ONE_HOME;
+
+  useEffect(() => {
+    if (!user?.uid) {
+      setRuntimeChoiceSnapshot({ userId: null, state: "required" });
+      return;
+    }
+    let active = true;
+    const cached = PreVaultUserStateService.getCachedBootstrapState(user.uid);
+    if (cached) {
+      setRuntimeChoiceSnapshot({
+        userId: user.uid,
+        state: PreVaultUserStateService.hasOneRuntimeChoice(cached)
+          ? "complete"
+          : "required",
+      });
+      return;
+    }
+    setRuntimeChoiceSnapshot({ userId: user.uid, state: "loading" });
+    void PreVaultUserStateService.bootstrapState(user.uid)
+      .then((state) => {
+        if (!active) return;
+        setRuntimeChoiceSnapshot({
+          userId: user.uid,
+          state: PreVaultUserStateService.hasOneRuntimeChoice(state)
+            ? "complete"
+            : "required",
+        });
+      })
+      .catch(() => {
+        if (active) {
+          setRuntimeChoiceSnapshot({ userId: user.uid, state: "required" });
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [user?.uid]);
 
   const items = useMemo(() => buildSetupItems(byId), [byId]);
   const groupedItems = groupSetupCapabilities(items, (item) =>
@@ -75,23 +148,30 @@ export function OneSetupHub() {
   const completeItems = groupedItems.complete;
   const visibleItems = groupedItems.visible;
 
-  const total = items.length;
+  const runtimeChoiceComplete = runtimeChoiceState === "complete";
   // "Ready" counts only GENUINELY set-up capabilities (completed/skipped). A
   // tile that still needs a connection or an unlock (blocked/unknown) is NOT
   // ready, even though it is not directly tappable-into-setup — so we never
-  // count it as done. Everything that is not complete is "left to set up".
-  const done = items.filter((item) =>
-    isCapabilitySetupComplete(item.status),
-  ).length;
+  // count it as done. AI access is also a real, mandatory setup step and is
+  // rendered alongside these capability rows, so it must participate in the
+  // same progress projection instead of being omitted from the denominator.
+  const progressSteps = [
+    { id: "connections", complete: runtimeChoiceComplete },
+    ...items.map((item) => ({
+      id: item.id,
+      complete: isCapabilitySetupComplete(item.status),
+    })),
+  ];
+  const total = progressSteps.length;
+  const done = progressSteps.filter((step) => step.complete).length;
   const remaining = total - done;
   const allReady = total > 0 && remaining === 0;
-  // The MASTER setup acknowledgement is owned by this single hub control:
-  //   - 0 capabilities done  -> "Skip setup"   (master skip-resolved)
-  //   - 1..n capabilities done -> "Finish setup" (master completed, not skipped)
-  // Computed here (ahead of the voice metadata publish below, which needs the
-  // label) rather than only near `handleMasterAck`.
-  const masterSkipped = done === 0;
-  const masterActionLabel = masterSkipped ? "Skip setup" : "Finish setup";
+  // Capability setup is optional, but the root vault is not. Finish setup is
+  // therefore the only exit from the hub and always leads to vault setup when
+  // the vault is not already unlocked.
+  const masterActionLabel = "Finish setup";
+  const hubStateLoading =
+    isLoading || isEnriching || runtimeChoiceState === "loading";
 
   // Publish screen context so the onboarding guide can describe the hub and
   // navigate the person to any capability they ask for.
@@ -100,36 +180,125 @@ export function OneSetupHub() {
     title: "Set up One",
     purpose:
       "This is your setup home. Each tile is one thing One can do for you. Set up the ones you want and skip the rest.",
-    actions: [
-      ...visibleItems.map((item) => ({
-        id: item.id,
-        actionId: getOneSetupCapability(item.id)?.setupActionId,
-        label: item.copy.setupTitle,
-        purpose: `${item.copy.setupBlurb} ${
-          isCapabilitySetupComplete(item.status)
-            ? "This setup is complete."
-            : "This setup is still remaining."
-        }`,
-      })),
-      {
-        id: "master_ack",
-        actionId: "setup.hub_master_ack",
-        label: masterActionLabel,
-        purpose: masterSkipped
-          ? "Skip setup for now and go home."
-          : "Finish setup for now and go home.",
-      },
-    ],
+    actions: hubStateLoading
+      ? []
+      : [
+          ...visibleItems.map((item) => ({
+            id: item.id,
+            actionId: getOneSetupCapability(item.id)?.setupActionId,
+            label: item.copy.setupTitle,
+            purpose: `${item.copy.setupBlurb} ${
+              isCapabilitySetupComplete(item.status)
+                ? "This setup is complete."
+                : "This setup is still remaining."
+            }`,
+          })),
+          ...(dismissing || !runtimeChoiceComplete
+            ? []
+            : [
+                {
+                  id: "master_ack",
+                  actionId: "setup.hub_master_ack",
+                  label: masterActionLabel,
+                  purpose: "Finish setup and protect what you save.",
+                },
+              ]),
+        ],
   });
 
-  // Either way, resolving the master ack SATISFIES the root setup gate so the
-  // hard gate on /one/* does not bounce the user back here. Per-capability
-  // tiles never touch this gate; they only record their own signal. We mark
-  // the server pre-vault gate (authoritative for the gate and
-  // PostAuthRouteService); when the vault is unlocked we also flip the vault
-  // profile so the unlocked path agrees. Both are awaited before navigating
-  // so the gate is consistent on the very next route resolve. Failures remain
-  // on the hub and preserve the unresolved journey.
+  const completeSetupAfterVault = useCallback(async (): Promise<void> => {
+    if (!user?.uid) {
+      router.replace(completionTarget);
+      return;
+    }
+    if (!vaultKey || !vaultOwnerToken) {
+      throw new Error("Not ready yet. Try again.");
+    }
+    if (finalizationInFlightRef.current) {
+      return finalizationInFlightRef.current;
+    }
+
+    const finalize = (async () => {
+      setFinalizationError(null);
+      // This is the one durable boundary for sensitive setup input. Every
+      // pre-vault origin remains in memory until its owning encrypted write
+      // succeeds; neither a route change nor background warm-up can race it.
+      await PreVaultSensitiveDraftService.finalizeForVault({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await PostUnlockSyncService.run({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      await FinanceSetupDraftService.finalizeForVault({
+        userId: user.uid,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      notifyGeminiRuntimeConfigurationChanged(user.uid);
+
+      await acknowledgeOneSetupExit({
+        userId: user.uid,
+        skipped: false,
+        isVaultUnlocked: true,
+        vaultKey,
+        vaultOwnerToken,
+      });
+      setVaultDialogOpen(false);
+      setVaultInvitationOpen(false);
+      // Finance source intents intentionally remain process-memory-only until
+      // this encryption boundary completes. Resume the canonical source flow
+      // once, now that it has a valid vault session.
+      router.replace(
+        PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+          ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+          : completionTarget,
+      );
+    })();
+    finalizationInFlightRef.current = finalize;
+    try {
+      await finalize;
+    } catch (error) {
+      setFinalizationError(
+        error instanceof Error
+          ? error.message
+          : "Couldn't save your setup. Try again.",
+      );
+      throw error;
+    } finally {
+      if (finalizationInFlightRef.current === finalize) {
+        finalizationInFlightRef.current = null;
+      }
+    }
+  }, [completionTarget, router, user?.uid, vaultKey, vaultOwnerToken]);
+
+  useEffect(() => {
+    if (
+      !vaultInvitationOpen ||
+      !isVaultUnlocked ||
+      !vaultKey ||
+      !vaultOwnerToken ||
+      !user?.uid ||
+      finalizationInFlightRef.current
+    ) {
+      return;
+    }
+    setDismissing(true);
+    void completeSetupAfterVault()
+      .catch(() => undefined)
+      .finally(() => setDismissing(false));
+  }, [
+    completeSetupAfterVault,
+    isVaultUnlocked,
+    vaultInvitationOpen,
+    vaultKey,
+    vaultOwnerToken,
+    user?.uid,
+  ]);
+
   const handleMasterAck = async () => {
     if (dismissing) {
       return {
@@ -138,163 +307,301 @@ export function OneSetupHub() {
       };
     }
     if (!user?.uid) {
-      router.push(completionTarget);
+      router.replace(completionTarget);
       return { status: "started" as const, summary: "Opening home." };
     }
     setDismissing(true);
     try {
-      await acknowledgeOneSetupExit({
-        userId: user.uid,
-        skipped: masterSkipped,
-        isVaultUnlocked,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      router.push(completionTarget);
+      // AI access gate: a runtime choice is mandatory before leaving the hub.
+      // When the client already knows the choice is made (the footer stays
+      // disabled until runtimeChoiceComplete) trust it and skip the network
+      // round-trip. Only re-verify against fresh server state when the client
+      // is unsure — and even then a failed probe must not trap the person, so
+      // fall back to the resolved client gate rather than stranding them.
+      let runtimeChoiceConfirmed = runtimeChoiceComplete;
+      if (!runtimeChoiceConfirmed) {
+        try {
+          const currentState = await PreVaultUserStateService.bootstrapState(
+            user.uid,
+            { force: true },
+          );
+          runtimeChoiceConfirmed =
+            PreVaultUserStateService.hasOneRuntimeChoice(currentState);
+          setRuntimeChoiceSnapshot({
+            userId: user.uid,
+            state: runtimeChoiceConfirmed ? "complete" : "required",
+          });
+        } catch (error) {
+          console.warn(
+            "[OneSetupHub] Could not verify the AI access choice:",
+            error,
+          );
+        }
+      }
+      if (!runtimeChoiceConfirmed) {
+        // The action stays tappable precisely so this can fire. A permanent
+        // line under the button was the only thing naming the blocker before,
+        // and it sat there unread until someone had already tapped and got
+        // nothing back; the phone action had a `title` tooltip, which a touch
+        // device never shows at all. A toast answers the tap that asked, and
+        // carries the way out with it.
+        //
+        // One block, no description: the toast ceiling is two lines.
+        toast.info("Choose your AI first.", {
+          action: {
+            label: "Choose",
+            onClick: () => router.push(ROUTES.ONE_SETUP_CONNECTIONS),
+          },
+        });
+        return {
+          status: "blocked" as const,
+          summary: "Choose your AI first.",
+        };
+      }
+
+      if (!isVaultUnlocked) {
+        // No screen in between. Finish setup opens the lock step itself; the
+        // reassurance the old invitation screen carried ("only you can open
+        // what you save") now lives on the lock step's own first screen, so
+        // nothing is lost and a whole tap disappears.
+        setVaultInvitationOpen(true);
+        setVaultDialogOpen(true);
+        return {
+          status: "succeeded" as const,
+          summary: "One step left: set a lock.",
+        };
+      }
+      await completeSetupAfterVault();
       return {
         status: "succeeded" as const,
-        summary: masterSkipped
-          ? "Skipped setup for now."
-          : "Finished setup for now. Opening home.",
+        summary: "Setup complete. Opening home.",
         routeAfter: completionTarget,
-      };
-    } catch (error) {
-      console.warn("[OneSetupHub] Failed to resolve master setup gate:", error);
-      return {
-        status: "failed" as const,
-        summary:
-          "Setup could not be finished yet. You are still on the setup hub.",
       };
     } finally {
       setDismissing(false);
     }
   };
 
-  // Voice parity: "skip setup" / "finish setup" drive the same master
-  // acknowledgement as the visible shared terminal action.
+  // Voice and the visible shared terminal action drive the same mandatory
+  // root-completion boundary.
   useLocalOnboardingActionHandler("setup.hub_master_ack", async () => {
     return handleMasterAck();
   });
 
-  const summary = isLoading
-    ? "Checking what's set up…"
+  // Phones get the master action as a bare header link with no supporting line
+  // under it, so the one mandatory step has to be named somewhere they can read
+  // it before they tap. The header description is the only copy both layouts
+  // share, so the blocker rides there rather than only in the desktop footer.
+  //
+  // It carries ONLY that. The segmented progress bar below already renders
+  // "done of total"; repeating the count in words was two facts competing for
+  // the one line people actually read.
+  const summary = hubStateLoading
+    ? "One moment…"
     : allReady
-      ? "Everything's set up. You're good to go."
-      : `${done} of ${total} ready, ${remaining} left to set up.`;
+      ? "Add more any time."
+      : !runtimeChoiceComplete
+        ? "Choose your AI first."
+        : `${remaining} left.`;
 
   return (
     <AppPageShell
       as="main"
-      width="standard"
-      className="relative isolate"
+      width="reading"
+      fitContent
+      className="relative isolate max-w-[600px] pb-[calc(20px+env(safe-area-inset-bottom))]"
       nativeTest={{
         routeId: "/one/setup",
         marker: "native-route-one-setup",
         authState: "authenticated",
-        dataState: isLoading ? "loading" : "loaded",
+        dataState: hubStateLoading ? "loading" : "loaded",
       }}
     >
       <AppPageHeaderRegion>
-        <PageHeader
-          title={allReady ? "You're all set" : "Finish setting up One"}
-          description={summary}
-          accent="neutral"
-          className={styles.setupHeader}
-        />
+          <PageHeader
+            title={
+              !hubStateLoading && allReady ? "You're all set" : "Set up One"
+            }
+            description={summary}
+            accent="neutral"
+            className={styles.setupHeader}
+          />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        {total > 0 ? (
-          <div
-            className={styles.segmentedProgress}
-            role="progressbar"
-            aria-valuemin={0}
-            aria-valuemax={total}
-            aria-valuenow={done}
-            aria-label={`${done} of ${total} set up`}
-          >
-            {Array.from({ length: total }).map((_, index) => (
-              <span
-                key={index}
-                data-filled={index < done ? "true" : undefined}
+        {hubStateLoading ? (
+          <SetupHubLoadingState />
+        ) : (
+          <>
+            {total > 0 ? (
+              <div
+                className={styles.setupProgress}
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={total}
+                aria-valuenow={done}
+                aria-label={`${done} of ${total} set up`}
+              >
+                <div className={styles.setupProgressLabel}>
+                  {done} of {total} complete
+                </div>
+                <div className={styles.setupProgressTrack} aria-hidden>
+                  <span
+                    className={styles.setupProgressFill}
+                    style={{
+                      width:
+                        total > 0 ? `${Math.round((done / total) * 100)}%` : "0%",
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className={styles.flatChecklist}>
+              <SettingsGroup
+                title="Remaining"
+                testId="one-setup-capabilities-remaining"
+                separatorInset
+              >
+                {!runtimeChoiceComplete ? (
+                  <SetupNavigationTile
+                    id="connections"
+                    title="Choose your AI"
+                    description="Use ours, or bring your own."
+                    href={ROUTES.ONE_SETUP_CONNECTIONS}
+                    voiceControlId="one_setup_tile_connections"
+                    icon={lucideCapabilityIcon(PlugZap)}
+                    tone="connected"
+                    statusLabel="Required"
+                    // The one row that blocks the exit. A muted grey "Required"
+                    // reads like every other trailing label, so it gets the
+                    // accent pill and the current-step role instead.
+                    statusTone="required"
+                    isCurrent
+                  />
+                ) : null}
+                {remainingItems.map((item) => (
+                  <CapabilitySetupTile
+                    key={item.id}
+                    capabilityId={item.id}
+                    title={item.copy.setupTitle}
+                    description={item.copy.setupBlurb}
+                    actionLabel={item.copy.actionLabel}
+                    resumeActionLabel={item.copy.resumeActionLabel}
+                    href={item.copy.href}
+                    voiceControlId={item.voiceControlId}
+                    icon={item.icon}
+                    tone={item.tone}
+                    status={item.status}
+                    isExploreOnly={item.isExploreOnly}
+                    isCurrent={item.isCurrent}
+                  />
+                ))}
+              </SettingsGroup>
+              {completeItems.length > 0 || runtimeChoiceComplete ? (
+                <SettingsGroup
+                  title="Complete"
+                  testId="one-setup-capabilities-complete"
+                  separatorInset
+                >
+                  {runtimeChoiceComplete ? (
+                    <SetupNavigationTile
+                      id="connections"
+                      title="Choose your AI"
+                      description="Change this any time."
+                      href={ROUTES.ONE_SETUP_CONNECTIONS}
+                      voiceControlId="one_setup_tile_connections"
+                      icon={lucideCapabilityIcon(PlugZap)}
+                      tone="connected"
+                      statusLabel="Selected"
+                      isComplete
+                    />
+                  ) : null}
+                  {completeItems.map((item) => (
+                    <CapabilitySetupTile
+                      key={item.id}
+                      capabilityId={item.id}
+                      title={item.copy.setupTitle}
+                      description={item.copy.setupBlurb}
+                      actionLabel={item.copy.actionLabel}
+                      resumeActionLabel={item.copy.resumeActionLabel}
+                      href={item.copy.href}
+                      voiceControlId={item.voiceControlId}
+                      icon={item.icon}
+                      tone={item.tone}
+                      status={item.status}
+                      isExploreOnly={item.isExploreOnly}
+                      isCurrent={false}
+                    />
+                  ))}
+                </SettingsGroup>
+              ) : null}
+            </div>
+            <div>
+              <SetupCompletionFooter
+                label={masterActionLabel}
+                onComplete={() => void handleMasterAck()}
+                busy={dismissing}
+                blocked={!runtimeChoiceComplete}
+                controlId="one-setup-master-ack"
+                actionId="setup.hub_master_ack"
+                testId="one-setup-master-ack"
+                purpose={
+                  "Finish setup and protect what you save."
+                }
+                // The blocker is no longer named here. It was permanent copy
+                // that had to be read before the tap to be any use, and the
+                // tap is exactly when people want the answer -- so it moved
+                // into the toast the blocked tap now raises.
+                supportingText="Set up the rest later."
+                variant="blue-gradient"
+                effect="fill"
               />
-            ))}
+            </div>
+          </>
+        )}
+        {finalizationError ? (
+          <div
+            role="alert"
+            className="mt-5 flex flex-wrap items-center justify-between gap-3 rounded-[var(--app-card-radius-compact)] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive"
+          >
+            <span>{finalizationError}</span>
+            <Button
+              type="button"
+              variant="none"
+              effect="fade"
+              onClick={() => void handleMasterAck()}
+            >
+              Try again
+            </Button>
           </div>
         ) : null}
-        <div className={styles.flatChecklist}>
-          {remainingItems.length > 0 ? (
-            <SettingsGroup
-              title="Remaining"
-              testId="one-setup-capabilities-remaining"
-              separatorInset
-            >
-              {remainingItems.map((item) => (
-                <CapabilitySetupTile
-                  key={item.id}
-                  capabilityId={item.id}
-                  title={item.copy.setupTitle}
-                  description={item.copy.setupBlurb}
-                  actionLabel={item.copy.actionLabel}
-                  resumeActionLabel={item.copy.resumeActionLabel}
-                  href={item.copy.href}
-                  voiceControlId={item.voiceControlId}
-                  icon={item.icon}
-                  tone={item.tone}
-                  status={item.status}
-                  isExploreOnly={item.isExploreOnly}
-                  isCurrent={item.isCurrent}
-                />
-              ))}
-            </SettingsGroup>
-          ) : null}
-          {completeItems.length > 0 ? (
-            <SettingsGroup
-              title="Complete"
-              testId="one-setup-capabilities-complete"
-              separatorInset
-            >
-              {completeItems.map((item) => (
-                <CapabilitySetupTile
-                  key={item.id}
-                  capabilityId={item.id}
-                  title={item.copy.setupTitle}
-                  description={item.copy.setupBlurb}
-                  actionLabel={item.copy.actionLabel}
-                  resumeActionLabel={item.copy.resumeActionLabel}
-                  href={item.copy.href}
-                  voiceControlId={item.voiceControlId}
-                  icon={item.icon}
-                  tone={item.tone}
-                  status={item.status}
-                  isExploreOnly={item.isExploreOnly}
-                  isCurrent={false}
-                />
-              ))}
-            </SettingsGroup>
-          ) : null}
-        </div>
-        <SetupCompletionFooter
-          label={masterActionLabel}
-          onComplete={() => void handleMasterAck()}
-          busy={dismissing}
-          controlId="one-setup-master-ack"
-          actionId="setup.hub_master_ack"
-          testId="one-setup-master-ack"
-          purpose={
-            masterSkipped
-              ? "Skip the remaining setup for now and go home."
-              : "Finish setup for now and go home."
-          }
-          supportingText={
-            masterSkipped
-              ? "You can set up these capabilities any time."
-              : "Your completed setup stays in place. You can add more any time."
-          }
-          variant={masterSkipped ? "none" : "blue-gradient"}
-          effect={masterSkipped ? "fade" : "fill"}
-        />
       </AppPageContentRegion>
+      {user ? (
+        <VaultUnlockDialog
+          user={user}
+          open={vaultDialogOpen}
+          onOpenChange={setVaultDialogOpen}
+          dismissible={false}
+          enableGeneratedDefault
+          title="Set a lock"
+          description="Only you can open what you save. Not even we can read it."
+          onSuccess={() => undefined}
+        />
+      ) : null}
     </AppPageShell>
+  );
+}
+
+function SetupHubLoadingState() {
+  return (
+    <div
+      data-testid="one-setup-loading-state"
+      className="rounded-[var(--app-card-radius-compact)] border border-border/55 bg-[color:var(--app-card-surface-compact)] px-4 py-5 text-sm text-muted-foreground"
+      aria-busy="true"
+      aria-label="Checking setup progress"
+    >
+      Checking your setup…
+    </div>
   );
 }
 
@@ -302,7 +609,7 @@ interface SetupItem {
   id: string;
   copy: CapabilitySetupCopy;
   status: CapabilityStatus;
-  icon: LucideIcon;
+  icon: OneCapabilityIcon;
   tone: OneCapabilityTone;
   voiceControlId: string;
   isActionable: boolean;

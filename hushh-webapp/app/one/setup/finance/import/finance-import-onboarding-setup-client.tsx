@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { FullscreenFlowShell } from "@/components/app-ui/fullscreen-flow-shell";
+import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { KaiFlow } from "@/components/kai/kai-flow";
 import {
   SetupCapabilityLoading,
@@ -21,10 +22,13 @@ export function FinanceImportOnboardingSetupClient() {
   >(null);
   const coordinator = useSetupCapabilityCoordinator({
     capabilityId: "finance",
-    isOperationallyReady: sourceSettled !== null,
+    isOperationallyReady: true, // Always ready, so clicking acts as a finish.
     finishActionId: "setup.finish_finance",
     skipActionId: "setup.skip_finance",
     resumeReadinessFromCallback: true,
+    // Root setup may have been skipped before Finance is opened. This is still
+    // an explicit Finance task and must retain the portfolio-source terminal.
+    journeyMode: "auto",
   });
 
   if (loading || !user || !coordinator.isReady) {
@@ -32,7 +36,13 @@ export function FinanceImportOnboardingSetupClient() {
   }
 
   return (
-    <FullscreenFlowShell as="div" width="expanded" className="relative space-y-4 pb-[calc(var(--app-bottom-inset)+1rem)]">
+    <FullscreenFlowShell as="div" width="reading" className="relative px-[var(--page-inline-gutter-standard)] pb-[var(--app-scroll-bottom-pad)] ">
+      <NativeTestBeacon
+        routeId="/one/setup/finance/import"
+        marker="native-route-one-setup-finance-import"
+        authState="authenticated"
+        dataState="loaded"
+      />
       <KaiFlow
         userId={user.uid}
         mode="import"
@@ -82,14 +92,14 @@ export function FinanceImportOnboardingSetupClient() {
             expectedCallbackAttemptId: callbackAttemptId,
           });
         }}
+        deferSensitiveActionsUntilSetupFinalized
         voicePublisherRole="chrome"
       />
       <SetupCapabilityTerminalFooter
         capabilityId="finance"
-        isOperationallyReady={
-          sourceSettled !== null || coordinator.operationallyReady
-        }
+        isOperationallyReady={true}
         coordinator={coordinator}
+        finishLabel={sourceSettled ? "Finish Finance setup" : "I'll link this later"}
       />
     </FullscreenFlowShell>
   );

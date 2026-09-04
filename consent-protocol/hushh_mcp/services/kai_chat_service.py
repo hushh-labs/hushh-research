@@ -20,17 +20,19 @@ hushh_mcp.services.kai_chat_service.KaiChatService.analyze_portfolio_loser -> PO
 
 import asyncio
 import logging
-import os
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Optional
 
-from google import genai
 from google.genai import types as genai_types
 
 from hushh_mcp.constants import GEMINI_MODEL
+from hushh_mcp.runtime_providers import (
+    build_generate_content_config,
+    build_managed_runtime_client,
+)
 from hushh_mcp.services.attribute_learner import get_attribute_learner
 from hushh_mcp.services.chat_db_service import (
     ChatDBService,
@@ -273,12 +275,7 @@ class KaiChatService:
     def client(self):
         """Get the google.genai client (from google-adk)."""
         if self._client is None:
-            api_key = os.environ.get("GOOGLE_API_KEY") or os.environ.get("GEMINI_API_KEY")
-            if api_key:
-                self._client = genai.Client(api_key=api_key)
-            else:
-                logger.error("GOOGLE_API_KEY not set!")
-                raise ValueError("GOOGLE_API_KEY environment variable is required")
+            self._client = build_managed_runtime_client("gemini")
         return self._client
 
     @property
@@ -850,7 +847,9 @@ class KaiChatService:
                 previous_response=previous_response,
             )
 
-            config = genai_types.GenerateContentConfig(
+            config = build_generate_content_config(
+                genai_types,
+                GEMINI_MODEL,
                 temperature=0.3 if stricter else 0.7,
                 max_output_tokens=1024,
             )
@@ -1194,7 +1193,9 @@ REASONING: [2-3 sentences]
 """
 
             # Generate analysis using new SDK
-            config = genai_types.GenerateContentConfig(
+            config = build_generate_content_config(
+                genai_types,
+                GEMINI_MODEL,
                 temperature=0.3,  # Lower temperature for more consistent analysis
                 max_output_tokens=500,
             )

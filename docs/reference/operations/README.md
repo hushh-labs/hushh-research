@@ -82,7 +82,7 @@ Top-level owner skills:
 - `.codex/skills/repo-operations/`: CI/CD, branch protection, deploys, env parity, and runtime operations.
 - `.codex/skills/oss-license-governance/`: Apache-2.0 licensing, SPDX/REUSE, package metadata, and third-party notice governance.
 - `.codex/skills/contributor-onboarding/`: bootstrap, devcontainer, doctor, and contributor-first-run ownership.
-- `.codex/skills/subtree-upstream-governance/`: upstream-first coordination, subtree sync, and maintainer-only subtree policy.
+- `.codex/skills/subtree-upstream-governance/`: optional mirror coordination, subtree sync, and maintainer-only subtree policy.
 - `.codex/skills/analytics-observability-governance/`: GA4/Firebase/BigQuery topology, growth dashboard verification, environment split, and observability contract ownership.
 - `.codex/skills/planning-board/`: planning-board workflows for the `Hushh Engineering Core` board.
 - `.codex/skills/future-planner/`: future-state roadmap planning, R&D filtering, and promotion-boundary decisions.
@@ -95,6 +95,8 @@ Use `.codex/skills/github-contribution-governance/` as the repo-operations spoke
 Use `.codex/skills/uat-scoped-deploy/` as the repo-operations spoke for frontend-only/backend-only UAT deploys, Cloud Build timing proof, and Cloud Run region/provenance evidence.
 Use `.codex/skills/frontend-native-surface-mapper/` before route/API/native/plugin/voice mapping work so the generated frontend/native surface map stays authoritative.
 Use `.codex/skills/frontend-cache-coherence/` when a screen needs warm-cache UX, TTL, stale background refresh, or reviewer-backed cache behavior proof.
+Use `.codex/skills/reviewer-app-testing/` and workflow `reviewer-app-rehearsal` when Playwright must preserve an unlocked BYOK vault across same-session Next navigation and prove cold-session re-unlock separately.
+Use `.codex/skills/pkm-upgrade-rehearsal/` and workflow `pkm-upgrade-rehearsal` for historical-shape preservation, rollback, scope-origin, reviewer, and exact-payload acceptance before a PKM upgrade.
 
 Use `.codex/skills/morphy-ax/` and workflow `morphy-ax-governance` for shared agent-experience snapshots, presentation posture, typed semantic-assessment validation, compatibility, and AX performance budgets.
 Workflow packs under `.codex/workflows/` are the canonical recurring task surface for routing and onboarding.
@@ -104,6 +106,7 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 
 ## References
 
+- [Admin merge and release SOP](../../../.codex/skills/repo-operations/references/admin-release-sop.md): canonical queue, Admin PR landing, exact-SHA promotion, environment dispatch, proof, and closeout state machine.
 - [ci.md](./ci.md): local/remote CI parity and required lanes.
 - [cli.md](./cli.md): canonical root command surface for repo-level workflows.
 - [branch-governance.md](./branch-governance.md): branch rules, review gates, and bypass policy.
@@ -112,7 +115,8 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [docs-governance.md](./docs-governance.md): documentation placement and quality gates.
 - [env-and-secrets.md](./env-and-secrets.md): environment and secret contract.
 - [env-secrets-key-matrix.md](./env-secrets-key-matrix.md): key-by-key environment matrix.
-- [migration-governance.md](./migration-governance.md): canonical migration authority, frozen-vs-integrated DB contracts, and allowed SQL surfaces.
+- [migration-governance.md](./migration-governance.md): canonical migration authority, the exact UAT/production DB contracts, and allowed SQL surfaces.
+- [mulesoft-managed-omni-gateway-private-space.md](./mulesoft-managed-omni-gateway-private-space.md): current CRM transport, credential boundary, and UAT handshake proof.
 - [brand-and-compatibility-contract.md](./brand-and-compatibility-contract.md): Hussh public naming rule and compatibility boundaries.
 - [naming-policy.md](./naming-policy.md): compatibility pointer to the canonical brand contract.
 - [developer-access-matrix.md](./developer-access-matrix.md): org-level developer IAM baseline, runtime identities, and DB access path.
@@ -123,4 +127,10 @@ Use `github-contribution-governance` when contribution graph visibility, verifie
 - [hussh-code-persona.md](./hussh-code-persona.md): durable Hussh engineering and Codex product non-deviation contract.
 - [coding-agent-mcp.md](./coding-agent-mcp.md): MCP host operations for local engineering environments.
 - [subtree-maintainers.md](./subtree-maintainers.md): maintainer-only subtree sync and upstream coordination.
+- [dev-fast-lane.md](./dev-fast-lane.md): the hosted dev environment agentic lane.
+- [crm-registry-operations.md](./crm-registry-operations.md): CRM registry check, probe, apply, and deactivate operations.
+- [hussh-mcp-partner-integration-guide.md](./hussh-mcp-partner-integration-guide.md): partner-facing MCP integration guide.
+- [hussh-rebrand-classification.md](./hussh-rebrand-classification.md): non-breaking rebrand bucket model.
+- [android-bundle-id-migration.md](./android-bundle-id-migration.md): the com.hushh.app -> com.hussh.app Android-only bundle ID migration plan, including still-open sign-in items.
+- [mulesoft-crm-schema-contract-v1.json](./mulesoft-crm-schema-contract-v1.json): machine-readable CRM field-role contract.
 - [`../../../consent-protocol/scripts/README.md`](../../../consent-protocol/scripts/README.md): maintainer-only backend script map and when to use it.

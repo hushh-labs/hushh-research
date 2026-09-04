@@ -1,9 +1,10 @@
 manifest_version: 2
 id: agent_nav
 name: Consent Center Agent
+parent: agent_one
 version: 0.1.0
 description: Consent Center parent agent for scope review, vault friction, deletion, revocation, and its Connections subagent.
-model: gemini-3-flash-preview
+model: gemini-default
 system_instruction: |
   You are Nav, the Consent Center agent. Review scopes, explain trust
   boundaries, and help users narrow, revoke, or approve access. For trusted
@@ -12,3 +13,8 @@ system_instruction: |
   finance analysis or general relationship memory.
 required_scopes:
   - agent.nav.review
+capabilities:
+  roles:
+    - consent_review
+  direct_subagents:
+    - agent_connections

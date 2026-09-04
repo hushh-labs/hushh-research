@@ -1,19 +1,57 @@
 import type { OneKycScopeCandidate, OneKycWorkflow } from "@/lib/services/one-kyc-service";
 
+/**
+ * Coerce a scope to the canonical `attr.<domain>[.path]` grammar the KYC lane
+ * uses. Some workflows persist bare candidate scopes (e.g. `identity.passport`)
+ * while `selected_scopes`/`consent_requests` are canonical (`attr.identity.passport`).
+ * Without normalization, the UI compares bare vs canonical: checkboxes never
+ * appear selected, the eye-icon preview (parseAttrScope) fails, and the scope
+ * selection looks "changed". Prefix `attr.` when missing so every consumer sees
+ * one consistent form.
+ */
+// KYC concept -> real identity segment. The LLM routing sometimes emits paths
+// that don't exist in the PKM (identity.tax_id, financial.bank_accounts,
+// financial.cash_positions). This snaps those onto the segments that actually
+// hold the data so the eye-icon preview and the selection checkboxes resolve.
+// Applied identically to candidate and selected scopes so they always match.
+const KYC_SCOPE_SNAP: ReadonlyArray<readonly [RegExp, string]> = [
+  [/passport/, "attr.identity.passport"],
+  [/licen[sc]e|driver|(^|[._])dl([._]|$)/, "attr.identity.drivers_license"],
+  [/\btax\b|tax_id|ssn|tin|itin|w-?9|w-?8|taxpayer/, "attr.identity.tax"],
+  [/bank|account|routing|cash|iban|swift|cheque|check|deposit|payout/, "attr.identity.bank"],
+];
+
+export function canonicalKycScope(scope: string): string {
+  const value = String(scope || "").trim().toLowerCase();
+  if (!value) return value;
+  for (const [pattern, mapped] of KYC_SCOPE_SNAP) {
+    if (pattern.test(value)) return mapped;
+  }
+  return value.startsWith("attr.") ? value : `attr.${value}`;
+}
+
 export function scopeCandidates(workflow: OneKycWorkflow): OneKycScopeCandidate[] {
+  const normalize = (candidates: OneKycScopeCandidate[]): OneKycScopeCandidate[] =>
+    candidates.map((candidate) => ({
+      ...candidate,
+      scope: canonicalKycScope(candidate.scope),
+    }));
+
   const direct = workflow.candidate_scopes;
-  if (Array.isArray(direct) && direct.length) return direct;
+  if (Array.isArray(direct) && direct.length) return normalize(direct);
   const metadataCandidates = workflow.metadata?.candidate_scopes;
   if (Array.isArray(metadataCandidates)) {
-    return metadataCandidates.filter(
-      (candidate): candidate is OneKycScopeCandidate =>
-        Boolean(candidate && typeof candidate === "object" && "scope" in candidate)
+    return normalize(
+      metadataCandidates.filter(
+        (candidate): candidate is OneKycScopeCandidate =>
+          Boolean(candidate && typeof candidate === "object" && "scope" in candidate)
+      )
     );
   }
   return workflow.requested_scope
     ? [
         {
-          scope: workflow.requested_scope,
+          scope: canonicalKycScope(workflow.requested_scope),
           domain: workflow.requested_scope.includes("financial") ? "financial" : "identity",
           label: friendlyScopeLabel(workflow.requested_scope),
         },
@@ -26,15 +64,15 @@ export function selectedScopesForWorkflow(
   localSelections: Record<string, string[]>
 ): string[] {
   const local = localSelections[workflow.workflow_id];
-  if (local) return local;
+  if (local) return local.map(canonicalKycScope);
   if (Array.isArray(workflow.selected_scopes) && workflow.selected_scopes.length) {
-    return workflow.selected_scopes;
+    return workflow.selected_scopes.map(canonicalKycScope);
   }
   if (Array.isArray(workflow.requested_scopes) && workflow.requested_scopes.length) {
-    return workflow.requested_scopes;
+    return workflow.requested_scopes.map(canonicalKycScope);
   }
   if (workflow.requested_scope) {
-    return [workflow.requested_scope];
+    return [canonicalKycScope(workflow.requested_scope)];
   }
   const recommended = scopeCandidates(workflow)
     .filter((candidate) => candidate.recommended !== false)

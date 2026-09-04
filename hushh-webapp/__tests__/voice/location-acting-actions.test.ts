@@ -1,0 +1,288 @@
+import { describe, expect, it } from "vitest";
+
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
+import { resolveNavigationJourney } from "@/lib/voice/navigation-journey";
+
+/**
+ * Location's first actions that DO something.
+ *
+ * Everything else on this surface opens a screen, which is why none of it
+ * needed guarding: the worst a misheard sentence could do was show you the
+ * wrong tab. These three change real state -- one of them tells other people
+ * where you are -- so the properties below are the ones that keep a spoken
+ * sentence from being able to do something the person did not ask for.
+ */
+
+const PAUSE = "location.pause_updates";
+const RESUME = "location.resume_updates";
+const SHARE = "location.share_selected";
+
+describe("what a spoken Location action is allowed to do", () => {
+  it("lets pausing run directly and makes resuming ask first", () => {
+    // The asymmetry is the entire safety argument for pausing being direct.
+    // Turning visibility OFF can only ever reduce what others can see, and
+    // someone saying "hide my location" is in no position to be asked twice.
+    // Turning it back ON makes them visible again to every active grant, so
+    // it has to be looked at. If these two ever end up with the same policy,
+    // one of them is wrong.
+    expect(getKaiActionById(PAUSE)?.execution_policy).toBe("allow_direct");
+    expect(getKaiActionById(RESUME)?.execution_policy).toBe("confirm_required");
+  });
+
+  it("never lets a share run without the person seeing it", () => {
+    // Sharing a live location is the most consequential thing this surface
+    // can do. There is no argument for allow_direct here at any point.
+    expect(getKaiActionById(SHARE)?.execution_policy).toBe("confirm_required");
+    expect(getKaiActionById(SHARE)?.risk_level).toBe("high");
+  });
+
+  it("lets a spoken name resolve a recipient, but duration is still always asked", () => {
+    const action = getKaiActionById(SHARE);
+    const slots = Object.keys(action?.goal?.slot_schema || {});
+    const personInput = action?.goal?.required_inputs?.find((spec) => spec.slot === "person");
+    const durationInput = action?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+
+    // A named person now resolves through the same tiered matcher already
+    // trusted for location.send_request and connect.send_request: exact,
+    // then word-boundary, then word-alignment, refusing rather than guessing
+    // on an ambiguous name. That -- not the absence of a person slot -- is
+    // what keeps a misheard sentence from reaching a grant unseen. It stays
+    // optional, so with nobody named this still falls through to whoever the
+    // person selected with their own hands in the composer. What still makes
+    // either path safe is execution_policy staying confirm_required (see
+    // above): the resolved name is shown back before a grant is created.
+    // Duration stays required regardless -- "share with them" alone still
+    // gets asked how long, every time.
+    expect(slots).toEqual(["person", "duration_hours"]);
+    expect(personInput?.required).toBe(false);
+    expect(durationInput?.required).toBe(true);
+  });
+
+  it("offers exactly the durations SHARE_VOICE_DURATION_VALUES accepts, and always asks", () => {
+    // Bounded so a spoken number cannot become an arbitrary grant length.
+    // The composer's own one-tap buttons are narrower than this (15 min, 1
+    // hour, Custom, Until I stop -- see SHARE_DURATION_LADDER in
+    // duration-presets.tsx): voice is deliberately more permissive, matching
+    // page.tsx's SHARE_VOICE_DURATION_VALUES rather than the visible grid, so
+    // a spoken "half an hour" or "8 hours" is not refused for being off it.
+    const input = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+    // Required: how long a live location stays visible is a real decision,
+    // not something to assume from whatever the composer happened to be
+    // showing. "Share with them" alone gets asked how long, every time,
+    // the same way an unresolved name gets asked which one.
+    expect(input?.required).toBe(true);
+  });
+});
+
+describe("saying a person's name", () => {
+  const SELECT = "location.select_share_recipient";
+
+  it("selects someone rather than sending to them", () => {
+    // The whole reason naming a person is safe here. Selecting is visible and
+    // reversible: a misheard name becomes a wrong face on screen, in front of
+    // someone who can see it, instead of a live location already delivered.
+    // The send stays a separate, confirmed action.
+    expect(getKaiActionById(SELECT)?.risk_level).toBe("low");
+    expect(getKaiActionById(SELECT)?.execution_policy).toBe("allow_direct");
+    expect(getKaiActionById(SHARE)?.execution_policy).toBe("confirm_required");
+  });
+
+  it("takes the spoken name and nothing that identifies an account", () => {
+    // The slot carries what the person said out loud, which the model already
+    // heard. It must never carry a user id: that would mean the model had been
+    // given a contact list to resolve names against, and the live-context
+    // boundary strips `selected_entity` / `primary_entity` server-side
+    // precisely because surfaces fill them with real names and addresses.
+    // Matching happens in the browser, against the list it already holds.
+    const slots = Object.keys(
+      getKaiActionById(SELECT)?.goal?.slot_schema || {},
+    );
+    expect(slots).toEqual(["person"]);
+    expect(slots.join(" ")).not.toMatch(/user_?id|account|email|phone|key/i);
+  });
+});
+
+describe("how these actions can be reached", () => {
+  it("keeps all three mounted-only rather than reachable by navigation", () => {
+    // A `route` execution path would mean One could fire these by pushing a
+    // URL from anywhere. Running them only while their screen is mounted is
+    // what keeps the state they act on -- the selected recipients, the live
+    // toggle -- real and in front of the person at the moment it happens.
+    [PAUSE, RESUME, SHARE].forEach((actionId) => {
+      const target = getKaiActionById(actionId)?.execution_target;
+      expect(target?.status).toBe("wired");
+      expect(target?.path).toBe("local_handler");
+    });
+  });
+
+  it("walks someone to Location before pausing or resuming", () => {
+    // "Hide my location" is worth nothing if the answer is "open Location
+    // first". Both carry a settlement_target, so One navigates there and then
+    // performs the action as one plan the person approved once -- rather than
+    // reporting the surface as unreachable from wherever they happen to be.
+    [PAUSE, RESUME].forEach((actionId) => {
+      const journey = resolveNavigationJourney(actionId);
+      expect(journey?.destinationRoute).toBe("/one/location");
+      expect(journey?.destinationScreen).toBe("one_location");
+      // Resolved from the contract, never named in code, and preferring the
+      // `route.*` escort over `location.open_now`: both open /one/location,
+      // but only `route.one_location` is in the browser's global-navigation
+      // set, so it is the one guaranteed to be offered from any screen.
+      expect(journey?.navigationActionId).toBe("route.one_location");
+    });
+  });
+
+  it("escorts the pick to the composer, not to Location's front door", () => {
+    // Asked from anywhere but Location this was `action_unavailable`, so
+    // "share my location with Sarah" only worked if you were already
+    // standing on the right screen. Selecting is safe to escort: it ticks a
+    // name on a composer and nothing leaves the device.
+    //
+    // The destination has to be the composer itself. Escorting to
+    // /one/location landed on the surface's front door, where the recipient
+    // search box is not mounted -- so the journey arrived, the handler had
+    // nothing to type into, and the match never happened. Observed live: One
+    // opened Location home and then talked about a recipient it had never
+    // actually resolved.
+    const journey = resolveNavigationJourney("location.select_share_recipient");
+    expect(journey?.destinationScreen).toBe("one_location");
+    expect(journey?.destinationRoute).toBe("/one/location?action=share");
+    // Resolved from the contract by matching that route, never named in code.
+    expect(journey?.navigationActionId).toBe("location.open_share");
+  });
+
+  it("refuses to escort a share the same way", () => {
+    // The identical treatment would mean One walking to Location and firing
+    // the composer it found on arrival, at whoever happened to still be
+    // selected in it. A share must begin where the person can already see who
+    // it is going to, so this one deliberately has no settlement_target.
+    expect(resolveNavigationJourney(SHARE)).toBeNull();
+  });
+});
+
+/**
+ * The voice confirm card warns people using the action's OWN words -- it reads
+ * `meaning` straight from the generated contract rather than restating it, so
+ * the warning cannot drift away from what the action does.
+ *
+ * That makes `meaning` load-bearing for these actions specifically. If one were
+ * emptied, the card would still render and still remove the person, just with
+ * the sentence explaining the consequence silently gone. Nothing else in the
+ * build notices, because an empty string is a valid contract value.
+ */
+describe("destructive voice actions can explain themselves", () => {
+  const CONFIRMED_BY_CARD = [
+    "connect.remove_connection",
+    "location.remove_emergency_contact",
+    "location.remove_from_circle",
+    "location.leave_circle",
+    "location.delete_circle",
+    "location.delete_saved_location",
+    "location.trigger_sos",
+  ] as const;
+
+  it.each(CONFIRMED_BY_CARD)("%s carries the words its card shows", (actionId) => {
+    const action = getKaiActionById(actionId);
+    expect(action, `${actionId} is not in the gateway`).not.toBeNull();
+    expect(action?.execution_target.status).toBe("wired");
+    // Long enough to be a sentence about consequences rather than a label.
+    expect((action?.meaning || "").length).toBeGreaterThan(40);
+  });
+});
+
+describe("a bare 'stop sharing' actually stops something (#6081)", () => {
+  const VIEW = "location.open_active_shares";
+  const STOP_ALL = "location.pause_updates";
+
+  it("owns the bare phrase on the action that stops, not the one that just opens a list", () => {
+    // Regression: "stop sharing" used to sit only on open_active_shares (a
+    // low-risk VIEW), so saying it opened a screen and nothing actually
+    // stopped. It now belongs to pause_updates, the safe, decisive reading of
+    // an urgent, nameless "stop sharing".
+    const viewAliases = (getKaiActionById(VIEW)?.aliases ?? []).map((a) => a.toLowerCase());
+    const stopAliases = (getKaiActionById(STOP_ALL)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(viewAliases).not.toContain("stop sharing");
+    expect(stopAliases).toContain("stop sharing");
+  });
+
+  it("keeps pause_updates allow_direct so the bare phrase still runs immediately", () => {
+    expect(getKaiActionById(STOP_ALL)?.execution_policy).toBe("allow_direct");
+  });
+});
+
+describe("'send it' is not owned by two acting actions at once (#6082)", () => {
+  const ASK = "location.send_request";
+  const SHARE_IT = "location.share_selected";
+
+  it("removed the shared alias from both composers' finalizers", () => {
+    // Regression: both the ask-for-location composer and the
+    // share-my-location composer carried the identical alias "send it",
+    // which action_tools.py's exact-match scoring cannot break a tie on.
+    // Neither composer needs it -- both still have unambiguous finalizers
+    // ("confirm the request" / "confirm the share").
+    const askAliases = (getKaiActionById(ASK)?.aliases ?? []).map((a) => a.toLowerCase());
+    const shareAliases = (getKaiActionById(SHARE_IT)?.aliases ?? []).map((a) => a.toLowerCase());
+    expect(askAliases).not.toContain("send it");
+    expect(shareAliases).not.toContain("send it");
+    expect(askAliases).toContain("confirm the request");
+    expect(shareAliases).toContain("confirm the share");
+  });
+});
+
+describe("'share my location' redirects to the sender once recipients are picked (#6083)", () => {
+  const OPEN = "location.open_share";
+  const SEND = "location.share_selected";
+
+  it("tells the model in its own meaning to prefer share_selected once the composer is populated", () => {
+    // Not an alias move (from cold, opening the composer IS correct) -- the
+    // ambiguity is resolved via meaning text redirecting to the sender,
+    // matching the pattern already established for location.sos_default.
+    expect(getKaiActionById(OPEN)?.meaning ?? "").toMatch(/share_selected/);
+    expect(getKaiActionById(SEND)?.meaning ?? "").toMatch(/open_share/);
+  });
+});
+
+describe("asking for someone's location asks how long, like sharing does", () => {
+  const ASK = "location.send_request";
+  const SHARE = "location.share_selected";
+
+  it("requires a duration, with the same bounded options a share uses", () => {
+    // Reported live: "ask location doesn't ask for duration like share does."
+    // It declared the slot but left it optional and unbounded, so One never
+    // asked and the request went out carrying whatever `durationHours`
+    // happened to hold -- shared state written by the share composer and the
+    // link controls, never by the Ask screen, which has no duration control
+    // at all. The number is what the OTHER person is shown and approves, so
+    // guessing it asks a question on their behalf.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.required).toBe(true);
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+  });
+
+  it("offers the same lengths as a share, so the two do not disagree", () => {
+    const ask = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    const share = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(ask?.options).toEqual(share?.options);
+  });
+
+  it("never offers an open-ended request", () => {
+    // requestAccess is sent as requestedDurationMode: "timed", so
+    // "until I stop" has nothing to map onto and would resolve to NaN hours.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.options).not.toContain("until_stopped");
+    expect(input?.prompt ?? "").not.toMatch(/until you stop/i);
+  });
+});

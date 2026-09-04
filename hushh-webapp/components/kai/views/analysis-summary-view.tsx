@@ -358,7 +358,7 @@ export function AnalysisSummaryView({
         : "bg-blue-500/12 text-blue-600 dark:text-blue-400 border-blue-500/30";
 
   return (
-    <div className="mx-auto w-full space-y-4 pb-safe pt-1" style={APP_MEASURE_STYLES.reading}>
+    <div className="mx-auto w-full space-y-4 pt-1" style={APP_MEASURE_STYLES.reading}>
       {!embedded ? (
         <div className="flex items-center justify-between gap-3">
           <Button type="button" variant="none" effect="fade" size="sm" onClick={onBack} disabled={!onBack}>
@@ -462,7 +462,7 @@ export function AnalysisSummaryView({
           <div className="border-l-2 border-primary pl-3">
             <p className="text-sm font-medium leading-relaxed">{shortRecommendation}</p>
             <p className="mt-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
-              Kai Insight
+              Finance Insight
             </p>
           </div>
           {!embedded && onOpenDebate ? (

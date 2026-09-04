@@ -77,6 +77,13 @@ def _resolve_smoke_overlay_identity(smoke_passphrase: str | None) -> tuple[str, 
     return configured_uid, "reviewer_smoke"
 
 
+def _one_runtime_dependency_evidence() -> dict[str, str | bool | None]:
+    """Expose dependency-only readiness without probing a model or credentials."""
+    from hushh_mcp.runtime_readiness import runtime_dependency_evidence
+
+    return runtime_dependency_evidence()
+
+
 @router.get("/")
 def health_check():
     """Root health check."""
@@ -90,6 +97,39 @@ def health():
         "status": "healthy",
         "agents": ["one", "kai", "nav", "kyc"],
         "agent_model": AGENT_MODEL,
+        "one_runtime": _one_runtime_dependency_evidence(),
+    }
+
+
+#: Capabilities a screen can ask about before offering an action that needs one.
+#: Deliberately short: this is the set the UI actually branches on, not every
+#: provider the backend talks to.
+_REPORTED_CAPABILITIES = ("vertex_ai", "voice", "maps")
+
+
+@router.get("/health/capabilities")
+def capability_health():
+    """Per-capability availability for the app to degrade against.
+
+    Served SEPARATELY from ``/health`` on purpose. That payload is asserted by
+    whole-dict equality in its tests and read by scripts/env/doctor.sh, so
+    adding fields there to carry this would break existing consumers for no
+    benefit. The two answer different questions anyway: /health is "is this
+    service up", this is "which features can it currently deliver".
+
+    The body is safe to serve to a browser. It carries availability only -- no
+    provider name, status code, project number or error text, because none of
+    that belongs in front of a person.
+    """
+    from hushh_mcp.runtime_providers.capability_health import public_snapshot
+
+    capabilities = public_snapshot(_REPORTED_CAPABILITIES)
+    return {
+        # The app itself is healthy whenever this endpoint answers at all. A
+        # provider being down degrades capabilities, never the service.
+        "app": "healthy",
+        "capabilities": capabilities,
+        "degraded": sorted(name for name, status in capabilities.items() if status != "available"),
     }
 
 
@@ -185,8 +225,7 @@ async def issue_app_review_mode_session(request: Request):
 
     client_ip = request.client.host if request.client else "unknown"
     logger.info(
-        "app_review_mode.session_issued reviewer_uid=%s subject=%s project_id=%s client_ip=%s",
-        reviewer_uid,
+        "app_review_mode.session_issued reviewer_uid_present=true subject=%s project_id=%s client_ip=%s",
         session_subject,
         project_id or "unknown",
         client_ip,

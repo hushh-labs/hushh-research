@@ -1,6 +1,10 @@
 """ADK tools for the One Location Agent.
 
-These tools expose workflow actions while keeping persistence inside
+The Location Agent is a narrow fallback: everything with a generated action
+(sharing, requesting, revoking, approving, denying, circles, SOS, check-in)
+runs directly from One, never through this module. These tools cover what the
+generated action gateway cannot do at all -- public links, viewing an incoming
+share, device permission, and referral -- while keeping persistence inside
 OneLocationAgentService and scope checks inside @hushh_tool.
 """
 
@@ -44,103 +48,17 @@ def _require_uuid(value: str, label: str) -> str:
     return str(value)
 
 
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_location_recipients")
-async def list_location_recipients(limit: int = 50) -> dict[str, Any]:
-    """List verified recipients eligible for a per-recipient location grant."""
-    context = _ctx()
-    return {
-        "recipients": _service().list_verified_recipients(
-            owner_user_id=context.user_id,
-            limit=limit,
-        )
-    }
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="create_location_share")
-async def create_location_share(
-    recipient_user_id: str,
-    recipient_key_id: str | None,
-    duration_hours: float,
-    reason: str | None = None,
-) -> dict[str, Any]:
-    """Create a recipient-bound live-location grant without publishing plaintext coordinates."""
-    context = _ctx()
-    return _service().create_grant(
-        owner_user_id=context.user_id,
-        recipient_user_id=recipient_user_id,
-        recipient_key_id=recipient_key_id,
-        duration_hours=duration_hours,
-        reason=reason,
-        enforce_connection=True,
-    )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="publish_location_envelope")
-async def publish_location_envelope(grant_id: str, envelope: dict[str, Any]) -> dict[str, Any]:
-    """Publish an encrypted coordinate envelope for an active grant."""
-    context = _ctx()
-    return _service().store_encrypted_envelope(
-        owner_user_id=context.user_id,
-        grant_id=grant_id,
-        envelope=envelope,
-    )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="view_location_envelope")
-async def view_location_envelope(grant_id: str) -> dict[str, Any]:
-    """Return ciphertext-only latest envelope for the authenticated approved recipient."""
-    context = _ctx()
-    return _service().view_latest_envelope(
-        recipient_user_id=context.user_id,
-        grant_id=grant_id,
-    )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REVOKE, name="revoke_location_share")
-async def revoke_location_share(grant_id: str) -> dict[str, Any]:
-    """Revoke an active live-location grant owned by the current user."""
-    context = _ctx()
-    grant_id = _require_uuid(grant_id, "grant_id")
-    return _service().revoke_grant(owner_user_id=context.user_id, grant_id=grant_id)
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="request_location_access")
-async def request_location_access(owner_user_id: str, message: str | None = None) -> dict[str, Any]:
-    """Request live-location access from an owner; this never grants access by itself."""
-    context = _ctx()
-    return _service().request_access(
-        requester_user_id=context.user_id,
-        owner_user_id=owner_user_id,
-        message=message,
-    )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="approve_location_request")
-async def approve_location_request(request_id: str, duration_hours: float) -> dict[str, Any]:
-    """Approve a pending request and create a separate recipient-scoped grant."""
-    context = _ctx()
-    return _service().approve_request(
-        owner_user_id=context.user_id,
-        request_id=request_id,
-        duration_hours=duration_hours,
-    )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="deny_location_request")
-async def deny_location_request(request_id: str) -> dict[str, Any]:
-    """Deny a pending request without creating access."""
-    context = _ctx()
-    request_id = _require_uuid(request_id, "request_id")
-    return _service().deny_request(owner_user_id=context.user_id, request_id=request_id)
-
-
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REFER_REQUEST, name="refer_location_recipient")
 async def refer_location_recipient(
     grant_id: str,
     referred_user_id: str,
     message: str | None = None,
 ) -> dict[str, Any]:
-    """Refer another verified user into an owner approval request."""
+    """Introduce another verified person into an approval request for a share the
+    current user already RECEIVES, without granting the new person access itself.
+    grant_id MUST come from list_incoming_location_shares -- it identifies the
+    current user's own incoming grant from the owner, never a share the current
+    user gave out."""
     context = _ctx()
     grant_id = _require_uuid(grant_id, "grant_id")
     return _service().refer_recipient(
@@ -149,28 +67,6 @@ async def refer_location_recipient(
         referred_user_id=referred_user_id,
         message=message,
     )
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="list_active_location_shares")
-async def list_active_location_shares() -> dict[str, Any]:
-    """List the user's active outgoing live-location shares.
-
-    Returns each active share's grant id and recipient so the agent can revoke or
-    refer by a real id instead of guessing. Coordinate-free (no lat/lng).
-    """
-    context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
-    shares = [
-        {
-            "grantId": grant.get("id"),
-            "recipientUserId": grant.get("recipientUserId"),
-            "recipientDisplayName": grant.get("recipientDisplayName"),
-            "expiresAt": grant.get("expiresAt"),
-        }
-        for grant in state.get("ownerGrants", [])
-        if grant.get("status") == "active"
-    ]
-    return {"activeShares": shares}
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="list_incoming_location_shares")
@@ -214,40 +110,21 @@ async def list_public_links() -> dict[str, Any]:
 async def propose_public_link(duration_hours: float) -> dict[str, Any]:
     """Propose creating an owner-confirmed public link. Does NOT create it (the
     browser captures the snapshot and creates it after explicit confirmation).
-    Coordinate-free."""
+    duration_hours must be between 0.25 and 1. Coordinate-free."""
     _ctx()
     try:
         hours = float(duration_hours)
     except (TypeError, ValueError) as exc:
-        raise ValueError("duration_hours must be a number between 0 and 24") from exc
-    if not (0 < hours <= 24):
-        raise ValueError("duration_hours must be greater than 0 and at most 24")
+        raise ValueError("duration_hours must be a number between 0.25 and 1") from exc
+    # 24 was the PRIVATE share ceiling, copied. A public link is readable by
+    # anyone holding it, and both the route field (le=1) and the service
+    # (PUBLIC_INVITE_MAX_DURATION_HOURS) stop at an hour -- so this tool could
+    # propose a duration that was guaranteed to 422 the moment the person
+    # confirmed it. The floor is the shared minimum share length; below it
+    # normalize_duration_hours rejects the request.
+    if not (0.25 <= hours <= 1):
+        raise ValueError("duration_hours must be between 0.25 and 1 for a public link")
     return {"proposed": "create_public_link", "durationHours": hours}
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_sos_panic")
-async def propose_sos_panic() -> dict[str, Any]:
-    """Propose an emergency SOS broadcast to the user's ready trusted contacts.
-    The browser creates 8h grants per recipient, encrypts, publishes, and records
-    the incident. Coordinate-free."""
-    _ctx()
-    return {"proposed": "sos_panic"}
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="propose_check_in")
-async def propose_check_in(duration_hours: float, note: str | None = None) -> dict[str, Any]:
-    """Propose a check-in: share live location with the user's ready trusted
-    contacts for a bounded time with an optional note. The browser creates the
-    grants per recipient, encrypts, and publishes. Coordinate-free."""
-    _ctx()
-    try:
-        hours = float(duration_hours)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("duration_hours must be a number between 0 and 24") from exc
-    if not (0 < hours <= 24):
-        raise ValueError("duration_hours must be greater than 0 and at most 24")
-    clean_note = (note or "").strip()[:120] or None
-    return {"proposed": "check_in", "durationHours": hours, "note": clean_note}
 
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="propose_location_view")
@@ -265,7 +142,7 @@ async def request_device_location_permission() -> dict[str, Any]:
     """Ask the device to (re-)prompt the OS location permission dialog. Use this
     whenever an action needs the device's location and it is not currently
     available or was previously denied - e.g. the user asks to share, check in,
-    or send SOS and a prior attempt failed because permission was never granted
+    or send SMS and a prior attempt failed because permission was never granted
     or was denied. The server never receives a coordinate here; the OS prompt
     and outcome happen entirely client-side."""
     _ctx()
@@ -311,149 +188,6 @@ def _expiry_hint(expires_at: Any, *, now: datetime | None = None) -> str | None:
     return f"expires in {hours} hour{'s' if hours != 1 else ''}"
 
 
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_recipient_choice")
-async def request_recipient_choice(name: str | None = None) -> dict[str, Any]:
-    """Ask the user to pick who to share with. Returns a coordinate-free select
-    prompt whose options carry real recipient ids.
-
-    Pass ``name`` when the user named a person but it matched more than one contact
-    (e.g. two "Neelesh Meena"): the options are then limited to just the contacts
-    whose display name matches, so the picker shows only the ambiguous matches
-    instead of the whole directory. Omit ``name`` only when the user has not named
-    anyone at all — then the picker lists everyone plus a public-link option.
-    """
-    context = _ctx()
-    recipients = _service().list_verified_recipients(owner_user_id=context.user_id)
-    needle = (name or "").strip().lower()
-    matches = (
-        [r for r in recipients if needle in str(r.get("displayName") or "").strip().lower()]
-        if needle
-        else recipients
-    )
-    # Disambiguation mode: only when a name was given AND it matched someone. A
-    # name that matches nothing falls back to the full directory so a typo can't
-    # strand the user with an empty picker.
-    disambiguating = bool(needle) and bool(matches)
-    chosen = matches if matches else recipients
-    options = [
-        {
-            "label": r.get("displayName") or "Someone",
-            "ref": {"recipientUserId": r.get("userId"), "recipientKeyId": r.get("keyId")},
-            "hint": None if r.get("canReceiveLocation") else "hasn't set up location yet",
-        }
-        for r in chosen
-    ]
-    if not disambiguating:
-        # The user named a specific person, so a public link is not a valid
-        # disambiguation answer — only offer it in the open "who?" case.
-        options.append({"label": "Public link (anyone)", "ref": {"publicLink": True}, "hint": None})
-    question = (
-        f"Which “{name}” do you want to share your location with?"
-        if disambiguating
-        else "Who do you want to share your location with?"
-    )
-    return {
-        "prompt": {
-            "kind": "select",
-            "purpose": "select_recipient",
-            "question": question,
-            "options": options,
-            "minSelections": 1,
-            "maxSelections": 1 if disambiguating else None,
-            "allowFreeText": True,
-        }
-    }
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REVOKE, name="request_active_share_choice")
-async def request_active_share_choice() -> dict[str, Any]:
-    """Ask the user which active outgoing share(s) to stop. Returns a coordinate-free
-    multi-select prompt whose options carry real grant ids, plus a 'Stop all' option.
-    Call this when the user wants to stop sharing but did not name a single share."""
-    context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
-    active = [g for g in state.get("ownerGrants", []) if g.get("status") == "active"]
-    if not active:
-        return {"activeShares": []}
-    options = [
-        {
-            "label": g.get("recipientDisplayName") or "Someone",
-            "ref": {"grantId": g.get("id")},
-            "hint": _expiry_hint(g.get("expiresAt")),
-        }
-        for g in active
-    ]
-    options.append({"label": "Stop all", "ref": {"all": True}, "hint": None})
-    return {
-        "prompt": {
-            "kind": "select",
-            "purpose": "select_share",
-            "question": "Which sharing do you want to stop?",
-            "options": options,
-            "minSelections": 1,
-            "maxSelections": None,
-            "allowFreeText": True,
-            "confirmLabel": "Stop sharing",
-            "destructive": False,
-        }
-    }
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_duration_choice")
-async def request_duration_choice() -> dict[str, Any]:
-    """Ask the user how long a share should last. Coordinate-free single-select."""
-    _ctx()
-    return {
-        "prompt": {
-            "kind": "select",
-            "purpose": "select_duration",
-            "question": "How long should this share last?",
-            "options": [
-                {"label": "1 hour", "ref": {"hours": 1}, "hint": None},
-                {"label": "8 hours", "ref": {"hours": 8}, "hint": None},
-                {"label": "24 hours", "ref": {"hours": 24}, "hint": None},
-            ],
-            "minSelections": 1,
-            "maxSelections": 1,
-            "allowFreeText": True,
-        }
-    }
-
-
-@hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_REQUEST, name="request_request_choice")
-async def request_request_choice() -> dict[str, Any]:
-    """Ask the user which pending incoming access request to act on. Coordinate-free
-    single-select whose options carry real request ids."""
-    context = _ctx()
-    state = _service().list_state(user_id=context.user_id)
-    pending = [
-        r
-        for r in state.get("requests", [])
-        if r.get("status") == "pending" and r.get("ownerUserId") == context.user_id
-    ]
-    if not pending:
-        return {"pendingRequests": []}
-    options = [
-        {
-            "label": r.get("requesterDisplayName") or "Someone",
-            "ref": {"requestId": r.get("id")},
-            "hint": "wants to see your location",
-        }
-        for r in pending
-    ]
-    return {
-        "prompt": {
-            "kind": "select",
-            "purpose": "select_request",
-            "question": "Which request do you want to act on?",
-            "options": options,
-            "minSelections": 1,
-            "maxSelections": 1,
-            "allowFreeText": True,
-        }
-    }
-
-
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_VIEW, name="request_incoming_choice")
 async def request_incoming_choice() -> dict[str, Any]:
     """Ask the user whose incoming shared location to view. Coordinate-free
@@ -486,11 +220,11 @@ async def request_incoming_choice() -> dict[str, Any]:
 
 @hushh_tool(scope=ConsentScope.CAP_LOCATION_LIVE_SHARE, name="request_confirmation")
 async def request_confirmation(summary: str, destructive: bool = True) -> dict[str, Any]:
-    """Ask the user to confirm an irreversible or bulk action before it runs. Returns
-    a coordinate-free yes/no confirm prompt. Use before sharing with everyone or
-    stopping all shares. Do NOT use before propose_public_link — the browser shows
-    its own owner-confirmation card for the link, so confirming here would make
-    the user confirm twice."""
+    """Ask the user to confirm an irreversible action before it runs. Returns a
+    coordinate-free yes/no confirm prompt. Use before revoke_public_link, since it
+    ends currently-active sharing immediately. Do NOT use before propose_public_link
+    — the browser shows its own owner-confirmation card for the link, so confirming
+    here would make the user confirm twice."""
     _ctx()
     return {
         "prompt": {
@@ -504,59 +238,21 @@ async def request_confirmation(summary: str, destructive: bool = True) -> dict[s
     }
 
 
-LOCATION_AGENT_TOOLS = [
-    list_location_recipients,
-    list_active_location_shares,
-    create_location_share,
-    publish_location_envelope,
-    view_location_envelope,
-    revoke_location_share,
-    request_location_access,
-    approve_location_request,
-    deny_location_request,
-    refer_location_recipient,
-]
-
-
-# v1 control-plane subset: tools the agent can fully complete server-side with no
-# client-side encryption handoff. Excludes create/publish/view/approve, which
-# require the client to capture, encrypt, and upload a coordinate envelope.
-CONTROL_PLANE_LOCATION_TOOLS = [
-    list_location_recipients,
-    list_active_location_shares,
-    revoke_location_share,
-    request_location_access,
-    deny_location_request,
-    refer_location_recipient,
-]
-
-
-# v2 subset: control-plane + prep-and-handoff (create/approve create grants
-# server-side, coordinate-free) + read/intent/control tools for view & public
-# links. NEVER includes publish_location_envelope / view_location_envelope —
-# those are impossible server-side (need ciphertext / decryption) and are handled
-# by a client-action directive instead.
+# Every tool the Location Agent can call. This specialist is a narrow fallback
+# for the handful of Location capabilities the generated action gateway cannot
+# run itself: managing a public link, viewing an incoming share, re-prompting
+# the device for location permission, and referring someone into another
+# owner's approval flow. Sharing, requesting, revoking, approving, denying,
+# circles, SOS, and check-in all now run directly from One's own generated
+# actions before this agent is ever reached, so they have no tool here.
 V2_LOCATION_TOOLS = [
-    list_location_recipients,
-    list_active_location_shares,
     list_incoming_location_shares,
     list_public_links,
-    revoke_location_share,
-    request_location_access,
-    deny_location_request,
-    refer_location_recipient,
-    create_location_share,
-    approve_location_request,
     propose_public_link,
     propose_location_view,
     revoke_public_link,
     request_device_location_permission,
-    request_recipient_choice,
-    request_active_share_choice,
-    request_duration_choice,
-    request_request_choice,
+    refer_location_recipient,
     request_incoming_choice,
     request_confirmation,
-    propose_sos_panic,
-    propose_check_in,
 ]

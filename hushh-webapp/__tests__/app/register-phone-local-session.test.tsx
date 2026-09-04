@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,11 +9,13 @@ const {
   resolveAfterLoginMock,
   bootstrapStateMock,
   syncOnboardingJourneyMock,
+  shouldBypassLocalPhoneMandateMock,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
   resolveAfterLoginMock: vi.fn(),
   bootstrapStateMock: vi.fn(),
   syncOnboardingJourneyMock: vi.fn(),
+  shouldBypassLocalPhoneMandateMock: vi.fn(),
 }));
 
 const user = {
@@ -34,7 +36,15 @@ vi.mock("@/components/app-ui/native-route-marker", () => ({
   NativeRouteMarker: () => null,
 }));
 vi.mock("@/components/auth/phone-verification-flow", () => ({
-  PhoneVerificationFlow: () => null,
+  PhoneVerificationFlow: ({
+    onCompleted,
+  }: {
+    onCompleted: (user: typeof user) => Promise<void> | void;
+  }) => (
+    <button type="button" onClick={() => void onCompleted({ ...user })}>
+      Complete phone verification
+    </button>
+  ),
 }));
 vi.mock("@/components/vault/vault-lock-guard", () => ({
   VaultLockGuard: ({ children }: { children: ReactNode }) => children,
@@ -79,7 +89,7 @@ vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
   },
 }));
 vi.mock("@/lib/services/phone-mandate-service", () => ({
-  shouldBypassPhoneMandateForLocalhost: () => true,
+  shouldBypassPhoneMandateForLocalhost: shouldBypassLocalPhoneMandateMock,
 }));
 vi.mock("@/lib/voice/voice-surface-metadata", () => ({
   usePublishVoiceSurfaceMetadata: vi.fn(),
@@ -97,6 +107,7 @@ describe("PhoneMandatePageContent localhost continuation", () => {
     resolveAfterLoginMock.mockResolvedValue("/one/setup");
     bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
     syncOnboardingJourneyMock.mockResolvedValue(undefined);
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(true);
   });
 
   it("enters the setup hub once without waiting for post-auth reconciliation", async () => {
@@ -115,5 +126,32 @@ describe("PhoneMandatePageContent localhost continuation", () => {
     // The mocked router does not unmount the page. This confirms the
     // transition remains pending in the mock without restarting work.
     expect(screen.getByText("Continuing local session...")).toBeVisible();
+  });
+
+  it("keeps a freshly verified account in One setup before resolving any generic destination", async () => {
+    shouldBypassLocalPhoneMandateMock.mockReturnValue(false);
+    // This models a stale generic resolver result. The fresh root state—not a
+    // destination computed before verification—owns the account gate.
+    resolveAfterLoginMock.mockResolvedValue("/one/profile");
+    bootstrapStateMock.mockResolvedValue({ setupCompleted: false });
+
+    render(<PhoneMandatePageContent />);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Complete phone verification" }),
+    );
+
+    await waitFor(() => {
+      expect(replace).toHaveBeenCalledWith("/one/setup");
+    });
+    expect(bootstrapStateMock).toHaveBeenCalledWith("local-user", {
+      force: true,
+    });
+    expect(resolveAfterLoginMock).not.toHaveBeenCalled();
+    expect(syncOnboardingJourneyMock).toHaveBeenCalledWith({
+      userId: "local-user",
+      phase: "setup_hub",
+      activeCapability: null,
+      callbackState: "none",
+    });
   });
 });

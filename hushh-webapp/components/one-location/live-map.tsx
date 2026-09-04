@@ -20,6 +20,7 @@ import { cn } from "@/lib/utils";
 
 // One glide should finish before the next ~5s poll lands.
 const MARKER_ANIMATION_MS = 1200;
+const DEFAULT_PREVIEW_ZOOM = 16;
 
 // In iframe-fallback mode (Maps JS unavailable — e.g. the iOS App:// WebView)
 // every src change reloads the whole embed, a visible flash. So we only recenter
@@ -31,9 +32,15 @@ const IFRAME_RECENTER_METERS = 50;
 export interface LiveMapProps {
   point: PlainLocationPoint;
   className?: string;
+  /**
+   * Bump this only for an explicit user-requested refresh. Background point
+   * updates keep the person's chosen zoom, while a manual refresh restores the
+   * preview camera to the location marker.
+   */
+  viewportResetKey?: string | number;
 }
 
-export function LiveMap({ point, className }: LiveMapProps) {
+export function LiveMap({ point, className, viewportResetKey }: LiveMapProps) {
   const { status } = useGoogleMaps();
   const { resolvedTheme } = useTheme();
   // Follow the APP theme (next-themes class), not the OS scheme, so the map
@@ -43,6 +50,11 @@ export function LiveMap({ point, className }: LiveMapProps) {
   const mapRef = useRef<google.maps.Map | null>(null);
   const markerRef = useRef<google.maps.Marker | null>(null);
   const frameRef = useRef<number | null>(null);
+  const resetPointRef = useRef(point);
+  const lastViewportResetKeyRef = useRef(viewportResetKey);
+  useEffect(() => {
+    resetPointRef.current = point;
+  }, [point]);
 
   const target: LatLngLiteral = locationLatLng(point);
 
@@ -58,6 +70,14 @@ export function LiveMap({ point, className }: LiveMapProps) {
     );
   }, [point]);
 
+  // The iframe fallback cannot expose a camera API. A user-requested reset
+  // therefore recenters its source point and remounts the iframe below. This is
+  // deliberately separate from background GPS updates so stationary previews
+  // do not flash every few seconds.
+  useEffect(() => {
+    setIframePoint(resetPointRef.current);
+  }, [viewportResetKey]);
+
   // Create the map + marker once the API is ready and the container exists.
   // Google Maps applies colorScheme only at construction, so a theme flip
   // recreates the map (the container div is keyed by scheme below, giving a
@@ -66,19 +86,36 @@ export function LiveMap({ point, className }: LiveMapProps) {
     if (status !== "ready" || !containerRef.current || mapRef.current) return;
     const map = new google.maps.Map(containerRef.current, {
       center: target,
-      zoom: 16,
+      zoom: DEFAULT_PREVIEW_ZOOM,
       disableDefaultUI: true,
+      keyboardShortcuts: false,
+      // Google Maps attribution, map-data credits, and Terms are provider-owned
+      // legal UI. They must remain visible and must never be hidden or cropped.
       clickableIcons: false,
       colorScheme,
     });
     mapRef.current = map;
     markerRef.current = new google.maps.Marker({ map, position: target });
+    // Captured while the API is known to be present. Cleanup runs during
+    // unmount, and reaching for the global there would make teardown depend on
+    // a script that may already be gone — a throw in a cleanup function aborts
+    // React's unmount for the whole tree.
+    const mapsEvent = google.maps.event;
     // Created once per scheme; movement handled by the glide effect below.
     return () => {
       if (frameRef.current !== null) {
         cancelAnimationFrame(frameRef.current);
         frameRef.current = null;
       }
+      // Dropping the refs is not disposal. A Maps instance keeps its own
+      // listeners, tile requests and resize handlers alive, so an orphaned map
+      // goes on doing work — and on a theme flip the container div is re-keyed,
+      // which builds a second one on top of the first. Detach explicitly.
+      if (markerRef.current) {
+        markerRef.current.setMap(null);
+        mapsEvent?.clearInstanceListeners(markerRef.current);
+      }
+      mapsEvent?.clearInstanceListeners(map);
       mapRef.current = null;
       markerRef.current = null;
     };
@@ -121,12 +158,35 @@ export function LiveMap({ point, className }: LiveMapProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.lat, target.lng, status]);
 
+  // A fresh reading can have the same coordinates as the previous one. Treat
+  // the explicit reset key—not coordinate movement—as the signal to restore
+  // the original marker-centered camera after the user has panned or zoomed.
+  useEffect(() => {
+    if (status !== "ready") return;
+    if (Object.is(lastViewportResetKeyRef.current, viewportResetKey)) return;
+
+    const map = mapRef.current;
+    const marker = markerRef.current;
+    if (!map || !marker) return;
+
+    lastViewportResetKeyRef.current = viewportResetKey;
+    const resetTarget = locationLatLng(resetPointRef.current);
+    if (frameRef.current !== null) {
+      cancelAnimationFrame(frameRef.current);
+      frameRef.current = null;
+    }
+    marker.setPosition(resetTarget);
+    map.setZoom(DEFAULT_PREVIEW_ZOOM);
+    map.panTo(resetTarget);
+  }, [status, viewportResetKey]);
+
   // Not ready (loading or error / no key) -> keep today's iframe embed. The
   // keyless embed has no dark mode, so dark theme applies an invert+hue-rotate
   // filter (standard technique) to keep the surface from glowing white.
   if (status !== "ready") {
     return (
       <iframe
+        key={`live-map-iframe:${viewportResetKey ?? "initial"}`}
         title="Live location map preview"
         src={googleMapsLocationEmbedUrl(iframePoint)}
         loading="lazy"

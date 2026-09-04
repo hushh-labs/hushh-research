@@ -1,4 +1,6 @@
 export const GMAIL_RECEIPTS_API_TEMPLATES = {
+  connectNativeStart: "/api/kai/gmail/connect/native/start",
+  connectNativeComplete: "/api/kai/gmail/connect/native/complete",
   connectStart: "/api/kai/gmail/connect/start",
   connectComplete: "/api/kai/gmail/connect/complete",
   status: "/api/kai/gmail/status/{user_id}",

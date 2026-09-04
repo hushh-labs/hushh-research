@@ -3,21 +3,49 @@
   "license": "Apache-2.0",
   "noticeSummary": "The published npm package ships package-local LICENSE and NOTICE files for Apache redistribution.",
   "tokenEnvVar": "HUSHH_DEVELOPER_TOKEN",
+  "mcpProtocolRevision": "2025-11-25",
+  "authentication": {
+    "clientIdEnvVar": "HUSHH_OAUTH_CLIENT_ID",
+    "clientSecretEnvVar": "HUSHH_OAUTH_CLIENT_SECRET",
+    "tokenUrlEnvVar": "HUSHH_OAUTH_TOKEN_URL",
+    "discoveryUrl": "https://api.uat.hushh.ai/.well-known/oauth-authorization-server",
+    "authorizationEndpoint": "https://api.uat.hushh.ai/oauth/authorize",
+    "tokenEndpoint": "https://api.uat.hushh.ai/oauth/token",
+    "revocationEndpoint": "https://api.uat.hushh.ai/oauth/revoke",
+    "scope": "mcp:tools",
+    "bearerHeader": "Authorization: Bearer <access-token>",
+    "queryTokensAllowed": false,
+    "selfServeMethods": [
+      {
+        "id": "developer-token",
+        "label": "Developer token",
+        "detail": "A long-lived app credential created or rotated in the signed-in developer workspace."
+      },
+      {
+        "id": "authorization-code",
+        "label": "OAuth authorization code",
+        "detail": "Authorization code with S256 PKCE, exact registered redirect URIs, rotating refresh tokens, and revocation."
+      }
+    ],
+    "partnerOnlyMethod": {
+      "id": "client-credentials",
+      "label": "OAuth client credentials",
+      "detail": "Operations-provisioned partner_crm integrations only. This grant is not self-serve and does not issue refresh tokens."
+    }
+  },
   "promotedEnvironment": {
     "label": "UAT",
     "appUrl": "https://uat.one.hushh.ai",
     "apiOrigin": "https://api.uat.hushh.ai",
     "mcpUrl": "https://api.uat.hushh.ai/mcp",
-    "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/?token=<developer-token>"
+    "remoteUrlTemplate": "https://api.uat.hushh.ai/mcp/"
   },
   "publicTools": [
-    "prepare_campaign_context",
-    "discover_user_domains",
-    "request_consent",
-    "check_consent_status",
-    "get_encrypted_scoped_export",
-    "validate_token",
-    "list_scopes"
+    "search-user-scopes",
+    "prepare-campaign-context",
+    "request-consent",
+    "check-consent-status",
+    "get-encrypted-scoped-export"
   ],
   "publicResources": [
     "hushh://info/server",
@@ -31,15 +59,15 @@
       "id": "generic-remote",
       "title": "Generic mcpServers JSON",
       "whenToUse": "your host supports HTTP MCP directly.",
-      "secretNote": "Keep the developer token machine-local and never commit host config with inline credentials.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
+      "secretNote": "Keep the developer token machine-local and send it only in the Authorization header.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "codex-remote",
       "title": "Codex remote setup",
       "whenToUse": "Codex should connect to the hosted UAT MCP endpoint directly.",
-      "secretNote": "This writes a machine-local Codex config entry that contains the full query-token URL.",
-      "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\""
+      "secretNote": "Configure the Authorization bearer header in the host secret store; never put the token in the URL.",
+      "template": "codex mcp add hushh_consent --url \"{{REMOTE_URL}}\" --bearer-token-env-var HUSHH_DEVELOPER_TOKEN"
     },
     {
       "id": "codex-stdio",
@@ -56,24 +84,31 @@
       "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
-      "id": "claude-desktop",
-      "title": "Claude Desktop stdio",
-      "whenToUse": "Claude Desktop is your MCP host and you need a local stdio bridge.",
-      "secretNote": "Claude Desktop stores this config locally. Do not commit the token value.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{TOKEN_ENV_VAR}}\": \"<developer-token>\"\n      }\n    }\n  }\n}"
+      "id": "npm-bridge-client-credentials",
+      "title": "npm bridge with OAuth client credentials",
+      "whenToUse": "your operations-provisioned partner connector needs a local stdio process and has an approved Hussh OAuth client ID and secret.",
+      "secretNote": "Keep the client secret only in the host secret store. Configure either a developer token or OAuth client credentials, never both. The bridge obtains and renews an in-memory Bearer token; it never writes credentials into config output, disk, logs, or MCP results.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent\": {\n      \"command\": \"npx\",\n      \"args\": [\"-y\", \"{{PACKAGE_NAME}}\"],\n      \"env\": {\n        \"CONSENT_API_URL\": \"{{API_ORIGIN}}\",\n        \"{{OAUTH_CLIENT_ID_ENV_VAR}}\": \"<operations-provisioned-client-id>\",\n        \"{{OAUTH_CLIENT_SECRET_ENV_VAR}}\": \"<operations-provisioned-client-secret>\"\n      }\n    }\n  }\n}"
+    },
+    {
+      "id": "claude-remote",
+      "title": "Claude remote custom connector",
+      "whenToUse": "Claude should use the same hosted Streamable HTTP endpoint used by MuleSoft and other remote hosts.",
+      "secretNote": "Add the public HTTPS URL through Claude Customize > Connectors, not claude_desktop_config.json. In Advanced settings, enter the provisioned Hussh Technologies OAuth client ID and secret from the approved secret manager. Claude uses authorization code with S256 PKCE, so the exact callback https://claude.ai/api/mcp/auth_callback must be registered. OAuth does not replace scoped consent.",
+      "template": "{{REMOTE_URL}}"
     },
     {
       "id": "cursor-vscode",
       "title": "Cursor / VS Code remote JSON",
       "whenToUse": "your editor host understands mcpServers JSON and can call remote MCP directly.",
-      "secretNote": "The URL contains the token today, so keep the config file local.",
-      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\"\n    }\n  }\n}"
+      "secretNote": "Keep the bearer token in the host secret store; query-string authentication is rejected.",
+      "template": "{\n  \"mcpServers\": {\n    \"hushh-consent-remote\": {\n      \"url\": \"{{REMOTE_URL}}\",\n      \"headers\": {\n        \"Authorization\": \"Bearer <developer-token>\"\n      }\n    }\n  }\n}"
     },
     {
       "id": "raw-remote-url",
       "title": "Raw remote MCP URL",
       "whenToUse": "your host only asks for the MCP endpoint URL.",
-      "secretNote": "Use the exact slash-safe mount shape.",
+      "secretNote": "Use the exact slash-safe mount shape and configure Authorization: Bearer <developer-token> separately.",
       "template": "{{REMOTE_URL}}"
     }
   ]

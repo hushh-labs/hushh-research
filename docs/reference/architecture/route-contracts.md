@@ -55,72 +55,138 @@ are prompt posture only; generated actions and their guards remain execution aut
 Keep navigation documentation aligned with `hushh-webapp/lib/navigation/routes.ts`:
 
 - `/`
-- `/developers`
+- `/welcome?tab=<research|blog|developers>`
 - `/login`
 - `/register-phone`
 - `/logout`
 - `/agent`
-- `/profile`
-- `/profile/account`
-- `/profile/account/phone`
-- `/profile/preferences`
-- `/profile/preferences/kai`
-- `/profile/preferences/device`
-- `/profile/security`
-- `/profile/security/vault`
-- `/profile/security/session`
-- `/profile/my-data`
-- `/profile/my-data/domain?key=<domain_key>`
-- `/profile/access`
-- `/profile/access/connection?id=<connection_id>`
-- `/profile/connected-systems`
-- `/profile/gmail`
-- `/profile/gmail/connection`
-- `/profile/gmail/actions`
-- `/profile/support`
-- `/profile/support/routing`
-- `/profile/support/compose?kind=<support_kind>`
-- `/profile/receipts`
-- `/profile/gmail/oauth/return`
-- `/consents`
+- `/people/[personRef]`
+- `/one/profile`
+- `/one/profile/regulatory`
+- `/one/profile/account`
+- `/one/profile/account/phone`
+- `/one/profile/preferences`
+- `/one/profile/preferences/kai`
+- `/one/profile/preferences/device`
+- `/one/profile/preferences/gemini`
+- `/one/profile/security`
+- `/one/profile/security/vault`
+- `/one/profile/security/session`
+- `/one/profile/security/devices`
+- `/one/profile/security/devices/authorize`
+- `/one/profile/my-data`
+- `/one/profile/my-data/domain?key=<domain_key>`
+- `/one/profile/access`
+- `/one/profile/access/connection?id=<connection_id>`
+- `/one/profile/connected-systems`
+- `/one/connected-systems`
+- `/one/connected-systems/[systemId]`
+- `/one/profile/gmail`
+- `/one/profile/gmail/connection`
+- `/one/profile/gmail/actions`
+- `/one/profile/support`
+- `/one/profile/support/routing`
+- `/one/profile/support/compose?kind=<support_kind>`
+
+`/people/[personRef]` is the deliberate exception: it is the sole canonical,
+unguessable public person URL and cannot be reduced to a directory or a finite
+identifier set. Web renders it server-side so invalid and suppressed profiles
+produce a non-enumerating `404`. The Capacitor export emits one inert route
+fixture so the shared dynamic client bundle is available; actual profile reads
+use `ApiService.apiFetch` and never embed a real person reference at build time.
+- `/one/profile/receipts`
+- `/one/profile/gmail/oauth/return`
+- `/one/connect`
+- `/one/connect/settings`
+- `/one/consent`
+- `/one/feed`
 - `/one/setup`
 - `/one/setup/finance`
 - `/one/setup/finance/import`
 - `/one/setup/kai`
+- `/one/setup/calendar`
 - `/one/setup/[capability]`
+- `/one/calendar`
+- `/one/wallet` (Wallet, formerly Cards; naming map in `docs/reference/one/wallet.md`)
+- `/one/pkm/recent`
+- `/one/gmail`
+- `/one/email`
 - `/one/kyc`
+- `/one/location`
+- `/one/location/map`
+- `/one/location/check-in`
+- `/one/location/check-in/hotel?stay=<opaque_stay_id>` — eligibility-gated and fail-closed until a supported hotel stay provider exists
 - `/one/marketplace`
 - `/marketplace`
 - `/marketplace/ria`
-- `/ria`
+- `/ria/profile`
 - `/ria/onboarding`
 - `/ria/clients`
 - `/ria/picks`
 - `/ria/requests`
 - `/ria/settings`
-- `/one/kai`
+- `/one/kai?tab=market`
+- `/one/kai/news`
 - `/one/kai/import`
 - `/one/kai/plaid/oauth/return`
 - `/one/kai/alpaca/oauth/return`
-- `/one/kai/investments`
-- `/one/kai/funding-trade`
-- `/one/kai/portfolio`
+- `/one/kai?tab=portfolio`
+- `/one/kai/portfolio/holdings`
+- `/one/kai/portfolio/allocation`
+- `/one/kai/portfolio/performance`
+- `/one/kai/portfolio/sources`
 - `/one/kai/analysis`
-- `/one/kai/optimize`
+
+`/kai/optimize` and `/one/kai/optimize` are one-release compatibility
+redirects to the canonical Portfolio tab. They are not product, native,
+command, or voice surfaces.
 
 Detail entrypoints that require an identifier use query-backed static routes so Capacitor export stays compatible:
 
 - `/marketplace/ria?riaId=<ria_id>`
 - `/ria/workspace?clientId=<investor_user_id>`
-- `/profile/my-data/domain?key=<domain_key>`
-- `/profile/access/connection?id=<connection_id>`
-- `/profile/support/compose?kind=<support_kind>`
+- `/one/profile/my-data/domain?key=<domain_key>`
+- `/one/profile/access/connection?id=<connection_id>`
+- `/one/profile/support/compose?kind=<support_kind>`
 
-Legacy `/kai/*` aliases and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
+Legacy `/kai` and `/one/kai/onboarding` remain compatibility redirect surfaces only. They must not be documented as canonical navigation surfaces or reintroduced as primary routes without updating both `routes.ts` and this reference.
 
-Canonical `/one/kai/*` routes are One-owned finance surfaces, not persona shell routes. Page-level role mismatch guards must not block `/one/kai`, `/one/kai/analysis`, `/one/kai/portfolio`, or other canonical One finance routes just because the active persona is RIA; generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Legacy `/kai/*` aliases may stay investor-scoped until removed.
+`/ria/profile` is the canonical RIA home. `/ria` is a compatibility redirect for
+saved links and native intents; it must not become a second RIA workspace. The
+RIA shell exposes `Profile`, `Clients`, and `Picks`. `profile_regulatory` is a
+legacy telemetry identifier for this screen, not a separate product route.
 
-Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only. Canonical profile navigation is nested under `/profile/<panel>` and owned by `hushh-webapp/lib/navigation/profile-routes.ts`.
+`/developers`, `/research`, and `/blog` are also compatibility redirects. Their
+canonical public-workspace destinations are `/welcome?tab=developers`,
+`/welcome?tab=research`, and `/welcome?tab=blog`. Query-backed workspace tabs
+are semantic routes: they are individually indexed by the runtime topology
+maintenance contract even when Next.js mounts one physical page file.
+
+Canonical `/one/kai?tab=<market|portfolio|analysis>` is the One-owned finance workspace, not a persona shell route. Its shared top-shell back control returns to `/one`; page-level role mismatch guards must not block it just because the active persona is RIA. Generated action contracts remain responsible for enforcing finance action guards, consent, and any required persona settlement. Portfolio overview is the tab scene; its finite detail routes live under `/one/kai/portfolio/*` and intentionally suppress the Finance swipe tabs. Legacy `/kai/*` aliases remain redirect-only.
+
+`/one/kai/news` is a finite Market workspace, not a fourth Finance tab. The Market preview's **All news** control opens it, and its shared top-shell back control returns to Market. Its opaque server cursor addresses one cached market-news snapshot: requesting another page must slice that snapshot rather than initiate another provider fetch.
+
+Legacy `/profile?panel=...&detail=...` URLs remain compatibility inputs only.
+They redirect into the canonical `/one/profile/<panel>` family, which is owned
+by `hushh-webapp/lib/navigation/profile-routes.ts`.
+
+`/one/calendar` is a first-class One agent workspace. The former
+`/one/profile/integrations` address is a compatibility redirect only and must
+not be reintroduced as a Connected apps settings surface. Calendar OAuth
+returns through `/one/profile/google/oauth/return` and routes back to Calendar.
+
+The access manager is the One-owned `/one/consent` workspace. Legacy
+`/consents` links redirect there while preserving transient query state such as
+the selected review tab and request identifier.
+
+## Shell and navigation
+
+The standard navigation is four layers and one law, defined once in
+`docs/reference/quality/app-surface-design-system.md` under *Shell and navigation
+ownership*. The part route authors get wrong most often: **the back control is
+derived from the breadcrumb**, so a `standard` route with no breadcrumb entry has
+no back button and no native edge-back gesture. Declare the breadcrumb, or declare
+an `exemptionReason` in the route layout contract.
 
 ## Route Contract Cascade
 
@@ -183,6 +249,22 @@ The practical contract is split across:
 - mobile parity docs for platform-specific expectations and exceptions
 - `hushh-webapp/frontend-native-surface-map.generated.json` for the
   route-to-API/native/plugin/voice scaffold used by Codex agents and parity audits
+- `contracts/architecture/runtime-topology-index.v1.json` for the generated
+  physical-route, semantic-route, compatibility, agent, and database-family
+  maintenance projection
+
+Connections-owned runtime configuration is intentionally a non-agent route pair:
+`/one/setup/connections` is the setup preface and `/one/connect/settings` is its
+management re-entry point. They publish no voice action contract because a
+provider-secret mutation must remain a direct, vault-gated UI action.
+The setup preface is admitted as a non-capability root-setup navigation route.
+An explicit managed/BYOK choice writes a bounded non-secret marker plus the
+strict `one_runtime_setup_choice` enum to existing pre-vault state. Its only
+values are `hushh_managed_vertex` and `byok_pending_vault`; it cannot contain a
+credential, credential reference, vault key, or access token. The root setup
+cannot Skip or Finish until that preference is freshly verified. A pending BYOK
+choice is applied only after setup, when the person creates or opens their
+private vault and saves the encrypted key through the existing settings route.
 
 ## Relationship To Other Docs
 

@@ -71,8 +71,8 @@ const stageMessages: Record<ImportStage, string> = {
   indexing: "Indexing document...",
   scanning: "Scanning pages and sections...",
   thinking: "Preparing your portfolio details...",
-  extracting: "Extracting financial data...",
-  normalizing: "Normalizing extracted data...",
+  extracting: "Extracting financial information...",
+  normalizing: "Normalizing extracted information...",
   validating: "Validating extracted holdings...",
   complete: "Import complete!",
   error: "Import failed",
@@ -142,8 +142,8 @@ export function ImportProgressView({
   onBackToDashboard,
   className,
 }: ImportProgressViewProps) {
-  const [streamExpanded, setStreamExpanded] = useState<boolean>(() => true);
-  const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => true);
+  const [streamExpanded, setStreamExpanded] = useState<boolean>(() => stage !== "error");
+  const [holdingsExpanded, setHoldingsExpanded] = useState<boolean>(() => stage !== "error");
 
   const hasMeasuredProgress = useMemo(
     () => typeof progressPct === "number" && Number.isFinite(progressPct) && progressPct > 0,

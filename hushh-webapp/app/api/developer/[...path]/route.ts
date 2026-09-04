@@ -12,7 +12,7 @@ export const dynamic = "force-dynamic";
 async function proxyDeveloperRequest(
   request: NextRequest,
   params: { path: string[] },
-  method: "GET" | "POST" | "PATCH"
+  method: "GET" | "POST" | "PATCH" | "PUT"
 ) {
   const requestId = resolveRequestId(request);
   const query = request.nextUrl.search;
@@ -26,11 +26,11 @@ async function proxyDeveloperRequest(
   const authHeader = request.headers.get("authorization") || "";
   const headers = createUpstreamHeaders(requestId, {
     ...(!isVersionedDeveloperApi && authHeader ? { Authorization: authHeader } : {}),
-    ...(method === "POST" || method === "PATCH" ? { "Content-Type": "application/json" } : {}),
+    ...(method === "POST" || method === "PATCH" || method === "PUT" ? { "Content-Type": "application/json" } : {}),
   });
 
   const body =
-    method === "POST" || method === "PATCH"
+    method === "POST" || method === "PATCH" || method === "PUT"
       ? JSON.stringify(await request.json().catch(() => ({})))
       : undefined;
 
@@ -85,4 +85,11 @@ export async function PATCH(
   { params }: { params: Promise<{ path: string[] }> }
 ) {
   return proxyDeveloperRequest(request, await params, "PATCH");
+}
+
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ path: string[] }> }
+) {
+  return proxyDeveloperRequest(request, await params, "PUT");
 }

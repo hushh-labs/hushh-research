@@ -18,8 +18,19 @@ from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure logging.
+#
+# Timestamps are not decoration here. Without them a log line cannot be placed
+# against anything the person actually did, so "voice repeated itself just now"
+# could not be tied to a session -- and the lines that would have answered it
+# were indistinguishable from ones written an hour earlier. Cloud Logging stamps
+# its own receipt time in production; this is what local and container stdout
+# get.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s %(name)s: %(message)s",
+    datefmt="%H:%M:%S",
+)
 install_sensitive_log_filter()
 logger = logging.getLogger(__name__)
 _APP_RUNTIME_SETTINGS = get_app_runtime_settings()
@@ -55,6 +66,11 @@ def _require_database_on_startup() -> bool:
     return _is_production()
 
 
+# Tables the process refuses to start without. Every entry must still exist once
+# all migrations have run; a stale entry here is not a failing check but a
+# backend that cannot boot. test_server_startup_guards.py enforces that, because
+# the predeploy schema gate only knows about tables named in the DB contract and
+# so cannot catch a guard entry that no longer has a table behind it.
 REQUIRED_RUNTIME_TABLES = (
     "vault_keys",
     "vault_key_wrappers",
@@ -62,8 +78,16 @@ REQUIRED_RUNTIME_TABLES = (
     "user_push_tokens",
     "internal_access_events",
     "runtime_persona_state",
-    "ria_pick_uploads",
-    "ria_pick_upload_rows",
+    "one_location_circles",
+    "one_location_circle_memberships",
+    "one_location_circle_invite_codes",
+    "connection_origins",
+    "one_location_circle_member_invites",
+    "connection_scope_proposals",
+    "connection_scope_proposal_events",
+    "one_information_request_bundles",
+    "one_information_request_items",
+    "one_adk_sessions",
 )
 
 
@@ -105,7 +129,6 @@ def _parse_cors_allowed_origins() -> list[str]:
 
 # Import route modules
 # Import rate limiting
-from slowapi import _rate_limit_exceeded_handler  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 
 from api.middlewares.observability import (  # noqa: E402
@@ -113,7 +136,7 @@ from api.middlewares.observability import (  # noqa: E402
     get_request_id,
     observability_middleware,
 )
-from api.middlewares.rate_limit import limiter  # noqa: E402
+from api.middlewares.rate_limit import limiter, rate_limit_exceeded_handler  # noqa: E402
 from api.routes import (  # noqa: E402
     account,
     agents,
@@ -123,6 +146,7 @@ from api.routes import (  # noqa: E402
     debug_firebase,
     developer,
     health,
+    hushh_tech,
     notifications,
     session,
     sse,
@@ -147,7 +171,7 @@ app.middleware("http")(observability_middleware)
 
 # Rate limiting
 app.state.limiter = limiter
-app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
+app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
 
 def _database_error_payload(
@@ -248,10 +272,9 @@ configure_opentelemetry(app)
 from mcp_remote import remote_mcp_app, shutdown_remote_mcp, startup_remote_mcp  # noqa: E402
 
 
-def _mcp_root_redirect_target(request: Request) -> str:
-    query_string = request.scope.get("query_string", b"")
-    if isinstance(query_string, bytes) and query_string:
-        return f"/mcp/?{query_string.decode('utf-8')}"
+def _mcp_root_redirect_target(_request: Request) -> str:
+    # Query credentials are unsupported and must not be copied into a redirect
+    # target where they can enter browser, proxy, or access logs.
     return "/mcp/"
 
 
@@ -290,6 +313,10 @@ app.include_router(trust.router)
 
 # Developer API routes (/api/v1/*)
 app.include_router(developer.router)
+
+# UAT-only Hushh Tech product-client routes. The router is registered in every
+# environment, while its service guard returns FEATURE_DISABLED outside UAT.
+app.include_router(hushh_tech.router)
 
 # Database proxy routes (/db/vault/...) - for iOS native app
 app.include_router(db_proxy.router)
@@ -352,6 +379,18 @@ from api.routes import world_model  # noqa: E402
 
 app.include_router(world_model.router)
 
+# Personal World Model store (PCHP RFC-002 subscription fabric): the uid-keyed
+# preference doc behind /api/pwm and cross-device "your private agent knows you".
+from api.routes import pwm  # noqa: E402
+
+app.include_router(pwm.router)
+
+# Preference Subscription Fabric (PCHP RFC-002): grants + hash-chained receipts
+# (/api/fabric/*) and the subscriber read API that turns a grant into value.
+from api.routes import fabric  # noqa: E402
+
+app.include_router(fabric.router)
+
 # Account deletion and management
 app.include_router(account.router)
 
@@ -362,6 +401,15 @@ app.include_router(ria.router)
 app.include_router(marketplace.router)
 app.include_router(invites.router)
 logger.info("ria.routes_enabled")
+
+# Wallet Profile: owner management under /api/one/wallet-card plus the two
+# unauthenticated public surfaces (card resolve + signed .pkpass). Gated by
+# ONE_WALLET_CARD_ENABLED; when off every route in the router answers 404, so
+# registering it unconditionally is safe.
+from api.routes import one_wallet_card  # noqa: E402
+
+app.include_router(one_wallet_card.router)
+logger.info("one_wallet_card.routes_registered")
 
 logger.info(
     "🚀 Hussh Consent Protocol server initialized with modular routes - KAI V2 + PHASE 2 + PKM ENABLED"
@@ -377,6 +425,49 @@ logger.info(
 
 
 @app.on_event("startup")
+async def startup_widen_default_executor() -> None:
+    """Give the asyncio default thread-pool executor more room.
+
+    Why this exists
+    ----------------
+    Every synchronous SQLAlchemy DB call in this process (and
+    `asyncio.to_thread` calls like the one_location agent tools use) runs on
+    the SAME default executor asyncio itself uses for things like DNS
+    resolution (`loop.getaddrinfo`, which the `websockets` client uses to
+    connect out to the Gemini Live API). Python's default pool size --
+    `min(32, cpu_count + 4)` -- is easily saturated by concurrent blocking DB
+    work under load, at which point an unrelated, otherwise-instant operation
+    like that DNS lookup queues behind it and can time out. Observed directly:
+    a live voice session's outbound Gemini Live handshake failed with
+    "TimeoutError: timed out during opening handshake" at getaddrinfo, at the
+    exact moment two DB-heavy endpoints were each taking 40-50s. Widening the
+    pool doesn't fix the underlying DB cost, but it stops unrelated quick
+    executor work from being starved behind it.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    max_workers = int(os.getenv("ASYNCIO_DEFAULT_EXECUTOR_MAX_WORKERS", "64"))
+    asyncio.get_running_loop().set_default_executor(
+        ThreadPoolExecutor(max_workers=max_workers, thread_name_prefix="asyncio-default")
+    )
+    logger.info("startup.asyncio_default_executor_widened max_workers=%d", max_workers)
+
+
+@app.on_event("startup")
+async def startup_one_runtime_dependency_guard() -> None:
+    """Reject a process launched with an interpreter outside the pinned ADK contract."""
+    from hushh_mcp.runtime_readiness import assert_pinned_google_adk, runtime_dependency_evidence
+
+    assert_pinned_google_adk()
+    evidence = runtime_dependency_evidence()
+    logger.info(
+        "startup.one_runtime_dependency_ready google_adk_expected=%s google_adk_installed=%s",
+        evidence["google_adk_expected"],
+        evidence["google_adk_installed"],
+    )
+
+
+@app.on_event("startup")
 async def startup_pool_and_iam_cache() -> None:
     """Eagerly create the asyncpg pool and pre-populate the IAM schema cache.
 
@@ -386,7 +477,7 @@ async def startup_pool_and_iam_cache() -> None:
     in-flight API request.  That means the first real user request after a
     worker restart pays:
 
-      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Supabase pooler
+      • ~2-3 s  pool creation + TLS handshake to Cloud SQL / Cloud SQL pooler
       • ~1 300 ms  _ensure_iam_schema_ready() cold path (13 table-existence
                    checks, each ~50-80 ms over the Cloud SQL proxy)
 
@@ -471,6 +562,13 @@ async def startup_consent_listener():
     from api.consent_listener import run_consent_listener
 
     asyncio.create_task(run_consent_listener())
+
+    # The referral tab's live stream. Same shape, its own channel: one LISTEN
+    # connection per instance, pushing doorbells to whichever referrers have a
+    # stream open here.
+    from api.referral_listener import run_referral_listener
+
+    asyncio.create_task(run_referral_listener())
 
 
 @app.on_event("startup")
@@ -643,10 +741,62 @@ async def startup_market_cache_store_table():
 
 
 @app.on_event("startup")
+async def startup_pwm_documents_table():
+    """Ensure the Personal World Model table exists before any /api/pwm request."""
+    from hushh_mcp.services.pwm_service import get_pwm_service
+
+    try:
+        await get_pwm_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.pwm_documents_table_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.pwm_documents_table_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
+
+
+@app.on_event("startup")
+async def startup_fabric_tables():
+    """Ensure the subscription-fabric tables exist before any /api/fabric request."""
+    from hushh_mcp.services.fabric_grant_service import get_fabric_grant_service
+    from hushh_mcp.services.fabric_request_service import get_fabric_request_service
+
+    try:
+        await get_fabric_grant_service().ensure_table()
+        await get_fabric_request_service().ensure_table()
+    except Exception as exc:
+        if _require_database_on_startup():
+            logger.critical(
+                "startup.fabric_tables_failed environment=%s reason=%s",
+                _environment(),
+                exc,
+            )
+            raise
+        logger.warning(
+            "startup.fabric_tables_skipped environment=%s reason=%s",
+            _environment(),
+            exc,
+        )
+
+
+@app.on_event("startup")
 async def startup_market_insights_refresh():
-    """Warm shared market caches, then keep them refreshed in the background."""
-    await warm_market_insights_startup_once()
-    start_market_insights_background_refresh()
+    """Schedule market warming without holding the HTTP listener hostage."""
+
+    async def _warm_then_refresh() -> None:
+        await warm_market_insights_startup_once()
+        start_market_insights_background_refresh()
+
+    _track_startup_background_task(
+        asyncio.create_task(_warm_then_refresh(), name="market-insights-startup-warm")
+    )
 
 
 @app.on_event("startup")
@@ -723,17 +873,26 @@ async def startup_consent_revocation_worker() -> None:
     Integrated by Abdul Gaffar — canonical temporal-consent boundary.
     """
     try:
+        from hushh_mcp.services.connections_service import ConnectionsService
         from hushh_mcp.services.consent_db import ConsentDBService
         from hushh_mcp.services.revocation_worker import start_revocation_loop
 
         _db = ConsentDBService()
 
-        start_revocation_loop(
-            fetch_expired=_db.fetch_expired_consents,
-            revoke=_db.mark_consent_revoked,
-            interval_seconds=300,
+        async def expire_connection_capabilities() -> int:
+            # ConnectionsService is a synchronous SQLAlchemy adapter; preserve
+            # FastAPI's event loop while its atomic temporal projection runs.
+            return await asyncio.to_thread(ConnectionsService().expire_due_capabilities)
+
+        _track_startup_background_task(
+            start_revocation_loop(
+                fetch_expired=_db.fetch_expired_consents,
+                revoke=_db.mark_consent_revoked,
+                expire_capabilities=expire_connection_capabilities,
+                interval_seconds=300,
+            )
         )
-        logger.info("startup.consent_revocation_worker_registered interval_s=300")
+        logger.info("startup.temporal_revocation_worker_registered interval_s=300")
     except Exception as exc:
         # Non-fatal: log and continue — per-request token validation still
         # enforces expiry via validate_token(); the worker is a DB consistency aid.

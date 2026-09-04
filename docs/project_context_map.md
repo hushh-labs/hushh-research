@@ -36,7 +36,7 @@ flowchart TB
 ## North Stars
 
 - Hussh Principle: "An agent should work for the person whose life it touches."
-- Kai North Star: "Your data, your business. Your committee, on-demand."
+- Kai North Star: "Your information, your business. Your committee, on-demand."
 
 ## Read The Repo As One Platform
 
@@ -114,6 +114,13 @@ These are invariants. If a change violates one, it is the wrong change.
 - `consent-protocol/`: FastAPI backend, consent protocol, PKM, agents, export and developer surfaces
 - `docs/`: cross-cutting Hussh architecture, operations, vision, and guide references
 - `.codex/`: reusable skills, workflows, and routing contracts for recurring repo work
+
+Structural context is indexed rather than held in an agent prompt. Use
+`contracts/architecture/runtime-topology-index.v1.json` for the generated join
+across routes, query-tab workspaces, actions, agents, table families, and
+compatibility decisions; use `runtime-topology-maintenance` to select the
+existing evidence lanes for a persona/profile. It is engineering governance,
+not a product agent or runtime action authority.
 
 ## How Data Access Works
 

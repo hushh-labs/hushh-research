@@ -32,7 +32,7 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByText("Progress")).toBeInTheDocument();
+    expect(screen.getByText("Activity")).toBeInTheDocument();
     expect(screen.getByText("Open workspace")).toBeInTheDocument();
     expect(screen.getByText("Opening the right workspace.")).toBeInTheDocument();
     expect(screen.queryByText("route.private.internal")).not.toBeInTheDocument();
@@ -50,10 +50,10 @@ describe("AgentTurnStreamPanel", () => {
     );
 
     expect(screen.getByText("Here is the answer.")).toBeInTheDocument();
-    expect(screen.getByLabelText("Agent response stream")).toHaveClass("w-full", "max-w-none");
+    expect(screen.getByRole("region", { name: "One activity" })).toHaveClass("w-full", "max-w-none");
   });
 
-  it("does not simulate response tokens while only progress is available", () => {
+  it("shows an app-owned pending state while progress is available but response text has not arrived", () => {
     const event = agentToolEventToVisibleStreamEvent("start", makeToolEvent(), 1_700_001);
 
     render(
@@ -64,7 +64,104 @@ describe("AgentTurnStreamPanel", () => {
       />
     );
 
-    expect(screen.getByText("Waiting for response tokens.")).toBeInTheDocument();
-    expect(screen.queryByText("Preparing response")).not.toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+  });
+
+  it("shows provider reasoning to the owner", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText=""
+        thinkingText="**Checking context**\n\nComparing the active settings."
+        isStreaming
+      />
+    );
+
+    // Founder directive 2026-09-02: the owner asked to see the agent think.
+    // The reasoning had been received, accumulated and then discarded by a
+    // single `void thinkingText`, so the panel rendered nothing.
+    expect(
+      screen.getByText((content) => content.includes("Comparing the active settings.")),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("status")).toHaveTextContent("One is preparing your response.");
+    expect(screen.queryByText("Waiting for response tokens.")).not.toBeInTheDocument();
+  });
+
+  it("presents consulted specialists as bounded provenance without internal ids or request text", async () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="The Finance specialist reviewed this."
+        isStreaming={false}
+        sources={[
+          {
+            agentId: "agent_kai",
+            label: "Finance",
+            reason: "Review the portfolio question.",
+          },
+          {
+            agentId: "agent_kai",
+            label: "Finance",
+            reason: "Duplicate source.",
+          },
+        ]}
+      />
+    );
+
+    expect(screen.getByRole("button", { name: /Activity 1/i })).toBeInTheDocument();
+    expect(screen.getByText("Finance")).toBeInTheDocument();
+    expect(screen.getByText("Finance specialist consulted.")).toBeInTheDocument();
+    expect(screen.queryByText("agent_kai")).not.toBeInTheDocument();
+    expect(screen.queryByText("Review the portfolio question.")).not.toBeInTheDocument();
+    expect(screen.queryByText("Duplicate source.")).not.toBeInTheDocument();
+  });
+
+  it("renders validated AG-UI scope discovery as a Morphy information surface", () => {
+    render(
+      <AgentTurnStreamPanel
+        streamEvents={[]}
+        responseText="You can review these fields before asking for access."
+        isStreaming={false}
+        structuredExperience={{
+          type: "one.scope_discovery.v1",
+          person: {
+            displayName: "Alex Morgan",
+            profilePath: "/people/1234567890abcdef",
+            relationship: "connected",
+          },
+          domainFilter: "Financial",
+          scopes: [
+            {
+              scopeRef: "scope_ref_private_123",
+              label: "Employment status",
+              description: "Current employment eligibility status.",
+              domain: "Identity",
+              sensitivity: "sensitive",
+            },
+            {
+              scopeRef: "scope_ref_private_456",
+              label: "Tax residency",
+              description: null,
+              domain: "Financial",
+              sensitivity: "restricted",
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Information available from Alex Morgan" }),
+    ).toBeInTheDocument();
+    expect(screen.getByText("Identity")).toBeInTheDocument();
+    expect(screen.getByText("Financial")).toBeInTheDocument();
+    expect(screen.getByText("Employment status")).toBeInTheDocument();
+    expect(screen.getByText("Highly sensitive")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Review information/i })).toHaveAttribute(
+      "href",
+      "/people/1234567890abcdef",
+    );
+    expect(screen.queryByText("scope_ref_private_123")).not.toBeInTheDocument();
   });
 });

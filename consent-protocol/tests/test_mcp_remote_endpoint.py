@@ -18,6 +18,7 @@ import pytest
 
 import mcp_remote as mcp_remote_module
 from hushh_mcp.services.developer_registry_service import DeveloperPrincipal
+from mcp_modules.agentforce_contract import AGENTFORCE_PROFILE, get_agentforce_tool_names
 from mcp_remote import AuthenticatedRemoteMCPApp
 
 
@@ -81,6 +82,28 @@ class _FakeInnerApp:
         await send({"type": "http.response.body", "body": b'{"jsonrpc":"2.0"}', "more_body": False})
 
 
+class _ToolsListInnerApp(_FakeInnerApp):
+    """Serializes the live server catalog under the remote auth context."""
+
+    async def __call__(self, scope, receive, send) -> None:
+        self.calls += 1
+        import mcp_server
+
+        tools = await mcp_server.list_tools()
+        payload = {
+            "tools": [tool.model_dump(by_alias=True, exclude_none=True) for tool in tools],
+        }
+        body = json.dumps(payload).encode("utf-8")
+        await send(
+            {
+                "type": "http.response.start",
+                "status": 200,
+                "headers": [(b"content-type", b"application/json")],
+            }
+        )
+        await send({"type": "http.response.body", "body": body, "more_body": False})
+
+
 def _fake_principal(app_id: str = "app_demo_123") -> DeveloperPrincipal:
     return DeveloperPrincipal(
         app_id=app_id,
@@ -133,7 +156,7 @@ async def test_missing_token_returns_401(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_invalid_token_returns_403(monkeypatch):
+async def test_invalid_token_returns_401(monkeypatch):
     app, _inner = _build_app()
     monkeypatch.setattr(app._registry, "authenticate_token", lambda *a, **k: None)
 
@@ -141,7 +164,7 @@ async def test_invalid_token_returns_403(monkeypatch):
     headers = [(b"authorization", b"Bearer bad-token")]
     await app(_http_scope(headers=headers), _noop_receive, send)
 
-    assert send.status == 403
+    assert send.status == 401
     assert send.body_json["error_code"] == "DEVELOPER_TOKEN_INVALID"
 
 
@@ -156,6 +179,78 @@ async def test_valid_token_dispatches_to_inner_app(monkeypatch):
 
     assert send.status == 200
     assert inner.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_oauth_access_token_dispatches_to_inner_app_before_legacy_bearer(monkeypatch):
+    app, inner = _build_app()
+
+    class _OAuth:
+        def authenticate_access_token(self, raw_token, **_kwargs):
+            return _fake_principal("app_oauth") if raw_token == "hdo_at_valid" else None
+
+    monkeypatch.setattr(mcp_remote_module, "DeveloperOAuthService", _OAuth)
+    monkeypatch.setattr(
+        app._registry,
+        "authenticate_token",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            AssertionError("OAuth bearer must not fall through to legacy token lookup")
+        ),
+    )
+    send = _CapturingSend()
+    await app(
+        _http_scope(headers=[(b"authorization", b"Bearer hdo_at_valid")]),
+        _noop_receive,
+        send,
+    )
+    assert send.status == 200
+    assert inner.calls == 1
+
+
+@pytest.mark.asyncio
+async def test_agentforce_oauth_tools_list_has_the_uat_catalog_and_output_schemas(monkeypatch):
+    agentforce_principal = DeveloperPrincipal(
+        app_id="app_agentforce",
+        agent_id="developer:app_agentforce",
+        display_name="Agentforce UAT",
+        allowed_tool_groups=("core_consent",),
+        schema_profile=AGENTFORCE_PROFILE,
+        auth_source="oauth",
+    )
+
+    class _OAuth:
+        def authenticate_access_token(self, raw_token, **_kwargs):
+            return agentforce_principal if raw_token == "hdo_at_agentforce" else None
+
+    app, inner = _build_app(inner_app=_ToolsListInnerApp())
+    monkeypatch.setattr(mcp_remote_module, "DeveloperOAuthService", _OAuth)
+    monkeypatch.setattr(app._registry, "authenticate_token", lambda *_args, **_kwargs: None)
+    send = _CapturingSend()
+
+    await app(
+        _http_scope(headers=[(b"authorization", b"Bearer hdo_at_agentforce")]),
+        _noop_receive,
+        send,
+    )
+
+    assert send.status == 200
+    assert inner.calls == 1
+    assert tuple(tool["name"] for tool in send.body_json["tools"]) == get_agentforce_tool_names()
+    for tool in send.body_json["tools"]:
+        assert tool["title"]
+        assert tool["description"]
+        assert tool["outputSchema"]["type"] == "object"
+        assert all(
+            field["title"] and field["description"]
+            for field in tool["outputSchema"]["properties"].values()
+        )
+
+
+def test_agentforce_timeout_settles_before_the_host_limit():
+    assert mcp_remote_module._request_timeout_seconds(AGENTFORCE_PROFILE) == 55.0
+    assert mcp_remote_module._request_timeout_seconds("standard") == (
+        mcp_remote_module._MCP_REMOTE_REQUEST_TIMEOUT_SECONDS
+    )
 
 
 @pytest.mark.asyncio

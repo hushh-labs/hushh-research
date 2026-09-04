@@ -14,9 +14,7 @@ import {
   RiaService,
   type MarketplaceRia,
 } from "@/lib/services/ria-service";
-import {
-  ConsentCenterService,
-} from "@/lib/services/consent-center-service";
+import { ConnectionsService } from "@/lib/services/connections-service";
 import { trackEvent } from "@/lib/observability/client";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 
@@ -110,21 +108,12 @@ export default function MarketplaceRiaProfilePageClient() {
     try {
       setActionLoading(true);
       const idToken = await user.getIdToken();
-      await ConsentCenterService.createRequest({
+      await ConnectionsService.sendRequest({
         idToken,
-        userId: user.uid,
-        payload: {
-          subject_user_id: profile.user_id,
-          requester_actor_type: "investor",
-          subject_actor_type: "ria",
-          scope_template_id: "investor_advisor_disclosure_v1",
-          duration_mode: "preset",
-          duration_hours: 168,
-        },
+        addresseeUserId: profile.user_id,
+        message: "Would like to connect.",
       });
-      toast.success("Advisory request sent", {
-        description: "The advisor can review it in their pending connections.",
-      });
+      toast.success("Advisory request sent. The advisor can review it in their pending connections.");
       router.push(buildMarketplaceConnectionsRoute({ tab: "pending" }));
     } catch (requestError) {
       toast.error(
@@ -290,7 +279,7 @@ export default function MarketplaceRiaProfilePageClient() {
               ) : null}
               {activePersona === "ria" ? (
                 <Link
-                  href={ROUTES.RIA_SETTINGS}
+                  href={ROUTES.RIA_PROFILE}
                   data-voice-control-id="marketplace_ria_manage_profile"
                   className="inline-flex min-h-11 items-center justify-center rounded-full bg-foreground px-5 text-sm font-medium text-background"
                 >

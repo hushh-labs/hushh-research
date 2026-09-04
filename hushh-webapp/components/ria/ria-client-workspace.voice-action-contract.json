@@ -419,7 +419,7 @@
       "execution_target": {
         "status": "wired",
         "path": "route",
-        "target": "/consents?tab=pending"
+        "target": "/one/consent?tab=pending"
       },
       "control_ids": [
         "ria_client_workspace_open_access_manager"

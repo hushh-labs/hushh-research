@@ -26,4 +26,12 @@ describe("Providers theme contract", () => {
     const plist = read("ios/App/App/Info.plist");
     expect(plist).not.toContain("UIUserInterfaceStyle");
   });
+
+  it("preserves the chosen theme when onboarding renders", () => {
+    const agentBar = read("components/agent/agent-bar.tsx");
+
+    // Appearance is a device preference. The onboarding shell may render its
+    // own controls, but it must never rewrite a preference chosen before sign-in.
+    expect(agentBar).not.toContain('setTheme("system")');
+  });
 });

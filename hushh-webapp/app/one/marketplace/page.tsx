@@ -7,7 +7,8 @@ import { toast } from "sonner";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
+import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   buildPkmSectionPreviewPresentation,
   type PkmSectionPreviewPresentation,
@@ -226,7 +227,7 @@ function PriceMath({ result }: { result: SlicePriceBreakdown }) {
     <div className="mt-3 rounded-xl border bg-muted/30 p-4 text-sm">
       <div className="font-mono text-[12.5px] leading-6">
         Price = ( <span className="text-muted-foreground">floor</span> {dollars(floor)} +{" "}
-        <span className="text-blue-600 dark:text-blue-400">data value</span> {dollars(dataValue)} ){" "}
+        <span className="text-blue-600 dark:text-blue-400">information value</span> {dollars(dataValue)} ){" "}
         <span className="text-blue-600 dark:text-blue-400">buyer fit</span> {factor(buyerFit)}{" "}
         <span className="text-blue-600 dark:text-blue-400">freshness</span> {factor(freshness)}{" "}
         <span className="text-blue-600 dark:text-blue-400">exclusivity</span> {factor(exclusivity)}
@@ -240,7 +241,7 @@ function PriceMath({ result }: { result: SlicePriceBreakdown }) {
       </div>
       <dl className="mt-3 space-y-1.5 text-[12.5px] text-muted-foreground">
         <div>
-          <span className="font-medium text-foreground">Data value</span> — financial data counts most,
+          <span className="font-medium text-foreground">Information value</span> — financial information counts most,
           plain demographics least; more attributes help, with diminishing returns.
         </div>
         <div>
@@ -398,8 +399,8 @@ interface PreviewFields {
 /** Expander — shows the real safe summary (owner) or field names only (buyer). */
 function PreviewToggle(props: PreviewFields) {
   const [open, setOpen] = useState(false);
-  const showLabel = props.columnsOnly ? "See fields included" : "Preview shared data";
-  const hideLabel = props.columnsOnly ? "Hide fields" : "Hide shared data";
+  const showLabel = props.columnsOnly ? "See fields included" : "Preview shared information";
+  const hideLabel = props.columnsOnly ? "Hide fields" : "Hide shared information";
   return (
     <div className="mt-3">
       <Button type="button" size="sm" variant="none" effect="fade" onClick={() => setOpen((v) => !v)}>
@@ -459,7 +460,7 @@ function PriceLine({
 }
 
 /** Expander for an anonymized listing's published safe-summary preview. Renders
- * the owner's own published presentation payload — no owner identity, no raw data. */
+ * the owner's own published presentation payload — no owner identity or unredacted information. */
 function ListingPreviewToggle({ presentation }: { presentation: PkmSectionPreviewPresentation }) {
   const [open, setOpen] = useState(false);
   return (
@@ -476,7 +477,40 @@ function ListingPreviewToggle({ presentation }: { presentation: PkmSectionPrevie
   );
 }
 
+// Marketplace is temporarily disabled (route + Agent Chat surfacing). The full
+// implementation below is preserved so it can be re-enabled by restoring the
+// default export to `OneMarketplacePageImpl` directly.
+const ONE_MARKETPLACE_ROUTE_ENABLED = false;
+
 export default function OneMarketplacePage() {
+  if (!ONE_MARKETPLACE_ROUTE_ENABLED) {
+    return <OneMarketplaceDisabledView />;
+  }
+  return <OneMarketplacePageImpl />;
+}
+
+function OneMarketplaceDisabledView() {
+  return (
+    <PkmSettingsShell
+      eyebrow="One / Marketplace"
+      title="Information Marketplace"
+      description="This section is temporarily unavailable."
+    >
+      <NativeTestBeacon
+        routeId="/one/marketplace"
+        marker="native-route-one-marketplace"
+        authState="authenticated"
+        dataState="empty-valid"
+      />
+      <div className="flex flex-col items-center gap-3 rounded-2xl border border-dashed p-10 text-center text-sm text-muted-foreground">
+        <Store className="h-6 w-6 opacity-60" aria-hidden />
+        <p>The Information Marketplace is temporarily disabled.</p>
+      </div>
+    </PkmSettingsShell>
+  );
+}
+
+function OneMarketplacePageImpl() {
   const { user } = useAuth();
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
   const token = vaultOwnerToken ?? undefined;
@@ -494,10 +528,10 @@ export default function OneMarketplacePage() {
   const [confirmPublish, setConfirmPublish] = useState<Section | null>(null);
   const [publishedProfiles, setPublishedProfiles] = useState<Record<string, string>>({});
   // The buyer's own requests + delivered slices (migrations 075/079). Approvals
-  // now happen entirely in the Consent Guardian; this "Received data" tab lets the
+  // now happen entirely in the Consent Guardian; this "Received information" tab lets the
   // buyer view what sellers delivered, decrypting each envelope on-device.
   const [received, setReceived] = useState<MarketplaceRequest[]>([]);
-  // Per-request decrypted delivery state, populated lazily on "View delivered data".
+  // Per-request decrypted delivery state, populated lazily on "View delivered information".
   const [deliveries, setDeliveries] = useState<Record<string, DeliveryState>>({});
 
   const [records, setRecords] = useState<DomainRecord[]>([]);
@@ -878,6 +912,18 @@ export default function OneMarketplacePage() {
 
   const deliveredCount = received.filter((r) => r.status === "approved").length;
 
+  const marketplaceTabOptions = useMemo(
+    () => [
+      { value: "owner", label: "Owner" },
+      { value: "buyer", label: "Buyer" },
+      {
+        value: "flow",
+        label: deliveredCount > 0 ? `Received information (${deliveredCount})` : "Received information",
+      },
+    ],
+    [deliveredCount],
+  );
+
   // Identity keys of slices already published — the chat publish card filters
   // these out so a just-published slice drops off the recommendation.
   const publishedSliceKeys = useMemo(() => {
@@ -969,21 +1015,13 @@ export default function OneMarketplacePage() {
     <PkmSettingsShell
       eyebrow="One / Marketplace"
       title="Information Marketplace"
-      description="Choose private sharing separately from owner-published public profile summaries. Nothing private is shared without your approval."
+      description="Private sharing always needs approval."
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={view}
             onValueChange={(value) => setView(value as MarketplaceView)}
-            options={[
-              { value: "owner", label: "Owner" },
-              { value: "buyer", label: "Buyer" },
-              {
-                value: "flow",
-                label:
-                  deliveredCount > 0 ? `Received data (${deliveredCount})` : "Received data",
-              },
-            ]}
+            options={marketplaceTabOptions}
           />
           <Button
             type="button"
@@ -1037,10 +1075,14 @@ export default function OneMarketplacePage() {
           Loading your saved sections…
         </div>
       ) : (
-        <>
+        <SwipeViews
+          tabSetId="one-marketplace"
+          activeValue={view}
+          options={marketplaceTabOptions}
+          onSelectionChange={(value) => setView(value as MarketplaceView)}
+        >
           {/* OWNER VIEW — the single consent-first control panel */}
-          {view === "owner" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               {bandControls}
               {sections.length === 0 ? (
                 <div className="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
@@ -1088,7 +1130,7 @@ export default function OneMarketplacePage() {
                       </div>
 
                       <div className={"mt-4 " + (busy ? "pointer-events-none opacity-60" : "")}>
-                        <SettingsSegmentedTabs
+                        <SegmentedTabs
                           value={section.permission.visibilityPosture}
                           onValueChange={(next) =>
                             onTogglePosture(section, next as PkmVisibilityPosture)
@@ -1155,14 +1197,12 @@ export default function OneMarketplacePage() {
                   );
                 })
               )}
-            </div>
-          ) : null}
+          </div>
 
           {/* BUYER — the anonymized cross-user directory of published slices */}
-          {view === "buyer" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
-                Slices other people have published — only the safe summary, never raw data, and the
+                Slices other people have published — only the safe summary, never unredacted information, and the
                 seller stays anonymous. Requesting access files a request the owner must approve;
                 nothing is delivered until they say yes.
               </p>
@@ -1217,14 +1257,12 @@ export default function OneMarketplacePage() {
                   ))}
                 </div>
               )}
-            </div>
-          ) : null}
+          </div>
 
-          {/* RECEIVED DATA — the buyer's own requests + delivered slices. Owner
+          {/* RECEIVED INFORMATION — the buyer's own requests + delivered slices. Owner
               approvals happen in the Consent Guardian; here the buyer views what
               sellers delivered, decrypting each envelope on this device. */}
-          {view === "flow" ? (
-            <div className="space-y-4">
+          <div className="space-y-4">
               <p className="text-sm text-muted-foreground">
                 Slices you requested. Once the owner approves in their Consent Guardian, the encrypted
                 safe summary is delivered here — decrypted on this device with a private key only you
@@ -1283,7 +1321,7 @@ export default function OneMarketplacePage() {
                                   effect="fade"
                                   onClick={() => void viewDelivery(req)}
                                 >
-                                  {delivery?.status === "error" ? "Try again" : "View delivered data"}
+                                  {delivery?.status === "error" ? "Try again" : "View delivered information"}
                                 </Button>
                               </div>
                             )}
@@ -1313,9 +1351,8 @@ export default function OneMarketplacePage() {
                 published, and only this device holds the private half. The server relayed ciphertext
                 only — it never saw the data. Switching devices means re-requesting the slice.
               </div>
-            </div>
-          ) : null}
-        </>
+          </div>
+        </SwipeViews>
       )}
 
       {/* REQUEST ACCESS CONFIRM MODAL — real cross-account request */}
@@ -1387,7 +1424,7 @@ export default function OneMarketplacePage() {
               can discover it and request access.
             </p>
             <ul className="mt-3 space-y-1.5 text-xs text-muted-foreground">
-              <li>• Only the safe summary is shared — never your raw data.</li>
+              <li>• Only the safe summary is shared — never your raw information.</li>
               <li>• Every buyer still needs your approval before anything is delivered.</li>
               <li>• You can switch it back to “Ask first” or “Private” at any time.</li>
             </ul>

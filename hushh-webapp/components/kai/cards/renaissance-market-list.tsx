@@ -1,7 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useState, type ReactNode } from "react";
-import { Rows3, Search, SlidersHorizontal, TrendingDown, TrendingUp } from "lucide-react";
+import {
+  Rows3,
+  Search,
+  SlidersHorizontal,
+  TrendingDown,
+  TrendingUp,
+} from "lucide-react";
 
 import { KaiControlSurface } from "@/components/app-ui/kai-control-surface";
 import { RenaissanceVerdictCard } from "@/components/kai/cards/renaissance-verdict-card";
@@ -18,10 +24,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  SettingsGroup,
-  SettingsRow,
-} from "@/components/profile/settings-ui";
+import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
 import { marketSettingsGroupClassName } from "@/components/kai/shared/market-surface-theme";
 import {
   Pagination,
@@ -42,13 +45,18 @@ const ALL_FILTER = "all";
 const MOBILE_PICKS_PAGE_SIZE_OPTIONS = [8, 12, 16] as const;
 const DESKTOP_PICKS_PAGE_SIZE_OPTIONS = [8, 16, 24] as const;
 
-function parsePageSize(value: string, options: readonly number[], fallback: number): number {
+function parsePageSize(
+  value: string,
+  options: readonly number[],
+  fallback: number,
+): number {
   const parsed = Number(value);
   return options.includes(parsed) ? parsed : fallback;
 }
 
 function formatCurrency(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value)) return "Price unavailable";
+  if (typeof value !== "number" || !Number.isFinite(value))
+    return "Price unavailable";
   return new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
@@ -88,11 +96,17 @@ function formatAsOf(value: string | null | undefined): string {
 }
 
 function tierTone(tier: string | null | undefined): string {
-  const normalized = String(tier || "").trim().toUpperCase();
-  if (normalized === "ACE") return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
-  if (normalized === "KING") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
-  if (normalized === "QUEEN") return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
-  if (normalized === "JACK") return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
+  const normalized = String(tier || "")
+    .trim()
+    .toUpperCase();
+  if (normalized === "ACE")
+    return "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300";
+  if (normalized === "KING")
+    return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
+  if (normalized === "QUEEN")
+    return "bg-amber-500/10 text-amber-700 dark:text-amber-300";
+  if (normalized === "JACK")
+    return "bg-[color:var(--app-card-surface-compact)] text-muted-foreground";
   return "bg-muted text-muted-foreground";
 }
 
@@ -154,15 +168,18 @@ export function RiaPicksList({
   controlMode?: "inline" | "adaptive-surface";
 }) {
   const isMobile = useIsMobile();
-  const useAdaptiveSurfaceControls = controlMode === "adaptive-surface" && isMobile;
+  const useAdaptiveSurfaceControls =
+    controlMode === "adaptive-surface" && isMobile;
   const pageSizeOptions: readonly number[] = isMobile
     ? MOBILE_PICKS_PAGE_SIZE_OPTIONS
     : DESKTOP_PICKS_PAGE_SIZE_OPTIONS;
   const defaultPageSize = pageSizeOptions[0] ?? 6;
-  const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(null);
-  const [activeMobileControl, setActiveMobileControl] = useState<"search" | "filters" | "rows" | null>(
-    null
+  const [selectedRow, setSelectedRow] = useState<KaiHomeRenaissanceItem | null>(
+    null,
   );
+  const [activeMobileControl, setActiveMobileControl] = useState<
+    "search" | "filters" | "rows" | null
+  >(null);
   const [query, setQuery] = useState("");
   const [tierFilter, setTierFilter] = useState<string>(ALL_FILTER);
   const [sectorFilter, setSectorFilter] = useState<string>(ALL_FILTER);
@@ -191,7 +208,7 @@ export function RiaPicksList({
               is_default: true,
             },
           ],
-    [sources]
+    [sources],
   );
 
   const activeSource = useMemo(
@@ -199,26 +216,32 @@ export function RiaPicksList({
       availableSources.find((source) => source.id === activeSourceId) ??
       availableSources[0] ??
       null,
-    [activeSourceId, availableSources]
+    [activeSourceId, availableSources],
   );
-  const displaySource = activeSource ?? availableSources[0] ?? null;
 
   const sectors = useMemo(
     () =>
-      [...new Set(rows.map((row) => String(row.sector || "").trim()).filter(Boolean))].sort((a, b) =>
-        a.localeCompare(b)
-      ),
-    [rows]
+      [
+        ...new Set(
+          rows.map((row) => String(row.sector || "").trim()).filter(Boolean),
+        ),
+      ].sort((a, b) => a.localeCompare(b)),
+    [rows],
   );
 
   const filteredRows = useMemo(() => {
     const normalizedQuery = query.trim().toLowerCase();
     return rows.filter((row) => {
       const matchesTier =
-        tierFilter === ALL_FILTER || String(row.tier || "").trim().toUpperCase() === tierFilter;
+        tierFilter === ALL_FILTER ||
+        String(row.tier || "")
+          .trim()
+          .toUpperCase() === tierFilter;
       const matchesSector =
-        sectorFilter === ALL_FILTER || String(row.sector || "").trim() === sectorFilter;
-      const matchesQuery = !normalizedQuery || rowSearchText(row).includes(normalizedQuery);
+        sectorFilter === ALL_FILTER ||
+        String(row.sector || "").trim() === sectorFilter;
+      const matchesQuery =
+        !normalizedQuery || rowSearchText(row).includes(normalizedQuery);
       return matchesTier && matchesSector && matchesQuery;
     });
   }, [query, rows, sectorFilter, tierFilter]);
@@ -264,13 +287,30 @@ export function RiaPicksList({
     }
 
     if (page >= totalPages - 3) {
-      return [1, "ellipsis-start", totalPages - 4, totalPages - 3, totalPages - 2, totalPages - 1, totalPages] as const;
+      return [
+        1,
+        "ellipsis-start",
+        totalPages - 4,
+        totalPages - 3,
+        totalPages - 2,
+        totalPages - 1,
+        totalPages,
+      ] as const;
     }
 
-    return [1, "ellipsis-start", page - 1, page, page + 1, "ellipsis-end", totalPages] as const;
+    return [
+      1,
+      "ellipsis-start",
+      page - 1,
+      page,
+      page + 1,
+      "ellipsis-end",
+      totalPages,
+    ] as const;
   }, [isMobile, page, totalPages]);
 
-  const visibleStart = filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
+  const visibleStart =
+    filteredRows.length === 0 ? 0 : (page - 1) * pageSize + 1;
   const visibleEnd = Math.min(page * pageSize, filteredRows.length);
   const activeFilterLabels = [
     query.trim() ? `Search: ${query.trim()}` : null,
@@ -304,22 +344,35 @@ export function RiaPicksList({
                     <Select
                       value={activeSource?.id || "default"}
                       onValueChange={(nextValue) => {
-                        if (!onSourceChange || nextValue === activeSource?.id) return;
+                        if (!onSourceChange || nextValue === activeSource?.id)
+                          return;
                         onSourceChange(nextValue);
                       }}
                     >
-                      <SelectTrigger
-                        className={cn(
-                          "h-10 w-full rounded-full border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                          displaySource ? sourceStateTone(displaySource) : undefined
-                        )}
-                      >
+                      <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
                         <SelectValue placeholder="Default list" />
                       </SelectTrigger>
-                      <SelectContent align="end">
+                      <SelectContent
+                        align="end"
+                        position="popper"
+                        className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                      >
                         {availableSources.map((source) => (
                           <SelectItem key={source.id} value={source.id}>
-                            {source.label}
+                            <div className="flex items-center justify-between gap-2">
+                              <span>{source.label}</span>
+                              {source.state && source.state !== "ready" ? (
+                                <Badge
+                                  variant="outline"
+                                  className={cn(
+                                    "px-1.5 py-0 text-[10px] font-semibold uppercase",
+                                    sourceStateTone(source),
+                                  )}
+                                >
+                                  {source.state}
+                                </Badge>
+                              ) : null}
+                            </div>
                           </SelectItem>
                         ))}
                       </SelectContent>
@@ -328,11 +381,14 @@ export function RiaPicksList({
                   <button
                     type="button"
                     onClick={() =>
-                      setActiveMobileControl((current) => (current === "search" ? null : "search"))
+                      setActiveMobileControl((current) =>
+                        current === "search" ? null : "search",
+                      )
                     }
                     className={cn(
                       "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "search" && "bg-primary/10 text-primary"
+                      activeMobileControl === "search" &&
+                        "bg-primary/10 text-primary",
                     )}
                     aria-label="Search list"
                   >
@@ -341,11 +397,14 @@ export function RiaPicksList({
                   <button
                     type="button"
                     onClick={() =>
-                      setActiveMobileControl((current) => (current === "filters" ? null : "filters"))
+                      setActiveMobileControl((current) =>
+                        current === "filters" ? null : "filters",
+                      )
                     }
                     className={cn(
                       "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "filters" && "bg-primary/10 text-primary"
+                      activeMobileControl === "filters" &&
+                        "bg-primary/10 text-primary",
                     )}
                     aria-label="Filter list"
                   >
@@ -354,11 +413,14 @@ export function RiaPicksList({
                   <button
                     type="button"
                     onClick={() =>
-                      setActiveMobileControl((current) => (current === "rows" ? null : "rows"))
+                      setActiveMobileControl((current) =>
+                        current === "rows" ? null : "rows",
+                      )
                     }
                     className={cn(
                       "inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground shadow-[var(--shadow-xs)] transition-colors hover:text-foreground",
-                      activeMobileControl === "rows" && "bg-primary/10 text-primary"
+                      activeMobileControl === "rows" &&
+                        "bg-primary/10 text-primary",
                     )}
                     aria-label="Rows per page"
                   >
@@ -397,7 +459,10 @@ export function RiaPicksList({
                         <SelectItem value="JACK">JACK</SelectItem>
                       </SelectContent>
                     </Select>
-                    <Select value={sectorFilter} onValueChange={setSectorFilter}>
+                    <Select
+                      value={sectorFilter}
+                      onValueChange={setSectorFilter}
+                    >
                       <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] shadow-[var(--shadow-xs)]">
                         <SelectValue placeholder="All sectors" />
                       </SelectTrigger>
@@ -418,12 +483,20 @@ export function RiaPicksList({
                     <Select
                       value={String(pageSize)}
                       onValueChange={(value) => {
-                        setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                        setPageSize(
+                          parsePageSize(
+                            value,
+                            pageSizeOptions,
+                            defaultPageSize,
+                          ),
+                        );
                         setPage(1);
                       }}
                     >
                       <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
-                        <SelectValue placeholder={`${defaultPageSize} per page`} />
+                        <SelectValue
+                          placeholder={`${defaultPageSize} per page`}
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         {pageSizeOptions.map((option) => (
@@ -458,22 +531,35 @@ export function RiaPicksList({
                   <Select
                     value={activeSource?.id || "default"}
                     onValueChange={(nextValue) => {
-                      if (!onSourceChange || nextValue === activeSource?.id) return;
+                      if (!onSourceChange || nextValue === activeSource?.id)
+                        return;
                       onSourceChange(nextValue);
                     }}
                   >
-                    <SelectTrigger
-                      className={cn(
-                        "h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]",
-                        displaySource ? sourceStateTone(displaySource) : undefined
-                      )}
-                    >
+                    <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-left shadow-[var(--shadow-xs)]">
                       <SelectValue placeholder="Default list" />
                     </SelectTrigger>
-                    <SelectContent align="end">
+                    <SelectContent
+                      align="end"
+                      position="popper"
+                      className="w-[var(--radix-select-trigger-width)] min-w-[220px]"
+                    >
                       {availableSources.map((source) => (
                         <SelectItem key={source.id} value={source.id}>
-                          {source.label}
+                          <div className="flex items-center justify-between gap-2">
+                            <span>{source.label}</span>
+                            {source.state && source.state !== "ready" ? (
+                              <Badge
+                                variant="outline"
+                                className={cn(
+                                  "px-1.5 py-0 text-[10px] font-semibold uppercase",
+                                  sourceStateTone(source),
+                                )}
+                              >
+                                {source.state}
+                              </Badge>
+                            ) : null}
+                          </div>
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -532,12 +618,16 @@ export function RiaPicksList({
                   <Select
                     value={String(pageSize)}
                     onValueChange={(value) => {
-                      setPageSize(parsePageSize(value, pageSizeOptions, defaultPageSize));
+                      setPageSize(
+                        parsePageSize(value, pageSizeOptions, defaultPageSize),
+                      );
                       setPage(1);
                     }}
                   >
                     <SelectTrigger className="h-10 w-full rounded-2xl border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-sm shadow-[var(--shadow-xs)]">
-                      <SelectValue placeholder={`${defaultPageSize} per page`} />
+                      <SelectValue
+                        placeholder={`${defaultPageSize} per page`}
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       {pageSizeOptions.map((option) => (
@@ -552,31 +642,11 @@ export function RiaPicksList({
             </div>
           )}
 
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <p className="text-xs leading-5 text-muted-foreground">
-              {filteredRows.length > 0
-                ? `Showing ${visibleStart}-${visibleEnd} of ${filteredRows.length} matching names.`
-                : `Showing 0 matching names · ${rows.length} total investable names.`}
-            </p>
-            <div className="flex flex-wrap items-center gap-2">
-              {tierFilter !== ALL_FILTER ? (
-                <Badge
-                  variant="outline"
-                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
-                >
-                  Tier {tierFilter}
-                </Badge>
-              ) : null}
-              {sectorFilter !== ALL_FILTER ? (
-                <Badge
-                  variant="outline"
-                  className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
-                >
-                  {sectorFilter}
-                </Badge>
-              ) : null}
-            </div>
-          </div>
+          <p className="text-xs leading-5 text-muted-foreground">
+            {filteredRows.length > 0
+              ? `${visibleStart}-${visibleEnd} of ${filteredRows.length} names`
+              : `No matches · ${rows.length} names available`}
+          </p>
         </div>
 
         {filteredRows.length === 0 ? (
@@ -585,21 +655,23 @@ export function RiaPicksList({
           </div>
         ) : (
           <div
-            className={cn("touch-pan-y", isMobile && "space-y-2 px-3 py-3", !isMobile && "")}
+            className={cn(
+              "touch-pan-y",
+              isMobile && "space-y-2 px-3 py-3",
+              !isMobile && "",
+            )}
             data-no-route-swipe
           >
             {currentPageRows.map((row) => {
               const changePct =
-                typeof row.change_pct === "number" && Number.isFinite(row.change_pct)
+                typeof row.change_pct === "number" &&
+                Number.isFinite(row.change_pct)
                   ? row.change_pct
                   : null;
               const metadataLine = [
                 row.symbol,
                 row.sector,
                 formatBias(row.recommendation_bias),
-                typeof row.fcf_billions === "number" && Number.isFinite(row.fcf_billions)
-                  ? formatFcf(row.fcf_billions)
-                  : null,
               ]
                 .filter(Boolean)
                 .join(" • ");
@@ -608,13 +680,14 @@ export function RiaPicksList({
                 <button
                   key={`${row.symbol}-${row.tier || "tierless"}`}
                   type="button"
+                  data-testid="market-pick-row"
                   data-no-route-swipe
                   onClick={() => setSelectedRow(row)}
                   className={cn(
                     "group relative isolate flex w-full gap-3 text-left transition-colors",
                     isMobile
                       ? "items-start overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] px-3 py-3 shadow-[var(--shadow-xs)] backdrop-blur-[16px] hover:bg-[color:var(--app-card-surface-default-solid)] active:bg-[color:var(--app-card-surface-default-solid)]"
-                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8"
+                      : "items-center overflow-hidden border-t border-white/45 px-4 py-3 hover:bg-white/24 active:bg-white/34 first:border-t-0 dark:border-white/10 dark:hover:bg-white/6 dark:active:bg-white/8",
                   )}
                 >
                   <div className="shrink-0">
@@ -627,22 +700,17 @@ export function RiaPicksList({
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center gap-2">
                       <span className="truncate text-sm font-semibold tracking-tight text-foreground">
-                        {row.symbol || "—"}
+                        {row.company_name || row.symbol}
                       </span>
                       <Badge
                         variant="secondary"
-                        className={cn("border-0 px-2 py-0.5 text-[10px] font-semibold", tierTone(row.tier))}
+                        className={cn(
+                          "border-0 px-2 py-0.5 text-[10px] font-semibold",
+                          tierTone(row.tier),
+                        )}
                       >
                         {row.tier || "CORE"}
                       </Badge>
-                      {row.alias_repaired ? (
-                        <Badge
-                          variant="outline"
-                          className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] px-2 py-0.5 text-[10px] font-semibold text-muted-foreground"
-                        >
-                          Repaired
-                        </Badge>
-                      ) : null}
                       {row.degraded ? (
                         <Badge
                           variant="outline"
@@ -652,16 +720,17 @@ export function RiaPicksList({
                         </Badge>
                       ) : null}
                     </div>
-                    <div className="mt-0.5 flex min-w-0 items-center gap-2">
-                      <p className="truncate text-xs font-medium text-foreground/85">
-                        {row.company_name || row.symbol}
-                      </p>
-                    </div>
-                    <p className="mt-1 text-[11px] leading-5 text-muted-foreground sm:truncate">
-                      {metadataLine || "Metadata is still syncing for this name."}
+                    <p className="mt-1 truncate text-xs leading-5 text-muted-foreground">
+                      {metadataLine ||
+                        "Metadata is still syncing for this name."}
                     </p>
                   </div>
-                  <div className={cn("shrink-0 text-right", isMobile ? "min-w-[5.25rem]" : "")}>
+                  <div
+                    className={cn(
+                      "shrink-0 text-right",
+                      isMobile ? "min-w-[5.25rem]" : "",
+                    )}
+                  >
                     <p className="text-sm font-semibold tracking-tight text-foreground">
                       {formatCurrency(row.price)}
                     </p>
@@ -674,7 +743,7 @@ export function RiaPicksList({
                           "text-emerald-600 dark:text-emerald-400",
                         changePct !== null &&
                           changePct < 0 &&
-                          "text-rose-600 dark:text-rose-400"
+                          "text-rose-600 dark:text-rose-400",
                       )}
                     >
                       {changePct === null
@@ -682,7 +751,11 @@ export function RiaPicksList({
                         : `${changePct >= 0 ? "+" : ""}${changePct.toFixed(2)}%`}
                     </p>
                   </div>
-                  <MaterialRipple variant="none" effect="fade" className="z-10" />
+                  <MaterialRipple
+                    variant="none"
+                    effect="fade"
+                    className="z-10"
+                  />
                 </button>
               );
             })}
@@ -704,7 +777,9 @@ export function RiaPicksList({
                 <PaginationItem>
                   <PaginationPrevious
                     href="#"
-                    className={cn(page === 1 && "pointer-events-none opacity-50")}
+                    className={cn(
+                      page === 1 && "pointer-events-none opacity-50",
+                    )}
                     onClick={(event) => {
                       event.preventDefault();
                       goToPage(page - 1);
@@ -739,7 +814,9 @@ export function RiaPicksList({
                 <PaginationItem>
                   <PaginationNext
                     href="#"
-                    className={cn(page === totalPages && "pointer-events-none opacity-50")}
+                    className={cn(
+                      page === totalPages && "pointer-events-none opacity-50",
+                    )}
                     onClick={(event) => {
                       event.preventDefault();
                       goToPage(page + 1);
@@ -757,109 +834,99 @@ export function RiaPicksList({
         onOpenChange={(open) => {
           if (!open) setSelectedRow(null);
         }}
-        eyebrow="Advisor ideas"
-        title={selectedRow ? `${selectedRow.symbol} · ${selectedRow.company_name}` : "Pick detail"}
+        leading={
+          selectedRow ? (
+            <SymbolAvatar
+              symbol={String(
+                selectedRow.quote_symbol || selectedRow.symbol || "—",
+              )}
+              name={selectedRow.company_name}
+              size="lg"
+            />
+          ) : null
+        }
+        title={
+          selectedRow?.company_name || selectedRow?.symbol || "Stock detail"
+        }
         description={
           selectedRow
-            ? "Advisor list detail with the current market snapshot and thesis."
+            ? [
+                selectedRow.symbol,
+                selectedRow.sector,
+                activeSource?.label || "Advisor list",
+              ]
+                .filter(Boolean)
+                .join(" • ")
             : undefined
         }
       >
         {selectedRow ? (
-          <div className="space-y-4">
-            <RenaissanceVerdictCard row={selectedRow} />
-            <SurfaceInset className="flex items-start gap-3 p-4">
-              <SymbolAvatar
-                symbol={String(selectedRow.quote_symbol || selectedRow.symbol || "—")}
-                name={selectedRow.company_name}
-                size="lg"
-              />
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <p className="text-lg font-semibold tracking-tight text-foreground">
-                    {selectedRow.company_name || selectedRow.symbol}
-                  </p>
-                  <Badge
-                    variant="secondary"
-                    className={cn("border-0 text-[10px] font-semibold", tierTone(selectedRow.tier))}
-                  >
-                    {selectedRow.tier || "CORE"}
-                  </Badge>
-                  {selectedRow.degraded ? (
-                    <Badge
-                      variant="outline"
-                      className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
-                    >
-                      Delayed
-                    </Badge>
-                  ) : null}
-                  {selectedRow.alias_repaired ? (
-                    <Badge
-                      variant="outline"
-                      className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-[10px] font-semibold text-muted-foreground"
-                    >
-                      Symbol repaired
-                    </Badge>
-                  ) : null}
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {[
-                    selectedRow.symbol,
-                    selectedRow.sector,
-                    formatBias(selectedRow.recommendation_bias),
-                  ]
-                    .filter(Boolean)
-                    .join(" • ")}
+          <div className="space-y-5">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[color:var(--app-card-border-standard)] pb-4">
+              <div>
+                <p className="text-2xl font-semibold tracking-tight text-foreground">
+                  {formatCurrency(selectedRow.price)}
                 </p>
-                <div className="mt-3 flex flex-wrap items-center gap-2">
-                  <span className="text-2xl font-semibold tracking-tight text-foreground">
-                    {formatCurrency(selectedRow.price)}
-                  </span>
-                  {typeof selectedRow.change_pct === "number" &&
-                  Number.isFinite(selectedRow.change_pct) ? (
-                    <span
-                      className={cn(
-                        "inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold",
-                        selectedRow.change_pct >= 0
-                          ? "bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                          : "bg-rose-500/10 text-rose-700 dark:text-rose-300"
-                      )}
-                    >
-                      {selectedRow.change_pct >= 0 ? (
-                        <TrendingUp className="mr-1 h-3.5 w-3.5" />
-                      ) : (
-                        <TrendingDown className="mr-1 h-3.5 w-3.5" />
-                      )}
-                      {selectedRow.change_pct >= 0 ? "+" : ""}
-                      {selectedRow.change_pct.toFixed(2)}%
-                    </span>
-                  ) : null}
-                </div>
+                {typeof selectedRow.change_pct === "number" &&
+                Number.isFinite(selectedRow.change_pct) ? (
+                  <p
+                    className={cn(
+                      "mt-1 inline-flex items-center text-sm font-semibold",
+                      selectedRow.change_pct >= 0
+                        ? "text-emerald-600 dark:text-emerald-400"
+                        : "text-rose-600 dark:text-rose-400",
+                    )}
+                  >
+                    {selectedRow.change_pct >= 0 ? (
+                      <TrendingUp className="mr-1 h-4 w-4" />
+                    ) : (
+                      <TrendingDown className="mr-1 h-4 w-4" />
+                    )}
+                    {selectedRow.change_pct >= 0 ? "+" : ""}
+                    {selectedRow.change_pct.toFixed(2)}%
+                  </p>
+                ) : null}
               </div>
-            </SurfaceInset>
+              <div className="flex flex-wrap justify-end gap-2">
+                <Badge
+                  variant="secondary"
+                  className={cn(
+                    "border-0 text-[10px] font-semibold",
+                    tierTone(selectedRow.tier),
+                  )}
+                >
+                  {selectedRow.tier || "CORE"}
+                </Badge>
+                {selectedRow.degraded ? (
+                  <Badge
+                    variant="outline"
+                    className="border-amber-500/16 bg-amber-500/8 text-[10px] font-semibold text-amber-700 dark:text-amber-300"
+                  >
+                    Delayed
+                  </Badge>
+                ) : null}
+              </div>
+            </div>
+
+            <RenaissanceVerdictCard row={selectedRow} />
 
             <SettingsGroup
-              eyebrow="Context"
-              title="Market snapshot and conviction"
+              title="Snapshot"
               className={marketSettingsGroupClassName}
             >
               <SettingsRow
+                density="compact"
                 title="Market cap"
-                description="Current capitalization snapshot from the latest available quote."
                 trailing={formatCompactNumber(selectedRow.market_cap)}
               />
               <SettingsRow
+                density="compact"
                 title="Free cash flow"
-                description="Renaissance free-cash-flow cue from the default list."
                 trailing={formatFcf(selectedRow.fcf_billions)}
               />
               <SettingsRow
-                title="Quote freshness"
-                description={
-                  selectedRow.degraded
-                    ? "This row is using delayed or incomplete quote context."
-                    : "Quote context is current for the latest market snapshot."
-                }
+                density="compact"
+                title="Updated"
                 trailing={
                   selectedRow.quote_status === "unsupported"
                     ? "Unsupported"
@@ -869,8 +936,7 @@ export function RiaPicksList({
             </SettingsGroup>
 
             <SettingsGroup
-              eyebrow="Thesis"
-              title="Why this name is in the list"
+              title="Thesis"
               className={marketSettingsGroupClassName}
             >
               <div className="px-4 py-4 text-sm leading-7 text-foreground/90">
@@ -878,35 +944,9 @@ export function RiaPicksList({
                   "Renaissance thesis is unavailable for this name right now."}
               </div>
             </SettingsGroup>
-
-            <div className="flex flex-wrap gap-2">
-              {selectedRow.sector ? (
-                <Badge
-                  variant="outline"
-                  className="border-emerald-500/16 bg-emerald-500/8 text-emerald-700 dark:text-emerald-300"
-                >
-                  {selectedRow.sector}
-                </Badge>
-              ) : null}
-              {selectedRow.recommendation_bias ? (
-                <Badge
-                  variant="outline"
-                  className="border-[color:var(--app-card-border-standard)] bg-[var(--app-card-surface-compact)] text-muted-foreground"
-                >
-                  {formatBias(selectedRow.recommendation_bias)}
-                </Badge>
-              ) : null}
-              <Badge
-                variant="outline"
-                className="border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-muted-foreground"
-              >
-                {activeSource?.label || "Default list"}
-              </Badge>
-            </div>
           </div>
         ) : null}
       </KaiControlSurface>
-
     </div>
   );
 }

@@ -13,9 +13,12 @@ useDefault = true
 description = "Documented backend env placeholders + test fixtures"
 paths = [
   '''^consent-protocol/\.env\.example$''',
-  # HCT golden-vector fixture: deterministic test signing key used by
-  # apps/one-mac/Sources/OneConsent + consent-protocol/scripts/emit_hct_golden_vectors.py.
+  # HCT golden-vector fixture: deterministic test signing key used by the
+  # canonical Python signer parity gate.
   '''^consent-protocol/tests/fixtures/hct_golden_vectors\.json$''',
+  # Deterministic, synthetic Hermes interoperability vector. The encrypted
+  # bytes and hash are fixed test outputs, not deployable credentials.
+  '''^hushh-webapp/__tests__/fixtures/hermes-vault-vector\.json$''',
 ]
 regexes = [
   '''replace_with_64_char_hex_secret_key''',
@@ -27,9 +30,4 @@ regexes = [
   '''onAlpacaOauthReturnRoute''',
   # HCT golden-vector deterministic test key; never used in production.
   '''golden_vector_signing_key_for_hct_parity_only_32\+''',
-  # OneConsent Keychain item account names — public, version-stable identifiers
-  # for the SE-bound wrapping key + wrapped data-key envelope. Documented in
-  # apps/one-mac/docs/threat-model.md.
-  '''ai\.hushh\.one\.consent\.wrapping\.v1''',
-  '''ai\.hushh\.one\.consent\.data-key\.v1''',
 ]

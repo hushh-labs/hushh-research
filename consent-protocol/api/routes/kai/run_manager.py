@@ -14,6 +14,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, AsyncGenerator, Callable, Dict, Optional
 
+from starlette.concurrency import run_in_threadpool
+
+from hushh_mcp.services.feed_service import FeedService
+
 logger = logging.getLogger(__name__)
 
 RunStatus = str
@@ -57,12 +61,18 @@ class AnalyzeRunRecord:
     condition: asyncio.Condition = field(default_factory=asyncio.Condition)
     cancel_event: asyncio.Event = field(default_factory=asyncio.Event)
     worker_task: Optional[asyncio.Task] = None
+    # True only for records rebuilt from a durable terminal checkpoint (a
+    # /stream that landed on an instance without the live run). Such records
+    # carry a single terminal frame; the stream route replays it and skips the
+    # stale-cursor 410 guard. Always False for live, locally-owned runs.
+    is_durable_replay: bool = False
 
     @property
     def latest_cursor(self) -> int:
         return len(self.events)
 
     def to_public_dict(self) -> dict[str, Any]:
+        context = self.context if isinstance(self.context, dict) else {}
         return {
             "run_id": self.run_id,
             "user_id": self.user_id,
@@ -77,7 +87,37 @@ class AnalyzeRunRecord:
             "events_count": len(self.events),
             "terminal_event": self.terminal_event,
             "terminal_payload": self.terminal_payload,
+            # Provenance is written by the server-side source resolver at run
+            # start. Never expose the in-memory authorized package snapshot.
+            "pick_source": context.get("pick_source"),
+            "pick_source_label": context.get("pick_source_label"),
+            "pick_source_kind": context.get("pick_source_kind"),
+            "pick_source_snapshot": context.get("pick_source_snapshot"),
         }
+
+
+def _default_store_from_flag() -> Any:
+    """Return a durable run store iff the feature flag is on, else ``None``.
+
+    Isolated so the manager stays inert by default: when
+    ``KAI_ANALYZE_DURABLE_RUN_STORE`` is off (the default) this returns ``None``
+    and the manager performs zero durable-store I/O -- byte-for-byte the prior
+    in-memory-only behavior. Any import/construction failure also degrades to
+    ``None`` (log + continue) so a store problem can never break run handling.
+    """
+    try:
+        from hushh_mcp.runtime_settings import kai_analyze_durable_run_store_enabled
+
+        if not kai_analyze_durable_run_store_enabled():
+            return None
+        from api.routes.kai.analyze_run_store import KaiAnalyzeRunStore
+
+        return KaiAnalyzeRunStore()
+    except Exception:  # pragma: no cover - defensive
+        logger.warning(
+            "[KaiRun] durable store unavailable; continuing in-memory only", exc_info=True
+        )
+        return None
 
 
 class KaiAnalyzeRunManager:
@@ -87,11 +127,15 @@ class KaiAnalyzeRunManager:
         self,
         *,
         retention_seconds: int = 6 * 60 * 60,
+        store: Any = None,
     ) -> None:
         self._retention_seconds = max(60, retention_seconds)
         self._runs_by_id: dict[str, AnalyzeRunRecord] = {}
         self._active_by_session: dict[tuple[str, str], str] = {}
         self._lock = asyncio.Lock()
+        # Durable terminal-checkpoint store. Injected in tests; otherwise
+        # resolved from the feature flag. ``None`` => in-memory only (default).
+        self._store = store if store is not None else _default_store_from_flag()
 
     async def _append_frame(self, run: AnalyzeRunRecord, frame: RunFrame) -> dict[str, Any] | None:
         try:
@@ -111,23 +155,41 @@ class KaiAnalyzeRunManager:
                 payload["run_id"] = run.run_id
             frame["data"] = json.dumps(envelope)
 
+        just_completed = False
         async with run.condition:
             run.events.append(frame)
             run.updated_at = _now_iso()
             if envelope and bool(envelope.get("terminal")):
                 event_name = str(envelope.get("event") or "")
-                run.terminal_event = event_name or run.terminal_event
-                payload = envelope.get("payload")
-                run.terminal_payload = (
-                    payload if isinstance(payload, dict) else run.terminal_payload
-                )
-                if event_name == "decision":
-                    run.status = "completed"
-                elif event_name == "aborted":
-                    run.status = "canceled"
-                elif event_name == "error":
-                    run.status = "failed"
+                terminal_status = {
+                    "decision": "completed",
+                    "aborted": "canceled",
+                    "error": "failed",
+                }.get(event_name)
+                # A run has one terminal transition. Duplicate/reordered frames
+                # may still be replayed to a reconnecting client, but cannot
+                # overwrite its durable outcome or emit another Feed row.
+                if terminal_status is not None and run.status == "running":
+                    run.terminal_event = event_name
+                    payload = envelope.get("payload")
+                    run.terminal_payload = payload if isinstance(payload, dict) else None
+                    run.status = terminal_status
+                    just_completed = terminal_status == "completed"
             run.condition.notify_all()
+        if just_completed:
+            # Best-effort projection of the in-memory terminal transition. The
+            # stable run id makes retries harmless. The optional durable-run
+            # store checkpoints later and exposes no shared transaction/outbox
+            # contract, so this manager must not invent a second DB authority.
+            await run_in_threadpool(
+                FeedService().record_event,
+                user_id=run.user_id,
+                source_domain="kai",
+                event_type="kai_analysis_completed",
+                actor_label="Kai",
+                metadata={"ticker": run.ticker},
+                source_row_id=run.run_id,
+            )
         return envelope if isinstance(envelope, dict) else None
 
     async def _append_synthetic_terminal(
@@ -172,7 +234,7 @@ class KaiAnalyzeRunManager:
             )
             async for frame in generator:
                 envelope = await self._append_frame(run, frame)
-                if envelope and bool(envelope.get("terminal")):
+                if envelope and bool(envelope.get("terminal")) and run.status != "running":
                     saw_terminal = True
                 if run.cancel_event.is_set() and run.status in {"canceled", "failed", "completed"}:
                     break
@@ -226,6 +288,18 @@ class KaiAnalyzeRunManager:
                 active_run_id = self._active_by_session.get(session_key)
                 if active_run_id == run.run_id:
                     del self._active_by_session[session_key]
+
+            # Coarse durable checkpoint: one write per run, at terminal state,
+            # off the per-token hot path. Best-effort -- persist_terminal never
+            # raises, but guard anyway so nothing here can affect completion.
+            # Inert when the flag is off (self._store is None).
+            if self._store is not None:
+                try:
+                    await self._store.persist_terminal(run)
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning(
+                        "[KaiRun] durable checkpoint failed for %s", run.run_id, exc_info=True
+                    )
 
     async def _prune_locked(self) -> None:
         now = datetime.now(timezone.utc).timestamp()
@@ -300,7 +374,21 @@ class KaiAnalyzeRunManager:
     async def get_run(self, run_id: str) -> Optional[AnalyzeRunRecord]:
         async with self._lock:
             await self._prune_locked()
-            return self._runs_by_id.get(run_id)
+            run = self._runs_by_id.get(run_id)
+            if run is not None:
+                return run
+
+        # Not in this instance's memory. On prod the run may have been created
+        # on a different Cloud Run instance; fall back to the durable terminal
+        # checkpoint (if the flag is on) and replay its final frame. The lock is
+        # released before the DB round-trip -- it only guards the in-memory dicts.
+        if self._store is None:
+            return None
+        try:
+            return await self._store.load_terminal_run(run_id)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("[KaiRun] durable read-through failed for %s", run_id, exc_info=True)
+            return None
 
     async def cancel_run(self, *, run_id: str, user_id: str) -> Optional[AnalyzeRunRecord]:
         run = await self.get_run(run_id)

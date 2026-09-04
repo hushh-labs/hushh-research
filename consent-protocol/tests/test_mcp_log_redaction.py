@@ -20,6 +20,7 @@ from mcp_modules.log_redaction import (
 def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
     args = {
         "user_id": "owner@example.com",
+        "user_identifier": "owner-alias@example.com",
         "consent_token": "HCT:raw-consent-token.signature",  # noqa: S105
         "developer_token": "dev-token-123",  # noqa: S105
         "connector_key_id": "connector-prod-key",
@@ -56,6 +57,7 @@ def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
         assert raw_value not in serialized
 
     assert redacted["user_id"] == REDACTED
+    assert redacted["user_identifier"] == REDACTED
     assert redacted["consent_token"] == REDACTED
     assert redacted["recipientUserId"] == REDACTED
     assert redacted["ownerEmail"] == REDACTED
@@ -66,17 +68,25 @@ def test_redact_mcp_arguments_hides_sensitive_tool_inputs() -> None:
 
 
 @pytest.mark.asyncio
-async def test_call_tool_logs_redacted_arguments_but_passes_raw_args(monkeypatch, caplog) -> None:
+async def test_call_tool_does_not_log_arguments_but_passes_raw_args(monkeypatch, caplog) -> None:
     raw_user_id = "owner@example.com"
     raw_consent_token = "HCT:raw-consent-token.signature"  # noqa: S105
     received_args = {}
 
-    async def _handler(args: dict) -> list[TextContent]:
+    async def _handler(args: dict) -> tuple[list[TextContent], dict]:
         received_args.update(args)
-        return [TextContent(type="text", text=json.dumps({"status": "ok"}))]
+        payload = {"status": "ok"}
+        return [TextContent(type="text", text=json.dumps(payload))], payload
 
     monkeypatch.setitem(mcp_server.HANDLERS, "redaction_probe", _handler)
+    monkeypatch.setitem(
+        mcp_server._PRIVATE_INPUT_SCHEMAS,
+        "redaction_probe",
+        {"type": "object", "additionalProperties": True},
+    )
     monkeypatch.setattr(mcp_server, "is_tool_allowed", lambda _name: True)
+    monkeypatch.setattr(mcp_server, "validate_public_tool_input", lambda _name, _args: True)
+    monkeypatch.setattr(mcp_server, "validate_public_tool_output", lambda _name, _value: True)
 
     with caplog.at_level(logging.INFO, logger="hushh-mcp-server"):
         result = await mcp_server.call_tool(
@@ -88,13 +98,14 @@ async def test_call_tool_logs_redacted_arguments_but_passes_raw_args(monkeypatch
             },
         )
 
-    assert json.loads(result[0].text) == {"status": "ok"}
+    assert json.loads(result[0][0].text) == {"status": "ok"}
+    assert result[1] == {"status": "ok"}
     assert received_args["user_id"] == raw_user_id
     assert received_args["consent_token"] == raw_consent_token
     assert raw_user_id not in caplog.text
     assert raw_consent_token not in caplog.text
-    assert '"ticker": "HUSHH"' in caplog.text
-    assert REDACTED in caplog.text
+    assert "HUSHH" not in caplog.text
+    assert "Arguments" not in caplog.text
 
 
 def test_redact_log_value_hides_provider_query_credentials() -> None:
@@ -183,3 +194,112 @@ def test_sensitive_log_record_factory_redacts_httpx_url_args() -> None:
 
     assert "secret-provider-token" not in rendered
     assert f"token={REDACTED}" in rendered
+
+
+# ---------------------------------------------------------------------------
+# SQLAlchemy bound parameters
+# ---------------------------------------------------------------------------
+
+# ``StatementError.__str__`` appends the statement *and every bound value*
+# unless the engine sets ``hide_parameters=True``; the repo sets it nowhere.
+# ``db_client.execute_raw`` then does ``logger.error(f"Raw SQL error: {e}")``,
+# so without this rule every DBAPI fault reprints the row it was writing.
+SQLALCHEMY_ERROR = (
+    '(psycopg2.errors.NotNullViolation) null value in column "user_id"\n'
+    "[SQL: INSERT INTO one_wallet_cards (user_id, card_payload) "
+    "VALUES (%(user_id)s, %(card_payload)s)]\n"
+    "[parameters: {'user_id': 'user_123', 'card_payload': "
+    '\'{"full_name": "Ada Lovelace", "email": "ada@example.com"}\'}]\n'
+    "(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+)
+
+
+def _emit(message: str) -> str:
+    install_sensitive_log_filter()
+    record = logging.getLogRecordFactory()(
+        "db.db_client", logging.ERROR, __file__, 1, message, None, None
+    )
+    return record.getMessage()
+
+
+def test_bound_sql_parameters_are_redacted_from_a_log_message() -> None:
+    rendered = _emit(f"Raw SQL error: {SQLALCHEMY_ERROR}")
+
+    assert "Ada Lovelace" not in rendered
+    assert "ada@example.com" not in rendered
+    assert "user_123" not in rendered
+    assert f"[parameters: {REDACTED}]" in rendered
+
+
+def test_the_statement_and_the_driver_message_survive_redaction() -> None:
+    """Stripping the whole error would make production faults undiagnosable.
+    The statement text and the doc link carry no values, so they are kept."""
+    rendered = _emit(f"Raw SQL error: {SQLALCHEMY_ERROR}")
+
+    assert "NotNullViolation" in rendered
+    assert "INSERT INTO one_wallet_cards" in rendered
+    assert "https://sqlalche.me/e/20/gkpj" in rendered
+
+
+def test_a_bound_value_containing_a_bracket_cannot_leak_a_fragment() -> None:
+    """Bracket-balancing would end the scan at the value's own ``]`` and print
+    the rest, so redaction deliberately runs to the background-link suffix."""
+    hostile = (
+        "[SQL: UPDATE one_wallet_cards SET card_payload = %(card_payload)s]\n"
+        '[parameters: {\'card_payload\': \'{"summary": "a]b", '
+        '"full_name": "Ada Lovelace"}\'}]\n'
+        "(Background on this error at: https://sqlalche.me/e/20/gkpj)"
+    )
+
+    rendered = _emit(hostile)
+
+    assert "Ada Lovelace" not in rendered
+    assert "a]b" not in rendered
+    assert "https://sqlalche.me/e/20/gkpj" in rendered
+
+
+def test_redaction_runs_to_the_end_when_there_is_no_background_suffix() -> None:
+    rendered = _emit("Raw SQL error: [parameters: {'email': 'ada@example.com'}]")
+
+    assert "ada@example.com" not in rendered
+    assert rendered.endswith(f"[parameters: {REDACTED}]")
+
+
+def test_an_exception_passed_as_a_log_argument_is_redacted() -> None:
+    """``logger.warning("... %s", exc)`` keeps the exception *object* in
+    ``record.args``; it is only stringified by the handler, which runs after
+    the filter. Rendering it inside the filter is what closes that bypass
+    (``db_client`` logs a connection failure exactly this way)."""
+    install_sensitive_log_filter()
+    record = logging.getLogRecordFactory()(
+        "db.db_client",
+        logging.WARNING,
+        __file__,
+        1,
+        "Database connection failed: %s",
+        (RuntimeError(SQLALCHEMY_ERROR),),
+        None,
+    )
+
+    rendered = record.getMessage()
+
+    assert "Ada Lovelace" not in rendered
+    assert "ada@example.com" not in rendered
+    assert f"[parameters: {REDACTED}]" in rendered
+
+
+def test_an_ordinary_log_line_is_left_alone() -> None:
+    """The rule must be inert on everything that is not a parameter blob."""
+    message = "wallet_card.published serial=6f2f0e6a status=active"
+
+    assert _emit(message) == message
+
+
+def test_the_filter_is_installed_by_the_api_server() -> None:
+    """The redaction only helps if it is actually wired into the API process
+    that serves the Wallet routes, not just the MCP server."""
+    from pathlib import Path
+
+    server = (Path(__file__).resolve().parents[1] / "server.py").read_text(encoding="utf-8")
+
+    assert "install_sensitive_log_filter()" in server

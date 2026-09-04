@@ -39,9 +39,7 @@ describe("profile workspace duplication contract", () => {
     expect(profilePageSource).toContain(
       "function profileRouteNeedsWorkspaceData",
     );
-    expect(profilePageSource).toContain(
-      'return panel === "my-data" || panel === "access";',
-    );
+    expect(profilePageSource).toContain('return panel === "my-data";');
     expect(profilePageSource).toContain(
       'enabled: Boolean(user?.uid) && !authLoading && activePanel === "gmail"',
     );

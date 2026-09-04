@@ -24,20 +24,17 @@ import {
   kaiPreviewSectionTitleClassName,
   marketSurfaceVariablesClassName,
 } from "@/components/kai/shared/market-surface-theme";
-import { ROUTES } from "@/lib/navigation/routes";
+import { buildKaiMarketRoute } from "@/lib/navigation/routes";
 import { cn } from "@/lib/utils";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 
 const analysisRootClassName = cn(
   marketSurfaceVariablesClassName,
-  "relative isolate mx-auto flex min-h-screen w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
+  "relative isolate mx-auto flex min-h-0 w-full !max-w-none flex-col overflow-x-hidden !px-0 pb-0",
   "bg-[color:var(--one-bg)] font-sans text-[color:var(--one-fg)] antialiased",
-  "[--one-bg:#ffffff] [--one-card:#ffffff] [--one-surface:#f2f2f7]",
-  "dark:[--one-bg:#000000] dark:[--one-card:#1c1c1e] dark:[--one-surface:#1c1c1e]",
-  "[--one-hairline:rgba(0,0,0,0.08)] [--one-line:rgba(0,0,0,0.06)]",
-  "dark:[--one-hairline:rgba(255,255,255,0.14)] dark:[--one-line:rgba(255,255,255,0.10)]",
-  "[--one-fg:#1d1d1f] [--one-fg2:rgba(0,0,0,0.55)] [--one-fg3:rgba(0,0,0,0.42)]",
-  "dark:[--one-fg:#f5f5f7] dark:[--one-fg2:rgba(245,245,247,0.64)] dark:[--one-fg3:rgba(245,245,247,0.46)]",
+  "[--one-bg:var(--background)] [--one-card:var(--app-card-surface-default-solid)] [--one-surface:var(--app-card-surface-compact)]",
+  "[--one-hairline:var(--foundation-hairline)] [--one-line:var(--foundation-hairline)]",
+  "[--one-fg:var(--foreground)] [--one-fg2:var(--muted-foreground)] [--one-fg3:color-mix(in_oklab,var(--muted-foreground)_82%,transparent)]",
   "[--one-blue:var(--app-accent)] [--one-link:var(--app-accent-deep)] [--one-blue-t:var(--app-accent-tint)]",
   "dark:[--one-blue:var(--app-accent)] dark:[--one-link:var(--app-accent-deep)] dark:[--one-blue-t:var(--app-accent-tint)]",
   "[--one-up:#34c759] [--one-up-t:rgba(52,199,89,0.12)]",
@@ -59,7 +56,7 @@ const analysisGlassClassName = cn(
 );
 
 const analysisCardClassName =
-  "rounded-[20px] bg-[color:var(--one-card)] p-4 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]";
+  "rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] p-4 shadow-[var(--app-card-shadow-standard)]";
 
 const RANGE_KEYS = ["1W", "1M", "3M", "1Y", "All"] as const;
 type RangeKey = (typeof RANGE_KEYS)[number];
@@ -151,7 +148,7 @@ function StatCard({
   tone?: "up" | "down" | "muted";
 }) {
   return (
-    <div className="rounded-[14px] bg-[color:var(--one-card)] px-[13px] py-3 shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+    <div className="rounded-[var(--app-card-radius-compact)] bg-[color:var(--one-card)] px-[13px] py-3 shadow-[var(--app-card-shadow-standard)]">
       <p className="text-[12px] font-medium text-[color:var(--one-fg2)]">{label}</p>
       <p className="mt-1.5 text-[17px] font-semibold text-[color:var(--one-fg)] tabular-nums">{value}</p>
       <p
@@ -358,7 +355,7 @@ function KaiSheet({
           <Bot className="h-4 w-4" />
         </span>
         <span className="min-w-0 flex-1">
-          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">Kai</b>
+          <b className="block text-[17px] font-semibold text-[color:var(--one-fg)]">One</b>
           <span className="block truncate text-[12px] text-[color:var(--one-fg3)]">Personal intelligence - works only for you</span>
         </span>
         <button
@@ -408,14 +405,14 @@ function KaiSheet({
           <input
             value={draft}
             onChange={(event) => setDraft(event.target.value)}
-            placeholder="Message Kai..."
+            placeholder="Message One..."
             className="w-full bg-transparent text-[14px] text-[color:var(--one-fg)] outline-none placeholder:text-[color:var(--one-fg3)]"
           />
         </div>
         <button
           type="submit"
           className="grid h-[38px] w-[38px] shrink-0 place-items-center rounded-full bg-[color:var(--one-blue)] text-white"
-          aria-label="Send to Kai"
+          aria-label="Send to One"
         >
           <Mic className="h-4 w-4" />
         </button>
@@ -453,7 +450,7 @@ function NotificationsSheet({
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
         {[
           { title: "Receipt signed", body: "Banking agent - credit score - 30 min - revocable", time: "2m", tone: "up" },
-          { title: "Kai signal - Buy TSLA", body: "High conviction - 12+ month horizon", time: "1h", tone: "blue" },
+          { title: "Finance signal - Buy TSLA", body: "High conviction - 12+ month horizon", time: "1h", tone: "blue" },
           { title: "Markets closed soft", body: "S&P 500 -1.58% - defensives led", time: "3h", tone: "down" },
         ].map((item) => (
           <div key={item.title} className="flex items-start gap-3 border-t border-[color:var(--one-line)] px-4 py-3 first:border-t-0">
@@ -488,8 +485,8 @@ export function KaiAnalysisPreviewView() {
   const sheetOpen = kaiOpen || notificationsOpen;
   const recentRows = useMemo(
     () => [
-      { symbol: "AMZN", title: "Amazon", description: "Analyzed today - Kai debate", value: "Buy", change: "95% confidence" },
-      { symbol: "BUD", title: "Anheuser-Busch", description: "Analyzed yesterday - Kai debate", value: "Buy", change: "91% confidence" },
+      { symbol: "AMZN", title: "Amazon", description: "Analyzed today - Finance debate", value: "Buy", change: "95% confidence" },
+      { symbol: "BUD", title: "Anheuser-Busch", description: "Analyzed yesterday - Finance debate", value: "Buy", change: "91% confidence" },
     ],
     []
   );
@@ -530,8 +527,8 @@ export function KaiAnalysisPreviewView() {
       </style>
       <div aria-hidden className="pointer-events-none absolute inset-0 -z-20 bg-[color:var(--one-bg)]" />
 
-      <div className="mx-auto flex min-h-screen w-full max-w-[1080px] flex-col">
-        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(190px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1080px] flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto px-[var(--one-gutter)] pb-[calc(32px+env(safe-area-inset-bottom))] pt-5 sm:pt-7">
           <header className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <span className={cn(kaiPreviewEyebrowClassName, "text-[color:var(--one-fg3)]")}>
@@ -560,7 +557,7 @@ export function KaiAnalysisPreviewView() {
               event.preventDefault();
               const query = stockQuery.trim();
               if (query) {
-                openAnalysisHref(`${ROUTES.KAI_ANALYSIS}?preview=analysis&q=${encodeURIComponent(query)}`);
+                openAnalysisHref(buildKaiMarketRoute("analysis", { preview: "analysis", q: query }));
               }
             }}
             className="mt-5 flex h-12 items-center gap-2.5 rounded-[16px] bg-[color:var(--one-surface)] px-4"
@@ -633,7 +630,7 @@ export function KaiAnalysisPreviewView() {
               <Bot className="h-4 w-4" />
             </span>
             <span className="min-w-0 flex-1 text-[13px] leading-snug text-[color:var(--one-fg)]">
-              <b className="font-semibold">Kai:</b> Tesla drove most of this week's gain. Concentration is your main risk - ask me for a rebalance plan.
+              <b className="font-semibold">One:</b> Tesla drove most of this week's gain. Concentration is your main risk - ask me for a rebalance plan.
             </span>
             <ChevronRight className="h-[15px] w-[15px] shrink-0 text-[color:var(--one-fg3)]" />
           </button>
@@ -669,7 +666,7 @@ export function KaiAnalysisPreviewView() {
               <div className="mt-3.5 flex items-start gap-2.5 rounded-[13px] bg-[color:var(--one-orange-t)] px-[13px] py-3">
                 <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--one-orange)]" />
                 <p className="text-[13px] leading-snug text-[color:var(--one-fg)]">
-                  <b className="font-semibold">Tesla is 31% of your portfolio.</b> A single name above 25% drives most of your swings - ask Kai for a rebalance plan.
+                  <b className="font-semibold">Tesla is 31% of your portfolio.</b> A single name above 25% drives most of your swings - ask One for a rebalance plan.
                 </p>
               </div>
             </div>
@@ -677,7 +674,7 @@ export function KaiAnalysisPreviewView() {
 
           <section className="mt-8">
             <SectionHeader title="Today's impact" icon={Zap} tone="blue" />
-            <div className="overflow-hidden rounded-[20px] bg-[color:var(--one-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+            <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--one-card)] shadow-[var(--app-card-shadow-standard)]">
               <HoldingRow symbol="TSLA" title="Tesla" description="38 sh - top contributor" value="+$467" change="+5.20%" tone="up" />
               <HoldingRow symbol="AAPL" title="Apple" description="64 sh" value="+$132" change="+1.10%" tone="up" />
               <HoldingRow symbol="NVDA" title="NVIDIA" description="21 sh - top detractor" value="-$20" change="-0.80%" tone="down" />
@@ -709,7 +706,7 @@ export function KaiAnalysisPreviewView() {
 
           <section className="mt-8">
             <SectionHeader title="Recent analyses" icon={Star} tone="ai" />
-            <div className="overflow-hidden rounded-[20px] bg-[color:var(--one-card)] shadow-[0_1px_2px_rgba(0,0,0,0.04),0_12px_28px_-16px_rgba(0,0,0,0.16)]">
+            <div className="overflow-hidden rounded-[var(--app-card-radius-standard)] bg-[color:var(--one-card)] shadow-[var(--app-card-shadow-standard)]">
               {recentRows.map((row) => (
                 <HoldingRow
                   key={row.symbol}

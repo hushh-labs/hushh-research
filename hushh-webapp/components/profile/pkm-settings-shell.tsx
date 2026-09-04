@@ -11,20 +11,26 @@ import {
 import { PageHeader } from "@/components/app-ui/page-sections";
 import { SurfaceStack } from "@/components/app-ui/surfaces";
 import { usePageEnterAnimation } from "@/lib/morphy-ux/hooks/use-page-enter";
-import { ensureMorphyGsapReady, getMorphyEaseName } from "@/lib/morphy-ux/gsap-init";
+import {
+  ensureMorphyGsapReady,
+  getMorphyEaseName,
+} from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
+import { cn } from "@/lib/utils";
 
 export function PkmSettingsShell({
   title,
   description,
-  eyebrow = "Profile / Privacy",
+  eyebrow,
   actions,
+  innerClassName,
   children,
 }: {
   title: string;
-  description: string;
+  description?: string;
   eyebrow?: string;
   actions?: ReactNode;
+  innerClassName?: string;
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -50,9 +56,11 @@ export function PkmSettingsShell({
       if (gsap.context) {
         const ctx = gsap.context(() => {
           const navRows = Array.from(
-            root.querySelectorAll<HTMLElement>("[data-pkm-nav-row='true']")
+            root.querySelectorAll<HTMLElement>("[data-pkm-nav-row='true']"),
           );
-          const detailPanel = root.querySelector<HTMLElement>("[data-pkm-detail-panel='true']");
+          const detailPanel = root.querySelector<HTMLElement>(
+            "[data-pkm-detail-panel='true']",
+          );
           if (navRows.length > 0) {
             gsap.fromTo(
               navRows,
@@ -65,7 +73,7 @@ export function PkmSettingsShell({
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           }
           if (detailPanel) {
@@ -80,7 +88,7 @@ export function PkmSettingsShell({
                 ease: getMorphyEaseName("emphasized"),
                 overwrite: "auto",
                 clearProps: "opacity,transform",
-              }
+              },
             );
           }
         }, root);
@@ -95,22 +103,20 @@ export function PkmSettingsShell({
   }, [pathname]);
 
   return (
-    <AppPageShell
-      as="div"
-      width="reading"
-      className="pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
-    >
+    <AppPageShell as="div" width="reading">
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow={eyebrow}
-          title={title}
-          description={description}
-          actions={actions}
-        />
+        <div className={cn("w-full", innerClassName)}>
+          <PageHeader
+            eyebrow={eyebrow}
+            title={title}
+            description={description}
+            actions={actions}
+          />
+        </div>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div ref={shellRef} className="space-y-4">
+        <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
           <div data-pkm-detail-panel="true">
             <SurfaceStack compact>{children}</SurfaceStack>
           </div>

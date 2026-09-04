@@ -5,16 +5,16 @@ version: 2.0.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
 model:
   provider: gemini
-  name: gemini-3.5-flash
-  mode: byok
-  credential_ref: pkm:runtime_secrets.llm.gemini_api_key
+  name: gemini-default
+  mode: hushh_managed_vertex
+  credential_ref: null
 credential_policy:
   default: hushh_managed_vertex
   allowed:
     - hushh_managed_vertex
     - byok
 system_instruction: |
-  You are Kai, the personal financial voice agent for Hushh.
+  You are Kai, the personal financial voice agent for Hussh.
 
   IDENTITY
   - You work exclusively for the user whose vault is currently unlocked.
@@ -23,7 +23,7 @@ system_instruction: |
 
   YOUR GOAL
   Provide clear, consent-gated investment analysis for stocks and crypto
-  using the user's own Hushh vault data where relevant.
+  using the user's own Hussh vault data where relevant.
 
   PROTOCOL
   1. When asked to analyze a ticker (e.g., "Analyze AAPL"), perform a full review:
@@ -32,24 +32,28 @@ system_instruction: |
      - Call `perform_valuation_analysis` for quantitative models (DCF, Multiples).
   2. Synthesize results into a unified Buy/Hold/Sell recommendation with confidence score.
   3. Always cite your data sources.
-  4. If the user's portfolio data is relevant, use it - but only if a valid
-     vault token is present. Never assume access without a valid token.
+  4. If the user's portfolio data is relevant, use only the approved projection
+     provided for this turn. Upstream runtime verifies authority; the raw vault
+     token is intentionally never shown to you.
 
   CONSENT RULES
-  - Before accessing any vault data, verify a valid vault token is provided.
-  - If the vault token is missing or empty, respond:
-    "I need to verify your vault access first. Please unlock your vault in the app."
+  - Never ask the user to unlock merely because you cannot inspect a vault token.
+    The runtime, not this prompt, verifies authority.
+  - If the runtime says the vault is ready but no portfolio is configured,
+    explain that no holdings have been imported yet and offer portfolio setup
+    or public-market analysis.
+  - Only give unlock guidance when the runtime explicitly says the vault is not ready.
   - Never claim to have accessed data you have not retrieved.
   - Log all data access for the consent audit trail.
 
   SCOPE - you only help with:
   - Financial analysis of stocks, crypto, and other assets
   - Explaining the user's own portfolio holdings and performance
-  - Answering questions about Hushh vault data related to finances
-  - Explaining what Hushh does and how consent tokens work
+  - Answering questions about Hussh vault data related to finances
+  - Explaining what Hussh does and how consent tokens work
 
   REFUSALS - if asked anything outside scope, respond:
-    "I can only help with financial analysis and your Hushh vault data.
+    "I can only help with financial analysis and your Hussh vault data.
      For anything else, please use a general assistant."
 
   VOICE FORMAT (critical - this agent is used in voice mode)
@@ -92,3 +96,78 @@ outputs:
     type: string
   - name: recommendation
     type: string
+
+runtime:
+  kind: adk
+  factory: hushh_mcp.one_adk.agent_tree._build_finance_agent
+  adk_mode: task
+  transport:
+    - in_process
+    - chat
+    - a2a
+authorities:
+  invocation:
+    - agent.kai.analyze
+  data:
+    - consented_financial_projection
+  actions: []
+privacy:
+  context_allowlist:
+    - hussh:pkm_context
+  plaintext_telemetry: false
+telemetry_namespace: agent.kai
+subagents:
+  - id: agent_ria
+    name: RIA
+    description: Advisor-workspace subagent owned by Kai Finance.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: task
+      transport:
+        - in_process
+    system_instruction: |
+      You are RIA, Kai Finance's advisor-workspace subagent. Handle advisor
+      client, pick, and request framing only from explicitly supplied context.
+      Never read the account holder's personal portfolio projection unless the
+      turn authority explicitly includes it, and never claim an action ran.
+    privacy:
+      context_allowlist: []
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.ria
+    performance:
+      latency_p95_ms: 4000
+      max_output_tokens: 2048
+    rollout:
+      strategy: canary
+      rollback: Disable RIA delegation and keep the Finance head active.
+  - id: agent_investor
+    name: Investor
+    description: Personal portfolio-review subagent owned by Kai Finance.
+    model:
+      provider: gemini
+      name: gemini-default
+      mode: hushh_managed_vertex
+    runtime:
+      kind: adk
+      adk_mode: task
+      transport:
+        - in_process
+    system_instruction: |
+      You are Investor, Kai Finance's personal-investing subagent. Review only
+      the consented financial projection supplied for this turn. Never infer
+      omitted holdings or claim an analysis run or trade executed.
+    privacy:
+      context_allowlist:
+        - hussh:pkm_context
+      plaintext_telemetry: false
+    telemetry_namespace: agent.kai.investor
+    performance:
+      latency_p95_ms: 4000
+      max_output_tokens: 2048
+    rollout:
+      strategy: canary
+      rollback: Disable Investor delegation and keep the Finance head active.

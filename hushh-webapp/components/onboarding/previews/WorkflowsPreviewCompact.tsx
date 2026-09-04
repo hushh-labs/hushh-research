@@ -4,20 +4,24 @@ import { Card } from "@/lib/morphy-ux/card";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { ChevronRight } from "lucide-react";
 
+import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
 import {
-  ONE_CAPABILITIES,
-  ONE_CAPABILITY_ICON_CLASS_BY_TONE,
+  getOneCapability,
+  isOneCapabilityEnabled,
   type OneCapability,
 } from "@/lib/onboarding/one-capabilities";
 
 // "What lies ahead": a representative slice of the REAL /one dashboard
 // capabilities a new user will unlock. Sourced from the shared catalog so it
 // can never drift from the dashboard tiles.
-const PREVIEW_IDS = ["finance", "gmail", "location"] as const;
+const PREVIEW_IDS = ["finance", "gmail", "calendar", "location"] as const;
 
 const PREVIEW_CAPABILITIES: OneCapability[] = PREVIEW_IDS.map(
-  (id) => ONE_CAPABILITIES.find((c) => c.id === id)!,
-).filter(Boolean);
+  getOneCapability,
+).filter(
+  (capability): capability is OneCapability =>
+    Boolean(capability) && isOneCapabilityEnabled(capability),
+);
 
 export function WorkflowsPreviewCompact() {
   return (
@@ -40,11 +44,12 @@ export function WorkflowsPreviewCompact() {
         <div className="flex flex-col divide-y divide-border/70">
           {PREVIEW_CAPABILITIES.map((cap) => (
             <div key={cap.id} className="flex items-center gap-3 py-2">
-              <span
-                className={`grid h-9 w-9 shrink-0 place-items-center rounded-[10px] ${ONE_CAPABILITY_ICON_CLASS_BY_TONE[cap.tone]}`}
-              >
-                <Icon icon={cap.icon} className="h-[17px] w-[17px]" />
-              </span>
+              <AgentSectionIcon
+                id={cap.id}
+                icon={cap.icon}
+                tone={cap.tone}
+                size="menu"
+              />
               <div className="min-w-0 flex-1">
                 <p className="type-headline text-[13px] font-medium leading-tight">{cap.title}</p>
                 <p className="type-footnote mt-0.5 text-muted-foreground text-[11px] leading-tight">

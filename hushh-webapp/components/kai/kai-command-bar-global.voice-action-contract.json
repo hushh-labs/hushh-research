@@ -27,9 +27,9 @@
       ],
       "reachability": {
         "routes": [
-          "/one/kai",
-          "/one/kai/analysis",
-          "/profile"
+          "/one/kai?tab=market",
+          "/one/kai?tab=analysis",
+          "/one/profile"
         ],
         "screens": [
           "kai_market",
@@ -53,7 +53,7 @@
       "control_ids": [],
       "state_exposure": [],
       "docs_references": [
-        "hushh-webapp/lib/voice/voice-action-dispatcher.ts"
+        "hushh-webapp/lib/agent/agent-action-runtime.ts"
       ],
       "speaker_persona": "one"
     }

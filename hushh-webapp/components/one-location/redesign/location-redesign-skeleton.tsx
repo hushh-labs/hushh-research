@@ -50,7 +50,7 @@ function SectionCardSkeleton({
 
 export function LocationRedesignSkeleton() {
   return (
-    <div className="space-y-5" aria-busy="true" aria-label="Loading Onepoint" role="status">
+    <div className="space-y-5" aria-busy="true" aria-label="Loading Location" role="status">
       {/* Header: title + subtitle + refresh */}
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0 space-y-2">
@@ -60,9 +60,9 @@ export function LocationRedesignSkeleton() {
         <Skeleton className="h-9 w-20 shrink-0 rounded-full" />
       </div>
 
-      {/* Local tabs (Now | People | Links | Inbox) */}
-      <div className="grid w-full grid-cols-4 gap-1 rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-1 shadow-[var(--app-card-shadow-standard)]">
-        {Array.from({ length: 4 }).map((_, index) => (
+      {/* Local tabs (Now | People | Links) */}
+      <div className="grid w-full grid-cols-3 gap-1 rounded-full border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] p-1 shadow-[var(--app-card-shadow-standard)]">
+        {Array.from({ length: 3 }).map((_, index) => (
           <Skeleton
             key={index}
             className={cn(

@@ -7,18 +7,34 @@ from __future__ import annotations
 import argparse
 import json
 import subprocess
-import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 DEFAULT_REPO = "hushh-labs/hushh-research"
+# Deliberate SECOND KEY on production deploy authority. This list is duplicated
+# from config/ci-governance.json -> production.manual_dispatch_users on purpose:
+# widening the production cohort must be an explicit two-file edit, so a grant
+# cannot ride in as a one-line JSON diff nobody reads closely.
+#
+# THEREFORE: any PR that edits production.manual_dispatch_users MUST mirror the
+# change here in the same PR, or this check fails.
+#
+# It drifted twice because that rule was implicit (845a456bd added RGlodAkshat +
+# DamriaNeelesh on 2026-08-07 and left this stale for three weeks; the imsharukhan
+# grant on 2026-08-28 widened the gap to 5-vs-2). Stated explicitly now.
+PRODUCTION_MANUAL_DISPATCH_USERS = [
+    "kushaltrivedi5",
+    "ankitkumarsingh1702",
+    "RGlodAkshat",
+    "DamriaNeelesh",
+    "imsharukhan",
+]
 
 
 def _gh_json(*args: str) -> dict:
     return json.loads(
-        subprocess.run(
+        subprocess.run(  # noqa: S603 - fixed gh executable with repo-owned API paths
             ["gh", "api", *args],
             check=True,
             capture_output=True,
@@ -44,8 +60,19 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
     surface_policy = policy[surface]
     env_name = surface_policy["environment"] if surface == "uat" else surface_policy["owner_environment"]
     payload = _gh_json(f"repos/{repo}/environments/{env_name}")
+    variables_payload = _gh_json(f"repos/{repo}/environments/{env_name}/variables")
     branch_policy = payload.get("deployment_branch_policy") or {}
     reviewers = _reviewer_logins(payload)
+    configured_variable_names = {
+        str(variable.get("name") or "").strip()
+        for variable in variables_payload.get("variables") or []
+        if str(variable.get("name") or "").strip()
+    }
+    required_variable_names = {
+        str(name).strip()
+        for name in surface_policy.get("required_environment_variables") or []
+        if str(name).strip()
+    }
     errors: list[str] = []
 
     if reviewers:
@@ -57,10 +84,17 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
     if branch_policy.get("custom_branch_policies") is not False:
         errors.append(f"{env_name} should not use custom branch policies")
 
-    allowed_users = surface_policy.get("manual_dispatch_users") or []
-    if surface == "production" and allowed_users != ["kushaltrivedi5"]:
+    missing_variable_names = sorted(required_variable_names - configured_variable_names)
+    if missing_variable_names:
         errors.append(
-            f"production manual dispatch policy drifted: expected ['kushaltrivedi5'], got {allowed_users}"
+            f"{env_name} is missing required environment variables: {missing_variable_names}"
+        )
+
+    allowed_users = surface_policy.get("manual_dispatch_users") or []
+    if surface == "production" and allowed_users != PRODUCTION_MANUAL_DISPATCH_USERS:
+        errors.append(
+            "production manual dispatch policy drifted: "
+            f"expected {PRODUCTION_MANUAL_DISPATCH_USERS}, got {allowed_users}"
         )
 
     # UAT dispatch authority must equal the merge cohort (main.review_bypass_users).
@@ -82,6 +116,7 @@ def _assert_surface(surface: str, repo: str, policy: dict) -> list[str]:
         f"reviewers={reviewers}, can_admins_bypass={payload.get('can_admins_bypass')}, "
         f"protected_branches={branch_policy.get('protected_branches')}, "
         f"custom_branch_policies={branch_policy.get('custom_branch_policies')}, "
+        f"required_variables_configured={not missing_variable_names}, "
         f"manual_dispatch_users={allowed_users}"
     )
     print(summary)

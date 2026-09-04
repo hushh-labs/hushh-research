@@ -21,7 +21,7 @@ Run these negative checks:
 1. `/one/location` never hard-fails the whole feature when auxiliary sections degrade.
 2. Sharing to a user who never opened One Location shows setup-needed state.
 3. Network blips during publish/view show retry or friendly recovery.
-4. `/consents` handles stale deep links with guidance, not a full-page error.
+4. `/one/consent` handles stale deep links with guidance, not a full-page error.
 
 ## Final Cross-Surface Sweep
 
@@ -37,7 +37,7 @@ Run one complete cycle:
 During the sweep:
 
 - bell never shows location consent items
-- shield and `/consents` reflect correct state
+- shield and `/one/consent` reflect correct state
 - no duplicate popup appears
 - no false removed popup appears
 - coordinates never appear in consent surfaces

@@ -189,6 +189,10 @@ class CacheService {
       CACHE_KEYS.RIA_HOME(userId),
       CACHE_KEYS.RIA_PICKS(userId),
       CACHE_KEYS.ONE_LOCATION_STATE(userId),
+      CACHE_KEYS.CONNECTED_SYSTEMS_REGISTRY(userId),
+      CACHE_KEYS.FEED_UNREAD_COUNT(userId),
+      CACHE_KEYS.FEED_LIST(userId),
+      CACHE_KEYS.CONNECTIONS_INCOMING(userId),
     ]);
 
     for (const key of this.cache.keys()) {
@@ -199,6 +203,7 @@ class CacheService {
         key.startsWith(`domain_blob_${userId}_`) ||
         key.startsWith(`stock_context_${userId}_`) ||
         key.startsWith(`kai_market_home_${userId}_`) ||
+        key.startsWith(`kai_market_news_${userId}_`) ||
         key.startsWith(`consent_center_${userId}_`) ||
         key.startsWith(`consent_center_summary_${userId}_`) ||
         key.startsWith(`consent_center_preview_${userId}_`) ||
@@ -207,7 +212,8 @@ class CacheService {
         key.startsWith(`ria_client_detail_${userId}_`) ||
         key.startsWith(`ria_workspace_${userId}_`) ||
         key.startsWith(`marketplace_rias_`) ||
-        key.startsWith(`marketplace_investors_`)
+        key.startsWith(`marketplace_investors_`) ||
+        key.startsWith(`connected_systems_${userId}_`)
       ) {
         keysToDelete.add(key);
       }
@@ -275,6 +281,7 @@ export const CACHE_KEYS = {
   VAULT_STATUS: (userId: string) => `vault_status_${userId}`,
   VAULT_CHECK: (userId: string) => `vault_check_${userId}`,
   ACCOUNT_IDENTITY: (userId: string) => `account_identity_${userId}`,
+  TRUSTED_DEVICES: (userId: string) => `trusted_devices_${userId}`,
   PRE_VAULT_BOOTSTRAP: (userId: string) => `pre_vault_bootstrap_${userId}`,
   DEVELOPER_ACCESS: (userId: string) => `developer_access_${userId}`,
   ACTIVE_CONSENTS: (userId: string) => `active_consents_${userId}`,
@@ -282,6 +289,14 @@ export const CACHE_KEYS = {
   KAI_FINANCIAL_RESOURCE: (userId: string) => `kai_financial_resource_${userId}`,
   KAI_MARKET_HOME_BASELINE: (userId: string, daysBack: number) =>
     `kai_market_home_${userId}_baseline_${daysBack}`,
+  KAI_MARKET_NEWS: (
+    userId: string,
+    scope: string,
+    cursor: string | null,
+    limit: number,
+    daysBack: number,
+  ) =>
+    `kai_market_news_${userId}_${scope}_${daysBack}_${cursor || "first"}_${limit}`,
   PKM_DOMAIN_RESOURCE: (userId: string, domain: string, segmentSignature: string) =>
     `pkm_domain_resource_${userId}_${domain}_${segmentSignature}`,
   DOMAIN_DATA: (userId: string, domain: string) => `domain_data_${userId}_${domain}`,
@@ -301,8 +316,20 @@ export const CACHE_KEYS = {
     page: number,
     limit: number
   ) => `consent_center_list_${userId}_${actor}_${surface}_${query}_${page}_${limit}`,
+  FEED_UNREAD_COUNT: (userId: string) => `feed_unread_count_${userId}`,
+  // First page only; "load more" pagination stays live/uncached so a
+  // stale-while-revalidate render on revisit doesn't need to reason about
+  // cursor-scoped entries beyond the initial view.
+  FEED_LIST: (userId: string) => `feed_list_${userId}`,
+  // Incoming connection requests, read by the Feed's actionable ("Needs you")
+  // zone so a revisit renders the pending Confirm/Decline rows instantly.
+  CONNECTIONS_INCOMING: (userId: string) => `connections_incoming_${userId}`,
   PERSONA_STATE: (userId: string) => `persona_state_${userId}`,
   RIA_ONBOARDING_STATUS: (userId: string) => `ria_onboarding_status_${userId}`,
+  // Cached licence-verify result, keyed by normalized regulator:license so a
+  // reopen / stale-prefill repair returns instantly instead of re-scraping.
+  RIA_LICENSE_VERIFY: (userId: string, licenseKey: string) =>
+    `ria_license_verify_${userId}_${licenseKey}`,
   RIA_ROSTER_SUMMARY: (userId: string) => `ria_roster_summary_${userId}`,
   RIA_HOME: (userId: string) => `ria_home_${userId}`,
   RIA_CLIENTS: (userId: string, query: string, status: string, page: number, limit: number) =>
@@ -315,6 +342,9 @@ export const CACHE_KEYS = {
   KAI_PROFILE: (userId: string) => `kai_profile_${userId}`,
   ANALYSIS_HISTORY: (userId: string) => `analysis_history_${userId}`,
   ONE_LOCATION_STATE: (userId: string) => `one_location_state_${userId}`,
+  CONNECTED_SYSTEMS_REGISTRY: (userId: string) => `connected_systems_${userId}_registry`,
+  CONNECTED_SYSTEM_SCHEMA: (userId: string, systemId: string, objectType: string) =>
+    `connected_systems_${userId}_schema_${systemId}_${objectType}`,
   PKM_UPGRADE_STATUS: (userId: string) => `pkm_upgrade_status_${userId}`,
   STOCK_CONTEXT: (userId: string, ticker: string) => `stock_context_${userId}_${ticker}`,
   KAI_MARKET_HOME: (

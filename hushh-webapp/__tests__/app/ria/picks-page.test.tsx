@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -137,10 +137,14 @@ vi.mock("@/components/app-ui/surfaces", () => ({
     children,
     ...props
   }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
+  SurfaceStack: ({
+    children,
+    ...props
+  }: React.HTMLAttributes<HTMLDivElement>) => <div {...props}>{children}</div>,
 }));
 
 vi.mock("@/components/profile/settings-ui", () => ({
-  SettingsSegmentedTabs: ({
+  SegmentedTabs: ({
     value,
     onValueChange,
     options,
@@ -434,19 +438,23 @@ describe("RiaPicksPage", () => {
     });
   });
 
-  it("keeps upload and template actions out of Kai list and exposes them in My list", async () => {
+  it("keeps upload and template actions out of the suggested list and exposes them in My list", async () => {
     render(<RiaPicksPage />);
 
     await screen.findByText("NVDA");
-    expect(screen.queryByRole("button", { name: /copy from kai/i })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /copy suggested list/i }),
+    ).toBeNull();
     expect(screen.queryByRole("button", { name: /^upload$/i })).toBeNull();
-    expect(screen.queryByRole("link", { name: /template/i })).toBeNull();
+    expect(screen.queryByRole("button", { name: /template/i })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(screen.getByRole("button", { name: /copy from kai/i })).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    ).toBeTruthy();
     expect(screen.getByRole("button", { name: /^upload$/i })).toBeTruthy();
-    expect(screen.getByRole("link", { name: /^template$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^template$/i })).toBeTruthy();
     expect(screen.queryByText("List source")).toBeNull();
     expect(
       screen.queryByText(
@@ -460,36 +468,36 @@ describe("RiaPicksPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
 
-    expect(
-      await screen.findByText("Build your live package"),
-    ).toBeTruthy();
+    expect(await screen.findByText("Build your live package")).toBeTruthy();
     expect(screen.getByRole("button", { name: /^edit$/i })).toBeTruthy();
     expect(
-      screen.getAllByRole("button", { name: /copy from kai/i }),
+      screen.getAllByRole("button", { name: /copy suggested list/i }),
     ).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /^upload$/i })).toHaveLength(
       1,
     );
-    expect(screen.getAllByRole("link", { name: /^template$/i })).toHaveLength(
+    expect(screen.getAllByRole("button", { name: /^template$/i })).toHaveLength(
       1,
     );
     fireEvent.click(screen.getByRole("button", { name: /^upload$/i }));
 
     expect(screen.getByText("Upload a top-picks CSV")).toBeTruthy();
     expect(
-      screen.getByRole("link", { name: /download template/i }),
+      screen.getByRole("button", { name: /download template/i }),
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: /upload and replace top picks/i }),
     ).toBeTruthy();
   });
 
-  it("copies Kai into the draft editor before save", async () => {
+  it("copies the suggested list into the draft editor before save", async () => {
     render(<RiaPicksPage />);
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    );
 
     expect(mocks.riaService.savePickPackage).not.toHaveBeenCalled();
     expect(mocks.riaService.importPickCsv).not.toHaveBeenCalled();
@@ -502,7 +510,7 @@ describe("RiaPicksPage", () => {
     expect(screen.getByRole("button", { name: /discard/i })).toBeTruthy();
   });
 
-  it("copies top picks, avoid rows, and screening rules from Kai into My list", async () => {
+  it("copies top picks, avoid rows, and screening rules from the suggested list into My list", async () => {
     mocks.riaService.getRenaissanceAvoid.mockResolvedValue({
       items: [
         {
@@ -531,7 +539,9 @@ describe("RiaPicksPage", () => {
 
     await screen.findByText("NVDA");
     fireEvent.click(screen.getByRole("button", { name: /my list/i }));
-    fireEvent.click(screen.getByRole("button", { name: /copy from kai/i }));
+    fireEvent.click(
+      screen.getByRole("button", { name: /copy suggested list/i }),
+    );
 
     expect(
       await screen.findByText(
@@ -600,6 +610,17 @@ describe("RiaPicksPage", () => {
         },
       },
     );
+    fireEvent.change(
+      screen.getByPlaceholderText(
+        "Explain the current portfolio view, key trade-offs, and what an investor should pressure-test in debate.",
+      ),
+      {
+        target: {
+          value:
+            "Pressure-test the margin-of-safety assumption against portfolio concentration.",
+        },
+      },
+    );
     fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
 
     await waitFor(() => {
@@ -610,6 +631,8 @@ describe("RiaPicksPage", () => {
           vaultKey: "vault-key-1",
           vaultOwnerToken: "vault-owner-token-1",
           label: "Active advisor package",
+          investor_debate_thesis:
+            "Pressure-test the margin-of-safety assumption against portfolio concentration.",
           top_picks: expect.arrayContaining([
             expect.objectContaining({
               ticker: "NVDA",
@@ -623,5 +646,99 @@ describe("RiaPicksPage", () => {
         }),
       );
     });
+  });
+
+  it("bounds manually authored investment thesis text before saving", async () => {
+    mocks.useStaleResource.mockReturnValue(
+      buildResource({
+        data: {
+          package: {
+            top_picks: [
+              {
+                ticker: "NVDA",
+                company_name: "NVIDIA Corporation",
+                sector: "Technology",
+                tier: "ACE",
+                investment_thesis: "Compounding AI infrastructure demand",
+              },
+            ],
+            avoid_rows: [],
+            screening_sections: [
+              { section: "investable_requirements", rows: [] },
+              { section: "automatic_avoid_triggers", rows: [] },
+              { section: "the_math", rows: [] },
+            ],
+            package_note: null,
+          },
+        },
+      }),
+    );
+
+    render(<RiaPicksPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const editor = screen.getByTestId("ria-picks-inline-editor");
+    const thesisFields = await within(editor).findAllByPlaceholderText(
+      "Why this name belongs in the live debate universe",
+    );
+    fireEvent.change(thesisFields[0], {
+      target: {
+        value: ` ${"A".repeat(2100)} `,
+      },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const call = mocks.riaService.savePickPackage.mock.calls.at(-1)?.[0];
+      expect(call.top_picks[0].investment_thesis).toBe("A".repeat(2000));
+    });
+  });
+
+  it("lets My list clear an existing investment thesis before saving", async () => {
+    mocks.useStaleResource.mockReturnValue(
+      buildResource({
+        data: {
+          package: {
+            top_picks: [
+              {
+                ticker: "NVDA",
+                company_name: "NVIDIA Corporation",
+                sector: "Technology",
+                tier: "ACE",
+                investment_thesis: "Compounding AI infrastructure demand",
+              },
+            ],
+            avoid_rows: [],
+            screening_sections: [
+              { section: "investable_requirements", rows: [] },
+              { section: "automatic_avoid_triggers", rows: [] },
+              { section: "the_math", rows: [] },
+            ],
+            package_note: null,
+          },
+        },
+      }),
+    );
+
+    render(<RiaPicksPage />);
+
+    fireEvent.click(screen.getByRole("button", { name: /my list/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^edit$/i }));
+    const editor = screen.getByTestId("ria-picks-inline-editor");
+    const thesisFields = await within(editor).findAllByPlaceholderText(
+      "Why this name belongs in the live debate universe",
+    );
+    fireEvent.change(thesisFields[0], { target: { value: "" } });
+    fireEvent.click(screen.getByRole("button", { name: /^save$/i }));
+
+    await waitFor(() => {
+      const call = mocks.riaService.savePickPackage.mock.calls.at(-1)?.[0];
+      expect(call.top_picks[0]).toMatchObject({
+        ticker: "NVDA",
+        investment_thesis: "",
+      });
+    });
+    expect(screen.queryByText(/Investment thesis is required/i)).toBeNull();
   });
 });

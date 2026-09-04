@@ -103,10 +103,18 @@ export interface OneKycWorkflowListResponse {
 
 export interface OneKycRecentMailboxSyncResponse {
   accepted: boolean;
+  /** A sanitized intake outcome when no workflow was prepared. */
+  reason?: string;
   scanned_count: number;
   processed_count: number;
   matched_count: number;
   workflows: OneKycWorkflow[];
+}
+
+export interface OneKycAutomaticResponsePreparationPreference {
+  user_id: string;
+  automatic_response_preparation_enabled: boolean;
+  updated_at?: string | null;
 }
 
 export interface OneKycClientConnectorResponse {
@@ -135,6 +143,11 @@ type AuthInput = {
   vaultOwnerToken: string;
 };
 
+type AccountAuthInput = {
+  userId: string;
+  idToken: string;
+};
+
 function authHeaders(vaultOwnerToken: string): HeadersInit {
   return {
     Authorization: `Bearer ${vaultOwnerToken}`,
@@ -142,7 +155,40 @@ function authHeaders(vaultOwnerToken: string): HeadersInit {
   };
 }
 
+function accountAuthHeaders(idToken: string): HeadersInit {
+  return {
+    Authorization: `Bearer ${idToken}`,
+    "Content-Type": "application/json",
+  };
+}
+
 export class OneKycService {
+  static getAutomaticResponsePreparationPreference({
+    userId,
+    idToken,
+  }: AccountAuthInput): Promise<OneKycAutomaticResponsePreparationPreference> {
+    const query = new URLSearchParams({ user_id: userId });
+    return apiJson<OneKycAutomaticResponsePreparationPreference>(
+      `/api/one/kyc/preferences/automatic-response-preparation?${query.toString()}`,
+      { headers: accountAuthHeaders(idToken) },
+    );
+  }
+
+  static setAutomaticResponsePreparationPreference({
+    userId,
+    idToken,
+    enabled,
+  }: AccountAuthInput & { enabled: boolean }): Promise<OneKycAutomaticResponsePreparationPreference> {
+    return apiJson<OneKycAutomaticResponsePreparationPreference>(
+      "/api/one/kyc/preferences/automatic-response-preparation",
+      {
+        method: "PATCH",
+        headers: accountAuthHeaders(idToken),
+        body: JSON.stringify({ user_id: userId, enabled }),
+      },
+    );
+  }
+
   static syncRecentEmails({
     userId,
     vaultOwnerToken,
@@ -345,10 +391,21 @@ export class OneKycService {
     workflowId,
     draftBody,
     instruction,
+    approvedScopes,
+    requestText,
+    domains,
   }: AuthInput & {
     workflowId: string;
     draftBody: string;
     instruction: string;
+    approvedScopes: string[];
+    requestText: string;
+    domains: Array<{
+      domain: string;
+      scope: string;
+      exportRevision: number;
+      domainData: Record<string, unknown>;
+    }>;
   }): Promise<{ rewritten_body: string }> {
     return apiJson<{ rewritten_body: string }>(
       `/api/one/kyc/workflows/${encodeURIComponent(workflowId)}/redraft-full`,
@@ -359,6 +416,14 @@ export class OneKycService {
           user_id: userId,
           draft_body: draftBody,
           instruction,
+          approved_scopes: approvedScopes,
+          request_text: requestText,
+          domains: domains.map((entry) => ({
+            domain: entry.domain,
+            scope: entry.scope,
+            export_revision: entry.exportRevision,
+            domain_data: entry.domainData,
+          })),
         }),
       }
     );

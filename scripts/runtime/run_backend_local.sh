@@ -83,9 +83,25 @@ if [ ! -f "$BACKEND_ENV_FILE" ]; then
 fi
 
 BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/bin/python"
-if [ ! -x "$BACKEND_VENV_PYTHON" ]; then
-  echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
-  echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+if [ ! -x "$BACKEND_VENV_PYTHON" ] && [ ! -f "$BACKEND_VENV_PYTHON" ]; then
+  if [ -x "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ] || [ -f "$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe" ]; then
+    BACKEND_VENV_PYTHON="$REPO_ROOT/consent-protocol/.venv/Scripts/python.exe"
+  else
+    echo "Missing backend virtualenv interpreter: $BACKEND_VENV_PYTHON" >&2
+    echo "Run './bin/hushh bootstrap' or recreate consent-protocol/.venv before starting the local backend." >&2
+    exit 1
+  fi
+fi
+
+# A virtualenv can survive a branch sync while its pinned dependencies do not.
+# Fail before importing the app, with the exact repair command, instead of
+# turning a missing package into a long Uvicorn traceback and health timeout.
+if ! (
+  cd "$REPO_ROOT/consent-protocol"
+  uv sync --frozen --group dev --check >/dev/null
+); then
+  echo "Backend virtualenv is out of sync with consent-protocol/uv.lock." >&2
+  echo "Run: cd consent-protocol && uv sync --frozen --group dev" >&2
   exit 1
 fi
 
@@ -110,6 +126,10 @@ else:
     print("")
 PY
 }
+
+# Resolved before any port check so a peer worktree on another port is never stopped.
+BACKEND_PORT="${BACKEND_PORT:-$(read_env_value "$BACKEND_ENV_FILE" 'BACKEND_PORT')}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
 
 wait_for_port() {
   local host="$1"
@@ -154,7 +174,7 @@ listener_pids() {
 
 stop_existing_repo_backend() {
   local pids
-  pids="$(listener_pids 8000 || true)"
+  pids="$(listener_pids "${BACKEND_PORT:-8000}" || true)"
   if [ -z "$pids" ]; then
     return 0
   fi
@@ -208,6 +228,12 @@ verify_iam_readiness() {
 
 run_preflight() {
   local profile="$1"
+  echo "Verifying pinned One/ADK runtime contract..."
+  (
+    cd "$REPO_ROOT/consent-protocol"
+    PYTHONPATH=. "$BACKEND_VENV_PYTHON" -c \
+      "from hushh_mcp.runtime_readiness import assert_pinned_google_adk; assert_pinned_google_adk()"
+  )
   verify_iam_readiness "$profile"
 
   if port_is_listening 127.0.0.1 8000; then
@@ -318,9 +344,21 @@ if [ "$PREFLIGHT_ONLY" = "true" ]; then
   exit 0
 fi
 
-echo "Starting backend on :8000 for runtime mode ${PROFILE}..."
+# Local development shares the UAT Cloud SQL instance with other contributors.
+# Keep one local backend well below the instance connection budget: asyncpg can
+# otherwise open 20 connections and SQLAlchemy another 15 by default. Four
+# async connections still leave ample headroom on the shared UAT instance, but
+# allow One's concurrent vault/bootstrap requests to complete without waiting
+# behind a three-connection ceiling.
+export DB_POOL_MIN_SIZE="${DB_POOL_MIN_SIZE:-0}"
+export DB_POOL_MAX_SIZE="${DB_POOL_MAX_SIZE:-4}"
+export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
+export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
+echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
+
+echo "Starting backend on :${BACKEND_PORT} for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"
-uvicorn_args=(server:app --port 8000)
+uvicorn_args=(server:app --port "$BACKEND_PORT")
 reload_mode="$(printf '%s' "$BACKEND_RELOAD" | tr '[:upper:]' '[:lower:]')"
 case "$reload_mode" in
   1|true|yes|on)
@@ -336,14 +374,17 @@ case "$reload_mode" in
     # `uv sync --frozen --group dev` if you see a
     # "--reload-exclude has no effect unless watchfiles is installed"
     # warning at startup.
-    uvicorn_args+=(--reload-exclude ".venv/*")
-    uvicorn_args+=(--reload-exclude "__pycache__/*")
-    uvicorn_args+=(--reload-exclude ".pytest_cache/*")
-    uvicorn_args+=(--reload-exclude ".mypy_cache/*")
-    uvicorn_args+=(--reload-exclude ".ruff_cache/*")
-    uvicorn_args+=(--reload-exclude "artifacts/*")
-    uvicorn_args+=(--reload-exclude "data/*")
-    uvicorn_args+=(--reload-exclude "tmp/*")
+    # Keep each option and glob in one argv item. Git Bash/MSYS can expand a
+    # standalone wildcard before a native Windows Python process receives it,
+    # which makes Click treat every matched file as an unexpected argument.
+    uvicorn_args+=("--reload-exclude=.venv/*")
+    uvicorn_args+=("--reload-exclude=__pycache__/*")
+    uvicorn_args+=("--reload-exclude=.pytest_cache/*")
+    uvicorn_args+=("--reload-exclude=.mypy_cache/*")
+    uvicorn_args+=("--reload-exclude=.ruff_cache/*")
+    uvicorn_args+=("--reload-exclude=artifacts/*")
+    uvicorn_args+=("--reload-exclude=data/*")
+    uvicorn_args+=("--reload-exclude=tmp/*")
     echo "Uvicorn autoreload enabled (dev watch mode, .venv/caches excluded)."
     ;;
   *)

@@ -10,10 +10,10 @@ flowchart TB
     onboarding["/one/setup/finance"]
     import["/one/kai/import"]
     home["/one/kai"]
-    portfolio["/one/kai/portfolio"]
+    portfolio["/one/kai?tab=portfolio"]
+    portfolioDetails["/one/kai/portfolio/*"]
     analysis["/one/kai/analysis"]
-    optimize["/one/kai/optimize"]
-    profile["/profile"]
+    profile["/one/profile"]
   end
 
   subgraph frontend["Frontend runtime"]
@@ -43,8 +43,8 @@ flowchart TB
   import --> shell
   home --> shell
   portfolio --> shell
+  portfolioDetails --> shell
   analysis --> shell
-  optimize --> shell
   profile --> shell
   shell --> services --> action
   services --> next
@@ -119,10 +119,13 @@ The current Kai route map is intentional and stable unless route governance chan
 - `/one/kai/import`: statement upload, brokerage connect, and first portfolio setup
 - `/one/kai/plaid/oauth/return`: Plaid OAuth resume surface
 - `/one/kai`: signed-in live market home
-- `/one/kai/portfolio`: holdings, analytics, and dashboard views
+- `/one/kai?tab=portfolio`: compact portfolio value and KPI index
+- `/one/kai/portfolio/{holdings|allocation|performance|sources}`: finite
+  portfolio detail routes without the Finance swipe tab row
 - `/one/kai/analysis`: debate stream and decision views
-- `/one/kai/optimize`: optimization workflow
-- `/profile`: profile and adjacent user settings surfaces that also publish Kai actionability
+- `/kai/optimize` and `/one/kai/optimize`: one-release compatibility redirects
+  to Portfolio; neither is an authored action surface
+- `/one/profile`: profile and adjacent user settings surfaces that also publish Kai actionability
 
 Current route invariants:
 
@@ -228,14 +231,14 @@ Current brokerage model:
 
 - statement import writes validated portfolio data into encrypted financial PKM
 - Plaid handles holdings, accounts, transactions, refresh, and OAuth resume
-- active source selection drives the portfolio, analysis, and optimize surfaces
+- active source selection drives the portfolio and analysis surfaces
 - sync freshness and provenance remain explicit in the UI
 
 Current decision and analysis model:
 
 - `/one/kai` provides cache-first market intelligence and market-home context
 - `/one/kai/analysis` uses streamed debate output and explicit degraded markers
-- `/one/kai/optimize` fails closed when decision-critical realtime dependencies are unavailable
+- decision-critical analysis fails closed when realtime dependencies are unavailable
 - every dashboard KPI and decision-critical claim must map back to explicit provenance
 
 ## Trust And Security Model

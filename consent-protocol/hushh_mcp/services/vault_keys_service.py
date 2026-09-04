@@ -23,7 +23,7 @@ from urllib.parse import urlparse
 from sqlalchemy import text
 from starlette.concurrency import run_in_threadpool
 
-from db.db_client import get_db
+from db.db_client import DatabaseExecutionError, get_db
 from hushh_mcp.onboarding_contract import (
     normalize_setup_capability_id,
     normalize_setup_capability_ids,
@@ -37,6 +37,7 @@ ALLOWED_METHODS = {
     "generated_default_web_prf",
     "generated_default_native_passkey_prf",
 }
+ONE_RUNTIME_SETUP_CHOICES = {"hushh_managed_vertex", "byok_pending_vault"}
 
 
 class VaultKeysService:
@@ -45,14 +46,14 @@ class VaultKeysService:
     VAULT_STATE_CACHE_TTL_SECONDS = 180
 
     def __init__(self):
-        self._supabase = None
+        self._db = None
         self._vault_state_cache: dict[str, tuple[float, Dict[str, Any]]] = {}
 
-    def _get_supabase(self):
+    def _get_db(self):
         """Get database client (private - ONLY for internal service use)."""
-        if self._supabase is None:
-            self._supabase = get_db()
-        return self._supabase
+        if self._db is None:
+            self._db = get_db()
+        return self._db
 
     def _get_cached_vault_state(self, user_id: str) -> Optional[Dict[str, Any]]:
         cached = self._vault_state_cache.get(user_id)
@@ -79,8 +80,8 @@ class VaultKeysService:
         if not user_id_clean:
             return False
 
-        supabase = self._get_supabase()
-        with supabase.engine.begin() as conn:
+        db = self._get_db()
+        with db.engine.begin() as conn:
             result = conn.execute(
                 text(
                     """
@@ -140,6 +141,22 @@ class VaultKeysService:
         return "".join(text.split())
 
     @staticmethod
+    def _iso(value: Any) -> Optional[str]:
+        """Stringify a DB-driver datetime before it leaves this service.
+
+        Defensive: postgrest normally returns timestamps as strings already,
+        but a raw datetime reaching a live-voice tool result would crash the
+        session's plain json.dumps with no result ever reaching the user.
+        """
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return str(value.astimezone(timezone.utc).isoformat())
+        return str(value)
+
+    @staticmethod
     def _normalize_method(method: Optional[str]) -> str:
         normalized = (VaultKeysService._clean_text(method) or "").lower()
         if normalized not in ALLOWED_METHODS:
@@ -185,6 +202,13 @@ class VaultKeysService:
     def _normalize_int_ms_or_none(value: Any) -> Optional[int]:
         if value is None:
             return None
+
+    @staticmethod
+    def _normalize_one_runtime_setup_choice(value: Any) -> Optional[str]:
+        if value is None:
+            return None
+        normalized = str(value).strip()
+        return normalized if normalized in ONE_RUNTIME_SETUP_CHOICES else None
         try:
             return int(value)
         except (TypeError, ValueError):
@@ -212,6 +236,9 @@ class VaultKeysService:
                 row.get("setup_capabilities_updated_at")
             ),
             "setupStateUpdatedAt": cls._normalize_int_ms_or_none(row.get("setup_state_updated_at")),
+            "oneRuntimeSetupChoice": cls._normalize_one_runtime_setup_choice(
+                row.get("one_runtime_setup_choice")
+            ),
             "onboardingJourneyVersion": cls._normalize_int_ms_or_none(
                 row.get("onboarding_journey_version")
             ),
@@ -232,7 +259,7 @@ class VaultKeysService:
     @staticmethod
     def _normalize_explored_ids(raw: Any) -> list[str]:
         """
-        Parse the JSON-encoded explore-only capability id list stored as TEXT.
+        Parse the JSON-encoded bounded root-setup marker list stored as TEXT.
 
         Tolerant of NULL, empty strings, malformed JSON, and non-string members
         so a corrupt row never breaks bootstrap; returns a de-duped, sorted list.
@@ -268,16 +295,16 @@ class VaultKeysService:
         if not user_id_clean:
             raise ValueError("userId is required")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         now_ms = self._now_ms()
 
         existing_response = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -303,16 +330,30 @@ class VaultKeysService:
                 "created_at": now_ms,
                 "updated_at": now_ms,
             }
-            insert_result = supabase.table("vault_keys").insert(create_payload).execute()
-            if not insert_result.data:
+            try:
+                insert_result = db.table("vault_keys").insert(create_payload).execute()
+            except DatabaseExecutionError as exc:
+                details = str(exc.details or "").lower()
+                is_concurrent_insert = (
+                    exc.table_name == "vault_keys"
+                    and exc.operation == "insert"
+                    and "duplicate key" in details
+                    and "vault_keys_pkey" in details
+                )
+                if not is_concurrent_insert:
+                    raise
+                # Another bootstrap request won the placeholder/active-row race.
+                # Re-read below instead of turning a healthy concurrent login into a 500.
+                insert_result = None
+            if insert_result is None or not insert_result.data:
                 # Race-safe fallback if another request inserted concurrently.
                 existing_response = (
-                    supabase.table("vault_keys")
+                    db.table("vault_keys")
                     .select(
                         "user_id,vault_status,first_login_at,last_login_at,login_count,"
                         "setup_completed,setup_skipped,setup_completed_at,"
                         "nav_setup_completed_at,nav_setup_skipped_at,"
-                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                        "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                         "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                         "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                         "created_at,updated_at"
@@ -340,21 +381,18 @@ class VaultKeysService:
             "updated_at": now_ms,
         }
         update_response = (
-            supabase.table("vault_keys")
-            .update(update_payload)
-            .eq("user_id", user_id_clean)
-            .execute()
+            db.table("vault_keys").update(update_payload).eq("user_id", user_id_clean).execute()
         )
         if update_response.data:
             return self._serialize_user_entry(update_response.data[0])
 
         refreshed = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select(
                 "user_id,vault_status,first_login_at,last_login_at,login_count,"
                 "setup_completed,setup_skipped,setup_completed_at,"
                 "nav_setup_completed_at,nav_setup_skipped_at,"
-                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,"
+                "setup_capability_ids,setup_capabilities_updated_at,setup_state_updated_at,one_runtime_setup_choice,"
                 "onboarding_journey_version,onboarding_phase,onboarding_active_capability,"
                 "onboarding_resume_route,onboarding_callback_state,onboarding_callback_attempt_id,onboarding_journey_updated_at,"
                 "created_at,updated_at"
@@ -390,6 +428,7 @@ class VaultKeysService:
             "setupCapabilityIds": state["setupCapabilityIds"],
             "setupCapabilitiesUpdatedAt": state["setupCapabilitiesUpdatedAt"],
             "setupStateUpdatedAt": state["setupStateUpdatedAt"],
+            "oneRuntimeSetupChoice": state["oneRuntimeSetupChoice"],
             "onboardingJourneyVersion": state["onboardingJourneyVersion"],
             "onboardingPhase": state["onboardingPhase"],
             "onboardingActiveCapability": state["onboardingActiveCapability"],
@@ -409,6 +448,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
         onboarding_active_capability: Optional[str] = None,
@@ -427,6 +467,7 @@ class VaultKeysService:
             nav_setup_completed_at,
             nav_setup_skipped_at,
             setup_capability_ids,
+            one_runtime_setup_choice,
             onboarding_journey_version,
             onboarding_phase,
             onboarding_active_capability,
@@ -446,6 +487,7 @@ class VaultKeysService:
         nav_setup_completed_at: Optional[int] = None,
         nav_setup_skipped_at: Optional[int] = None,
         setup_capability_ids: Optional[list[str]] = None,
+        one_runtime_setup_choice: Optional[str] = None,
         onboarding_journey_version: Optional[int] = None,
         onboarding_phase: Optional[str] = None,
         onboarding_active_capability: Optional[str] = None,
@@ -492,7 +534,7 @@ class VaultKeysService:
             )
 
         now_ms = self._now_ms()
-        supabase = self._get_supabase()
+        db = self._get_db()
         update_payload = {
             "setup_completed": next_completed,
             "setup_skipped": next_skipped,
@@ -510,6 +552,13 @@ class VaultKeysService:
                 self._normalize_explored_ids(setup_capability_ids)
             )
             update_payload["setup_capabilities_updated_at"] = now_ms
+        if one_runtime_setup_choice is not None:
+            normalized_runtime_choice = self._normalize_one_runtime_setup_choice(
+                one_runtime_setup_choice
+            )
+            if normalized_runtime_choice is None:
+                raise ValueError("invalid one runtime setup choice")
+            update_payload["one_runtime_setup_choice"] = normalized_runtime_choice
         onboarding_values = (
             onboarding_journey_version,
             onboarding_phase,
@@ -571,9 +620,7 @@ class VaultKeysService:
                     "onboarding_journey_updated_at": now_ms,
                 }
             )
-        update_query = (
-            supabase.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
-        )
+        update_query = db.table("vault_keys").update(update_payload).eq("user_id", user_id_clean)
         if expected_onboarding_journey_updated_at is not None:
             update_query = update_query.eq(
                 "onboarding_journey_updated_at",
@@ -592,7 +639,28 @@ class VaultKeysService:
             ):
                 raise ValueError("stale onboarding journey")
             raise RuntimeError("Failed to update pre-vault state")
-        return self._serialize_user_entry(updated.data[0])
+        result = self._serialize_user_entry(updated.data[0])
+        if next_completed is True:
+            self._sync_referral_qualification(user_id_clean)
+        return result
+
+    @staticmethod
+    def _sync_referral_qualification(user_id: str) -> None:
+        """Best-effort hook: let a completed onboarding progress a referral.
+
+        Referral qualification is a side effect of finishing setup, never a
+        precondition for it -- a bug in the referral pipeline must not be able
+        to stop someone from completing their own onboarding, so any failure
+        here is logged and swallowed rather than raised.
+        """
+        try:
+            from hushh_mcp.services.one_referral_service import (
+                sync_referral_qualification_from_onboarding,
+            )
+
+            sync_referral_qualification_from_onboarding(user_id)
+        except Exception:
+            logger.exception("[vault_keys] referral_qualification_sync_failed user=%s", user_id)
 
     @staticmethod
     def _get_allowed_passkey_rp_ids() -> set[str]:
@@ -722,9 +790,9 @@ class VaultKeysService:
             state = self._ensure_user_entry_sync(user_id)
             status = state["vaultStatus"]
         else:
-            supabase = self._get_supabase()
+            db = self._get_db()
             header = (
-                supabase.table("vault_keys")
+                db.table("vault_keys")
                 .select("vault_status")
                 .eq("user_id", user_id)
                 .limit(1)
@@ -737,9 +805,9 @@ class VaultKeysService:
         if status != "active":
             return False
 
-        supabase = self._get_supabase()
+        db = self._get_db()
         passphrase_wrapper = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .select("user_id")
             .eq("user_id", user_id)
             .eq("method", "passphrase")
@@ -759,9 +827,9 @@ class VaultKeysService:
         # event loop; a blocked loop serialises every concurrent request (vault,
         # consent, persona) into multi-second latency.
         def _read_vault_state() -> tuple[Optional[dict[str, Any]], list[dict[str, Any]]]:
-            supabase = self._get_supabase()
+            db = self._get_db()
             header_resp = (
-                supabase.table("vault_keys")
+                db.table("vault_keys")
                 .select(
                     "vault_status,vault_key_hash,primary_method,primary_wrapper_id,"
                     "recovery_encrypted_vault_key,recovery_salt,recovery_iv"
@@ -777,7 +845,7 @@ class VaultKeysService:
             if self._normalize_vault_status(header_row.get("vault_status")) != "active":
                 return None, []
             wrapper_resp = (
-                supabase.table("vault_key_wrappers")
+                db.table("vault_key_wrappers")
                 .select(
                     "method,wrapper_id,encrypted_vault_key,salt,iv,passkey_credential_id,passkey_prf_salt,passkey_rp_id,passkey_provider,passkey_device_label,passkey_last_used_at"
                 )
@@ -817,7 +885,7 @@ class VaultKeysService:
                     "passkeyDeviceLabel": self._clean_text(
                         row.get("passkey_device_label"), allow_none=True
                     ),
-                    "passkeyLastUsedAt": row.get("passkey_last_used_at"),
+                    "passkeyLastUsedAt": self._iso(row.get("passkey_last_used_at")),
                 }
             )
 
@@ -852,8 +920,33 @@ class VaultKeysService:
         wrappers: list[dict[str, Any]],
         primary_wrapper_id: Optional[str] = None,
     ) -> bool:
+        """Create/update vault state without blocking the asyncio event loop."""
+        return await run_in_threadpool(
+            self._setup_vault_state_sync,
+            user_id=user_id,
+            vault_key_hash=vault_key_hash,
+            primary_method=primary_method,
+            recovery_encrypted_vault_key=recovery_encrypted_vault_key,
+            recovery_salt=recovery_salt,
+            recovery_iv=recovery_iv,
+            wrappers=wrappers,
+            primary_wrapper_id=primary_wrapper_id,
+        )
+
+    def _setup_vault_state_sync(
+        self,
+        *,
+        user_id: str,
+        vault_key_hash: str,
+        primary_method: str,
+        recovery_encrypted_vault_key: str,
+        recovery_salt: str,
+        recovery_iv: str,
+        wrappers: list[dict[str, Any]],
+        primary_wrapper_id: Optional[str] = None,
+    ) -> bool:
         """Create/update vault state atomically by replacing wrappers in one DB transaction."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
@@ -931,11 +1024,12 @@ class VaultKeysService:
             for wrapper in normalized_wrappers
         ]
 
-        with supabase.engine.begin() as conn:
+        with db.engine.begin() as conn:
             existing_vault = conn.execute(
                 text(
                     """
-                    SELECT vault_status, vault_key_hash
+                    SELECT vault_status, vault_key_hash, primary_method, primary_wrapper_id,
+                           recovery_encrypted_vault_key, recovery_salt, recovery_iv
                     FROM vault_keys
                     WHERE user_id = :user_id
                     FOR UPDATE
@@ -960,13 +1054,81 @@ class VaultKeysService:
                     )
                     or ""
                 )
-                if (
-                    existing_status == "active"
-                    and existing_hash
-                    and existing_hash != vault_key_hash_clean
-                ):
+                if existing_status == "active" and existing_hash:
+                    if existing_hash != vault_key_hash_clean:
+                        raise ValueError(
+                            "Active vault already exists; refusing to replace vault key hash "
+                            "without vault owner proof"
+                        )
+
+                    existing_wrapper_rows = conn.execute(
+                        text(
+                            """
+                            SELECT method, wrapper_id, encrypted_vault_key, salt, iv,
+                                   passkey_credential_id, passkey_prf_salt, passkey_rp_id,
+                                   passkey_provider, passkey_device_label, passkey_last_used_at
+                            FROM vault_key_wrappers
+                            WHERE user_id = :user_id
+                            ORDER BY method, wrapper_id
+                            FOR UPDATE
+                            """
+                        ),
+                        {"user_id": user_id_clean},
+                    ).fetchall()
+
+                    def comparable_wrapper(row: Any) -> tuple[Any, ...]:
+                        return (
+                            self._clean_text(row_get(row, "method")) or "",
+                            self._normalize_wrapper_id(row_get(row, "wrapper_id")),
+                            self._clean_base64ish(row_get(row, "encrypted_vault_key")) or "",
+                            self._clean_base64ish(row_get(row, "salt")) or "",
+                            self._clean_base64ish(row_get(row, "iv")) or "",
+                            self._clean_text(
+                                row_get(row, "passkey_credential_id"), allow_none=True
+                            ),
+                            self._clean_base64ish(
+                                row_get(row, "passkey_prf_salt"), allow_none=True
+                            ),
+                            self._clean_text(row_get(row, "passkey_rp_id"), allow_none=True),
+                            self._clean_text(row_get(row, "passkey_provider"), allow_none=True),
+                            self._clean_text(row_get(row, "passkey_device_label"), allow_none=True),
+                            self._normalize_int_ms_or_none(row_get(row, "passkey_last_used_at")),
+                        )
+
+                    existing_header = (
+                        self._normalize_method(row_get(existing_vault, "primary_method")),
+                        self._normalize_wrapper_id(row_get(existing_vault, "primary_wrapper_id")),
+                        self._clean_base64ish(
+                            row_get(existing_vault, "recovery_encrypted_vault_key")
+                        )
+                        or "",
+                        self._clean_base64ish(row_get(existing_vault, "recovery_salt")) or "",
+                        self._clean_base64ish(row_get(existing_vault, "recovery_iv")) or "",
+                    )
+                    requested_header = (
+                        primary,
+                        primary_wrapper,
+                        recovery_encrypted,
+                        recovery_salt_clean,
+                        recovery_iv_clean,
+                    )
+                    existing_wrappers = sorted(
+                        comparable_wrapper(row) for row in existing_wrapper_rows
+                    )
+                    requested_wrappers = sorted(comparable_wrapper(row) for row in wrapper_rows)
+                    if (
+                        existing_header == requested_header
+                        and existing_wrappers == requested_wrappers
+                    ):
+                        logger.info(
+                            "Vault state setup replay accepted for user %s",
+                            self._mask_user_id(user_id_clean),
+                        )
+                        self._invalidate_vault_state_cache(user_id_clean)
+                        return True
+
                     raise ValueError(
-                        "Active vault already exists; refusing to replace vault key hash "
+                        "Active vault already exists; refusing non-idempotent wrapper replacement "
                         "without vault owner proof"
                     )
 
@@ -1135,7 +1297,7 @@ class VaultKeysService:
         passkey_last_used_at: Optional[int] = None,
     ) -> bool:
         """Add or update a single wrapper for an existing vault state."""
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
@@ -1147,7 +1309,7 @@ class VaultKeysService:
             raise ValueError("vaultKeyHash is required")
 
         existing = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .select("vault_key_hash")
             .eq("user_id", user_id_clean)
             .limit(1)
@@ -1195,7 +1357,7 @@ class VaultKeysService:
         }
 
         upsert_result = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .upsert(data, on_conflict="user_id,method,wrapper_id")
             .execute()
         )
@@ -1218,7 +1380,7 @@ class VaultKeysService:
         primary_wrapper_id: Optional[str] = None,
     ) -> bool:
         """Set default unlock method for UX prompt among enrolled wrappers."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
             raise ValueError("userId is required")
@@ -1227,7 +1389,7 @@ class VaultKeysService:
         primary_wrapper = self._normalize_wrapper_id(primary_wrapper_id)
 
         wrapper_response = (
-            supabase.table("vault_key_wrappers")
+            db.table("vault_key_wrappers")
             .select("method,wrapper_id")
             .eq("user_id", user_id_clean)
             .eq("method", primary)
@@ -1240,7 +1402,7 @@ class VaultKeysService:
 
         now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
         update_result = (
-            supabase.table("vault_keys")
+            db.table("vault_keys")
             .update(
                 {
                     "primary_method": primary,
@@ -1273,7 +1435,7 @@ class VaultKeysService:
         fallback_primary_wrapper_id: Optional[str] = "default",
     ) -> bool:
         """Remove a non-passphrase wrapper after proving the caller has the vault key."""
-        supabase = self._get_supabase()
+        db = self._get_db()
         user_id_clean = (user_id or "").strip()
         if not user_id_clean:
             raise ValueError("userId is required")
@@ -1292,7 +1454,7 @@ class VaultKeysService:
                 return row.get(key)
             return getattr(row, "_mapping", {}).get(key)
 
-        with supabase.engine.begin() as conn:
+        with db.engine.begin() as conn:
             vault_row = conn.execute(
                 text(
                     """
@@ -1432,13 +1594,13 @@ class VaultKeysService:
         if token_obj.user_id != user_id:
             raise ValueError("Token user_id does not match requested user_id")
 
-        supabase = self._get_supabase()
+        db = self._get_db()
 
         kai_has_data = False
         kai_field_count = 0
         try:
             wm_response = (
-                supabase.table("pkm_index")
+                db.table("pkm_index")
                 .select("domain_summaries")
                 .eq("user_id", user_id)
                 .limit(1)
@@ -1465,6 +1627,6 @@ class VaultKeysService:
         total_active = 1 if kai_has_data else 0
         total = 1
 
-        logger.info("vault_keys.vault_status user_id=%s active=%d/%d", user_id, total_active, total)
+        logger.info("vault_keys.vault_status active=%d/%d", total_active, total)
 
         return {"domains": domains, "totalActive": total_active, "total": total}

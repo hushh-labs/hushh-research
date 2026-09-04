@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>en</string>
 	<key>CFBundleDisplayName</key>
-	<string>Hussh One</string>
+	<string>Agent One</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -16,6 +16,8 @@
 	<string>6.0</string>
 	<key>CFBundleName</key>
 	<string>Hussh One</string>
+	<key>CFBundleSpokenName</key>
+	<string>Agent One</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -41,32 +43,40 @@
 	<string>$(CURRENT_PROJECT_VERSION)</string>
 	<key>GIDClientID</key>
 	<string>1006304528804-5f4ni5h8nschgv9gcoa9i07bhqtjeb91.apps.googleusercontent.com</string>
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>HusshIMessageKeychainAccessGroup</key>
 	<string>WVDK9JW99C.com.hushh.app.imessage</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>LSSupportsOpeningDocumentsInPlace</key>
-	<true/>
+	<false/>
 	<key>NSAppTransportSecurity</key>
 	<dict>
-		<key>NSAllowsArbitraryLoads</key>
+		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Hussh One uses the microphone only when you start a voice command.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Hussh One uses Face ID only when you choose to unlock your Vault on this device.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
 	<string>Hussh One uses foreground location only when you choose to share an encrypted live-location update.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>Hussh One keeps sharing your live location with people you choose even when the app is in the background, until you stop sharing.</string>
 	<key>NSContactsUsageDescription</key>
 	<string>Hussh One uses contacts only when you choose to find people already on Hussh.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Hussh One uses your photo library only when you choose a picture for your profile.</string>
+	<key>NSCameraUsageDescription</key>
+	<string>Hussh One uses the camera only when you take a picture for your profile.</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 		<string>location</string>
 	</array>
 	<key>UIFileSharingEnabled</key>
-	<true/>
+	<false/>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

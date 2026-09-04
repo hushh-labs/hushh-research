@@ -1,10 +1,13 @@
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
+import {
+  AgentPopoverProvider,
+  useAgentPopover,
+} from "@/components/agent/agent-popover-provider";
 
 const navigationMock = vi.hoisted(() => ({
-  pathname: "/profile",
+  pathname: "/one/profile",
 }));
 
 vi.mock("next/navigation", () => ({
@@ -18,8 +21,33 @@ vi.mock("@/hooks/use-auth", () => ({
 }));
 
 vi.mock("@/components/agent/agent-chat-workspace", () => ({
-  AgentChatWorkspace: () => <div data-testid="agent-chat-workspace" />,
+  AgentChatWorkspace: ({
+    isSurfaceClosing,
+    onMinimize,
+  }: {
+    isSurfaceClosing?: boolean;
+    onMinimize?: () => void;
+  }) => (
+    <div data-testid="agent-chat-workspace" data-closing={isSurfaceClosing || undefined}>
+      <textarea aria-label="Message One" />
+      <button type="button" onClick={onMinimize}>
+        Close One
+      </button>
+    </div>
+  ),
 }));
+
+function PopoverControl() {
+  const { motionState, openAgent } = useAgentPopover();
+  return (
+    <>
+      <button type="button" onClick={() => openAgent()}>
+        Open One
+      </button>
+      <output data-testid="agent-popover-motion">{motionState}</output>
+    </>
+  );
+}
 
 function makeRect(input: {
   left: number;
@@ -87,6 +115,7 @@ describe("AgentPopoverProvider surface ownership", () => {
 
   afterEach(() => {
     getBoundingClientRectSpy.mockRestore();
+    vi.useRealTimers();
   });
 
   it("does not render a stray floating trigger when app chrome owns Agent entrypoints", () => {
@@ -120,7 +149,7 @@ describe("AgentPopoverProvider surface ownership", () => {
   });
 
   it("does not render a duplicate floating trigger on Profile command-bar routes", () => {
-    navigationMock.pathname = "/profile";
+    navigationMock.pathname = "/one/profile";
 
     render(
       <div>
@@ -133,5 +162,39 @@ describe("AgentPopoverProvider surface ownership", () => {
     );
 
     expect(screen.queryByRole("button", { name: "Open Agent" })).toBeNull();
+  });
+
+  it("uses one close path that blurs the composer before starting the sheet exit", () => {
+    vi.useFakeTimers();
+    navigationMock.pathname = "/one";
+    render(
+      <AgentPopoverProvider>
+        <PopoverControl />
+      </AgentPopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open One" }));
+    act(() => vi.advanceTimersByTime(20));
+
+    const composer = screen.getByRole("textbox", { name: "Message One" });
+    const blur = vi.spyOn(composer, "blur");
+    composer.focus();
+    expect(document.activeElement).toBe(composer);
+
+    fireEvent.click(screen.getByRole("button", { name: "Close One" }));
+
+    expect(blur).toHaveBeenCalledOnce();
+    expect(document.activeElement).not.toBe(composer);
+    expect(screen.getByTestId("agent-popover-motion")).toHaveTextContent("closing");
+    expect(screen.getByTestId("agent-chat-workspace")).toHaveAttribute(
+      "data-closing",
+      "true",
+    );
+    const closingDialog = screen.getByRole("dialog", { hidden: true });
+    expect(closingDialog.parentElement).toHaveClass("opacity-0");
+    expect(closingDialog).toHaveClass(
+      "ease-[cubic-bezier(0.64,0,0.78,0)]",
+    );
+    expect(closingDialog.className).not.toContain("sm:ring-1");
   });
 });

@@ -11,6 +11,8 @@
 	<key>com.apple.developer.associated-domains</key>
 	<array>
 		<string>webcredentials:one.hushh.ai</string>
+		<string>webcredentials:uat.one.hushh.ai</string>
+		<string>webcredentials:dev.one.hushh.ai</string>
 	</array>
 	<key>keychain-access-groups</key>
 	<array>

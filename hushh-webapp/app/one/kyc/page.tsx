@@ -39,6 +39,12 @@ import {
 import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
+import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
+import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
+import {
+  isKycIdentityPrefaceComplete,
+} from "@/lib/services/kyc-identity-profile-pkm-service";
+import { PkmDomainResourceService } from "@/lib/pkm/pkm-domain-resource";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -55,12 +61,14 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth, useRequireAuth } from "@/hooks/use-auth";
+import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
 import {
   CONSENT_ACTION_COMPLETE_EVENT,
   CONSENT_STATE_CHANGED_EVENT,
 } from "@/lib/consent/consent-events";
 import { useConsentActions, type PendingConsent } from "@/lib/consent";
 import { ROUTES } from "@/lib/navigation/routes";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { cn } from "@/lib/utils";
 import {
   hasApprovedKycWorkflowAccess,
@@ -107,6 +115,7 @@ import {
   type OneKycWorkflow,
   type OneKycWorkflowStatus,
 } from "@/lib/services/one-kyc-service";
+import { loadEmailDraftingEnabled } from "@/lib/onboarding/email-drafting-preference";
 import { PersonalKnowledgeModelService } from "@/lib/services/personal-knowledge-model-service";
 import { useVault } from "@/lib/vault/vault-context";
 import {
@@ -137,7 +146,11 @@ function statusVariant(
   status: OneKycWorkflowStatus,
 ): "default" | "secondary" | "destructive" | "outline" {
   if (status === "blocked") return "destructive";
-  if (status === "waiting_on_user" || status === "needs_scope" || status === "needs_confirm")
+  if (
+    status === "waiting_on_user" ||
+    status === "needs_scope" ||
+    status === "needs_confirm"
+  )
     return "default";
   if (status === "completed" || status === "waiting_on_counterparty")
     return "secondary";
@@ -148,7 +161,11 @@ function statusIcon(status: OneKycWorkflowStatus): LucideIcon {
   if (status === "blocked") return Ban;
   if (status === "completed" || status === "waiting_on_counterparty")
     return BadgeCheck;
-  if (status === "needs_scope" || status === "needs_client_connector" || status === "needs_confirm")
+  if (
+    status === "needs_scope" ||
+    status === "needs_client_connector" ||
+    status === "needs_confirm"
+  )
     return ShieldCheck;
   if (status === "waiting_on_user") return Send;
   return Clock3;
@@ -239,14 +256,14 @@ function emailWorkflowBusyLabel(busy: string | null): string | null {
   if (busy === "approve") return "Sending approved reply...";
   if (busy === "reject") return "Rejecting request...";
   if (busy === "redraft") return "Redrafting reply...";
-  if (busy === "alias") return "Updating verified email...";
+  if (busy === "alias") return "Updating verified address...";
   if (busy === "confirm-proposal") return "Confirming proposal...";
   return "Working...";
 }
 
 function scopeCandidateDescription(candidate: OneKycScopeCandidate): string {
   const description = candidate.description || dataLabelForCandidate(candidate);
-  const reason = candidate.reason || "Detected from this email.";
+  const reason = candidate.reason || "Detected from this request.";
   if (!reason || reason === description) return description;
   return `${description} ${reason}`;
 }
@@ -273,7 +290,10 @@ function titleCase(value: string): string {
 }
 
 function shouldShowProposal(workflow: OneKycWorkflow): boolean {
-  return workflow.status === "needs_confirm" && Boolean(workflow.metadata?.kyc_proposal);
+  return (
+    workflow.status === "needs_confirm" &&
+    Boolean(workflow.metadata?.kyc_proposal)
+  );
 }
 
 function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
@@ -281,7 +301,10 @@ function shouldSyncWorkflowOnLoad(workflow: OneKycWorkflow): boolean {
     workflow.status === "needs_scope" ||
     workflow.status === "needs_documents"
   ) {
-    return workflowConsentRequestIds(workflow).length > 0 || scopeCandidates(workflow).length > 0;
+    return (
+      workflowConsentRequestIds(workflow).length > 0 ||
+      scopeCandidates(workflow).length > 0
+    );
   }
   return (
     workflow.status === "waiting_on_user" && workflow.draft_status === "ready"
@@ -298,9 +321,12 @@ function isSentWorkflow(workflow: OneKycWorkflow): boolean {
 
 function shouldShowDataSelection(workflow: OneKycWorkflow): boolean {
   if (isSentWorkflow(workflow)) return false;
-  return ["needs_scope", "waiting_on_user", "needs_documents", "blocked"].includes(
-    workflow.status,
-  );
+  return [
+    "needs_scope",
+    "waiting_on_user",
+    "needs_documents",
+    "blocked",
+  ].includes(workflow.status);
 }
 
 function mergeWorkflows(
@@ -340,14 +366,21 @@ export default function OneKycPage({
       <NativeTestBeacon
         routeId={ROUTES.ONE_KYC}
         marker="native-route-one-kyc"
-        authState={auth.user ? "authenticated" : auth.loading ? "pending" : "public"}
+        authState={
+          auth.user ? "authenticated" : auth.loading ? "pending" : "public"
+        }
         dataState={auth.user ? "loaded" : "loading"}
       />
       <VaultLockGuard>
-        <OneKycWorkspace
-          onSetupReadinessChange={onSetupReadinessChange}
-          voicePublisherRole={voicePublisherRole}
-        />
+        <CapabilityVaultPrerequisite
+          capabilityLabel="KYC"
+          routeKey={ROUTES.ONE_KYC}
+        >
+          <OneKycWorkspace
+            onSetupReadinessChange={onSetupReadinessChange}
+            voicePublisherRole={voicePublisherRole}
+          />
+        </CapabilityVaultPrerequisite>
       </VaultLockGuard>
     </>
   );
@@ -361,7 +394,53 @@ export function OneKycWorkspace({
   voicePublisherRole?: VoiceSurfacePublisherRole;
 }) {
   const auth = useRequireAuth();
+  const isPrivateRelay = isApplePrivateRelayEmail(auth.user?.email);
   const { isVaultUnlocked, vaultKey, vaultOwnerToken } = useVault();
+  const [identityPrefaceComplete, setIdentityPrefaceComplete] = useState(false);
+  const [checkingIdentity, setCheckingIdentity] = useState(true);
+
+  useEffect(() => {
+    if (!auth.user?.uid) {
+      setCheckingIdentity(false);
+      return;
+    }
+    if (!vaultKey || !vaultOwnerToken) {
+      setCheckingIdentity(false);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const snapshot = await PkmDomainResourceService.getStaleFirst({
+          userId: auth.user?.uid || "",
+          domain: "identity",
+          vaultKey,
+          vaultOwnerToken,
+        });
+        const profile = snapshot?.data?.identity_profile as any;
+        if (!cancelled && isKycIdentityPrefaceComplete(profile)) {
+          setIdentityPrefaceComplete(true);
+        }
+      } catch (err) {
+        console.warn(
+          "[OneKycWorkspace] Failed to load existing identity profile:",
+          err,
+        );
+        // A coherent snapshot failure is not evidence that KYC is incomplete.
+        // Do not trap a completed owner in onboarding while recovery runs.
+        if (!cancelled) setIdentityPrefaceComplete(true);
+      } finally {
+        if (!cancelled) {
+          setCheckingIdentity(false);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.user, vaultKey, vaultOwnerToken]);
   const { handleApprove, handleApproveBundle, handleDeny, handleDenyBundle } =
     useConsentActions({ userId: auth.userId });
   const [workflows, setWorkflows] = useState<OneKycWorkflow[]>([]);
@@ -374,8 +453,9 @@ export function OneKycWorkspace({
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
-  const [archiveTarget, setArchiveTarget] =
-    useState<OneKycWorkflow | null>(null);
+  const [archiveTarget, setArchiveTarget] = useState<OneKycWorkflow | null>(
+    null,
+  );
   const [archivingWorkflowId, setArchivingWorkflowId] = useState<string | null>(
     null,
   );
@@ -387,13 +467,16 @@ export function OneKycWorkspace({
   const [sentReplySnapshots, setSentReplySnapshots] = useState<
     Record<string, KycWorkflowSentReplySnapshot>
   >({});
-  // Write-only cache of decrypted export payloads (kept in sync by the setter
-  // for cleanup/retention). The value is not read: the draft-prep path decrypts
-  // fresh and passes decryptedDomains into buildDraftViaLlm directly.
-  const [, setLocalExportPayloads] = useState<
+  // Memory-only cache of exact approved decrypted exports. Redraft reuses this
+  // context so it can revise intelligently without another decrypt or any PKM read.
+  const [localExportPayloads, setLocalExportPayloads] = useState<
     Record<
       string,
-      Array<{ scope?: string | null; payload: Record<string, unknown> }>
+      Array<{
+        scope?: string | null;
+        exportRevision?: number;
+        payload: Record<string, unknown>;
+      }>
     >
   >({});
   const [draftRecoveryAttempts, setDraftRecoveryAttempts] = useState<
@@ -410,6 +493,10 @@ export function OneKycWorkspace({
   >({});
   const [confirmSelection, setConfirmSelection] = useState<string[]>([]);
   const [connectorReady, setConnectorReady] = useState(false);
+  const [
+    automaticResponsePreparationEnabled,
+    setAutomaticResponsePreparationEnabled,
+  ] = useState<boolean | null>(null);
   const [emailAliases, setEmailAliases] = useState<AccountEmailAlias[]>([]);
   const [aliasEmail, setAliasEmail] = useState("");
   const [aliasCode, setAliasCode] = useState("");
@@ -469,9 +556,9 @@ export function OneKycWorkspace({
     : false;
   const selectedCanReviewDraft = Boolean(
     selected &&
-      selected.status === "waiting_on_user" &&
-      selected.draft_status === "ready" &&
-      selectedDraft,
+    selected.status === "waiting_on_user" &&
+    selected.draft_status === "ready" &&
+    selectedDraft,
   );
 
   // Reset confirm-proposal selection when the selected workflow changes
@@ -487,7 +574,7 @@ export function OneKycWorkspace({
   const busyLabel = emailWorkflowBusyLabel(busy);
   const showInitialLoading = loading && workflows.length === 0;
   const listRefreshLabel =
-    loading && workflows.length > 0 ? "Checking for new emails..." : null;
+    loading && workflows.length > 0 ? "Checking for new requests..." : null;
   const verifiedAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "verified"),
@@ -498,6 +585,27 @@ export function OneKycWorkspace({
     // client connector are the operational boundary for first-run setup.
     onSetupReadinessChange?.(connectorReady && verifiedAliases.length > 0);
   }, [connectorReady, onSetupReadinessChange, verifiedAliases.length]);
+  useEffect(() => {
+    const userId = auth.userId;
+    const user = auth.user;
+    if (!userId || !user) {
+      setAutomaticResponsePreparationEnabled(null);
+      return;
+    }
+    let cancelled = false;
+    void user
+      .getIdToken()
+      .then((idToken) => loadEmailDraftingEnabled({ userId, idToken }))
+      .then((enabled) => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setAutomaticResponsePreparationEnabled(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [auth.user, auth.userId]);
   const pendingAliases = useMemo(
     () =>
       emailAliases.filter((alias) => alias.verification_status === "pending"),
@@ -506,8 +614,8 @@ export function OneKycWorkspace({
   const voiceSurfaceMetadata = useMemo(
     () => ({
       screenId: "one_kyc",
-      title: "Email",
-      purpose: "Approval-gated email request review for one@hushh.ai.",
+      title: "KYC",
+      purpose: "Approval-gated review of information requests.",
       sections: [
         {
           id: "one_kyc_inbox",
@@ -519,19 +627,19 @@ export function OneKycWorkspace({
         },
         {
           id: "one_kyc_aliases",
-          title: "Verified email addresses",
+          title: "Verified addresses",
         },
       ],
       controls: [
         {
           id: "one-kyc-open",
-          label: "Open Email",
+          label: "Open KYC",
           type: "route",
           actionId: "route.one_kyc",
         },
         {
           id: "one-kyc-aliases",
-          label: "Manage verified emails",
+          label: "Manage verified addresses",
           type: "button",
           actionId: "kyc.aliases.manage",
           state: aliasPanelOpen ? "open" : "closed",
@@ -597,11 +705,14 @@ export function OneKycWorkspace({
         selected_workflow_status: selected?.status || null,
         vault_unlocked: Boolean(isVaultUnlocked && vaultKey && vaultOwnerToken),
         connector_ready: connectorReady,
+        automatic_response_preparation_enabled:
+          automaticResponsePreparationEnabled,
         loading,
       },
     }),
     [
       aliasPanelOpen,
+      automaticResponsePreparationEnabled,
       connectorReady,
       isVaultUnlocked,
       loading,
@@ -684,99 +795,109 @@ export function OneKycWorkspace({
     [auth.userId, updateWorkflow, vaultOwnerToken],
   );
 
-  const load = useCallback(async (options?: { syncMailbox?: boolean }) => {
-    if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
-    const userId = auth.userId;
-    const hadCachedWorkflows = workflowsRef.current.length > 0;
-    setLoading(true);
-    setError(null);
-    try {
-      await OneKycClientZkService.ensureConnector({
-        userId,
-        vaultKey,
-        vaultOwnerToken,
-      });
-      setConnectorReady(true);
-      if (options?.syncMailbox) {
-        await OneKycService.syncRecentEmails({
+  const load = useCallback(
+    async (options?: { syncMailbox?: boolean }) => {
+      if (!auth.user || !auth.userId || !vaultKey || !vaultOwnerToken) return;
+      const userId = auth.userId;
+      const hadCachedWorkflows = workflowsRef.current.length > 0;
+      setLoading(true);
+      setError(null);
+      try {
+        await OneKycClientZkService.ensureConnector({
+          userId,
+          vaultKey,
+          vaultOwnerToken,
+        });
+        setConnectorReady(true);
+        if (options?.syncMailbox) {
+          const syncResponse = await OneKycService.syncRecentEmails({
+            userId,
+            vaultOwnerToken,
+          }).catch((err) => {
+            toast.error(
+              err instanceof Error
+                ? err.message
+                : "One could not check recent requests.",
+            );
+            return null;
+          });
+          if (
+            syncResponse?.reason ===
+            "automatic_response_preparation_disabled"
+          ) {
+            setAutomaticResponsePreparationEnabled(false);
+          }
+        }
+        const response = await OneKycService.listWorkflows({
           userId,
           vaultOwnerToken,
-        }).catch((err) => {
-          toast.error(
-            err instanceof Error
-              ? err.message
-              : "One could not check recent emails.",
-          );
+          limit: 25,
         });
-      }
-      const response = await OneKycService.listWorkflows({
-        userId,
-        vaultOwnerToken,
-        limit: 25,
-      });
-      const aliasResponse = await AccountService.listEmailAliases(
-        vaultOwnerToken,
-      ).catch(() => null);
-      if (aliasResponse) {
-        setEmailAliases(aliasResponse.aliases);
-      }
-      const syncCandidates = response.workflows
-        .filter(shouldSyncWorkflowOnLoad)
-        .slice(0, 10);
-      const syncResults = syncCandidates.length
-        ? await Promise.allSettled(
-            syncCandidates.map((workflow) =>
-              OneKycService.refreshWorkflow({
-                userId,
-                vaultOwnerToken,
-                workflowId: workflow.workflow_id,
-              }),
-            ),
+        const aliasResponse = await AccountService.listEmailAliases(
+          vaultOwnerToken,
+        ).catch(() => null);
+        if (aliasResponse) {
+          setEmailAliases(aliasResponse.aliases);
+        }
+        const syncCandidates = response.workflows
+          .filter(shouldSyncWorkflowOnLoad)
+          .slice(0, 10);
+        const syncResults = syncCandidates.length
+          ? await Promise.allSettled(
+              syncCandidates.map((workflow) =>
+                OneKycService.refreshWorkflow({
+                  userId,
+                  vaultOwnerToken,
+                  workflowId: workflow.workflow_id,
+                }),
+              ),
+            )
+          : [];
+        const syncedWorkflows = syncResults
+          .filter(
+            (result): result is PromiseFulfilledResult<OneKycWorkflow> =>
+              result.status === "fulfilled",
           )
-        : [];
-      const syncedWorkflows = syncResults
-        .filter(
-          (result): result is PromiseFulfilledResult<OneKycWorkflow> =>
-            result.status === "fulfilled",
-        )
-        .map((result) => result.value);
-      const cachedWorkflows = workflowsRef.current;
-      const listedWorkflows = cachedWorkflows.length
-        ? mergeWorkflows(cachedWorkflows, response.workflows)
-        : response.workflows;
-      const nextWorkflows = mergeWorkflows(listedWorkflows, syncedWorkflows);
-      setWorkflows(nextWorkflows);
-      setNextCursor(response.next_cursor || null);
-      setHasMoreWorkflows(Boolean(response.has_more && response.next_cursor));
-      retainReadyLocalWorkflowState(nextWorkflows);
-      await loadSentReplySnapshots();
-      const initialId = new URLSearchParams(window.location.search).get(
-        "workflowId",
-      );
-      setSelectedId(
-        (current) =>
-          current || initialId || nextWorkflows[0]?.workflow_id || null,
-      );
-    } catch (err) {
-      setConnectorReady(false);
-      const message =
-        err instanceof Error ? err.message : "Unable to load email requests.";
-      if (hadCachedWorkflows) {
-        toast.error(message);
-      } else {
-        setError(message);
+          .map((result) => result.value);
+        const cachedWorkflows = workflowsRef.current;
+        const listedWorkflows = cachedWorkflows.length
+          ? mergeWorkflows(cachedWorkflows, response.workflows)
+          : response.workflows;
+        const nextWorkflows = mergeWorkflows(listedWorkflows, syncedWorkflows);
+        setWorkflows(nextWorkflows);
+        setNextCursor(response.next_cursor || null);
+        setHasMoreWorkflows(Boolean(response.has_more && response.next_cursor));
+        retainReadyLocalWorkflowState(nextWorkflows);
+        await loadSentReplySnapshots();
+        const initialId = new URLSearchParams(window.location.search).get(
+          "workflowId",
+        );
+        setSelectedId(
+          (current) =>
+            current || initialId || nextWorkflows[0]?.workflow_id || null,
+        );
+      } catch (err) {
+        setConnectorReady(false);
+        const message =
+          err instanceof Error ? err.message : "Unable to load requests.";
+        if (hadCachedWorkflows) {
+          toast.error(message);
+        } else {
+          setError(message);
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
-  }, [
-    auth.user,
-    auth.userId,
-    loadSentReplySnapshots,
-    retainReadyLocalWorkflowState,
-    vaultKey,
-    vaultOwnerToken,
-  ]);
+    },
+    [
+      auth.user,
+      auth.userId,
+      loadSentReplySnapshots,
+      retainReadyLocalWorkflowState,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
 
   const loadMore = useCallback(async () => {
     if (!auth.user || !auth.userId || !vaultOwnerToken || !nextCursor) return;
@@ -793,20 +914,24 @@ export function OneKycWorkspace({
       setNextCursor(response.next_cursor || null);
       setHasMoreWorkflows(Boolean(response.has_more && response.next_cursor));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Unable to load more requests.");
+      setError(
+        err instanceof Error ? err.message : "Unable to load more requests.",
+      );
     } finally {
       setLoadingMore(false);
     }
   }, [auth.user, auth.userId, nextCursor, vaultOwnerToken]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    if (automaticResponsePreparationEnabled === null) return;
+    void load({ syncMailbox: automaticResponsePreparationEnabled });
+  }, [automaticResponsePreparationEnabled, load]);
 
   useEffect(() => {
     let cancelled = false;
 
     async function prepareClientDraft() {
+      if (automaticResponsePreparationEnabled !== true) return;
       if (!auth.userId || !vaultKey || !vaultOwnerToken || !selected) return;
       const userId = auth.userId;
       if (
@@ -832,6 +957,7 @@ export function OneKycWorkspace({
         const exportPayloads = await Promise.all(
           exportResponse.exports.map(async (exportPackage) => ({
             scope: exportPackage.scope,
+            exportRevision: exportPackage.export_revision,
             payload: await OneKycClientZkService.decryptScopedExport({
               exportPackage,
               connector,
@@ -840,7 +966,7 @@ export function OneKycWorkspace({
         );
         // Private KYC draft context is exclusively sourced from exact approved
         // encrypted exports. Public-profile resources never authorize PKM reads.
-        const draftPayloads: Array<{ scope?: string | null; payload: Record<string, unknown> }> = exportPayloads;
+        const draftPayloads = exportPayloads;
         // Deterministic draft — used as-is or as fallback if LLM Pass 2 fails.
         let draft = await OneKycClientZkService.buildDraft({
           workflow: selected,
@@ -877,7 +1003,10 @@ export function OneKycWorkspace({
         } catch (llmErr) {
           if (!cancelled) {
             setError(
-              oneKycErrorMessage(llmErr, "LLM draft unavailable; using deterministic draft."),
+              oneKycErrorMessage(
+                llmErr,
+                "LLM draft unavailable; using deterministic draft.",
+              ),
             );
           }
         }
@@ -919,7 +1048,7 @@ export function OneKycWorkspace({
         }
         if (!cancelled) {
           setError(
-            oneKycErrorMessage(err, "Unable to prepare the email draft."),
+            oneKycErrorMessage(err, "Unable to prepare the response draft."),
           );
         }
       } finally {
@@ -944,6 +1073,7 @@ export function OneKycWorkspace({
     };
   }, [
     auth.userId,
+    automaticResponsePreparationEnabled,
     clearLocalWorkflowState,
     draftFailedAttemptKeys,
     draftRecoveryAttempts,
@@ -970,7 +1100,10 @@ export function OneKycWorkspace({
     setBusy("refresh");
     void refreshWorkflowState(selected)
       .then((next) => {
-        if (next.status === "waiting_on_user" && next.draft_status === "ready") {
+        if (
+          next.status === "waiting_on_user" &&
+          next.draft_status === "ready"
+        ) {
           toast.success("Access is approved. Preparing draft.");
         }
       })
@@ -1055,7 +1188,7 @@ export function OneKycWorkspace({
       }
       const localDraft = localDrafts[workflow.workflow_id];
       if (action === "approve" && !localDraft) {
-        setError("Prepare the email draft before approving send.");
+        setError("Prepare the response draft before approving send.");
         return;
       }
       setBusy(action);
@@ -1068,7 +1201,7 @@ export function OneKycWorkspace({
         };
         if (action === "redraft") {
           if (!localDraft) {
-            setError("Prepare the email draft before revising it.");
+            setError("Prepare the response draft before revising it.");
             return;
           }
           try {
@@ -1076,28 +1209,31 @@ export function OneKycWorkspace({
               localDraft,
               instruction: redraftInstructions.trim(),
               workflow,
+              exportPayloads: localExportPayloads[workflow.workflow_id] ?? [],
               input,
             });
             if (!result.ok) {
               setError("Redraft failed — please try again.");
-              setRedraftInstructions("");
               return;
             }
             setLocalDrafts((current) => ({
               ...current,
               [workflow.workflow_id]: result.draft,
             }));
-          } catch {
-            setError("Redraft failed — please try again.");
+            setRedraftInstructions("");
+            toast.success("Draft revised.");
+          } catch (err) {
+            setError(
+              oneKycErrorMessage(err, "Redraft failed — please try again."),
+            );
           }
-          setRedraftInstructions("");
           return;
         }
 
         let next: OneKycWorkflow;
         if (action === "approve") {
           if (!localDraft) {
-            setError("Prepare the email draft before approving send.");
+            setError("Prepare the response draft before approving send.");
             return;
           }
           const checks = {
@@ -1214,14 +1350,14 @@ export function OneKycWorkspace({
         } else if (action === "reject") {
           next = await OneKycService.rejectDraft({
             ...input,
-            reason: "Rejected from Email.",
+            reason: "Rejected from KYC.",
           });
         } else {
           next = await refreshWorkflowState(workflow);
         }
         updateWorkflow(next);
       } catch (err) {
-        setError(oneKycErrorMessage(err, "Email action failed."));
+        setError(oneKycErrorMessage(err, "KYC action failed."));
       } finally {
         setBusy(null);
       }
@@ -1231,12 +1367,108 @@ export function OneKycWorkspace({
       auth.userId,
       clearLocalWorkflowState,
       localDrafts,
+      localExportPayloads,
       redraftInstructions,
       refreshWorkflowState,
       updateWorkflow,
       vaultKey,
       vaultOwnerToken,
     ],
+  );
+
+  const handleAgentRedraft = useCallback(
+    async (slots: Record<string, unknown>) => {
+      const instruction =
+        typeof slots.instruction === "string" ? slots.instruction.trim() : "";
+      if (!instruction || instruction.length > 1000) {
+        return {
+          status: "blocked" as const,
+          summary: "Add a redraft instruction between 1 and 1000 characters.",
+        };
+      }
+      if (
+        !selected ||
+        !selectedCanReviewDraft ||
+        !auth.userId ||
+        !vaultKey ||
+        !vaultOwnerToken
+      ) {
+        return {
+          status: "blocked" as const,
+          summary: "A reviewable draft and an unlocked vault are required.",
+        };
+      }
+      const localDraft = localDrafts[selected.workflow_id];
+      const exportPayloads = localExportPayloads[selected.workflow_id] ?? [];
+      if (!localDraft || exportPayloads.length === 0) {
+        return {
+          status: "blocked" as const,
+          summary: "The approved draft information is not mounted for redraft.",
+        };
+      }
+      setBusy("redraft");
+      setError(null);
+      try {
+        const result = await runFullRedraft({
+          localDraft,
+          instruction,
+          workflow: selected,
+          exportPayloads,
+          input: {
+            userId: auth.userId,
+            vaultOwnerToken,
+            workflowId: selected.workflow_id,
+          },
+        });
+        if (!result.ok) {
+          return {
+            status: "failed" as const,
+            summary: "Redraft failed. Try again.",
+          };
+        }
+        setLocalDrafts((current) => ({
+          ...current,
+          [selected.workflow_id]: result.draft,
+        }));
+        setRedraftInstructions("");
+        toast.success("Draft revised.");
+        return {
+          status: "succeeded" as const,
+          summary: "The current response draft was revised for review.",
+        };
+      } catch (err) {
+        const message = oneKycErrorMessage(err, "Redraft failed. Try again.");
+        setError(message);
+        return { status: "failed" as const, summary: message };
+      } finally {
+        setBusy(null);
+      }
+    },
+    [
+      auth.userId,
+      localDrafts,
+      localExportPayloads,
+      selected,
+      selectedCanReviewDraft,
+      vaultKey,
+      vaultOwnerToken,
+    ],
+  );
+
+  useLocalOnboardingActionHandler(
+    "kyc.draft.request_redraft",
+    handleAgentRedraft,
+    {
+      enabled: Boolean(
+        selectedCanReviewDraft &&
+        selected &&
+        localDrafts[selected.workflow_id] &&
+        (localExportPayloads[selected.workflow_id]?.length ?? 0) > 0 &&
+        auth.userId &&
+        vaultKey &&
+        vaultOwnerToken,
+      ),
+    },
   );
 
   const ensureConsentRequestsForWorkflow = useCallback(
@@ -1286,7 +1518,7 @@ export function OneKycWorkspace({
       });
       if (lookup.missing_request_ids.length > 0) {
         throw new Error(
-          "One could not find the linked access request. Sync this email once so access can refresh.",
+          "One could not find the linked access request. Sync this request once so access can refresh.",
         );
       }
       return lookup.items.map(pendingLookupItemToPendingConsent);
@@ -1317,7 +1549,7 @@ export function OneKycWorkspace({
         } else if (consents.length === 1) {
           const consent = consents[0];
           if (!consent) {
-            throw new Error("No access request is ready for this email yet.");
+            throw new Error("No access request is ready for this request yet.");
           }
           const promise = handleApprove(consent, { quiet: true });
           toast.promise(promise, {
@@ -1343,9 +1575,7 @@ export function OneKycWorkspace({
           );
         }
       } catch (err) {
-        setError(
-          oneKycErrorMessage(err, "Unable to approve access."),
-        );
+        setError(oneKycErrorMessage(err, "Unable to approve access."));
       } finally {
         setBusy(null);
       }
@@ -1369,7 +1599,7 @@ export function OneKycWorkspace({
         if (requestIds.length === 1) {
           const requestId = requestIds[0];
           if (!requestId) {
-            throw new Error("No access request is ready for this email yet.");
+            throw new Error("No access request is ready for this request yet.");
           }
           const promise = handleDeny(requestId, { quiet: true });
           toast.promise(promise, {
@@ -1426,10 +1656,14 @@ export function OneKycWorkspace({
         if (refreshed.status === "waiting_on_user") {
           toast.success("Information updated. Preparing draft.");
         } else if (refreshed.status === "needs_scope") {
-          toast.info("Information updated. Approve access to prepare the draft.");
+          toast.info(
+            "Information updated. Approve access to prepare the draft.",
+          );
         }
       } catch (err) {
-        setError(oneKycErrorMessage(err, "Unable to update selected information."));
+        setError(
+          oneKycErrorMessage(err, "Unable to update selected information."),
+        );
       } finally {
         setBusy(null);
       }
@@ -1443,45 +1677,42 @@ export function OneKycWorkspace({
     ],
   );
 
-  const archiveWorkflow = useCallback(
-    async () => {
-      const workflow = archiveTarget;
-      if (!auth.userId || !vaultOwnerToken) return;
-      if (!workflow || archivingWorkflowId) return;
-      const workflowId = workflow.workflow_id;
-      setArchivingWorkflowId(workflowId);
-      try {
-        await OneKycService.archiveWorkflow({
-          userId: auth.userId,
-          vaultOwnerToken,
-          workflowId,
-        });
-        setWorkflows((current) =>
-          current.filter((item) => item.workflow_id !== workflowId),
-        );
-        clearLocalWorkflowState(workflowId);
-        setSentReplySnapshots((current) =>
-          removeKycWorkflowLocalState(current, workflowId),
-        );
-        setSelectedId((current) => (current === workflowId ? null : current));
-        if (selectedId === workflowId) setDetailOpen(false);
-        setArchiveTarget(null);
-        toast.success("Request removed.");
-      } catch (err) {
-        toast.error(oneKycErrorMessage(err, "Unable to remove this request."));
-      } finally {
-        setArchivingWorkflowId(null);
-      }
-    },
-    [
-      archiveTarget,
-      archivingWorkflowId,
-      auth.userId,
-      clearLocalWorkflowState,
-      selectedId,
-      vaultOwnerToken,
-    ],
-  );
+  const archiveWorkflow = useCallback(async () => {
+    const workflow = archiveTarget;
+    if (!auth.userId || !vaultOwnerToken) return;
+    if (!workflow || archivingWorkflowId) return;
+    const workflowId = workflow.workflow_id;
+    setArchivingWorkflowId(workflowId);
+    try {
+      await OneKycService.archiveWorkflow({
+        userId: auth.userId,
+        vaultOwnerToken,
+        workflowId,
+      });
+      setWorkflows((current) =>
+        current.filter((item) => item.workflow_id !== workflowId),
+      );
+      clearLocalWorkflowState(workflowId);
+      setSentReplySnapshots((current) =>
+        removeKycWorkflowLocalState(current, workflowId),
+      );
+      setSelectedId((current) => (current === workflowId ? null : current));
+      if (selectedId === workflowId) setDetailOpen(false);
+      setArchiveTarget(null);
+      toast.success("Request removed.");
+    } catch (err) {
+      toast.error(oneKycErrorMessage(err, "Unable to remove this request."));
+    } finally {
+      setArchivingWorkflowId(null);
+    }
+  }, [
+    archiveTarget,
+    archivingWorkflowId,
+    auth.userId,
+    clearLocalWorkflowState,
+    selectedId,
+    vaultOwnerToken,
+  ]);
 
   const previewScopeCandidate = useCallback(
     async (candidate: {
@@ -1501,7 +1732,8 @@ export function OneKycWorkspace({
       }
       const title = dataLabelForCandidate(candidate);
       const description =
-        candidate.description || "Saved values that One can use after access is approved.";
+        candidate.description ||
+        "Saved values that One can use after access is approved.";
       setScopePreview({
         open: true,
         title,
@@ -1516,7 +1748,9 @@ export function OneKycWorkspace({
           domain: parsed.domain,
           vaultKey,
           vaultOwnerToken,
-          segmentIds: parsed.topLevelScopePath ? [parsed.topLevelScopePath] : undefined,
+          segmentIds: parsed.topLevelScopePath
+            ? [parsed.topLevelScopePath]
+            : undefined,
         });
         setScopePreview({
           open: true,
@@ -1619,6 +1853,32 @@ export function OneKycWorkspace({
     [auth.userId, confirmSelection, updateWorkflow, vaultOwnerToken],
   );
 
+  if (checkingIdentity) {
+    return (
+      <AppPageShell
+        as="main"
+        width="reading"
+        className="flex min-h-0 flex-1 flex-col pb-[calc(var(--app-bottom-fixed-ui,96px)+1.25rem)] sm:pb-10 md:pb-8"
+      >
+        <AppPageContentRegion>
+          <div className="flex h-[50vh] flex-col items-center justify-center space-y-4">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        </AppPageContentRegion>
+      </AppPageShell>
+    );
+  }
+
+  if (!identityPrefaceComplete) {
+    return (
+      <div className="flex-1 w-full h-full min-h-[70vh]">
+        <KycIdentityPreface
+          onComplete={() => setIdentityPrefaceComplete(true)}
+        />
+      </div>
+    );
+  }
+
   return (
     <AppPageShell
       width="content"
@@ -1634,20 +1894,12 @@ export function OneKycWorkspace({
       <AppPageHeaderRegion>
         <PageHeader
           eyebrow="One"
-          title="Email"
-          description="Review emails that ask for your personal information, choose what to share, and send replies only after you approve."
+          title="KYC"
+          description="Review and approve each request."
           icon={ShieldCheck}
           accent="neutral"
           actions={
             <div className="flex flex-wrap justify-end gap-2">
-              <button
-                type="button"
-                className={cn(BTN_PRIMARY)}
-                onClick={() => setAliasPanelOpen(true)}
-              >
-                <MailPlus className="size-4" />
-                Email aliases
-              </button>
               <button
                 type="button"
                 className={cn(BTN_PRIMARY)}
@@ -1674,106 +1926,140 @@ export function OneKycWorkspace({
             ) : busyLabel ? (
               <AsyncActionStatus state="loading" label={busyLabel} compact />
             ) : listRefreshLabel ? (
-              <AsyncActionStatus state="loading" label={listRefreshLabel} compact />
+              <AsyncActionStatus
+                state="loading"
+                label={listRefreshLabel}
+                compact
+              />
             ) : null}
           </div>
         ) : null}
 
         <div className="w-full">
-          <div className="min-w-0 space-y-4">
-            <SettingsGroup title="Requests">
-              {showInitialLoading ? (
-                <SettingsRow
-                  icon={Inbox}
-                  title="Checking requests"
-                  description="Looking for emails matched to your verified addresses."
-                  trailing={
-                    <Loader2 className="size-4 animate-spin text-muted-foreground" />
-                  }
-                  stackTrailingOnMobile
-                />
-              ) : workflows.length === 0 ? (
-                <SettingsRow
-                  icon={Inbox}
-                  title="No matched requests"
-                  description="New emails appear here after One matches them to one of your verified addresses."
-                />
-              ) : (
-                workflows.map((workflow) => (
-                  <SettingsRow
-                    key={workflow.workflow_id}
-                    icon={statusIcon(workflow.status)}
-                    title={workflow.subject || "Email request"}
-                    description={[
-                      workflow.counterparty_label ||
-                        workflow.sender_email ||
-                        "Counterparty",
-                      selectedScopeLabels(workflow).join(", ") || "Information pending",
-                    ].join(" / ")}
-                    trailing={
-                      <div className="flex items-center gap-2">
-                        <Badge variant={statusVariant(workflow.status)}>
-                          {STATUS_LABELS[workflow.status] || workflow.status}
-                        </Badge>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon"
-                          className="size-8"
-                          aria-label="Remove request"
-                          // Removing a request only opens the confirm dialog and is
-                          // its own action; it must not be blocked by a background
-                          // draft-prep (busy === "draft"), or a stuck/looping draft
-                          // prep would trap the user with no way to delete the
-                          // workflow. Guard only against an in-flight archive.
-                          disabled={Boolean(archivingWorkflowId)}
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            setArchiveTarget(workflow);
-                          }}
-                        >
-                          {archivingWorkflowId === workflow.workflow_id ? (
-                            <Loader2 className="size-4 animate-spin" />
-                          ) : (
-                            <Trash2 className="size-4" />
-                          )}
-                        </Button>
-                      </div>
-                    }
-                    chevron
-                    onClick={() => {
-                      setSelectedId(workflow.workflow_id);
-                      setDetailOpen(true);
-                    }}
-                    voiceControlId={`one-kyc-workflow-${workflow.workflow_id}`}
-                  />
-                ))
-              )}
+          {(!vaultKey || !vaultOwnerToken) ? (
+            <SettingsGroup title="Vault required" description="Set up your vault to use KYC.">
+              <SettingsRow
+                icon={AlertTriangle}
+                title="Vault missing"
+                description="Set up your vault first."
+              />
             </SettingsGroup>
-            {hasMoreWorkflows ? (
-              <div className="flex justify-center">
-                <button
-                  type="button"
-                  className={cn(BTN_OUTLINE)}
-                  onClick={() => void loadMore()}
-                  disabled={loadingMore}
-                >
-                  {loadingMore ? (
-                    <Loader2 className="size-4 animate-spin" />
-                  ) : (
-                    <RefreshCw className="size-4" />
-                  )}
-                  {loadingMore ? "Loading..." : "Load more"}
-                </button>
-              </div>
-            ) : null}
-          </div>
+          ) : (
+            <div className="min-w-0 space-y-4">
+              <SettingsGroup title="Requests">
+                {isPrivateRelay ? (
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Unsupported Account"
+                    description="Private Relay addresses are not supported."
+                  />
+                ) : automaticResponsePreparationEnabled === false ? (
+                  <SettingsRow
+                    icon={AlertTriangle}
+                    title="Request preparation is off"
+                    description="Enable it to review requests sent from one of your verified addresses to one@hushh.ai."
+                    trailing={
+                      <Button asChild size="sm" variant="outline">
+                        <a href={ROUTES.ONE_SETUP_EMAIL}>Set up email</a>
+                      </Button>
+                    }
+                    trailingInteractive
+                    stackTrailingOnMobile
+                  />
+                ) : showInitialLoading ? (
+                  <SettingsRow
+                    icon={Inbox}
+                    title="Checking requests"
+                    description="Looking for requests matched to your verified addresses."
+                    trailing={
+                      <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                    }
+                    stackTrailingOnMobile
+                  />
+                ) : workflows.length === 0 ? (
+                  <SettingsRow
+                    icon={Inbox}
+                    title="No matched requests"
+                    description="Refresh checks recent messages sent from your verified address to one@hushh.ai."
+                  />
+                ) : (
+                  workflows.map((workflow) => (
+                    <SettingsRow
+                      key={workflow.workflow_id}
+                      icon={statusIcon(workflow.status)}
+                      title={workflow.subject || "Information request"}
+                      description={[
+                        workflow.counterparty_label ||
+                          workflow.sender_email ||
+                          "Counterparty",
+                        selectedScopeLabels(workflow).join(", ") ||
+                          "Information pending",
+                      ].join(" / ")}
+                      trailing={
+                        <div className="flex items-center gap-2">
+                          <Badge variant={statusVariant(workflow.status)}>
+                            {STATUS_LABELS[workflow.status] || workflow.status}
+                          </Badge>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-11 w-11 shrink-0 touch-manipulation transition-transform active:scale-90 hover:bg-transparent active:bg-foreground/5 [@media(hover:hover)]:hover:bg-foreground/5"
+                            aria-label="Remove request"
+                            // Removing a request only opens the confirm dialog and is
+                            // its own action; it must not be blocked by a background
+                            // draft-prep (busy === "draft"), or a stuck/looping draft
+                            // prep would trap the user with no way to delete the
+                            // workflow. Guard only against an in-flight archive.
+                            disabled={Boolean(archivingWorkflowId)}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setArchiveTarget(workflow);
+                            }}
+                          >
+                            {archivingWorkflowId === workflow.workflow_id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="size-4" />
+                            )}
+                          </Button>
+                        </div>
+                      }
+                      chevron
+                      onClick={() => {
+                        setSelectedId(workflow.workflow_id);
+                        setDetailOpen(true);
+                      }}
+                      voiceControlId={`one-kyc-workflow-${workflow.workflow_id}`}
+                    />
+                  ))
+                )}
+              </SettingsGroup>
+              {hasMoreWorkflows ? (
+                <div className="flex justify-center">
+                  <button
+                    type="button"
+                    className={cn(BTN_OUTLINE)}
+                    onClick={() => void loadMore()}
+                    disabled={loadingMore}
+                  >
+                    {loadingMore ? (
+                      <Loader2 className="size-4 animate-spin" />
+                    ) : (
+                      <RefreshCw className="size-4" />
+                    )}
+                    {loadingMore ? "Loading..." : "Load more"}
+                  </button>
+                </div>
+              ) : null}
+            </div>
+          )}
         </div>
 
         <SettingsDetailPanel
           open={detailOpen && Boolean(selected)}
           onOpenChange={setDetailOpen}
-          title={selected?.subject || "Email request"}
+          title={selected?.subject || "Information request"}
           description={
             selected?.counterparty_label ||
             selected?.sender_email ||
@@ -1784,7 +2070,7 @@ export function OneKycWorkspace({
         >
           {!selected ? null : (
             <div className="space-y-4">
-              <SettingsGroup embedded title="Email request">
+              <SettingsGroup embedded title="Information request">
                 <SettingsRow
                   icon={statusIcon(selected.status)}
                   title="Status"
@@ -1808,7 +2094,8 @@ export function OneKycWorkspace({
                   icon={ShieldCheck}
                   title="Information"
                   description={
-                    selectedScopeLabels(selected).join(", ") || "Information pending"
+                    selectedScopeLabels(selected).join(", ") ||
+                    "Information pending"
                   }
                 />
                 <SettingsRow
@@ -1828,8 +2115,8 @@ export function OneKycWorkspace({
                     ? selectedEffectiveRequiredFields
                     : ["selected information"]
                   ).map((field) => (
-                    <Badge key={field} variant="outline">
-                      {field.replaceAll("_", " ")}
+                    <Badge key={field} variant="outline" className="max-w-full">
+                      <span className="block truncate">{field.replaceAll("_", " ")}</span>
                     </Badge>
                   ))}
                 </div>
@@ -1840,81 +2127,101 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Sync required"
-                    description="Unlock completed. Sync this request so One can prepare access safely from your device."
+                    description="Sync to prepare access."
                   />
                 </SettingsGroup>
               ) : null}
 
-              {shouldShowProposal(selected) ? (() => {
-                const proposal = selected.metadata?.kyc_proposal;
-                if (!proposal) return null;
-                return (
-                  <SettingsGroup
-                    embedded
-                    title="What One will share"
-                    description={proposal.reasoning}
-                  >
-                    {proposal.requested_items.map((item) => {
-                      const checked = confirmSelection.includes(item.scope);
-                      return (
-                        <SettingsRow
-                          key={item.scope}
-                          icon={ShieldCheck}
-                          title={item.label}
-                          description={item.rationale}
-                          trailing={
-                            <button
-                              type="button"
-                              role="checkbox"
-                              aria-checked={checked}
-                              aria-label={`Select ${item.label}`}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                toggleConfirmScope(item.scope);
-                              }}
-                              className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
-                            >
-                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
-                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
-                              </span>
-                            </button>
-                          }
-                          onClick={() => toggleConfirmScope(item.scope)}
-                          stackTrailingOnMobile
-                        />
-                      );
-                    })}
-                    <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
-                      <button
-                        type="button"
-                        className={cn(BTN_PRIMARY)}
-                        onClick={() => void confirmProposal(selected)}
-                        disabled={Boolean(busy) || confirmSelection.length === 0}
+              {shouldShowProposal(selected)
+                ? (() => {
+                    const proposal = selected.metadata?.kyc_proposal;
+                    if (!proposal) return null;
+                    return (
+                      <SettingsGroup
+                        embedded
+                        title="What One will share"
+                        description={proposal.reasoning}
                       >
-                        {busy === "confirm-proposal" ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <ShieldCheck className="size-4" />
-                        )}
-                        {busy === "confirm-proposal" ? "Confirming..." : "Confirm"}
-                      </button>
-                      <button
-                        type="button"
-                        className={cn(BTN_OUTLINE)}
-                        onClick={() => setArchiveTarget(selected)}
-                        disabled={Boolean(archivingWorkflowId)}
-                      >
-                        {archivingWorkflowId === selected.workflow_id ? (
-                          <Loader2 className="size-4 animate-spin" />
-                        ) : (
-                          <XCircle className="size-4" />
-                        )}
-                        {archivingWorkflowId === selected.workflow_id ? "Removing..." : "Reject"}
-                      </button>
-                    </div>
-                  </SettingsGroup>
-                );
-              })() : null}
+                        {proposal.requested_items.map((item) => {
+                          const checked = confirmSelection.includes(item.scope);
+                          return (
+                            <SettingsRow
+                              key={item.scope}
+                              icon={ShieldCheck}
+                              title={item.label}
+                              description={item.rationale}
+                              trailing={
+                                <button
+                                  type="button"
+                                  role="checkbox"
+                                  aria-checked={checked}
+                                  aria-label={`Select ${item.label}`}
+                                  onClick={(event) => {
+                                    event.stopPropagation();
+                                    toggleConfirmScope(item.scope);
+                                  }}
+                                  className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
+                                >
+                                  <span
+                                    className={cn(
+                                      SELECT_CIRCLE_BASE,
+                                      checked
+                                        ? SELECT_CIRCLE_ON
+                                        : SELECT_CIRCLE_OFF,
+                                    )}
+                                  >
+                                    {checked ? (
+                                      <Check
+                                        className="h-3.5 w-3.5"
+                                        strokeWidth={3}
+                                      />
+                                    ) : null}
+                                  </span>
+                                </button>
+                              }
+                              onClick={() => toggleConfirmScope(item.scope)}
+                              stackTrailingOnMobile
+                            />
+                          );
+                        })}
+                        <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                          <button
+                            type="button"
+                            className={cn(BTN_PRIMARY)}
+                            onClick={() => void confirmProposal(selected)}
+                            disabled={
+                              Boolean(busy) || confirmSelection.length === 0
+                            }
+                          >
+                            {busy === "confirm-proposal" ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <ShieldCheck className="size-4" />
+                            )}
+                            {busy === "confirm-proposal"
+                              ? "Confirming..."
+                              : "Confirm"}
+                          </button>
+                          <button
+                            type="button"
+                            className={cn(BTN_OUTLINE)}
+                            onClick={() => setArchiveTarget(selected)}
+                            disabled={Boolean(archivingWorkflowId)}
+                          >
+                            {archivingWorkflowId === selected.workflow_id ? (
+                              <Loader2 className="size-4 animate-spin" />
+                            ) : (
+                              <XCircle className="size-4" />
+                            )}
+                            {archivingWorkflowId === selected.workflow_id
+                              ? "Removing..."
+                              : "Reject"}
+                          </button>
+                        </div>
+                      </SettingsGroup>
+                    );
+                  })()
+                : null}
 
               {shouldShowDataSelection(selected) ? (
                 <SettingsGroup
@@ -1923,7 +2230,7 @@ export function OneKycWorkspace({
                   description={
                     selectedAccessApproved
                       ? "Review the information for this reply. Change it if One picked the wrong section."
-                      : "One picked this from the email. Change it if the match looks wrong."
+                      : "One picked this from the request. Change it if the match looks wrong."
                   }
                 >
                   {selectedAccessApproved && !selectedScopeSelectionChanged ? (
@@ -1975,8 +2282,20 @@ export function OneKycWorkspace({
                               }}
                               className="flex items-center justify-center rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] focus-visible:ring-offset-1"
                             >
-                              <span className={cn(SELECT_CIRCLE_BASE, checked ? SELECT_CIRCLE_ON : SELECT_CIRCLE_OFF)}>
-                                {checked ? <Check className="h-3.5 w-3.5" strokeWidth={3} /> : null}
+                              <span
+                                className={cn(
+                                  SELECT_CIRCLE_BASE,
+                                  checked
+                                    ? SELECT_CIRCLE_ON
+                                    : SELECT_CIRCLE_OFF,
+                                )}
+                              >
+                                {checked ? (
+                                  <Check
+                                    className="h-3.5 w-3.5"
+                                    strokeWidth={3}
+                                  />
+                                ) : null}
                               </span>
                             </button>
                           </div>
@@ -1992,7 +2311,9 @@ export function OneKycWorkspace({
                         type="button"
                         className={cn(BTN_PRIMARY)}
                         onClick={() => void applyScopeSelection(selected)}
-                        disabled={Boolean(busy) || selectedScopeSelection.length === 0}
+                        disabled={
+                          Boolean(busy) || selectedScopeSelection.length === 0
+                        }
                       >
                         {busy === "refresh" ? (
                           <Loader2 className="size-4 animate-spin" />
@@ -2048,7 +2369,8 @@ export function OneKycWorkspace({
                           {busy === "consent-deny" ? "Denying..." : "Deny"}
                         </button>
                       </>
-                    ) : selectedAccessApproved && selected.status === "needs_scope" ? (
+                    ) : selectedAccessApproved &&
+                      selected.status === "needs_scope" ? (
                       <button
                         type="button"
                         className={cn(BTN_PRIMARY)}
@@ -2059,7 +2381,9 @@ export function OneKycWorkspace({
                       >
                         <RefreshCw
                           className={
-                            busy === "refresh" ? "size-4 animate-spin" : "size-4"
+                            busy === "refresh"
+                              ? "size-4 animate-spin"
+                              : "size-4"
                           }
                         />
                         {busy === "refresh" ? "Preparing..." : "Prepare draft"}
@@ -2118,7 +2442,7 @@ export function OneKycWorkspace({
                   <SettingsRow
                     icon={AlertTriangle}
                     title="Additional details needed"
-                    description="One needs additional approved details before it can prepare a complete reply."
+                    description="Approve more details to continue."
                   />
                 </SettingsGroup>
               ) : null}
@@ -2217,7 +2541,7 @@ export function OneKycWorkspace({
                 </SettingsGroup>
               ) : (
                 <SettingsGroup embedded title="Actions">
-                  <div className="flex flex-wrap gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)]">
+                  <div className="flex flex-col sm:flex-row gap-2 px-[var(--settings-row-px)] py-[var(--settings-row-py)] [&_button]:w-full sm:[&_button]:w-auto">
                     <button
                       type="button"
                       className={cn(BTN_OUTLINE)}
@@ -2268,7 +2592,6 @@ export function OneKycWorkspace({
                   </div>
                 </SettingsGroup>
               )}
-
             </div>
           )}
         </SettingsDetailPanel>
@@ -2283,8 +2606,8 @@ export function OneKycWorkspace({
             <AlertDialogHeader>
               <AlertDialogTitle>Remove this request?</AlertDialogTitle>
               <AlertDialogDescription>
-                This removes the request from your Email list. It does not
-                delete the original email or any saved data.
+                This removes the request from your KYC list. It does not delete
+                the source message or any saved information.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
@@ -2328,7 +2651,9 @@ export function OneKycWorkspace({
                 icon={RefreshCw}
                 title="Checking your vault"
                 description="Loading the saved values for this information section."
-                trailing={<Loader2 className="size-4 animate-spin text-muted-foreground" />}
+                trailing={
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                }
                 stackTrailingOnMobile
               />
             </SettingsGroup>
@@ -2356,8 +2681,12 @@ export function OneKycWorkspace({
         <SettingsDetailPanel
           open={aliasPanelOpen}
           onOpenChange={setAliasPanelOpen}
-          title="Verified emails"
-          description="Add addresses people already use so One can match requests without extra work."
+          title="Verified addresses"
+          description={
+            isPrivateRelay
+              ? "Apple Private Relay addresses cannot be used for verification."
+              : "Add addresses people already use so One can match requests without extra work."
+          }
         >
           <div className="space-y-4">
             <SettingsGroup embedded title="Ready to match">
@@ -2379,8 +2708,8 @@ export function OneKycWorkspace({
               ) : (
                 <SettingsRow
                   icon={MailPlus}
-                  title="No verified emails yet"
-                  description="Add the email address people already use for requests."
+                  title="No verified addresses yet"
+                  description="Add an address people already use for requests."
                 />
               )}
             </SettingsGroup>
@@ -2402,7 +2731,7 @@ export function OneKycWorkspace({
 
             <SettingsGroup
               embedded
-              title={aliasChallenge ? "Enter code" : "Add an email"}
+              title={aliasChallenge ? "Enter code" : "Add an address"}
               description={
                 aliasChallenge
                   ? `Use the code sent for ${aliasChallenge.email}.`
@@ -2457,7 +2786,7 @@ export function OneKycWorkspace({
                     ) : (
                       <BadgeCheck className="size-4" />
                     )}
-                    {busy === "alias" ? "Verifying..." : "Verify email"}
+                    {busy === "alias" ? "Verifying..." : "Verify address"}
                   </button>
                 </div>
               </div>
@@ -2515,7 +2844,8 @@ function buildSentReplySnapshot(
 ): KycWorkflowSentReplySnapshot {
   return {
     workflow_id: workflow.workflow_id,
-    subject: draft.subject || workflow.draft_subject || workflow.subject || null,
+    subject:
+      draft.subject || workflow.draft_subject || workflow.subject || null,
     body: draft.body,
     html_body: draft.htmlBody || null,
     to: replyThreadList(workflow, "reply_all_to").length
@@ -2547,7 +2877,9 @@ function workflowDraftAttemptKey(workflow: OneKycWorkflow): string {
   ].join(":");
 }
 
-function parseAttrScope(scope: string): { domain: string; topLevelScopePath: string | null } | null {
+function parseAttrScope(
+  scope: string,
+): { domain: string; topLevelScopePath: string | null } | null {
   const parts = scope
     .split(".")
     .map((part) => part.trim())
@@ -2578,7 +2910,10 @@ function oneKycErrorMessage(value: unknown, fallback: string): string {
   if (code === "ONE_KYC_EXPORT_SCOPE_MISMATCH") {
     return "One is refreshing the approved information for this request. Sync again in a moment.";
   }
-  if (code === "ONE_KYC_EXPORT_NOT_CURRENT" || code === "ONE_KYC_EXPORT_UNAVAILABLE") {
+  if (
+    code === "ONE_KYC_EXPORT_NOT_CURRENT" ||
+    code === "ONE_KYC_EXPORT_UNAVAILABLE"
+  ) {
     return "The approved information is still being prepared. Sync this request again in a moment.";
   }
   return value instanceof Error && value.message ? value.message : fallback;

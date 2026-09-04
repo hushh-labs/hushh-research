@@ -6,472 +6,88 @@ import { ConnectedSystemsService } from "@/lib/services/connected-systems-servic
 vi.mock("@/lib/services/connected-systems-service", () => ({
   ConnectedSystemsService: {
     listSystems: vi.fn(),
-    readRecord: vi.fn(),
+    getSchema: vi.fn(),
     getRecordBinding: vi.fn(),
     searchRecord: vi.fn(),
+    readRecord: vi.fn(),
+    createRecordIntent: vi.fn(),
     updateRecordIntent: vi.fn(),
+    createDeleteIntent: vi.fn(),
     approveIntent: vi.fn(),
   },
 }));
+
+function expectNoCrmTransport() {
+  expect(ConnectedSystemsService.listSystems).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.getSchema).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.getRecordBinding).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.readRecord).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.createRecordIntent).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.updateRecordIntent).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.createDeleteIntent).not.toHaveBeenCalled();
+  expect(ConnectedSystemsService.approveIntent).not.toHaveBeenCalled();
+}
 
 describe("runConnectedSystemDirective", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("reads a CRM record inline with profile email and phone", async () => {
-    vi.mocked(ConnectedSystemsService.readRecord).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      resultClass: "succeeded",
-      recordId: "003READ",
-      binding: {
-        systemId: "salesforce-fsc-customer0",
-        objectType: "Contact",
-        recordId: "003READ",
-        status: "active",
-      },
-      mcp: {
-        isError: false,
-        payload: {
-          Contact: [
-            {
-              Id: "003READ",
-              FirstName: "Kushal",
-              LastName: "Shah",
-              Email: "profile@example.com",
-              Phone: "+14155551212",
-              MailingCity: "Las Vegas",
-            },
-          ],
-        },
-      },
-    });
-
+  it("returns a reviewable lookup proposal without reading a CRM", async () => {
     const result = await runConnectedSystemDirective(
       {
         kind: "action",
         payload: {
           id: "call_read",
           type: "connected_system.crm.read",
-          slots: {
-            systemId: "salesforce-fsc-customer0",
-            objectType: "Contact",
-          },
+          slots: { systemId: "brand-one", objectType: "Person" },
         },
       },
       "HCT:test",
-      { email: "profile@example.com", phone: "+14155551212" }
+      { email: "profile@example.com", phone: "+14155551212" },
     );
 
-    expect(ConnectedSystemsService.readRecord).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        systemId: "salesforce-fsc-customer0",
-        objectType: "Contact",
-        email: "profile@example.com",
-        phone: "+14155551212",
-      })
-    );
     expect(result).toEqual(
       expect.objectContaining({
         delegate_agent_id: "agent_connected_systems",
         status: "completed",
-      })
+        detail: "No CRM record was read by the private agent.",
+      }),
     );
-    expect(result.display).toContain("CRM record found:");
-    expect(result.display).toContain("- Name: Kushal Shah");
-    expect(result.display).toContain("- City: Las Vegas");
+    expect(result.display).toContain("Review the proposed lookup");
+    expect(result.display).toContain("brand-one");
+    expectNoCrmTransport();
   });
 
-  it("lists CRM records across connected brands", async () => {
-    vi.mocked(ConnectedSystemsService.listSystems).mockResolvedValueOnce([
-      {
-        systemId: "brand-one",
-        displayName: "Brand One",
-        customerDisplayName: "Brand One",
-        status: "connected",
-        target: "One",
-        objectTypeDefault: "Contact",
-        transport: "external_crm_streamable_mcp",
-        supportedActions: { read: true },
-      },
-      {
-        systemId: "brand-two",
-        displayName: "Brand Two",
-        customerDisplayName: "Brand Two",
-        status: "connected",
-        target: "Two",
-        objectTypeDefault: "Contact",
-        transport: "external_crm_streamable_mcp",
-        supportedActions: { read: true },
-      },
-    ]);
-    vi.mocked(ConnectedSystemsService.readRecord)
-      .mockResolvedValueOnce({
-        systemId: "brand-one",
-        target: "One",
-        objectType: "Contact",
-        resultClass: "succeeded",
-        recordId: "003ONE",
-        mcp: {
-          isError: false,
-          payload: {
-            Contact: [
-              {
-                Id: "003ONE",
-                FirstName: "Abdul",
-                LastName: "Zalil",
-                Email: "abdul.zalil@gmail.com",
-                Phone: "4084690396",
-                MailingCity: "Las Vegas",
-              },
-            ],
-          },
-        },
-      })
-      .mockResolvedValueOnce({
-        systemId: "brand-two",
-        target: "Two",
-        objectType: "Contact",
-        resultClass: "succeeded",
-        recordId: "003TWO",
-        mcp: {
-          isError: false,
-          payload: {
-            Contact: [
-              {
-                Id: "003TWO",
-                FirstName: "Abdul",
-                LastName: "Zalil",
-                Email: "abdul.zalil@gmail.com",
-                Phone: "4084690396",
-                MailingCity: "Chicago",
-              },
-            ],
-          },
-        },
-      });
-
+  it("returns a field-diff proposal without creating or approving an intent", async () => {
     const result = await runConnectedSystemDirective(
       {
         kind: "action",
         payload: {
-          id: "call_read_all",
-          type: "connected_system.crm.read",
-          slots: {
-            scope: "all_connected_crm_systems",
-            objectType: "Contact",
-          },
-        },
-      },
-      "HCT:test",
-      { email: "abdul.zalil@gmail.com", phone: "4084690396" }
-    );
-
-    expect(ConnectedSystemsService.listSystems).toHaveBeenCalledWith("HCT:test");
-    expect(ConnectedSystemsService.readRecord).toHaveBeenCalledTimes(2);
-    expect(ConnectedSystemsService.readRecord).toHaveBeenNthCalledWith(
-      1,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-one" })
-    );
-    expect(ConnectedSystemsService.readRecord).toHaveBeenNthCalledWith(
-      2,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-two" })
-    );
-    expect(result.status).toBe("completed");
-    expect(result.display).toContain("Found records in 2 of 2 connected CRM brands.");
-    expect(result.display).toContain("**Brand One**");
-    expect(result.display).toContain("- Name: Abdul Zalil");
-    expect(result.display).toContain("- City: Las Vegas");
-    expect(result.display).toContain("**Brand Two**");
-    expect(result.display).toContain("- City: Chicago");
-  });
-
-  it("finds a CRM record by email and phone before approving an inline update", async () => {
-    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      status: "unbound",
-      binding: null,
-    });
-    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      resultClass: "succeeded",
-      recordId: null,
-      binding: {
-        systemId: "salesforce-fsc-customer0",
-        objectType: "Contact",
-        recordId: "003ABC",
-        status: "active",
-      },
-      mcp: { isError: false, payload: { Contact: [] } },
-    });
-    vi.mocked(ConnectedSystemsService.updateRecordIntent).mockResolvedValueOnce({
-      intentId: "intent_123",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "pending",
-      fieldNames: ["MailingCity"],
-    });
-    vi.mocked(ConnectedSystemsService.approveIntent).mockResolvedValueOnce({
-      intentId: "intent_123",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "succeeded",
-      fieldNames: ["MailingCity"],
-      recordId: "003ABC",
-    });
-
-    const result = await runConnectedSystemDirective(
-      {
-        kind: "action",
-        payload: {
-          id: "call_1",
+          id: "call_update",
           type: "connected_system.crm.update.propose",
           slots: {
-            systemId: "salesforce-fsc-customer0",
-            objectType: "Contact",
-            email: "kushal@example.com",
-            phone: "415-555-1212",
-            additionalFieldsJson: JSON.stringify({ MailingCity: "New York" }),
+            systemId: "brand-two",
+            additionalFieldsJson: JSON.stringify({ city: "New York" }),
           },
         },
       },
-      "HCT:test"
+      "HCT:test",
     );
 
-    expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        email: "kushal@example.com",
-        phone: "415-555-1212",
-      })
-    );
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        id: "003ABC",
-        additionalFields: { MailingCity: "New York" },
-      })
-    );
-    expect(ConnectedSystemsService.approveIntent).toHaveBeenCalledWith(
-      expect.objectContaining({
-        vaultOwnerToken: "HCT:test",
-        intentId: "intent_123",
-      })
-    );
     expect(result).toEqual(
       expect.objectContaining({
-        delegate_agent_id: "agent_connected_systems",
         status: "completed",
-      })
+        detail: "No CRM record was changed by the private agent.",
+      }),
     );
+    expect(result.display).toContain("proposed 1 field change");
+    expect(result.display).toContain("brand-two");
+    expectNoCrmTransport();
   });
 
-  it("uses profile lookup email and phone when slots do not include identity", async () => {
-    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      status: "unbound",
-      binding: null,
-    });
-    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      resultClass: "succeeded",
-      recordId: "003PROFILE",
-      mcp: { isError: false, payload: { Contact: [] } },
-    });
-    vi.mocked(ConnectedSystemsService.updateRecordIntent).mockResolvedValueOnce({
-      intentId: "intent_profile",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "pending",
-      fieldNames: ["MailingCity"],
-    });
-    vi.mocked(ConnectedSystemsService.approveIntent).mockResolvedValueOnce({
-      intentId: "intent_profile",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "succeeded",
-      fieldNames: ["MailingCity"],
-      recordId: "003PROFILE",
-    });
-
-    await runConnectedSystemDirective(
-      {
-        kind: "action",
-        payload: {
-          id: "call_profile",
-          type: "connected_system.crm.update.propose",
-          slots: {
-            systemId: "salesforce-fsc-customer0",
-            objectType: "Contact",
-            additionalFieldsJson: JSON.stringify({ MailingCity: "New York" }),
-          },
-        },
-      },
-      "HCT:test",
-      { email: "profile@example.com", phone: "+14155551212" }
-    );
-
-    expect(ConnectedSystemsService.searchRecord).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        email: "profile@example.com",
-        phone: "+14155551212",
-      })
-    );
-  });
-
-  it("uses the saved CRM binding before falling back to email and phone search", async () => {
-    vi.mocked(ConnectedSystemsService.getRecordBinding).mockResolvedValueOnce({
-      systemId: "salesforce-fsc-customer0",
-      target: "Macys",
-      objectType: "Contact",
-      status: "active",
-      binding: {
-        systemId: "salesforce-fsc-customer0",
-        objectType: "Contact",
-        recordId: "003BOUND",
-        status: "active",
-      },
-    });
-    vi.mocked(ConnectedSystemsService.updateRecordIntent).mockResolvedValueOnce({
-      intentId: "intent_bound",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "pending",
-      fieldNames: ["MailingCity"],
-    });
-    vi.mocked(ConnectedSystemsService.approveIntent).mockResolvedValueOnce({
-      intentId: "intent_bound",
-      systemId: "salesforce-fsc-customer0",
-      action: "update",
-      status: "succeeded",
-      fieldNames: ["MailingCity"],
-      recordId: "003BOUND",
-    });
-
-    await runConnectedSystemDirective(
-      {
-        kind: "action",
-        payload: {
-          id: "call_bound",
-          type: "connected_system.crm.update.propose",
-          slots: {
-            systemId: "salesforce-fsc-customer0",
-            objectType: "Contact",
-            additionalFieldsJson: JSON.stringify({ MailingCity: "New York" }),
-          },
-        },
-      },
-      "HCT:test",
-      { email: "profile@example.com", phone: "+14155551212" }
-    );
-
-    expect(ConnectedSystemsService.searchRecord).not.toHaveBeenCalled();
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledWith(
-      "HCT:test",
-      expect.objectContaining({
-        id: "003BOUND",
-      })
-    );
-  });
-
-  it("updates every connected CRM brand with per-brand lookup", async () => {
-    vi.mocked(ConnectedSystemsService.listSystems).mockResolvedValueOnce([
-      {
-        systemId: "brand-bound",
-        displayName: "Bound Brand",
-        customerDisplayName: "Bound Brand",
-        status: "connected",
-        target: "Bound",
-        objectTypeDefault: "Contact",
-        transport: "external_crm_streamable_mcp",
-        supportedActions: { update: true },
-      },
-      {
-        systemId: "brand-search",
-        displayName: "Search Brand",
-        customerDisplayName: "Search Brand",
-        status: "connected",
-        target: "Search",
-        objectTypeDefault: "Contact",
-        transport: "external_crm_streamable_mcp",
-        supportedActions: { update: true },
-      },
-    ]);
-    vi.mocked(ConnectedSystemsService.getRecordBinding)
-      .mockResolvedValueOnce({
-        systemId: "brand-bound",
-        target: "Bound",
-        objectType: "Contact",
-        status: "active",
-        binding: {
-          systemId: "brand-bound",
-          objectType: "Contact",
-          recordId: "003BOUND",
-          status: "active",
-        },
-      })
-      .mockResolvedValueOnce({
-        systemId: "brand-search",
-        target: "Search",
-        objectType: "Contact",
-        status: "unbound",
-        binding: null,
-      });
-    vi.mocked(ConnectedSystemsService.searchRecord).mockResolvedValueOnce({
-      systemId: "brand-search",
-      target: "Search",
-      objectType: "Contact",
-      resultClass: "succeeded",
-      recordId: "003SEARCH",
-      mcp: { isError: false, payload: { Contact: [] } },
-    });
-    vi.mocked(ConnectedSystemsService.updateRecordIntent)
-      .mockResolvedValueOnce({
-        intentId: "intent_bound",
-        systemId: "brand-bound",
-        action: "update",
-        status: "pending",
-        fieldNames: ["MailingCity"],
-      })
-      .mockResolvedValueOnce({
-        intentId: "intent_search",
-        systemId: "brand-search",
-        action: "update",
-        status: "pending",
-        fieldNames: ["MailingCity"],
-      });
-    vi.mocked(ConnectedSystemsService.approveIntent)
-      .mockResolvedValueOnce({
-        intentId: "intent_bound",
-        systemId: "brand-bound",
-        action: "update",
-        status: "succeeded",
-        fieldNames: ["MailingCity"],
-        recordId: "003BOUND",
-      })
-      .mockResolvedValueOnce({
-        intentId: "intent_search",
-        systemId: "brand-search",
-        action: "update",
-        status: "succeeded",
-        fieldNames: ["MailingCity"],
-        recordId: "003SEARCH",
-      });
-
+  it("never fans a proposal out when an all-systems scope is requested", async () => {
     const result = await runConnectedSystemDirective(
       {
         kind: "action",
@@ -480,30 +96,33 @@ describe("runConnectedSystemDirective", () => {
           type: "connected_system.crm.update.propose",
           slots: {
             scope: "all_connected_crm_systems",
-            objectType: "Contact",
-            additionalFieldsJson: JSON.stringify({ MailingCity: "New York" }),
+            additionalFieldsJson: JSON.stringify({ city: "New York" }),
           },
         },
       },
       "HCT:test",
-      { email: "profile@example.com", phone: "+14155551212" }
     );
 
-    expect(ConnectedSystemsService.listSystems).toHaveBeenCalledWith("HCT:test");
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenCalledTimes(2);
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenNthCalledWith(
-      1,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-bound", id: "003BOUND" })
-    );
-    expect(ConnectedSystemsService.updateRecordIntent).toHaveBeenNthCalledWith(
-      2,
-      "HCT:test",
-      expect.objectContaining({ systemId: "brand-search", id: "003SEARCH" })
-    );
     expect(result.status).toBe("completed");
-    expect(result.display).toContain("Updated 2 of 2 connected CRM brands.");
-    expect(result.display).toContain("Bound Brand: Updated.");
-    expect(result.display).toContain("Search Brand: Updated.");
+    expect(result.display).toContain("the selected CRM");
+    expectNoCrmTransport();
+  });
+
+  it("rejects an empty update proposal without calling a CRM", async () => {
+    const result = await runConnectedSystemDirective(
+      {
+        kind: "action",
+        payload: {
+          id: "call_empty",
+          type: "connected_system.crm.update.propose",
+          slots: { additionalFieldsJson: "{}" },
+        },
+      },
+      "HCT:test",
+    );
+
+    expect(result.status).toBe("failed");
+    expect(result.detail).toContain("at least one CRM field change");
+    expectNoCrmTransport();
   });
 });

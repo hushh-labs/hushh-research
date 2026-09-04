@@ -3,6 +3,7 @@ import { NextRequest } from "next/server";
 export const dynamic = "force-dynamic";
 
 import { getPythonApiUrl } from "@/app/api/_utils/backend";
+import { isLocalCrmProductAvailable } from "@/lib/connected-systems/crm-product-availability";
 import {
   createUpstreamHeaders,
   resolveRequestId,
@@ -25,8 +26,19 @@ export async function POST(
   return proxyRequest(request, params);
 }
 
+export async function DELETE(
+  request: NextRequest,
+  props: { params: Promise<{ path: string[] }> }
+) {
+  const params = await props.params;
+  return proxyRequest(request, params);
+}
+
 async function proxyRequest(request: NextRequest, params: { path: string[] }) {
   const requestId = resolveRequestId(request);
+  if (!isLocalCrmProductAvailable({ hostname: request.nextUrl.hostname })) {
+    return withRequestIdJson(requestId, { detail: "Not found" }, { status: 404 });
+  }
   const path = params.path.join("/");
   const queryString = request.nextUrl.search;
   const url = `${getPythonApiUrl()}/api/connected-systems/${path}${queryString}`;
@@ -41,7 +53,7 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
     if (consentHeader) headers.set("X-Hushh-Consent", consentHeader);
 
     let body: BodyInit | undefined;
-    if (request.method !== "GET") {
+    if (request.method === "POST") {
       headers.set("Content-Type", contentType.includes("application/json") ? contentType : "application/json");
       body = await request.text();
     }

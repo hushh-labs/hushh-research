@@ -43,7 +43,23 @@ if [ "$missing" -ne 0 ]; then
   exit 1
 fi
 
+CI_OFFLINE_DB_DIR=""
+if [ -z "${OFFLINE_DB_PATH:-}" ]; then
+  CI_OFFLINE_DB_DIR="$(mktemp -d "${TMPDIR:-/tmp}/hushh-protocol-ci.XXXXXX")"
+  OFFLINE_DB_PATH="$CI_OFFLINE_DB_DIR/protocol.db"
+fi
+
+cleanup_offline_db() {
+  if [ -n "$CI_OFFLINE_DB_DIR" ] && [ -d "$CI_OFFLINE_DB_DIR" ]; then
+    rm -rf "$CI_OFFLINE_DB_DIR"
+  fi
+}
+trap cleanup_offline_db EXIT
+
 TESTING="${TESTING:-true}" \
+GOOGLE_CLOUD_PROJECT="${GOOGLE_CLOUD_PROJECT:-hushh-ci-test}" \
+DB_OFFLINE="${DB_OFFLINE:-1}" \
+OFFLINE_DB_PATH="$OFFLINE_DB_PATH" \
 APP_SIGNING_KEY="${APP_SIGNING_KEY:-test_secret_key_for_ci_only_32chars_min}" \
 VAULT_DATA_KEY="${VAULT_DATA_KEY:-0000000000000000000000000000000000000000000000000000000000000000}" \
 HUSHH_DEVELOPER_TOKEN="${HUSHH_DEVELOPER_TOKEN:-test_hushh_developer_token_for_ci}" \

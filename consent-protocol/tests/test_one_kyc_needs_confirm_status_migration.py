@@ -50,3 +50,24 @@ def test_migration_095_is_in_release_manifest():
     manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
     assert _STATUS_MIGRATION in manifest["ordered_migrations"]
     assert _STATUS_MIGRATION in manifest["groups"]["iam"]
+
+
+def test_every_replayed_status_check_allows_needs_confirm():
+    # The release lane REPLAYS every migration in order on each deploy. Any file
+    # that (re)defines one_kyc_workflows_status_check must allow the full current
+    # status set — otherwise replaying it re-validates existing rows and fails
+    # once a newer status (e.g. needs_confirm) is in use, before a later
+    # migration can widen the constraint again. Regression guard for the UAT
+    # deploy break caused by migration 050 omitting 'needs_confirm'.
+    manifest = json.loads(MANIFEST_PATH.read_text(encoding="utf-8"))
+    offenders = []
+    for name in manifest["ordered_migrations"]:
+        values = _status_constraint_values(name)
+        if values is None:
+            continue
+        if "needs_confirm" not in values:
+            offenders.append(name)
+    assert not offenders, (
+        "these replayed migrations re-add one_kyc_workflows_status_check without "
+        f"'needs_confirm' and will break deploys: {offenders}"
+    )

@@ -69,8 +69,8 @@ const REQUIRED_CANONICAL_ROUTES = {
   HOME: "/",
   LOGIN: "/login",
   LOGOUT: "/logout",
-  PROFILE: "/profile",
-  CONSENTS: "/consents",
+  PROFILE: "/one/profile",
+  CONSENTS: "/one/consent",
   MARKETPLACE: "/marketplace",
   MARKETPLACE_RIA_PROFILE: "/marketplace/ria",
   RIA_HOME: "/ria",
@@ -78,15 +78,15 @@ const REQUIRED_CANONICAL_ROUTES = {
   RIA_CLIENTS: "/ria/clients",
   RIA_REQUESTS: "/ria/requests",
   RIA_SETTINGS: "/ria/settings",
-  KAI_HOME: "/one/kai",
+  KAI_HOME: "/one/kai?tab=market",
   ONE_SETUP: "/one/setup",
   ONE_SETUP_FINANCE: "/one/setup/finance",
   ONE_SETUP_KAI: "/one/setup/kai",
   KAI_SETUP: "/one/setup/finance",
   KAI_IMPORT: "/one/kai/import",
-  KAI_DASHBOARD: "/one/kai/portfolio",
-  KAI_ANALYSIS: "/one/kai/analysis",
-  KAI_OPTIMIZE: "/one/kai/optimize",
+  KAI_DASHBOARD: "/one/kai?tab=portfolio",
+  KAI_ANALYSIS: "/one/kai?tab=analysis",
+  KAI_OPTIMIZE_COMPAT: "/one/kai/optimize",
 };
 
 const REQUIRED_OPERATIONAL_MARKERS = [
@@ -490,9 +490,15 @@ function verifyDocPathReferences(files) {
 
 function parseRoutesContract() {
   const src = read("hushh-webapp/lib/navigation/routes.ts");
+  const financeBase =
+    src.match(/export const KAI_MARKET_PATH\s*=\s*"([^"]+)"/)?.[1] ||
+    "/one/kai";
   const routes = {};
   for (const match of src.matchAll(/\s+([A-Z_]+):\s*"([^"]+)"/g)) {
     routes[match[1]] = match[2];
+  }
+  for (const match of src.matchAll(/\s+([A-Z_]+):\s*buildKaiMarketRoute\("(market|portfolio|analysis)"\)/g)) {
+    routes[match[1]] = `${financeBase}?tab=${match[2]}`;
   }
   return routes;
 }

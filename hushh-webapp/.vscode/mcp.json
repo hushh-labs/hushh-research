@@ -5,21 +5,44 @@
       "type": "promptString",
       "description": "Hushh Wiki MCP bearer token (HCT:...)",
       "password": true
+    },
+    {
+      "id": "stitch-api-key",
+      "type": "promptString",
+      "description": "Google Stitch API key",
+      "password": true
+    },
+    {
+      "id": "hushh-consent-uat-token",
+      "type": "promptString",
+      "description": "Hussh Consent UAT MCP bearer token",
+      "password": true
     }
   ],
   "servers": {
     "shadcn": {
       "command": "npx",
-      "args": [
-        "shadcn@latest",
-        "mcp"
-      ]
+      "args": ["shadcn@latest", "mcp"]
     },
     "hushh-wiki": {
       "type": "http",
       "url": "https://mcp.hushh.ai/mcp",
       "headers": {
         "Authorization": "Bearer ${input:hushh-wiki-token}"
+      }
+    },
+    "stitch": {
+      "type": "http",
+      "url": "https://stitch.googleapis.com/mcp",
+      "headers": {
+        "X-Goog-Api-Key": "${input:stitch-api-key}"
+      }
+    },
+    "hushh-consent-uat": {
+      "type": "http",
+      "url": "https://api.uat.hushh.ai/mcp/",
+      "headers": {
+        "Authorization": "Bearer ${input:hushh-consent-uat-token}"
       }
     }
   }

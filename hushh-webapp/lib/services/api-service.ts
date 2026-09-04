@@ -21,12 +21,25 @@
  */
 
 import { Capacitor, CapacitorHttp } from "@capacitor/core";
-import { HushhVault, HushhAuth, HushhConsent, HushhNotifications } from "@/lib/capacitor";
-import { Kai, PORTFOLIO_STREAM_EVENT, KAI_STREAM_EVENT } from "@/lib/capacitor/kai";
+import {
+  HushhVault,
+  HushhAuth,
+  HushhConsent,
+  HushhNotifications,
+} from "@/lib/capacitor";
+import {
+  Kai,
+  PORTFOLIO_STREAM_EVENT,
+  KAI_STREAM_EVENT,
+} from "@/lib/capacitor/kai";
+import { isAnalyticsExemptRoute } from "@/lib/navigation/routes";
 import type { PortfolioSharePayload } from "@/lib/portfolio-share/contract";
-import { isKaiStreamEnvelope, type KaiStreamEnvelope } from "@/lib/streaming/kai-stream-types";
+import {
+  isKaiStreamEnvelope,
+  type KaiStreamEnvelope,
+} from "@/lib/streaming/kai-stream-types";
 import { AuthService } from "@/lib/services/auth-service";
-import type { AppRuntimeState, VoiceCapabilityResponse } from "@/lib/voice/voice-types";
+import type { AppRuntimeState } from "@/lib/voice/voice-types";
 import {
   toDurationBucket,
   trackApiRequestCompleted,
@@ -38,12 +51,14 @@ import {
   getOrCreateRequestTimestampMs,
   REQUEST_TIMESTAMP_HEADER,
 } from "@/lib/observability/request-id";
+import type {
+  ConsentPendingCountBucket,
+  ConsentPendingLoadSurface,
+} from "@/lib/observability/events";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import {
   resolveRuntimeBackendUrl,
-  resolveVoiceDirectBackendPreference,
-  resolveVoiceFailFastPolicy,
-  resolveVoiceForceProxyPreference,
+  resolveRuntimeFrontendUrl,
 } from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
 
@@ -60,7 +75,9 @@ const getEnvBackendUrl = (): string => {
   return resolveRuntimeBackendUrl();
 };
 
-function decodeJwtPayloadSegment(segment: string): Record<string, unknown> | null {
+function decodeJwtPayloadSegment(
+  segment: string,
+): Record<string, unknown> | null {
   const normalized = String(segment || "").trim();
   if (!normalized) {
     return null;
@@ -133,10 +150,18 @@ function isLocalNativeHost(host: string | null): boolean {
 
 function normalizeNativeBackendUrl(raw: string): string {
   const trimmed = raw.trim().replace(/\/$/, "");
-  if (Capacitor.getPlatform() !== "android") {
+  const platform = Capacitor.getPlatform();
+  const backendHost = hostFromUrl(trimmed);
+  // The iOS simulator prefers IPv6 for `localhost`. Our local FastAPI runtime
+  // intentionally binds IPv4 loopback, so direct WebView/Capacitor requests
+  // otherwise fail before setup can fetch its progress. Keep hosted and
+  // physical-device builds untouched; only the local loopback spelling changes.
+  if (platform === "ios" && backendHost === "localhost") {
+    return trimmed.replace("localhost", "127.0.0.1");
+  }
+  if (platform !== "android") {
     return trimmed;
   }
-  const backendHost = hostFromUrl(trimmed);
   if (backendHost === "localhost") {
     return trimmed.replace("localhost", "10.0.2.2");
   }
@@ -164,7 +189,7 @@ function detectHostedToLocalMismatch(apiBase: string): string | null {
 }
 
 function updateNativePortfolioImportDebug(
-  updates: Record<string, string | number | null | undefined>
+  updates: Record<string, string | number | null | undefined>,
 ): void {
   if (typeof window === "undefined") return;
   const bridge = window.__HUSHH_NATIVE_TEST__;
@@ -200,82 +225,95 @@ export const getDirectBackendUrl = (): string => {
   return getEnvBackendUrl();
 };
 
+// No production feature calls this legacy transport. The active One Live
+// session owns its authenticated WebSocket transport independently.
 type VoiceTransportMode = {
   mode: "nextjs_proxy" | "direct_backend";
-  reason:
-    | "native_platform"
-    | "missing_backend_url"
-    | "explicit_proxy"
-    | "explicit_direct"
-    | "dev_local_default_direct"
-    | "local_backend_default_direct"
-    | "same_origin_default_direct"
-    | "backend_url_default_direct"
-    | "proxy_default";
+  reason: "legacy_unreachable" | "missing_backend_url";
   backendUrl?: string;
 };
 
 function getVoiceTransportMode(): VoiceTransportMode {
-  if (Capacitor.isNativePlatform()) {
-    return { mode: "nextjs_proxy", reason: "native_platform" };
-  }
-  const backend = getEnvBackendUrl();
-  if (!backend) {
-    return { mode: "nextjs_proxy", reason: "missing_backend_url" };
-  }
-  const explicitProxy = resolveVoiceForceProxyPreference();
-  if (explicitProxy) {
-    return { mode: "nextjs_proxy", reason: "explicit_proxy", backendUrl: backend };
-  }
-  const explicitDirect = resolveVoiceDirectBackendPreference();
-  if (explicitDirect) {
-    return { mode: "direct_backend", reason: "explicit_direct", backendUrl: backend };
-  }
-  const backendHost = hostFromUrl(backend);
-  const isDev = process.env.NODE_ENV !== "production";
-  if (isLocalNativeHost(backendHost)) {
-    return {
-      mode: "direct_backend",
-      reason: isDev ? "dev_local_default_direct" : "local_backend_default_direct",
-      backendUrl: backend,
-    };
-  }
-  if (typeof window !== "undefined") {
-    const originHost = hostFromUrl(window.location.origin);
-    if (backendHost && originHost && backendHost === originHost) {
-      return { mode: "direct_backend", reason: "same_origin_default_direct", backendUrl: backend };
-    }
-  }
-  if (backendHost) {
-    return { mode: "direct_backend", reason: "backend_url_default_direct", backendUrl: backend };
-  }
-  return { mode: "nextjs_proxy", reason: "proxy_default", backendUrl: backend };
+  const backendUrl = getEnvBackendUrl();
+  return backendUrl
+    ? { mode: "direct_backend", reason: "legacy_unreachable", backendUrl }
+    : { mode: "nextjs_proxy", reason: "missing_backend_url" };
 }
 
 function isVoiceFailFastEnabled(): boolean {
-  return resolveVoiceFailFastPolicy();
+  return false;
 }
 
 function isVoiceDirectBackendRequired(): boolean {
-  if (Capacitor.isNativePlatform()) return false;
-  const explicitDirect = resolveVoiceDirectBackendPreference();
-  return explicitDirect || isVoiceFailFastEnabled();
+  return false;
 }
 
-function toResultFromStatus(status: number): "success" | "expected_error" | "error" {
+function toResultFromStatus(
+  status: number,
+): "success" | "expected_error" | "error" {
   if (status >= 200 && status < 400) return "success";
   if (status >= 400 && status < 500) return "expected_error";
   return "error";
 }
 
 function toStatusBucketFromStatus(
-  status: number
+  status: number,
 ): "2xx" | "3xx" | "4xx_expected" | "4xx_unexpected" | "5xx" | "network_error" {
   if (status >= 200 && status < 300) return "2xx";
   if (status >= 300 && status < 400) return "3xx";
   if (status >= 400 && status < 500) return "4xx_unexpected";
   if (status >= 500) return "5xx";
   return "network_error";
+}
+
+/**
+ * Bucketed so the Consent Center reports the shape of a queue, never a
+ * per-user request count.
+ *
+ * No exact non-zero label: `"1"` would state precisely that this person had one
+ * consent request waiting at that moment, which is a per-user fact about their
+ * consent activity in the same payload where the schema deliberately denylists
+ * request ids and requester names. Matches the house convention set by
+ * `toPkmFactCountBucket` and `contactCountBucket`, and the ranges do not
+ * overlap — 10 belongs to exactly one label.
+ */
+export function consentPendingCountBucket(
+  count: number,
+): ConsentPendingCountBucket {
+  if (count <= 0) return "0";
+  if (count <= 3) return "1_3";
+  if (count <= 10) return "4_10";
+  return "11_plus";
+}
+
+/**
+ * Reads how many consent requests came back, without disturbing the caller.
+ *
+ * Returns null — meaning "unknown", so the dimension is omitted — rather than
+ * a confident zero whenever we cannot actually see the queue. That covers a
+ * non-OK response, an unparseable body, and the API route's degraded fallback,
+ * which serves `{ pending: [], degraded: true }` with HTTP 200 when the backend
+ * is unreachable. Counting that as an empty inbox would make every outage look
+ * like "people opened a screen with nothing on it" — the precise misreading
+ * this dimension exists to prevent.
+ *
+ * Works on a clone: the body can be read only once, and a tracking call must
+ * never change what the caller receives.
+ */
+export async function readPendingConsentCount(
+  response: Response,
+): Promise<number | null> {
+  if (!response.ok) return null;
+  try {
+    const body = (await response.clone().json()) as {
+      pending?: unknown;
+      degraded?: unknown;
+    };
+    if (body?.degraded === true) return null;
+    return Array.isArray(body?.pending) ? body.pending.length : null;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -301,19 +339,32 @@ export class MarketInsightsEmptyError extends Error {
   }
 }
 
-export function isMarketInsightsEmptyError(error: unknown): error is MarketInsightsEmptyError {
+export class MarketNewsSnapshotChangedError extends Error {
+  readonly status = 409;
+
+  constructor() {
+    super("Market news refreshed. Start again to see the latest headlines.");
+    this.name = "MarketNewsSnapshotChangedError";
+  }
+}
+
+export function isMarketInsightsEmptyError(
+  error: unknown,
+): error is MarketInsightsEmptyError {
   return error instanceof MarketInsightsEmptyError;
 }
 
 async function classifyVaultOwnerAuthFailure(
-  response: Response
+  response: Response,
 ): Promise<VaultOwnerAuthFailure> {
   try {
     const contentType = response.headers.get("content-type") || "";
     if (contentType.includes("application/json")) {
-      const payload = (await response.json().catch(() => null)) as
-        | { error?: unknown; detail?: unknown; details?: unknown }
-        | null;
+      const payload = (await response.json().catch(() => null)) as {
+        error?: unknown;
+        detail?: unknown;
+        details?: unknown;
+      } | null;
       const reasonCandidates = [
         typeof payload?.error === "string" ? payload.error : null,
         typeof payload?.detail === "string" ? payload.detail : null,
@@ -351,16 +402,69 @@ async function classifyVaultOwnerAuthFailure(
  * Wrapped with API progress tracking so the route progress bar can reflect
  * real network activity across the app.
  */
+/**
+ * Ceiling for a browser `fetch`. Above the Next proxy's own 45s upstream
+ * timeout so the proxy's 504 still wins and `apiJsonWithRetry` keeps working —
+ * this only ever bounds a request the proxy itself could not bound.
+ */
+const WEB_FETCH_TIMEOUT_MS = 60_000;
+
+/**
+ * `fetch` has no default timeout. A request that never receives a response
+ * leaves its promise pending for as long as the tab lives, and every caller
+ * awaiting it spins with no error and no way back. The native branch of
+ * `apiFetch` bounds itself for exactly this reason; the web branch relied on
+ * the Next proxy, which bounds only ITS upstream call and cannot help when the
+ * proxy is the slow hop.
+ *
+ * Composed manually rather than with `AbortSignal.any`, which is not available
+ * in every WKWebView this app runs in.
+ */
+export async function fetchWithWebTimeout(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  const controller = new AbortController();
+  const callerSignal = init.signal ?? null;
+
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal) {
+    if (callerSignal.aborted) controller.abort(callerSignal.reason);
+    else callerSignal.addEventListener("abort", abortFromCaller, { once: true });
+  }
+
+  const timer = setTimeout(() => {
+    controller.abort(
+      new DOMException(
+        `Request timed out after ${WEB_FETCH_TIMEOUT_MS}ms`,
+        "TimeoutError",
+      ),
+    );
+  }, WEB_FETCH_TIMEOUT_MS);
+
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+    callerSignal?.removeEventListener("abort", abortFromCaller);
+  }
+}
+
 async function apiFetch(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
 ): Promise<Response> {
   const apiBase = getApiBaseUrl();
-  const url = `${apiBase}${path}`;
+  // An absolute path is already fully resolved. Native builds use this to reach
+  // a Next.js-only route on the web origin, which `apiBase` (the Python
+  // backend) does not host.
+  const url = /^https?:\/\//i.test(path) ? path : `${apiBase}${path}`;
   const requestStartedAt = Date.now();
   const httpMethod = (options.method || "GET").toUpperCase();
   const routeId =
-    typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
+    typeof window !== "undefined"
+      ? resolveRouteId(window.location.pathname)
+      : undefined;
   const requestId = getOrCreateRequestId(options.headers);
   const requestTimestampMs = getOrCreateRequestTimestampMs(options.headers);
 
@@ -390,9 +494,7 @@ async function apiFetch(
 
   const getAuthorizationBearer = () => {
     const authorization =
-      mergedHeaders.Authorization ||
-      mergedHeaders.authorization ||
-      "";
+      mergedHeaders.Authorization || mergedHeaders.authorization || "";
     return authorization.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : "";
@@ -410,7 +512,7 @@ async function apiFetch(
     window.dispatchEvent(
       new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
         detail: { reason, path },
-      })
+      }),
     );
   };
 
@@ -419,7 +521,7 @@ async function apiFetch(
     window.dispatchEvent(
       new CustomEvent(VAULT_LOCK_REQUESTED_EVENT, {
         detail: { reason, path },
-      })
+      }),
     );
   };
 
@@ -434,7 +536,7 @@ async function apiFetch(
     const failure = await classifyVaultOwnerAuthFailure(response.clone());
     if (failure.shouldLockVault) {
       dispatchVaultLockRequested(
-        failure.reason || "Vault access token is no longer valid"
+        failure.reason || "Vault access token is no longer valid",
       );
     }
   };
@@ -470,9 +572,14 @@ async function apiFetch(
     }
   };
 
-  const responseLooksLikeAuthServiceUnavailable = async (response: Response) => {
+  const responseLooksLikeAuthServiceUnavailable = async (
+    response: Response,
+  ) => {
     if (response.status !== 401 && response.status !== 503) return false;
-    const text = await response.clone().text().catch(() => "");
+    const text = await response
+      .clone()
+      .text()
+      .catch(() => "");
     const normalized = text.toLowerCase();
     return (
       normalized.includes("firebase validation unavailable") ||
@@ -483,6 +590,17 @@ async function apiFetch(
   };
 
   const recordApiRequestMetric = (statusCode: number | null) => {
+    // Analytics-exempt routes are exempt for every request they make, not just
+    // their page view. A Wallet Profile visitor is a stranger holding someone
+    // else's QR; ObservabilityRouteObserver already bails for them, and letting
+    // api_request_completed through here would put the scanned card's route id
+    // into the dataLayer anyway.
+    if (
+      typeof window !== "undefined" &&
+      isAnalyticsExemptRoute(window.location.pathname)
+    ) {
+      return;
+    }
     trackApiRequestCompleted({
       path,
       httpMethod,
@@ -509,7 +627,7 @@ async function apiFetch(
     if (Capacitor.isNativePlatform()) {
       if (!apiBase) {
         throw new Error(
-          `Native API base URL is missing for route ${path}. Configure NEXT_PUBLIC_BACKEND_URL for native builds.`
+          `Native API base URL is missing for route ${path}. Configure NEXT_PUBLIC_BACKEND_URL for native builds.`,
         );
       }
       const mismatchMessage = detectHostedToLocalMismatch(apiBase);
@@ -521,18 +639,37 @@ async function apiFetch(
       }
 
       const method = (options.method || "GET").toUpperCase();
+      // CapacitorHttp has no per-request AbortSignal or default timeout, so a
+      // slow backend hangs the native request indefinitely (the web path has
+      // its own ceiling — see fetchWithWebTimeout). Bound it explicitly: a
+      // generous ceiling for the RIA scrape routes, a tight one otherwise.
+      const isLongRunningRoute =
+        path.includes("/ria/onboarding/") ||
+        path.includes("/ria/profile/refresh-license");
+      // 90s ceiling for the RIA scrape routes; a generous 60s otherwise so we
+      // only ever bound a genuinely hung request (native calls were previously
+      // unbounded — keep legitimately-slow uploads/downloads working).
+      const readTimeoutMs = isLongRunningRoute ? 90_000 : 60_000;
       const request: {
         url: string;
         method: string;
         headers?: Record<string, string>;
         data?: unknown;
+        connectTimeout?: number;
+        readTimeout?: number;
       } = {
         url,
         method,
         headers: mergedHeaders,
+        connectTimeout: 15_000,
+        readTimeout: readTimeoutMs,
       };
 
-        if (options.body !== undefined && options.body !== null && method !== "GET") {
+      if (
+        options.body !== undefined &&
+        options.body !== null &&
+        method !== "GET"
+      ) {
         if (options.body instanceof FormData) {
           // Multipart uploads route through native plugins; keep fetch fallback for safety.
           const formResponse = await fetch(url, {
@@ -564,7 +701,9 @@ async function apiFetch(
         }
       }
 
-      const toResponse = (nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>) => {
+      const toResponse = (
+        nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>,
+      ) => {
         const responseHeaders = new Headers();
         Object.entries(nativeResponse.headers || {}).forEach(([key, value]) => {
           if (Array.isArray(value)) {
@@ -583,20 +722,55 @@ async function apiFetch(
         });
       };
 
-      const nativeResponse = await CapacitorHttp.request(request);
+      // Race the native request against the caller's AbortSignal so a client
+      // timeout (e.g. the 90s licence-verify abort) actually returns control —
+      // CapacitorHttp can't cancel, so the in-flight native request is abandoned.
+      // The abort listener is removed on completion (finally) so a request that
+      // wins the race doesn't leak a listener + closure on the signal.
+      const signal = options.signal;
+      let nativeResponse: Awaited<ReturnType<typeof CapacitorHttp.request>>;
+      if (signal) {
+        let onAbort: (() => void) | undefined;
+        const abortPromise = new Promise<never>((_, reject) => {
+          onAbort = () =>
+            reject(
+              new DOMException("The operation was aborted.", "AbortError"),
+            );
+          if (signal.aborted) {
+            onAbort();
+            return;
+          }
+          signal.addEventListener("abort", onAbort, { once: true });
+        });
+        try {
+          nativeResponse = await Promise.race([
+            CapacitorHttp.request(request),
+            abortPromise,
+          ]);
+        } finally {
+          if (onAbort) {
+            signal.removeEventListener("abort", onAbort);
+          }
+        }
+      } else {
+        nativeResponse = await CapacitorHttp.request(request);
+      }
       const response = toResponse(nativeResponse);
       await handleVaultOwnerAuthFailure(response);
       recordApiRequestMetric(response.status);
       return response;
     }
 
-    const response = await fetch(url, {
+    const response = await fetchWithWebTimeout(url, {
       ...options,
       credentials: "include",
       headers: mergedHeaders,
     });
     await handleVaultOwnerAuthFailure(response);
-    if (response.status === 401 && !(await responseLooksLikeAuthServiceUnavailable(response))) {
+    if (
+      response.status === 401 &&
+      !(await responseLooksLikeAuthServiceUnavailable(response))
+    ) {
       const retryResponse = await retryWithFreshFirebaseToken();
       if (retryResponse) {
         return retryResponse;
@@ -623,7 +797,7 @@ function emitVoiceTransportStage(
   turnId: string | undefined,
   stage: string,
   metadata: Record<string, unknown> = {},
-  options?: { finalize?: boolean }
+  options?: { finalize?: boolean },
 ): void {
   if (!turnId) return;
   const nowMs = performance.now();
@@ -635,7 +809,9 @@ function emitVoiceTransportStage(
     });
   }
   const current = voiceTransportTimingByTurn.get(turnId)!;
-  const sincePrevMs = existing ? Math.max(0, Math.round(nowMs - existing.lastStageMs)) : 0;
+  const sincePrevMs = existing
+    ? Math.max(0, Math.round(nowMs - existing.lastStageMs))
+    : 0;
   const sinceTurnStartMs = Math.max(0, Math.round(nowMs - current.turnStartMs));
   voiceTransportTimingByTurn.set(turnId, {
     turnStartMs: current.turnStartMs,
@@ -656,18 +832,26 @@ function emitVoiceTransportStage(
   }
 }
 
-async function voiceFetch(path: string, options: RequestInit = {}): Promise<Response> {
+async function voiceFetch(
+  path: string,
+  options: RequestInit = {},
+): Promise<Response> {
   const transport = getVoiceTransportMode();
   const directRequired = isVoiceDirectBackendRequired();
   const requestStartedAt = Date.now();
   const httpMethod = (options.method || "GET").toUpperCase();
   const routeId =
-    typeof window !== "undefined" ? resolveRouteId(window.location.pathname) : undefined;
+    typeof window !== "undefined"
+      ? resolveRouteId(window.location.pathname)
+      : undefined;
   const turnIdHeaderRaw =
     options.headers instanceof Headers
-      ? options.headers.get("X-Voice-Turn-Id") || options.headers.get("x-voice-turn-id")
+      ? options.headers.get("X-Voice-Turn-Id") ||
+        options.headers.get("x-voice-turn-id")
       : Array.isArray(options.headers)
-        ? options.headers.find(([key]) => String(key).toLowerCase() === "x-voice-turn-id")?.[1]
+        ? options.headers.find(
+            ([key]) => String(key).toLowerCase() === "x-voice-turn-id",
+          )?.[1]
         : options.headers && typeof options.headers === "object"
           ? (options.headers as Record<string, string>)["X-Voice-Turn-Id"] ||
             (options.headers as Record<string, string>)["x-voice-turn-id"]
@@ -675,13 +859,18 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
   const turnIdHeader = turnIdHeaderRaw || undefined;
   if (directRequired && transport.mode !== "direct_backend") {
     const reason = `VOICE_DIRECT_BACKEND_REQUIRED:${transport.reason}`;
-    emitVoiceTransportStage(turnIdHeader, "transport_config_invalid", {
-      route: path,
-      mode: transport.mode,
-      reason: transport.reason,
-      direct_required: true,
-      error: reason,
-    }, { finalize: true });
+    emitVoiceTransportStage(
+      turnIdHeader,
+      "transport_config_invalid",
+      {
+        route: path,
+        mode: transport.mode,
+        reason: transport.reason,
+        direct_required: true,
+        error: reason,
+      },
+      { finalize: true },
+    );
     throw new Error(reason);
   }
   if (transport.mode !== "direct_backend") {
@@ -692,7 +881,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
       direct_required: directRequired,
     });
     console.info(
-      `[VOICE_NET] transport=nextjs_proxy route=${path} reason=${transport.reason} turn_id=${turnIdHeader || "unknown"}`
+      `[VOICE_NET] transport=nextjs_proxy route=${path} reason=${transport.reason} turn_id=${turnIdHeader || "unknown"}`,
     );
     try {
       const response = await apiFetch(path, options);
@@ -704,7 +893,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
           mode: "nextjs_proxy",
           status: response.status,
         },
-        { finalize: true }
+        { finalize: true },
       );
       return response;
     } catch (error) {
@@ -717,7 +906,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
           status: 0,
           error: error instanceof Error ? error.message : String(error),
         },
-        { finalize: true }
+        { finalize: true },
       );
       throw error;
     }
@@ -762,7 +951,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
   };
 
   console.info(
-    `[VOICE_NET] transport=direct_backend route=${path} reason=${transport.reason} url=${url} turn_id=${turnIdHeader || "unknown"}`
+    `[VOICE_NET] transport=direct_backend route=${path} reason=${transport.reason} url=${url} turn_id=${turnIdHeader || "unknown"}`,
   );
   emitVoiceTransportStage(turnIdHeader, "transport_request_started", {
     route: path,
@@ -784,7 +973,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
         mode: "direct_backend",
         status: response.status,
       },
-      { finalize: true }
+      { finalize: true },
     );
     return response;
   } catch (error) {
@@ -801,7 +990,7 @@ async function voiceFetch(path: string, options: RequestInit = {}): Promise<Resp
         fail_fast_voice: isVoiceFailFastEnabled(),
         error: error instanceof Error ? error.message : String(error),
       },
-      { finalize: true }
+      { finalize: true },
     );
     throw error;
   }
@@ -912,7 +1101,13 @@ export interface KaiStockPreviewAdvisorSummary {
   avoid_count: number;
   screening_section_count: number;
   screening_row_count: number;
-  ticker_status: "included" | "excluded" | "screened" | "not_listed" | "pending" | "unavailable";
+  ticker_status:
+    | "included"
+    | "excluded"
+    | "screened"
+    | "not_listed"
+    | "pending"
+    | "unavailable";
   avoid_reason?: string | null;
   resolved_with_fallback: boolean;
 }
@@ -935,6 +1130,11 @@ export interface KaiHomeMover {
   source_tags: string[];
   degraded: boolean;
   as_of: string | null;
+  /**
+   * Optional real recent daily-close series (chronological). When absent
+   * the UI must not invent a chart shape.
+   */
+  sparkline?: number[] | null;
 }
 
 export interface KaiHomeMovers {
@@ -957,12 +1157,28 @@ export interface KaiHomeSectorItem {
 export interface KaiHomeNewsItem {
   symbol: string;
   title: string;
+  summary?: string | null;
   url: string;
   published_at: string;
   source_name: string;
   provider: string;
   sentiment_hint?: string | null;
   degraded: boolean;
+}
+
+export interface KaiMarketNewsPage {
+  items: KaiHomeNewsItem[];
+  next_cursor: string | null;
+  has_more: boolean;
+  snapshot_id: string;
+  generated_at: string;
+  stale: boolean;
+  cache: {
+    tier: "memory" | "postgres" | "live";
+    age_seconds: number;
+    hit: boolean;
+  };
+  provider_status: Record<string, string>;
 }
 
 export interface KaiHomeSignal {
@@ -1126,7 +1342,9 @@ export interface AccountPhoneTestStartResponse {
  * API Service for platform-aware API calls
  */
 export class ApiService {
-  private static appReviewModeSessionInflight: Promise<{ token: string }> | null = null;
+  private static appReviewModeSessionInflight: Promise<{
+    token: string;
+  }> | null = null;
 
   private static readonly dashboardProfilePicksInflight = new Map<
     string,
@@ -1138,16 +1356,22 @@ export class ApiService {
     symbols?: string[];
     limit?: number;
   }): string {
-    const symbolsKey = Array.isArray(data.symbols) && data.symbols.length > 0
-      ? [...data.symbols]
-          .map((symbol) => String(symbol || "").trim().toUpperCase())
-          .filter(Boolean)
-          .sort((a, b) => a.localeCompare(b))
-          .join(",")
-      : "default";
-    const limit = typeof data.limit === "number" && Number.isFinite(data.limit)
-      ? data.limit
-      : 3;
+    const symbolsKey =
+      Array.isArray(data.symbols) && data.symbols.length > 0
+        ? [...data.symbols]
+            .map((symbol) =>
+              String(symbol || "")
+                .trim()
+                .toUpperCase(),
+            )
+            .filter(Boolean)
+            .sort((a, b) => a.localeCompare(b))
+            .join(",")
+        : "default";
+    const limit =
+      typeof data.limit === "number" && Number.isFinite(data.limit)
+        ? data.limit
+        : 3;
     return `${data.userId}:${symbolsKey}:${limit}`;
   }
 
@@ -1155,27 +1379,31 @@ export class ApiService {
 
   /**
    * Get auth headers for API requests.
-   * 
+   *
    * SECURITY: Token must be passed explicitly from useVault() hook.
    * Never reads from sessionStorage (XSS protection).
-   * 
+   *
    * @param vaultOwnerToken - The VAULT_OWNER token (optional, for protected routes)
    * @returns HeadersInit object with Authorization header if token provided
    */
   static getAuthHeaders(vaultOwnerToken?: string): HeadersInit {
-    return vaultOwnerToken ? { Authorization: `Bearer ${vaultOwnerToken}` } : {};
+    return vaultOwnerToken
+      ? { Authorization: `Bearer ${vaultOwnerToken}` }
+      : {};
   }
 
   /**
    * Get the vault owner token.
-   * 
+   *
    * DEPRECATED: Use useVault() hook directly in components.
    * This method exists only for backward compatibility.
-   * 
+   *
    * @returns null - Token should be passed explicitly from useVault()
    */
   static getVaultOwnerToken(): string | null {
-    console.warn("[ApiService] getVaultOwnerToken() is deprecated. Use useVault() hook and pass token explicitly.");
+    console.warn(
+      "[ApiService] getVaultOwnerToken() is deprecated. Use useVault() hook and pass token explicitly.",
+    );
     return null;
   }
 
@@ -1185,7 +1413,7 @@ export class ApiService {
    */
   static async apiFetch(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<Response> {
     return apiFetch(path, options);
   }
@@ -1196,7 +1424,7 @@ export class ApiService {
    */
   static async apiFetchStream(
     path: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
   ): Promise<Response> {
     return apiFetch(path, {
       ...options,
@@ -1212,49 +1440,6 @@ export class ApiService {
    */
   static getDirectBackendUrl(): string {
     return getDirectBackendUrl();
-  }
-
-  static getVoiceTransportMode(): VoiceTransportMode {
-    return getVoiceTransportMode();
-  }
-
-  // ==================== Kai Voice ====================
-
-  static async planKaiVoiceIntent(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    transcript: string;
-    context?: Record<string, unknown>;
-    appState?: AppRuntimeState;
-    plannerV2?: {
-      turnId: string;
-      transcriptFinal: string;
-      structuredContext?: unknown;
-      memoryShort?: unknown[];
-      memoryRetrieved?: unknown[];
-    };
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/kai/voice/plan", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        transcript: data.transcript,
-        context: data.context || {},
-        app_state: data.appState,
-        turn_id: data.plannerV2?.turnId,
-        transcript_final: data.plannerV2?.transcriptFinal,
-        context_structured: data.plannerV2?.structuredContext,
-        memory_short: data.plannerV2?.memoryShort || [],
-        memory_retrieved: data.plannerV2?.memoryRetrieved || [],
-      }),
-      signal: data.signal,
-    });
   }
 
   static async composeKaiVoiceReply(data: {
@@ -1452,124 +1637,6 @@ export class ApiService {
     });
   }
 
-  static async synthesizeKaiVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    text: string;
-    voice?: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/kai/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        text: data.text,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async createKaiRealtimeSession(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    voice?: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/kai/voice/realtime/session", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async createOneVoiceSession(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    voice?: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/one/voice/session", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async getKaiVoiceCapability(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return voiceFetch("/api/kai/voice/capability", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-        ...(data.voiceTurnId ? { "X-Voice-Turn-Id": data.voiceTurnId } : {}),
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  static async getKaiVoiceCapabilityJson(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    voiceTurnId?: string;
-    signal?: AbortSignal;
-  }): Promise<VoiceCapabilityResponse> {
-    const response = await ApiService.getKaiVoiceCapability(data);
-    const payload = (await response.json().catch(() => ({}))) as Partial<VoiceCapabilityResponse>;
-    if (!response.ok) {
-      const detail =
-        typeof (payload as Record<string, unknown>).detail === "string"
-          ? String((payload as Record<string, unknown>).detail)
-          : `VOICE_CAPABILITY_HTTP_${response.status}`;
-      throw new Error(detail);
-    }
-    const enabled =
-      typeof payload.enabled === "boolean"
-        ? payload.enabled
-        : typeof payload.realtime_enabled === "boolean"
-          ? payload.realtime_enabled
-          : payload.voice_enabled === true;
-    const reason =
-      typeof payload.reason === "string"
-        ? payload.reason
-        : typeof payload.rollout_reason === "string"
-          ? payload.rollout_reason
-          : null;
-    return {
-      ...payload,
-      enabled,
-      reason,
-    };
-  }
-
   // ==================== App Config ====================
 
   /**
@@ -1598,13 +1665,114 @@ export class ApiService {
     }
   }
 
+  static async authorizeTrustedDevice(data: {
+    redirect_uri: string;
+    code_challenge: string;
+    code_challenge_method: string;
+    device_public_key: string;
+    device_name: string;
+    platform: string;
+    state: string;
+    replaces_device_id?: string;
+    vault_handoff_public_key?: string;
+  }): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch("/api/account/trusted-device-authorizations", {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${authToken}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
+    });
+  }
+
+  static async attachTrustedDeviceVaultHandoff(
+    authorizationId: string,
+    data: {
+      vault_handoff_wrapped_key: string;
+      vault_handoff_iv: string;
+      vault_handoff_tag: string;
+      vault_handoff_sender_public_key: string;
+      vault_handoff_alg: "X25519-AES256-GCM";
+      vault_handoff_vault_key_hash: string;
+      vault_handoff_wrapper_id: string;
+      vault_handoff_rp_id: string;
+    },
+  ): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch(
+      `/api/account/trusted-device-authorizations/${encodeURIComponent(authorizationId)}/vault-handoff`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${authToken}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(data),
+      },
+    );
+  }
+
+  static async listTrustedDevices(): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch("/api/account/trusted-devices", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${authToken}` },
+      cache: "no-store",
+    });
+  }
+
+  static async revokeTrustedDevice(deviceId: string): Promise<Response> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
+    }
+    return apiFetch(
+      `/api/account/trusted-devices/${encodeURIComponent(deviceId)}`,
+      {
+        method: "DELETE",
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+  }
+
   /**
    * Request a backend-minted Firebase custom token for reviewer login.
    * Only available when app-review mode is enabled server-side.
    */
   static async createAppReviewModeSession(
     subject: "reviewer" = "reviewer",
-    options?: { smokePassphrase?: string | null }
+    options?: { smokePassphrase?: string | null },
   ): Promise<{ token: string }> {
     if (this.appReviewModeSessionInflight) {
       return this.appReviewModeSessionInflight;
@@ -1620,7 +1788,8 @@ export class ApiService {
         body: JSON.stringify({
           subject,
           smoke_passphrase:
-            typeof options?.smokePassphrase === "string" && options.smokePassphrase.trim().length > 0
+            typeof options?.smokePassphrase === "string" &&
+            options.smokePassphrase.trim().length > 0
               ? options.smokePassphrase
               : undefined,
         }),
@@ -1674,15 +1843,59 @@ export class ApiService {
     });
   }
 
+  /**
+   * Ask the server to send a lifecycle mail through `hushh-mail-api`.
+   *
+   * Fire and forget by contract: the caller is a sign-in or a phone step, and
+   * neither may be delayed or failed by a mail. Every error resolves to `false`.
+   *
+   * `/api/auth/mail` is a Next.js route, so a native build — where `apiFetch`
+   * resolves against the Python backend — targets the web origin explicitly.
+   */
+  static async notifyAuthMail(
+    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    options?: {
+      phoneNumber?: string;
+      /** Currently connected capability ids; the server diffs these. */
+      capabilities?: string[];
+      /** Ids whose state was resolvable this pass. Absent ids are unknown, not absent. */
+      observed?: string[];
+      idToken?: string;
+    },
+  ): Promise<boolean> {
+    try {
+      const idToken = options?.idToken || (await this.getFirebaseToken());
+      if (!idToken) return false;
+
+      const origin = Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
+      const response = await apiFetch(`${origin}/api/auth/mail`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${idToken}` },
+        body: JSON.stringify({
+          event,
+          ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
+          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.observed ? { observed: options.observed } : {}),
+        }),
+      });
+      return response.ok;
+    } catch {
+      return false;
+    }
+  }
+
   static async refreshAccountIdentityShadow(
     idToken?: string,
-    options?: { force?: boolean }
+    options?: { force?: boolean },
   ): Promise<Response> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
-      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
-        status: 401,
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
     }
 
     const force = options?.force ?? true;
@@ -1698,9 +1911,73 @@ export class ApiService {
     });
   }
 
+  /**
+   * Upload a user-chosen profile picture (small square data-URL, produced by
+   * the client). Persists an app-owned avatar that survives Firebase syncs;
+   * the returned identity's `photo_url` is the effective (custom) photo.
+   */
+  static async uploadAvatar(
+    imageDataUrl: string,
+    idToken?: string,
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+      body: JSON.stringify({ image_data_url: imageDataUrl }),
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+      detail?: unknown;
+      error?: unknown;
+    };
+    if (!response.ok) {
+      const message =
+        typeof payload.detail === "string"
+          ? payload.detail
+          : typeof payload.error === "string"
+            ? payload.error
+            : `Avatar upload failed with HTTP ${response.status}`;
+      throw new Error(message);
+    }
+    return {
+      success: payload.success === true,
+      identity: payload.identity ?? null,
+    };
+  }
+
+  /** Remove the custom profile picture and revert to the Firebase photo. */
+  static async removeAvatar(
+    idToken?: string,
+  ): Promise<{ success: boolean; identity: AccountIdentity | null }> {
+    const firebaseIdToken = idToken || (await this.getFirebaseToken());
+    if (!firebaseIdToken) {
+      throw new Error("Missing Firebase ID token");
+    }
+    const response = await apiFetch("/api/account/avatar", {
+      method: "DELETE",
+      headers: { Authorization: `Bearer ${firebaseIdToken}` },
+    });
+    const payload = (await response.json().catch(() => ({}))) as {
+      success?: boolean;
+      identity?: AccountIdentity | null;
+    };
+    if (!response.ok) {
+      throw new Error(`Avatar removal failed with HTTP ${response.status}`);
+    }
+    return {
+      success: payload.success === true,
+      identity: payload.identity ?? null,
+    };
+  }
+
   static async claimAccountPhone(
     phoneIdToken: string,
-    idToken?: string
+    idToken?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const normalizedPhoneIdToken = String(phoneIdToken || "").trim();
     if (!normalizedPhoneIdToken) {
@@ -1722,7 +1999,10 @@ export class ApiService {
       }),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     if (!response.ok) {
       const detail = payload.detail;
       const message =
@@ -1743,7 +2023,7 @@ export class ApiService {
 
   static async startUatPhoneTestVerification(
     phoneNumber: string,
-    idToken?: string
+    idToken?: string,
   ): Promise<AccountPhoneTestStartResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1763,7 +2043,10 @@ export class ApiService {
         phone_number: phoneNumber,
       }),
     });
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
 
     if (!response.ok) {
       return {
@@ -1780,7 +2063,9 @@ export class ApiService {
       success: payload.success === true,
       eligible: payload.eligible === true,
       verification_id:
-        typeof payload.verification_id === "string" ? payload.verification_id : undefined,
+        typeof payload.verification_id === "string"
+          ? payload.verification_id
+          : undefined,
       reason: typeof payload.reason === "string" ? payload.reason : undefined,
     };
   }
@@ -1789,7 +2074,7 @@ export class ApiService {
     phoneNumber: string,
     verificationCode: string,
     verificationId: string,
-    idToken?: string
+    idToken?: string,
   ): Promise<AccountPhoneClaimResponse> {
     const firebaseIdToken = idToken || (await this.getFirebaseToken());
     if (!firebaseIdToken) {
@@ -1808,7 +2093,10 @@ export class ApiService {
       }),
     });
 
-    const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+    const payload = (await response.json().catch(() => ({}))) as Record<
+      string,
+      unknown
+    >;
     if (!response.ok) {
       const detail = payload.detail;
       const message =
@@ -1850,7 +2138,7 @@ export class ApiService {
     if (!firebaseIdToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
-        { status: 401 }
+        { status: 401 },
       );
     }
     return apiFetch("/api/consent/session-token", {
@@ -1905,7 +2193,7 @@ export class ApiService {
     if (!vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
+        { status: 401 },
       );
       trackEvent("consent_action_result", {
         action: "approve",
@@ -1938,7 +2226,9 @@ export class ApiService {
           vaultOwnerToken,
         });
 
-        const response = new Response(JSON.stringify({ success: true }), { status: 200 });
+        const response = new Response(JSON.stringify({ success: true }), {
+          status: 200,
+        });
         trackEvent("consent_action_result", {
           action: "approve",
           result: "success",
@@ -1947,7 +2237,11 @@ export class ApiService {
         return response;
       } catch (e) {
         console.error("[ApiService] Native approvePendingConsent error:", e);
-        const { message } = sanitizeErrorMessage(e, 500, "approvePendingConsent");
+        const { message } = sanitizeErrorMessage(
+          e,
+          500,
+          "approvePendingConsent",
+        );
         const response = new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
@@ -2011,7 +2305,7 @@ export class ApiService {
     if (!vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
+        { status: 401 },
       );
       trackEvent("consent_action_result", {
         action: "deny",
@@ -2031,7 +2325,9 @@ export class ApiService {
           vaultOwnerToken,
         });
 
-        const response = new Response(JSON.stringify({ success: true }), { status: 200 });
+        const response = new Response(JSON.stringify({ success: true }), {
+          status: 200,
+        });
         trackEvent("consent_action_result", {
           action: "deny",
           result: "success",
@@ -2076,6 +2372,7 @@ export class ApiService {
     token: string;
     userId: string;
     scope?: string;
+    requestId?: string;
   }): Promise<Response> {
     const vaultOwnerToken = data.token;
     trackEvent("consent_action_submitted", {
@@ -2085,7 +2382,7 @@ export class ApiService {
     if (!vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
+        { status: 401 },
       );
       trackEvent("consent_action_result", {
         action: "revoke",
@@ -2101,7 +2398,7 @@ export class ApiService {
     if (!rawScope) {
       const response = new Response(
         JSON.stringify({ error: "Missing required parameter: scope" }),
-        { status: 400, headers: { "Content-Type": "application/json" } }
+        { status: 400, headers: { "Content-Type": "application/json" } },
       );
       trackEvent("consent_action_result", {
         action: "revoke",
@@ -2122,16 +2419,17 @@ export class ApiService {
         const result = await HushhConsent.revokeConsent({
           userId: data.userId,
           scope: normalizedScope,
+          requestId: data.requestId,
           vaultOwnerToken,
         });
 
         // Pass through the lockVault flag from native plugin response
         const response = new Response(
-          JSON.stringify({ 
-            success: true, 
-            lockVault: result.lockVault ?? false 
-          }), 
-          { status: 200 }
+          JSON.stringify({
+            success: true,
+            lockVault: result.lockVault ?? false,
+          }),
+          { status: 200 },
         );
         trackEvent("consent_action_result", {
           action: "revoke",
@@ -2174,15 +2472,27 @@ export class ApiService {
    */
   static async getPendingConsents(
     userId: string,
-    vaultOwnerToken: string
+    vaultOwnerToken: string,
+    /**
+     * Which surface asked. This endpoint is called both when someone opens the
+     * Consent Center and, on every unlock, by the warm orchestrator. Without a
+     * way to tell them apart the pending-count dimension is dominated by
+     * background prefetches for a screen nobody looked at, and the question it
+     * was added to answer -- are people ignoring decisions, or opening an empty
+     * screen -- stays unanswerable.
+     */
+    options?: { loadSurface?: ConsentPendingLoadSurface },
   ): Promise<Response> {
+    const loadSurface: ConsentPendingLoadSurface =
+      options?.loadSurface ?? "screen";
     if (!vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
+        { status: 401 },
       );
       trackEvent("consent_pending_loaded", {
         result: "error",
+        load_surface: loadSurface,
       });
       return response;
     }
@@ -2193,12 +2503,24 @@ export class ApiService {
           userId,
           vaultOwnerToken,
         });
-        const response = new Response(JSON.stringify({ pending: consents || [] }), {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        });
+        const response = new Response(
+          JSON.stringify({ pending: consents || [] }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        );
         trackEvent("consent_pending_loaded", {
           result: "success",
+          // Omitted rather than reported as "0" when the plugin returns no
+          // array: an unreadable native response and a genuinely empty inbox
+          // must not share a bucket, or the two platforms are not comparable.
+          ...(Array.isArray(consents)
+            ? {
+                pending_count_bucket: consentPendingCountBucket(consents.length),
+              }
+            : {}),
+          load_surface: loadSurface,
         });
         return response;
       } catch (e) {
@@ -2209,6 +2531,7 @@ export class ApiService {
         });
         trackEvent("consent_pending_loaded", {
           result: "error",
+          load_surface: loadSurface,
         });
         return response;
       }
@@ -2219,10 +2542,17 @@ export class ApiService {
         headers: {
           Authorization: `Bearer ${vaultOwnerToken}`,
         },
-      }
+      },
     );
+    // Cloned so the count can be read without consuming the body the caller is
+    // about to read. A tracking call must never change what the caller receives.
+    const pendingCount = await readPendingConsentCount(response);
     trackEvent("consent_pending_loaded", {
       result: toResultFromStatus(response.status),
+      ...(pendingCount === null
+        ? {}
+        : { pending_count_bucket: consentPendingCountBucket(pendingCount) }),
+      load_surface: loadSurface,
     });
     return response;
   }
@@ -2263,7 +2593,7 @@ export class ApiService {
     userId: string,
     token: string,
     platform: "web" | "ios" | "android",
-    idToken: string
+    idToken: string,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2283,7 +2613,7 @@ export class ApiService {
         console.warn("[ApiService] Native registerPushToken error:", e);
         return new Response(
           JSON.stringify({ error: (e as Error).message || "Native error" }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
+          { status: 500, headers: { "Content-Type": "application/json" } },
         );
       }
     }
@@ -2307,7 +2637,7 @@ export class ApiService {
   static async unregisterPushToken(
     userId: string,
     idToken: string,
-    platform?: "web" | "ios" | "android"
+    platform?: "web" | "ios" | "android",
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2325,10 +2655,10 @@ export class ApiService {
       } catch (e) {
         console.warn("[ApiService] Native unregisterPushToken error:", e);
         const { message } = sanitizeErrorMessage(e, 500, "unregisterPushToken");
-        return new Response(
-          JSON.stringify({ error: message }),
-          { status: 500, headers: { "Content-Type": "application/json" } }
-        );
+        return new Response(JSON.stringify({ error: message }), {
+          status: 500,
+          headers: { "Content-Type": "application/json" },
+        });
       }
     }
     return apiFetch("/api/notifications/unregister", {
@@ -2349,13 +2679,12 @@ export class ApiService {
    */
   static async getActiveConsents(
     userId: string,
-    vaultOwnerToken: string
+    vaultOwnerToken: string,
   ): Promise<Response> {
     if (!vaultOwnerToken) {
-      return new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
-      );
+      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+        status: 401,
+      });
     }
 
     if (Capacitor.isNativePlatform()) {
@@ -2376,12 +2705,15 @@ export class ApiService {
         });
       }
     }
-    
-    return apiFetch(`/api/consent/active?userId=${encodeURIComponent(userId)}`, {
-      headers: {
-        Authorization: `Bearer ${vaultOwnerToken}`,
+
+    return apiFetch(
+      `/api/consent/active?userId=${encodeURIComponent(userId)}`,
+      {
+        headers: {
+          Authorization: `Bearer ${vaultOwnerToken}`,
+        },
       },
-    });
+    );
   }
 
   /**
@@ -2392,13 +2724,12 @@ export class ApiService {
     userId: string,
     vaultOwnerToken: string,
     page: number = 1,
-    limit: number = 50
+    limit: number = 50,
   ): Promise<Response> {
     if (!vaultOwnerToken) {
-      return new Response(
-        JSON.stringify({ error: "Vault must be unlocked" }),
-        { status: 401 }
-      );
+      return new Response(JSON.stringify({ error: "Vault must be unlocked" }), {
+        status: 401,
+      });
     }
 
     if (Capacitor.isNativePlatform()) {
@@ -2423,13 +2754,13 @@ export class ApiService {
     }
     return apiFetch(
       `/api/consent/history?userId=${encodeURIComponent(
-        userId
+        userId,
       )}&page=${page}&limit=${limit}`,
       {
         headers: {
           Authorization: `Bearer ${vaultOwnerToken}`,
         },
-      }
+      },
     );
   }
 
@@ -2499,7 +2830,7 @@ export class ApiService {
    */
   static async getVaultStatus(
     userId: string,
-    vaultOwnerToken: string
+    vaultOwnerToken: string,
   ): Promise<Response> {
     if (Capacitor.isNativePlatform()) {
       try {
@@ -2508,7 +2839,7 @@ export class ApiService {
         if (!authToken) {
           return new Response(
             JSON.stringify({ error: "Missing Firebase auth token" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -2524,9 +2855,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native getVaultStatus error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -2535,7 +2869,7 @@ export class ApiService {
     if (!firebaseIdToken) {
       return new Response(
         JSON.stringify({ error: "Missing Firebase ID token" }),
-        { status: 401 }
+        { status: 401 },
       );
     }
     return apiFetch("/api/vault/status", {
@@ -2577,7 +2911,7 @@ export class ApiService {
               tag: value.tag || "",
               consentToken: data.consentToken,
               authToken: authToken,
-            })
+            }),
           );
         }
 
@@ -2643,9 +2977,12 @@ export class ApiService {
 
     const authToken = await this.getFirebaseToken();
     if (!authToken) {
-      return new Response(JSON.stringify({ error: "Missing Firebase ID token" }), {
-        status: 401,
-      });
+      return new Response(
+        JSON.stringify({ error: "Missing Firebase ID token" }),
+        {
+          status: 401,
+        },
+      );
     }
 
     if (Capacitor.isNativePlatform()) {
@@ -2662,9 +2999,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native kaiGrantConsent error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -2705,9 +3045,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native kaiAnalyze error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -2762,9 +3105,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native sendKaiMessage error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -2782,76 +3128,6 @@ export class ApiService {
     });
   }
 
-  /**
-   * Stream a broad Agent text chat response.
-   *
-   * This is intentionally separate from Kai finance chat and the OpenAI realtime
-   * voice session. The backend uses Gemini and stores encrypted Agent history.
-   */
-  static async streamAgentChat(data: {
-    userId: string;
-    message: string;
-    conversationId?: string;
-    vaultOwnerToken: string;
-    pkmContext?: string;
-    screenContext?: Record<string, unknown> | null;
-    timezone?: string;
-    runtimeCredential?: string | null;
-    runtimeCredentialMode?: string | null;
-    delegateAgentId?: string | null;
-    delegateResult?: Record<string, unknown>;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return ApiService.apiFetchStream("/api/kai/agent/chat/stream", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        message: data.message,
-        conversation_id: data.conversationId,
-        pkm_context: data.pkmContext,
-        screen_context: data.screenContext || undefined,
-        timezone: data.timezone || undefined,
-        runtime_credential: data.runtimeCredential || undefined,
-        runtime_credential_mode: data.runtimeCredentialMode || undefined,
-        delegate_agent_id: data.delegateAgentId || undefined,
-        delegate_result: data.delegateResult || undefined,
-      }),
-      signal: data.signal,
-    });
-  }
-
-  /**
-   * Pre-vault informational/navigation-only One chat.
-   *
-   * This is the lower-privilege sibling of {@link streamAgentChat}. It powers
-   * the single agent bar before the vault is unlocked, including anonymous
-   * onboarding visitors. It never sends PKM or vault data, is not persisted,
-   * and the backend only forwards pure navigation actions. Firebase auth is
-   * attached when available (for per-user rate limiting); anonymous callers
-   * send no Authorization header, which the backend accepts on this route only.
-   */
-  static async streamAgentIntro(data: {
-    message: string;
-    screenContext?: Record<string, unknown> | null;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const firebaseIdToken = await this.getFirebaseToken();
-    return ApiService.apiFetchStream("/api/kai/agent/chat/intro/stream", {
-      method: "POST",
-      headers: firebaseIdToken
-        ? { Authorization: `Bearer ${firebaseIdToken}` }
-        : {},
-      body: JSON.stringify({
-        message: data.message,
-        screen_context: data.screenContext || undefined,
-      }),
-      signal: data.signal,
-    });
-  }
-
   static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
   }): Promise<{
@@ -2865,15 +3141,87 @@ export class ApiService {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        ...(firebaseIdToken ? { Authorization: `Bearer ${firebaseIdToken}` } : {}),
+        ...(firebaseIdToken
+          ? { Authorization: `Bearer ${firebaseIdToken}` }
+          : {}),
       },
       body: JSON.stringify({}),
       signal: data?.signal,
     });
     if (!response.ok) {
-      throw new Error(`One voice relay session failed: ${response.status}`);
+      const error = new Error(
+        `One voice relay session failed: ${response.status}`,
+      ) as Error & { status: number };
+      error.status = response.status;
+      throw error;
     }
     return response.json();
+  }
+
+  /**
+   * Prove a Gemini key can complete a bounded generation before encrypted
+   * vault storage. The key is request-bounded and never persisted by this API.
+   */
+  static async validateGeminiRuntimeCredential(input: {
+    credential: string;
+    transport: "developer_api" | "vertex_api_key";
+    vertexProject?: string | null;
+    vertexLocation?: string | null;
+  }): Promise<{
+    status: "ready";
+  }> {
+    const firebaseIdToken = await this.getFirebaseToken();
+    const response = await ApiService.apiFetch(
+      "/api/one/runtime/gemini/validate",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(firebaseIdToken
+            ? { Authorization: `Bearer ${firebaseIdToken}` }
+            : {}),
+        },
+        body: JSON.stringify({
+          credential: input.credential,
+          transport: input.transport,
+          vertex_project: input.vertexProject || undefined,
+          vertex_location: input.vertexLocation || undefined,
+        }),
+      },
+    );
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => null)) as {
+        detail?: { status?: string };
+      } | null;
+      const status = payload?.detail?.status;
+      if (status === "invalid_key") {
+        throw new Error("Gemini could not accept that API key.");
+      }
+      if (status === "quota_exhausted") {
+        throw new Error(
+          "This Gemini key has no available quota or is currently rate limited.",
+        );
+      }
+      if (status === "billing_required") {
+        throw new Error("This Gemini key needs an active billing setup.");
+      }
+      if (status === "invalid_vertex_configuration") {
+        throw new Error(
+          "Check the Google Cloud project ID and Vertex location.",
+        );
+      }
+      if (status === "permission_denied") {
+        throw new Error("This Google account needs Vertex AI User access for that project.");
+      }
+      if (status === "api_not_enabled") {
+        throw new Error("Enable the Vertex AI API in this Google Cloud project, then try again.");
+      }
+      if (status === "unsupported_model") {
+        throw new Error("This Gemini key cannot access the model One uses.");
+      }
+      throw new Error("Gemini could not be reached to validate this key.");
+    }
+    return response.json() as Promise<{ status: "ready" }>;
   }
 
   /**
@@ -2888,65 +3236,22 @@ export class ApiService {
    * only that ticket, never the Firebase bearer. App context (screen, consent
    * token) rides in post-connect app_context frames.
    */
-  static async getOneAdkLiveRelayUrl(data?: { signal?: AbortSignal }): Promise<string> {
+  static async getOneAdkLiveRelayUrl(data?: {
+    signal?: AbortSignal;
+  }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     // Apply the same Android-emulator localhost rewrite the HTTP layer uses.
     // Without it, the ticket mint succeeds (CapacitorHttp normalizes) while
     // the WS connect to ws://localhost fails inside the emulator.
     const normalizedBackend = backend ? normalizeNativeBackendUrl(backend) : "";
     const base =
-      normalizedBackend || (typeof window !== "undefined" ? window.location.origin : "");
+      normalizedBackend ||
+      (typeof window !== "undefined" ? window.location.origin : "");
     const wsBase = base.replace(/^http/i, "ws");
     const url = new URL(`${wsBase}/api/one/adk/live`);
     const relaySession = await this.createOneAdkRelaySession(data);
     url.searchParams.set("relay_ticket", relaySession.relay_ticket);
     return url.toString();
-  }
-
-  static async transcribeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    audio: Blob;
-    filename?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    const formData = new FormData();
-    formData.set("user_id", data.userId);
-    formData.set(
-      "audio",
-      data.audio,
-      data.filename || "agent-voice-utterance.webm"
-    );
-
-    return apiFetch("/api/kai/agent/voice/stt", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: formData,
-      signal: data.signal,
-    });
-  }
-
-  static async synthesizeAgentVoice(data: {
-    userId: string;
-    vaultOwnerToken: string;
-    text: string;
-    voice?: string;
-    signal?: AbortSignal;
-  }): Promise<Response> {
-    return apiFetch("/api/kai/agent/voice/tts", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
-      },
-      body: JSON.stringify({
-        user_id: data.userId,
-        text: data.text,
-        voice: data.voice,
-      }),
-      signal: data.signal,
-    });
   }
 
   static async listAgentChatConversations(data: {
@@ -2958,13 +3263,13 @@ export class ApiService {
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.userId)}${suffix}`,
       {
         method: "GET",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
         },
-      }
+      },
     );
   }
 
@@ -2977,13 +3282,13 @@ export class ApiService {
     if (data.limit) query.set("limit", String(data.limit));
     const suffix = query.toString() ? `?${query.toString()}` : "";
     return apiFetch(
-      `/api/kai/agent/chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
+      `/api/one/agent-chat/history/${encodeURIComponent(data.conversationId)}${suffix}`,
       {
         method: "GET",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
         },
-      }
+      },
     );
   }
 
@@ -2993,14 +3298,14 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
         },
         body: JSON.stringify({ title: data.title }),
-      }
+      },
     );
   }
 
@@ -3009,13 +3314,13 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     return apiFetch(
-      `/api/kai/agent/chat/conversations/${encodeURIComponent(data.conversationId)}`,
+      `/api/one/agent-chat/conversations/${encodeURIComponent(data.conversationId)}`,
       {
         method: "DELETE",
         headers: {
           Authorization: `Bearer ${data.vaultOwnerToken}`,
         },
-      }
+      },
     );
   }
 
@@ -3049,7 +3354,7 @@ export class ApiService {
         if (!file || !userId) {
           return new Response(
             JSON.stringify({ error: "Missing file or user_id in formData" }),
-            { status: 400 }
+            { status: 400 },
           );
         }
         const fileBase64 = await this.fileToBase64(file);
@@ -3074,23 +3379,25 @@ export class ApiService {
             };
             const toSafeStreamError = (error: unknown): Error => {
               const raw =
-                error instanceof Error ? String(error.message || "") : String(error || "");
+                error instanceof Error
+                  ? String(error.message || "")
+                  : String(error || "");
               if (
                 /native import stream ended without terminal event|stream ended without terminal event/i.test(
-                  raw
+                  raw,
                 )
               ) {
                 return new Error(
-                  "We could not finish importing this statement. Please retry."
+                  "We could not finish importing this statement. Please retry.",
                 );
               }
               if (
                 /network connection was lost|stream error|failed to fetch|network error/i.test(
-                  raw
+                  raw,
                 )
               ) {
                 return new Error(
-                  "Connection was interrupted while importing. Reopen import to continue."
+                  "Connection was interrupted while importing. Reopen import to continue.",
                 );
               }
               return error instanceof Error ? error : new Error(String(error));
@@ -3106,7 +3413,9 @@ export class ApiService {
             };
 
             try {
-              params.signal?.addEventListener("abort", handleAbort, { once: true });
+              params.signal?.addEventListener("abort", handleAbort, {
+                once: true,
+              });
               listener = await Kai.addListener(
                 PORTFOLIO_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -3125,7 +3434,9 @@ export class ApiService {
                     return;
                   }
                   const nativeBridge =
-                    typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                    typeof window !== "undefined"
+                      ? window.__HUSHH_NATIVE_TEST__
+                      : undefined;
                   if (nativeBridge?.enabled) {
                     nativeBridge.portfolioStreamEventCount =
                       (nativeBridge.portfolioStreamEventCount || 0) + 1;
@@ -3136,14 +3447,14 @@ export class ApiService {
 
                   controller.enqueue(
                     encoder.encode(
-                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                    )
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`,
+                    ),
                   );
 
                   if (envelope.terminal) {
                     sawTerminalEvent = true;
                   }
-                }
+                },
               );
 
               await Kai.streamPortfolioImport({
@@ -3155,9 +3466,13 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                const error = new Error("Native import stream ended without terminal event");
+                const error = new Error(
+                  "Native import stream ended without terminal event",
+                );
                 const nativeBridge =
-                  typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                  typeof window !== "undefined"
+                    ? window.__HUSHH_NATIVE_TEST__
+                    : undefined;
                 if (nativeBridge?.enabled) {
                   nativeBridge.portfolioStreamLastError = error.message;
                 }
@@ -3167,7 +3482,9 @@ export class ApiService {
               close();
             } catch (error) {
               const nativeBridge =
-                typeof window !== "undefined" ? window.__HUSHH_NATIVE_TEST__ : undefined;
+                typeof window !== "undefined"
+                  ? window.__HUSHH_NATIVE_TEST__
+                  : undefined;
               if (nativeBridge?.enabled) {
                 nativeBridge.portfolioStreamLastError =
                   error instanceof Error ? error.message : String(error);
@@ -3183,7 +3500,10 @@ export class ApiService {
           headers: { "Content-Type": "text/event-stream" },
         });
       } catch (error) {
-        console.error("[ApiService] Native importPortfolioStream error:", error);
+        console.error(
+          "[ApiService] Native importPortfolioStream error:",
+          error,
+        );
         throw error;
       }
     }
@@ -3253,7 +3573,8 @@ export class ApiService {
     } catch (error) {
       updateNativePortfolioImportDebug({
         portfolioImportStartState: "error",
-        portfolioImportStartError: error instanceof Error ? error.message : String(error),
+        portfolioImportStartError:
+          error instanceof Error ? error.message : String(error),
       });
       throw error;
     }
@@ -3264,12 +3585,15 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     const query = new URLSearchParams({ user_id: params.userId });
-    return apiFetch(`/api/kai/portfolio/import/run/active?${query.toString()}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${params.vaultOwnerToken}`,
+    return apiFetch(
+      `/api/kai/portfolio/import/run/active?${query.toString()}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${params.vaultOwnerToken}`,
+        },
       },
-    });
+    );
   }
 
   static async streamPortfolioImportRun(params: {
@@ -3297,7 +3621,7 @@ export class ApiService {
           });
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -3325,7 +3649,7 @@ export class ApiService {
               closed = true;
               cleanup();
               controller.error(
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             };
             const handleAbort = () => {
@@ -3337,7 +3661,9 @@ export class ApiService {
             };
 
             try {
-              params.signal?.addEventListener("abort", handleAbort, { once: true });
+              params.signal?.addEventListener("abort", handleAbort, {
+                once: true,
+              });
               updateNativePortfolioImportDebug({
                 portfolioStreamState: "attaching_listener",
               });
@@ -3362,7 +3688,8 @@ export class ApiService {
                     portfolioStreamState: "event_received",
                     portfolioStreamEventCount:
                       ((typeof window !== "undefined" &&
-                        window.__HUSHH_NATIVE_TEST__?.portfolioStreamEventCount) ||
+                        window.__HUSHH_NATIVE_TEST__
+                          ?.portfolioStreamEventCount) ||
                         0) + 1,
                     portfolioStreamLastEvent: envelope.event,
                     portfolioStreamLastSeq: String(envelope.seq),
@@ -3371,8 +3698,8 @@ export class ApiService {
 
                   controller.enqueue(
                     encoder.encode(
-                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                    )
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`,
+                    ),
                   );
 
                   if (envelope.terminal) {
@@ -3381,7 +3708,7 @@ export class ApiService {
                       portfolioStreamState: "terminal_seen",
                     });
                   }
-                }
+                },
               );
               updateNativePortfolioImportDebug({
                 portfolioStreamState: "listener_attached",
@@ -3402,7 +3729,7 @@ export class ApiService {
 
               if (!sawTerminalEvent) {
                 const error = new Error(
-                  "We could not finish importing this statement. Please retry."
+                  "We could not finish importing this statement. Please retry.",
                 );
                 updateNativePortfolioImportDebug({
                   portfolioStreamState: "missing_terminal",
@@ -3418,7 +3745,8 @@ export class ApiService {
             } catch (error) {
               updateNativePortfolioImportDebug({
                 portfolioStreamState: "error",
-                portfolioStreamLastError: error instanceof Error ? error.message : String(error),
+                portfolioStreamLastError:
+                  error instanceof Error ? error.message : String(error),
               });
               fail(error);
             } finally {
@@ -3432,14 +3760,20 @@ export class ApiService {
           headers: { "Content-Type": "text/event-stream" },
         });
       } catch (error) {
-        console.error("[ApiService] Native streamPortfolioImportRun error:", error);
+        console.error(
+          "[ApiService] Native streamPortfolioImportRun error:",
+          error,
+        );
         updateNativePortfolioImportDebug({
           portfolioStreamState: "response_error",
           portfolioStreamLastError: (error as Error).message,
         });
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -3456,7 +3790,7 @@ export class ApiService {
           Accept: "text/event-stream",
         },
         signal: params.signal,
-      }
+      },
     );
   }
 
@@ -3473,7 +3807,7 @@ export class ApiService {
         headers: {
           Authorization: `Bearer ${params.vaultOwnerToken}`,
         },
-      }
+      },
     );
   }
 
@@ -3500,7 +3834,7 @@ export class ApiService {
     if (!data.vaultOwnerToken) {
       const response = new Response(
         JSON.stringify({ error: "Vault must be unlocked to import portfolio" }),
-        { status: 401 }
+        { status: 401 },
       );
       trackEvent("import_quality_gate_failed", {
         result: "error",
@@ -3547,7 +3881,7 @@ export class ApiService {
           success: false,
           error: message,
         }),
-        { status: 500 }
+        { status: 500 },
       );
       trackEvent("import_parse_completed", {
         result: "error",
@@ -3632,7 +3966,9 @@ export class ApiService {
       if (response.status === 404) {
         throw new MarketInsightsEmptyError();
       }
-      throw new Error(`Failed to load baseline market insights: ${response.status}`);
+      throw new Error(
+        `Failed to load baseline market insights: ${response.status}`,
+      );
     }
     return (await response.json()) as KaiHomeInsightsV2;
   }
@@ -3688,6 +4024,77 @@ export class ApiService {
     return (await response.json()) as KaiHomeInsightsV2;
   }
 
+  /**
+   * Read one page from the shared, public baseline market-news snapshot.
+   * The backend performs cursor slicing after the cached provider bundle is
+   * resolved, so paging cannot multiply provider requests.
+   */
+  static async getKaiMarketNewsBaseline(data: {
+    userId: string;
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const authToken = await this.getFirebaseToken();
+    if (!authToken) {
+      throw new Error("Missing Firebase ID token for market news");
+    }
+    const query = new URLSearchParams();
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number")
+      query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(
+      `/api/kai/market/news/baseline/${data.userId}${suffix}`,
+      {
+        method: "GET",
+        signal: data.signal,
+        headers: { Authorization: `Bearer ${authToken}` },
+      },
+    );
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
+  }
+
+  /** Read one vault-owner-scoped page from the selected market-news snapshot. */
+  static async getKaiMarketNews(data: {
+    userId: string;
+    vaultOwnerToken: string;
+    symbols?: string[];
+    cursor?: string | null;
+    limit?: number;
+    daysBack?: number;
+    signal?: AbortSignal;
+  }): Promise<KaiMarketNewsPage> {
+    const query = new URLSearchParams();
+    if (Array.isArray(data.symbols) && data.symbols.length > 0) {
+      query.set("symbols", data.symbols.join(","));
+    }
+    if (data.cursor) query.set("cursor", data.cursor);
+    if (typeof data.limit === "number") query.set("limit", String(data.limit));
+    if (typeof data.daysBack === "number")
+      query.set("days_back", String(data.daysBack));
+    const suffix = query.toString() ? `?${query.toString()}` : "";
+    const response = await apiFetch(
+      `/api/kai/market/news/${data.userId}${suffix}`,
+      {
+        method: "GET",
+        signal: data.signal,
+        headers: { Authorization: `Bearer ${data.vaultOwnerToken}` },
+      },
+    );
+    if (response.status === 409) throw new MarketNewsSnapshotChangedError();
+    if (!response.ok) {
+      throw new Error(`Failed to load market news: ${response.status}`);
+    }
+    return (await response.json()) as KaiMarketNewsPage;
+  }
+
   static async getKaiStockPreview(data: {
     userId: string;
     symbol: string;
@@ -3701,13 +4108,16 @@ export class ApiService {
     if (typeof data.pickSource === "string" && data.pickSource.trim()) {
       query.set("pick_source", data.pickSource.trim());
     }
-    const response = await apiFetch(`/api/kai/stock-preview/${data.userId}?${query.toString()}`, {
-      method: "GET",
-      signal: data.signal,
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
+    const response = await apiFetch(
+      `/api/kai/stock-preview/${data.userId}?${query.toString()}`,
+      {
+        method: "GET",
+        signal: data.signal,
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
       },
-    });
+    );
     if (!response.ok) {
       throw new Error(`Failed to load stock preview: ${response.status}`);
     }
@@ -3851,8 +4261,15 @@ export class ApiService {
           headers: { "Content-Type": "application/json" },
         });
       } catch (error) {
-        console.error("[ApiService] Native analyzePortfolioLosers error:", error);
-        const { message } = sanitizeErrorMessage(error, 500, "analyzePortfolioLosers");
+        console.error(
+          "[ApiService] Native analyzePortfolioLosers error:",
+          error,
+        );
+        const { message } = sanitizeErrorMessage(
+          error,
+          500,
+          "analyzePortfolioLosers",
+        );
         return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
@@ -3870,14 +4287,14 @@ export class ApiService {
 
   /**
    * Streaming version of portfolio losers analysis with AI reasoning.
-   * 
+   *
    * Returns a Response with SSE stream that emits:
    * - 'stage' events: Current processing stage
    * - 'thinking' events: AI reasoning/thought summaries
    * - 'chunk' events: Partial response text
    * - 'complete' events: Final parsed JSON result
    * - 'error' events: Error messages
-   * 
+   *
    * @example
    * const response = await ApiService.analyzePortfolioLosersStream({...});
    * const reader = response.body?.getReader();
@@ -3931,7 +4348,7 @@ export class ApiService {
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -3959,7 +4376,7 @@ export class ApiService {
               closed = true;
               cleanup();
               controller.error(
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             };
             const handleAbort = () => {
@@ -3967,7 +4384,9 @@ export class ApiService {
             };
 
             try {
-              data.signal?.addEventListener("abort", handleAbort, { once: true });
+              data.signal?.addEventListener("abort", handleAbort, {
+                once: true,
+              });
               listener = await Kai.addListener(
                 PORTFOLIO_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -3988,14 +4407,14 @@ export class ApiService {
 
                   controller.enqueue(
                     encoder.encode(
-                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                    )
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`,
+                    ),
                   );
 
                   if (envelope.terminal) {
                     sawTerminalEvent = true;
                   }
-                }
+                },
               );
 
               await Kai.streamPortfolioAnalyzeLosers({
@@ -4004,7 +4423,11 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native optimize stream ended without terminal event"));
+                fail(
+                  new Error(
+                    "Native optimize stream ended without terminal event",
+                  ),
+                );
                 return;
               }
               close();
@@ -4020,10 +4443,16 @@ export class ApiService {
           headers: { "Content-Type": "text/event-stream" },
         });
       } catch (error) {
-        console.error("[ApiService] Native analyzePortfolioLosersStream error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        console.error(
+          "[ApiService] Native analyzePortfolioLosersStream error:",
+          error,
+        );
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -4040,7 +4469,7 @@ export class ApiService {
 
   /**
    * Analyze a stock using Kai's 3-agent investment committee
-   * 
+   *
    * Returns a decision card with buy/hold/reduce recommendation.
    */
   static async analyzeStock(data: {
@@ -4064,7 +4493,7 @@ export class ApiService {
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -4086,9 +4515,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native analyzeStock error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -4103,7 +4535,7 @@ export class ApiService {
 
   /**
    * Stream Kai stock analysis with real-time SSE events
-   * 
+   *
    * Returns a Response with SSE stream that emits:
    * - 'agent_start' events: Agent begins analysis
    * - 'agent_token' events: Streaming tokens showing AI thinking
@@ -4111,11 +4543,11 @@ export class ApiService {
    * - 'debate_round' events: Each round of agent debate
    * - 'decision' events: Final decision card
    * - 'error' events: Error messages
-   * 
+   *
    * SSE Format from Backend:
    * event: agent_start
    * data: {"event": "agent_start", "data": {"agent": "..."}, "id": "..."}
-   * 
+   *
    * Native Kai plugin uses different format, we normalize to SSE standard.
    */
   static async streamKaiAnalysis(data: {
@@ -4140,7 +4572,7 @@ export class ApiService {
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -4168,15 +4600,20 @@ export class ApiService {
               closed = true;
               cleanup();
               controller.error(
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             };
             const handleAbort = () => {
+              // Release only the native client attachment. The explicit
+              // debate cancel action remains the only server-side cancel path.
+              void Kai.cancelKaiAnalysisStream().catch(() => undefined);
               fail(new DOMException("Aborted", "AbortError"));
             };
 
             try {
-              data.signal?.addEventListener("abort", handleAbort, { once: true });
+              data.signal?.addEventListener("abort", handleAbort, {
+                once: true,
+              });
               listener = await Kai.addListener(
                 KAI_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -4201,10 +4638,10 @@ export class ApiService {
 
                   controller.enqueue(
                     encoder.encode(
-                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                    )
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`,
+                    ),
                   );
-                }
+                },
               );
 
               await Kai.streamKaiAnalysis({
@@ -4213,7 +4650,11 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native analyze stream ended without terminal event"));
+                fail(
+                  new Error(
+                    "Native analyze stream ended without terminal event",
+                  ),
+                );
                 return;
               }
               close();
@@ -4231,7 +4672,11 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamKaiAnalysis error:", error);
-        const { message } = sanitizeErrorMessage(error, 500, "streamKaiAnalysis");
+        const { message } = sanitizeErrorMessage(
+          error,
+          500,
+          "streamKaiAnalysis",
+        );
         return new Response(JSON.stringify({ error: message }), {
           status: 500,
         });
@@ -4256,8 +4701,6 @@ export class ApiService {
     riskProfile: string;
     userContext?: Record<string, unknown>;
     pickSource?: string;
-    pickSourceLabel?: string;
-    pickSourceKind?: string;
     vaultOwnerToken: string;
   }): Promise<Response> {
     const response = await apiFetch("/api/kai/analyze/run/start", {
@@ -4272,8 +4715,6 @@ export class ApiService {
         risk_profile: data.riskProfile,
         context: data.userContext,
         pick_source: data.pickSource,
-        pick_source_label: data.pickSourceLabel,
-        pick_source_kind: data.pickSourceKind,
       }),
     });
     if (response.ok) {
@@ -4316,12 +4757,15 @@ export class ApiService {
     vaultOwnerToken: string;
   }): Promise<Response> {
     const query = new URLSearchParams({ user_id: data.userId }).toString();
-    const response = await apiFetch(`/api/kai/analyze/run/${encodeURIComponent(data.runId)}/cancel?${query}`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
+    const response = await apiFetch(
+      `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/cancel?${query}`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
       },
-    });
+    );
     if (response.ok) {
       trackEvent("analysis_stream_aborted", {
         result: "expected_error",
@@ -4357,7 +4801,7 @@ export class ApiService {
         if (!vaultOwnerToken) {
           return new Response(
             JSON.stringify({ error: "Vault must be unlocked" }),
-            { status: 401 }
+            { status: 401 },
           );
         }
 
@@ -4385,15 +4829,20 @@ export class ApiService {
               closed = true;
               cleanup();
               controller.error(
-                error instanceof Error ? error : new Error(String(error))
+                error instanceof Error ? error : new Error(String(error)),
               );
             };
             const handleAbort = () => {
+              // Release only the native client attachment. The explicit
+              // debate cancel action remains the only server-side cancel path.
+              void Kai.cancelKaiAnalysisStream().catch(() => undefined);
               fail(new DOMException("Aborted", "AbortError"));
             };
 
             try {
-              data.signal?.addEventListener("abort", handleAbort, { once: true });
+              data.signal?.addEventListener("abort", handleAbort, {
+                once: true,
+              });
               listener = await Kai.addListener(
                 KAI_STREAM_EVENT,
                 (event: Record<string, unknown>) => {
@@ -4418,10 +4867,10 @@ export class ApiService {
 
                   controller.enqueue(
                     encoder.encode(
-                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`
-                    )
+                      `event: ${eventType}\ndata: ${JSON.stringify(envelope)}\n\n`,
+                    ),
                   );
-                }
+                },
               );
 
               await Kai.streamKaiAnalysis({
@@ -4430,7 +4879,11 @@ export class ApiService {
               });
 
               if (!sawTerminalEvent) {
-                fail(new Error("Native analyze stream ended without terminal event"));
+                fail(
+                  new Error(
+                    "Native analyze stream ended without terminal event",
+                  ),
+                );
                 return;
               }
               close();
@@ -4448,9 +4901,12 @@ export class ApiService {
         });
       } catch (error) {
         console.error("[ApiService] Native streamKaiDebateRun error:", error);
-        return new Response(JSON.stringify({ error: (error as Error).message }), {
-          status: 500,
-        });
+        return new Response(
+          JSON.stringify({ error: (error as Error).message }),
+          {
+            status: 500,
+          },
+        );
       }
     }
 
@@ -4458,13 +4914,16 @@ export class ApiService {
       user_id: data.userId,
       cursor: String(data.resumeCursor ?? 0),
     }).toString();
-    return apiFetch(`/api/kai/analyze/run/${encodeURIComponent(data.runId)}/stream?${query}`, {
-      method: "GET",
-      headers: {
-        Authorization: `Bearer ${data.vaultOwnerToken}`,
+    return apiFetch(
+      `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/stream?${query}`,
+      {
+        method: "GET",
+        headers: {
+          Authorization: `Bearer ${data.vaultOwnerToken}`,
+        },
+        signal: data.signal,
       },
-      signal: data.signal,
-    });
+    );
   }
 }
 

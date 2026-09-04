@@ -39,6 +39,7 @@ Never create a "changes" branch for corrections.
 Never duplicate a fact when an active canonical entity can be extended or corrected.
 Never save reminders, one-off tasks, opaque strings, secrets, random ids, or operational requests.
 Never write developer metadata, parser metadata, hashes, provenance, workflow ids, or raw internal paths into user-facing memory.
+Never select, create, redirect, or repurpose the reserved source_library domain.
 
 Choose exactly one mutation: create_entity, extend_entity, correct_entity, delete_entity, or no_op.
 If unsure, choose confirm_first or no_op.
@@ -99,6 +100,7 @@ Does not own:
 - manifest path generation
 - summary projection
 - storage partitioning
+- Source Library query, organization, file management, or sharing intent
 
 ### Memory Merge Agent
 
@@ -113,6 +115,7 @@ Does not own:
 - final payload structure
 - consent enforcement
 - encryption or persistence
+- the reserved `source_library` capability boundary
 
 ## MemoryMergeDecision contract
 
@@ -148,6 +151,12 @@ Does not own:
 - consent enforcement
 - storage encryption
 - final persistence safety checks
+- Source Library files, collections, sharing, or its canonical private writer
+
+Mounted Drive or local-file requests route to the Hermes-local Source Library
+Steward. The generic PKM agents may organize ordinary user-authored memory about
+those requests, but they must never emit `source_library` as a candidate or
+target domain.
 
 ## IntentFrame contract
 
@@ -168,6 +177,7 @@ Rules:
 - one recommended top-level domain choice
 - no `general`
 - candidate choices must be broad top-level domains from the soft ontology and current PKM state
+- candidate choices must exclude reserved canonical-writer-only domains such as `source_library`
 
 ## PKMStructurePreview contract
 
@@ -187,6 +197,7 @@ Rules:
 - snake_case keys only
 - no brittle narrow domains when a broad domain is sufficient
 - no `general`
+- no reserved `source_library` target
 
 ## Validator responsibilities
 
@@ -197,6 +208,7 @@ The validator may:
 - downgrade to `do_not_save`
 - normalize finance payload/domain consistency
 - prevent unsafe scope emission
+- reject reserved-domain selection by a generic PKM agent
 - strip user-facing internal metadata such as parser metadata, hashes, provenance, workflow ids, and debug traces from candidate payloads
 - emit non-user-facing drift flags:
   - `fallback_used`
@@ -231,16 +243,18 @@ Disallowed prompt evolution:
 
 ## Model policy
 
-Current PKM classifier candidate:
+Current PKM classifier candidates:
 
-- `gemini-3.5-flash`
+- `gemini-3.1-pro-preview` for Memory Segmentation and Memory Intent, where durable-salience decisions are made
+- `gemini-3.7-flash` for Financial Guard, Memory Merge, and PKM Structure
 
 Live prompt-hardening posture:
 
-- `gemini-3.5-flash`
-- minimal-thinking / strict-small-model mode
+- Segmentation can return zero candidates; it must quote only exact user-provided durable claims.
+- A missing, invalid, or timed-out segmentation/structure response never produces a saveable card.
+- KYC auto-saves only the same eligible `can_save` cards as the owner opt-in auto-save path.
 
-The PKM classifier stays on this minimal posture until live eval shows a concrete reason to change it.
+Only the two salience contracts use the higher-capability model. Keep the remaining PKM graph on the bounded Flash path unless a no-write evaluation proves a broader change is needed.
 
 ## Reviewer-shaped prompt chains
 

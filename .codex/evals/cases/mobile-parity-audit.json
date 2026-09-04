@@ -1,0 +1,29 @@
+{
+  "skill_name": "mobile-parity-audit",
+  "trigger": {
+    "positive": [
+      {
+        "prompt": "run the capacitor parity audit and tell me which platform-specific gaps block release readiness",
+        "top_k": 3
+      },
+      {
+        "prompt": "audit platform-specific coverage across web, iOS and Android before this release",
+        "top_k": 3
+      },
+      {
+        "prompt": "the native parity audit report says ok but the observed marker is missing, is that release evidence",
+        "top_k": 3
+      }
+    ],
+    "negative": [
+      {
+        "prompt": "register the new Swift plugin and align its method names with the TypeScript bridge",
+        "owner": "mobile-plugin-contracts"
+      },
+      {
+        "prompt": "broad native intake, I do not know yet whether this is a plugin or a parity problem on iOS and Android",
+        "owner": "mobile-native"
+      }
+    ]
+  }
+}

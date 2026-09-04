@@ -1,12 +1,21 @@
 #!/usr/bin/env node
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
+import {
+  createPdfDocumentFormatter,
+  PDF_FORMATTER_PROFILES,
+  PDF_FORMATTER_THEMES,
+  renderPdfHusshWordmark,
+} from "../../lib/morphy-ux/pdf-document-formatter.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(scriptDir, "../../..");
+const require = createRequire(import.meta.url);
+const mermaidBrowserBundle = require.resolve("mermaid/dist/mermaid.min.js");
 
 function parseArgs(argv) {
   const args = {
@@ -15,6 +24,8 @@ function parseArgs(argv) {
     html: null,
     title: "Hussh Report",
     subtitle: "",
+    theme: "light",
+    profile: "technical",
   };
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -29,6 +40,10 @@ function parseArgs(argv) {
       args.title = argv[++index];
     } else if (value === "--subtitle") {
       args.subtitle = argv[++index];
+    } else if (value === "--theme") {
+      args.theme = argv[++index];
+    } else if (value === "--profile") {
+      args.profile = argv[++index];
     } else if (value === "--help" || value === "-h") {
       printHelp();
       process.exit(0);
@@ -40,6 +55,16 @@ function parseArgs(argv) {
   if (!args.input || !args.output) {
     printHelp();
     process.exit(1);
+  }
+
+  if (!PDF_FORMATTER_THEMES.includes(args.theme)) {
+    throw new Error(`Unsupported theme: ${args.theme}. Use ${PDF_FORMATTER_THEMES.join(", ")}.`);
+  }
+
+  if (!Object.hasOwn(PDF_FORMATTER_PROFILES, args.profile)) {
+    throw new Error(
+      `Unsupported profile: ${args.profile}. Use ${Object.keys(PDF_FORMATTER_PROFILES).join(", ")}.`,
+    );
   }
 
   return args;
@@ -70,6 +95,8 @@ Options:
   --html <path>       Optional HTML output path.
   --title <text>      Browser title and PDF header label.
   --subtitle <text>   Small header subtitle.
+  --theme <name>      Foundation theme: light (default), dark, molten-gold-light, or molten-gold.
+  --profile <name>    Formatter profile: technical (default), partner, or founder.
 `);
 }
 
@@ -79,6 +106,20 @@ function escapeHtml(value) {
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;")
     .replaceAll('"', "&quot;");
+}
+
+function highlightJson(source) {
+  const escaped = escapeHtml(source);
+  return escaped.replace(
+    /(&quot;.*?&quot;)(\s*:)?|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b|\b(?:true|false|null)\b)/g,
+    (match, stringValue, propertyDelimiter, literal) => {
+      if (stringValue) {
+        const token = propertyDelimiter ? "token-key" : "token-string";
+        return `<span class="${token}">${stringValue}</span>${propertyDelimiter || ""}`;
+      }
+      return `<span class="token-literal">${literal}</span>`;
+    },
+  );
 }
 
 function toGitHubBlobUrl(href, inputDir) {
@@ -98,6 +139,38 @@ function rewriteShareableLinks(markdown, inputPath) {
     /\[([^\]]+)\]\((?!https?:\/\/|#)([^)\s]+\.md(?:#[^)]+)?)\)/g,
     (_match, label, href) => `[${label}](${toGitHubBlobUrl(href, inputDir)})`,
   );
+}
+
+async function embedLocalImages(markdown, inputPath) {
+  const inputDir = path.dirname(inputPath);
+  const pattern = /!\[([^\]]*)\]\(([^)]+)\)/g;
+  let result = "";
+  let cursor = 0;
+  for (const match of markdown.matchAll(pattern)) {
+    const [source, alt, target] = match;
+    result += markdown.slice(cursor, match.index);
+    const cleanTarget = target.trim();
+    if (/^(?:https?:|data:)/i.test(cleanTarget)) {
+      result += source;
+    } else {
+      const resolved = path.resolve(inputDir, cleanTarget);
+      const extension = path.extname(resolved).toLowerCase();
+      const mimeType = extension === ".png"
+        ? "image/png"
+        : extension === ".jpg" || extension === ".jpeg"
+          ? "image/jpeg"
+          : extension === ".webp"
+            ? "image/webp"
+            : null;
+      if (!mimeType || !existsSync(resolved)) {
+        throw new Error(`Unsupported or missing report image: ${cleanTarget}`);
+      }
+      const bytes = await readFile(resolved);
+      result += `![${alt}](data:${mimeType};base64,${bytes.toString("base64")})`;
+    }
+    cursor = match.index + source.length;
+  }
+  return result + markdown.slice(cursor);
 }
 
 function renderInline(markdown) {
@@ -181,6 +254,10 @@ function renderMermaidFallback(source) {
   </figure>`;
 }
 
+function renderMermaid(source) {
+  return `<figure class="diagram-render"><pre class="mermaid">${escapeHtml(source)}</pre></figure>`;
+}
+
 function renderMarkdown(markdown) {
   const lines = markdown.split(/\r?\n/);
   const html = [];
@@ -189,6 +266,16 @@ function renderMarkdown(markdown) {
   let tableRows = [];
   let codeFence = null;
   let codeLines = [];
+  let paragraphLines = [];
+  let omitFromPdf = false;
+
+  const flushParagraph = () => {
+    if (!paragraphLines.length) {
+      return;
+    }
+    html.push(`<p>${renderInline(paragraphLines.join(" "))}</p>`);
+    paragraphLines = [];
+  };
 
   const closeLists = () => {
     if (unorderedOpen) {
@@ -212,19 +299,38 @@ function renderMarkdown(markdown) {
     if (!codeFence) {
       return;
     }
-    const code = escapeHtml(codeLines.join("\n"));
+    const source = codeLines.join("\n");
+    const code = codeFence === "json" ? highlightJson(source) : escapeHtml(source);
     if (codeFence === "mermaid") {
-      html.push(renderMermaidFallback(codeLines.join("\n")));
+      html.push(renderMermaid(source));
     } else {
-      html.push(`<pre><code>${code}</code></pre>`);
+      html.push(`<pre class="code-block code-block-${codeFence}"><code>${code}</code></pre>`);
     }
     codeFence = null;
     codeLines = [];
   };
 
   for (const line of lines) {
+    if (line.trim() === "<!-- pdf:page-break -->") {
+      flushParagraph();
+      closeLists();
+      flushTable();
+      html.push('<div class="pdf-page-break" aria-hidden="true"></div>');
+      continue;
+    }
+    if (line.trim() === "<!-- pdf:omit-start -->") {
+      omitFromPdf = true;
+      continue;
+    }
+    if (line.trim() === "<!-- pdf:omit-end -->") {
+      omitFromPdf = false;
+      continue;
+    }
+    if (omitFromPdf) continue;
+
     const fence = /^```([A-Za-z0-9_-]+)?\s*$/.exec(line);
     if (fence) {
+      flushParagraph();
       if (codeFence) {
         flushCode();
       } else {
@@ -242,6 +348,7 @@ function renderMarkdown(markdown) {
     }
 
     if (line.trim().startsWith("|")) {
+      flushParagraph();
       closeLists();
       tableRows.push(line);
       continue;
@@ -250,25 +357,51 @@ function renderMarkdown(markdown) {
     flushTable();
 
     if (!line.trim()) {
+      flushParagraph();
       closeLists();
       continue;
     }
 
     const heading = /^(#{1,4})\s+(.+)$/.exec(line);
     if (heading) {
+      flushParagraph();
       closeLists();
       const level = heading[1].length;
       html.push(`<h${level}>${renderInline(heading[2])}</h${level}>`);
       continue;
     }
 
+    const image = /^!\[([^\]]*)\]\((data:image\/(?:png|jpeg|webp);base64,[A-Za-z0-9+/=]+|https?:\/\/[^)]+)\)$/.exec(line.trim());
+    if (image) {
+      flushParagraph();
+      closeLists();
+      html.push(`<figure class="report-figure"><img src="${image[2]}" alt="${escapeHtml(image[1])}" /><figcaption>${escapeHtml(image[1])}</figcaption></figure>`);
+      continue;
+    }
+
     if (line.startsWith("> ")) {
+      flushParagraph();
       closeLists();
       html.push(`<blockquote>${renderInline(line.slice(2))}</blockquote>`);
       continue;
     }
 
+    const listContinuation = /^\s{2,}(.+)$/.exec(line);
+    if (
+      listContinuation &&
+      (unorderedOpen || orderedOpen) &&
+      html.at(-1)?.startsWith("<li>")
+    ) {
+      const previousItem = html.at(-1);
+      html[html.length - 1] = previousItem.replace(
+        /<\/li>$/,
+        ` ${renderInline(listContinuation[1].trim())}</li>`,
+      );
+      continue;
+    }
+
     if (/^\s*-\s+/.test(line)) {
+      flushParagraph();
       if (!unorderedOpen) {
         closeLists();
         html.push("<ul>");
@@ -279,6 +412,7 @@ function renderMarkdown(markdown) {
     }
 
     if (/^\s*\d+\.\s+/.test(line)) {
+      flushParagraph();
       if (!orderedOpen) {
         closeLists();
         html.push("<ol>");
@@ -289,37 +423,86 @@ function renderMarkdown(markdown) {
     }
 
     closeLists();
-    html.push(`<p>${renderInline(line)}</p>`);
+    paragraphLines.push(line.trim());
   }
 
+  flushParagraph();
   flushTable();
   flushCode();
   closeLists();
   return html.join("\n");
 }
 
-function buildHtml(markdown, { title, subtitle }) {
+function extractCssBlock(source, selector, startAt = 0) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const selectorPattern = new RegExp(`^\\s*${escapedSelector}\\s*\\{`, "m");
+  const scopedSource = source.slice(startAt);
+  const selectorMatch = selectorPattern.exec(scopedSource);
+  if (!selectorMatch) {
+    throw new Error(`Missing Morphy CSS selector: ${selector}`);
+  }
+
+  const openBrace = startAt + selectorMatch.index + selectorMatch[0].lastIndexOf("{");
+  let depth = 0;
+  for (let index = openBrace; index < source.length; index += 1) {
+    if (source[index] === "{") depth += 1;
+    if (source[index] === "}") {
+      depth -= 1;
+      if (depth === 0) return source.slice(openBrace + 1, index);
+    }
+  }
+  throw new Error(`Unclosed Morphy CSS selector: ${selector}`);
+}
+
+function readCssCustomProperties(block) {
+  return Object.fromEntries(
+    [...block.matchAll(/(--[a-z0-9-]+)\s*:\s*([^;]+);/gi)].map(([, name, value]) => [name, value.trim()]),
+  );
+}
+
+function visibleTitle(title) {
+  const withoutBrand = title.replace(/^(hussh|hushh)\s+/i, "").trim();
+  return withoutBrand || title;
+}
+
+async function resolveFormatter(theme, profile) {
+  const globals = await readFile(path.join(repoRoot, "hushh-webapp/app/globals.css"), "utf8");
+  const useDarkFoundation = theme === "dark" || theme === "molten-gold";
+  const foundation = useDarkFoundation
+    ? {
+        ...readCssCustomProperties(
+          extractCssBlock(globals, ".dark", globals.indexOf("\n.dark {")),
+        ),
+        ...readCssCustomProperties(
+          extractCssBlock(globals, ".dark", globals.lastIndexOf("\n.dark {")),
+        ),
+      }
+    : readCssCustomProperties(extractCssBlock(globals, ":root"));
+  const accent = theme === "molten-gold" || theme === "molten-gold-light"
+    ? readCssCustomProperties(
+        extractCssBlock(
+          globals,
+          theme === "molten-gold"
+            ? 'html[data-accent="gold"].dark'
+            : 'html[data-accent="gold"]',
+        ),
+      )
+    : foundation;
+
+  return createPdfDocumentFormatter({ theme, profile, foundation, accent });
+}
+
+function buildHtml(markdown, { documentTitle, displayTitle, subtitle, formatter }) {
   const body = renderMarkdown(markdown);
   return `<!doctype html>
 <html lang="en">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>${escapeHtml(title)}</title>
+    <title>${escapeHtml(documentTitle)}</title>
     <style>
       :root {
-        color-scheme: light;
-        --bg: #ffffff;
-        --bg-secondary: #f5f5f7;
-        --bg-tertiary: #ebebf0;
-        --fg: #1c1c1e;
-        --fg-secondary: rgba(60, 60, 67, 0.78);
-        --fg-tertiary: rgba(60, 60, 67, 0.52);
-        --separator: rgba(60, 60, 67, 0.18);
-        --separator-strong: rgba(60, 60, 67, 0.36);
-        --accent: #dbb90f;
-        --accent-soft: #fff3bf;
-        --blue: #007aff;
+        ${formatter.css}
       }
 
       @page {
@@ -335,8 +518,13 @@ function buildHtml(markdown, { title, subtitle }) {
       body {
         background: var(--bg);
         color: var(--fg);
-        font: 12px/1.52 -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
+        font: var(--pdf-body-size)/var(--pdf-line-height) -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
         margin: 0;
+      }
+
+      .pdf-page-break {
+        break-before: page;
+        height: 0;
       }
 
       .shell {
@@ -346,17 +534,22 @@ function buildHtml(markdown, { title, subtitle }) {
 
       header {
         border-bottom: 2px solid var(--accent);
+        break-inside: avoid;
         margin-bottom: 18px;
         padding-bottom: 14px;
       }
 
       .brand {
-        color: var(--accent);
-        font-size: 11px;
-        font-weight: 700;
-        letter-spacing: 0.12em;
+        height: 30px;
         margin-bottom: 8px;
-        text-transform: uppercase;
+        width: 94px;
+      }
+
+      .brand svg {
+        display: block;
+        height: 100%;
+        overflow: visible;
+        width: 100%;
       }
 
       .subtitle {
@@ -368,7 +561,7 @@ function buildHtml(markdown, { title, subtitle }) {
       h1 {
         break-after: avoid;
         font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro", "Helvetica Neue", system-ui, sans-serif;
-        font-size: 30px;
+        font-size: var(--pdf-title-size);
         letter-spacing: 0;
         line-height: 1.12;
         margin: 0 0 12px;
@@ -377,10 +570,10 @@ function buildHtml(markdown, { title, subtitle }) {
       h2 {
         break-after: avoid;
         border-top: 1px solid var(--separator);
-        font-size: 18px;
+        font-size: var(--pdf-section-size);
         letter-spacing: 0;
         line-height: 1.2;
-        margin: 26px 0 8px;
+        margin: var(--pdf-section-gap) 0 8px;
         padding-top: 12px;
       }
 
@@ -417,15 +610,30 @@ function buildHtml(markdown, { title, subtitle }) {
       }
 
       blockquote {
-        background: var(--bg-secondary);
+        background: var(--accent-surface);
         border-left: 3px solid var(--accent);
         border-radius: 10px;
         color: var(--fg-secondary);
         padding: 10px 12px;
       }
 
+      .badge {
+        display: inline-block;
+        background: var(--accent-surface);
+        border: 1px solid var(--separator-strong);
+        color: var(--accent);
+        border-radius: 4px;
+        padding: 1px 6px;
+        font-size: 8px;
+        font-weight: 700;
+        font-family: "JetBrains Mono", "SF Mono", monospace;
+        text-transform: uppercase;
+        letter-spacing: 0.4px;
+      }
+
       a {
-        color: var(--blue);
+        color: var(--link);
+        font-weight: 600;
         text-decoration: none;
       }
 
@@ -439,23 +647,81 @@ function buildHtml(markdown, { title, subtitle }) {
       }
 
       pre {
-        background: var(--bg-secondary);
-        border: 1px solid var(--separator);
+        background: var(--code-bg);
+        border: 1px solid var(--code-border);
         border-radius: 14px;
-        color: var(--fg);
-        font: 10px/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
+        break-inside: avoid;
+        box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+        color: var(--code-fg);
+        font: var(--pdf-code-size)/1.45 "SF Mono", "SFMono-Regular", ui-monospace, Menlo, Consolas, monospace;
         margin: 10px 0 14px;
         overflow: hidden;
         padding: 12px;
         white-space: pre-wrap;
       }
 
+      pre code {
+        background: transparent;
+        border: 0;
+        border-radius: 0;
+        color: inherit;
+        font: inherit;
+        padding: 0;
+      }
+
+      .token-key { color: var(--code-key); }
+      .token-string { color: var(--code-string); }
+      .token-literal { color: var(--code-literal); }
+
       .diagram-fallback {
-        background: #ffffff;
+        background: var(--diagram-bg);
         border: 1px solid var(--separator-strong);
         border-radius: 14px;
         margin: 10px 0 16px;
         padding: 12px;
+      }
+
+      .diagram-render {
+        align-items: center;
+        background: var(--diagram-bg);
+        border: 1px solid var(--separator-strong);
+        border-radius: 14px;
+        break-inside: avoid;
+        display: flex;
+        justify-content: center;
+        margin: 10px 0 16px;
+        min-height: 120px;
+        overflow: hidden;
+        padding: 12px;
+        width: 100%;
+      }
+
+      .diagram-render .mermaid {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        margin: 0;
+        overflow: visible;
+        padding: 0;
+        width: 100%;
+      }
+
+      .diagram-render svg {
+        display: block;
+        height: auto;
+        margin: 0 auto;
+        max-height: 620px;
+        max-width: 100%;
+        width: 100%;
+      }
+
+      .diagram-render .nodeLabel,
+      .diagram-render .edgeLabel,
+      .diagram-render .label,
+      .diagram-render .messageText,
+      .diagram-render .actor {
+        font-size: var(--pdf-diagram-size) !important;
+        line-height: 1.3 !important;
       }
 
       .diagram-nodes {
@@ -502,28 +768,44 @@ function buildHtml(markdown, { title, subtitle }) {
       }
 
       table {
-        border-collapse: collapse;
+        border-collapse: separate;
+        border-spacing: 0;
         break-inside: avoid;
-        font-size: 10px;
-        margin: 10px 0 16px;
+        font-size: 9.5px;
+        margin: 12px 0 18px;
         width: 100%;
+        border: 1px solid var(--separator-strong);
+        border-radius: 10px;
+        overflow: hidden;
+        background: var(--bg-secondary);
       }
 
       th {
-        background: var(--bg-secondary);
+        background: var(--bg-tertiary, var(--bg-secondary));
         border-bottom: 1px solid var(--separator-strong);
-        color: var(--fg);
+        color: var(--fg-secondary);
+        font-size: 8px;
         font-weight: 700;
-        padding: 7px 8px;
+        letter-spacing: 0.8px;
+        padding: 8px 10px;
         text-align: left;
-        vertical-align: top;
+        text-transform: uppercase;
+        vertical-align: middle;
       }
 
       td {
         border-bottom: 1px solid var(--separator);
-        color: var(--fg-secondary);
-        padding: 7px 8px;
-        vertical-align: top;
+        color: var(--fg);
+        padding: 8px 10px;
+        vertical-align: middle;
+      }
+
+      tr:last-child td {
+        border-bottom: none;
+      }
+
+      tr:nth-child(even) td {
+        background: var(--accent-surface);
       }
 
       td:first-child {
@@ -534,13 +816,36 @@ function buildHtml(markdown, { title, subtitle }) {
       strong {
         color: var(--fg);
       }
+
+      .report-figure {
+        break-inside: avoid;
+        margin: 14px 0 20px;
+      }
+
+      .report-figure img {
+        border-radius: 16px;
+        box-shadow: 0 20px 52px -38px var(--accent-deep);
+        display: block;
+        height: auto;
+        max-height: 210mm;
+        object-fit: contain;
+        width: 100%;
+      }
+
+      .report-figure figcaption {
+        color: var(--fg-secondary);
+        font-size: 9px;
+        margin-top: 7px;
+      }
     </style>
   </head>
   <body>
-    <main class="shell">
+    <main class="shell formatter-${formatter.id}">
       <header>
-        <div class="brand">Hussh</div>
-        <h1>${escapeHtml(title)}</h1>
+        <div class="brand">
+          ${renderPdfHusshWordmark()}
+        </div>
+        <h1>${escapeHtml(displayTitle)}</h1>
         ${subtitle ? `<div class="subtitle">${escapeHtml(subtitle)}</div>` : ""}
       </header>
       ${body}
@@ -549,18 +854,62 @@ function buildHtml(markdown, { title, subtitle }) {
 </html>`;
 }
 
-async function renderPdf({ input, output, html: htmlOutput, title, subtitle }) {
-  const markdown = rewriteShareableLinks(await readFile(input, "utf8"), input);
-  const html = buildHtml(markdown, { title, subtitle });
-  if (htmlOutput) {
-    await mkdir(path.dirname(htmlOutput), { recursive: true });
-    await writeFile(htmlOutput, html, "utf8");
-  }
-
+async function renderPdf({ input, output, html: htmlOutput, title, subtitle, theme, profile }) {
+  const source = rewriteShareableLinks(await readFile(input, "utf8"), input);
+  const markdown = await embedLocalImages(source, input);
+  const formatter = await resolveFormatter(theme, profile);
+  const displayTitle = visibleTitle(title);
+  const html = buildHtml(markdown, { documentTitle: title, displayTitle, subtitle, formatter });
   const browser = await chromium.launch({ headless: true });
   try {
     const page = await browser.newPage({ viewport: { width: 1240, height: 1754 } });
     await page.setContent(html, { waitUntil: "networkidle", timeout: 20000 });
+    const mermaidScript = await page.addScriptTag({ path: mermaidBrowserBundle });
+    await page.evaluate(async () => {
+      const styles = getComputedStyle(document.documentElement);
+      const color = (name) => styles.getPropertyValue(name).trim();
+      globalThis.mermaid.initialize({
+        startOnLoad: false,
+        securityLevel: "strict",
+        theme: "base",
+        themeVariables: {
+          background: color("--bg"),
+          primaryColor: color("--bg-secondary"),
+          primaryTextColor: color("--fg"),
+          primaryBorderColor: color("--accent"),
+          lineColor: color("--accent"),
+          secondaryColor: color("--accent-surface"),
+          secondaryTextColor: color("--fg"),
+          tertiaryColor: color("--bg-tertiary"),
+          tertiaryTextColor: color("--fg"),
+          noteBkgColor: color("--accent-surface"),
+          noteTextColor: color("--fg"),
+          actorBkg: color("--bg-secondary"),
+          actorBorder: color("--accent"),
+          actorTextColor: color("--fg"),
+          signalColor: color("--accent"),
+          signalTextColor: color("--fg"),
+          labelBoxBkgColor: color("--bg-secondary"),
+          labelBoxBorderColor: color("--separator-strong"),
+          labelTextColor: color("--fg"),
+          fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", "InterVariable", system-ui, sans-serif',
+          fontSize: color("--pdf-diagram-size"),
+        },
+        flowchart: { htmlLabels: true, useMaxWidth: true },
+        sequence: { useMaxWidth: true, wrap: true },
+      });
+      try {
+        await globalThis.mermaid.run({ nodes: document.querySelectorAll(".mermaid") });
+      } catch (error) {
+        const message = error instanceof Error ? error.message : JSON.stringify(error);
+        throw new Error(`Mermaid render failed: ${message}`);
+      }
+    });
+    await mermaidScript.evaluate((node) => node.remove());
+    if (htmlOutput) {
+      await mkdir(path.dirname(htmlOutput), { recursive: true });
+      await writeFile(htmlOutput, await page.content(), "utf8");
+    }
     await page.waitForTimeout(1000);
     await mkdir(path.dirname(output), { recursive: true });
     await page.pdf({
@@ -568,8 +917,8 @@ async function renderPdf({ input, output, html: htmlOutput, title, subtitle }) {
       format: "A4",
       printBackground: true,
       displayHeaderFooter: true,
-      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: rgba(60,60,67,.62); width: 100%; padding: 0 14mm;">${escapeHtml(title)}</div>`,
-      footerTemplate: '<div style="font: 8px -apple-system, BlinkMacSystemFont, \'SF Pro Text\', sans-serif; color: rgba(60,60,67,.62); width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>',
+      headerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${formatter.chromeColor}; width: 100%; padding: 0 14mm;">${escapeHtml(displayTitle)}</div>`,
+      footerTemplate: `<div style="font: 8px -apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif; color: ${formatter.chromeColor}; width: 100%; padding: 0 14mm; text-align: right;"><span class="pageNumber"></span> / <span class="totalPages"></span></div>`,
       margin: { top: "18mm", right: "14mm", bottom: "18mm", left: "14mm" },
     });
   } finally {

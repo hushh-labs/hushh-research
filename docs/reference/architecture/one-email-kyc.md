@@ -22,6 +22,18 @@ dynamic `attr.*` scope that already exists in the vault owner's shareable scope
 inventory. It is not a free-form email agent and does not own platform consent
 policy.
 
+Personal Gmail drafting and sending is a different product boundary: it uses
+the owner's canonical receipt Gmail connection, an in-app local send switch,
+and an exact per-message final confirmation. It never sends as `one@hushh.ai`
+and does not reuse this KYC workflow. See
+[Owner-Approved Gmail Email](../one/gmail-owner-approved-email.md).
+
+Opt-in classification of personal Gmail information requests now starts in the
+Email Agent workspace and keeps its own metadata-only workflow state. It does
+not reuse this platform-mailbox intake, receipt watch state, or this workflow's
+stored consent metadata. See
+[Personal Gmail Information Requests](./personal-gmail-information-requests.md).
+
 ## Current Runtime
 
 - Backend owner: `consent-protocol/hushh_mcp/services/one_email_kyc_service.py`.
@@ -46,28 +58,42 @@ client-encrypted; `draft_body` is never persisted server-side.
 
 ## Invariants
 
-1. `one@hushh.ai` is the Workspace user mailbox for One-led KYC intake.
-2. Gmail Pub/Sub intake stores message IDs, thread IDs, sender metadata,
+1. `one@hushh.ai` is the Workspace user mailbox for One-led KYC intake. The
+   Pub/Sub notification mailbox and the message's `To`, `Cc`, `Delivered-To`,
+   or `X-Original-To` recipients must match the configured canonical mailbox.
+   Alias, forwarded, and unrelated mailbox deliveries fail closed before any
+   user lookup, classification, workflow creation, or agent call.
+2. Automatic response preparation is explicit opt-in and account-scoped. The
+   backend preference is authoritative across web, iOS, Android, catch-up sync,
+   and asynchronous Gmail intake. A missing row or lookup failure means
+   disabled; disabled users produce no workflow and trigger no LLM work. The
+   final workflow insert conditionally rechecks the enabled preference in the
+   same database statement, so disabling while classification is running wins
+   the race and creates no workflow.
+3. Gmail Pub/Sub intake stores message IDs, thread IDs, sender metadata,
    required-field labels, candidate scopes, hashes, and workflow state.
-   If Gmail watch history state is missing or the app user explicitly refreshes
+   An accepted Pub/Sub delivery is not the same as a handled request: top-level
+   `handled` is true only when at least one message actually creates or advances
+   work. If Gmail watch history state is missing or the app user explicitly refreshes
    Email Helper, One performs a bounded recent-mail catch-up scan and reuses the
-   same sender-authority and duplicate-protection rules.
-3. Raw email bodies, consent tokens, connector private keys, decrypted exports,
+   same sender-authority and duplicate-protection rules. Explicit catch-up exits
+   before Gmail access when the authenticated account preference is disabled.
+4. Raw email bodies, consent tokens, connector private keys, decrypted exports,
    final approved bodies, and draft plaintext are not durable backend state.
-4. Pass 1 LLM routing proposes domain(s) and fields from the inbound request
+5. Pass 1 LLM routing proposes domain(s) and fields from the inbound request
    text and the sanitized PKM index (no raw values). The vault owner must
    confirm or narrow the LLM proposal in `/one/kyc` before consent requests
    are created (`needs_confirm` → confirm gate). The resolved vault owner is
    the verified sender only; copied recipients and distribution-list members
    are reply context, not authority.
-5. Each selected workflow scope becomes its own consent request under one bundle
+6. Each selected workflow scope becomes its own consent request under one bundle
    id. Draft generation may use all selected and granted workflow scopes, not
    just identity scope, but must not read every globally available user scope.
    Client drafts must render selected scopes as clear sections and must not
    expose raw PKM structure such as entity ids, manifests, hashes, provenance,
    or parser metadata.
-6. If any selected scope is denied or stale, One blocks the external reply.
-7. The canonical approved-reply renderer is
+7. If any selected scope is denied or stale, One blocks the external reply.
+8. The canonical approved-reply renderer is
    `hushh-webapp/lib/services/one-kyc-approved-disclosure-renderer.ts`, called
    only by the strict-ZK client service after local decrypt. Route code must not
    create parallel email HTML templates. Plain text and Gmail-safe HTML must
@@ -75,16 +101,16 @@ client-encrypted; `draft_body` is never persisted server-side.
    and other dense dynamic-scope drafts must preserve all useful approved values
    and use Gmail-safe horizontal table scrolling instead of overlapping mobile
    columns.
-8. Approved KYC sends must reply in the original Gmail thread and preserve reply
+9. Approved KYC sends must reply in the original Gmail thread and preserve reply
    headers. The backend uses the approved body only transiently for Gmail send.
    The send contract requires plain text and may include sanitized HTML for
    Gmail multipart/alternative rendering; the plain-text part remains the
    fallback and hash anchor.
-9. Local decrypted exports and local drafts are cleared after approve/writeback
+10. Local decrypted exports and local drafts are cleared after approve/writeback
    success, reject, or refresh into a non-ready state.
-10. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
+11. Durable KYC memory is an encrypted PKM writeback artifact plus workflow
    metadata and hashes, not raw mailbox content.
-11. The Email Helper list uses stale-while-refresh semantics: cached visible
+12. The Email Helper list uses stale-while-refresh semantics: cached visible
     requests remain visible while One checks recent mail, refreshes workflow
     status, and merges newer rows into the paginated list.
 
@@ -125,7 +151,7 @@ inbound Gmail ──> sender match ──(unknown)──> blocked
         draft (renderer wraps LLM body in Gmail-safe HTML chrome)
              │
              ▼ optional
-        redraft_full (LLM sees full values; scope-expansion → back to needs_confirm)
+        redraft_full (LLM sees approved values; scope expansion fails closed)
              │
              ▼
         approve_draft ──> send_approved_reply ──> PKM writeback
@@ -186,9 +212,9 @@ for audit purposes. The actual gate on those endpoints is a valid vault-owner
 session plus the per-field data-scope consent the user grants at the confirm
 step. Because a vault-owner token satisfies any scope check in the current
 implementation, `agent.kyc.disclose.llm` is not yet an independently-revocable
-control — a separately-revocable disclose grant is not yet independently revocable (tracked as follow-up). Only
-the approved domain's plaintext is sent to the LLM, and only after the user's
-data-scope consents are granted at the confirm step.
+control; a separately revocable disclose grant remains follow-up work. Only
+plaintext from the workflow's exact approved scopes is sent to the LLM, and
+only after the user's data-scope consents are granted at the confirm step.
 
 ### Guardrails (all fail-closed)
 
@@ -201,13 +227,17 @@ data-scope consents are granted at the confirm step.
    and `redraft-full` require the workflow to be in `waiting_on_user` state with
    `draft_status == "ready"`; calling either endpoint before the confirm gate
    completes and consent is granted fails closed.
-4. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
+4. **Redraft context binding** (`ONE_KYC_REDRAFT_SCOPE_MISMATCH`,
+   `ONE_KYC_REDRAFT_EXPORT_STALE`) — supplied scopes must exactly match the
+   workflow selection and every plaintext payload must match its current
+   workflow-bound export revision before the provider call.
+5. **Pass 2 subset invariant** (`ONE_KYC_EXTRACT_SUBSET_VIOLATION`) —
    `extracted` scopes ⊆ approved fields, enforced in code after the call;
    violation fails closed.
-5. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
+6. **Draft value-provenance check** (`ONE_KYC_DRAFT_PROVENANCE_VIOLATION`) —
    every value in `draft.body` must appear in `extracted[]`; catches the LLM
    inventing or leaking a value in prose.
-6. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
+7. **Malformed output guard** (`ONE_KYC_EXTRACT_MALFORMED`) — strict JSON
    schema validation with bounded retries; malformed output fails closed.
 7. **Scope-expansion block on redraft** (`ONE_KYC_LLM_SCOPE_EXPANSION_BLOCKED`)
    — a redraft requesting more data routes back to `needs_confirm`, never

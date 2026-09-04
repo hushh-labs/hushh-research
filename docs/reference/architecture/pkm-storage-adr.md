@@ -61,3 +61,70 @@ The current PKM runtime stores Personal Knowledge Model payloads as segmented en
 - Exact raw JSON paths stay private to first-party authenticated tooling.
 - Public scope discovery must use handles and coarse metadata, not path leakage.
 - Financial can remain protected while the broader PKM architecture expands across many domains.
+
+## Reserved domain: wallet (2026-09-01)
+
+Wallet cards (the `wallet` domain) are a reserved owner-managed PKM domain, not a new table or a
+`vault.*` scope. Decisions of record:
+
+- One `pkm_blobs` row holds the whole domain; the plaintext inside has exactly
+  two top-level branches, `summary` (nickname, brand, last4, expiry, issuing
+  region per card id) and `secrets` (PAN, CVV, PIN, cardholder name per card
+  id). Branch names line up 1:1 with the two consent-requestable scopes
+  (`attr.wallet.summary.*`, `attr.wallet.secrets.*`) and the
+  `secrets` key matches the client memory-context prune pattern, so card data
+  can never ride into model context even if the domain-level guard regressed.
+- Encryption is client-side under the vault key (the `runtime_secrets`
+  template, including the conflict-retry commit); the server stores ciphertext
+  plus a non-secret summary envelope it validates on every write: brand enum,
+  last4 shape, expiry shape, `normalize_country_hint` on the issuing region,
+  region-locked schemes (RuPay/Mir/Elo/Verve) confined to their home markets,
+  and outright refusal of any secret-shaped key in the envelope. Full
+  PAN/Luhn validation is client-only, by BYOK construction.
+- Sharing deviates deliberately from the `source_library` template: the two
+  branch wildcards are externally requestable (owner approves each grant,
+  delivery via the consent-gated encrypted export); domain wildcard, exact
+  paths, and public projection stay closed. This records the founder decision
+  (2026-09-01) that superseded the earlier "never store CVV/PIN" stance with
+  the consumer-vault model.
+- The Cards specialist (`agent_wallet`) has no server-side data authority; all
+  card operations execute in the owner's browser through Action Gateway
+  client handlers.
+
+## Revisions and zero-loss upgrades
+
+- Active reads use one coherent domain snapshot containing ciphertext, content revision,
+  manifest revision, manifest/path/scope metadata, and an ETag. Callers must not combine
+  separately cached plaintext, ciphertext, and manifest reads for a write or upgrade.
+- Before an active replacement, the database archives ciphertext plus its structural
+  metadata in `pkm_domain_revisions` and `pkm_domain_revision_segments` inside the same
+  transaction.
+- The first encrypted pre-v7 origin revision is retained for the account lifetime. Normal
+  rolling revisions expire after 90 days and are pruned only by the guarded retention RPC.
+- Rollback creates a new monotonic active revision. It never decrements a revision or edits
+  the archived row in place.
+- `pkm_domain_commits` makes retries idempotent. `pkm_upgrade_claims` binds an upgrade to
+  owner, run, domain, exact source revisions, target versions, commit id, and expiry.
+- Unknown or conflicting occurrences use the encrypted `__quarantine_v1` segment. Database
+  policy rejects that segment if a manifest path makes it externalizable or a scope entry
+  references it.
+- v7 writes are fail-closed behind a server kill switch. Reader compatibility and shadow
+  rehearsal ship before any v7 persistence is enabled. The policy is checked again at
+  commit time so activating the kill switch also blocks an already-issued v7 claim.
+
+## Decision: large pasted recaps become Memory through review, never through a secret (2026-09-02)
+
+A multi-section recap pasted into Agent chat is prepared section by section
+(`lib/pkm/pkm-natural-language-ingestion.ts`): numbered and Markdown headings
+are chunk and segmentation boundaries, existing domain manifests travel with
+every proposal so facts land in scopes that already exist, and one failed
+section is reported as `failed` instead of discarding the rest. Before any card
+reaches the owner, the in-session decrypted working set is checked locally:
+an exact duplicate is dropped and a near match is forced to `confirm_first`.
+A card number inside a pasted recap is redacted on the device before the text leaves it (the last four digits stay for orientation) and the summary says so; a plain chat message carrying one is still blocked. The structurer refuses any passage carrying a card number, security code,
+credential, government id, or bank account (`reject_sensitive_secret`,
+`write_mode: do_not_save`), so a secret is excluded and the owner is pointed
+to the secure form rather than redirected into a plain memory. The review is
+grouped by domain › scope with per-item keep or skip; nothing is written until
+the owner saves the kept items, and `add_to_pkm` now carries the exact passage
+the model meant (`source_text`) instead of the whole turn.

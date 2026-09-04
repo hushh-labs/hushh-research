@@ -16,6 +16,40 @@ describe("One Voice realtime transports", () => {
     expect(createRealtimeVoiceTransport().provider).toBe("gemini_live");
   });
 
+  it("sends the runtime bootstrap before any app context and drops the BYOK key", () => {
+    const send = vi.fn();
+    const socket: { send: typeof send; onopen: (() => void) | null } = {
+      send,
+      onopen: null,
+    };
+    class WebSocketMock {
+      constructor(_url: string) {
+        return socket;
+      }
+    }
+    vi.stubGlobal("WebSocket", WebSocketMock);
+
+    const transport = new GeminiLiveTransport();
+    const testTransport = transport as unknown as {
+      runtimeCredentialMode: "hushh_managed_vertex" | "byok";
+      runtimeCredential: string | null;
+      connectSocket: (relayUrl: string) => void;
+    };
+    testTransport.runtimeCredentialMode = "byok";
+    testTransport.runtimeCredential = "test-key";
+    testTransport.connectSocket("wss://relay.example.test/live");
+    socket.onopen?.();
+
+    expect(JSON.parse(send.mock.calls[0]?.[0] as string)).toEqual({
+      type: "runtime_bootstrap",
+      runtime_credential_mode: "byok",
+      runtime_credential_transport: "developer_api",
+      runtime_credential: "test-key",
+    });
+    expect(testTransport.runtimeCredential).toBeNull();
+    vi.unstubAllGlobals();
+  });
+
   it("emits Gemini state events with session and source sequence metadata", () => {
     const onEvent = vi.fn();
     const onVoiceState = vi.fn();
@@ -67,8 +101,9 @@ describe("One Voice realtime transports", () => {
     await testTransport.handleSocketMessage(
       JSON.stringify({
         clientDirective: {
-          kind: "navigate",
-          payload: { route: "/one/kai", screen: "finance" },
+          kind: "prompt",
+          delegateAgentId: "agent_nav",
+          payload: { kind: "consent_actions", items: [] },
         },
       })
     );
@@ -92,8 +127,9 @@ describe("One Voice realtime transports", () => {
         type: "client_directive",
         provider: "gemini_live",
         directive: {
-          kind: "navigate",
-          payload: { route: "/one/kai", screen: "finance" },
+          kind: "prompt",
+          delegateAgentId: "agent_nav",
+          payload: { kind: "consent_actions", items: [] },
         },
       })
     );
@@ -113,6 +149,7 @@ describe("One Voice realtime transports", () => {
       transport.reportActionSettlement({
         directiveId: "directive-1",
         actionId: "analysis.start",
+        contextRevision: "context-1",
         status: "blocked",
         summary: "Portfolio access is locked.",
         reason: "vault_locked",
@@ -123,11 +160,143 @@ describe("One Voice realtime transports", () => {
       actionSettlement: {
         directiveId: "directive-1",
         actionId: "analysis.start",
+        contextRevision: "context-1",
         status: "blocked",
         summary: "Portfolio access is locked.",
         reason: "vault_locked",
       },
     });
+  });
+
+  it("acknowledges destination context before a settled journey may report", async () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    const destination = {
+      snapshot_id: "ctx-login-2",
+      route: { screen: "login", route_family: "/login", playbook_id: "route.login" },
+      revisions: { route: 2, ui: 2 },
+      auth: { signed_in: false },
+      persona: { active: "default" },
+      voice: { state: "listening" },
+      available_action_ids: ["auth.sign_in_google", "auth.sign_in_apple"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh", vault_ready: false, portfolio_ready: false },
+      onboarding: { phase: "anonymous_auth" },
+    };
+
+    const waiting = transport.applyContextAndWait?.(destination as never, { timeoutMs: 50 });
+    expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
+      type: "app_context",
+      contextId: "ctx-login-2:settled",
+    });
+    await testTransport.handleSocketMessage(
+      JSON.stringify({ appContextAccepted: { contextId: "ctx-login-2:settled" } }),
+    );
+
+    await expect(waiting).resolves.toEqual({
+      status: "acknowledged",
+      contextId: "ctx-login-2:settled",
+    });
+  });
+
+  it("preserves the live route snapshot when consent changes mid-call", () => {
+    const transport = new GeminiLiveTransport();
+    const send = vi.fn();
+    const context = {
+      snapshot_id: "ctx-location-1",
+      route: {
+        screen: "one_location",
+        route_family: "/one/location",
+        playbook_id: "route.one.location",
+      },
+      revisions: { route: 1, ui: 1 },
+      auth: { signed_in: true },
+      persona: { active: "investor" },
+      voice: { state: "listening" },
+      available_action_ids: ["location.select_share_recipient"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh", vault_ready: true, portfolio_ready: false },
+      onboarding: { phase: "root_completion" },
+    };
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      setupComplete: boolean;
+      latestContext: typeof context;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.setupComplete = true;
+    testTransport.latestContext = context;
+
+    expect(transport.updateConsentToken("consent-token")).toBe(true);
+    expect(JSON.parse(send.mock.calls[0][0])).toMatchObject({
+      type: "app_context",
+      appContext: {
+        screen: "one_location",
+        route_family: "/one/location",
+        available_action_ids: ["location.select_share_recipient"],
+        consent_token: "consent-token",
+      },
+    });
+  });
+
+  it("does not accept the first spoken turn until the initial route context is acknowledged", async () => {
+    const onEvent = vi.fn();
+    const transport = new GeminiLiveTransport({ onEvent });
+    const send = vi.fn();
+    const initialContext = {
+      snapshot_id: "ctx-intro-1",
+      route: { screen: "one_intro", route_family: "/", playbook_id: "route.home" },
+      revisions: { route: 1, ui: 1 },
+      auth: { signed_in: false },
+      persona: { active: "investor" },
+      voice: { state: "idle" },
+      available_action_ids: ["onboarding.claim_one"],
+      ui: { visible_modules: [], visible_control_ids: [] },
+      pending_settlement: false,
+      cache: { freshness: "fresh_or_stale_safe", vault_ready: false, portfolio_ready: false },
+      onboarding: { phase: "anonymous_auth" },
+    };
+    const testTransport = transport as unknown as {
+      ws: { readyState: number; send: (message: string) => void };
+      startContext: typeof initialContext;
+      setupComplete: boolean;
+      initialContextReady: boolean;
+      handleSocketMessage: (data: string) => Promise<void>;
+    };
+    testTransport.ws = { readyState: WebSocket.OPEN, send };
+    testTransport.startContext = initialContext;
+
+    await testTransport.handleSocketMessage(JSON.stringify({ setupComplete: {} }));
+
+    expect(testTransport.setupComplete).toBe(true);
+    expect(testTransport.initialContextReady).toBe(false);
+    expect(onEvent).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "state", state: "listening" }),
+    );
+    expect(JSON.parse(send.mock.calls[0]?.[0] as string)).toMatchObject({
+      type: "app_context",
+      contextId: "ctx-intro-1:settled",
+      appContext: { available_action_ids: ["onboarding.claim_one"] },
+    });
+
+    await testTransport.handleSocketMessage(
+      JSON.stringify({ appContextAccepted: { contextId: "ctx-intro-1:settled" } }),
+    );
+    await Promise.resolve();
+
+    expect(testTransport.initialContextReady).toBe(true);
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "state", state: "listening" }),
+    );
   });
 
   it("emits one transcript-free visitor activity frame after sustained speech", () => {
