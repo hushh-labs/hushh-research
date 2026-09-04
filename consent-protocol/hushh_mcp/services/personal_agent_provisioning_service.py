@@ -421,6 +421,55 @@ class PersonalAgentProvisioningService:
 
         return resolve_substrate_ensurer(spec)
 
+    async def _upgrade_healing_the_substrate_once(
+        self, upgrade, spec: PodSpec, *, user_id: str, hushh_id: str
+    ):
+        """Retry an upgrade once, and ONLY for a failure the person's substrate can fix.
+
+        `provision` ensures the substrate; `upgrade` never did. So a project authorized
+        before the `artifact_repo_grant_copy_writer` step existed has no
+        roles/artifactregistry.writer for the copy identity, and every upgrade 403s
+        starting a blob upload into their own registry, burns UPGRADE_ATTEMPTS_PER_IMAGE,
+        and then freezes the pod on an old image with nothing telling the person. That
+        was observed live (0ba8c6b49), and the remedy has been an operator re-granting
+        it by hand ever since.
+
+        Ensuring the substrate unconditionally before every upgrade would be the obvious
+        fix and the wrong one -- it is many API calls into someone else's cloud on a path
+        that almost always needs none of them. Healing on the specific refusal costs
+        nothing in the common case.
+
+        The exception is asked, never named: `heals_with_substrate` is a property on the
+        cloud-specific error, and this file is the common layer that
+        test_deployment_boundary_holds refuses to let name a provider. A source-side 403
+        is deliberately NOT healable -- that is hushh's own registry, where re-granting
+        in the person's project would change nothing and only hide the real cause behind
+        a retry.
+
+        One retry, not a loop. If the substrate applied and the copy still refuses, the
+        failure is not the one this heals, and the caller records it as it always did.
+        """
+        try:
+            return await upgrade(spec)
+        except Exception as refusal:
+            if not getattr(refusal, "heals_with_substrate", False):
+                raise
+            logger.warning(
+                "personal_agent.upgrade_healing_substrate hushh_id=%s error=%s",
+                hushh_id,
+                type(refusal).__name__,
+            )
+            await self._substrate_for(spec).ensure(spec)
+            await pod_lifecycle_append(
+                user_id,
+                stage="authority_live",
+                registry_status="provisioned",
+                event="upgrade_healed_substrate",
+                hushh_id=hushh_id,
+                reason="re-applied the substrate after a destination push refusal",
+            )
+            return await upgrade(spec)
+
     def _backend_for(self, spec: PodSpec) -> ComputeBackend:
         """The backend that should build THIS person's pod.
 
@@ -1249,7 +1298,9 @@ class PersonalAgentProvisioningService:
             reason=f"{previous or '-'} -> {current_image}",
         )
         try:
-            handle = await upgrade(spec)
+            handle = await self._upgrade_healing_the_substrate_once(
+                upgrade, spec, user_id=user_id, hushh_id=hushh_id
+            )
         except Exception as exc:
             marker = old_meta.get("upgrade") or {}
             attempts = (

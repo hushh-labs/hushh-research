@@ -50,7 +50,34 @@ _CHUNK = 1024 * 1024  # 1 MiB blob streaming chunks.
 
 
 class ImageCopyError(RuntimeError):
-    """A copy step failed. Never reported as a completed copy."""
+    """A copy step failed. Never reported as a completed copy.
+
+    Carries WHICH side refused and with what status, because the caller has to tell two
+    very different failures apart. A 403 writing to the DESTINATION is the person's own
+    Artifact Registry declining a push, which the substrate step
+    `artifact_repo_grant_copy_writer` exists to permit -- so re-running their substrate
+    and retrying can genuinely fix it. A 403 reading the SOURCE is hushh's own registry,
+    where re-granting anything in their project would change nothing and would only hide
+    the real problem behind a pointless retry.
+
+    Structured rather than parsed out of the message: a heal that triggers on a substring
+    is one reworded error away from either never firing or firing on everything.
+    """
+
+    def __init__(self, message: str, *, status: Optional[int] = None, side: str = "") -> None:
+        super().__init__(message)
+        self.status = status
+        self.side = side
+
+    @property
+    def heals_with_substrate(self) -> bool:
+        """Would re-applying THIS person's substrate plausibly fix this?
+
+        Read by the orchestrator through `getattr`, so the common layer can ask the
+        question without importing a cloud-specific type or naming a provider --
+        the same shape `UserCloud.blocks_provisioning` uses.
+        """
+        return self.status == 403 and self.side == "destination"
 
 
 def _requests() -> Any:
@@ -225,7 +252,9 @@ def _copy_blob(
     )
     if getattr(pull, "status_code", 0) != 200:
         raise ImageCopyError(
-            f"could not read blob {digest}: HTTP {getattr(pull, 'status_code', '?')}"
+            f"could not read blob {digest}: HTTP {getattr(pull, 'status_code', '?')}",
+            status=getattr(pull, "status_code", None),
+            side="source",
         )
     # Two-step upload: open a session, then PUT the bytes with the digest. The most
     # compatible push flow across Docker/AR registries.
@@ -234,7 +263,9 @@ def _copy_blob(
     )
     if getattr(start, "status_code", 0) not in (201, 202):
         raise ImageCopyError(
-            f"could not start blob upload for {digest}: HTTP {getattr(start, 'status_code', '?')}"
+            f"could not start blob upload for {digest}: HTTP {getattr(start, 'status_code', '?')}",
+            status=getattr(start, "status_code", None),
+            side="destination",
         )
     location = (getattr(start, "headers", {}) or {}).get("Location", "")
     if not location:
@@ -255,7 +286,9 @@ def _copy_blob(
     )
     if getattr(put, "status_code", 0) not in (201, 204):
         raise ImageCopyError(
-            f"could not finish blob upload for {digest}: HTTP {getattr(put, 'status_code', '?')}"
+            f"could not finish blob upload for {digest}: HTTP {getattr(put, 'status_code', '?')}",
+            status=getattr(put, "status_code", None),
+            side="destination",
         )
 
 
@@ -269,7 +302,9 @@ def _get_manifest(
     )
     if getattr(resp, "status_code", 0) != 200:
         raise ImageCopyError(
-            f"could not read manifest {reference}: HTTP {getattr(resp, 'status_code', '?')}"
+            f"could not read manifest {reference}: HTTP {getattr(resp, 'status_code', '?')}",
+            status=getattr(resp, "status_code", None),
+            side="source",
         )
     content = getattr(resp, "content", b"") or b""
     media_type = (getattr(resp, "headers", {}) or {}).get("Content-Type", "").split(";")[0].strip()
@@ -293,7 +328,9 @@ def _put_manifest(
     )
     if getattr(resp, "status_code", 0) not in (201, 202):
         raise ImageCopyError(
-            f"could not write manifest {reference}: HTTP {getattr(resp, 'status_code', '?')}"
+            f"could not write manifest {reference}: HTTP {getattr(resp, 'status_code', '?')}",
+            status=getattr(resp, "status_code", None),
+            side="destination",
         )
 
 

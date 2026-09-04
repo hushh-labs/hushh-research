@@ -413,14 +413,36 @@ Guard: `tests/test_pod_update_detection.py`, `__tests__/feed/agent-update-detect
   `<iso>|<target>` and the claim SQL cast the whole string to `timestamptz`; every
   contested claim surfaced as `DatabaseExecutionError`. It now casts
   `split_part(..., '|', 1)`.
-- The reconcile worker's failure line now carries `detail=` (the exception text, bounded),
-  because `error=ImageCopyError` alone said nothing about which grant or repo refused.
+- The reconcile worker's failure line carries `detail=`, because `error=ImageCopyError`
+  alone said nothing about which grant or repo refused. **Since 2026-09-04 that detail is
+  REDACTED, not raw** — the comment above it always forbade logging the message, and the
+  message reads `403 Client Error: Forbidden for url: …/namespaces/<their project>/…`, so
+  every failed sweep was writing a person's own project id into hub logs. URLs,
+  `projects/<id>` and `namespaces/<id>` paths and token-shaped runs are stripped; the
+  status code, which is the diagnosis, survives.
 - **What that detail said, first time out:** `could not start blob upload for sha256:…: HTTP 403`
   on a pod whose project was authorised before the copy-writer grant existed
   (`artifact_repo_grant_copy_writer`). The copy into the person's own `one-pod` repository is
-  refused, the marker caps at three attempts, and the pod stays on its build until the grant is
-  re-applied. A heal step that re-applies that grant with the bootstrap token is the missing
-  piece (Pillar 1 recovery); today it is an operator action.
+  refused, the marker caps at three attempts, and the pod stays on its build.
+- **CLOSED 2026-09-04 — the heal step exists and no longer needs an operator.** `upgrade_pod`
+  re-applies the person's substrate and retries **once**, and only for a refusal that can
+  actually be fixed that way. `ImageCopyError` now carries `status` and `side`, and
+  `heals_with_substrate` is true only for a **403 against the DESTINATION** — the person's own
+  registry, which `artifact_repo_grant_copy_writer` exists to permit. A 403 reading the
+  **source** is hushh's own registry: re-granting in their project would change nothing and
+  would only hide the real cause behind a retry, so it is deliberately not healed.
+
+  Ensuring the substrate before *every* upgrade would be the obvious fix and the wrong one —
+  many API calls into someone else's cloud on a path that almost always needs none of them.
+  Healing on the specific refusal costs nothing in the common case. One retry, never a loop:
+  if the substrate applied and the push still refuses, the cause is not this one and the
+  failure is recorded exactly as before.
+
+  The orchestrator ASKS rather than names — `getattr(exc, "heals_with_substrate", False)` —
+  because `personal_agent_provisioning_service` is the common layer that
+  `test_deployment_boundary_holds` refuses to let name a provider. Guards:
+  `tests/test_pod_image_upgrade_path.py`, four tests covering the classification, the heal,
+  the deliberate non-heal, and the single retry.
 - **A second retry also stacked once more** because the second worker judged the cooldown on a
   row it had read before the first worker's failure landed; `upgrade_pod` now re-reads the row
   after the lease claim.

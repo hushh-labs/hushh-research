@@ -1073,3 +1073,124 @@ async def test_a_pod_that_failed_on_an_older_image_is_a_candidate_once_the_image
     assert [r["user_id"] for r in candidates] == ["uid-1"], (
         "a fix shipped for this pod and the cooldown for a different image hid it"
     )
+
+
+# -- healing the one refusal the person's own substrate can fix -----------------
+
+
+class _FlakyThenFine(FakeUpgradingBackend):
+    """Refuses the first upgrade, succeeds on the retry. The shape of a real heal."""
+
+    def __init__(self, *, refusal: Exception) -> None:
+        super().__init__()
+        self.refusal = refusal
+        self.attempts = 0
+
+    async def upgrade(self, spec: PodSpec) -> BackendHandle:
+        self.attempts += 1
+        if self.attempts == 1:
+            raise self.refusal
+        return await super().upgrade(spec)
+
+
+class _SpySubstrate:
+    ensurer_id = "spy"
+
+    def __init__(self) -> None:
+        self.ensured: list = []
+
+    async def ensure(self, spec, *, grant_ref: str = ""):
+        self.ensured.append(spec)
+
+        class _Receipt:
+            applied = True
+
+        return _Receipt()
+
+
+def _refusal(*, status: int, side: str) -> Exception:
+    from hushh_mcp.services.pod_image_copy import ImageCopyError
+
+    return ImageCopyError(f"could not start blob upload: HTTP {status}", status=status, side=side)
+
+
+def test_only_a_destination_403_is_worth_healing():
+    """The classification the heal rests on, stated on the error itself.
+
+    A 403 pushing to the DESTINATION is the person's own Artifact Registry declining,
+    which `artifact_repo_grant_copy_writer` exists to permit. A 403 reading the SOURCE
+    is hushh's own registry -- re-granting anything in their project would change
+    nothing and would hide the real cause behind a pointless retry.
+    """
+    assert _refusal(status=403, side="destination").heals_with_substrate is True
+    assert _refusal(status=403, side="source").heals_with_substrate is False
+    assert _refusal(status=500, side="destination").heals_with_substrate is False
+    assert _refusal(status=404, side="destination").heals_with_substrate is False
+
+
+@pytest.mark.asyncio
+async def test_a_push_refusal_re_applies_the_substrate_and_the_upgrade_lands(service_env) -> None:
+    """POD-3, end to end.
+
+    A project authorized before the copy-writer grant existed 403s on every upgrade,
+    burns all three attempts, and freezes the pod on an old image with nothing telling
+    the person. The remedy has been an operator re-granting it by hand.
+    """
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = _FlakyThenFine(refusal=_refusal(status=403, side="destination"))
+    substrate = _SpySubstrate()
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=backend, substrate=substrate
+    )
+
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert substrate.ensured, "the substrate was never re-applied, so nothing was healed"
+    assert backend.attempts == 2, "the upgrade was not retried after the heal"
+    assert result["upgraded"] is True
+    # A healed upgrade is a success, so no failure marker is left behind to burn the
+    # attempt cap on the next sweep.
+    assert "upgrade" not in registry.rows["uid-1"]["backend_metadata"]
+
+
+@pytest.mark.asyncio
+async def test_a_source_refusal_is_not_healed_and_is_not_retried(service_env) -> None:
+    """Healing here would re-apply someone's substrate to fix hushh's own registry."""
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = _FlakyThenFine(refusal=_refusal(status=403, side="source"))
+    substrate = _SpySubstrate()
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=backend, substrate=substrate
+    )
+
+    with pytest.raises(Exception):  # noqa: B017 - the type is the cloud's, not this layer's
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert substrate.ensured == []
+    assert backend.attempts == 1, "a failure this cannot heal was retried anyway"
+
+
+@pytest.mark.asyncio
+async def test_the_heal_retries_once_and_then_records_the_failure(service_env) -> None:
+    """One retry, not a loop.
+
+    If the substrate applied and the push still refuses, the cause is not the one this
+    heals, and the caller must record it exactly as before rather than trying forever
+    against someone else's cloud.
+    """
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = FakeUpgradingBackend(fail=_refusal(status=403, side="destination"))
+    substrate = _SpySubstrate()
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=backend, substrate=substrate
+    )
+
+    with pytest.raises(Exception):  # noqa: B017 - the cloud's type, not this layer's
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert len(substrate.ensured) == 1, "the heal looped instead of trying once"
+    assert len(backend.specs) == 2, "expected the original attempt plus exactly one retry"
+    assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1
