@@ -767,7 +767,20 @@ function resolveTopShellBreadcrumbInner(
       // whichever one opened it (see resolveSmsContactsBackAction).
       const hubView = String(searchParams?.get("view") || "").trim();
       const smsContactsSource = searchParams?.get("source");
-      if (action === "sms-contacts" && smsContactsSource === "sos") {
+      // `?action=sms-contacts` immediately redirects (replace) to
+      // `?action=circle-detail` once the SMS Circle exists -- Issue #5426's
+      // "contacts moved into Circles" redirect above. `source=sos` rides
+      // along on that replace, so the screen the person is actually looking
+      // at carries `action=circle-detail`, not `sms-contacts`. This check
+      // used to only match `sms-contacts`, which is the URL for maybe one
+      // paint before the redirect fires -- so the SOS-aware back target
+      // below was effectively dead, and back fell through to the generic
+      // circle-detail case (`?view=people`), dropping the person on the
+      // People tab instead of back into their SOS.
+      if (
+        (action === "sms-contacts" || action === "circle-detail") &&
+        smsContactsSource === "sos"
+      ) {
         return {
           backHref: `${ROUTES.ONE_LOCATION}?action=sos`,
           width: "profile",
