@@ -503,10 +503,10 @@ export function describeContactSyncOutcome(
     ? `${contactsLabel(connected)} connected from your contacts`
     : result.matchedUserIds.length
       ? `${contactsLabel(result.matchedUserIds.length)} matched`
-      : "No Hushh users matched this time";
+      : "No eligible contacts matched";
   const details = [
     result.matchedUserIds.length === 0
-      ? "Only people with a verified phone who enabled contact matching can appear."
+      ? "New matches require a verified phone and contact matching enabled. Existing connections may still appear."
       : null,
     result.requestRequiredCount
       ? result.requestRequiredCount === 1

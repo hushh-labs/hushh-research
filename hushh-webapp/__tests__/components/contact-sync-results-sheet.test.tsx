@@ -133,7 +133,7 @@ describe("ContactSyncResultsSheet", () => {
     );
 
     expect(
-      screen.getByText(/verified their phone and chose to be found/i),
+      screen.getByText(/Existing connections may still appear/i),
     ).toBeInTheDocument();
   });
 

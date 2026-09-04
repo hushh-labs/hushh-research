@@ -45,9 +45,9 @@ describe("describeContactSyncOutcome", () => {
       uncheckableContactCount: 4,
     });
 
-    expect(outcome.title).toBe("No Hushh users matched this time");
+    expect(outcome.title).toBe("No eligible contacts matched");
     expect(outcome.description).toContain(
-      "Only people with a verified phone who enabled contact matching can appear.",
+      "New matches require a verified phone and contact matching enabled. Existing connections may still appear.",
     );
     expect(outcome.description).toContain(
       "20 contacts were checked and can be invited.",
