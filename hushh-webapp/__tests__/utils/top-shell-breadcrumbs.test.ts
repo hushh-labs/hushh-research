@@ -845,6 +845,39 @@ describe("top shell breadcrumbs", () => {
       "Location",
       "Emergency contacts",
     ]);
+
+    // SOS → SMS contacts → the hub immediately redirects `?action=sms-contacts`
+    // to `?action=circle-detail` (contacts now live in Circles), carrying
+    // `source=sos` along. This is the URL the person is actually looking at,
+    // so it -- not the transient `sms-contacts` one above -- is what the back
+    // button must resolve against, or it falls through to the generic
+    // circle-detail case and strands them on the People tab mid-emergency.
+    const fromSosRedirected = new URLSearchParams();
+    fromSosRedirected.set("action", "circle-detail");
+    fromSosRedirected.set("circleId", "sms-circle-1");
+    fromSosRedirected.set("view", "people");
+    fromSosRedirected.set("source", "sos");
+    const sosRedirectedTrail = resolveTopShellBreadcrumb(
+      "/one/location",
+      fromSosRedirected,
+    );
+    expect(sosRedirectedTrail?.backHref).toBe("/one/location?action=sos");
+    expect(sosRedirectedTrail?.items.map((item) => item.label)).toEqual([
+      "One",
+      "Location",
+      "Save My Soul",
+      "Emergency contacts",
+    ]);
+
+    // A circle opened from People (no SOS source) keeps its ordinary back
+    // target -- this check must not swallow every circle-detail view.
+    const fromPeopleCircle = new URLSearchParams();
+    fromPeopleCircle.set("action", "circle-detail");
+    fromPeopleCircle.set("circleId", "some-other-circle");
+    fromPeopleCircle.set("view", "people");
+    expect(
+      resolveTopShellBreadcrumb("/one/location", fromPeopleCircle)?.backHref,
+    ).toBe("/one/location?view=people");
   });
   it("retraces setup-hub-opened capabilities through their terminal acknowledgement", () => {
     // From the Set up One hub, capability handoffs carry ?from=/one/setup so the
