@@ -1082,7 +1082,7 @@ function ReportedReading({ link }: { link: PuppyLink | null }) {
         <ReportedBlock label="Scheduled work" divided={hasReading}>
           {schedule.rows.length > 0 ? (
             <ul className="flex flex-col gap-1">
-              {schedule.rows.map((job, index) => (
+              {orderReportedSchedule(schedule.rows).map((job, index) => (
                 <ReportedJobRow
                   key={`${job.name}-${index}`}
                   job={job}
@@ -1716,6 +1716,36 @@ function nonEmpty(value: unknown): string | null {
 function isFailedStatus(value: unknown): boolean {
   const word = nonEmpty(value)?.toLowerCase();
   return word === "error" || word === "failed";
+}
+
+/**
+ * The reported schedule, in the order `orderJobsForReading` puts the live one.
+ *
+ * The live list is the one a person can act on, so it already leads with what
+ * needs a hand. This list is what the machine last said, and on a deployed
+ * origin it is the ONLY schedule a remote viewer ever sees, because the live
+ * one needs a loopback reach into the machine that no cloud container has.
+ * Leaving it in the order the device happened to send would bury the failing
+ * job exactly where the person cannot open the live list to find it.
+ *
+ * Same precedence as the live ordering, so the two never disagree about which
+ * job matters most: failing first even when paused, then what runs, then what
+ * is switched off, and by name within each so a refresh does not reshuffle.
+ *
+ * Failure is read from the last result alone, via the same predicate the row
+ * renders from. The heartbeat carries no failure streak, so a job that has
+ * failed repeatedly but reported its last run as fine ranks as healthy here
+ * and leads the live list. That is a real difference between the two views,
+ * and it is the device's summary to widen, not this sort's to guess at.
+ */
+export function orderReportedSchedule(
+  rows: ReadonlyArray<PuppyHeartbeatScheduledJob>,
+): PuppyHeartbeatScheduledJob[] {
+  const rank = (job: PuppyHeartbeatScheduledJob): number => {
+    if (isFailedStatus(job.last)) return 0;
+    return job.paused ? 2 : 1;
+  };
+  return [...rows].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 
 /**

@@ -24,7 +24,10 @@ vi.mock("@/lib/hermes/use-puppy-link", () => ({
   usePuppyLink: () => mocks.link.current,
 }));
 
-import { PuppyMachineSheet } from "@/components/agent/puppy-resource-monitor";
+import {
+  orderReportedSchedule,
+  PuppyMachineSheet,
+} from "@/components/agent/puppy-resource-monitor";
 import type {
   PuppyJobs,
   PuppyLink,
@@ -433,5 +436,70 @@ describe("PuppyMachineSheet reported scheduled work and conversations", () => {
     expect(within(row).getByText("99999 messages").className).toContain(
       "shrink-0",
     );
+  });
+});
+
+describe("the reported schedule leads with what needs a hand", () => {
+  const job = (
+    name: string,
+    paused: boolean,
+    last?: string,
+  ): PuppyHeartbeatScheduledJob => ({
+    name,
+    when: "every day at 09:00",
+    paused,
+    ...(last ? { last } : {}),
+  });
+
+  const names = (rows: ReadonlyArray<PuppyHeartbeatScheduledJob>) =>
+    orderReportedSchedule(rows).map((row) => row.name);
+
+  // Names are chosen so alphabetical order is the REVERSE of rank order. A
+  // sort that ignored the rank and fell back to the name would pass these by
+  // coincidence otherwise, which is how the first draft of this test lied.
+  it("puts failing jobs first, then running, then paused", () => {
+    expect(
+      names([
+        job("aaa paused", true),
+        job("mmm healthy", false, "ok"),
+        job("zzz broken", false, "error"),
+      ]),
+    ).toEqual(["zzz broken", "mmm healthy", "aaa paused"]);
+  });
+
+  it("treats a failed job as failing even when it is switched off", () => {
+    // Same precedence as the live ordering: a paused job that failed is still
+    // the thing to look at, so it does not sink to the bottom.
+    expect(names([job("running", false, "ok"), job("paused broken", true, "error")])).toEqual([
+      "paused broken",
+      "running",
+    ]);
+  });
+
+  it("reads 'failed' as a failure, not only 'error'", () => {
+    expect(names([job("aaa fine", false, "ok"), job("zzz bad", false, "failed")])).toEqual([
+      "zzz bad",
+      "aaa fine",
+    ]);
+  });
+
+  it("orders by name within a rank so a refresh does not reshuffle", () => {
+    expect(names([job("zebra", false), job("apple", false), job("mango", false)])).toEqual([
+      "apple",
+      "mango",
+      "zebra",
+    ]);
+  });
+
+  it("does not mutate the list it was given", () => {
+    const rows = [job("zebra", false), job("apple", false)];
+    orderReportedSchedule(rows);
+    expect(rows.map((row) => row.name)).toEqual(["zebra", "apple"]);
+  });
+
+  it("says nothing about a job whose last run the device did not report", () => {
+    // No last result is not a failure. It ranks as running, so a machine that
+    // reports no statuses at all stays in name order rather than all-failing.
+    expect(names([job("b", false), job("a", false)])).toEqual(["a", "b"]);
   });
 });
