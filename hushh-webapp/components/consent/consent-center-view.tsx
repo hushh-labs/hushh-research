@@ -224,16 +224,40 @@ function getViewCount(
   return getEntriesForSurfaceView(center, actor, surfaceView).length;
 }
 
-function emptyStateCopy(actor: ConsentCenterActor, surfaceView: ConsentSurfaceView) {
+/**
+ * Empty here is good news, not an absence: nothing is waiting on you, and
+ * nothing holds access it shouldn't. The copy says what this space is for so a
+ * first-time visitor understands the promise instead of seeing a blank list.
+ */
+export function emptyStateCopy(
+  actor: ConsentCenterActor,
+  surfaceView: ConsentSurfaceView,
+): { title: string; description: string } {
   if (surfaceView === "active") {
-    return "No active access grants yet.";
+    return {
+      title: "Nothing has access right now",
+      description:
+        "When you approve a request, it shows up here — and you can end it at any time.",
+    };
   }
   if (surfaceView === "previous") {
-    return "No previous consent activity yet.";
+    return {
+      title: "No history yet",
+      description:
+        "Approvals, declines, and anything you've ended will be listed here.",
+    };
   }
   return actor === "ria"
-    ? "No pending RIA requests or invites yet."
-    : "No pending investor approvals or developer requests yet.";
+    ? {
+        title: "No requests waiting",
+        description:
+          "Requests and invitations you send appear here until the investor responds.",
+      }
+    : {
+        title: "Nothing needs your approval",
+        description:
+          "When someone asks for access to your information, it waits here until you decide.",
+      };
 }
 
 function deliveryModeCopy(mode: "push_active" | "push_blocked" | "push_failed_fallback_active" | "inbox_only") {
@@ -1273,9 +1297,19 @@ export function ConsentCenterView({
           {error ? <p className="px-5 py-6 text-sm text-red-500">{error}</p> : null}
 
           {!loading && !error && !hasVisibleEntries ? (
-            <div className="px-5 py-8 text-sm text-muted-foreground">
-              {emptyStateCopy(actor, surfaceView)}
-            </div>
+            (() => {
+              const empty = emptyStateCopy(actor, surfaceView);
+              return (
+                <div className="px-5 py-10 text-center">
+                  <p className="text-sm font-semibold text-foreground">
+                    {empty.title}
+                  </p>
+                  <p className="mx-auto mt-1.5 max-w-sm text-sm leading-relaxed text-muted-foreground">
+                    {empty.description}
+                  </p>
+                </div>
+              );
+            })()
           ) : null}
 
           {!loading && !error && hasVisibleEntries ? (
