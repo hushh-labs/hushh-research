@@ -1194,3 +1194,58 @@ async def test_the_heal_retries_once_and_then_records_the_failure(service_env) -
     assert len(substrate.ensured) == 1, "the heal looped instead of trying once"
     assert len(backend.specs) == 2, "expected the original attempt plus exactly one retry"
     assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1
+
+
+# -- the per-person warm floor survives an upgrade ------------------------------
+
+
+@pytest.mark.asyncio
+async def test_an_upgrade_keeps_the_person_on_their_own_warm_floor(service_env) -> None:
+    """The INPUT end of the per-person tier, which did not exist.
+
+    `PodSpec.resource_tier` was written, tested, and read by `_min_instances_for` -- and
+    set by nothing. The loop only ever ran one way: deployment default -> rendered
+    minScale -> `livenessMode` -> the row's `liveness_mode`. So a person's row recorded
+    the deployment's default instead of holding a choice, and every upgrade re-derived
+    it from scratch.
+
+    The consequence is durable, not transient: the upgrade renders the default,
+    `record_image_upgrade` writes it back over the row, and a warm pod is now economy
+    forever. `pod_liveness_service` then reads that pod's silence as its healthy steady
+    state rather than a fault, so auto-heal never restarts it -- the exact confusion
+    `_min_instances_for` refuses to guess between, happening upstream by omission.
+    """
+    pas, _ = service_env
+    row = _row()
+    row["liveness_mode"] = "warm"
+    registry = FakeRegistry({"uid-1": row})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert backend.specs, "the upgrade never reached the backend"
+    assert backend.specs[0].resource_tier == "warm", (
+        "the person's stored tier was dropped, so this upgrade demotes them to the "
+        "deployment default and writes that demotion back over their row"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_person_with_no_stored_tier_still_gets_the_deployment_default(
+    service_env,
+) -> None:
+    """Reading the row must not invent a tier for someone who has never had one.
+
+    None is the value `_min_instances_for` treats as "this deployment's default", which
+    is what every pod gets today. Sending anything else here would change the floor for
+    the whole fleet on the first upgrade after this landed.
+    """
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert backend.specs[0].resource_tier is None

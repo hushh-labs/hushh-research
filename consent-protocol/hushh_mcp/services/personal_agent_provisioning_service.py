@@ -1215,6 +1215,27 @@ class PersonalAgentProvisioningService:
             user_cloud_project=(cloud.project if cloud else None),
             user_cloud_region=(cloud.region if cloud else None),
             user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+            # The person's own warm floor. `PodSpec.resource_tier` was written, tested
+            # and read by `_min_instances_for` -- and set by NOTHING, so the axis had an
+            # output end and no input end.
+            #
+            # The loop ran one way only: deployment default -> rendered minScale ->
+            # `livenessMode` -> the row's `liveness_mode`. A person's row therefore
+            # RECORDED the deployment's default rather than holding a choice, and every
+            # upgrade re-derived it from scratch. So a warm pod was demoted to
+            # scale-to-zero on its next sweep, and `record_image_upgrade` wrote that
+            # demotion back over the row -- durable, silent, and worse than it sounds,
+            # because the liveness evaluator then reads a warm-intended pod's silence as
+            # healthy and never restarts it. `_min_instances_for` refuses to guess
+            # between those two exact outcomes; the guess was happening upstream, by
+            # omission.
+            #
+            # `liveness_mode` is the stored value and is already the authority the
+            # liveness policy judges against, so reading it here makes the two one fact
+            # instead of two that can disagree. An unset or unrecognised value still
+            # falls through to the deployment default, which is what every pod gets
+            # today.
+            resource_tier=row.get("liveness_mode"),
         )
         backend = self._backend_for(spec)
         upgrade = getattr(backend, "upgrade", None)
