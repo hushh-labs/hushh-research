@@ -47,6 +47,9 @@ describe("describeContactSyncOutcome", () => {
 
     expect(outcome.title).toBe("No Hushh users matched this time");
     expect(outcome.description).toContain(
+      "Only people with a verified phone who enabled contact matching can appear.",
+    );
+    expect(outcome.description).toContain(
       "20 contacts were checked and can be invited.",
     );
     expect(outcome.description).toContain(

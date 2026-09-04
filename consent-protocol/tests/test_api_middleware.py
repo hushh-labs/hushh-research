@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 
 import pytest
@@ -32,10 +33,22 @@ async def test_require_firebase_auth_schedules_identity_warmup(monkeypatch):
 
     async def _fake_run_in_threadpool(func, authorization):
         assert authorization == "Bearer firebase-token"
-        return "firebase-user-123"
+        return "firebase-user-123456789012"
 
     class _FakeActorIdentityService:
-        def schedule_sync_from_firebase(self, firebase_uid: str) -> None:
+        def schedule_sync_from_firebase(
+            self,
+            firebase_uid: str,
+            *,
+            force: bool = False,
+        ) -> None:
+            # Starlette dispatches synchronous BackgroundTasks through a
+            # worker thread. The real identity scheduler needs the request's
+            # running asyncio loop, so a sync wrapper silently made every
+            # authenticated-request warmup a no-op. Requiring a live loop here
+            # pins the execution model as well as the eventual call.
+            assert asyncio.get_running_loop().is_running()
+            assert force is False
             calls.append(firebase_uid)
 
     monkeypatch.setattr(middleware, "run_in_threadpool", _fake_run_in_threadpool)
@@ -51,12 +64,12 @@ async def test_require_firebase_auth_schedules_identity_warmup(monkeypatch):
         "Bearer firebase-token",
     )
 
-    assert firebase_uid == "firebase-user-123"
+    assert firebase_uid == "firebase-user-123456789012"
     assert calls == []
 
     await background_tasks()
 
-    assert calls == ["firebase-user-123"]
+    assert calls == ["firebase-user-123456789012"]
 
 
 @pytest.mark.asyncio

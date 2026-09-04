@@ -484,7 +484,7 @@ async function resolveConnectionForVoice({
 }
 
 export default function ConnectPageClient() {
-  const { user } = useRequireAuth();
+  const { user, phoneNumber, resolveVerifiedPhoneNumber } = useRequireAuth();
   const router = useRouter();
 
   const searchParams = useSearchParams();
@@ -841,7 +841,10 @@ export default function ConnectPageClient() {
     // popup open for a signed-out visitor. This restores the predicate the
     // Location page used.
     getIdToken: user ? getIdToken : null,
-    accountPhoneNumber: user?.phoneNumber,
+    // AuthContext hydrates the verified backend phone independently for
+    // native/UAT verification paths where Firebase User.phoneNumber is empty.
+    accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
     userId: user?.uid,
     // Awaited, and its boolean dropped: the hook only needs to know the
     // refresh finished before it announces the outcome, so the toast never

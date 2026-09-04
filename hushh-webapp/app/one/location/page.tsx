@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -143,6 +144,8 @@ import {
   preloadGoogleContactsAuth,
   requestGoogleContactsToken,
 } from "@/lib/contacts/google-contacts-token";
+import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
+import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -2432,6 +2435,21 @@ export function OneLocationAgentPageContent({
     }
   }, [router, searchParams]);
   const auth = useRequireAuth();
+  // The backend identity is authoritative for UAT/native phone verification.
+  // Firebase's User object can remain phone-less even after AuthContext has
+  // hydrated the verified number, so contact normalization must use both.
+  const accountPhoneNumber = auth.phoneNumber ?? auth.user?.phoneNumber ?? null;
+  const contactSyncUserId = auth.userId ?? auth.user?.uid ?? null;
+  const contactSyncIdentityRef = useRef({
+    userId: contactSyncUserId,
+    accountPhoneNumber,
+  });
+  useLayoutEffect(() => {
+    contactSyncIdentityRef.current = {
+      userId: contactSyncUserId,
+      accountPhoneNumber,
+    };
+  }, [accountPhoneNumber, contactSyncUserId]);
   const {
     deliveryMode: notificationDeliveryMode,
     retryPushRegistration,
@@ -2724,6 +2742,16 @@ export function OneLocationAgentPageContent({
   const [contactSyncResult, setContactSyncResult] =
     useState<OneLocationContactSignalResult | null>(null);
   const [contactSyncResultsOpen, setContactSyncResultsOpen] = useState(false);
+  const contactResultOwnerUserIdRef = useRef(contactSyncUserId);
+  useLayoutEffect(() => {
+    if (contactResultOwnerUserIdRef.current === contactSyncUserId) return;
+    contactResultOwnerUserIdRef.current = contactSyncUserId;
+    // Results include local address-book names and must never survive an
+    // in-place auth account replacement.
+    setContactSyncResult(null);
+    setContactSyncResultsOpen(false);
+    setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
+  }, [contactSyncUserId]);
   const [activityRange, setActivityRange] =
     useState<OneLocationActivityRange>("30d");
   const [activitySnapshot, setActivitySnapshot] =
@@ -6767,11 +6795,13 @@ export function OneLocationAgentPageContent({
       })
       .catch(() => {
         if (cancelled) return;
-        // No device plugin is still usable when the web-only Google source is
-        // configured. Native never reports Google as connectable.
-        setGoogleContactsFallback(googleConfigured);
-        setContactsStepAvailable(googleConfigured);
-        preloadGoogleFallback();
+        const fallback = resolveContactSourceProbeFailure({
+          native: !isWeb(),
+          googleConfigured,
+        });
+        setGoogleContactsFallback(fallback.googleFallback);
+        setContactsStepAvailable(fallback.available);
+        if (fallback.googleFallback) preloadGoogleFallback();
       });
     return () => {
       cancelled = true;
@@ -6787,6 +6817,13 @@ export function OneLocationAgentPageContent({
           canOpenSettings: false,
         };
       }
+      const initiatingUserId = contactSyncUserId;
+      const resolveLatestAccountPhoneNumber =
+        createContactSyncAccountPhoneResolver({
+          initiatingUserId,
+          getCurrentIdentity: () => contactSyncIdentityRef.current,
+          hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
+        });
       try {
         let googleSource: MarketplaceContactSource | undefined;
         if (googleContactsFallback) {
@@ -6805,19 +6842,15 @@ export function OneLocationAgentPageContent({
           }
         }
 
-        const idToken = await auth.user.getIdToken();
-        if (!idToken) {
-          return {
-            status: "failed",
-            message: "Sign in to check your contacts.",
-            canOpenSettings: false,
-          };
-        }
         const result = await syncOneLocationContactSignals({
-          idToken,
+          // Read the picker/source before Firebase or backend identity can
+          // consume the browser tap's transient activation.
+          resolveIdToken: () => auth.user!.getIdToken(),
           ...(googleSource ? { source: googleSource } : {}),
-          accountPhoneNumber: auth.user?.phoneNumber,
+          accountPhoneNumber,
+          resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
         });
+        await resolveLatestAccountPhoneNumber();
         const matches = result.matches
           .map((match) => ({
             userId: match.userId,
@@ -6894,8 +6927,11 @@ export function OneLocationAgentPageContent({
         };
       }
     }, [
+      accountPhoneNumber,
       auth.user,
       auth.userId,
+      auth.resolveVerifiedPhoneNumber,
+      contactSyncUserId,
       googleContactsFallback,
       loadRecipientPage,
       recipientSearch,
@@ -7006,6 +7042,13 @@ export function OneLocationAgentPageContent({
     }
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
+    const initiatingUserId = contactSyncUserId;
+    const resolveLatestAccountPhoneNumber =
+      createContactSyncAccountPhoneResolver({
+        initiatingUserId,
+        getCurrentIdentity: () => contactSyncIdentityRef.current,
+        hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
+      });
 
     try {
       // Google Contacts, only where there is no address book to read.
@@ -7047,14 +7090,17 @@ export function OneLocationAgentPageContent({
         error: null,
       }));
 
-      const idToken = await auth.user.getIdToken();
       const result = await syncOneLocationContactSignals({
-        idToken,
+        // Preserve transient activation for Chrome Android's Contact Picker;
+        // token and phone hydration happen inside the pipeline after reading.
+        resolveIdToken: () => auth.user!.getIdToken(),
         ...(googleSource ? { source: googleSource } : {}),
         // Tells the normalizer which region a bare "9876543210" belongs to.
         // Without it every 10-digit contact was read as North American.
-        accountPhoneNumber: auth.user.phoneNumber,
+        accountPhoneNumber,
+        resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
+      await resolveLatestAccountPhoneNumber();
       const nextStatus: OneLocationContactSignalStatus =
         result.matchedUserIds.length > 0 ? "matched" : "empty";
       setContactSyncResult(result);
@@ -7188,8 +7234,11 @@ export function OneLocationAgentPageContent({
       setBusy(null);
     }
   }, [
+    accountPhoneNumber,
     auth.user,
     auth.userId,
+    auth.resolveVerifiedPhoneNumber,
+    contactSyncUserId,
     contactSignal,
     googleContactsFallback,
     handleInviteContactCandidates,

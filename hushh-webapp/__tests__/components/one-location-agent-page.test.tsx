@@ -1032,6 +1032,10 @@ describe("OneLocationAgentPage", () => {
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      phoneNumber: "+919000000001",
+      resolveVerifiedPhoneNumber: vi
+        .fn()
+        .mockResolvedValue("+919000000001"),
       user: {
         uid: "user_a",
         displayName: "Test User",
@@ -3526,8 +3530,9 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    await waitFor(() =>
-      expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
+    await waitFor(
+      () => expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
+      { timeout: 5_000 },
     );
     expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
     await waitFor(() =>
@@ -5714,6 +5719,9 @@ describe("OneLocationAgentPage", () => {
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      // Native UAT verification hydrates this AuthContext value without
+      // necessarily changing Firebase User.phoneNumber.
+      phoneNumber: "+919000000001",
       user: {
         uid: "user_a",
         getIdToken: vi.fn().mockResolvedValue("id-token"),
@@ -5770,7 +5778,7 @@ describe("OneLocationAgentPage", () => {
         sourcePlatform: "ios",
       };
     });
-    render(<OneLocationAgentPage />);
+    const view = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
@@ -5806,10 +5814,17 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
 
     await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
-        idToken: "id-token",
-      }),
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountPhoneNumber: "+919000000001",
+          resolveAccountPhoneNumber: expect.any(Function),
+          resolveIdToken: expect.any(Function),
+        }),
+      ),
     );
+    await expect(
+      mockSyncOneLocationContactSignals.mock.calls[0]?.[0].resolveIdToken?.(),
+    ).resolves.toBe("id-token");
     await waitFor(() =>
       expect(mockListRecipientsPage).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
@@ -5848,6 +5863,21 @@ describe("OneLocationAgentPage", () => {
         matched_count: 1,
         invite_candidate_count: 7,
       }),
+    );
+
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_b",
+      phoneNumber: "+919000000002",
+      user: {
+        uid: "user_b",
+        getIdToken: vi.fn().mockResolvedValue("id-token-b"),
+      },
+    });
+    view.rerender(<OneLocationAgentPage />);
+    await waitFor(() =>
+      expect(screen.queryByText("Contact sync results")).toBeNull(),
     );
   });
 
@@ -5952,6 +5982,71 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("menuitem", { name: /Find contacts/i }),
     ).toBeTruthy();
+  });
+
+  it("waits for verified phone hydration before syncing Google People", async () => {
+    mockGoogleAvailability = () => "connectable";
+    let finishPhoneHydration: ((phone: string) => void) | null = null;
+    const getIdToken = vi.fn(async () => "id-token");
+    const resolveVerifiedPhoneNumber = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finishPhoneHydration = resolve;
+        }),
+    );
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_a",
+      phoneNumber: null,
+      resolveVerifiedPhoneNumber,
+      user: {
+        uid: "user_a",
+        displayName: "Test User",
+        getIdToken,
+      },
+    });
+    mockRequestGoogleContactsToken.mockResolvedValueOnce("google-token");
+    const googleSource = vi.fn();
+    mockGooglePeopleContactSource.mockReturnValue(googleSource);
+    const defaultSyncImplementation =
+      mockSyncOneLocationContactSignals.getMockImplementation();
+    mockSyncOneLocationContactSignals.mockImplementationOnce(async (options) => {
+      const resolvedPhone = await options.resolveAccountPhoneNumber?.();
+      expect(resolvedPhone).toBe("+919876543210");
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return defaultSyncImplementation!(options);
+    });
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+    await expectLocationInviteStep();
+    fireEvent.click(await locationFinishButton());
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    openDropdownMenu(
+      await screen.findByRole("button", { name: /Add or manage people/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+    await waitFor(() =>
+      expect(resolveVerifiedPhoneNumber).toHaveBeenCalledTimes(1),
+    );
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: googleSource,
+        accountPhoneNumber: null,
+        resolveAccountPhoneNumber: expect.any(Function),
+        resolveIdToken: expect.any(Function),
+      }),
+    );
+    await act(async () => {
+      finishPhoneHydration?.("+919876543210");
+    });
+
+    await waitFor(() => expect(getIdToken).toHaveBeenCalledTimes(1));
   });
 
   it("keeps contact sync single-flight from the People menu", async () => {
@@ -6370,18 +6465,26 @@ describe("OneLocationAgentPage", () => {
 
   it("uses the preloaded Google source during desktop onboarding", async () => {
     const order: string[] = [];
+    let finishPhoneHydration: ((phone: string) => void) | null = null;
     const getIdToken = vi.fn(async () => {
       order.push("firebase");
       return "id-token";
     });
+    const resolveVerifiedPhoneNumber = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finishPhoneHydration = resolve;
+        }),
+    );
     mockUseRequireAuth.mockReturnValue({
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      phoneNumber: null,
+      resolveVerifiedPhoneNumber,
       user: {
         uid: "user_a",
         displayName: "Test User",
-        phoneNumber: "+919876543210",
         getIdToken,
       },
     });
@@ -6392,6 +6495,14 @@ describe("OneLocationAgentPage", () => {
     });
     const googleSource = vi.fn();
     mockGooglePeopleContactSource.mockReturnValue(googleSource);
+    const defaultSyncImplementation =
+      mockSyncOneLocationContactSignals.getMockImplementation();
+    mockSyncOneLocationContactSignals.mockImplementationOnce(async (options) => {
+      const resolvedPhone = await options.resolveAccountPhoneNumber?.();
+      expect(resolvedPhone).toBe("+919876543210");
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return defaultSyncImplementation!(options);
+    });
 
     render(<OneLocationAgentPage />);
     await waitFor(() =>
@@ -6407,14 +6518,21 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(connect);
 
     await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
-        expect.objectContaining({
-          idToken: "id-token",
-          source: googleSource,
-          accountPhoneNumber: "+919876543210",
-        }),
-      ),
+      expect(resolveVerifiedPhoneNumber).toHaveBeenCalledTimes(1),
     );
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: googleSource,
+        accountPhoneNumber: null,
+        resolveAccountPhoneNumber: expect.any(Function),
+        resolveIdToken: expect.any(Function),
+      }),
+    );
+    await act(async () => {
+      finishPhoneHydration?.("+919876543210");
+    });
+
+    await waitFor(() => expect(getIdToken).toHaveBeenCalledTimes(1));
     expect(order.slice(0, 2)).toEqual(["google", "firebase"]);
   });
 
