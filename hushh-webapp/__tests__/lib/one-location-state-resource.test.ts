@@ -95,8 +95,13 @@ describe("OneLocationStateResource", () => {
         {
           id: "grant_1",
           ownerUserId: userId,
+          ownerDisplayName: "Location Owner",
+          ownerPhotoUrl: "https://example.test/owner.jpg",
+          ownerMaskedPhone: "******0001",
           recipientUserId: "friend",
           recipientDisplayName: "Trusted Friend",
+          recipientPhotoUrl: "https://example.test/friend.jpg",
+          recipientMaskedPhone: "******0002",
           recipientKeyId: "key_friend",
           status: "active",
           consentScope: "cap.location.live.view",
@@ -122,6 +127,14 @@ describe("OneLocationStateResource", () => {
       OneLocationStateResource.mergeOwnerGrant(userId, {
         id: "grant_1",
         status: "active",
+        // This is the real duration-PATCH shape: the table mutation has no
+        // identity joins, and the payload serializer emits null projections.
+        ownerDisplayName: null,
+        ownerPhotoUrl: null,
+        ownerMaskedPhone: null,
+        recipientDisplayName: null,
+        recipientPhotoUrl: null,
+        recipientMaskedPhone: null,
         durationMode: "until_stopped",
         durationHours: null,
         expiresAt: null,
@@ -131,8 +144,13 @@ describe("OneLocationStateResource", () => {
       OneLocationStateResource.peek(userId)?.data.ownerGrants[0],
     ).toMatchObject({
       id: "grant_1",
+      ownerDisplayName: "Location Owner",
+      ownerPhotoUrl: "https://example.test/owner.jpg",
+      ownerMaskedPhone: "******0001",
       recipientUserId: "friend",
       recipientDisplayName: "Trusted Friend",
+      recipientPhotoUrl: "https://example.test/friend.jpg",
+      recipientMaskedPhone: "******0002",
       recipientKeyId: "key_friend",
       durationMode: "until_stopped",
       expiresAt: null,

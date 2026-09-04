@@ -807,10 +807,7 @@ def test_first_owned_circle_membership_returns_none_for_empty_set() -> None:
         def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
             raise AssertionError("must not query the DB for an empty circle set")
 
-    assert (
-        Probe()._first_owned_circle_membership(other_user_id="requester", circle_ids=[])
-        is None
-    )
+    assert Probe()._first_owned_circle_membership(other_user_id="requester", circle_ids=[]) is None
 
 
 def test_lock_current_auto_approve_preference_accepts_circles_scope() -> None:
@@ -2725,6 +2722,11 @@ class FourUserMemoryService(OneLocationAgentService):
                 "capability_scopes": params["capability_scopes"],
                 "duration_hours": params["duration_hours"],
                 "expires_at": params["expires_at"],
+                # Migration 156 applies this default at the table boundary for
+                # every timed insert. Model it here so duration tests exercise
+                # the same ceiling constraint as PostgreSQL instead of allowing
+                # an update the runtime database would reject.
+                "ceiling_expires_at": params.get("ceiling_expires_at", params["expires_at"]),
                 "duration_mode": params.get("duration_mode", "timed"),
                 "created_at": datetime.now(timezone.utc),
                 "updated_at": datetime.now(timezone.utc),
@@ -2776,6 +2778,23 @@ class FourUserMemoryService(OneLocationAgentService):
             ):
                 return grant
             if grant and grant["owner_user_id"] == params["owner_user_id"]:
+                # Honor set_grant_duration's historical narrow projection so
+                # its replay test cannot receive fields Postgres did not select.
+                # The production query now uses SELECT *; this branch makes a
+                # future regression back to that projection observable.
+                if "SELECT id, owner_user_id, recipient_user_id, expires_at" in sql:
+                    projected_fields = {
+                        "id",
+                        "owner_user_id",
+                        "recipient_user_id",
+                        "expires_at",
+                        "ceiling_expires_at",
+                        "status",
+                        "duration_mode",
+                        "duration_hours",
+                        "metadata",
+                    }
+                    return {key: value for key, value in grant.items() if key in projected_fields}
                 return grant
             return None
         if "INSERT INTO one_location_envelopes" in sql:
@@ -3280,12 +3299,28 @@ class FourUserMemoryService(OneLocationAgentService):
                 and params["owner_user_id"] in {grant["owner_user_id"], grant["recipient_user_id"]}
                 and grant["status"] == "active"
             ):
-                grant["expires_at"] = params["new_expires_at"]
+                next_expires_at = params["new_expires_at"]
+                next_ceiling = grant.get("ceiling_expires_at")
+                if "ceiling_expires_at = CASE" in sql:
+                    if next_expires_at is None:
+                        next_ceiling = None
+                    elif next_ceiling is None or next_expires_at > next_ceiling:
+                        next_ceiling = next_expires_at
+                if (
+                    next_expires_at is not None
+                    and next_ceiling is not None
+                    and next_expires_at > next_ceiling
+                ):
+                    raise RuntimeError("one_location_share_grants_ceiling_bounds")
+                grant["expires_at"] = next_expires_at
+                grant["ceiling_expires_at"] = next_ceiling
                 grant["duration_hours"] = params.get("duration_hours")
                 # `shorten` hard-codes 'timed' in its own SQL and sends no
                 # param; `set_grant_duration` sends the mode because it can
                 # also put a share on "until I stop".
                 grant["duration_mode"] = params.get("duration_mode") or "timed"
+                if "metadata = CAST(:metadata_json AS JSONB)" in sql:
+                    grant["metadata"] = json.loads(params["metadata_json"])
                 grant["updated_at"] = datetime.now(timezone.utc)
                 return grant
             return None
@@ -4550,9 +4585,156 @@ def test_owner_may_lengthen_their_own_running_share() -> None:
     assert service.grants[grant["id"]]["duration_hours"] == 2
 
 
+def test_owner_extension_advances_ceiling_and_refreshes_capability_token() -> None:
+    from hushh_mcp.consent.token import validate_token
+
+    service, grant = _duration_service_with_grant(0.5)
+    row = service.grants[grant["id"]]
+    original_ceiling = row["ceiling_expires_at"]
+    original_token = row["metadata"]["capability_token"]
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+    )
+
+    row = service.grants[grant["id"]]
+    assert updated["id"] == grant["id"]
+    assert row["expires_at"] > original_ceiling
+    assert row["ceiling_expires_at"] == row["expires_at"]
+    refreshed_token = row["metadata"]["capability_token"]
+    assert refreshed_token != original_token
+    valid, reason, token = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert valid is True, reason
+    assert token is not None
+    assert token.agent_id == "device:user_b"
+
+
+def test_refreshed_timed_capability_outlives_the_original_deadline(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import hushh_mcp.consent.token as consent_token_module
+    from hushh_mcp.consent.token import validate_token
+
+    clock = {"now": datetime(2026, 9, 4, 12, 0, tzinfo=timezone.utc)}
+    monkeypatch.setattr(one_location_agent_module, "_utcnow", lambda: clock["now"])
+    monkeypatch.setattr(consent_token_module.time, "time", lambda: clock["now"].timestamp())
+    service, grant = _duration_service_with_grant(0.5)
+    original_token = service.grants[grant["id"]]["metadata"]["capability_token"]
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=2,
+    )
+    refreshed_token = service.grants[grant["id"]]["metadata"]["capability_token"]
+
+    clock["now"] += timedelta(minutes=45)
+    original_valid, _, _ = validate_token(
+        original_token,
+        expected_scope="cap.location.live.view",
+    )
+    refreshed_valid, refreshed_reason, refreshed = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert original_valid is False
+    assert refreshed_valid is True, refreshed_reason
+    assert refreshed is not None
+    assert refreshed.agent_id == "device:user_b"
+
+
+def test_owner_shorten_keeps_later_ceiling_and_shortens_capability_token() -> None:
+    from hushh_mcp.consent.token import validate_token
+
+    service, grant = _duration_service_with_grant(4)
+    row = service.grants[grant["id"]]
+    original_ceiling = row["ceiling_expires_at"]
+    original_token = row["metadata"]["capability_token"]
+    old_valid, old_reason, old_token = validate_token(
+        original_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert old_valid is True, old_reason
+    assert old_token is not None
+
+    service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=grant["id"],
+        duration_hours=0.5,
+    )
+
+    row = service.grants[grant["id"]]
+    assert row["expires_at"] < original_ceiling
+    assert row["ceiling_expires_at"] == original_ceiling
+    refreshed_token = row["metadata"]["capability_token"]
+    assert refreshed_token != original_token
+    valid, reason, token = validate_token(
+        refreshed_token,
+        expected_scope="cap.location.live.view",
+    )
+    assert valid is True, reason
+    assert token is not None
+    assert token.expires_at < old_token.expires_at
+
+
+def test_duration_change_mutates_only_selected_grant_in_multi_circle_share() -> None:
+    service = FourUserMemoryService()
+    for user_id in ("user_b", "user_c"):
+        service.register_recipient_key(
+            user_id=user_id,
+            key_id=f"key-{user_id}",
+            public_key_jwk={"kty": "EC", "crv": "P-256", "x": user_id, "y": user_id},
+        )
+    direct_grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_b",
+        recipient_key_id="key-user_b",
+        duration_hours=1,
+    )
+    source_circle_id = str(uuid.uuid4())
+    circle_grant = service.create_grant(
+        owner_user_id="user_a",
+        recipient_user_id="user_c",
+        recipient_key_id="key-user_c",
+        duration_hours=1,
+        source_circle_id=source_circle_id,
+    )
+    direct_before = service.grants[direct_grant["id"]]
+    direct_state = {
+        "expires_at": direct_before["expires_at"],
+        "ceiling_expires_at": direct_before["ceiling_expires_at"],
+        "capability_token": direct_before["metadata"]["capability_token"],
+    }
+    selected_before = service.grants[circle_grant["id"]]
+    selected_token = selected_before["metadata"]["capability_token"]
+
+    updated = service.set_grant_duration(
+        owner_user_id="user_a",
+        grant_id=circle_grant["id"],
+        duration_hours=2,
+    )
+
+    assert updated["id"] == circle_grant["id"]
+    selected_after = service.grants[circle_grant["id"]]
+    assert selected_after["source_circle_id"] == source_circle_id
+    assert selected_after["ceiling_expires_at"] == selected_after["expires_at"]
+    assert selected_after["metadata"]["capability_token"] != selected_token
+    direct_after = service.grants[direct_grant["id"]]
+    assert direct_after["expires_at"] == direct_state["expires_at"]
+    assert direct_after["ceiling_expires_at"] == direct_state["ceiling_expires_at"]
+    assert direct_after["metadata"]["capability_token"] == direct_state["capability_token"]
+
+
 def test_set_duration_reuses_a_client_operation_without_resetting_the_clock() -> None:
     service, grant = _duration_service_with_grant(0.5)
     operation_id = "duration-operation-0001"
+    source_circle_id = str(uuid.uuid4())
+    service.grants[grant["id"]]["source_circle_id"] = source_circle_id
 
     first = service.set_grant_duration(
         owner_user_id="user_a",
@@ -4571,7 +4753,11 @@ def test_set_duration_reuses_a_client_operation_without_resetting_the_clock() ->
         client_operation_id=operation_id,
     )
 
-    assert replay["id"] == first["id"]
+    assert replay == first
+    assert replay["recipientKeyId"] == grant["recipientKeyId"]
+    assert replay["sourceCircleId"] == source_circle_id
+    assert replay["createdAt"] is not None
+    assert replay["updatedAt"] is not None
     assert service.grants[grant["id"]]["expires_at"] == first_expiry
     assert len(service.events) == event_count
     assert len(service.notifications) == notification_count
@@ -4671,11 +4857,15 @@ def test_a_share_can_be_moved_to_until_stopped_and_back() -> None:
     assert row["duration_mode"] == "until_stopped"
     assert row["duration_hours"] is None
     assert row["expires_at"] is None
+    assert row["ceiling_expires_at"] is None
+    assert "capability_token" not in row["metadata"]
 
     service.set_grant_duration(owner_user_id="user_a", grant_id=grant["id"], duration_hours=1)
     row = service.grants[grant["id"]]
     assert row["duration_mode"] == "timed"
     assert row["expires_at"] is not None
+    assert row["ceiling_expires_at"] == row["expires_at"]
+    assert row["metadata"]["capability_token"].startswith("HCT:")
     events = [
         event
         for event in service.events.values()

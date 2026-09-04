@@ -2668,9 +2668,7 @@ class OneLocationAgentService:
         enabled = bool((row or {}).get("enabled"))
         scope_kind = str((row or {}).get("scope_kind") or "")
         circle_id = str((row or {}).get("circle_id") or "") or None
-        circle_ids = [
-            str(value) for value in ((row or {}).get("circle_ids") or []) if value
-        ]
+        circle_ids = [str(value) for value in ((row or {}).get("circle_ids") or []) if value]
         if (
             not enabled
             or scope_kind not in {"all_contacts", "circle", "circles"}
@@ -6776,9 +6774,7 @@ class OneLocationAgentService:
                             "enabled": bool(stored.get("enabled")),
                             "scope_kind": str(stored.get("scope_kind") or "") or None,
                             "circle_id": str(stored.get("circle_id") or "") or None,
-                            "circle_ids": [
-                                str(value) for value in (stored.get("circle_ids") or [])
-                            ]
+                            "circle_ids": [str(value) for value in (stored.get("circle_ids") or [])]
                             or None,
                             "enabled_at": _iso(stored.get("enabled_at")),
                             "rule_version": int(stored.get("rule_version") or 0),
@@ -9078,8 +9074,7 @@ class OneLocationAgentService:
         with self._event_bound_writer():
             row = self._execute_one(
                 """
-                SELECT id, owner_user_id, recipient_user_id, expires_at, status,
-                       duration_mode, duration_hours, metadata
+                SELECT *
                 FROM one_location_share_grants
                 WHERE id = CAST(:grant_id AS UUID)
                   AND owner_user_id = :owner_user_id
@@ -9127,6 +9122,20 @@ class OneLocationAgentService:
                 share_kind=share_kind,
                 now=_utcnow(),
             )
+            updated_metadata = dict(metadata or {})
+            updated_metadata["duration_mode"] = resolved_mode
+            if duration is None:
+                # Until-stopped grants intentionally rely on the durable row
+                # rather than carrying a finite capability that will expire
+                # while the owner still expects the share to be live.
+                updated_metadata.pop("capability_token", None)
+            else:
+                capability = self._mint_grant_capability_token(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=str(row.get("recipient_user_id") or ""),
+                    duration_hours=duration,
+                )
+                updated_metadata["capability_token"] = capability["token"]
             previous_expires_at = row.get("expires_at")
             updated = self._execute_one(
                 """
@@ -9134,6 +9143,12 @@ class OneLocationAgentService:
                 SET duration_mode = :duration_mode,
                     duration_hours = :duration_hours,
                     expires_at = :new_expires_at,
+                    ceiling_expires_at = CASE
+                      WHEN :new_expires_at IS NULL THEN NULL
+                      WHEN ceiling_expires_at IS NULL THEN :new_expires_at
+                      ELSE GREATEST(ceiling_expires_at, :new_expires_at)
+                    END,
+                    metadata = CAST(:metadata_json AS JSONB),
                     updated_at = NOW()
                 WHERE id = CAST(:grant_id AS UUID)
                   AND owner_user_id = :owner_user_id
@@ -9146,6 +9161,7 @@ class OneLocationAgentService:
                     "duration_mode": resolved_mode,
                     "duration_hours": duration,
                     "new_expires_at": expires_at,
+                    "metadata_json": _json_param(updated_metadata),
                 },
             )
             if not updated:
@@ -9848,9 +9864,7 @@ class OneLocationAgentService:
                 duration_mode=resolved_mode,
                 reason="request_approved",
                 source_circle_id=(
-                    automatic_circle_id
-                    if automatic_scope in {"circle", "circles"}
-                    else None
+                    automatic_circle_id if automatic_scope in {"circle", "circles"} else None
                 ),
                 require_recipient_phone_verified=False,
                 # Manual approval is explicit owner consent. A standing rule is
@@ -9956,9 +9970,7 @@ class OneLocationAgentService:
                     ),
                     "auto_approve_scope_kind": automatic_scope or None,
                     "auto_approve_circle_id": (
-                        automatic_circle_id
-                        if automatic_scope in {"circle", "circles"}
-                        else None
+                        automatic_circle_id if automatic_scope in {"circle", "circles"} else None
                     ),
                 },
                 required=True,
