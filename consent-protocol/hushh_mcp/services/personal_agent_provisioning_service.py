@@ -1092,6 +1092,18 @@ class PersonalAgentProvisioningService:
 
         existing = await self._registry.get(user_id)
         if existing is not None:
+            # The attach below is best-effort and says so -- "the parked record stays,
+            # so a retry can still land it". This early return was where that promised
+            # retry died: every later phone-verify stopped here, so a cloud whose first
+            # attach failed stayed parked forever with nothing in the system trying
+            # again. Retried here, and only when the row does not already name a cloud,
+            # so the common re-fire costs nothing.
+            if not str(existing.get("user_cloud_project") or "").strip():
+                from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+                    attach_parked_cloud,
+                )
+
+                await attach_parked_cloud(user_id, registry=self._registry)
             # No state transition -> no feed row: a re-fired phone-verify must not
             # replay "your agent is being set up" into the user's activity feed.
             return {"hushhId": existing.get("hushh_id"), "status": existing.get("status")}

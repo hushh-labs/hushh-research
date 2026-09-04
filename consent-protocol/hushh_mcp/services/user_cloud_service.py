@@ -161,14 +161,42 @@ async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[User
 
             repo = PersonalAgentRegistryRepo()
         cloud = user_cloud_from_row(await repo.get(user_id))
-        if cloud is not None:
+        if cloud is not None and cloud.deployment_target:
+            # The row says where this person's agent lives -- their own cloud or
+            # hushh's. Either way it is the answer, and a parked record must not
+            # override a choice already recorded.
             return cloud
-        # No row yet. The cloud step comes before phone verification (which mints
-        # the row), so a person can hold a PROVEN cloud that is parked on their
-        # setup record. Answer with it: the AI gate then takes the own-cloud rule
-        # (the pod's ADC) instead of treating "your pod's AI" as hushh's managed
-        # model and refusing it (founder-hit, 2026-09-02).
-        return await _parked_user_cloud(user_id)
+        # Either there is no row, or there is a row that does not name a cloud. Both
+        # reach the parked record, and the second case is the one that used to be
+        # missed: `user_cloud_from_row` returns None only for a MISSING row, so a row
+        # present without cloud columns came back as a UserCloud full of Nones, which
+        # is `not None`, and this fallback was skipped.
+        #
+        # That gap is a silent fallback to hushh's own cloud. The cloud step comes
+        # before phone verification, so a proven cloud waits parked on the person's
+        # setup record until `register_pending` writes the row and attaches it. That
+        # attach is best-effort and documents itself as retryable -- "the parked record
+        # stays, so a retry can still land it". When it did not land, the row existed
+        # with no cloud, `is_user_owned` was False, `blocks_provisioning` was False,
+        # and provisioning built their pod on hushh's compute and hushh's bill for
+        # somebody who had already proved their own project.
+        #
+        # Answering from the parked record closes that for every caller at once rather
+        # than at each call site: the AI gate takes the own-cloud rule (the pod's ADC)
+        # instead of treating "your pod's AI" as hushh's managed model and refusing it
+        # (founder-hit, 2026-09-02), and provisioning refuses rather than defaulting.
+        try:
+            parked = await _parked_user_cloud(user_id)
+        except Exception:  # noqa: BLE001 - a failed PARKED read is not an unknown cloud
+            # Deliberately not allowed to reach the handler below. That one answers
+            # "unknown" and provisioning refuses, which is right when the REGISTRY
+            # could not be read -- there is genuinely no answer then. Here the registry
+            # answered: this row names no cloud. A parked lookup that fails on top of
+            # that adds no doubt to a question already settled, and turning it into a
+            # refusal would block every person who simply has not chosen a cloud yet.
+            logger.warning("user_cloud.parked_lookup_failed", exc_info=True)
+            parked = None
+        return parked if parked is not None else cloud
     except Exception:  # noqa: BLE001 - still no raise; the answer is "unknown", not an outage
         logger.warning("user_cloud.lookup_failed", exc_info=True)
         # NOT None. None means "this person has no cloud", and the caller that builds
