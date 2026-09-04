@@ -445,3 +445,70 @@ def test_the_resolver_builds_the_rest_service_without_the_aiplatform_package(mon
     service = mb.resolve_memory_bank_service()
     assert service is not None and service.engine_id_ == "91"
     assert mb.resolve_memory_bank_service() is service, "built once per process"
+
+
+# -- a create that never reported done is not a created engine ------------------
+
+
+def test_a_create_that_times_out_is_unavailable_not_an_engine_id() -> None:
+    """The operation's NAME is not evidence an engine exists, only that one was asked
+    for.
+
+    This used to return the id parsed from the create operation when the poll loop ran
+    out of time, on the reasoning that "a slow LRO is not a failure". But a slow LRO and
+    a FAILING one are indistinguishable at that point. When the operation later
+    completed with an error -- quota, or a model not offered in the person's region,
+    the class 5e97f3ba1 exists for -- the id was already cached, /pod/info reported
+    memoryBankEngine, and every memories:generate and memories:retrieve 404'd against
+    an engine that was never created. The pod claimed a Memory Bank while recall
+    silently returned nothing.
+    """
+    http = _Http(
+        _Resp(200, {"reasoningEngines": []}),
+        _Resp(
+            200,
+            # A well-formed operation carrying a parseable id, and no `done`.
+            {"name": "projects/p/locations/us-central1/reasoningEngines/99/operations/1"},
+        ),
+    )
+    with pytest.raises(mb.MemoryBankUnavailable) as caught:
+        mb.find_or_create_engine(
+            _cfg(), session=http, token=_TOKEN, wait_seconds=0, sleep=lambda _s: None
+        )
+    assert "timed out" in str(caught.value)
+
+
+def test_the_next_boot_adopts_an_engine_that_did_finish() -> None:
+    """Why raising costs nothing: this call is find-FIRST.
+
+    The engine may well have been created after the wait elapsed. The next boot lists
+    by display name and adopts it, which is the recovery the timeout raise depends on --
+    so the honest answer never strands a real engine.
+    """
+    http = _Http(
+        _Resp(
+            200,
+            {
+                "reasoningEngines": [
+                    {
+                        "name": "projects/p/locations/us-central1/reasoningEngines/99",
+                        "displayName": "one-pod-memory-ha1_test",
+                    }
+                ]
+            },
+        )
+    )
+    assert mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN) == "99"
+    assert http.posts == [], "it created a second engine instead of adopting the first"
+
+
+def test_done_with_no_engine_name_fails_without_polling_a_finished_operation() -> None:
+    """Polling an operation that already said done cannot change the answer."""
+    http = _Http(
+        _Resp(200, {"reasoningEngines": []}),
+        _Resp(200, {"done": True, "name": "operations/1"}),
+    )
+    with pytest.raises(mb.MemoryBankUnavailable) as caught:
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, sleep=lambda _s: None)
+    assert "without an engine name" in str(caught.value)
+    assert [g for g in http.gets if "/operations/" in g] == []

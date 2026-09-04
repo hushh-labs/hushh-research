@@ -210,6 +210,10 @@ def find_or_create_engine(
             raise MemoryBankUnavailable(f"create failed: {str(operation['error'])[:200]}")
         if engine_id:
             return engine_id
+        # Done, no error, and no name to read. Polling a completed operation cannot
+        # change any of that, so say so here rather than sleeping first and reaching
+        # the same verdict one round later.
+        raise MemoryBankUnavailable("create finished without an engine name")
     op_name = str(operation.get("name") or "")
     deadline = time.monotonic() + wait_seconds
     while op_name and time.monotonic() < deadline:
@@ -229,9 +233,25 @@ def find_or_create_engine(
         return (
             _engine_id_from_name((body.get("response") or {}).get("name", "")) or engine_id or ""
         ) or _raise(MemoryBankUnavailable("create finished without an engine name"))
-    if engine_id:
-        # The operation name already carries the id; a slow LRO is not a failure.
-        return engine_id
+    # Reaching here means the loop ran to the deadline WITHOUT the operation ever
+    # reporting done. A slow create and a failing one are indistinguishable at that
+    # point, and this used to pick "slow" and return the id parsed from the create
+    # OPERATION's name -- which is not evidence an engine exists, only evidence one was
+    # asked for.
+    #
+    # When the operation later completed with an error -- quota, or a model not
+    # available in the person's region, the exact class 5e97f3ba1 was written for --
+    # _STATE["engine_id"] was already set, /pod/info and the heartbeat reported
+    # memoryBankEngine, and resolve_memory_bank_service built a REST client against a
+    # reasoningEngines/<id> that does not exist. Every memories:generate and
+    # memories:retrieve then 404s: the pod says it has a Memory Bank and recall
+    # silently returns nothing, forever.
+    #
+    # Unavailable is the honest answer, and it costs nothing to be right about. This
+    # function is find-FIRST and documents itself as "idempotent across restarts that
+    # lost the local record", so if the engine did finish creating, the next boot lists
+    # it by display name and adopts it. Until then the sealed commit log keeps
+    # answering underneath, which is what it is for.
     raise MemoryBankUnavailable("create timed out")
 
 
