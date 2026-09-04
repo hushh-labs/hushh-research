@@ -5485,11 +5485,11 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "5605ad3933dedb8b04d83cde1604f0ff520f74b9278c98c9683e306c6b4ba4a8",
-    "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
+    "agent_registry": "a95cf642313b982d945743ec063faf308ecd8f651b740e8d8a5db39786172463",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
     "data_plane": "d2706bc9683b88a5e34015bc6bc5fd6f0c1c90618342e62da7ff560f2bc8daf2",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "f91a213f8eda5ce9d17b9fed0062e77e0c3e8faca7786f1a7a7b9810ebe6002f",
+    "one_specialist_tools": "b86b55cb4dc9f8e9cfda91f3328e305c93b7a83697102c5576bea5f1d9a1035d",
     "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
     "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
     "surface_map": "f5fffd96f19e2c2e949c47840a815f87c0fa0936eff7a50cc9c7a180590ba7b3",

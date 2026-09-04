@@ -81,6 +81,54 @@ function sensitivityLabel(
   return null;
 }
 
+/**
+ * The person's name as they would write it.
+ *
+ * Directory records arrive however they were typed, often shouted
+ * ("JHUMMA KUMARI"). Shouting someone's name back at the owner reads as a
+ * database row, not a person.
+ */
+function personName(value: string): string {
+  const trimmed = String(value || "").trim();
+  if (!trimmed) return "this person";
+  if (trimmed !== trimmed.toUpperCase()) return trimmed;
+  return trimmed
+    .toLowerCase()
+    .replace(/(^|[\s'-])([a-z])/g, (_match, boundary, letter) => `${boundary}${letter.toUpperCase()}`);
+}
+
+/** A domain key ("location") as a heading a person would read. */
+function domainHeading(value: string): string {
+  const cleaned = String(value || "").replace(/[_.]+/g, " ").trim();
+  if (!cleaned) return "Information";
+  return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
+}
+
+/**
+ * Split a flattened manifest label into the thing itself and where it sits.
+ *
+ * The backend builds these by title-casing an entire manifest path, so a single
+ * field arrives as "Saved Places Locations Items Address". Read aloud that is a
+ * sentence, not a label, and a list of fourteen of them is unreadable. The last
+ * word is the field; everything before it is context that belongs underneath in
+ * smaller type. Structural filler that means nothing to a person ("Items") is
+ * dropped from the context line.
+ */
+const CONTEXT_FILLER = new Set(["items", "item", "locations", "entries", "list"]);
+
+function splitScopeLabel(label: string): { title: string; context: string | null } {
+  const words = String(label || "").trim().split(/\s+/).filter(Boolean);
+  if (words.length === 0) return { title: "Information", context: null };
+  if (words.length === 1) return { title: words[0]!, context: null };
+
+  const title = words[words.length - 1]!;
+  const context = words
+    .slice(0, -1)
+    .filter((word) => !CONTEXT_FILLER.has(word.toLowerCase()))
+    .join(" ");
+  return { title, context: context || null };
+}
+
 function ScopeDiscoveryView({
   experience,
 }: {
@@ -109,12 +157,12 @@ function ScopeDiscoveryView({
         </span>
         <div className="min-w-0 flex-1">
           <h3 className="text-sm font-semibold text-foreground">
-            Available from {experience.person.displayName}
+            What {personName(experience.person.displayName)} can share with you
           </h3>
           <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
             {experience.scopes.length === 0
-              ? "No information is currently available to request."
-              : `${experience.scopes.length} ${experience.scopes.length === 1 ? "field" : "fields"} can be reviewed before asking for access.`}
+              ? `${personName(experience.person.displayName)} has not made anything available to ask for yet.`
+              : `${experience.scopes.length} ${experience.scopes.length === 1 ? "thing" : "things"} you can ask for. They decide what to share, and for how long.`}
           </p>
         </div>
       </header>
@@ -124,21 +172,26 @@ function ScopeDiscoveryView({
           {groups.map((group) => (
             <section key={group.domain} aria-label={group.domain}>
               <h4 className="ui-text-section-label pb-1.5 text-muted-foreground">
-                {group.domain}
+                {domainHeading(group.domain)}
               </h4>
               <ul className="divide-y divide-border/35">
                 {group.scopes.map((scope) => {
                   const sensitivity = sensitivityLabel(scope.sensitivity);
+                  const { title, context } = splitScopeLabel(scope.label);
                   return (
                     <li key={scope.scopeRef} className="py-2.5 first:pt-2 last:pb-2">
                       <div className="flex items-start justify-between gap-3">
                         <div className="min-w-0">
                           <p className="text-sm font-semibold text-foreground">
-                            {scope.label}
+                            {title}
                           </p>
                           {scope.description ? (
                             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                               {scope.description}
+                            </p>
+                          ) : context ? (
+                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
+                              {context}
                             </p>
                           ) : null}
                         </div>
@@ -161,7 +214,7 @@ function ScopeDiscoveryView({
       <div className="flex justify-start px-1">
         <MorphyButton asChild size="sm">
           <Link href={experience.person.profilePath}>
-            Review information
+            Choose what to ask for
             <ArrowUpRight className="h-3.5 w-3.5" aria-hidden="true" />
           </Link>
         </MorphyButton>
