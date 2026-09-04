@@ -64,7 +64,8 @@ export const UI_FLOWS = [
   {
     id: "native-reviewer-location-intro-fresh-session",
     route: "/one/setup/location",
-    description: "Location setup traverses every screen once without mutating reviewer capability state",
+    description:
+      "Location setup traverses all four authored screens without saving a place or finishing setup",
     watchdog: {
       checkpoints: LOCATION_ONBOARDING_CHECKPOINTS,
       maxCheckpointRegressions: 0,
@@ -76,16 +77,15 @@ export const UI_FLOWS = [
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[0] },
       { type: "click_button", name: "Get started" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[1] },
-      { type: "click_button", name: "Continue" },
+      { type: "click_button", name: "Set up my location" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[2] },
-      // "Not now" rather than "Check my contacts": the reviewer run must not
-      // trigger an OS contacts prompt, and declining is the path every person
-      // who skips this step takes anyway.
-      { type: "click_button", name: "Not now" },
+      // Skip persistence while still exercising the unified map + place screen.
+      // Contacts are a disclosure on the final screen, so leaving it closed also
+      // guarantees this reviewer flow never triggers an OS contacts prompt.
+      { type: "click_button", name: "Skip saving this place" },
       { type: "assert_visible_testid", testId: LOCATION_ONBOARDING_CHECKPOINTS[3] },
-      // Stop here rather than pressing the final CTA. It settles the reviewer's
-      // Location capability, and this flow's contract is to traverse every
-      // screen once *without* mutating capability state.
+      // Stop at the final CTA so the reviewer can repeat this authored journey
+      // without marking Location setup complete.
       { type: "wait_button", name: "Finish" },
     ],
   },

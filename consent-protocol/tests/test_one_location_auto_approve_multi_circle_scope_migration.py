@@ -4,8 +4,8 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "198_one_location_auto_approve_multi_circle_scope.sql"
-ROLLBACK_NAME = "198_one_location_auto_approve_multi_circle_scope.rollback.sql"
+MIGRATION_NAME = "199_one_location_auto_approve_multi_circle_scope.sql"
+ROLLBACK_NAME = "199_one_location_auto_approve_multi_circle_scope.rollback.sql"
 TABLE = "one_location_auto_approve_preferences"
 REQUIRED_COLUMNS = {
     "user_id",

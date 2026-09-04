@@ -6,7 +6,14 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
-import { Children, type ReactNode } from "react";
+import {
+  Children,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useImperativeHandle,
+  useMemo,
+} from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
@@ -76,6 +83,7 @@ const {
   mockSearchParamsGet,
   mockSearchParams,
   mockCopyToClipboard,
+  mockRequestContactCheck,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
@@ -137,6 +145,7 @@ const {
     toString: () => "",
   },
   mockCopyToClipboard: vi.fn(),
+  mockRequestContactCheck: vi.fn(() => true),
 }));
 
 mockSearchParams.get = mockSearchParamsGet;
@@ -155,6 +164,24 @@ vi.mock("@/hooks/use-auth", () => ({
   useRequireAuth: mockUseRequireAuth,
 }));
 
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mockRequestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Find contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
+}));
+
 // CapabilityExploreCard (rendered on the location tab) reads useAuth from the
 // firebase auth context directly, so it needs its own stub in this harness.
 vi.mock("@/lib/firebase/auth-context", () => ({
@@ -167,38 +194,66 @@ vi.mock("@/lib/vault/vault-context", () => ({
 
 vi.mock("@/components/one-location/onboarding/location-picker-map", () => ({
   LocationPickerMap: ({
+    ref,
     onConfirm,
     onCancel,
+    onSelectionChange,
+    onReadyChange,
     confirmLabel,
     cancelLabel,
   }: {
+    ref?: Ref<{ confirm: () => boolean }>;
     onConfirm: (picked: {
       latitude: number;
       longitude: number;
       address: string;
     }) => void;
     onCancel: () => void;
-    confirmLabel: string;
-    cancelLabel: string;
-  }) => (
-    <div aria-label="Mock location picker">
-      <button
-        type="button"
-        onClick={() =>
-          onConfirm({
-            latitude: 28.6139,
-            longitude: 77.209,
-            address: "Kartavya Path, New Delhi, Delhi 110001, India",
-          })
-        }
-      >
-        {confirmLabel}
-      </button>
-      <button type="button" onClick={onCancel}>
-        {cancelLabel}
-      </button>
-    </div>
-  ),
+    onSelectionChange?: (picked: {
+      latitude: number;
+      longitude: number;
+      address: string;
+    }) => void;
+    onReadyChange?: (ready: boolean) => void;
+    confirmLabel?: string;
+    cancelLabel?: string;
+  }) => {
+    const picked = useMemo(
+      () => ({
+        latitude: 28.6139,
+        longitude: 77.209,
+        address: "Kartavya Path, New Delhi, Delhi 110001, India",
+      }),
+      [],
+    );
+
+    useImperativeHandle(ref, () => ({
+      confirm: () => {
+        onConfirm(picked);
+        return true;
+      },
+    }), [onConfirm, picked]);
+    useEffect(() => {
+      onSelectionChange?.(picked);
+      onReadyChange?.(true);
+      return () => onReadyChange?.(false);
+    }, [onReadyChange, onSelectionChange, picked]);
+
+    return (
+      <div aria-label="Mock location picker">
+        {confirmLabel ? (
+          <button type="button" onClick={() => onConfirm(picked)}>
+            {confirmLabel}
+          </button>
+        ) : null}
+        {cancelLabel ? (
+          <button type="button" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+        ) : null}
+      </div>
+    );
+  },
 }));
 
 vi.mock("@/components/one-location/saved-locations-section", () => ({
@@ -703,65 +758,40 @@ function locationFinishButton() {
   return screen.findByRole("button", { name: /Open One Location|Finish/ });
 }
 
-/** welcome -> features (clearing the save-place modal) -> invite. */
+/** welcome -> features -> save place (skipped) -> ready. */
 async function reachLocationOnboardingFinalStep() {
-  await openLocationFeatureStep();
-  await waitFor(() => {
-    const savePrompt = screen.queryByTestId("save-location-modal");
-    const continueButton = screen.queryByRole("button", {
-      name: /Continue|Allow location/,
-    });
-    expect(savePrompt || continueButton).toBeTruthy();
-  });
-  const savePrompt = screen.queryByTestId("save-location-modal");
-  if (savePrompt) {
-    fireEvent.click(
-      within(savePrompt).getByRole("button", { name: "Skip for now" }),
-    );
-  }
-  const continueButton = await screen.findByRole("button", {
-    name: /Continue|Allow location/,
-  });
-  await waitFor(() => expect(continueButton).toBeEnabled());
-  fireEvent.click(continueButton);
-  const contactsStep = await screen.findByRole("heading", {
-    name: /Find your people|You're on the map/,
-  });
-  if (/Find your people/i.test(contactsStep.textContent ?? "")) {
-    const notNow = await screen.findByRole("button", { name: "Not now" });
-    await waitFor(() => expect(notNow).toBeEnabled());
-    fireEvent.click(notNow);
-  }
+  await openLocationPermissionsStep();
+  const savePrompt = await screen.findByTestId("save-location-modal");
+  fireEvent.click(
+    within(savePrompt).getByRole("button", {
+      name: /Skip saving this place|Skip for now/,
+    }),
+  );
   await expectLocationInviteStep();
   expect(screen.getByRole("button", { name: "Go back" })).toBeEnabled();
-  expect(screen.getByRole("button", { name: "Skip" })).toBeEnabled();
+  expect(await locationFinishButton()).toBeEnabled();
 }
 
 /**
- * Walk welcome -> features and press the CTA, clearing the save-place modal,
- * without asserting where it lands. Used by tests that care about whether the
- * contacts step appears at all.
+ * Walk welcome -> features -> save place, then take the non-persisting path to
+ * Ready without asserting the final content.
  */
 async function leaveLocationFeatureStep() {
-  await openLocationFeatureStep();
-  await waitFor(() => {
-    const savePrompt = screen.queryByTestId("save-location-modal");
-    const continueButton = screen.queryByRole("button", {
-      name: /Continue|Allow location/,
-    });
-    expect(savePrompt || continueButton).toBeTruthy();
+  await openLocationPermissionsStep();
+  const savePrompt = await screen.findByTestId("save-location-modal");
+  fireEvent.click(
+    within(savePrompt).getByRole("button", {
+      name: /Skip saving this place|Skip for now/,
+    }),
+  );
+}
+
+async function openReadyContactsPanel() {
+  const disclosure = await screen.findByRole("button", {
+    name: "Find contacts",
   });
-  const savePrompt = screen.queryByTestId("save-location-modal");
-  if (savePrompt) {
-    fireEvent.click(
-      within(savePrompt).getByRole("button", { name: "Skip for now" }),
-    );
-  }
-  const continueButton = await screen.findByRole("button", {
-    name: /Continue|Allow location/,
-  });
-  await waitFor(() => expect(continueButton).toBeEnabled());
-  fireEvent.click(continueButton);
+  fireEvent.click(disclosure);
+  return screen.findByTestId("one-location-onboarding-contacts-surface");
 }
 
 /** Reach the last screen and press the CTA that settles onboarding. */
@@ -873,6 +903,19 @@ async function expectEmergencyAction(
 
 async function openLocationPermissionsStep() {
   await openLocationFeatureStep();
+  const setupButton = await screen.findByRole("button", {
+    name: /Set up my location|Try again|Open settings/,
+  });
+  await waitFor(() => expect(setupButton).toBeEnabled());
+  fireEvent.click(setupButton);
+}
+
+async function saveOnboardingPlace() {
+  const saveButton = await screen.findByRole("button", {
+    name: "Save & continue",
+  });
+  await waitFor(() => expect(saveButton).toBeEnabled());
+  fireEvent.click(saveButton);
 }
 
 async function switchLocationTab(
@@ -973,6 +1016,7 @@ describe("OneLocationAgentPage", () => {
   });
 
   beforeEach(async () => {
+    mockRequestContactCheck.mockReturnValue(true);
     vi.clearAllMocks();
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
@@ -1032,6 +1076,10 @@ describe("OneLocationAgentPage", () => {
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      phoneNumber: "+919000000001",
+      resolveVerifiedPhoneNumber: vi
+        .fn()
+        .mockResolvedValue("+919000000001"),
       user: {
         uid: "user_a",
         displayName: "Test User",
@@ -3337,11 +3385,11 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(screen.getByTestId("one-location-onboarding-features")).toBeTruthy();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Open settings" })).toBeEnabled();
     expect(onSetupComplete).not.toHaveBeenCalled();
   });
 
-  it("refreshes Location after returning from Settings and opens the saved-place prompt in the unlocked workspace", async () => {
+  it("refreshes Location after returning from Settings and waits for the explicit saved-place CTA", async () => {
     window.localStorage.removeItem(
       "one_location_saved_location_prompt_v2:user_a",
     );
@@ -3377,10 +3425,8 @@ describe("OneLocationAgentPage", () => {
 
     await openLocationPermissionsStep();
     await waitFor(() => expect(mockOpenAppSettings).toHaveBeenCalled());
-    // Asked first, and only then routed to Settings once the device said no.
-    expect(mockCaptureCurrentPosition).toHaveBeenCalled();
+    expect(mockCaptureCurrentPosition).not.toHaveBeenCalled();
 
-    const attemptsWhileDenied = mockCaptureCurrentPosition.mock.calls.length;
     mockGetPermissionState.mockResolvedValue(grantedPermission);
     mockCaptureCurrentPosition.mockResolvedValue({
       latitude: 28.6139,
@@ -3394,10 +3440,13 @@ describe("OneLocationAgentPage", () => {
       appInteractionCoordinator.handleLifecycle("active");
     });
 
+    const retry = await screen.findByRole("button", {
+      name: "Set up my location",
+    });
+    expect(screen.queryByTestId("save-location-modal")).toBeNull();
+    fireEvent.click(retry);
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition.mock.calls.length).toBeGreaterThan(
-      attemptsWhileDenied,
-    );
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
   });
 
   it("keeps setup onboarding available when the workspace state fetch fails", async () => {
@@ -3430,12 +3479,11 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockReverseGeocode).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await saveOnboardingPlace();
 
     await waitFor(() =>
       expect(mockStageSavedLocation).toHaveBeenCalledWith("user_a", {
@@ -3520,12 +3568,11 @@ describe("OneLocationAgentPage", () => {
       await Promise.resolve();
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Second user's home" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await saveOnboardingPlace();
 
     await waitFor(() =>
       expect(mockStageSavedLocation).toHaveBeenCalledWith(
@@ -3641,8 +3688,9 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
     await openLocationPermissionsStep();
-    await waitFor(() =>
-      expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
+    await waitFor(
+      () => expect(mockRequestLocationPermission).toHaveBeenCalledTimes(1),
+      { timeout: 5_000 },
     );
     expect(toast.success).toHaveBeenCalledWith("Location access enabled.");
     await waitFor(() =>
@@ -3660,8 +3708,11 @@ describe("OneLocationAgentPage", () => {
       "the device was read before permission was asked for",
     ).toBeLessThan(mockCaptureCurrentPosition.mock.invocationCallOrder[0]!);
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Skip saving this place|Skip for now/,
+      }),
+    );
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3719,12 +3770,11 @@ describe("OneLocationAgentPage", () => {
       }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Flat 4B" },
     });
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await saveOnboardingPlace();
 
     await waitFor(() =>
       expect(mockAddSavedLocation).toHaveBeenCalledWith({
@@ -3756,7 +3806,6 @@ describe("OneLocationAgentPage", () => {
       ),
     ).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
   });
 
@@ -3789,7 +3838,7 @@ describe("OneLocationAgentPage", () => {
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
   });
 
-  it("reopens the location picker after dismissing it and returning to the feature step", async () => {
+  it("reopens the location picker from Ready and reuses the captured point", async () => {
     window.localStorage.removeItem(
       "one_location_saved_location_prompt_v1:user_a",
     );
@@ -3818,7 +3867,11 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Skip saving this place|Skip for now/,
+      }),
+    );
 
     await waitFor(() =>
       expect(screen.queryByTestId("save-location-modal")).toBeNull(),
@@ -3826,16 +3879,23 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Go back" }));
 
-    expect(
-      await screen.findByRole("heading", {
-        name: "Share your location easily with anyone.",
+    const reopenedPrompt = await screen.findByTestId("save-location-modal");
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
+    fireEvent.click(
+      within(reopenedPrompt).getByRole("button", {
+        name: "Back to what One Location does",
       }),
-    ).toBeTruthy();
+    );
 
-    await openLocationPermissionsStep();
+    expect(
+      await screen.findByRole("heading", { name: "Keep your people updated." }),
+    ).toBeTruthy();
+    fireEvent.click(
+      screen.getByRole("button", { name: "Set up my location" }),
+    );
 
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(2);
+    expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
   });
   it("retires a legacy skipped outcome and still opens the onboarding picker", async () => {
     window.localStorage.setItem(
@@ -3877,8 +3937,11 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     expect(mockRequestLocationPermission).not.toHaveBeenCalled();
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Skip for now" }));
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Skip saving this place|Skip for now/,
+      }),
+    );
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3917,12 +3980,10 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
 
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     fireEvent.click(screen.getByRole("button", { name: "Home" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await saveOnboardingPlace();
     await waitFor(() => expect(mockAddSavedLocation).toHaveBeenCalled());
 
-    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     expect(
@@ -3964,7 +4025,6 @@ describe("OneLocationAgentPage", () => {
     expect(await screen.findByTestId("save-location-modal")).toBeTruthy();
     expect(mockCaptureCurrentPosition).toHaveBeenCalledTimes(1);
 
-    fireEvent.click(screen.getByRole("button", { name: "Confirm pin" }));
     fireEvent.change(screen.getByLabelText(/House or flat/), {
       target: { value: "Tower 2, Floor 4" },
     });
@@ -3973,7 +4033,7 @@ describe("OneLocationAgentPage", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Work" }));
-    fireEvent.click(screen.getByRole("button", { name: "Save location" }));
+    await saveOnboardingPlace();
 
     await waitFor(() =>
       expect(mockAddSavedLocation).toHaveBeenCalledWith({
@@ -5824,11 +5884,31 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("gates the Location hub before opening a contact source", async () => {
+    mockRequestContactCheck.mockReturnValue(false);
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    openDropdownMenu(
+      await screen.findByRole("button", { name: /Add or manage people/i }),
+    );
+    fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+
+    expect(mockRequestContactCheck).toHaveBeenCalledTimes(1);
+    expect(mockRequestGoogleContactsToken).not.toHaveBeenCalled();
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+  });
+
   it("syncs mobile contact matches without showing phone digits", async () => {
     mockUseRequireAuth.mockReturnValue({
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      // Native UAT verification hydrates this AuthContext value without
+      // necessarily changing Firebase User.phoneNumber.
+      phoneNumber: "+919000000001",
       user: {
         uid: "user_a",
         getIdToken: vi.fn().mockResolvedValue("id-token"),
@@ -5885,7 +5965,7 @@ describe("OneLocationAgentPage", () => {
         sourcePlatform: "ios",
       };
     });
-    render(<OneLocationAgentPage />);
+    const view = render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
@@ -5921,10 +6001,17 @@ describe("OneLocationAgentPage", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
 
     await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith({
-        idToken: "id-token",
-      }),
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountPhoneNumber: "+919000000001",
+          resolveAccountPhoneNumber: expect.any(Function),
+          resolveIdToken: expect.any(Function),
+        }),
+      ),
     );
+    await expect(
+      mockSyncOneLocationContactSignals.mock.calls[0]?.[0].resolveIdToken?.(),
+    ).resolves.toBe("id-token");
     await waitFor(() =>
       expect(mockListRecipientsPage).toHaveBeenCalledWith({
         vaultOwnerToken: "vault-token",
@@ -5963,6 +6050,21 @@ describe("OneLocationAgentPage", () => {
         matched_count: 1,
         invite_candidate_count: 7,
       }),
+    );
+
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_b",
+      phoneNumber: "+919000000002",
+      user: {
+        uid: "user_b",
+        getIdToken: vi.fn().mockResolvedValue("id-token-b"),
+      },
+    });
+    view.rerender(<OneLocationAgentPage />);
+    await waitFor(() =>
+      expect(screen.queryByText("Contact sync results")).toBeNull(),
     );
   });
 
@@ -6032,7 +6134,6 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
-    fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
     await expectLocationInviteStep();
     fireEvent.click(await locationFinishButton());
     await waitFor(() =>
@@ -6067,6 +6168,66 @@ describe("OneLocationAgentPage", () => {
     expect(
       screen.getByRole("menuitem", { name: /Find contacts/i }),
     ).toBeTruthy();
+  });
+
+  it("waits for verified phone hydration before syncing Google People", async () => {
+    mockGoogleAvailability = () => "connectable";
+    let finishPhoneHydration: ((phone: string) => void) | null = null;
+    const getIdToken = vi.fn(async () => "id-token");
+    const resolveVerifiedPhoneNumber = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finishPhoneHydration = resolve;
+        }),
+    );
+    mockUseRequireAuth.mockReturnValue({
+      loading: false,
+      isAuthenticated: true,
+      userId: "user_a",
+      phoneNumber: null,
+      resolveVerifiedPhoneNumber,
+      user: {
+        uid: "user_a",
+        displayName: "Test User",
+        getIdToken,
+      },
+    });
+    mockRequestGoogleContactsToken.mockResolvedValueOnce("google-token");
+    const googleSource = vi.fn();
+    mockGooglePeopleContactSource.mockReturnValue(googleSource);
+    const defaultSyncImplementation =
+      mockSyncOneLocationContactSignals.getMockImplementation();
+    mockSyncOneLocationContactSignals.mockImplementationOnce(async (options) => {
+      const resolvedPhone = await options.resolveAccountPhoneNumber?.();
+      expect(resolvedPhone).toBe("+919876543210");
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return defaultSyncImplementation!(options);
+    });
+
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
+    fireEvent.click(
+      within(contactsPanel).getByRole("button", {
+        name: "Check my contacts",
+      }),
+    );
+    await waitFor(() =>
+      expect(resolveVerifiedPhoneNumber).toHaveBeenCalledTimes(1),
+    );
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: googleSource,
+        accountPhoneNumber: null,
+        resolveAccountPhoneNumber: expect.any(Function),
+        resolveIdToken: expect.any(Function),
+      }),
+    );
+    await act(async () => {
+      finishPhoneHydration?.("+919876543210");
+    });
+
+    await waitFor(() => expect(getIdToken).toHaveBeenCalledTimes(1));
   });
 
   it("keeps contact sync single-flight from the People menu", async () => {
@@ -6309,6 +6470,7 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       ownerGrants: [],
     });
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
 
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -6333,6 +6495,7 @@ describe("OneLocationAgentPage", () => {
       ...locationState(),
       ownerGrants: [],
     });
+    window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
 
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
@@ -6364,7 +6527,7 @@ describe("OneLocationAgentPage", () => {
     await openLocationPermissionsStep();
     await waitFor(() => expect(mockOpenLocationSettings).toHaveBeenCalled());
     expect(
-      screen.getByText(/adjust permissions later in Location Settings/i),
+      screen.getByText(/Location access is off.*Turn it on to set up/i),
     ).toBeTruthy();
     expect(mockCreateGrant).not.toHaveBeenCalled();
     expect(mockStoreEnvelope).not.toHaveBeenCalled();
@@ -6450,7 +6613,7 @@ describe("OneLocationAgentPage", () => {
     });
   });
 
-  it("keeps the contacts step on a mobile browser that exposes the Contact Picker", async () => {
+  it("offers collapsed contact sync on Ready when the Contact Picker is available", async () => {
     // Chrome on Android has no native plugin but does expose the Contact
     // Picker, so the step must survive there. Skipping is only for surfaces
     // with no address book at all -- desktop browsers and Safari.
@@ -6462,41 +6625,67 @@ describe("OneLocationAgentPage", () => {
       render(<OneLocationAgentPage />);
       await leaveLocationFeatureStep();
 
+      await expectLocationInviteStep();
+      const disclosure = screen.getByRole("button", { name: "Find contacts" });
+      expect(disclosure).toHaveAttribute("aria-expanded", "false");
       expect(
-        await screen.findByTestId("one-location-onboarding-contacts"),
-      ).toBeTruthy();
-      expect(
-        screen.getByRole("button", { name: "Find contacts" }),
-      ).toBeTruthy();
+        screen.queryByTestId("one-location-onboarding-contacts-surface"),
+      ).toBeNull();
     } finally {
       Reflect.deleteProperty(navigator, "contacts");
     }
   });
 
-  it("skips the contacts step in a browser with no Contact Picker", async () => {
+  it("gates Location onboarding before Google or device contact access", async () => {
+    mockGoogleAvailability = () => "connectable";
+    mockRequestContactCheck.mockReturnValue(false);
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+
+    const contactsPanel = await openReadyContactsPanel();
+    const checkContacts = within(contactsPanel).getByRole("button", {
+      name: "Check my contacts",
+    });
+    fireEvent.click(checkContacts);
+
+    expect(mockRequestContactCheck).toHaveBeenCalledTimes(1);
+    expect(mockRequestGoogleContactsToken).not.toHaveBeenCalled();
+    expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
+    expect(checkContacts).toBeEnabled();
+  });
+
+  it("omits the contact disclosure when no contact source is available", async () => {
     // jsdom is that browser, and so is every desktop Chrome and Safari. The
     // step used to render here as an apology over an empty panel.
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
 
     await expectLocationInviteStep();
-    expect(screen.queryByTestId("one-location-onboarding-contacts")).toBeNull();
+    expect(screen.queryByTestId("onboarding-contacts-disclosure")).toBeNull();
   });
 
   it("uses the preloaded Google source during desktop onboarding", async () => {
     const order: string[] = [];
+    let finishPhoneHydration: ((phone: string) => void) | null = null;
     const getIdToken = vi.fn(async () => {
       order.push("firebase");
       return "id-token";
     });
+    const resolveVerifiedPhoneNumber = vi.fn(
+      () =>
+        new Promise<string>((resolve) => {
+          finishPhoneHydration = resolve;
+        }),
+    );
     mockUseRequireAuth.mockReturnValue({
       loading: false,
       isAuthenticated: true,
       userId: "user_a",
+      phoneNumber: null,
+      resolveVerifiedPhoneNumber,
       user: {
         uid: "user_a",
         displayName: "Test User",
-        phoneNumber: "+919876543210",
         getIdToken,
       },
     });
@@ -6507,6 +6696,14 @@ describe("OneLocationAgentPage", () => {
     });
     const googleSource = vi.fn();
     mockGooglePeopleContactSource.mockReturnValue(googleSource);
+    const defaultSyncImplementation =
+      mockSyncOneLocationContactSignals.getMockImplementation();
+    mockSyncOneLocationContactSignals.mockImplementationOnce(async (options) => {
+      const resolvedPhone = await options.resolveAccountPhoneNumber?.();
+      expect(resolvedPhone).toBe("+919876543210");
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return defaultSyncImplementation!(options);
+    });
 
     render(<OneLocationAgentPage />);
     await waitFor(() =>
@@ -6514,22 +6711,30 @@ describe("OneLocationAgentPage", () => {
     );
     await leaveLocationFeatureStep();
 
-    const connect = await screen.findByRole("button", {
-      name: "Find contacts",
+    const contactsPanel = await openReadyContactsPanel();
+    const connect = within(contactsPanel).getByRole("button", {
+      name: "Check my contacts",
     });
     order.length = 0;
     getIdToken.mockClear();
     fireEvent.click(connect);
 
     await waitFor(() =>
-      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
-        expect.objectContaining({
-          idToken: "id-token",
-          source: googleSource,
-          accountPhoneNumber: "+919876543210",
-        }),
-      ),
+      expect(resolveVerifiedPhoneNumber).toHaveBeenCalledTimes(1),
     );
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledWith(
+      expect.objectContaining({
+        source: googleSource,
+        accountPhoneNumber: null,
+        resolveAccountPhoneNumber: expect.any(Function),
+        resolveIdToken: expect.any(Function),
+      }),
+    );
+    await act(async () => {
+      finishPhoneHydration?.("+919876543210");
+    });
+
+    await waitFor(() => expect(getIdToken).toHaveBeenCalledTimes(1));
     expect(order.slice(0, 2)).toEqual(["google", "firebase"]);
   });
 
@@ -6541,10 +6746,9 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Find contacts",
-      }),
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     );
 
     await waitFor(() =>
@@ -6552,9 +6756,7 @@ describe("OneLocationAgentPage", () => {
     );
     expect(mockSyncOneLocationContactSignals).not.toHaveBeenCalled();
     expect(
-      await screen.findByRole("button", {
-        name: "Find contacts",
-      }),
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     ).toBeEnabled();
     expect(screen.queryByText(/couldn't check your contacts/i)).toBeNull();
   });
@@ -6569,10 +6771,9 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Find contacts",
-      }),
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     );
 
     expect(
@@ -6588,7 +6789,7 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps onboarding navigation locked while contact processing owns the screen", async () => {
+  it("keeps Ready completion available while optional contact processing is busy", async () => {
     mockGoogleAvailability = () => "connectable";
     let finishSync: (() => void) | null = null;
     mockSyncOneLocationContactSignals.mockImplementationOnce(
@@ -6626,16 +6827,13 @@ describe("OneLocationAgentPage", () => {
 
     render(<OneLocationAgentPage />);
     await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
     fireEvent.click(
-      await screen.findByRole("button", {
-        name: "Find contacts",
-      }),
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
     );
 
     expect(await screen.findByText(/Checking your contacts/i)).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Go back" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Skip" })).toBeDisabled();
-    expect(screen.getByRole("button", { name: "Continue" })).toBeDisabled();
+    expect(await locationFinishButton()).toBeEnabled();
 
     await act(async () => {
       finishSync?.();
