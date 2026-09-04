@@ -5158,7 +5158,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fcards",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fwallet",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -6216,5 +6216,5 @@
       ]
     }
   ],
-  "content_sha256": "8c371c16d5b19a341103d2bb936624de7bd7b35de1a8de0aee06a7dff63dd009"
+  "content_sha256": "2510a62edea2a3f958973a6741c97d931afdced88f1eb70f1eb46b57cf597323"
 }
