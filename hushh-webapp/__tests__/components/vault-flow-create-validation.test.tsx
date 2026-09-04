@@ -150,24 +150,34 @@ describe("VaultFlow create validation", () => {
     assertVaultKeyMatchesStateMock.mockResolvedValue(undefined);
   });
 
-  it("explains why Create Vault is disabled for short or mismatched passphrases", async () => {
+  it("explains why Create Vault is disabled for short or mismatched passphrases, only after the person leaves the field", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    const passphraseInput = await screen.findByLabelText("Passphrase");
-    const confirmInput = screen.getByLabelText("Confirm passphrase");
-    const createButton = screen.getByRole("button", { name: "Create passphrase" }) as HTMLButtonElement;
+    const passphraseInput = await screen.findByLabelText("Password");
+    const confirmInput = screen.getByLabelText("Confirm password");
+    const createButton = screen.getByRole("button", { name: "Create password" }) as HTMLButtonElement;
 
     // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
     // Vault confirmation uses normal submit behavior without adding that glyph.
     expect(confirmInput.getAttribute("enterkeyhint")).toBeNull();
 
+    // The rule already blocks the button mid-keystroke, but the message must
+    // not flag it as a mistake until the person actually leaves the field.
     fireEvent.change(passphraseInput, { target: { value: "short" } });
-    expect(await screen.findByText("Minimum 8 characters required.")).toBeTruthy();
+    expect(createButton.disabled).toBe(true);
+    const tooShortCaption = screen.getByText("Use at least 8 characters.");
+    expect(tooShortCaption.getAttribute("role")).toBeNull();
+
+    fireEvent.blur(passphraseInput);
+    await waitFor(() => expect(tooShortCaption.getAttribute("role")).toBe("status"));
     expect(createButton.disabled).toBe(true);
 
     fireEvent.change(passphraseInput, { target: { value: "long-enough" } });
     fireEvent.change(confirmInput, { target: { value: "different" } });
-    expect(await screen.findByText("Passphrases do not match.")).toBeTruthy();
+    expect(screen.queryByText("Passwords do not match.")).toBeNull();
+
+    fireEvent.blur(confirmInput);
+    expect(await screen.findByText("Passwords do not match.")).toBeTruthy();
     expect(createButton.disabled).toBe(true);
   });
 
@@ -181,10 +191,10 @@ describe("VaultFlow create validation", () => {
       />,
     );
 
-    fireEvent.change(await screen.findByLabelText("Passphrase"), {
+    fireEvent.change(await screen.findByLabelText("Password"), {
       target: { value: "correct horse battery staple" },
     });
-    const confirmation = screen.getByLabelText("Confirm passphrase");
+    const confirmation = screen.getByLabelText("Confirm password");
     fireEvent.change(confirmation, {
       target: { value: "correct horse battery staple" },
     });
@@ -205,13 +215,12 @@ describe("VaultFlow create validation", () => {
   it("opens fresh vault creation directly in the canonical credential layout", async () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    // "Set a lock", not "Create your passphrase": the heading names the job,
-    // not the mechanism, and it is the same phrase one-setup-hub already passes
-    // as this dialog's accessible title — the screen used to announce one name
-    // and show another. "Passphrase" still labels the fields, where it belongs.
-    expect(await screen.findByRole("heading", { name: "Set a lock" })).toBeTruthy();
-    expect(screen.getByLabelText("Passphrase")).toBeTruthy();
-    expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
+    // "Create a password", not "Create your passphrase": the heading names the
+    // job in plain words. "Password" still labels the fields, where the word
+    // belongs; "passphrase" stays the internal id/state name only.
+    expect(await screen.findByRole("heading", { name: "Create a password" })).toBeTruthy();
+    expect(screen.getByLabelText("Password")).toBeTruthy();
+    expect(screen.getByLabelText("Confirm password")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
     expect(screen.queryByRole("button", { name: /continue to vault setup/i })).toBeNull();
     expect(document.querySelector('[data-vault-flow-step="create"]')).toBeTruthy();
@@ -232,7 +241,7 @@ describe("VaultFlow create validation", () => {
     expect(
       await screen.findByRole("heading", { name: "Finish setup first" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create passphrase" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Create password" })).toBeNull();
     expect(createVaultMock).not.toHaveBeenCalled();
   });
 
