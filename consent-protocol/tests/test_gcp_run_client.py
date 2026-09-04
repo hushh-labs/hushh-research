@@ -323,3 +323,85 @@ def test_list_services_surfaces_a_permission_error_never_swallows_it(monkeypatch
     # "could not look" must NOT read as "no such pods" -- a reclaim sweep depends on it.
     with pytest.raises(RuntimeError):
         client.list_services("app=hushh-one-pod")
+
+
+# -- a stale status is not a verdict -------------------------------------------
+
+
+class _ScriptedRun(GcpRunClient):
+    """Enough of the client for wait_ready: a scripted get_service, no credentials."""
+
+    def __init__(self, responses):  # noqa: D107 - deliberately skips credential loading
+        self._responses = list(responses)
+        self.polls = 0
+
+    def get_service(self, name):  # type: ignore[override]
+        self.polls += 1
+        return self._responses[min(self.polls - 1, len(self._responses) - 1)]
+
+
+def _svc(*, generation=None, observed=None, ready=None):
+    metadata = {} if generation is None else {"generation": generation}
+    status: dict = {}
+    if observed is not None:
+        status["observedGeneration"] = observed
+    if ready is not None:
+        status["conditions"] = [{"type": "Ready", "status": ready}]
+    return {"metadata": metadata, "status": status}
+
+
+def test_a_stale_ready_true_is_not_believed():
+    """The failure this closes, in one object.
+
+    Both upgrade paths PUT the service and call wait_ready with no delay, and
+    get_service runs before the first sleep -- so the first poll can read the
+    condition Knative has not yet had a chance to invalidate. Believing it makes the
+    caller record upgraded=True, clear the failure marker, tell the person their agent
+    updated, and drop the row from the candidate set, while Cloud Run keeps serving the
+    old revision and the new one never boots. The three-attempt cap never engages,
+    because no failure is ever recorded.
+    """
+    run = _ScriptedRun(
+        [
+            _svc(generation=2, observed=1, ready="True"),  # the PREVIOUS revision's verdict
+            _svc(generation=2, observed=2, ready="False"),  # the truth, once reconciled
+        ]
+    )
+    ready, _ = run.wait_ready("one-pod-x", timeout_s=5.0, interval_s=0)
+    assert ready is False, "the old revision's Ready=True was read as the new one's"
+    assert run.polls >= 2, "it returned on the first poll instead of waiting to be told"
+
+
+def test_the_verdict_is_taken_once_the_controller_catches_up():
+    """Not believing a stale status must not mean never believing one."""
+    run = _ScriptedRun(
+        [
+            _svc(generation=3, observed=2, ready="False"),
+            _svc(generation=3, observed=3, ready="True"),
+        ]
+    )
+    ready, _ = run.wait_ready("one-pod-x", timeout_s=5.0, interval_s=0)
+    assert ready is True
+
+
+def test_a_stale_ready_false_is_not_believed_either():
+    """Symmetry, and it matters: the previous revision's failure must not fail a
+    deploy that has not been looked at yet."""
+    run = _ScriptedRun(
+        [
+            _svc(generation=4, observed=3, ready="False"),
+            _svc(generation=4, observed=4, ready="True"),
+        ]
+    )
+    ready, _ = run.wait_ready("one-pod-x", timeout_s=5.0, interval_s=0)
+    assert ready is True
+
+
+def test_a_service_with_no_generation_is_judged_on_the_condition_alone():
+    """Cloud Run Admin v1 always sends `metadata.generation`; this branch is for
+    fakes and anything that does not report one. Treating an absent generation as
+    'not yet observed' would hang every such caller until timeout."""
+    run = _ScriptedRun([_svc(ready="True")])
+    ready, _ = run.wait_ready("one-pod-x", timeout_s=5.0, interval_s=0)
+    assert ready is True
+    assert run.polls == 1

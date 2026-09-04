@@ -376,12 +376,34 @@ class GcpRunClient:
         self, name: str, *, timeout_s: float = 150.0, interval_s: float = 3.0
     ) -> tuple[bool, Optional[dict[str, Any]]]:
         """Poll until the service's Ready condition is True (ok) or False (failed),
-        or the timeout elapses. Returns (ready, last_service_json)."""
+        or the timeout elapses. Returns (ready, last_service_json).
+
+        The Ready condition is only believed once the controller has OBSERVED the
+        generation we wrote. Without that check this reports the previous revision's
+        verdict: both upgrade paths PUT the service and call this immediately, and
+        `get_service` runs before the first sleep, so the very first poll can read a
+        `Ready=True` that Knative has not yet had a chance to invalidate. The caller
+        then records `upgraded: True`, clears the failure marker, emits
+        `personal_agent.updated` to the person's feed, and drops the row from the
+        candidate set -- while Cloud Run keeps serving the old revision and the new one
+        never boots. The three-attempt cap never engages, because no failure was ever
+        recorded.
+
+        This is the same distinction CLAUDE.md records for `Ready=True` not proving a
+        pod serves, and the one the pod journey watcher already learned the hard way
+        (`spec.template` is desired state; `status.traffic` is fact). `observedGeneration`
+        is that line drawn on the service object itself.
+        """
         deadline = time.monotonic() + timeout_s
         last: Optional[dict[str, Any]] = None
         while time.monotonic() < deadline:
             svc = self.get_service(name)
             last = svc
+            if not self._status_is_current(svc):
+                # A stale status is not a verdict. Keep polling rather than reading the
+                # old revision's condition as though it described the new one.
+                time.sleep(interval_s)
+                continue
             conditions = ((svc or {}).get("status") or {}).get("conditions") or []
             ready = next((c for c in conditions if c.get("type") == "Ready"), None)
             if ready and ready.get("status") == "True":
@@ -391,6 +413,25 @@ class GcpRunClient:
                 return False, svc
             time.sleep(interval_s)
         return False, last
+
+    @staticmethod
+    def _status_is_current(svc: Optional[dict[str, Any]]) -> bool:
+        """Has the controller reconciled the generation we wrote?
+
+        `metadata.generation` is what we asked for; `status.observedGeneration` is how
+        far the controller has got. Until they meet, everything under `status` --
+        including the Ready condition -- describes the PREVIOUS revision.
+
+        A service carrying no `metadata.generation` is judged as before, on the
+        condition alone. Cloud Run Admin v1 always sends it, so that branch is for
+        fakes and for any surface that does not report generations; treating an absent
+        generation as "not yet observed" would hang every one of them until timeout.
+        """
+        desired = ((svc or {}).get("metadata") or {}).get("generation")
+        if not isinstance(desired, int):
+            return True
+        observed = ((svc or {}).get("status") or {}).get("observedGeneration")
+        return isinstance(observed, int) and observed >= desired
 
     @staticmethod
     def ready_failure(svc: Optional[dict[str, Any]]) -> Optional[str]:
