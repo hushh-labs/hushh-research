@@ -18,6 +18,7 @@ import { VaultProvider } from "@/lib/vault/vault-context";
 import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
 import { CacheProvider } from "@/lib/cache/cache-context";
+import { useDeepLinkReturn } from "@/lib/navigation/use-deep-link-return";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
@@ -649,6 +650,11 @@ function AppShellFrame({ children }: ProvidersProps) {
 }
 
 export function Providers({ children }: ProvidersProps) {
+  // A Universal Link the OS hands back arrives as an event, not as navigation.
+  // Mounted here, above the shell, so an OAuth return lands wherever the person
+  // is rather than depending on which screen happened to be open.
+  useDeepLinkReturn();
+
   return (
     <>
       <ObservabilityRouteObserver />

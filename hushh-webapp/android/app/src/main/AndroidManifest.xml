@@ -38,6 +38,33 @@
                 <!-- Firebase Auth uses this custom scheme to return to the app -->
                 <data android:scheme="com.googleusercontent.apps.1006304528804-3dnrnqrga1nrv9p823bos2itrg5bra1c" />
             </intent-filter>
+
+            <!--
+                Android App Links for the OAuth returns. Without an autoVerify
+                https filter the system hands the redirect to the browser, and a
+                person who just connected a bank account is stranded outside the
+                app. The paths mirror UNIVERSAL_LINK_PATHS in
+                app/.well-known/apple-app-site-association/route.ts, and
+                verification needs the matching assetlinks.json served by
+                app/.well-known/assetlinks.json/route.ts with this build's
+                signing fingerprint.
+            -->
+            <intent-filter android:autoVerify="true">
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="https" android:host="one.hushh.ai" />
+                <data android:scheme="https" android:host="uat.one.hushh.ai" />
+                <data android:scheme="https" android:host="dev.one.hushh.ai" />
+                <data android:pathPrefix="/one/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/one/kai/alpaca/oauth/return" />
+                <data android:pathPrefix="/one/profile/google/oauth/return" />
+                <data android:pathPrefix="/one/profile/gmail/oauth/return" />
+                <data android:pathPrefix="/kai/plaid/oauth/return" />
+                <data android:pathPrefix="/kai/alpaca/oauth/return" />
+                <data android:pathPrefix="/profile/google/oauth/return" />
+                <data android:pathPrefix="/profile/gmail/oauth/return" />
+            </intent-filter>
         </activity>
 
         <provider
