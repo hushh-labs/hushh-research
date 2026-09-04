@@ -448,8 +448,16 @@ export function DebateTaskCenter({ triggerClassName, renderTrigger }: DebateTask
 
         <div className={TOP_SHELL_DROPDOWN_BODY_CLASSNAME}>
           {notifications.length === 0 && passiveAppTasks.length === 0 ? (
-            <div role="status" className="px-2 py-6 text-sm text-muted-foreground">
-              No notifications yet.
+            <div role="status" className="px-3 py-6 text-center">
+              {/* An empty bell is the good outcome, not a missing feature: say so,
+                  then name what will land here so the space explains itself. */}
+              <p className="text-sm font-semibold text-foreground">
+                You&apos;re all caught up
+              </p>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Work One is running for you, and anything that needs your
+                approval, shows up here.
+              </p>
             </div>
           ) : (
             <div role="list" aria-label="Notifications" className="divide-y divide-border/45">

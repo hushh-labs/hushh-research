@@ -632,11 +632,16 @@ export function PkmNaturalPanel({
         <SurfaceInset className="space-y-2 px-4 py-4 text-sm text-muted-foreground">
           <div className="flex items-center gap-2 font-medium text-foreground">
             <Sparkles className="h-4 w-4" />
-            No saved PKM domains yet.
+            Nothing organized yet
           </div>
+          {/* This panel renders on /one/pkm ("Readable" / "Explorer") and inside the
+              agent lab ("Overview" / "Permissions" / "Advanced"). Neither surface has
+              a "Tool tab", so the old copy sent people to a control that does not
+              exist. Describe the mechanism instead of naming a screen. */}
           <p>
-            Generate a PKM preview in the Tool tab and save it once you are happy with the
-            structure. This readable view will appear automatically after the write.
+            As details get saved to your vault, One groups them into readable
+            domains here — one per part of your life. Nothing is shared until you
+            approve it.
           </p>
         </SurfaceInset>
       ) : (
