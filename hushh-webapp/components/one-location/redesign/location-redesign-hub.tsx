@@ -1080,6 +1080,22 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     key: flow,
     enabled: flow !== "none",
   });
+  const liveShareDurationTriggerRef = useRef<HTMLElement | null>(null);
+  const openLiveShareDuration = (
+    grantId: string | undefined,
+    trigger: HTMLElement,
+  ) => {
+    liveShareDurationTriggerRef.current = trigger;
+    vm.onEditLiveShareDurationStart(grantId);
+  };
+  const renderLocationSurface = (children: ReactNode) => (
+    <LocationFeatureRoot
+      vm={vm}
+      liveShareDurationTriggerRef={liveShareDurationTriggerRef}
+    >
+      {children}
+    </LocationFeatureRoot>
+  );
   const focusedCircleMemberInviteId =
     String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
@@ -1476,7 +1492,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Task flows (full-screen, no local tabs)                           */
   /* ----------------------------------------------------------------- */
   if (flow !== "none") {
-    return (
+    return renderLocationSurface(
       <div
         ref={flowContainerRef}
         className="space-y-6 pb-6"
@@ -1600,6 +1616,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm.clearNamedCircleShareContext();
               openShareFlow();
             }}
+            onEditLiveShareDurationStart={openLiveShareDuration}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
             }
@@ -1625,14 +1642,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         // flow slug nobody had wired up quietly rendered "Share outside your
         // Circle" instead of failing visibly.
         null}
-      </div>
+      </div>,
     );
   }
 
   /* ----------------------------------------------------------------- */
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
-  return (
+  return renderLocationSurface(
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
         title={<PageTitle as="span">Location</PageTitle>}
@@ -1677,6 +1694,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationHubPanel>
             <NowHub
               vm={vm}
+              onEditLiveShareDurationStart={openLiveShareDuration}
               onStartShare={() => {
                 vm.clearNamedCircleShareContext();
                 openShareFlow();
@@ -1724,7 +1742,95 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
         </SwipeViews>
       </div>
-    </div>
+    </div>,
+  );
+}
+
+function LocationFeatureRoot({
+  vm,
+  liveShareDurationTriggerRef,
+  children,
+}: {
+  vm: LocationHubViewModel;
+  liveShareDurationTriggerRef: { current: HTMLElement | null };
+  children: ReactNode;
+}) {
+  return (
+    <>
+      {children}
+      <LiveShareDurationDialog
+        vm={vm}
+        triggerRef={liveShareDurationTriggerRef}
+      />
+    </>
+  );
+}
+
+function LiveShareDurationDialog({
+  vm,
+  triggerRef,
+}: {
+  vm: LocationHubViewModel;
+  triggerRef: { current: HTMLElement | null };
+}) {
+  const grant = vm.liveShareDurationGrantId
+    ? vm.activeOwnerGrants.find(
+        (candidate) => candidate.id === vm.liveShareDurationGrantId,
+      )
+    : vm.liveShare?.stoppableGrantId
+      ? vm.activeOwnerGrants.find(
+          (candidate) => candidate.id === vm.liveShare?.stoppableGrantId,
+        )
+      : null;
+  const title =
+    grant?.durationMode === "until_stopped"
+      ? "Set an end time"
+      : "Change end time";
+
+  return (
+    <Dialog
+      modal
+      open={Boolean(grant && vm.liveShareDurationEditing)}
+      onOpenChange={(open) => {
+        if (!open && !vm.liveShareDurationSaving) {
+          vm.onEditLiveShareDurationCancel();
+        }
+      }}
+    >
+      <DialogContent
+        className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
+        showCloseButton={!vm.liveShareDurationSaving}
+        srDescription="Choose how long this live location share should continue."
+        aria-modal="true"
+        aria-busy={vm.liveShareDurationSaving}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const trigger = triggerRef.current;
+          triggerRef.current = null;
+          if (trigger?.isConnected) trigger.focus();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (vm.liveShareDurationSaving) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (vm.liveShareDurationSaving) event.preventDefault();
+        }}
+      >
+        <DialogHeader className="gap-1 text-left">
+          <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+        <LiveShareDurationEditor
+          value={vm.liveShareDurationHours}
+          onChange={vm.setLiveShareDurationHours}
+          onCancel={vm.onEditLiveShareDurationCancel}
+          onSave={vm.onSaveLiveShareDuration}
+          saving={vm.liveShareDurationSaving}
+          surface={false}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1751,6 +1857,7 @@ function LocationHubPanel({ children }: { children: ReactNode }) {
 
 function NowHub({
   vm,
+  onEditLiveShareDurationStart,
   onStartShare,
   onCheckIn,
   onSos,
@@ -1762,6 +1869,10 @@ function NowHub({
   onRequestLocation,
 }: {
   vm: LocationHubViewModel;
+  onEditLiveShareDurationStart: (
+    grantId: string | undefined,
+    trigger: HTMLElement,
+  ) => void;
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
@@ -1810,20 +1921,6 @@ function NowHub({
       voiceActionId: "location.open_settings",
     },
   ];
-  const liveShareDurationGrant = vm.liveShareDurationGrantId
-    ? vm.activeOwnerGrants.find(
-        (grant) => grant.id === vm.liveShareDurationGrantId,
-      )
-    : vm.liveShare?.stoppableGrantId
-      ? vm.activeOwnerGrants.find(
-          (grant) => grant.id === vm.liveShare?.stoppableGrantId,
-        )
-      : null;
-  const liveShareDurationTitle =
-    liveShareDurationGrant?.durationMode === "until_stopped"
-      ? "Set an end time"
-      : "Change end time";
-
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
@@ -1848,43 +1945,17 @@ function NowHub({
             vm.liveShare.grantCount === 1 &&
             vm.liveShare.stoppableGrantId &&
             !vm.liveShare.singleGrantIsSms
-              ? () =>
-                  vm.onEditLiveShareDurationStart(
+              ? (trigger) =>
+                  onEditLiveShareDurationStart(
                     vm.liveShare?.stoppableGrantId ?? undefined,
-                  )              : undefined
+                    trigger,
+                  )
+              : undefined
           }
           onShareMore={onStartShare}
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
-      <Dialog
-        open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
-        onOpenChange={(open) => {
-          if (!open) vm.onEditLiveShareDurationCancel();
-        }}
-      >
-        <DialogContent
-          className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
-          showCloseButton={!vm.liveShareDurationSaving}
-        >
-          <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
-              {liveShareDurationTitle}
-            </DialogTitle>
-            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
-              Set a new end time for this share.
-            </DialogDescription>
-          </DialogHeader>
-          <LiveShareDurationEditor
-            value={vm.liveShareDurationHours}
-            onChange={vm.setLiveShareDurationHours}
-            onCancel={vm.onEditLiveShareDurationCancel}
-            onSave={vm.onSaveLiveShareDuration}
-            saving={vm.liveShareDurationSaving}
-            surface={false}
-          />
-        </DialogContent>
-      </Dialog>
       {/* Every row and cell below carries the `control_ids` / `action_id` pair
           it was authored with in the Location voice action contract, so One and
           the search bar can name the individual control a person is asking for
@@ -2328,6 +2399,7 @@ function LocationDetailFlow({
   collapsedGrantIds,
   onRequestLocation,
   onStartShare,
+  onEditLiveShareDurationStart,
   onCollapseGrant,
   onExpandGrant,
 }: {
@@ -2341,6 +2413,7 @@ function LocationDetailFlow({
   /** Opens the share composer AND its flow. Seeding the composer alone
    *  leaves the person on the same screen with nothing visibly changed. */
   onStartShare?: () => void;
+  onEditLiveShareDurationStart: (grantId: string, trigger: HTMLElement) => void;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
@@ -2538,8 +2611,11 @@ function LocationDetailFlow({
                           <button
                             type="button"
                             className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
-                            onClick={() =>
-                              vm.onEditLiveShareDurationStart(single.id)
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
                             }
                           >
                             {single.durationMode === "until_stopped"
@@ -2556,7 +2632,7 @@ function LocationDetailFlow({
                             group={group}
                             counterpartName={name}
                             onStopGrant={vm.onStopGrant}
-                            onChangeEndTime={vm.onEditLiveShareDurationStart}
+                            onChangeEndTime={onEditLiveShareDurationStart}
                             revokingGrantId={vm.revokingGrantId}
                           />
                         </div>
@@ -5428,7 +5504,9 @@ function LiveShareDurationEditor({
       */}
       <DurationSelector
         value={value}
-        onChange={onChange}
+        onChange={(next) => {
+          if (!saving) onChange(next);
+        }}
         presentation="ladder"
         rungs={CHANGE_TIME_DURATION_LADDER}
         untilStopValue="until_stopped"
@@ -5446,6 +5524,7 @@ function LiveShareDurationEditor({
           variant="ghost"
           className="h-11 rounded-full"
           onClick={onCancel}
+          disabled={saving}
           data-testid="one-location-live-share-duration-cancel"
         >
           Cancel

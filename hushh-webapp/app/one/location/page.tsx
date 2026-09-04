@@ -6585,6 +6585,40 @@ export function OneLocationAgentPageContent({
     [activeOwnerGrants, liveShareStatus?.stoppableGrantId],
   );
 
+  /**
+   * Publish one authoritative duration mutation, then reconcile from a read
+   * that is guaranteed to have started after it.
+   *
+   * Both the visible editor and the governed voice action reach the same API.
+   * Keeping the cache fence here prevents either caller from joining a state
+   * refresh that began before the PATCH and repainting the old duration.
+   */
+  const reconcileGrantDurationMutation = useCallback(
+    (updatedGrant: OneLocationGrant) => {
+      const activeUserId = auth.userId;
+      if (!activeUserId) {
+        void refresh({ background: true }).catch(() => null);
+        return;
+      }
+
+      const priorRefresh = refreshInFlightRef.current;
+      const merged = updatedGrant?.id
+        ? OneLocationStateResource.mergeOwnerGrant(
+            activeUserId,
+            updatedGrant,
+            state ?? undefined,
+          )
+        : false;
+      if (!merged) OneLocationStateResource.invalidate(activeUserId);
+
+      void (async () => {
+        if (priorRefresh) await priorRefresh;
+        await refresh({ background: true });
+      })().catch(() => null);
+    },
+    [auth.userId, refresh, state],
+  );
+
   const handleSaveLiveShareDuration = useCallback(async () => {
     const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
     if (!vaultOwnerToken || !grantId) return;
@@ -6611,18 +6645,16 @@ export function OneLocationAgentPageContent({
 
     setLiveShareDurationSaving(true);
     try {
-      await OneLocationService.setGrantDuration({
+      const updatedGrant = await OneLocationService.setGrantDuration({
         vaultOwnerToken,
         grantId,
         durationHours,
         durationMode: untilStopped ? "until_stopped" : "timed",
       });
+      reconcileGrantDurationMutation(updatedGrant);
       toast.success("Time updated.");
       setLiveShareDurationEditing(false);
       setLiveShareDurationGrantId(null);
-      // Held until the list has reconciled, so the card's countdown is already
-      // reading the new expiry when the editor closes.
-      await refresh({ background: true }).catch(() => null);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -6637,7 +6669,7 @@ export function OneLocationAgentPageContent({
     liveShareDurationGrantId,
     liveShareDurationHours,
     liveShareStatus?.stoppableGrantId,
-    refresh,
+    reconcileGrantDurationMutation,
     vaultOwnerToken,
   ]);
 
@@ -10789,13 +10821,13 @@ export function OneLocationAgentPageContent({
       const grant = resolved.match;
       const untilStopped = requested === SHARE_DURATION_UNTIL_STOP_VALUE;
       try {
-        await OneLocationService.setGrantDuration({
+        const updatedGrant = await OneLocationService.setGrantDuration({
           vaultOwnerToken,
           grantId: grant.id,
           durationHours: untilStopped ? null : Number(requested),
           durationMode: untilStopped ? "until_stopped" : "timed",
         });
-        void refresh({ background: true }).catch(() => null);
+        reconcileGrantDurationMutation(updatedGrant);
       } catch (error) {
         return {
           status: "blocked" as const,

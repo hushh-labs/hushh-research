@@ -546,6 +546,7 @@ vi.mock("sonner", () => {
 
 import OneLocationAgentPage from "@/app/one/location/page";
 import { resolveLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
+import { CONSENT_STATE_CHANGED_EVENT } from "@/lib/consent/consent-events";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { toast } from "sonner";
@@ -6891,12 +6892,301 @@ describe("OneLocationAgentPage", () => {
   /** Fixture grant `grant_1` ends at 08:00, so this leaves exactly 30 minutes. */
   const DURING_A_LIVE_SHARE = "2026-05-20T07:30:00.000Z";
 
+  function multiGrantLocationState() {
+    const current = locationState();
+    const template = current.ownerGrants[0]!;
+    return {
+      ...current,
+      ownerGrants: [
+        {
+          ...template,
+          id: "grant_direct",
+        },
+        {
+          ...template,
+          id: "grant_circle",
+          recipientUserId: "user_d",
+          recipientDisplayName: "Investor D",
+          recipientMaskedPhone: "******9911",
+          recipientKeyId: "key_d",
+          sourceCircleId: "circle_family",
+          expiresAt: "2026-05-20T09:00:00.000Z",
+        },
+      ],
+    };
+  }
+
+  function circleGrantChangeTimeButton(): HTMLElement {
+    const circleRecipient = screen.getByText("Investor D");
+    const circleRecipientRow = circleRecipient.closest(
+      '[data-testid="settings-row"]',
+    );
+    expect(circleRecipientRow).not.toBeNull();
+    return within(circleRecipientRow as HTMLElement).getByRole("button", {
+      name: "Change time",
+    });
+  }
+
   function countdownSeconds(): number {
     const text =
       screen.getByTestId("one-location-live-share-countdown").textContent ?? "";
     const [minutes = "0", seconds = "0"] = text.split(":");
     return Number(minutes) * 60 + Number(seconds);
   }
+
+  it("keeps the duration dialog modal inside Manage sharing for multiple grants", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    mockLocationSearchParams("action=active-shares");
+    mockGetState.mockResolvedValue(multiGrantLocationState());
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow({ expectMain: false });
+      expect(
+        await screen.findByRole("heading", { name: "Manage sharing" }),
+      ).toBeTruthy();
+
+      const changeTime = circleGrantChangeTimeButton();
+      fireEvent.click(changeTime);
+
+      const dialog = await screen.findByRole("dialog", {
+        name: "Change end time",
+      });
+      expect(dialog).toHaveAttribute("aria-modal", "true");
+      expect(
+        screen.getByTestId("one-location-active-shares"),
+      ).toBeInTheDocument();
+      expect(screen.queryByTestId("one-location-now-hub")).toBeNull();
+      await waitFor(() =>
+        expect(dialog).toContainElement(document.activeElement),
+      );
+
+      fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+      await waitFor(() =>
+        expect(
+          screen.queryByRole("dialog", { name: "Change end time" }),
+        ).toBeNull(),
+      );
+      await waitFor(() => expect(changeTime).toHaveFocus());
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it("updates only the selected circle-sourced grant and merges it into state", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    mockLocationSearchParams("action=active-shares");
+
+    const initial = multiGrantLocationState();
+    const updatedCircleGrant = {
+      ...initial.ownerGrants[1]!,
+      // Production duration PATCHes serialize a table row without the identity
+      // joins used by list_state. The cache merge must treat these nulls as
+      // absent projections, not erase the person from the row.
+      ownerDisplayName: null,
+      ownerPhotoUrl: null,
+      ownerMaskedPhone: null,
+      recipientDisplayName: null,
+      recipientPhotoUrl: null,
+      recipientMaskedPhone: null,
+      durationMode: "until_stopped" as const,
+      durationHours: null,
+      expiresAt: null,
+    };
+    const reconciled = {
+      ...initial,
+      ownerGrants: initial.ownerGrants.map((grant) =>
+        grant.id === "grant_circle"
+          ? {
+              ...grant,
+              durationMode: "until_stopped" as const,
+              durationHours: null,
+              expiresAt: null,
+            }
+          : grant,
+      ),
+    };
+    let finishRefresh!: (value: typeof initial) => void;
+    const pendingRefresh = new Promise<typeof initial>((resolve) => {
+      finishRefresh = resolve;
+    });
+    mockGetState
+      .mockResolvedValueOnce(initial)
+      .mockReturnValueOnce(pendingRefresh)
+      .mockResolvedValue(reconciled);
+    mockSetGrantDuration.mockResolvedValue(updatedCircleGrant);
+
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow({ expectMain: false });
+      expect(
+        await screen.findByRole("heading", { name: "Manage sharing" }),
+      ).toBeTruthy();
+
+      // Hold a refresh that began before the mutation. Saving must publish the
+      // PATCH result immediately, reject this stale response, then read again.
+      await act(async () => {
+        window.dispatchEvent(
+          new CustomEvent(CONSENT_STATE_CHANGED_EVENT, {
+            detail: { source: "one_location_notification" },
+          }),
+        );
+      });
+      await waitFor(() =>
+        expect(mockGetState.mock.calls.length).toBeGreaterThanOrEqual(2),
+      );
+
+      fireEvent.click(circleGrantChangeTimeButton());
+      const editor = await screen.findByTestId(
+        "one-location-live-share-duration-editor",
+      );
+      fireEvent.click(
+        within(editor).getByRole("button", { name: "Until I stop" }),
+      );
+      fireEvent.click(within(editor).getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(mockSetGrantDuration).toHaveBeenCalledWith(
+          expect.objectContaining({
+            grantId: "grant_circle",
+            durationMode: "until_stopped",
+            durationHours: null,
+          }),
+        ),
+      );
+      expect(mockRevokeGrant).not.toHaveBeenCalled();
+      expect(mockCreateGrant).not.toHaveBeenCalled();
+
+      const { OneLocationStateResource } =
+        await import("@/lib/one-location/one-location-state-resource");
+      await waitFor(() => {
+        const grants =
+          OneLocationStateResource.peek("user_a")?.data.ownerGrants ?? [];
+        expect(grants.find((grant) => grant.id === "grant_circle")).toEqual(
+          expect.objectContaining({
+            recipientDisplayName: "Investor D",
+            recipientMaskedPhone: "******9911",
+            durationMode: "until_stopped",
+            durationHours: null,
+            expiresAt: null,
+          }),
+        );
+        expect(grants.find((grant) => grant.id === "grant_direct")).toEqual(
+          expect.objectContaining({
+            durationHours: 1,
+            expiresAt: "2026-05-20T08:00:00.000Z",
+          }),
+        );
+      });
+
+      await act(async () => {
+        finishRefresh(initial);
+        await pendingRefresh;
+      });
+      await waitFor(() =>
+        expect(mockGetState.mock.calls.length).toBeGreaterThanOrEqual(3),
+      );
+      await waitFor(() => {
+        const circleGrant = OneLocationStateResource.peek(
+          "user_a",
+        )?.data.ownerGrants.find((grant) => grant.id === "grant_circle");
+        expect(circleGrant).toEqual(
+          expect.objectContaining({
+            recipientDisplayName: "Investor D",
+            durationMode: "until_stopped",
+            expiresAt: null,
+          }),
+        );
+      });
+    } finally {
+      await act(async () => {
+        finishRefresh(initial);
+        await pendingRefresh;
+      });
+      vi.useRealTimers();
+    }
+  }, 15000);
+
+  it("uses the same exact-grant cache reconciliation for the governed duration action", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date(DURING_A_LIVE_SHARE));
+    const initial = multiGrantLocationState();
+    const updatedCircleGrant = {
+      ...initial.ownerGrants[1]!,
+      ownerDisplayName: null,
+      ownerPhotoUrl: null,
+      ownerMaskedPhone: null,
+      recipientDisplayName: null,
+      recipientPhotoUrl: null,
+      recipientMaskedPhone: null,
+      durationMode: "timed" as const,
+      durationHours: 2,
+      expiresAt: "2026-05-20T09:30:00.000Z",
+    };
+    const reconciled = {
+      ...initial,
+      ownerGrants: initial.ownerGrants.map((grant) =>
+        grant.id === "grant_circle"
+          ? {
+              ...grant,
+              durationMode: "timed" as const,
+              durationHours: 2,
+              expiresAt: "2026-05-20T09:30:00.000Z",
+            }
+          : grant,
+      ),
+    };
+    mockGetState.mockResolvedValue(initial);
+    mockSetGrantDuration.mockResolvedValue(updatedCircleGrant);
+
+    try {
+      render(<OneLocationAgentPage />);
+      await skipLocationEntryFlow();
+      await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+      mockGetState.mockResolvedValue(reconciled);
+
+      const changeDuration = resolveLocalOnboardingHandler(
+        "location.change_share_duration",
+      );
+      expect(changeDuration).toBeTruthy();
+
+      let result: Awaited<ReturnType<NonNullable<typeof changeDuration>>>;
+      await act(async () => {
+        result = await changeDuration!({
+          person: "Investor D",
+          duration_hours: "2",
+        });
+      });
+
+      expect(result!).toMatchObject({ status: "succeeded" });
+      expect(mockSetGrantDuration).toHaveBeenCalledWith(
+        expect.objectContaining({
+          grantId: "grant_circle",
+          durationMode: "timed",
+          durationHours: 2,
+        }),
+      );
+      const { OneLocationStateResource } =
+        await import("@/lib/one-location/one-location-state-resource");
+      await waitFor(() => {
+        const grants =
+          OneLocationStateResource.peek("user_a")?.data.ownerGrants ?? [];
+        expect(grants.find((grant) => grant.id === "grant_circle")).toEqual(
+          expect.objectContaining({
+            recipientDisplayName: "Investor D",
+            durationHours: 2,
+            expiresAt: "2026-05-20T09:30:00.000Z",
+          }),
+        );
+        expect(grants.find((grant) => grant.id === "grant_direct")).toEqual(
+          expect.objectContaining({ durationHours: 1 }),
+        );
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  }, 15000);
 
   it("keeps a running share on screen with a countdown that moves", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
