@@ -1581,6 +1581,17 @@ export function ConsentNotificationProvider({
           source: "fcm_connection_request",
           reconcile: true,
         });
+      } else if (msgType === "connection_request_cancelled") {
+        // The requester withdrew before the addressee acted on it. Without
+        // this the pending request just sat in their list until the next
+        // reconcile, indistinguishable from one still awaiting a reply.
+        if (user?.uid) {
+          CacheSyncService.onConsentMutated(user.uid);
+        }
+        dispatchConsentStateChanged({
+          source: "fcm_connection_request_cancelled",
+          reconcile: true,
+        });
       } else if (msgType === "connection_request_resolved") {
         // The requester learning their own request was accepted/declined --
         // previously not pushed at all (accept/reject sent no notification),
