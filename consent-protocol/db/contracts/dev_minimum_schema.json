@@ -1,6 +1,6 @@
 {
   "contract_name": "dev_minimum_schema",
-  "expected_migration_version": 197,
+  "expected_migration_version": 198,
   "migration_version_policy": "minimum",
   "required_functions": [
     "merge_pkm_domain_summary",
@@ -768,6 +768,7 @@
       "enabled",
       "scope_kind",
       "circle_id",
+      "circle_ids",
       "enabled_at",
       "rule_version",
       "created_at",

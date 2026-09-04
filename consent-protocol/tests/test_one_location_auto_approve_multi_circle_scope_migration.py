@@ -4,16 +4,14 @@ import json
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-MIGRATION_NAME = "169_one_location_auto_approve_preferences.sql"
-ROLLBACK_NAME = "169_one_location_auto_approve_preferences.rollback.sql"
+MIGRATION_NAME = "198_one_location_auto_approve_multi_circle_scope.sql"
+ROLLBACK_NAME = "198_one_location_auto_approve_multi_circle_scope.rollback.sql"
 TABLE = "one_location_auto_approve_preferences"
 REQUIRED_COLUMNS = {
     "user_id",
     "enabled",
     "scope_kind",
     "circle_id",
-    # Added by migration 198 (multi-Circle scope); kept here too since this
-    # test asserts the table's current column set, not just 169's own delta.
     "circle_ids",
     "enabled_at",
     "rule_version",
@@ -26,23 +24,30 @@ def _manifest() -> dict:
     return json.loads((ROOT / "db/release_migration_manifest.json").read_text())
 
 
-def test_standing_rule_migration_is_release_governed_and_reversible() -> None:
+def test_multi_circle_scope_migration_is_release_governed_and_reversible() -> None:
     migration = (ROOT / "db/migrations" / MIGRATION_NAME).read_text()
     rollback = (ROOT / "db/migrations/rollback" / ROLLBACK_NAME).read_text()
     manifest = _manifest()
 
-    assert f"CREATE TABLE IF NOT EXISTS {TABLE}" in migration
-    assert "REFERENCES actor_profiles(user_id) ON DELETE CASCADE" in migration
-    assert "rule_version >= 0" in migration
-    assert "location_auto_approve_rule_changed" in migration
-    assert f"DROP TABLE IF EXISTS {TABLE}" in rollback
-    assert "migration_169_rollback_refused_nonempty_table" in rollback
-    assert "location_auto_approve_rule_changed" not in rollback
+    assert f"ALTER TABLE {TABLE}" in migration
+    assert "ADD COLUMN IF NOT EXISTS circle_ids UUID[]" in migration
+    # circle_id (singular) is untouched -- existing single-Circle preferences
+    # must keep working without a data migration.
+    assert "DROP COLUMN" not in migration
+    assert "scope_kind = 'circles'" in migration
+    assert "cardinality(circle_ids) > 0" in migration
+
+    # Rollback fails closed: anyone on the new scope is disabled, not
+    # silently reinterpreted, before the column is dropped.
+    assert "SET enabled = FALSE" in rollback
+    assert "WHERE scope_kind = 'circles'" in rollback
+    assert "DROP COLUMN IF EXISTS circle_ids" in rollback
+
     assert MIGRATION_NAME in manifest["ordered_migrations"]
     assert MIGRATION_NAME in manifest["groups"]["iam"]
 
 
-def test_every_selected_schema_contract_requires_the_rule_table() -> None:
+def test_every_selected_schema_contract_requires_the_multi_circle_column() -> None:
     manifest = _manifest()
     base_head = max(int(name.split("_", 1)[0]) for name in manifest["ordered_migrations"])
     uat_head = max(
@@ -59,16 +64,3 @@ def test_every_selected_schema_contract_requires_the_rule_table() -> None:
         contract = json.loads((ROOT / "db/contracts" / filename).read_text())
         assert contract["expected_migration_version"] == expected_head
         assert set(contract["required_tables"][TABLE]) == REQUIRED_COLUMNS
-
-
-def test_runtime_data_plane_owns_the_rule_table() -> None:
-    contract = json.loads(
-        (
-            ROOT.parent / "docs/reference/architecture/runtime-db-data-plane-contract.json"
-        ).read_text()
-    )
-    family = next(item for item in contract["table_families"] if item["id"] == "one_location_agent")
-
-    assert TABLE in family["exact_tables"]
-    assert "standing" in family["retention_policy"].lower()
-    assert "automatic-approval" in family["trust_boundary"].lower()

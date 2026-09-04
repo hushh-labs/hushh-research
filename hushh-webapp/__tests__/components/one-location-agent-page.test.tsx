@@ -1914,6 +1914,121 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("#6468: saves a multi-Circle auto-approve scope via Select all", async () => {
+    const circleFamily = {
+      id: "circle_family",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 3,
+      memberLimit: 20,
+    };
+    const circleFriends = {
+      id: "circle_friends",
+      name: "Friends",
+      kind: "friends" as const,
+      role: "owner" as const,
+      memberCount: 4,
+      memberLimit: 20,
+    };
+    let serverPreference = {
+      enabled: false,
+      scope: null as { kind: "circles"; circleIds: string[] } | null,
+      enabledAt: null as string | null,
+      ruleVersion: 0,
+    };
+    mockGetState.mockImplementation(async () => ({
+      ...locationState(),
+      ownerGrants: [],
+      circles: [circleFamily, circleFriends],
+      autoApprovePreference: serverPreference,
+    }));
+    mockUpdateAutoApprovePreference.mockImplementation(async ({ enabled, scope }) => {
+      serverPreference = enabled
+        ? {
+            enabled: true,
+            scope,
+            enabledAt: "2026-08-24T09:00:00.000Z",
+            ruleVersion: 1,
+          }
+        : { enabled: false, scope: null, enabledAt: null, ruleVersion: 2 };
+      return serverPreference;
+    });
+    mockGetNearbyPresence.mockResolvedValue({
+      presence: {
+        status: "active",
+        audience: "all_opted_in",
+        radiusMeters: 500,
+        allowConnectionRequests: true,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: "2026-07-31T00:00:00.000Z",
+        expiresAt: "2026-07-31T01:00:00.000Z",
+        placeLabel: "Event venue",
+      },
+      attendees: [],
+    });
+
+    mockLocationSearchParams("action=settings");
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+    expect(
+      await screen.findByRole("heading", { name: "Settings" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Auto-approve requests" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Auto-approve for" }),
+    ).toBeTruthy();
+
+    // Two owned Circles render as checkboxes, not radios -- both may be
+    // selected at once.
+    const familyCheckbox = screen.getByRole("checkbox", { name: /^Family/ });
+    const friendsCheckbox = screen.getByRole("checkbox", {
+      name: /^Friends/,
+    });
+    expect(familyCheckbox).toHaveAttribute("aria-checked", "false");
+    expect(friendsCheckbox).toHaveAttribute("aria-checked", "false");
+
+    fireEvent.click(screen.getByRole("button", { name: "Select all" }));
+    expect(familyCheckbox).toHaveAttribute("aria-checked", "true");
+    expect(friendsCheckbox).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    await waitFor(() =>
+      expect(mockUpdateAutoApprovePreference).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        enabled: true,
+        scope: {
+          kind: "circles",
+          circleIds: ["circle_family", "circle_friends"],
+        },
+      }),
+    );
+
+    // The saved scope reads back as a count, not one Circle's name.
+    await waitFor(() =>
+      expect(screen.getByText("2 Circles")).toBeInTheDocument(),
+    );
+
+    // Reopening and clicking "Clear all" empties the selection and disables
+    // the primary action -- an empty scope is not a savable state.
+    fireEvent.click(
+      screen
+        .getByTestId("one-location-auto-approve-row")
+        .querySelector("button")!,
+    );
+    expect(
+      await screen.findByRole("heading", { name: "Auto-approve for" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Clear all" }));
+    expect(
+      screen.getByRole("checkbox", { name: /^Family/ }),
+    ).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+  });
+
   it("stops the automatic queue when the server rule is turned off", async () => {
     let ruleEnabled = true;
     const requests = [
