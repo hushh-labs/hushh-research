@@ -1048,6 +1048,31 @@ hydrate_frontend_cloud() {
   upsert_env_value "$file" "APP_RUNTIME_PROFILE" "$profile"
   upsert_env_value "$file" "NEXT_PUBLIC_APP_ENV" "$env_name"
 
+  # Two operator features are explicit opt-ins rather than environment checks,
+  # because the store binaries are UAT-stamped and an environment gate hands
+  # them to real store users: the nearby check-in flow
+  # (lib/one-location/nearby-check-in-availability.ts) and the fifty-people map
+  # fixture (lib/testing/location-map-demo.ts).
+  #
+  # The consequence lands here. Every UAT-stamped LOCAL profile needs the opt-in
+  # written for it, or the people building the product lose the feature with no
+  # error and nothing to grep for. That covers `.env.uat.local` and
+  # `.env.dev.local`, and it covers every native/simulator build, because
+  # prepare-ios-ui-test-build.mjs reads `.env.uat.local` and is therefore
+  # UAT-stamped exactly like a store binary.
+  #
+  # This cannot re-open the hole it exists to close: the store lanes compose
+  # their env inline in CI and never call this script.
+  #
+  # Deliberately not the production profile. `.env.prod.local` drives
+  # `npm run ios:prepare:prod`, and a locally built production archive has to
+  # behave like production -- the map fixture keeps a hard production floor in
+  # code for the same reason.
+  if [ "$env_name" != "production" ]; then
+    upsert_env_value "$file" "NEXT_PUBLIC_ONE_LOCATION_NEARBY_CHECK_IN" "true"
+    upsert_env_value "$file" "NEXT_PUBLIC_LOCATION_MAP_DEMO" "true"
+  fi
+
   local backend_url=""
   local frontend_url=""
   if backend_url="$(resolve_cloud_or_cached_secret_value "$project" "BACKEND_URL" "$cache_file")"; then
