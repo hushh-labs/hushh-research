@@ -122,7 +122,7 @@ class OneLocationCircleError(RuntimeError):
 
 
 def _format_cooldown_remaining(remaining_seconds: int | float | None) -> str:
-    """"in 47 minutes" / "in 2 hours 5 minutes" / "in under a minute".
+    """ "in 47 minutes" / "in 2 hours 5 minutes" / "in under a minute".
 
     Rounds UP to the minute so the toast never promises a shorter wait than
     the database will actually honor -- the person re-tries at the stated
@@ -3674,9 +3674,7 @@ class OneLocationCircleService:
                     cooldown_until = max(responded_at_values, default=now) + timedelta(
                         hours=CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS
                     )
-                    retry_in = _format_cooldown_remaining(
-                        (cooldown_until - now).total_seconds()
-                    )
+                    retry_in = _format_cooldown_remaining((cooldown_until - now).total_seconds())
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_COOLDOWN",
                         f"This person recently responded to a Circle invitation. Try again {retry_in}.",

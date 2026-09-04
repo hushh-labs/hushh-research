@@ -155,9 +155,7 @@ class UpdateAutoApprovePreferenceRequest(_CamelModel):
         alias="scopeKind",
     )
     circle_id: UUID | None = Field(default=None, alias="circleId")
-    circle_ids: list[UUID] | None = Field(
-        default=None, alias="circleIds", max_length=30
-    )
+    circle_ids: list[UUID] | None = Field(default=None, alias="circleIds", max_length=30)
 
 
 class UpdateNearbyCheckInPreferencesRequest(_CamelModel):

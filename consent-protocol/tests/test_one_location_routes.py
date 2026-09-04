@@ -172,6 +172,52 @@ def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) ->
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:
+    class DurationRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def set_grant_duration(self, **kwargs):
+            self.calls.append(kwargs)
+            return authoritative_grant
+
+    grant_id = str(uuid.uuid4())
+    authoritative_grant = {
+        "id": grant_id,
+        "status": "active",
+        "durationMode": "timed",
+        "durationHours": 3.5,
+        "expiresAt": "2026-09-04T15:30:00+00:00",
+    }
+    service = DurationRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.patch(
+        f"/api/one/location/grants/{grant_id}/duration",
+        json={
+            "durationMode": "timed",
+            "durationHours": 3.5,
+            "clientOperationId": "duration-operation-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"grant": authoritative_grant}
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "grant_id": grant_id,
+            "duration_hours": 3.5,
+            "duration_mode": "timed",
+            "client_operation_id": "duration-operation-1",
+        }
+    ]
+
+
 def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
     class ApprovalRouteProbe:
         def __init__(self) -> None:
