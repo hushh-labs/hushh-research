@@ -1463,12 +1463,10 @@ function PuppyJobList({
  * Pure, so a test can pin it.
  */
 export function orderJobsForReading(jobs: ReadonlyArray<PuppyJob>): PuppyJob[] {
-  const rank = (job: PuppyJob): number => {
-    const failing =
-      nonEmpty(job.lastStatus)?.toLowerCase() === "error" || job.failureStreak > 0;
-    if (failing) return 0;
-    return job.paused ? 2 : 1;
-  };
+  // Failing is read exactly as `JobRow` reads it, so a row cannot wear the
+  // failing treatment and then sort as though it were healthy.
+  const rank = (job: PuppyJob): number =>
+    attentionRank(job.failureStreak > 0 || isFailedStatus(job.lastStatus), job.paused);
   return [...jobs].sort(
     (a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name) || a.id.localeCompare(b.id),
   );
@@ -1719,6 +1717,29 @@ function isFailedStatus(value: unknown): boolean {
 }
 
 /**
+ * Where a job sits in a person's attention: what is failing, then what runs,
+ * then what they switched off.
+ *
+ * There are two schedules on this panel and they come from different places.
+ * The live one is fetched from the machine; the reported one is replayed from
+ * what the machine last sent, and is the ONLY one a remote viewer sees,
+ * because fetching the live one needs a loopback reach into the machine that
+ * no cloud container has. They must never disagree about which job matters,
+ * so the precedence lives here once rather than being restated by each.
+ *
+ * Failing outranks paused deliberately: a job that is switched off AND broken
+ * is still the one to look at, not something to file at the bottom.
+ *
+ * What counts as failing stays with the caller, because the two sources carry
+ * different evidence: the live job has a failure streak, the reported row has
+ * only its last result. The ORDER is shared; the detection cannot be.
+ */
+function attentionRank(failing: boolean, paused: boolean): number {
+  if (failing) return 0;
+  return paused ? 2 : 1;
+}
+
+/**
  * The reported schedule, in the order `orderJobsForReading` puts the live one.
  *
  * The live list is the one a person can act on, so it already leads with what
@@ -1728,23 +1749,21 @@ function isFailedStatus(value: unknown): boolean {
  * Leaving it in the order the device happened to send would bury the failing
  * job exactly where the person cannot open the live list to find it.
  *
- * Same precedence as the live ordering, so the two never disagree about which
- * job matters most: failing first even when paused, then what runs, then what
- * is switched off, and by name within each so a refresh does not reshuffle.
+ * Precedence comes from `attentionRank`, shared with the live ordering. Ties
+ * break by name so a refresh does not reshuffle.
  *
- * Failure is read from the last result alone, via the same predicate the row
- * renders from. The heartbeat carries no failure streak, so a job that has
- * failed repeatedly but reported its last run as fine ranks as healthy here
- * and leads the live list. That is a real difference between the two views,
- * and it is the device's summary to widen, not this sort's to guess at.
+ * Failure is read from the last result alone, because that is the only failure
+ * evidence the heartbeat carries. A job that has failed repeatedly but
+ * reported its last run as fine therefore ranks as healthy here while leading
+ * the live list, which has the streak. That is a real difference between the
+ * two views, and it is the device's summary to widen, not this sort's to guess
+ * at.
  */
 export function orderReportedSchedule(
   rows: ReadonlyArray<PuppyHeartbeatScheduledJob>,
 ): PuppyHeartbeatScheduledJob[] {
-  const rank = (job: PuppyHeartbeatScheduledJob): number => {
-    if (isFailedStatus(job.last)) return 0;
-    return job.paused ? 2 : 1;
-  };
+  const rank = (job: PuppyHeartbeatScheduledJob): number =>
+    attentionRank(isFailedStatus(job.last), job.paused);
   return [...rows].sort((a, b) => rank(a) - rank(b) || a.name.localeCompare(b.name));
 }
 

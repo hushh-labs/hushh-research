@@ -25,10 +25,12 @@ vi.mock("@/lib/hermes/use-puppy-link", () => ({
 }));
 
 import {
+  orderJobsForReading,
   orderReportedSchedule,
   PuppyMachineSheet,
 } from "@/components/agent/puppy-resource-monitor";
 import type {
+  PuppyJob,
   PuppyJobs,
   PuppyLink,
   PuppyLinkHeartbeat,
@@ -501,5 +503,77 @@ describe("the reported schedule leads with what needs a hand", () => {
     // No last result is not a failure. It ranks as running, so a machine that
     // reports no statuses at all stays in name order rather than all-failing.
     expect(names([job("b", false), job("a", false)])).toEqual(["a", "b"]);
+  });
+});
+
+describe("both schedules agree on which job needs a hand", () => {
+  // The live list and the reported list come from different sources and carry
+  // different evidence, but a person reads them as one answer. These pin the
+  // precedence they share, and the "failed" cases are the ones that were
+  // actually wrong: `orderJobsForReading` used to test lastStatus === "error"
+  // inline while the row it sorts treated "failed" as a failure too, so a
+  // failed job wore the red border and still sorted as healthy.
+  const live = (
+    name: string,
+    paused: boolean,
+    lastStatus: string | null,
+    failureStreak = 0,
+  ): PuppyJob => ({
+    id: `id-${name}`,
+    name,
+    schedule: "0 9 * * *",
+    paused,
+    nextRunAt: null,
+    lastStatus,
+    lastError: null,
+    failureStreak,
+  });
+
+  const liveNames = (jobs: ReadonlyArray<PuppyJob>) =>
+    orderJobsForReading(jobs).map((job) => job.name);
+
+  it("leads the live list with a job whose last run FAILED, not only one that errored", () => {
+    expect(
+      liveNames([live("aaa healthy", false, "ok"), live("zzz failed", false, "failed")]),
+    ).toEqual(["zzz failed", "aaa healthy"]);
+  });
+
+  it("still leads the live list with an errored job", () => {
+    expect(
+      liveNames([live("aaa healthy", false, "ok"), live("zzz errored", false, "error")]),
+    ).toEqual(["zzz errored", "aaa healthy"]);
+  });
+
+  it("leads the live list with a failure streak even when the last run reported fine", () => {
+    // The streak is evidence only the live job carries, which is why the two
+    // views can legitimately differ on this one row.
+    expect(
+      liveNames([live("aaa healthy", false, "ok"), live("zzz streak", false, "ok", 3)]),
+    ).toEqual(["zzz streak", "aaa healthy"]);
+  });
+
+  it("ranks a failing job above a paused one in BOTH lists", () => {
+    expect(liveNames([live("aaa paused", true, "ok"), live("zzz failed", false, "failed")])).toEqual(
+      ["zzz failed", "aaa paused"],
+    );
+    expect(
+      orderReportedSchedule([
+        { name: "aaa paused", when: "daily", paused: true },
+        { name: "zzz failed", when: "daily", paused: false, last: "failed" },
+      ]).map((row) => row.name),
+    ).toEqual(["zzz failed", "aaa paused"]);
+  });
+
+  it("sinks a paused job in BOTH lists", () => {
+    expect(liveNames([live("aaa paused", true, "ok"), live("zzz running", false, "ok")])).toEqual([
+      "zzz running",
+      "aaa paused",
+    ]);
+    expect(
+      orderReportedSchedule([
+        { name: "aaa paused", when: "daily", paused: true },
+        { name: "zzz running", when: "daily", paused: false, last: "ok" },
+      ]).map((row) => row.name),
+    ).toEqual(["zzz running", "aaa paused"]);
   });
 });
