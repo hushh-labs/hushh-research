@@ -11,12 +11,18 @@ const repoRoot = path.resolve(__dirname, "..", "..");
 // -- which disagreed at runtime with the `/one` layout ancestor's own
 // `connection()`-forced dynamic rendering (app/one/layout.tsx), throwing
 // "Page changed from static to dynamic at runtime, reason: connection" as a
-// 500 on real public share links. An explicit `dynamic` export removes the
-// ambiguity. It must stay gated on CAPACITOR_BUILD exactly like
-// `generateStaticParams`: Capacitor's static export needs the opposite,
-// a real static page for its one baked-in test token.
+// 500 on real public share links.
+//
+// A route-segment `dynamic` export can't fix this: Turbopack requires that
+// value to be a static string literal ("Next.js can't recognize the exported
+// `dynamic` field in route. It needs to be a static string" -- caught by CI
+// on the first attempt), so it can't be gated on CAPACITOR_BUILD the way
+// generateStaticParams is, and a bare `force-dynamic` breaks Capacitor's
+// `output: export` build outright. Calling `connection()` in the page's own
+// render, gated exactly like generateStaticParams, is the same mechanism the
+// layout already uses successfully for this same problem.
 describe("/one/location/view/[token] dynamic rendering", () => {
-  it("forces a live web request without breaking the Capacitor static export", () => {
+  it("forces a live web request via connection(), gated off for Capacitor", () => {
     const source = readFileSync(
       path.join(
         repoRoot,
@@ -30,8 +36,11 @@ describe("/one/location/view/[token] dynamic rendering", () => {
       "utf8",
     );
 
-    expect(source).toContain('process.env.CAPACITOR_BUILD === "true"');
-    expect(source).toMatch(/dynamic\s*=\s*\n?\s*process\.env\.CAPACITOR_BUILD/);
-    expect(source).toContain('"force-dynamic"');
+    expect(source).toContain('import { connection } from "next/server"');
+    expect(source).toContain('process.env.CAPACITOR_BUILD !== "true"');
+    expect(source).toContain("await connection()");
+    // The literal-string trap this test exists to catch: a `dynamic` export
+    // can't be conditional, so it must not be reintroduced here.
+    expect(source).not.toMatch(/^\s*export const dynamic\s*=/m);
   });
 });
