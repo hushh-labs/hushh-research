@@ -416,3 +416,62 @@ async def test_the_report_summarises_both_sweeps(_enabled):
     summary = report.summary()
     assert "1 retried" in summary and "1 reaped" in summary
     assert report.scan_end >= report.scan_start
+
+
+# -- the upgrade-failure log must not carry a person's cloud coordinates ---------
+
+
+def _safe_detail(exc: BaseException) -> str:
+    from hushh_mcp.services.personal_agent_reconcile_worker import (
+        _safe_detail as impl,  # noqa: PLC0415
+    )
+
+    return impl(exc)
+
+
+def test_a_cloud_error_body_does_not_put_a_persons_project_in_the_logs():
+    """The exact string `raise_for_status()` produces for a refused pod upgrade.
+
+    A comment above this log line forbade logging the message at all -- "the message
+    can carry a cloud error body, a URL, or a token" -- and 9fc41c180 then added
+    `detail=str(exc)` beneath it and left the prohibition standing. Every failed sweep
+    wrote the person's own project id and pod name into hub logs.
+    """
+    exc = RuntimeError(
+        "403 Client Error: Forbidden for url: "
+        "https://us-central1-run.googleapis.com/apis/serving.knative.dev/v1"
+        "/namespaces/alice-private-cloud/services/one-pod-ha1abc"
+    )
+    out = _safe_detail(exc)
+
+    assert "alice-private-cloud" not in out, "the person's project id reached the log"
+    assert "one-pod-ha1abc" not in out
+    assert "run.googleapis.com" not in out
+    # and the reason the detail exists at all survives
+    assert "403" in out, "redaction removed the diagnosis it was supposed to keep"
+
+
+def test_a_resource_path_outside_a_url_is_redacted_too():
+    """Cloud Run error BODIES carry the same coordinates without an https:// prefix."""
+    out = _safe_detail(RuntimeError("permission denied on projects/alice-private-cloud"))
+    assert "alice-private-cloud" not in out
+    assert "projects/" in out, "the shape is useful; only the name is not"
+
+
+def test_a_token_shaped_run_is_redacted():
+    """A bearer token in an error body is the worst thing this line could print."""
+    token = "ya29." + ("A" * 60)
+    out = _safe_detail(RuntimeError(f"auth failed: {token}"))
+    assert token not in out
+    assert "A" * 40 not in out
+
+
+def test_an_ordinary_failure_still_reads_as_itself():
+    """Redaction must not turn every message into noise; most carry no coordinates."""
+    out = _safe_detail(RuntimeError("copy refused http=403 digest=sha256:abc123"))
+    assert "copy refused" in out
+    assert "http=403" in out
+
+
+def test_an_empty_message_says_so_rather_than_printing_nothing():
+    assert _safe_detail(RuntimeError("")) == "<no detail>"

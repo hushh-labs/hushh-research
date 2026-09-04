@@ -80,6 +80,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -97,6 +98,40 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     FEED_EVENT_REAPED,
     record_provisioning_feed_event_safe,
 )
+
+_URL_RE = re.compile(r"https?://\S+")
+#: `projects/<id>/...` and `namespaces/<id>/...` name a person's own cloud even when
+#: they arrive outside a URL, which is how a Cloud Run error body usually carries them.
+_RESOURCE_PATH_RE = re.compile(r"\b(projects|namespaces)/[^/\s]+", re.IGNORECASE)
+#: Long opaque runs are the shape of a bearer token or an access key.
+_OPAQUE_RE = re.compile(r"\b[A-Za-z0-9_\-]{40,}\b")
+
+
+def _safe_detail(exc: BaseException) -> str:
+    """What went wrong, with the parts that identify a person's cloud taken out.
+
+    The comment that used to sit here said "type only, never the message", and the
+    line under it logged `str(exc)` -- 9fc41c180 added the detail and left the
+    prohibition standing above it. Both halves had a point. `requests.HTTPError` from
+    `raise_for_status()` reads "403 Client Error: Forbidden for url:
+    https://.../namespaces/<their project>/services/one-pod-<id>", so every failed
+    sweep put a person's own project id and pod name in hub logs. And the detail is
+    genuinely load-bearing: 0ba8c6b49 was diagnosed from it ("HTTP 403 starting a blob
+    upload into a project authorised before the copy-writer grant existed"), and the
+    registry marker keeps only `user_safe_failure_reason`, a coarse code -- so this
+    line is the ONLY place the real error text appears.
+
+    So the status code and the shape of the failure survive, and the coordinates do
+    not. Redacting rather than deleting keeps the thing the detail was added for.
+    """
+    from hushh_mcp.consent.pii_sanitizer import sanitize_log_value  # noqa: PLC0415
+
+    text = " ".join(str(exc).split())
+    text = _URL_RE.sub("<url>", text)
+    text = _RESOURCE_PATH_RE.sub(r"\1/<redacted>", text)
+    text = _OPAQUE_RE.sub("<redacted>", text)
+    return str(sanitize_log_value(text))[:240] or "<no detail>"
+
 
 logger = logging.getLogger(__name__)
 
@@ -404,14 +439,15 @@ class PersonalAgentReconcileWorker:
                 )
             except Exception as exc:
                 failed += 1
-                # Type only, never the message: the message can carry a cloud error
-                # body, a URL, or a token.
+                # Redacted, never raw: a cloud error body carries the person's own
+                # project id, their pod name, and sometimes a token. `_safe_detail`
+                # keeps the status code, which is the diagnosis, and drops the rest.
                 logger.warning(
                     "[%s] upgrade failed hushh_id=%s error=%s detail=%s",
                     _LABEL,
                     pod.hushh_id or "<none>",
                     type(exc).__name__,
-                    " ".join(str(exc).split())[:240] or "<no detail>",
+                    _safe_detail(exc),
                 )
         if len(stale) > len(batch):
             logger.info(
