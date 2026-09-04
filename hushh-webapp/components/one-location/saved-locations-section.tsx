@@ -52,7 +52,11 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
   return (
     <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white"
+      // Was `bg-[...-foreground]` with `text-white` -- the tile's own
+      // foreground token IS white, so that painted a white icon on a white
+      // tile. Every other icon tile in the app pairs -background (the tile)
+      // with -foreground (the glyph); see components/app-ui/page-sections.tsx.
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
       data-testid={`saved-location-icon-${category}`}
       data-icon-tone="neutral-graphite"
       aria-hidden="true"
