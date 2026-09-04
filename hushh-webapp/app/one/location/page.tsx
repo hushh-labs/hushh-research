@@ -76,7 +76,6 @@ import {
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
-import { useConsentNotificationState } from "@/components/consent/notification-provider";
 import {
   useLocalOnboardingActionHandler,
   type LocalOnboardingActionResult,
@@ -862,7 +861,7 @@ type OneLocationDurationBucket =
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
-type OneLocationOnboardingStep = "welcome" | "permissions";
+type OneLocationOnboardingStep = "welcome" | "features" | "place" | "ready";
 type OneLocationOnboardingGate = "checking" | "show" | "hidden";
 type OneLocationNativeTestConfig = ComponentProps<typeof NativeTestBeacon>;
 type OneLocationBackoffBucket =
@@ -2450,11 +2449,6 @@ export function OneLocationAgentPageContent({
       accountPhoneNumber,
     };
   }, [accountPhoneNumber, contactSyncUserId]);
-  const {
-    deliveryMode: notificationDeliveryMode,
-    retryPushRegistration,
-    isRetryingPushRegistration,
-  } = useConsentNotificationState();
   const { vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
@@ -2624,7 +2618,6 @@ export function OneLocationAgentPageContent({
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   // Saved-place prompt shown once per mounted journey after Location is ready.
   // Active root-setup replay deliberately gets a fresh opportunity.
-  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
   const [saveLocationPoint, setSaveLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   /**
@@ -2660,7 +2653,6 @@ export function OneLocationAgentPageContent({
   const savedLocationSessionEpochRef = useRef(0);
   const savedLocationPointUserIdRef = useRef<string | null>(null);
   const locationOnboardingRetryOnResumeRef = useRef(false);
-  const notificationOnboardingAttemptRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2685,8 +2677,6 @@ export function OneLocationAgentPageContent({
     };
   }, [auth.userId, vaultOwnerToken]);
 
-  const notificationOnboardingObservedBusyRef = useRef(false);
-  const notificationOnboardingRetryOnFocusRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const locationTab = normalizeLocationTab(
@@ -2882,7 +2872,6 @@ export function OneLocationAgentPageContent({
     savedLocationPromptedRef.current = false;
     savedLocationPromptInFlightRef.current = null;
     savedLocationPointUserIdRef.current = null;
-    setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
     // The one place the finale's point IS cleared. A coordinate belongs to the
     // account that produced it, and must never be inherited across a switch.
@@ -12616,7 +12605,6 @@ export function OneLocationAgentPageContent({
         setOnboardingConfirmedPoint(point);
         setSaveLocationAddress(null);
         setSaveLocationAddressLoading(true);
-        setSaveLocationModalOpen(true);
 
         // Resolve friendly copy while the modal remains usable. Exact
         // coordinates are never rendered or written to browser storage.
@@ -12688,15 +12676,27 @@ export function OneLocationAgentPageContent({
        * populating" looked like once it reached the vault.
        */
       addressLine?: string | null,
-    ) => {
+      picked?: PickedLocation,
+    ): Promise<boolean> => {
+      const selectedPoint = picked
+        ? {
+            ...(saveLocationPoint ?? {
+              accuracyM: null,
+              capturedAt: new Date().toISOString(),
+              sourcePlatform: "web" as const,
+            }),
+            latitude: picked.latitude,
+            longitude: picked.longitude,
+          }
+        : saveLocationPoint;
       if (
         !auth.userId ||
         savedLocationSessionUserId !== auth.userId ||
         savedLocationPointUserIdRef.current !== auth.userId ||
-        !saveLocationPoint
+        !selectedPoint
       ) {
         toast.error("Choose a location before continuing.");
-        return;
+        return false;
       }
       const savingUserId = auth.userId;
       const sessionEpoch = savedLocationSessionEpochRef.current;
@@ -12709,8 +12709,8 @@ export function OneLocationAgentPageContent({
         const input = {
           category,
           label,
-          latitude: saveLocationPoint.latitude,
-          longitude: saveLocationPoint.longitude,
+          latitude: selectedPoint.latitude,
+          longitude: selectedPoint.longitude,
           address: details
             ? buildSavedLocationAddress(composedFrom, details)
             : composedFrom,
@@ -12755,7 +12755,7 @@ export function OneLocationAgentPageContent({
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
         ) {
-          return;
+          return false;
         }
         if (typeof window !== "undefined") {
           try {
@@ -12776,27 +12776,28 @@ export function OneLocationAgentPageContent({
           }
         }
         savedLocationAddressResolutionIdRef.current += 1;
-        setSaveLocationModalOpen(false);
-        setSaveLocationPoint(null);
-        setSaveLocationAddress(null);
-        savedLocationPointUserIdRef.current = null;
+        setSaveLocationPoint(selectedPoint);
+        setOnboardingConfirmedPoint(selectedPoint);
+        setLocationOnboardingStep("ready");
         toast.success(
           canPersistNow
             ? "Location saved securely."
             : "Location ready. One will save it after your private vault is set up.",
         );
+        return true;
       } catch (error) {
         if (
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
         ) {
-          return;
+          return false;
         }
         toast.error(
           error instanceof DuplicateSavedLocationError
             ? error.message
             : "Could not save this location. Please try again.",
         );
+        return false;
       } finally {
         if (
           savedLocationSessionEpochRef.current === sessionEpoch &&
@@ -12817,9 +12818,6 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
-    // Dismissing the saved-place picker must stay reversible during onboarding.
-    // Going back and continuing again should offer the picker again.
-    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
@@ -12843,11 +12841,8 @@ export function OneLocationAgentPageContent({
       }
     }
     savedLocationAddressResolutionIdRef.current += 1;
-    setSaveLocationModalOpen(false);
-    setSaveLocationPoint(null);
-    setSaveLocationAddress(null);
     setSaveLocationAddressLoading(false);
-    savedLocationPointUserIdRef.current = null;
+    setLocationOnboardingStep("ready");
   }, [auth.userId]);
 
   const searchOnboardingSavedPlaces = useCallback(
@@ -13022,77 +13017,83 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
-  const handleLocationOnboardingPermission = useCallback(async () => {
-    if (locationOnboardingBusy) return;
-    setLocationOnboardingBusy(true);
-    try {
-      if (isLocationServicesDisabled(permission)) {
-        await openLocationSettingsForOnboarding();
-        return;
-      }
-
-      if (permission?.state === "restricted") {
-        await openAppSettingsForOnboarding();
-        return;
-      }
-
-      if (permission?.state === "granted") {
-        const refreshedPermission = await refreshLocationPermission();
-        if (isLocationServicesDisabled(refreshedPermission)) {
+  const handleLocationOnboardingPermission =
+    useCallback(async (): Promise<boolean> => {
+      if (locationOnboardingBusy) return false;
+      setLocationOnboardingBusy(true);
+      try {
+        if (isLocationServicesDisabled(permission)) {
           await openLocationSettingsForOnboarding();
-          return;
+          return false;
         }
+
         if (
-          refreshedPermission?.state === "denied" ||
-          refreshedPermission?.state === "restricted"
+          permission?.state === "restricted" ||
+          permission?.state === "denied"
         ) {
           await openAppSettingsForOnboarding();
-          return;
+          return false;
         }
-        toast.success("Location access is on.");
-        return;
-      }
 
-      const requestedPermission =
-        await OneLocationService.requestLocationPermission();
-      setPermission(requestedPermission);
+        if (permission?.state === "granted") {
+          const refreshedPermission = await refreshLocationPermission();
+          if (isLocationServicesDisabled(refreshedPermission)) {
+            await openLocationSettingsForOnboarding();
+            return false;
+          }
+          if (
+            refreshedPermission?.state === "denied" ||
+            refreshedPermission?.state === "restricted"
+          ) {
+            await openAppSettingsForOnboarding();
+            return false;
+          }
+          toast.success("Location access is on.");
+          return true;
+        }
 
-      if (
-        requestedPermission.locationServicesEnabled === false ||
-        (requestedPermission.state === "unavailable" &&
-          requestedPermission.precise !== false)
-      ) {
-        await openLocationSettingsForOnboarding();
-        return;
-      }
+        const requestedPermission =
+          await OneLocationService.requestLocationPermission();
+        setPermission(requestedPermission);
 
-      if (
-        requestedPermission.state !== "granted" &&
-        !(await OneLocationService.captureCurrentPosition()
-          .then(() => true)
-          .catch(() => false))
-      ) {
-        await openAppSettingsForOnboarding();
-        return;
-      }
+        if (
+          requestedPermission.locationServicesEnabled === false ||
+          (requestedPermission.state === "unavailable" &&
+            requestedPermission.precise !== false)
+        ) {
+          await openLocationSettingsForOnboarding();
+          return false;
+        }
 
-      if (isLocationServicesDisabled(requestedPermission)) {
-        await openLocationSettingsForOnboarding();
-        return;
+        if (
+          requestedPermission.state !== "granted" &&
+          !(await OneLocationService.captureCurrentPosition()
+            .then(() => true)
+            .catch(() => false))
+        ) {
+          await openAppSettingsForOnboarding();
+          return false;
+        }
+
+        if (isLocationServicesDisabled(requestedPermission)) {
+          await openLocationSettingsForOnboarding();
+          return false;
+        }
+        toast.success("Location access enabled.");
+        return true;
+      } catch (error) {
+        toast.error(locationServicesErrorMessage(error));
+        return false;
+      } finally {
+        setLocationOnboardingBusy(false);
       }
-      toast.success("Location access enabled.");
-    } catch (error) {
-      toast.error(locationServicesErrorMessage(error));
-    } finally {
-      setLocationOnboardingBusy(false);
-    }
-  }, [
-    locationOnboardingBusy,
-    openAppSettingsForOnboarding,
-    openLocationSettingsForOnboarding,
-    permission,
-    refreshLocationPermission,
-  ]);
+    }, [
+      locationOnboardingBusy,
+      openAppSettingsForOnboarding,
+      openLocationSettingsForOnboarding,
+      permission,
+      refreshLocationPermission,
+    ]);
 
   useEffect(() => {
     // Onboarding's own retry, unchanged: it owns the flag and the ordering that
@@ -13141,80 +13142,6 @@ export function OneLocationAgentPageContent({
     };
   }, [refreshLocationPermission]);
 
-  useEffect(() => {
-    if (!notificationOnboardingAttemptRef.current) return;
-    if (isRetryingPushRegistration) {
-      notificationOnboardingObservedBusyRef.current = true;
-      return;
-    }
-    if (!notificationOnboardingObservedBusyRef.current) return;
-
-    notificationOnboardingAttemptRef.current = false;
-    notificationOnboardingObservedBusyRef.current = false;
-    if (notificationDeliveryMode === "push_active") {
-      toast.success("Notifications enabled.");
-      return;
-    }
-    if (notificationDeliveryMode === "push_blocked") {
-      toast.error(
-        "Notifications are still blocked. Allow them in Settings and try again.",
-      );
-      return;
-    }
-    toast.info(
-      "Push notifications could not be enabled. Updates will still appear in One.",
-    );
-  }, [isRetryingPushRegistration, notificationDeliveryMode]);
-
-  useEffect(() => {
-    const retryAfterSettings = () => {
-      if (
-        !notificationOnboardingRetryOnFocusRef.current ||
-        document.visibilityState === "hidden"
-      ) {
-        return;
-      }
-      notificationOnboardingRetryOnFocusRef.current = false;
-      notificationOnboardingAttemptRef.current = true;
-      notificationOnboardingObservedBusyRef.current = false;
-      retryPushRegistration();
-    };
-
-    window.addEventListener("focus", retryAfterSettings);
-    document.addEventListener("visibilitychange", retryAfterSettings);
-    return () => {
-      window.removeEventListener("focus", retryAfterSettings);
-      document.removeEventListener("visibilitychange", retryAfterSettings);
-    };
-  }, [retryPushRegistration]);
-
-  const handleLocationOnboardingNotifications = useCallback(async () => {
-    if (notificationDeliveryMode === "push_active") {
-      toast.success("Notifications are on.");
-      return;
-    }
-    if (notificationDeliveryMode === "push_blocked") {
-      notificationOnboardingRetryOnFocusRef.current = true;
-      const result = await OneLocationService.openAppSettings().catch(() => ({
-        opened: false,
-        sourcePlatform: "web" as const,
-      }));
-      if (!result.opened) {
-        notificationOnboardingRetryOnFocusRef.current = false;
-      }
-      toast.info(
-        result.opened
-          ? "Allow notifications in Settings, then return to One."
-          : "Allow notifications in your browser or device settings, then try again.",
-      );
-      return;
-    }
-
-    notificationOnboardingAttemptRef.current = true;
-    notificationOnboardingObservedBusyRef.current = false;
-    retryPushRegistration();
-  }, [notificationDeliveryMode, retryPushRegistration]);
-
   const nativeTestConfig: OneLocationNativeTestConfig = {
     routeId:
       surface === "map"
@@ -13258,15 +13185,17 @@ export function OneLocationAgentPageContent({
       <BodyPortal>
         <OneLocationOnboardingExperience
           key={auth.userId}
-          startAt={locationOnboardingStep}
+          startAt={
+            locationOnboardingStep === "welcome" ? "welcome" : "permissions"
+          }
+          activeScreen={locationOnboardingStep}
+          onScreenChange={setLocationOnboardingStep}
           currentUserName={
             String(
               auth.user?.displayName || auth.user?.email || "You",
             ).trim() || "You"
           }
           locationPermission={permission}
-          notificationDeliveryMode={notificationDeliveryMode}
-          notificationBusy={isRetryingPushRegistration}
           locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
           // Setup hands back to the wizard to finish the remaining capabilities;
@@ -13278,11 +13207,9 @@ export function OneLocationAgentPageContent({
           // is ready. Root setup stages the confirmed draft in memory; an
           // unlocked workspace persists it immediately.
           onLocationReady={promptSaveLocationDuringOnboarding}
-          onRequestNotifications={handleLocationOnboardingNotifications}
           onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
-          requireLocationToComplete={mode === "setup"}
           // Always passed. This used to be withheld without a vault, which made
           // the flow drop the invite screen entirely -- hiding it from exactly
           // the first-run people onboarding exists for. The handler now falls
@@ -13316,7 +13243,8 @@ export function OneLocationAgentPageContent({
         <SaveLocationModal
           key={`saved-location-${auth.userId}`}
           open={
-            saveLocationModalOpen && savedLocationSessionUserId === auth.userId
+            locationOnboardingStep === "place" &&
+            savedLocationSessionUserId === auth.userId
           }
           address={saveLocationAddress}
           loadingAddress={saveLocationAddressLoading}
@@ -13348,16 +13276,19 @@ export function OneLocationAgentPageContent({
           // does nothing yet, over a step nobody has finished.
           takeover
           collectAddressDetails
+          unifiedOnboarding
+          onBack={() => setLocationOnboardingStep("features")}
           deferredUntilVault={!vaultKey || !vaultOwnerToken}
           initialAccuracyM={saveLocationPoint?.accuracyM}
           rendererDisclosureAccepted={savedLocationRendererAccepted}
           onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onSave={(category, label, details, addressLine) =>
-            void handleSaveOnboardingLocation(
+          onSave={(category, label, details, addressLine, picked) =>
+            handleSaveOnboardingLocation(
               category,
               label,
               details,
               addressLine,
+              picked,
             )
           }
           onSkip={handleSkipSaveOnboardingLocation}
