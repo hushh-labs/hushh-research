@@ -33,7 +33,13 @@
  * pack in the repo at all.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
@@ -54,6 +60,8 @@ import {
   googleContactsAvailability,
   googlePeopleContactSource,
 } from "@/lib/contacts/google-people-source";
+import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
+import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { trackEvent } from "@/lib/observability/client";
 import type { RouteId } from "@/lib/observability/route-map";
@@ -181,6 +189,8 @@ export type UseContactSyncOptions = {
    * North American.
    */
   accountPhoneNumber?: string | null;
+  /** Waits for AuthContext's verified backend-phone hydration when needed. */
+  resolveVerifiedAccountPhoneNumber?: () => Promise<string | null>;
   /** The signed-in account's own id, used to invalidate its cached graph. */
   userId?: string | null;
   /**
@@ -307,6 +317,7 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     null,
   );
   const [resultsOpen, setResultsOpen] = useState(false);
+  const resultOwnerUserIdRef = useRef(options.userId ?? null);
 
   /**
    * Latest options, so no caller is required to memoize what it passes in.
@@ -315,9 +326,9 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
    * in that page's search box would rebuild the sync callback.
    */
   const optionsRef = useRef(options);
-  useEffect(() => {
+  useLayoutEffect(() => {
     optionsRef.current = options;
-  });
+  }, [options]);
 
   /**
    * The re-entrancy guard, and it has to be a ref rather than `syncing`.
@@ -353,6 +364,18 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
     awaitingContactSettingsRef.current = next;
     setAwaitingContactSettings(next);
   }, []);
+
+  useLayoutEffect(() => {
+    const nextUserId = options.userId ?? null;
+    if (resultOwnerUserIdRef.current === nextUserId) return;
+    resultOwnerUserIdRef.current = nextUserId;
+    // Matched identities and local contact display names belong to the account
+    // that ran the scan. Clear them before a replacement account can paint.
+    setResult(null);
+    setResultsOpen(false);
+    setSignal(INITIAL_CONTACT_SYNC_SIGNAL);
+    markAwaitingContactSettings(false);
+  }, [markAwaitingContactSettings, options.userId]);
 
   /**
    * The sync callback, read at click time rather than captured.
@@ -426,10 +449,13 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         // On web the reasoning inverts: no plugin answer and no Google client
         // means there genuinely is no source, and a control that exists only
         // to explain that is worse than no control.
-        const native = isNative();
-        setGoogleFallback(!native && googleConfigured);
-        setAvailable(native || googleConfigured);
-        if (!native) preloadGoogleFallback();
+        const fallback = resolveContactSourceProbeFailure({
+          native: isNative(),
+          googleConfigured,
+        });
+        setGoogleFallback(fallback.googleFallback);
+        setAvailable(fallback.available);
+        if (fallback.googleFallback) preloadGoogleFallback();
       });
     return () => {
       cancelled = true;
@@ -516,16 +542,22 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
   }, []);
 
   const sync = useCallback(async () => {
-    // Read once, at the top. A sync is one transaction, and a refresh callback
-    // swapped half way through it would refresh a list this scan never ran
-    // against.
-    const {
-      accountPhoneNumber,
-      getIdToken,
-      onConnectionGraphChanged,
-      routeId,
-      userId,
-    } = optionsRef.current;
+    // Keep the transaction callbacks and initiating user stable. The account
+    // phone is the exception: it is deliberately re-read below because verified
+    // backend identity can finish hydrating while a picker is open.
+    const { getIdToken, onConnectionGraphChanged, routeId, userId } =
+      optionsRef.current;
+    const initiatingUserId = userId ?? null;
+    const resolveLatestAccountPhoneNumber =
+      createContactSyncAccountPhoneResolver({
+        initiatingUserId,
+        getCurrentIdentity: () => ({
+          userId: optionsRef.current.userId,
+          accountPhoneNumber: optionsRef.current.accountPhoneNumber,
+        }),
+        hydrateAccountPhoneNumber:
+          optionsRef.current.resolveVerifiedAccountPhoneNumber,
+      });
 
     if (!getIdToken) {
       const message = "Sign in before syncing contacts.";
@@ -580,18 +612,18 @@ export function useContactSync(options: UseContactSyncOptions): UseContactSync {
         error: null,
       }));
 
-      const idToken = await getIdToken();
-      if (!idToken) {
-        // Reachable only where a signed-in session expired between the tap and
-        // here. Thrown rather than returned so it lands in the one place that
-        // reports, records and explains a sync that did not happen.
-        throw new Error("Sign in before syncing contacts.");
-      }
       const syncResult = await syncOneLocationContactSignals({
-        idToken,
+        // The source must run while the original tap still owns transient
+        // browser activation. Token/identity network work is deliberately
+        // deferred inside the sync pipeline until after the picker returns.
+        resolveIdToken: getIdToken,
         ...(googleSource ? { source: googleSource } : {}),
-        accountPhoneNumber,
+        accountPhoneNumber: optionsRef.current.accountPhoneNumber,
+        // Re-read after the native/Google source returns. Phone hydration can
+        // complete while a permission or account picker is on screen.
+        resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
+      await resolveLatestAccountPhoneNumber();
       const nextStatus: ContactSyncStatus =
         syncResult.matchedUserIds.length > 0 ? "matched" : "empty";
       setResult(syncResult);

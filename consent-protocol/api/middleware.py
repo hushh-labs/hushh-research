@@ -151,10 +151,13 @@ async def require_firebase_auth(
         # Run in threadpool to protect the asyncio event loop from synchronous I/O.
         firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
 
-        # Safe, logged background execution for side-effects
-        def background_sync(uid: str):
+        # Starlette runs synchronous background callbacks in a worker thread.
+        # Identity sync is async and must stay on the request event loop; the
+        # previous sync wrapper called an asyncio scheduler from that worker,
+        # found no running loop, and silently skipped every warmup.
+        async def background_sync(uid: str) -> None:
             try:
-                ActorIdentityService().schedule_sync_from_firebase(uid)
+                ActorIdentityService().schedule_sync_from_firebase(uid, force=False)
             except Exception as identity_error:
                 logger.debug("Actor identity warmup skipped for %s: %s", uid, identity_error)
 
