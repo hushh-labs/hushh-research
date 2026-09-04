@@ -501,3 +501,130 @@ def send_circle_member_invite_accepted_push(
             "network_display_label": invitee_display_name or "",
         },
     )
+
+
+def send_circle_member_invite_declined_push(
+    *,
+    inviter_user_id: str,
+    invitee_user_id: str,
+    invitee_display_name: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell whoever sent a named Circle invite that it was declined.
+
+    Mirrors ``send_circle_member_invite_accepted_push`` for the opposite
+    outcome, which previously sent nothing at all -- the inviter only found
+    out the invite went nowhere on a manual reload of the Circle screen.
+    """
+
+    label = str(invitee_display_name or "").strip() or "Someone"
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        inviter_user_id,
+        notification_type="location_circle_member_invite_declined",
+        title=circle_name or "Circle invitation",
+        body=f"{label} declined your Circle invitation.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-declined:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+            "invitee_user_id": invitee_user_id,
+            "network_display_label": label,
+        },
+    )
+
+
+def send_circle_member_invite_cancelled_push(
+    *,
+    invitee_user_id: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell an invitee that their pending Circle invitation was withdrawn.
+
+    Without this the invite simply vanishes from their list on the next
+    refresh -- indistinguishable from a client-side bug.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = f'Your invitation to "{circle}" was withdrawn.' if circle else "A Circle invitation was withdrawn."
+    deep_link = "/one/location?tab=people"
+    return send_user_data_push(
+        invitee_user_id,
+        notification_type="location_circle_member_invite_cancelled",
+        title=circle or "Circle invitation",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-cancelled:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
+
+
+def send_circle_member_removed_push(
+    *,
+    member_user_id: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a member the Circle owner removed them.
+
+    Otherwise the Circle just disappears from their list on the next reload,
+    with no way to tell that from a sync glitch.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = f'You were removed from "{circle}".' if circle else "You were removed from a Circle."
+    deep_link = "/one/location?tab=people"
+    return send_user_data_push(
+        member_user_id,
+        notification_type="location_circle_member_removed",
+        title=circle or "Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-removed:{circle_id}:{member_user_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
+
+
+def send_circle_member_left_push(
+    *,
+    owner_user_id: str,
+    member_user_id: str,
+    member_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a Circle's owner that a member left on their own."""
+
+    label = str(member_display_name or "").strip() or "Someone"
+    circle = str(circle_name or "").strip()
+    body = f'{label} left "{circle}".' if circle else f"{label} left your Circle."
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        owner_user_id,
+        notification_type="location_circle_member_left",
+        title=circle or "Your Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-left:{circle_id}:{member_user_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
