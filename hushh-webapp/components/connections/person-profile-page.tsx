@@ -480,7 +480,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
 
   if (!profile) {
     return (
-      <AppPageShell width="reading">
+      <AppPageShell width="agent" fitContent>
         <div
           className="flex min-h-[50vh] items-center justify-center"
           data-native-route="native-route-person-profile"
@@ -494,98 +494,95 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
   }
 
   return (
-    <AppPageShell width="reading">
-      <div className="space-y-6 pb-12" data-native-route="native-route-person-profile">
-        <section className="flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex min-w-0 items-center gap-4">
-            <ConnectionPersonAvatar
-              photoUrl={profile.photoUrl}
-              label={profile.displayName}
-              verified={Boolean(profile.verifiedRole)}
-              size="profile"
-            />
-            <div className="min-w-0">
-              <h1 className="truncate text-3xl font-semibold tracking-tight">
-                {profile.displayName}
-              </h1>
-              {profile.verifiedRole ? (
-                <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-                  <CheckCircle2 className="h-4 w-4 text-[var(--app-accent)]" />
-                  {profile.verifiedRole}
-                </p>
-              ) : null}
-              {viewerProfile ? (
-                <div className="mt-2">
-                  <StatusPill tone="neutral">
-                    {viewerProfile.relationship.status === "connected"
-                      ? "Connected"
-                      : viewerProfile.relationship.status.startsWith("pending")
-                        ? "Request pending"
-                        : "Not connected"}
-                  </StatusPill>
-                </div>
-              ) : null}
+    <AppPageShell width="agent" fitContent>
+      <div className="space-y-8 sm:space-y-10 pb-28 sm:pb-36" data-native-route="native-route-person-profile">
+        <section className="flex flex-col items-center text-center py-2">
+          <ConnectionPersonAvatar
+            photoUrl={profile.photoUrl}
+            label={profile.displayName}
+            verified={Boolean(profile.verifiedRole)}
+            size="profile"
+          />
+          <h1 className="mt-3.5 text-3xl font-semibold tracking-tight">
+            {profile.displayName}
+          </h1>
+          {profile.verifiedRole ? (
+            <p className="mt-1.5 flex items-center justify-center gap-1.5 text-sm text-muted-foreground">
+              <CheckCircle2 className="h-4 w-4 text-[var(--app-accent)] shrink-0" />
+              <span>{profile.verifiedRole}</span>
+            </p>
+          ) : null}
+          {viewerProfile ? (
+            <div className="mt-2.5 flex justify-center">
+              <StatusPill tone="neutral">
+                {viewerProfile.relationship.status === "connected"
+                  ? "Connected"
+                  : viewerProfile.relationship.status.startsWith("pending")
+                    ? "Request pending"
+                    : "Not connected"}
+              </StatusPill>
             </div>
-          </div>
-          <Button
-            type="button"
-            variant="none"
-            effect="fill"
-            onClick={() => {
-              void navigator.clipboard.writeText(window.location.href);
-              toast.success("Profile link copied");
-            }}
-          >
-            <span className="inline-flex items-center gap-2">
-              <Copy className="h-4 w-4" />
-              <span>Share profile</span>
-            </span>
-          </Button>
-        </section>
-
-        {viewerProfile ? (
-          <div className="flex flex-wrap gap-2" aria-label="Relationship actions">
-            {viewerProfile.relationship.status === "none" ? (
-              <Button
-                type="button"
-                variant="blue-gradient"
-                effect="fill"
-                disabled={relationshipBusy}
-                onClick={() => void updateRelationship("connect")}
-                data-voice-control-id="person-profile-connect"
-              >
-                Connect
-              </Button>
+          ) : null}
+          <div className="mt-5 flex flex-wrap items-center justify-center gap-2.5" aria-label="Relationship actions">
+            {viewerProfile ? (
+              <>
+                {viewerProfile.relationship.status === "none" ? (
+                  <Button
+                    type="button"
+                    variant="blue-gradient"
+                    effect="fill"
+                    disabled={relationshipBusy}
+                    onClick={() => void updateRelationship("connect")}
+                    data-voice-control-id="person-profile-connect"
+                  >
+                    Connect
+                  </Button>
+                ) : null}
+                {viewerProfile.relationship.status === "pending_outgoing" ? (
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    disabled={relationshipBusy}
+                    onClick={() => void updateRelationship("cancel")}
+                    data-voice-control-id="person-profile-cancel-connection"
+                  >
+                    Cancel request
+                  </Button>
+                ) : null}
+                {viewerProfile.relationship.status === "connected" ? (
+                  <Button
+                    type="button"
+                    variant="none"
+                    effect="fade"
+                    disabled={relationshipBusy}
+                    onClick={() => void updateRelationship("remove")}
+                    data-voice-control-id="person-profile-remove-connection"
+                  >
+                    Remove connection
+                  </Button>
+                ) : null}
+                <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
+                  Manage access
+                </Button>
+              </>
             ) : null}
-            {viewerProfile.relationship.status === "pending_outgoing" ? (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                disabled={relationshipBusy}
-                onClick={() => void updateRelationship("cancel")}
-                data-voice-control-id="person-profile-cancel-connection"
-              >
-                Cancel request
-              </Button>
-            ) : null}
-            {viewerProfile.relationship.status === "connected" ? (
-              <Button
-                type="button"
-                variant="none"
-                effect="fade"
-                disabled={relationshipBusy}
-                onClick={() => void updateRelationship("remove")}
-                data-voice-control-id="person-profile-remove-connection"
-              >
-                Remove connection
-              </Button>
-            ) : null}
-            <Button type="button" variant="none" effect="fade" data-voice-control-id="person-profile-manage-consent" onClick={() => router.push(ROUTES.CONSENTS)}>
-              Manage access
+            <Button
+              type="button"
+              variant="none"
+              effect="fill"
+              onClick={() => {
+                void navigator.clipboard.writeText(window.location.href);
+                toast.success("Profile link copied");
+              }}
+            >
+              <span className="inline-flex items-center gap-2">
+                <Copy className="h-4 w-4" />
+                <span>Share profile</span>
+              </span>
             </Button>
           </div>
-        ) : null}
+        </section>
 
         {!user && !authLoading ? (
           <SectionCard>
@@ -666,10 +663,18 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                   ))}
                 </div>
               ) : (
-                <SectionCard>
-                  <p className="text-sm text-muted-foreground">
-                    No information has been shared with you yet.
-                  </p>
+                <SectionCard className="py-8 text-center">
+                  <div className="flex flex-col items-center justify-center space-y-2">
+                    <div className="flex h-10 w-10 items-center justify-center rounded-full bg-muted text-muted-foreground">
+                      <LockKeyhole className="h-5 w-5" />
+                    </div>
+                    <p className="text-sm font-semibold text-foreground">
+                      No information shared yet
+                    </p>
+                    <p className="text-xs text-muted-foreground max-w-sm">
+                      Information granted by this person will appear here once shared. Values remain end-to-end encrypted until unlocked.
+                    </p>
+                  </div>
                 </SectionCard>
               )}
             </section>
@@ -685,7 +690,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                 description="Choose only what is needed. The person reviews every request before access is granted."
               />
               {scopeToolsVisible ? (
-                <div className="space-y-2">
+                <div className="space-y-3">
                   <Input
                     value={scopeQuery}
                     onChange={(event) => setScopeQuery(event.target.value)}
@@ -693,31 +698,33 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                     aria-label="Search fields"
                     data-testid="person-profile-scope-search"
                   />
-                  <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by domain">
-                    <button
-                      type="button"
-                      aria-pressed={!scopeDomain}
-                      className={domainChipClass(!scopeDomain)}
-                      onClick={() => setScopeDomain(null)}
-                    >
-                      All
-                    </button>
-                    {scopeDomains.map((domain) => (
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2" role="group" aria-label="Filter by domain">
                       <button
-                        key={domain}
                         type="button"
-                        aria-pressed={scopeDomain === domain}
-                        className={domainChipClass(scopeDomain === domain)}
-                        onClick={() => setScopeDomain((current) => (current === domain ? null : domain))}
-                        data-testid={`person-profile-domain-chip-${domain}`}
+                        aria-pressed={!scopeDomain}
+                        className={domainChipClass(!scopeDomain)}
+                        onClick={() => setScopeDomain(null)}
                       >
-                        {domain.replaceAll("_", " ")}
+                        All
                       </button>
-                    ))}
+                      {scopeDomains.map((domain) => (
+                        <button
+                          key={domain}
+                          type="button"
+                          aria-pressed={scopeDomain === domain}
+                          className={domainChipClass(scopeDomain === domain)}
+                          onClick={() => setScopeDomain((current) => (current === domain ? null : domain))}
+                          data-testid={`person-profile-domain-chip-${domain}`}
+                        >
+                          {domain.replaceAll("_", " ")}
+                        </button>
+                      ))}
+                    </div>
+                    <p className="text-xs text-muted-foreground font-medium" data-testid="person-profile-scope-count">
+                      {filteredScopes.length} of {allScopes.length} fields
+                    </p>
                   </div>
-                  <p className="text-xs text-muted-foreground" data-testid="person-profile-scope-count">
-                    {filteredScopes.length} of {allScopes.length} fields
-                  </p>
                 </div>
               ) : null}
               {groupedScopes.length ? (
@@ -730,7 +737,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
                           <button
                             type="button"
                             key={scope.scopeRef}
-                            className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl py-3 text-left outline-none transition-colors first:pt-0 last:pb-0 focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                            className="grid w-full grid-cols-[minmax(0,1fr)_auto] items-center gap-4 rounded-xl px-3.5 py-3.5 text-left outline-none transition-colors hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
                             aria-pressed={selectedScopeRefs.has(scope.scopeRef)}
                             onClick={() => setSelectedScopeRefs((current) => {
                               const next = new Set(current);
