@@ -155,9 +155,8 @@ const SETUP_COPY_BY_ID: Record<
       "Create and verify your advisor profile so One can open the right professional workspace for you.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
-    introPremise: "A professional workspace shaped around your practice.",
-    introPromise:
-      "You review every detail before it becomes part of your advisor profile.",
+    introPremise: "A custom workspace built for you",
+    introPromise: "You review every detail.",
     setupBullets: [
       "Verify your advisor or firm credentials.",
       "Choose the services you offer and review your profile.",

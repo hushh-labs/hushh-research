@@ -98,7 +98,7 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
           <span
             aria-hidden="true"
-            className={styles.emoji}
+            className={`hushh-brand-mark ${styles.emoji}`}
           >
             🤫
           </span>
