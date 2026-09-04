@@ -155,20 +155,70 @@ The **local** `--mode dev` profile deliberately still hydrates `NEXT_PUBLIC_APP_
 would satisfy `devAuthBypassAllowed()` and turn on the vault auth bypasses while talking
 to the shared dev backend. Changing that is a separate decision.
 
-## Google OAuth return URI: the registered form has no `/one` prefix (2026-09-02)
+## Google OAuth return URIs, and what a local hub needs (corrected 2026-09-03)
 
-The OAuth client dev shares with UAT (`745506018753-…`) registers return URIs in the
-form `https://<env>.one.hushh.ai/profile/gmail/oauth/return` and
-`http://localhost:3000/profile/gmail/oauth/return`. The app serves that path with a
-307 to `/one/profile/gmail/oauth/return` that keeps `code` and `state`, so the
-registered form works end to end; production's `GMAIL_OAUTH_REDIRECT_URI` uses it.
-Dev's and UAT's secrets had drifted to the `/one/…` form, which Google rejects with
-`redirect_uri_mismatch`, and the BYOC authorize step (`byoc_oauth_authorizer.py`,
-which sends the configured value verbatim) failed on both. Dev's secret was set back
-to the registered form (version 62); UAT's needs the same one-line change under
-founder sign-off. A local hub on any port other than 3000 must also use a registered
-URI, so it points at dev's: the callback completes on the deployed dev frontend and
-hub, whose signed `state` and shared database the local hub reads back.
+The 2026-09-02 version of this section was wrong in three ways, each measured false by
+probing the clients directly. Corrected:
+
+- **There are two clients, not one.** `dev` **and every localhost port** use
+  `745506018753-…` (which lives in the `hushh-pda-uat` project). **`uat` and `prod` share
+  `1006304528804-…`** (in `hushh-pda`). So an entry added "for UAT" is an edit to the
+  *production* client.
+- **Every lane's `GMAIL_OAUTH_REDIRECT_URI` holds the `/one/profile/gmail/oauth/return`
+  form**, including production — the deploy gate
+  (`verify-env-secrets-parity.py --require-gmail`) requires exactly that.
+- **uat and prod register both forms and need nothing.** The dev client is the outlier: it
+  registers the no-`/one` Gmail shim and the `/one` **Google** return, but not the `/one`
+  Gmail form. Dev Gmail connect therefore still needs one console entry
+  (`https://dev.one.hushh.ai/one/profile/gmail/oauth/return`); it cannot be fixed from
+  here, because no API edits a Web-application client's redirect URIs and the deploy gate
+  runs from `main`. See `docs/reference/operations/env-and-secrets.md` § *Google OAuth
+  redirect URIs, per lane* for the matrix and the probe that verifies it without console
+  access.
+
+Both no-`/one` paths 307 to their `/one` page with `code` and `state` intact (verified
+live), so a registered shim is a real door, not a workaround.
+
+**BYOC "give GCP access" no longer borrows the Gmail door.** `byoc_oauth_authorizer`
+resolves `GOOGLE_OAUTH_REDIRECT_URI`, then the canonical
+`/one/profile/google/oauth/return` derived from this deployment's own
+`APP_FRONTEND_ORIGIN`. That URI is registered on all three lanes, so dev works with no
+console change (verified live against the deployed hub).
+
+## After pulling this branch — what every developer has to do once
+
+Four steps, in this order. Three of them fail loudly and one fails silently.
+
+1. **Re-sync the backend virtualenv.** The lockfile moved; the local hub refuses to start
+   until you do (`The environment is outdated`).
+   ```bash
+   cd consent-protocol && uv sync --frozen --group dev
+   ```
+2. **Re-install frontend packages** if `npm` reports a missing binary
+   (`sh: next: command not found`) — the webapp lockfile moved too.
+   ```bash
+   cd hushh-webapp && npm ci
+   ```
+3. **Add one line to your local `consent-protocol/.env`**, or BYOC and Calendar from a
+   local hub die at Google with `redirect_uri_mismatch`. Localhost origins are not
+   registered on the OAuth client and only the founder can add them, so a local hub
+   borrows dev's registered Google return; the callback completes on the deployed dev
+   frontend, which is fine because local rides the dev database and shares dev's
+   `APP_SIGNING_KEY`, so the signed `state` validates there.
+   ```bash
+   GOOGLE_OAUTH_REDIRECT_URI=https://dev.one.hushh.ai/one/profile/google/oauth/return
+   ```
+4. **Mirror `HUSSH_ONE_POD_IMAGE` after every dev deploy.** This is the silent one: a
+   stale value builds every new pod from an old image, and the symptoms look like pod
+   bugs rather than a stale tag.
+   ```bash
+   gcloud run services describe consent-protocol --project hushh-pda-dev \
+     --region us-central1 --format='value(spec.template.spec.containers[0].env)' \
+     | tr ';' '\n' | grep -o 'consent-protocol-pod:dev-[a-f0-9]*'
+   ```
+
+No secret was created or rotated in any GCP project by this work, and no environment's
+OAuth client id changed — nothing to re-fetch on the server side.
 
 ## Intentional divergences from UAT
 
