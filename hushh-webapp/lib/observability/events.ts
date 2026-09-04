@@ -154,7 +154,19 @@ export type CacheFootprintBucket =
   | "1mb_5mb"
   | "gte_5mb";
 
-export type AuthMethod = "google" | "apple" | "reviewer" | "redirect" | "existing_session";
+/**
+ * "sso" covers every enterprise / government IdP (Entra, Okta, Login.gov, …).
+ * Deliberately one value rather than one per provider: the analytics enum stays
+ * low-cardinality and stable as IdPs are enabled, and which specific IdP a
+ * person used is an identity concern, not an analytics dimension.
+ */
+export type AuthMethod =
+  | "google"
+  | "apple"
+  | "sso"
+  | "reviewer"
+  | "redirect"
+  | "existing_session";
 export type ConsentAction = "approve" | "deny" | "revoke";
 
 export interface EventContext {

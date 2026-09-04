@@ -456,6 +456,716 @@
       ]
     },
     {
+      "id": "auth.sign_in_sso_microsoft",
+      "label": "Continue with Microsoft Entra",
+      "meaning": "Uses the mounted Microsoft Entra enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with microsoft entra",
+        "continue with microsoft entra",
+        "microsoft entra sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_microsoft"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_microsoft",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_microsoft",
+            "label": "Continue with Microsoft Entra",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_okta",
+      "label": "Continue with Okta",
+      "meaning": "Uses the mounted Okta enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with okta",
+        "continue with okta",
+        "okta sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_okta"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_okta",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_okta",
+            "label": "Continue with Okta",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_google_workspace",
+      "label": "Continue with Google Workspace",
+      "meaning": "Uses the mounted Google Workspace enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with google workspace",
+        "continue with google workspace",
+        "google workspace sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_google_workspace"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_google_workspace",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_google_workspace",
+            "label": "Continue with Google Workspace",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_ping",
+      "label": "Continue with Ping Identity",
+      "meaning": "Uses the mounted Ping Identity enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with ping identity",
+        "continue with ping identity",
+        "ping identity sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_ping"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_ping",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_ping",
+            "label": "Continue with Ping Identity",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_onelogin",
+      "label": "Continue with OneLogin",
+      "meaning": "Uses the mounted OneLogin enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with onelogin",
+        "continue with onelogin",
+        "onelogin sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_onelogin"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_onelogin",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_onelogin",
+            "label": "Continue with OneLogin",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_duo",
+      "label": "Continue with Cisco Duo",
+      "meaning": "Uses the mounted Cisco Duo enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with cisco duo",
+        "continue with cisco duo",
+        "cisco duo sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_duo"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_duo",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_duo",
+            "label": "Continue with Cisco Duo",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_salesforce",
+      "label": "Continue with Salesforce",
+      "meaning": "Uses the mounted Salesforce enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with salesforce",
+        "continue with salesforce",
+        "salesforce sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_salesforce"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_salesforce",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_salesforce",
+            "label": "Continue with Salesforce",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_amazon",
+      "label": "Continue with Amazon",
+      "meaning": "Uses the mounted Amazon enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with amazon",
+        "continue with amazon",
+        "amazon sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_amazon"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_amazon",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_amazon",
+            "label": "Continue with Amazon",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_login_gov",
+      "label": "Continue with Login.gov",
+      "meaning": "Uses the mounted Login.gov enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with login.gov",
+        "continue with login.gov",
+        "login.gov sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_login_gov"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_login_gov",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_login_gov",
+            "label": "Continue with Login.gov",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
+      "id": "auth.sign_in_sso_idme",
+      "label": "Continue with ID.me",
+      "meaning": "Uses the mounted ID.me enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "aliases": [
+        "sign in with id.me",
+        "continue with id.me",
+        "id.me sign in"
+      ],
+      "scope": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_hint": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_idme"
+      },
+      "external_callback": null,
+      "goal": {
+        "goal_id": "goal.auth.sign_in_sso_idme",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "auth.sign_in_sso_idme",
+            "label": "Continue with ID.me",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/login",
+              "screen": "login"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      },
+      "map_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ]
+    },
+    {
       "id": "auth.open_terms",
       "label": "Terms",
       "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
