@@ -269,27 +269,10 @@ enum OneLocationStateIntentValue: String, AppEnum {
     case off
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Location State"
-
-    // `DisplayRepresentation(title:synonyms:)` needs iOS 17; this app's
-    // deployment target is 15, so older devices fall back to plain titles.
-    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = {
-        if #available(iOS 17.0, *) {
-            return [
-                .on: DisplayRepresentation(
-                    title: "On",
-                    synonyms: ["Enable", "Enabled", "Resume", "Resumed", "Start"]
-                ),
-                .off: DisplayRepresentation(
-                    title: "Off",
-                    synonyms: ["Disable", "Disabled", "Pause", "Paused", "Stop"]
-                )
-            ]
-        }
-        return [
-            .on: "On",
-            .off: "Off"
-        ]
-    }()
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .on: "On",
+        .off: "Off"
+    ]
 }
 
 // MARK: - Shared App Intent adapter
