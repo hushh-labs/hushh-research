@@ -437,7 +437,14 @@ function isLocalEnvReference(token) {
 }
 
 function resolveDocPathReference(file, token) {
-  const cleaned = token.replace(/[),.;:]+$/g, "");
+  // A `file.py:1357` or `file.py:478-489` citation is still a reference to
+  // file.py. Stripping the line suffix before the existence check is what lets
+  // docs cite a precise line, which is the citation style this repo asks for;
+  // without it the gate quietly pushed authors toward vaguer references that
+  // are harder to verify, which is the opposite of what it exists to protect.
+  const cleaned = token
+    .replace(/[),.;:]+$/g, "")
+    .replace(/:\d+(?:-\d+)?$/, "");
   const candidates = [];
 
   if (cleaned.startsWith("./") || cleaned.startsWith("../")) {
