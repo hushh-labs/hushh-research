@@ -170,11 +170,15 @@ export class AccountIdentityService {
 
     if (!force) {
       identityRefreshInflight.set(uid, run);
-      void run.finally(() => {
+      const clearInflight = () => {
         if (identityRefreshInflight.get(uid) === run) {
           identityRefreshInflight.delete(uid);
         }
-      });
+      };
+      // Give both branches an explicit handler. `void run.finally(...)`
+      // creates a second rejected promise when the request fails, even when
+      // the original caller correctly catches `run`.
+      void run.then(clearInflight, clearInflight);
     }
 
     return run;

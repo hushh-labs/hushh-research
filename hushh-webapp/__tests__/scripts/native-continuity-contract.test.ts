@@ -242,6 +242,12 @@ describe("native cold-audit and continuity contract", () => {
       locationFlow.matchAll(/LOCATION_ONBOARDING_CHECKPOINTS\[(\d+)\]/g),
       (match) => Number(match[1]),
     );
+    const actionSteps = Array.from(
+      locationFlow.matchAll(
+        /\{ type: "(click_button|wait_button)", name: "([^"]+)" \}/g,
+      ),
+      (match) => ({ type: match[1], name: match[2] }),
+    );
 
     expect(flowStart).toBeGreaterThan(-1);
     expect(checkpointIndexes).toEqual(
@@ -250,6 +256,12 @@ describe("native cold-audit and continuity contract", () => {
     expect(
       checkpointIndexes.every((index) => index < contract.screens.length),
     ).toBe(true);
+    expect(actionSteps).toEqual([
+      { type: "click_button", name: "Get started" },
+      { type: "click_button", name: "Set up my location" },
+      { type: "click_button", name: "Skip saving this place" },
+      { type: "wait_button", name: "Finish" },
+    ]);
   });
 
   it("binds each cold UI report to the exact generated manifest and real controls", () => {

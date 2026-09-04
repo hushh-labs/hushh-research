@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
   user: { uid: "me", getIdToken: async () => "id-token" },
+  // AuthContext hydrates a verified backend phone separately when Firebase's
+  // User has no phoneNumber (notably the native UAT verification path).
+  authPhoneNumber: null as string | null,
+  resolveVerifiedPhoneNumber: vi.fn(),
   // Contact sync hides its control until it knows a source exists, and the
   // probe below is what decides. jsdom has no `navigator.contacts`, so the real
   // plugin answers "unavailable", the control never renders, and a suite that
@@ -38,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   contactsPermissionState: "prompt" as "prompt" | "granted" | "unavailable",
   syncContactSignals: vi.fn(),
   toastInfo: vi.fn(),
+  requestContactCheck: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -71,6 +76,24 @@ vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
   syncOneLocationContactSignals: mocks.syncContactSignals,
 }));
 
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mocks.requestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Sync contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mocks.routerPush,
@@ -85,7 +108,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useRequireAuth: () => ({ user: mocks.user }),
+  useRequireAuth: () => ({
+    user: mocks.user,
+    phoneNumber: mocks.authPhoneNumber,
+    resolveVerifiedPhoneNumber: mocks.resolveVerifiedPhoneNumber,
+  }),
 }));
 
 // The debounce itself is covered by its own hook test; collapsing it here keeps
@@ -195,6 +222,11 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.requestContactCheck.mockReturnValue(true);
+  mocks.authPhoneNumber = "+919000000001";
+  mocks.resolveVerifiedPhoneNumber.mockImplementation(
+    async () => mocks.authPhoneNumber,
+  );
   mocks.isNative.mockReturnValue(false);
   // A leaked search query in sessionStorage would silently seed the next
   // test's render, the same way a leaked `?tab=` would.
@@ -2191,6 +2223,36 @@ describe("Connect — contact sync", () => {
     ).toBeTruthy();
   });
 
+  it("uses the verified auth-context phone when Firebase has no phone", async () => {
+    // UAT/native phone verification writes the authoritative phone to the
+    // backend identity and AuthContext, while Firebase's User can remain
+    // phone-less. Dropping this value makes an Indian national contact hash as
+    // a plausible US number on an en-US iPhone/browser and silently match 0.
+    mocks.authPhoneNumber = "+919000000001";
+    mocks.syncContactSignals.mockImplementationOnce(async (options) => {
+      await expect(options.resolveAccountPhoneNumber?.()).resolves.toBe(
+        "+919000000001",
+      );
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return emptyContactSyncResult();
+    });
+    render(<ConnectPageClient />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sync contacts" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.syncContactSignals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountPhoneNumber: "+919000000001",
+          resolveAccountPhoneNumber: expect.any(Function),
+          resolveIdToken: expect.any(Function),
+        }),
+      ),
+    );
+  });
+
   it("does not offer it on the RIAs tab", async () => {
     mocks.listConnections.mockResolvedValue([]);
     render(<ConnectPageClient />);
@@ -2293,10 +2355,10 @@ describe("Connect — contact sync", () => {
     // deleting its mount breaks no test in this file.
     expect(await screen.findByText("Contact sync results")).toBeTruthy();
     expect(
-      screen.getByText("No Hushh accounts matched in this sync."),
+      screen.getByText(/No eligible contacts matched/),
     ).toBeTruthy();
     expect(mocks.toastInfo.mock.calls[0][0]).toBe(
-      "No Hushh users matched this time",
+      "No eligible contacts matched",
     );
   });
 });

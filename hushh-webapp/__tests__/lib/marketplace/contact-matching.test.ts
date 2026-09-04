@@ -56,6 +56,24 @@ describe("buildMarketplaceContactLookups with an injected source", () => {
     expect(source).toHaveBeenCalledWith({ limit: 42 });
   });
 
+  it("reads a newly hydrated account phone after the Google source returns", async () => {
+    let hydratedPhone: string | null = null;
+    const source = vi.fn(async () => {
+      hydratedPhone = "+919000000000";
+      return googleResult;
+    });
+
+    const result = await buildMarketplaceContactLookups({
+      accountPhoneNumber: null,
+      resolveAccountPhoneNumber: () => hydratedPhone,
+      source,
+    });
+
+    expect(result.region).toBe("IN");
+    // The local and +91 spellings of Asha's number converge to one lookup.
+    expect(result.lookups).toHaveLength(2);
+  });
+
   it("still hashes on this side, never trusting the source for a digest", async () => {
     const source = vi.fn(async () => googleResult);
     const result = await buildMarketplaceContactLookups({
