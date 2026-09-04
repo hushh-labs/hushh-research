@@ -4,7 +4,9 @@ from hushh_mcp.branding import BRAND_NAME
 from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
+    _connection_accepted_body,
     _connection_request_body,
+    send_connection_accepted_push,
     send_connection_request_push,
 )
 from hushh_mcp.services.requester_identity import (
@@ -47,6 +49,38 @@ def test_connection_request_body_spells_the_brand_correctly():
     """
     for value in (None, "Ankit"):
         body = _connection_request_body(value)
+        assert BRAND_NAME in body
+        assert "hushh" not in body.lower()
+
+
+def test_connection_accepted_body_names_the_approver():
+    assert _connection_accepted_body("Ankit") == "Ankit accepted your connection request on Hussh."
+
+
+def test_connection_accepted_body_trims_whitespace_around_the_name():
+    assert (
+        _connection_accepted_body("  Ankit Sharma  ")
+        == "Ankit Sharma accepted your connection request on Hussh."
+    )
+
+
+def test_connection_accepted_body_falls_back_when_name_is_missing():
+    fallback = "Someone accepted your connection request on Hussh."
+    assert _connection_accepted_body(None) == fallback
+    assert _connection_accepted_body("") == fallback
+    assert _connection_accepted_body("   ") == fallback
+
+
+def test_connection_accepted_body_never_emits_none_or_undefined():
+    for value in (None, "", "   ", "Ankit"):
+        body = _connection_accepted_body(value)
+        assert "None" not in body
+        assert "undefined" not in body
+
+
+def test_connection_accepted_body_spells_the_brand_correctly():
+    for value in (None, "Ankit"):
+        body = _connection_accepted_body(value)
         assert BRAND_NAME in body
         assert "hushh" not in body.lower()
 
@@ -197,6 +231,24 @@ def test_connection_request_push_prefers_the_caller_supplied_name(monkeypatch):
     )
 
     assert captured["data"]["requester_label"] == "Ankit"
+
+
+def test_connection_accepted_push_puts_the_approver_label_in_the_data_map(monkeypatch):
+    """Same class of bug #5422 fixed for the request push: the in-app toast
+    reads only the data map, never `body`."""
+    captured = _capture_push(monkeypatch)
+    monkeypatch.setattr(
+        push_module,
+        "_lookup_display_name",
+        lambda _user_id: "Ankit Sharma",
+    )
+
+    send_connection_accepted_push("requester-1", "approver-1")
+
+    assert captured["user_id"] == "requester-1"
+    assert captured["data"]["approver_label"] == "Ankit Sharma"
+    assert captured["data"]["approver_user_id"] == "approver-1"
+    assert captured["body"] == "Ankit Sharma accepted your connection request on Hussh."
 
 
 def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):

@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 from urllib.parse import quote
 
-from hushh_mcp.branding import connection_request_body
+from hushh_mcp.branding import connection_accepted_body, connection_request_body
 
 logger = logging.getLogger(__name__)
 
@@ -264,6 +264,43 @@ def send_connection_request_push(
         notification_tag=message_id or "connection-request",
         notification_category="ONE_CONNECTIONS",
         data=client_data,
+    )
+
+
+def _connection_accepted_body(approver_name: str | None) -> str:
+    """Connection-accepted banner copy. Names the approver when we have one,
+    else falls back to the generic line -- never emits ``None``/``undefined``.
+
+    Thin wrapper kept for the existing call sites and tests; the sentence
+    itself lives in ``hushh_mcp.branding``, same reasoning as
+    ``_connection_request_body`` above.
+    """
+    return connection_accepted_body(approver_name)
+
+
+def send_connection_accepted_push(requester_user_id: str, approver_user_id: str) -> int:
+    """Tell the original requester that their connection request was accepted.
+
+    Addressed to the requester only -- the approver just took the action
+    themselves and does not need a push confirming their own tap. The banner
+    names the approver when the identity cache has a display name, and
+    degrades to a generic line otherwise (best-effort; the lookup never
+    blocks or raises)."""
+    approver_name = _lookup_display_name(approver_user_id)
+    body = _connection_accepted_body(approver_name)
+    return send_user_data_push(
+        requester_user_id,
+        notification_type="connection_accepted",
+        title="Connection accepted",
+        body=body,
+        deep_link="/one/consent?tab=connections",
+        notification_tag=f"connection-accepted:{requester_user_id}",
+        notification_category="ONE_CONNECTIONS",
+        # The in-app toast reads only this data map, never `body` -- the same
+        # reason send_connection_request_push's data carries requester_label
+        # (see #5422). Without approver_label here, the toast would say
+        # "Someone" even when the OS banner named the right person.
+        data={"approver_user_id": approver_user_id, "approver_label": approver_name},
     )
 
 
