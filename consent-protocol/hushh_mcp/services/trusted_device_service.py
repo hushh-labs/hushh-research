@@ -20,6 +20,7 @@ import os
 import re
 import secrets
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Protocol
 from urllib.parse import urlsplit
@@ -508,15 +509,112 @@ _HEARTBEAT_NUMERIC_FIELDS: tuple[tuple[str, float, float], ...] = (
 
 _HEARTBEAT_BOOL_FIELDS = ("busy", "battery_charging", "on_ac")
 
+# The heartbeat also carries two SUMMARIES of what the agent is doing: its
+# scheduled jobs and its recent conversations. These widen the column from
+# scalars to arrays, so they widen the allow-list -- but not its rule. Each row
+# is REBUILT field by field from a fixed set of names, exactly as the scalars
+# are, never filtered from what the device sent. That is the whole safety
+# argument: a job's prompt, script, working directory or model credentials, any
+# filesystem path, any URL, any token, and every message body have no name in
+# this list, so no client change and no field added upstream later can carry
+# one into the column. Do not "simplify" either builder into a copy with a
+# blocklist; a blocklist only excludes what someone thought of.
+_HEARTBEAT_MAX_ROWS = 10
+_HEARTBEAT_ROW_NAME_MAX = 80
+_HEARTBEAT_ROW_WHEN_MAX = 40
+_HEARTBEAT_ROW_LAST_MAX = 16
+_HEARTBEAT_ROW_TITLE_MAX = 80
+_HEARTBEAT_MAX_MESSAGES = 100_000
+
+
+def _heartbeat_row_text(value: Any, limit: int) -> str | None:
+    """Coerce one row field the way the scalar text fields are coerced.
+
+    Same discipline as _HEARTBEAT_TEXT_FIELDS: a bool is not text, a number
+    renders as text, blank after stripping is nothing, and an over-long value
+    is truncated rather than rejected. Truncating is deliberate -- an over-long
+    name must cost the extra characters, never the row.
+    """
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        return None
+    text = str(value).strip()
+    return text[:limit] if text else None
+
+
+def _heartbeat_row_epoch(value: Any) -> int | None:
+    """Epoch SECONDS as reported. A bool is an int subclass and is not a time."""
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
+
+
+def _safe_scheduled_row(row: Any) -> dict[str, Any] | None:
+    """One scheduled job, or None when it cannot be built from permitted fields.
+
+    name, when and paused are what the row IS, so a row missing any of them is
+    dropped WHOLE rather than part-filled: a job shown without its schedule, or
+    shown as running while it is paused, misleads the owner more than a job
+    that is not shown at all. next_at and last are extras and may be absent.
+    """
+    if not isinstance(row, dict):
+        return None
+    name = _heartbeat_row_text(row.get("name"), _HEARTBEAT_ROW_NAME_MAX)
+    when = _heartbeat_row_text(row.get("when"), _HEARTBEAT_ROW_WHEN_MAX)
+    paused = row.get("paused")
+    if name is None or when is None or not isinstance(paused, bool):
+        return None
+    safe: dict[str, Any] = {"name": name, "when": when, "paused": paused}
+    next_at = _heartbeat_row_epoch(row.get("next_at"))
+    if next_at is not None:
+        safe["next_at"] = next_at
+    last = _heartbeat_row_text(row.get("last"), _HEARTBEAT_ROW_LAST_MAX)
+    if last is not None:
+        safe["last"] = last
+    return safe
+
+
+def _safe_conversation_row(row: Any) -> dict[str, Any] | None:
+    """One recent conversation: its title, its size, and when it last moved.
+
+    All three are required. Message COUNT only -- no message, no body and no
+    tool output has a name here, and none may ever be given one.
+    """
+    if not isinstance(row, dict):
+        return None
+    title = _heartbeat_row_text(row.get("title"), _HEARTBEAT_ROW_TITLE_MAX)
+    at = _heartbeat_row_epoch(row.get("at"))
+    messages = row.get("messages")
+    if title is None or at is None:
+        return None
+    if isinstance(messages, bool) or not isinstance(messages, int):
+        return None
+    if not 0 <= messages <= _HEARTBEAT_MAX_MESSAGES:
+        return None
+    return {"title": title, "messages": messages, "at": at}
+
+
+_HEARTBEAT_ROW_FIELDS: tuple[tuple[str, Callable[[Any], dict[str, Any] | None]], ...] = (
+    ("scheduled", _safe_scheduled_row),
+    ("conversations", _safe_conversation_row),
+)
+
 
 def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
-    """Reduce a device-reported snapshot to a fixed allow-list of scalars.
+    """Reduce a device-reported snapshot to a fixed allow-list.
 
     A device posts this, so the payload is untrusted input written straight to
     a JSONB column. Only these runtime fields are kept, each coerced and length
-    capped: everything else -- nested objects, unknown keys, oversized strings,
-    anything resembling vault content, a filesystem path, or a credential -- is
-    dropped rather than sanitized, so the column can only ever hold telemetry.
+    capped: everything else -- unknown keys, oversized strings, anything
+    resembling vault content, a filesystem path, or a credential -- is dropped
+    rather than sanitized, so the column can only ever hold telemetry.
+
+    Two keys ("scheduled", "conversations") hold ARRAYS of flat summary rows
+    rather than a scalar. They are the only nesting the column accepts, and
+    they carry the same guarantee one level down: each row is rebuilt from a
+    per-row allow-list with the same coercion and capping, the array is capped
+    at _HEARTBEAT_MAX_ROWS, a row that cannot supply its required fields is
+    dropped whole, and a value that is not a list drops its key entirely. Every
+    other nested object is still dropped on sight.
     """
     if not isinstance(snapshot, dict):
         return {}
@@ -543,6 +641,24 @@ def _safe_heartbeat(snapshot: dict[str, Any] | None) -> dict[str, Any]:
         value = snapshot.get(field)
         if isinstance(value, int) and not isinstance(value, bool) and value >= 0:
             safe[field] = value
+    for field, build_row in _HEARTBEAT_ROW_FIELDS:
+        value = snapshot.get(field)
+        if not isinstance(value, list):
+            # An object, a string or a number is not a truncated list, so the
+            # key is dropped entirely rather than coerced into one. An absent
+            # key means the device does not report that summary; an empty list
+            # means it reported none, and those are different answers.
+            continue
+        rows: list[dict[str, Any]] = []
+        # Sliced BEFORE the rows are built, so the work a device can make the
+        # server do is bounded by the cap and not by the length it chose to
+        # send. The device orders soonest/newest first, so the head that
+        # survives truncation is the useful half.
+        for raw_row in value[:_HEARTBEAT_MAX_ROWS]:
+            built = build_row(raw_row)
+            if built is not None:
+                rows.append(built)
+        safe[field] = rows
     return safe
 
 
