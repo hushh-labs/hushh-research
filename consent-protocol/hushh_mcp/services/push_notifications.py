@@ -267,6 +267,80 @@ def send_connection_request_push(
     )
 
 
+def send_connection_request_cancelled_push(
+    addressee_user_id: str,
+    requester_user_id: str,
+    *,
+    requester_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the addressee that a pending request was withdrawn.
+
+    Cancelling used to write the DB and tell nobody: the request just sat in
+    the addressee's pending list, indistinguishable from one still awaiting a
+    reply, until their next reconcile.
+    """
+
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    requester_name = resolve_requester_label(
+        requester_user_id,
+        display_name=requester_display_name,
+    )
+    label = requester_name or "Someone"
+    body = f"{label} withdrew their connection request."
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+
+    client_data = {
+        "message_id": f"connection-request-cancelled:{request_id}" if request_id else "",
+        "requester_label": requester_name,
+        "request_id": request_id,
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_request_cancelled",
+            "action": "CANCELLED",
+            "request_id": request_id or f"conn_req:{requester_user_id}",
+            "user_id": addressee_user_id,
+            "requester_user_id": requester_user_id,
+            "requester_label": requester_name,
+            "title": "Connection request withdrawn",
+            "body": body,
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
+        except RuntimeError:
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(addressee_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        addressee_user_id,
+        notification_type="connection_request_cancelled",
+        title="Connection request withdrawn",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=(
+            f"connection-request-cancelled:{request_id}"
+            if request_id
+            else "connection-request-cancelled"
+        ),
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,

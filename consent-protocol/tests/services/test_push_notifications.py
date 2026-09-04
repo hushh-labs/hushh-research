@@ -5,6 +5,7 @@ from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_connection_request_cancelled_push,
     send_connection_request_push,
 )
 from hushh_mcp.services.requester_identity import (
@@ -420,3 +421,89 @@ def test_the_email_handle_rung_is_a_privacy_switch_not_a_default():
     # the person.
     named = {"user_id": "u1", "display_name": "Neelesh", "email": "n@example.com"}
     assert label_from_identity_row(named, allow_email_handle=False) == "Neelesh"
+
+
+# ---------------------------------------------------------------------------
+# Connect: the requester withdrawing their own request -- same gap, the
+# addressee previously heard nothing until their next reconcile.
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_cancelled_push_names_the_requester_and_targets_the_addressee(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "addressee-1"
+    assert captured["body"] == "Ankit Sharma withdrew their connection request."
+    assert captured["data"]["requester_label"] == "Ankit Sharma"
+
+
+def test_connection_request_cancelled_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="", connection_request_id="req-42"
+    )
+
+    assert captured["body"] == "Someone withdrew their connection request."
+
+
+def test_connection_request_cancelled_push_deep_links_to_the_connections_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_cancelled_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r1"
+    )
+    tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r2"
+    )
+    tag_2 = captured["notification_tag"]
+
+    assert tag_1 != tag_2
+
+
+def test_connection_request_cancelled_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Both production callers run on a sync FastAPI handler, off the event loop."""
+    _capture_push(monkeypatch)
+    sse_calls: list[tuple] = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, payload: sse_calls.append((user_id, payload)),
+    )
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert len(sse_calls) == 1
+    user_id, payload = sse_calls[0]
+    assert user_id == "addressee-1"
+    assert payload["type"] == "connection_request_cancelled"
+    assert payload["action"] == "CANCELLED"
+    assert payload["request_id"] == "req-42"

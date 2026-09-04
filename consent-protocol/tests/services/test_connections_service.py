@@ -1095,6 +1095,96 @@ def test_cancel_marks_request_and_pending_scope_proposals_declined():
     }
 
 
+def test_cancel_notifies_the_addressee_not_the_requester():
+    # Cancelling used to write the DB and tell nobody -- the addressee's
+    # pending request just sat there, indistinguishable from one still
+    # awaiting a reply, until their next reconcile.
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [],
+            [],
+        ]
+    )
+    notify_calls: list[dict] = []
+    svc._cancel_notifier = lambda **kwargs: notify_calls.append(kwargs)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+    assert notify_calls == [
+        {
+            "addressee_user_id": "user-b",
+            "requester_user_id": "user-a",
+            "connection_request_id": "req-1",
+        }
+    ]
+
+
+def test_cancel_does_not_notify_when_the_request_was_already_resolved():
+    # A race: the addressee accepted/declined right before the cancel
+    # arrived, so the guarded UPDATE affects no row. Nothing to tell them.
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [],
+            [],
+            [],
+        ]
+    )
+    notify_calls: list[dict] = []
+    svc._cancel_notifier = lambda **kwargs: notify_calls.append(kwargs)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.cancel_request("user-a", "req-1")
+
+    assert notify_calls == []
+
+
+def test_cancel_notify_failure_does_not_break_the_write():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [],
+            [],
+        ]
+    )
+
+    def _boom(**_kwargs):
+        raise RuntimeError("fcm is down")
+
+    svc._cancel_notifier = _boom
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+
+
 def test_reject_rejected_when_not_addressee():
     svc = _svc()
     db = _RecordingDB(

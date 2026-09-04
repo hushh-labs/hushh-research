@@ -196,6 +196,21 @@ def _default_notifier(
     )
 
 
+def _default_cancel_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_request_cancelled_push
+
+    send_connection_request_cancelled_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
+
+
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
     from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
@@ -212,12 +227,16 @@ class ConnectionsService:
         directory_visible: Callable[[str, str], bool] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
+        cancel_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
+        self._cancel_notifier = (
+            cancel_notifier if cancel_notifier is not None else _default_cancel_notifier
+        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1459,6 +1478,29 @@ class ConnectionsService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
 
+    def _notify_request_cancelled(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge when a request is withdrawn.
+
+        Never raises, and always called after the transaction commits -- a
+        broken notifier must never unwind the cancellation itself.
+        """
+        notifier = getattr(self, "_cancel_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                addressee_user_id=addressee_user_id,
+                requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_cancelled_failed error=%s", exc)
+
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
         row = self._execute_one(
@@ -2478,7 +2520,7 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
                 )
-            self._execute_one(
+            cancelled_row = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
@@ -2492,6 +2534,12 @@ class ConnectionsService:
                 status="declined",
                 actor_user_id=user_id,
                 reason="connection_cancelled",
+            )
+        if cancelled_row:
+            self._notify_request_cancelled(
+                str(req.get("addressee_user_id") or ""),
+                user_id,
+                connection_request_id=str(req.get("id") or ""),
             )
         return {"status": "cancelled", "requestId": req.get("id")}
 
