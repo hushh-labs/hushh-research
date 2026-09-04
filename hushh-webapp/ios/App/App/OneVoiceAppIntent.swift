@@ -298,7 +298,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": recipientID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.shareLocation.requiresSystemConfirmation
         )
     }
 
@@ -314,7 +314,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": personID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.askForLocation.requiresSystemConfirmation
         )
     }
 
@@ -322,7 +322,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .stopShare,
             slots: ["person": personName, "resolvedRecipientId": personID],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.stopShare.requiresSystemConfirmation
         )
     }
 
@@ -330,7 +330,8 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: state == .on ? .resumeLocation : .pauseLocation,
             slots: [:],
-            confirmedBySystem: state == .on
+            confirmedBySystem: (state == .on ? OneSystemActionID.resumeLocation : .pauseLocation)
+                .requiresSystemConfirmation
         )
     }
 
@@ -338,7 +339,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .createCircle,
             slots: ["name": name],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.createCircle.requiresSystemConfirmation
         )
     }
 
@@ -354,7 +355,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedCircleId": circleID,
                 "name": newName
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.renameCircle.requiresSystemConfirmation
         )
     }
 
@@ -373,12 +374,20 @@ private enum OneAppIntentActionExecutor {
         ) else {
             return "Agent One could not prepare that action."
         }
-        guard let completion = await OneSystemActionInvocationCoordinator.shared.waitForCompletion(
+        guard let result = await OneSystemActionInvocationCoordinator.shared.waitForCompletionOrProgress(
             id: invocation.id
         ) else {
             return "Continue in Agent One to finish. Your request is waiting."
         }
-        return completion.summary
+        switch result {
+        case .completion(let completion):
+            return completion.summary
+        case .progress(let progress):
+            switch progress.state {
+            case .waitingForVault:
+                return "Agent One's Vault is locked. I've opened the app for you. Unlock your Vault, and I'll continue your request."
+            }
+        }
     }
 }
 
@@ -785,7 +794,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: ShareLocationWithOneIntent(),
             phrases: [
                 "Share my location with \(\.$recipient) in \(.applicationName) Location Agent",
-                "Let \(\.$recipient) see my location with \(.applicationName)"
+                "Let \(\.$recipient) see my location with \(.applicationName)",
+                "Ask \(.applicationName) to share my location with \(\.$recipient)",
+                "Tell \(.applicationName) to share my location with \(\.$recipient)",
+                "Talk to \(.applicationName) and share my location with \(\.$recipient)"
             ],
             shortTitle: "Share Location",
             systemImageName: "location.fill"
@@ -794,7 +806,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: AskForLocationWithOneIntent(),
             phrases: [
                 "Ask \(\.$person) for location in \(.applicationName) Location Agent",
-                "Request \(\.$person)'s location with \(.applicationName)"
+                "Request \(\.$person)'s location with \(.applicationName)",
+                "Ask \(.applicationName) to ask \(\.$person) for location",
+                "Tell \(.applicationName) to request \(\.$person)'s location",
+                "Talk to \(.applicationName) and ask \(\.$person) for location"
             ],
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
@@ -803,7 +818,13 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: StopLocationSharingWithOneIntent(),
             phrases: [
                 "Stop sharing location with \(\.$person) in \(.applicationName) Location Agent",
-                "Stop my location in \(.applicationName) Location Agent"
+                "Stop my location in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to stop sharing location with \(\.$person)",
+                "Tell \(.applicationName) to stop sharing location with \(\.$person)",
+                "Talk to \(.applicationName) and stop sharing location with \(\.$person)",
+                "Ask \(.applicationName) to pause my location",
+                "Tell \(.applicationName) to pause my location",
+                "Talk to \(.applicationName) and pause my location"
             ],
             shortTitle: "Stop Sharing",
             systemImageName: "location.slash.fill"
@@ -811,7 +832,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: SetOneLocationStateIntent(),
             phrases: [
-                "Turn \(.applicationName) Location \(\.$state)"
+                "Turn \(.applicationName) Location \(\.$state)",
+                "Ask \(.applicationName) to turn Location \(\.$state)",
+                "Tell \(.applicationName) to turn Location \(\.$state)",
+                "Talk to \(.applicationName) and turn Location \(\.$state)"
             ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
@@ -820,16 +844,33 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: CreateOneCircleIntent(),
             phrases: [
                 "Create a Circle in \(.applicationName) Location Agent",
-                "Make a new Circle in \(.applicationName) Location Agent"
+                "Make a new Circle in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to create a Circle",
+                "Tell \(.applicationName) to create a Circle",
+                "Talk to \(.applicationName) and create a Circle"
             ],
             shortTitle: "Create Circle",
             systemImageName: "person.3.fill"
         )
         AppShortcut(
+            intent: RenameOneCircleIntent(),
+            phrases: [
+                "Rename \(\.$circle) in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to rename \(\.$circle)",
+                "Tell \(.applicationName) to rename \(\.$circle)",
+                "Talk to \(.applicationName) and rename \(\.$circle)"
+            ],
+            shortTitle: "Rename Circle",
+            systemImageName: "pencil.circle.fill"
+        )
+        AppShortcut(
             intent: CheckInWithOneIntent(),
             phrases: [
                 "Check in with \(.applicationName) Location Agent",
-                "Open \(.applicationName) Location Check In"
+                "Open \(.applicationName) Location Check In",
+                "Ask \(.applicationName) to check in",
+                "Tell \(.applicationName) to open Check In",
+                "Talk to \(.applicationName) and check in"
             ],
             shortTitle: "Check In",
             systemImageName: "checkmark.circle.fill"
@@ -839,7 +880,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Open \(.applicationName) \(\.$target)",
                 "Show \(\.$target) in \(.applicationName)",
-                "Call \(.applicationName) \(\.$target)"
+                "Ask \(.applicationName) to open \(\.$target)",
+                "Tell \(.applicationName) to show \(\.$target)",
+                "Talk to \(.applicationName) and open \(\.$target)"
             ],
             shortTitle: "Open Agent One Location",
             systemImageName: "location.circle.fill"
@@ -848,7 +891,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: TalkToHusshOneIntent(),
             phrases: [
                 "Talk to \(.applicationName)",
-                "Ask \(.applicationName)"
+                "Start a conversation with \(.applicationName)"
             ],
             shortTitle: "Talk to Agent One",
             systemImageName: "waveform.circle.fill"

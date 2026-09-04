@@ -40,13 +40,28 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
    `until_stopped` requests; those remain pending for an explicit owner action.
 8. One Location approval requires explicit `manual` or `automatic` intent;
    omitted intent and mismatched rule/duration context fail before mutation.
-9. Contact sync requires current verified phones plus explicit versioned
-   combined find-and-auto-connect consent. Legacy/default discoverability,
-   cached clients without `contact_find_auto_connect_v1`, missing schema,
-   missing enablement evidence, and version zero fail closed.
+9. New-person contact discovery and automatic relationship creation require
+   current verified phones plus explicit versioned combined find-and-auto-connect
+   consent. Legacy/default discoverability, cached clients without
+   `contact_find_auto_connect_v1`, missing schema, missing enablement evidence,
+   and version zero fail closed. An exact, unique verified-phone proof may map
+   to an already-active canonical relationship without target discoverability;
+   that path adds no new relationship origin or Trusted/Circle projection.
 10. Every eligible non-suppressed contact match becomes connected without a
     request/accept step; a revoked pair remains suppressed until a separate,
-    explicit reconnect action occurs.
+    explicit reconnect action occurs. A hidden revoked pair is not disclosed;
+    only a currently consented revoked target may be reported as suppressed.
+11. Country parity covers national, `+` country-code, and confidently
+    disambiguated digit-only country-code formats for India, the United States,
+    and representative supported numbering plans. Valid local fixed-line
+    collision cases stay regional, and Google People's E.164 `canonicalForm`
+    wins over a cross-country display value. A source cap, partial permission,
+    failed batch, or unknown region is reported as partial/unchecked and never
+    converted into a definitive zero match.
+12. Verified-phone bindings are canonical E.164 and unique at the database
+    boundary. Any historical ambiguous group is cleared in full and refreshed
+    from the identity authority; no timestamp or user-id heuristic chooses an
+    owner.
 
 ## Security and Privacy Checks
 

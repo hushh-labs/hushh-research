@@ -23,6 +23,7 @@ logger = logging.getLogger(__name__)
 _IDENTITY_STALE_AFTER = timedelta(hours=24)
 _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
 _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
+_IDENTITY_SYNC_IN_FLIGHT: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
 # In-flight personal-agent provisioning kickoffs, deduped per user (phone-verify seam).
 _PERSONAL_AGENT_PROVISION_TASKS: dict[str, asyncio.Task[None]] = {}
@@ -95,6 +96,176 @@ class ActorIdentityAliasError(RuntimeError):
 
 
 class ActorIdentityService:
+    @staticmethod
+    async def _ensure_actor_spine(conn: asyncpg.Connection, user_id: str) -> None:
+        """Create the FK parents required by the identity cache atomically.
+
+        Authenticated users can legitimately exist before they create a vault.
+        Migration 019 defines a crypto-empty placeholder row for that state;
+        actor_profiles and actor_identity_cache must still follow the canonical
+        vault -> profile -> identity FK order.
+        """
+
+        now_ms = int(datetime.now(tz=timezone.utc).timestamp() * 1000)
+        await conn.execute(
+            """
+            INSERT INTO vault_keys (
+              user_id,
+              vault_status,
+              vault_key_hash,
+              primary_method,
+              primary_wrapper_id,
+              recovery_encrypted_vault_key,
+              recovery_salt,
+              recovery_iv,
+              first_login_at,
+              last_login_at,
+              login_count,
+              created_at,
+              updated_at
+            )
+            VALUES (
+              $1,
+              'placeholder',
+              NULL,
+              'passphrase',
+              'default',
+              NULL,
+              NULL,
+              NULL,
+              $2,
+              $2,
+              1,
+              $2,
+              $2
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            user_id,
+            now_ms,
+        )
+        await conn.execute(
+            """
+            INSERT INTO actor_profiles (
+              user_id,
+              personas,
+              last_active_persona,
+              investor_marketplace_opt_in,
+              created_at,
+              updated_at
+            )
+            VALUES (
+              $1,
+              ARRAY['investor']::text[],
+              'investor',
+              FALSE,
+              NOW(),
+              NOW()
+            )
+            ON CONFLICT (user_id) DO NOTHING
+            """,
+            user_id,
+        )
+
+    @staticmethod
+    async def _lock_and_clear_verified_phone_binding(
+        conn: asyncpg.Connection,
+        *,
+        user_id: str,
+        phone_number: str,
+    ) -> None:
+        """Serialize one verified-phone owner transfer inside its transaction.
+
+        The advisory lock closes the empty-set race where two first claims can
+        both observe no prior owner. The ordered row lock also prevents two
+        users swapping numbers concurrently from locking each other's identity
+        rows in opposite order. Every verified-phone writer in this service
+        must use this seam before its identity upsert.
+        """
+
+        await conn.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended($1, 0))",
+            f"actor_identity_phone_claim:{phone_number}",
+        )
+        await conn.execute(
+            """
+            WITH locked_bindings AS MATERIALIZED (
+              SELECT user_id
+              FROM actor_identity_cache
+              WHERE user_id = $1 OR phone_number = $2
+              ORDER BY user_id
+              FOR UPDATE
+            )
+            UPDATE actor_identity_cache AS identity
+            SET
+              phone_number = NULL,
+              phone_verified = FALSE,
+              updated_at = NOW()
+            FROM locked_bindings
+            WHERE identity.user_id = locked_bindings.user_id
+              AND identity.phone_number = $2
+              AND identity.user_id <> $1
+            """,
+            user_id,
+            phone_number,
+        )
+
+    async def sync_from_firebase_if_due(
+        self,
+        user_id: str,
+        *,
+        force: bool = False,
+    ) -> dict[str, Any] | None:
+        """Await one lifecycle-bound, cooldown-aware Firebase refresh.
+
+        Authentication attaches this call to Starlette's response background
+        lifecycle, so the first caller performs the refresh directly instead
+        of spawning work that Cloud Run may freeze. Concurrent callers await
+        the same completion future, and a recently successful refresh skips
+        even the cache query. Failures clear the cooldown for a later retry.
+        """
+
+        normalized_user_id = str(user_id or "").strip()
+        if not normalized_user_id or not self._looks_like_firebase_uid(normalized_user_id):
+            return None
+
+        scheduled = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
+        if scheduled and not scheduled.done():
+            return await asyncio.shield(scheduled)
+
+        existing = _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id)
+        if existing and not existing.done():
+            return await asyncio.shield(existing)
+
+        now = datetime.now(timezone.utc)
+        cooldown_until = _IDENTITY_SYNC_COOLDOWN_UNTIL.get(normalized_user_id)
+        if not force and cooldown_until and cooldown_until > now:
+            return None
+
+        loop = asyncio.get_running_loop()
+        completion: asyncio.Future[dict[str, Any] | None] = loop.create_future()
+        _IDENTITY_SYNC_IN_FLIGHT[normalized_user_id] = completion
+        _IDENTITY_SYNC_COOLDOWN_UNTIL[normalized_user_id] = now + _IDENTITY_SYNC_COOLDOWN
+
+        try:
+            result = await self.sync_from_firebase(normalized_user_id, force=force)
+        except BaseException:
+            _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            if not completion.done():
+                # Waiters only need to know that no refresh landed; the owner
+                # still receives the original cancellation/error below.
+                completion.set_result(None)
+            raise
+        else:
+            if result is None:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            if not completion.done():
+                completion.set_result(result)
+            return result
+        finally:
+            if _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id) is completion:
+                _IDENTITY_SYNC_IN_FLIGHT.pop(normalized_user_id, None)
+
     def schedule_sync_from_firebase(
         self,
         user_id: str,
@@ -107,6 +278,9 @@ class ActorIdentityService:
 
         existing = _IDENTITY_SYNC_TASKS.get(normalized_user_id)
         if existing and not existing.done():
+            return False
+        awaited = _IDENTITY_SYNC_IN_FLIGHT.get(normalized_user_id)
+        if awaited and not awaited.done():
             return False
 
         now = datetime.now(timezone.utc)
@@ -127,12 +301,16 @@ class ActorIdentityService:
             if _IDENTITY_SYNC_TASKS.get(normalized_user_id) is completed:
                 _IDENTITY_SYNC_TASKS.pop(normalized_user_id, None)
             try:
-                completed.result()
+                result = completed.result()
+                if result is None:
+                    _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
+            except asyncio.CancelledError:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
             except Exception as exc:
+                _IDENTITY_SYNC_COOLDOWN_UNTIL.pop(normalized_user_id, None)
                 logger.debug(
-                    "actor_identity_cache background sync skipped for %s: %s",
-                    normalized_user_id,
-                    exc,
+                    "actor_identity_cache background sync skipped error=%s",
+                    type(exc).__name__,
                 )
 
         task.add_done_callback(_cleanup)
@@ -590,33 +768,19 @@ class ActorIdentityService:
         normalized_user_id = str(user_id or "").strip()
         if not normalized_user_id:
             return None
+        normalized_phone_number = str(phone_number or "").strip() or None
 
         pool = await get_pool()
         try:
             async with pool.acquire() as conn:
                 async with conn.transaction():
-                    await conn.execute(
-                        """
-                        INSERT INTO actor_profiles (
-                          user_id,
-                          personas,
-                          last_active_persona,
-                          investor_marketplace_opt_in,
-                          created_at,
-                          updated_at
+                    await self._ensure_actor_spine(conn, normalized_user_id)
+                    if phone_verified is True and normalized_phone_number:
+                        await self._lock_and_clear_verified_phone_binding(
+                            conn,
+                            user_id=normalized_user_id,
+                            phone_number=normalized_phone_number,
                         )
-                        VALUES (
-                          $1,
-                          ARRAY['investor']::text[],
-                          'investor',
-                          FALSE,
-                          NOW(),
-                          NOW()
-                        )
-                        ON CONFLICT (user_id) DO NOTHING
-                        """,
-                        normalized_user_id,
-                    )
                     row = await conn.fetchrow(
                         """
                         INSERT INTO actor_identity_cache (
@@ -674,7 +838,7 @@ class ActorIdentityService:
                         normalized_user_id,
                         str(display_name or "").strip() or None,
                         str(email or "").strip().lower() or None,
-                        str(phone_number or "").strip() or None,
+                        normalized_phone_number,
                         str(photo_url or "").strip() or None,
                         email_verified,
                         phone_verified,
@@ -682,10 +846,8 @@ class ActorIdentityService:
                     )
         except Exception as exc:
             logger.error(
-                "actor_identity_cache upsert failed for %s: %s",
-                normalized_user_id,
-                exc,
-                exc_info=True,
+                "actor_identity_cache upsert failed error=%s",
+                type(exc).__name__,
             )
             return None
 
@@ -820,39 +982,37 @@ class ActorIdentityService:
 
         try:
             async with pool.acquire() as conn:
-                await conn.execute(
-                    """
-                    UPDATE actor_identity_cache
-                    SET
-                      phone_number = NULL,
-                      phone_verified = FALSE,
-                      updated_at = NOW()
-                    WHERE phone_number = $2
-                      AND user_id <> $1
-                    """,
-                    normalized_user_id,
-                    normalized_phone_number,
-                )
-                try:
-                    # Preserve a custom avatar in the returned (and client-cached)
-                    # identity, matching get_many/upsert_identity/set_custom_photo_url.
-                    row = await conn.fetchrow(
-                        claim_insert_with_custom_photo,
-                        normalized_user_id,
-                        normalized_phone_number,
-                        normalized_source,
+                async with conn.transaction():
+                    await self._ensure_actor_spine(conn, normalized_user_id)
+                    await self._lock_and_clear_verified_phone_binding(
+                        conn,
+                        user_id=normalized_user_id,
+                        phone_number=normalized_phone_number,
                     )
-                except asyncpg.UndefinedColumnError as exc:
-                    if "custom_photo_url" not in str(exc):
-                        raise
-                    # Pre-107 gap: no custom avatar can exist yet, so the plain
-                    # photo_url is equivalent — keep the phone claim working.
-                    row = await conn.fetchrow(
-                        claim_insert_plain_photo,
-                        normalized_user_id,
-                        normalized_phone_number,
-                        normalized_source,
-                    )
+                    try:
+                        # The nested transaction is an asyncpg savepoint. If
+                        # custom_photo_url is absent during a rolling migration,
+                        # it clears the failed statement before the fallback.
+                        async with conn.transaction():
+                            # Preserve a custom avatar in the returned (and client-cached)
+                            # identity, matching get_many/upsert_identity/set_custom_photo_url.
+                            row = await conn.fetchrow(
+                                claim_insert_with_custom_photo,
+                                normalized_user_id,
+                                normalized_phone_number,
+                                normalized_source,
+                            )
+                    except asyncpg.UndefinedColumnError as exc:
+                        if "custom_photo_url" not in str(exc):
+                            raise
+                        # Pre-107 gap: no custom avatar can exist yet, so the plain
+                        # photo_url is equivalent — keep the phone claim working.
+                        row = await conn.fetchrow(
+                            claim_insert_plain_photo,
+                            normalized_user_id,
+                            normalized_phone_number,
+                            normalized_source,
+                        )
         except (asyncpg.UndefinedTableError, asyncpg.UndefinedColumnError):
             logger.debug(
                 "actor_identity_cache phone claim skipped; phone shadow schema unavailable"
@@ -860,9 +1020,8 @@ class ActorIdentityService:
             return None
         except Exception as exc:
             logger.debug(
-                "actor_identity_cache phone claim skipped for %s: %s",
-                normalized_user_id,
-                exc,
+                "actor_identity_cache phone claim skipped error=%s",
+                type(exc).__name__,
             )
             return None
 
@@ -1333,9 +1492,8 @@ class ActorIdentityService:
             )
         except Exception as exc:
             logger.debug(
-                "actor_identity_cache firebase sync skipped for %s: %s",
-                normalized_user_id,
-                exc,
+                "actor_identity_cache firebase sync skipped error=%s",
+                type(exc).__name__,
             )
             return cached
 

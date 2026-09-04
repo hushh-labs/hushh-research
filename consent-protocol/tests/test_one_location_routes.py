@@ -172,6 +172,52 @@ def test_private_share_route_threads_until_stopped_duration_mode(monkeypatch) ->
     assert service.calls[0]["enforce_connection"] is True
 
 
+def test_set_grant_duration_route_binds_owner_and_exact_grant(monkeypatch) -> None:
+    class DurationRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def set_grant_duration(self, **kwargs):
+            self.calls.append(kwargs)
+            return authoritative_grant
+
+    grant_id = str(uuid.uuid4())
+    authoritative_grant = {
+        "id": grant_id,
+        "status": "active",
+        "durationMode": "timed",
+        "durationHours": 3.5,
+        "expiresAt": "2026-09-04T15:30:00+00:00",
+    }
+    service = DurationRouteProbe()
+    client = _client(  # type: ignore[arg-type]
+        service,
+        {"user_id": "owner-from-token"},
+        monkeypatch,
+    )
+
+    response = client.patch(
+        f"/api/one/location/grants/{grant_id}/duration",
+        json={
+            "durationMode": "timed",
+            "durationHours": 3.5,
+            "clientOperationId": "duration-operation-1",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {"grant": authoritative_grant}
+    assert service.calls == [
+        {
+            "owner_user_id": "owner-from-token",
+            "grant_id": grant_id,
+            "duration_hours": 3.5,
+            "duration_mode": "timed",
+            "client_operation_id": "duration-operation-1",
+        }
+    ]
+
+
 def test_auto_approval_route_threads_only_the_server_rule_version(monkeypatch) -> None:
     class ApprovalRouteProbe:
         def __init__(self) -> None:
@@ -335,6 +381,48 @@ def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> Non
             "enabled": True,
             "scope_kind": "circle",
             "circle_id": circle_id,
+            "circle_ids": None,
+        }
+    ]
+
+
+def test_auto_approve_preference_route_binds_multiple_circles(monkeypatch) -> None:
+    """#6468: "circles" (plural) scope carries a list, not one circleId."""
+
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circles", "circleIds": kwargs["circle_ids"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circles", "circleIds": circle_ids},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circles",
+            "circle_id": None,
+            "circle_ids": circle_ids,
         }
     ]
 

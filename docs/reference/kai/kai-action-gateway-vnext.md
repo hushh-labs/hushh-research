@@ -60,6 +60,29 @@ Valid execution policies are:
 Actions with a delegate agent must still have an ingress-validated authority
 path. Until that exists, they remain unwired and fail closed.
 
+### Siri capability metadata
+
+Every generated action carries a `siri_mode`, defaulting to `unsupported`:
+
+| Mode | Contract |
+| --- | --- |
+| `direct` | A typed App Intent may execute the existing canonical action. |
+| `review_ui` | Siri may open a wired, non-mutating review destination. |
+| `conversation_only` | Only the explicit One Voice conversation path may invoke it. |
+| `unsupported` | The action is unavailable to Siri. |
+
+`siri_requires_vault` is separate from general runtime guards because it
+describes the native-to-browser handoff gate. A protected direct action may
+optionally name `siri_vault_locked_fallback_action_id`; that target must resolve
+to a generated `review_ui` action. The verification pipeline rejects unwired
+exposed actions, mutating review routes, invalid conversation targets,
+confirmation drift, and invalid fallback relationships.
+
+The Siri parity verifier compares the generated exposed catalog and vault and
+confirmation sets with both the Swift `OneSystemActionID` catalog and the
+TypeScript native bridge allowlist. This keeps App Intents as typed adapters to
+one executor rather than an independent action catalog.
+
 ### Settled journeys
 
 A cross-screen flow is authored as a settled journey, not improvised by the
@@ -93,6 +116,7 @@ contract, Search result, or One tool can reactivate it by implication.
 ```bash
 cd hushh-webapp && npx vitest run __tests__/voice/kai-action-gateway.test.ts
 cd hushh-webapp && npm run verify:voice-gateway
+cd hushh-webapp && npm run verify:siri-action-contract
 cd hushh-webapp && npm run verify:surface-map
 cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
 ```

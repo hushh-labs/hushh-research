@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   ONE_SYSTEM_ACTION_IDS,
+  isOneSystemActionId,
   isPendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
 import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
@@ -52,5 +53,9 @@ describe("One system action invocation bridge contract", () => {
     expect(
       ONE_SYSTEM_ACTION_IDS.every((actionId) => getKaiActionById(actionId)),
     ).toBe(true);
+    expect(isOneSystemActionId("location.open_settings")).toBe(true);
+    expect(isOneSystemActionId("location.pause_updates")).toBe(true);
+    expect(isOneSystemActionId("location.trigger_sos")).toBe(false);
+    expect(isOneSystemActionId("location.delete_circle")).toBe(false);
   });
 });

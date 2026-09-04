@@ -1,8 +1,16 @@
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
 
 import { resolveTopShellBreadcrumb } from "@/lib/navigation/top-shell-breadcrumbs";
+import {
+  clearTabSwitchHistory,
+  recordTabSelection,
+} from "@/lib/navigation/tab-switch-history";
 
 describe("top shell breadcrumbs", () => {
+  beforeEach(() => {
+    clearTabSwitchHistory();
+  });
+
   it("returns a query-selected saved analysis to its Analysis workspace", () => {
     expect(
       resolveTopShellBreadcrumb(
@@ -1044,5 +1052,58 @@ describe("top shell breadcrumbs", () => {
     const config = resolveTopShellBreadcrumb("/one/wallet-card");
     expect(config?.backHref).toBe("/one/profile/account");
     expect(config?.backHref).not.toBe("/one/profile");
+  });
+
+  describe("RIA tab siblings (#6286)", () => {
+    // Every RIA tab -- Picks, Clients, Profile -- declares Profile as its
+    // parent, so a plain hierarchy climb cannot tell "just switched from
+    // Picks" apart from "arrived at Clients cold". Back must undo the
+    // switch, not always land on Profile.
+
+    it("retraces Picks to Clients when that is the recorded prior tab", () => {
+      recordTabSelection("ria", "/ria/clients");
+      recordTabSelection("ria", "/ria/picks");
+
+      expect(resolveTopShellBreadcrumb("/ria/picks")?.backHref).toBe(
+        "/ria/clients",
+      );
+    });
+
+    it("retraces Clients to Picks when that is the recorded prior tab", () => {
+      recordTabSelection("ria", "/ria/picks");
+      recordTabSelection("ria", "/ria/clients");
+
+      expect(resolveTopShellBreadcrumb("/ria/clients")?.backHref).toBe(
+        "/ria/picks",
+      );
+    });
+
+    it("falls back to Profile with no recorded prior tab (a fresh/deep link arrival)", () => {
+      expect(resolveTopShellBreadcrumb("/ria/picks")?.backHref).toBe(
+        "/ria/profile",
+      );
+    });
+
+    it("falls back to Profile rather than retracing to itself", () => {
+      // A stale or self-referential record (e.g. re-entering Picks by another
+      // path) must not turn Back into a no-op that reopens the same screen.
+      recordTabSelection("ria", "/ria/picks");
+      recordTabSelection("ria", "/ria/picks");
+
+      expect(resolveTopShellBreadcrumb("/ria/picks")?.backHref).toBe(
+        "/ria/profile",
+      );
+    });
+
+    it("keeps the visible breadcrumb trail unchanged -- only backHref moves", () => {
+      recordTabSelection("ria", "/ria/clients");
+      recordTabSelection("ria", "/ria/picks");
+
+      expect(
+        resolveTopShellBreadcrumb("/ria/picks")?.items.map(
+          (item) => item.label,
+        ),
+      ).toEqual(["One", "RIA", "Picks"]);
+    });
   });
 });

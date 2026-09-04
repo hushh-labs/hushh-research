@@ -12,6 +12,9 @@ REQUIRED_COLUMNS = {
     "enabled",
     "scope_kind",
     "circle_id",
+    # Added by migration 199 (multi-Circle scope); kept here too since this
+    # test asserts the table's current column set, not just 169's own delta.
+    "circle_ids",
     "enabled_at",
     "rule_version",
     "created_at",

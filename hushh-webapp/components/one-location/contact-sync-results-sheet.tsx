@@ -93,8 +93,9 @@ export function ContactSyncResultsSheet({
         <SheetHeader className="text-left">
           <SheetTitle>Contact sync results</SheetTitle>
           <SheetDescription>
-            Only matched Hushh accounts are listed. Unmatched contacts stay on
-            this device and are shown as counts only.
+            Only eligible Hushh accounts are listed. Names and raw phone numbers
+            are never sent to Hushh; contacts without a match are shown only as
+            counts.
           </SheetDescription>
         </SheetHeader>
 
@@ -103,7 +104,7 @@ export function ContactSyncResultsSheet({
             ["Checked", result.checkedContactCount],
             ["Matched", result.matchedContactCount],
             ["Connected", connectedCount],
-            ["Not on Hushh", result.unmatchedContactCount],
+            ["No match", result.unmatchedContactCount],
           ].map(([label, count]) => (
             <div
               key={String(label)}
@@ -233,7 +234,9 @@ export function ContactSyncResultsSheet({
             </ul>
           ) : (
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              No Hushh accounts matched in this sync.
+              No eligible contacts matched. New matches require a verified
+              phone and contact matching enabled. Existing connections may
+              still appear.
             </div>
           )}
           {hiddenMatchCount ? (
