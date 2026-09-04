@@ -216,6 +216,25 @@ Google return), so **dev BYOC works with no console change**.
   `http://localhost:3002/one/profile/gmail/oauth/return` — only if a local `.env` is to obey
   the enforced Gmail convention; today the local `.env` uses the registered no-`/one` form
 
+**Why this cannot be done from a service account, checked 2026-09-03.** There is no API
+for the redirect URIs of a *Web application* OAuth client: `clientauthconfig` and
+`apikeys` answer 404 to the operator SA, and the IAP OAuth Admin API (the only
+programmatic client surface) manages a different object whose redirect URI is fixed to
+IAP's own callback — and Google has shut it down besides. The console is the only door.
+
+**And the deploy gate cannot be relaxed on a branch to route around it.** `deploy-dev.yml`
+checks out `ref: main` before running `scripts/ops/verify-env-secrets-parity.py
+--require-gmail`, so the canonical-path assertion in effect is always `main`'s copy.
+Pointing a lane's `GMAIL_OAUTH_REDIRECT_URI` at the registered no-`/one` shim therefore
+breaks that lane's next deploy until the relaxation lands on `main`. Do not set the
+secret to the shim expecting a branch-side gate change to cover it.
+
+**Localhost needs no console entry.** A local hub sets
+`GOOGLE_OAUTH_REDIRECT_URI=https://dev.one.hushh.ai/one/profile/google/oauth/return`
+(already registered) and lets the callback complete on the deployed dev frontend: local
+rides the dev database and shares dev's `APP_SIGNING_KEY` (verified equal by digest), so
+the signed state validates and the row lands where the local hub reads it.
+
 Re-run the probe above after saving; the console takes 5 minutes to a few hours.
 
 ### Runtime profile shape audit
