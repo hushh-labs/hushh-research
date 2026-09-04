@@ -6,6 +6,7 @@ from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
     send_connection_request_push,
+    send_connection_request_resolved_push,
 )
 from hushh_mcp.services.requester_identity import (
     label_from_identity_row,
@@ -232,6 +233,134 @@ def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):
     assert payload["request_id"] == "req-42"
     assert payload["body"] == "John Smith wants to connect with you on Hussh."
     assert payload["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
+
+
+# ---------------------------------------------------------------------------
+# #6507: the requester learning their OWN request was accepted/declined --
+# previously not pushed at all. Mirrors the connection_request push tests
+# above, addressed the other way (requester, not addressee).
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_accepted(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "requester-1"
+    assert captured["title"] == "Connection accepted"
+    assert captured["body"] == "Ankit Sharma accepted your connection request."
+    assert captured["data"]["resolver_label"] == "Ankit Sharma"
+    assert captured["data"]["accepted"] == "true"
+    assert captured["data"]["request_id"] == "req-42"
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_declined(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["title"] == "Connection declined"
+    assert captured["body"] == "Ankit Sharma declined your connection request."
+    assert captured["data"]["accepted"] == "false"
+
+
+def test_connection_request_resolved_push_deep_links_to_the_connections_list(monkeypatch):
+    """The request is resolved, not pending review -- a review-sheet deep
+    link with nothing left to review would be a dead end."""
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_resolved_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured: list[dict] = []
+
+    def _fake_send(user_id, **kwargs):
+        captured.append({"user_id": user_id, **kwargs})
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    for request_id in ("req-1", "req-2", "req-1"):
+        send_connection_request_resolved_push(
+            "requester-1",
+            "resolver-1",
+            accepted=True,
+            resolver_display_name="Ankit",
+            connection_request_id=request_id,
+        )
+
+    assert [item["notification_tag"] for item in captured] == [
+        "connection-request-resolved:req-1",
+        "connection-request-resolved:req-2",
+        "connection-request-resolved:req-1",
+    ]
+
+
+def test_connection_request_resolved_push_prefers_the_caller_supplied_name(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    def _explode():
+        raise AssertionError("must not query when the caller already has the name")
+
+    monkeypatch.setattr("db.db_client.get_db", _explode)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="r1",
+    )
+
+    assert captured["data"]["resolver_label"] == "Ankit"
+
+
+def test_connection_request_resolved_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Same sync-handler SSE requirement as send_connection_request_push --
+    both real callers (accept_request, reject_request) are sync."""
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="John Smith",
+        connection_request_id="req-42",
+    )
+
+    assert len(scheduled) == 1, "the SSE payload was dropped instead of scheduled"
+    user_id, payload = scheduled[0]
+    assert user_id == "requester-1"
+    assert payload["type"] == "connection_request_resolved"
+    assert payload["action"] == "DECLINED"
+    assert payload["resolver_label"] == "John Smith"
+    assert payload["request_id"] == "req-42"
 
 
 def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():

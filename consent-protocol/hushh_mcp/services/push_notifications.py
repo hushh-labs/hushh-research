@@ -267,6 +267,94 @@ def send_connection_request_push(
     )
 
 
+def send_connection_request_resolved_push(
+    requester_user_id: str,
+    resolver_user_id: str,
+    *,
+    accepted: bool,
+    resolver_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the REQUESTER their sent connection request was accepted/declined.
+
+    `accept_request`/`reject_request` had no notifier call at all -- the only
+    signal toward the requester was a Feed row nobody pushed, so they learned
+    the outcome from the Feed's foreground poll (45s) or their next app open.
+    Mirrors `send_connection_request_push`'s shape, addressed the other way:
+    that one nudges the ADDRESSEE that a request arrived, this nudges the
+    REQUESTER that theirs was resolved.
+
+    `resolver_display_name` lets the caller pass a name it already holds, the
+    same reason `send_connection_request_push` accepts one.
+    """
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    resolver_name = resolve_requester_label(
+        resolver_user_id,
+        display_name=resolver_display_name,
+    )
+    title = "Connection accepted" if accepted else "Connection declined"
+    body = (
+        f"{resolver_name} accepted your connection request."
+        if accepted
+        else f"{resolver_name} declined your connection request."
+    )
+    # The request is resolved, not pending review any more -- send the
+    # requester to their connections list rather than a review sheet that no
+    # longer has anything to review.
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+    message_id = f"connection-request-resolved:{request_id}" if request_id else ""
+
+    client_data = {
+        "message_id": message_id,
+        "resolver_label": resolver_name,
+        "request_id": request_id,
+        "accepted": "true" if accepted else "false",
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_request_resolved",
+            "action": "ACCEPTED" if accepted else "DECLINED",
+            "request_id": request_id or f"conn_req_resolved:{resolver_user_id}",
+            "user_id": requester_user_id,
+            "resolver_user_id": resolver_user_id,
+            "resolver_label": resolver_name,
+            "title": title,
+            "body": body,
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(requester_user_id, sse_payload))
+        except RuntimeError:
+            # No running loop: both real callers (accept_request, reject_request)
+            # run on a FastAPI threadpool worker. See send_connection_request_push's
+            # identical fallback for why this cannot be `pass`.
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(requester_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        requester_user_id,
+        notification_type="connection_request_resolved",
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        notification_tag=message_id or "connection-request-resolved",
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,
