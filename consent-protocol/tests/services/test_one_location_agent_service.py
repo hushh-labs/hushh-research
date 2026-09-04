@@ -420,6 +420,7 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
                         "enabled": True,
                         "scope_kind": "all_contacts",
                         "circle_id": None,
+                        "circle_ids": None,
                         "enabled_at": enabled_at,
                         "rule_version": 4,
                         "updated_at": enabled_at,
@@ -456,6 +457,7 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
         "enabled": True,
         "scope_kind": "all_contacts",
         "circle_id": None,
+        "circle_ids": None,
     }
     _event_sql, event_params = next(
         (sql, params) for sql, params in calls if "location_auto_approve_rule_changed" in sql
@@ -464,6 +466,7 @@ def test_auto_approve_preference_uses_server_time_version_and_audit(
         "enabled": True,
         "scope_kind": "all_contacts",
         "circle_id": None,
+        "circle_ids": None,
         "enabled_at": enabled_at.isoformat(),
         "rule_version": 4,
     }
@@ -634,6 +637,226 @@ def test_auto_approve_preference_rejects_a_circle_the_owner_did_not_create(
     assert error.value.code == "LOCATION_AUTO_APPROVE_SCOPE_INVALID"
     assert any("owner_user_id = :user_id" in sql for sql in calls)
     assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
+
+
+def test_auto_approve_preference_accepts_multiple_owned_circles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """#6468: "circles" (plural) scope, validated and stored as an array."""
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, statement, params):
+            sql = str(statement)
+            values = dict(params)
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(rows=[{"id": circle_ids[0]}, {"id": circle_ids[1]}])
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    first={
+                        "enabled": True,
+                        "scope_kind": "circles",
+                        "circle_id": None,
+                        "circle_ids": circle_ids,
+                        "enabled_at": enabled_at,
+                        "rule_version": 2,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    connection = Connection()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="circles",
+        circle_id=None,
+        circle_ids=circle_ids,
+    )
+
+    ownership_sql, ownership_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "id = ANY(CAST(:circle_ids AS UUID[]))" in ownership_sql
+    assert ownership_params["circle_ids"] == circle_ids
+    assert ownership_params["user_id"] == "user_a"
+
+    _upsert_sql, upsert_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "INSERT INTO one_location_auto_approve_preferences" in sql
+    )
+    assert upsert_params["circle_ids"] == circle_ids
+    assert upsert_params["circle_id"] is None
+    assert preference["scope"] == {"kind": "circles", "circleIds": circle_ids}
+
+
+def test_auto_approve_preference_rejects_circles_not_all_owned(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+    calls: list[str] = []
+
+    class Result:
+        def mappings(self):
+            return self
+
+        def all(self):
+            # Only one of the two circles came back owned.
+            return [{"id": circle_ids[0]}]
+
+    class Connection:
+        def execute(self, statement, _params: dict):
+            calls.append(str(statement))
+            return Result()
+
+    @contextmanager
+    def fake_connection():
+        yield Connection()
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    with pytest.raises(OneLocationAgentError) as error:
+        OneLocationAgentService().update_auto_approve_preference(
+            user_id="user_a",
+            enabled=True,
+            scope_kind="circles",
+            circle_id=None,
+            circle_ids=circle_ids,
+        )
+
+    assert error.value.code == "LOCATION_AUTO_APPROVE_SCOPE_INVALID"
+    assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
+
+
+def test_first_owned_circle_membership_picks_earliest_match_among_the_set() -> None:
+    circle_a, circle_b, circle_c = (
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+        "770e8400-e29b-41d4-a716-446655440002",
+    )
+
+    class Probe(OneLocationAgentService):
+        def __init__(self):
+            self.calls: list[dict] = []
+
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            self.calls.append(dict(params or {}))
+            assert "membership.circle_id = ANY(CAST(:circle_ids AS UUID[]))" in sql
+            # Only circle_b holds an active membership for this requester;
+            # the resolver must not be fooled by circle_a/circle_c also
+            # being in the candidate set.
+            return {"circle_id": circle_b}
+
+    probe = Probe()
+    resolved = probe._first_owned_circle_membership(
+        other_user_id="requester",
+        circle_ids=[circle_a, circle_b, circle_c],
+    )
+
+    assert resolved == circle_b
+    assert probe.calls == [
+        {"other_user_id": "requester", "circle_ids": [circle_a, circle_b, circle_c]}
+    ]
+
+
+def test_first_owned_circle_membership_returns_none_for_empty_set() -> None:
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            raise AssertionError("must not query the DB for an empty circle set")
+
+    assert (
+        Probe()._first_owned_circle_membership(other_user_id="requester", circle_ids=[])
+        is None
+    )
+
+
+def test_lock_current_auto_approve_preference_accepts_circles_scope() -> None:
+    circle_ids = ["550e8400-e29b-41d4-a716-446655440000"]
+    enabled_at = datetime.now(timezone.utc)
+
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            return {
+                "enabled": True,
+                "scope_kind": "circles",
+                "circle_id": None,
+                "circle_ids": circle_ids,
+                "enabled_at": enabled_at,
+                "rule_version": 5,
+                "updated_at": enabled_at,
+            }
+
+    locked = Probe()._lock_current_auto_approve_preference(
+        user_id="user_a",
+        expected_rule_version=5,
+    )
+    assert locked["circle_ids"] == circle_ids
+
+
+def test_lock_current_auto_approve_preference_rejects_circles_scope_with_no_ids() -> None:
+    enabled_at = datetime.now(timezone.utc)
+
+    class Probe(OneLocationAgentService):
+        def _execute_one(self, sql: str, params: dict | None = None) -> dict | None:
+            return {
+                "enabled": True,
+                "scope_kind": "circles",
+                "circle_id": None,
+                "circle_ids": [],
+                "enabled_at": enabled_at,
+                "rule_version": 5,
+                "updated_at": enabled_at,
+            }
+
+    with pytest.raises(OneLocationAgentError) as error:
+        Probe()._lock_current_auto_approve_preference(
+            user_id="user_a",
+            expected_rule_version=5,
+        )
+    assert error.value.code == "LOCATION_AUTO_APPROVE_RULE_INVALID"
 
 
 def test_atomic_private_share_commits_grant_envelope_and_events_together() -> None:

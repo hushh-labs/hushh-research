@@ -335,6 +335,48 @@ def test_auto_approve_preference_route_binds_owner_and_scope(monkeypatch) -> Non
             "enabled": True,
             "scope_kind": "circle",
             "circle_id": circle_id,
+            "circle_ids": None,
+        }
+    ]
+
+
+def test_auto_approve_preference_route_binds_multiple_circles(monkeypatch) -> None:
+    """#6468: "circles" (plural) scope carries a list, not one circleId."""
+
+    class PreferenceRouteProbe:
+        def __init__(self) -> None:
+            self.calls: list[dict] = []
+
+        def update_auto_approve_preference(self, **kwargs):
+            self.calls.append(kwargs)
+            return {
+                "enabled": True,
+                "scope": {"kind": "circles", "circleIds": kwargs["circle_ids"]},
+                "enabledAt": "2026-08-24T09:00:00+00:00",
+                "ruleVersion": 3,
+            }
+
+    service = PreferenceRouteProbe()
+    current_user = {"user_id": "owner-from-token"}
+    client = _client(service, current_user, monkeypatch)  # type: ignore[arg-type]
+    circle_ids = [
+        "550e8400-e29b-41d4-a716-446655440000",
+        "660e8400-e29b-41d4-a716-446655440001",
+    ]
+
+    response = client.patch(
+        "/api/one/location/auto-approve-preference",
+        json={"enabled": True, "scopeKind": "circles", "circleIds": circle_ids},
+    )
+
+    assert response.status_code == 200
+    assert service.calls == [
+        {
+            "user_id": "owner-from-token",
+            "enabled": True,
+            "scope_kind": "circles",
+            "circle_id": None,
+            "circle_ids": circle_ids,
         }
     ]
 
