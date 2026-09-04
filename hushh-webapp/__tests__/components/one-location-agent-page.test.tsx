@@ -20,6 +20,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
+import {
+  clearTabSwitchHistory,
+  readPreviousTabHref,
+} from "@/lib/navigation/tab-switch-history";
 
 function openDropdownMenu(trigger: HTMLElement) {
   fireEvent.keyDown(trigger, { key: "Enter", code: "Enter" });
@@ -1018,6 +1022,10 @@ describe("OneLocationAgentPage", () => {
   beforeEach(async () => {
     mockRequestContactCheck.mockReturnValue(true);
     vi.clearAllMocks();
+    // Module-level state written by TopShellTabs -- a "People"/"Links" click
+    // in an earlier test otherwise leaks into this one and changes what Back
+    // resolves to (module-singleton state has no per-test isolation).
+    clearTabSwitchHistory();
     // The shared store, holding a fix measured now — what a session with a
     // live movement watch looks like, and the precondition for the publisher.
     const busSnapshot = {
@@ -4198,6 +4206,37 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Public link responses")).toBeNull();
     expect(screen.queryByText(/Share a public location link/i)).toBeNull();
     expect(screen.queryByText(/whatsapp/i)).toBeNull();
+  });
+
+  it("#6286/back-button: records each Now/People/Links switch for Back to undo", async () => {
+    // TopShellTabs is the one place that writes tab-switch-history -- if this
+    // wiring silently breaks, the fix in top-shell-back.ts (which reads it)
+    // becomes a dead branch that never fires. (Cleared fresh by the file's
+    // own beforeEach above.)
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    expect(readPreviousTabHref("location")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    await waitFor(() =>
+      expect(readPreviousTabHref("location")).toBe("/one/location"),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    await waitFor(() =>
+      expect(readPreviousTabHref("location")).toBe(
+        "/one/location?view=people",
+      ),
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Now" }));
+    await waitFor(() =>
+      expect(readPreviousTabHref("location")).toBe(
+        "/one/location?view=links",
+      ),
+    );
   });
 
   it("keeps location activity hidden in the compact mobile flow", async () => {
