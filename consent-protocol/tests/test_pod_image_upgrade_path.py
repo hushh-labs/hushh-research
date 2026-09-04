@@ -1249,3 +1249,36 @@ async def test_a_person_with_no_stored_tier_still_gets_the_deployment_default(
     await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
 
     assert backend.specs[0].resource_tier is None
+
+
+# ---- a recycled phone must not collide with a surviving owner (2026-09-04) -----------
+
+
+@pytest.mark.asyncio
+async def test_generation_rotates_past_a_hushh_id_another_user_already_holds(service_env) -> None:
+    """Measured live: an account deleted from Firebase left its registry row and a
+    beating pod behind with no tombstone, so a new person on that recycled phone
+    re-derived the survivor's HusshID, the pending INSERT hit the unique index, and
+    fire-and-forget provisioning died after the API said `agentScheduled: true`."""
+    from hushh_mcp.services.personal_agent_identity_service import mint_hushh_id
+
+    pas, _ = service_env
+    registry = FakeRegistry({})
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=FakeUpgradingBackend()
+    )
+    phone = "+12015550199"
+    squatter = mint_hushh_id(phone, 0)
+
+    async def _tombstone_exists(hushh_id, **_kw):
+        return False
+
+    async def _get_by_hushh_id(hushh_id):
+        return {"user_id": "someone-else", "hushh_id": hushh_id} if hushh_id == squatter else None
+
+    registry.tombstone_exists = _tombstone_exists  # type: ignore[assignment]
+    registry.get_by_hushh_id = _get_by_hushh_id  # type: ignore[assignment]
+
+    assert await service._next_free_generation(phone, user_id="the-new-person") == 1
+    # The same owner is not a collision: provisioning is idempotent over its own row.
+    assert await service._next_free_generation(phone, user_id="someone-else") == 0

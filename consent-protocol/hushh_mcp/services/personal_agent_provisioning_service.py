@@ -571,7 +571,7 @@ class PersonalAgentProvisioningService:
             # Recycled-phone rotation (SECURITY-REVIEW.md L1): a reassigned phone must
             # not re-derive a prior owner's HusshID. Pick the first generation whose
             # HusshID has no deletion tombstone. A fresh phone lands on generation 0.
-            generation = await self._next_free_generation(phone_e164)
+            generation = await self._next_free_generation(phone_e164, user_id=user_id)
             hushh_id = mint_hushh_id(phone_e164, generation)
             phone_hash = hash_phone_e164(phone_e164)
             # The opaque cost-attribution id. Minted ONCE, here, and written to the
@@ -1109,7 +1109,7 @@ class PersonalAgentProvisioningService:
             return {"hushhId": existing.get("hushh_id"), "status": existing.get("status")}
 
         try:
-            generation = await self._next_free_generation(phone_e164)
+            generation = await self._next_free_generation(phone_e164, user_id=user_id)
             hushh_id = mint_hushh_id(phone_e164, generation)
             phone_hash = hash_phone_e164(phone_e164)
             await self._registry.upsert(
@@ -1700,16 +1700,45 @@ class PersonalAgentProvisioningService:
             return False
         return live >= personal_agent_max_pods()
 
-    async def _next_free_generation(self, phone_e164: str) -> int:
-        """First HusshID generation for this phone that has no deletion tombstone.
+    async def _next_free_generation(self, phone_e164: str, *, user_id: str = "") -> int:
+        """First HusshID generation for this phone that no one else already holds.
 
-        A fresh phone returns 0. A recycled phone whose prior generations are
-        tombstoned rotates forward to the next untombstoned generation, so a
-        reassigned number never re-derives (and thus never resurrects) a prior
-        owner's HusshID or A2A address.
+        A fresh phone returns 0. A recycled phone rotates forward, so a reassigned
+        number never re-derives (and thus never resurrects) a prior owner's HusshID
+        or A2A address.
+
+        TWO things disqualify a generation, and the second was missing.
+
+        A deletion **tombstone** is the intended marker, and it is the only one this
+        checked. But a tombstone only exists when the prior agent was torn down
+        properly. Measured live 2026-09-04: an account deleted from Firebase on
+        2026-08-20 left its `personal_agent_registry` row `provisioned` and its pod
+        still beating, with no tombstone -- so a new person who verified that same
+        phone re-derived the surviving owner's HusshID, the pending INSERT hit
+        `idx_personal_agent_registry_hushh_id`, and the fire-and-forget provisioning
+        died there. The API had already answered `agentScheduled: true`, so the
+        person's cloud was authorized and no pod was ever built, silently. That was
+        a real demo failure, not a hypothetical.
+
+        So a generation is also disqualified when the registry ALREADY HOLDS that
+        HusshID for a DIFFERENT user. Same owner is not a collision -- that is this
+        person's own row and provisioning is idempotent over it.
         """
+        owner = str(user_id or "").strip()
         for generation in range(_MAX_HUSHH_ID_GENERATIONS):
             candidate = mint_hushh_id(phone_e164, generation)
-            if not await self._registry.tombstone_exists(candidate):
-                return generation
+            if await self._registry.tombstone_exists(candidate):
+                continue
+            lookup = getattr(self._registry, "get_by_hushh_id", None)
+            if lookup is None:
+                return generation  # repo cannot answer; tombstones are the only guard
+            held = await lookup(candidate)
+            if held and str(held.get("user_id") or "").strip() != owner:
+                logger.warning(
+                    "personal_agent.hushh_id_taken generation=%s held_by=%s rotating",
+                    generation,
+                    str(held.get("user_id") or "")[:8],
+                )
+                continue
+            return generation
         raise ValueError("exhausted HusshID generations for this phone")
