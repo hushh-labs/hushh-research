@@ -91,6 +91,26 @@ describe("EmailDeliveryService", () => {
     });
   });
 
+  it("maps disabled Gmail sending to clear actionable message", async () => {
+    vi.mocked(ApiService.apiFetch).mockResolvedValue(
+      new Response(JSON.stringify({ detail: { code: "GMAIL_SEND_DISABLED", message: "Turn on Gmail sending before One can deliver an email." } }), {
+        status: 409,
+      }),
+    );
+
+    await expect(
+      EmailDeliveryService.prepare({
+        firebaseIdToken: "firebase-token",
+        vaultOwnerToken: "vault-owner-token",
+        idempotencyKey: "idem-123",
+        draft: { to: "to@example.com", cc: "", bcc: "", subject: "Subject", body: "Body" },
+      }),
+    ).rejects.toMatchObject<Partial<EmailDeliveryError>>({
+      code: "GMAIL_SEND_DISABLED",
+      message: "Turn on Gmail sending before One can deliver an email.",
+    });
+  });
+
   it("renders structured recipient lists from the drafting boundary into editable fields", async () => {
     vi.mocked(ApiService.apiFetch).mockResolvedValue(
       new Response(

@@ -90,6 +90,9 @@ function emailHeaders(auth: EmailDeliveryAuth): HeadersInit {
 }
 
 function safeErrorMessage(code: string | null, status: number): string {
+  if (code === "GMAIL_SEND_DISABLED") {
+    return "Turn on Gmail sending before One can deliver an email.";
+  }
   if (code === "GMAIL_SEND_PERMISSION_REQUIRED") {
     return "Reconnect Gmail to grant email sending permission.";
   }
