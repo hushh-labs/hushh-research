@@ -168,6 +168,56 @@ whose Gmail callback secret belongs to another environment.
 
 Deploy workflows add Gmail, One mailbox, and voice runtime checks with `--require-gmail --require-one-email --require-voice`. That enforcement stays in deploy/runtime verification and is not part of the default contributor PR CI lane.
 
+### Google OAuth redirect URIs, per lane (verified 2026-09-03)
+
+**Two OAuth clients, not one.** `dev` and every localhost port use the client in the
+`hushh-pda-uat` project (`745506018753-…`); **`uat` and `prod` share the client in the
+`hushh-pda` project** (`1006304528804-…`). A change to one says nothing about the other.
+
+**Two flows, two return paths**, each with a no-`/one` shim that 307s to the real page
+(verified live on dev and localhost, query preserved):
+
+| Flow | Canonical path | Who sends it |
+|---|---|---|
+| Gmail / Google connect | `/one/profile/gmail/oauth/return` | `GMAIL_OAUTH_REDIRECT_URI`, enforced by `verify-env-secrets-parity.py --require-gmail` to equal `APP_FRONTEND_ORIGIN` + that path |
+| Google cloud-platform (BYOC authorize, Calendar) | `/one/profile/google/oauth/return` | `GOOGLE_OAUTH_REDIRECT_URI` when set, else derived from `APP_FRONTEND_ORIGIN` |
+
+Because the Gmail secret's form is **enforced at deploy**, the console is what moves: the
+registered URI has to be the `/one` form, never the secret bent to match an old
+registration.
+
+**Measured state** (probed against both clients, no console needed:
+`curl -s -o /dev/null -w '%{redirect_url}' "https://accounts.google.com/o/oauth2/v2/auth?client_id=…&redirect_uri=<enc>&response_type=code&scope=openid"` —
+`authError=` means unregistered, `signin/` means registered):
+
+| Origin | `/one/…/gmail/…` | `/one/…/google/…` | no-`/one` gmail |
+|---|---|---|---|
+| `https://one.hushh.ai` (prod) | registered | registered | registered |
+| `https://uat.one.hushh.ai` | registered | registered | registered |
+| `https://dev.one.hushh.ai` | **MISSING** | registered | registered |
+| `http://localhost:3000` | **MISSING** | **MISSING** | registered |
+| `http://localhost:3002` | **MISSING** | **MISSING** | registered |
+
+So **uat and prod are correct and need nothing.** The dev client is the drift, and it is
+what produced `redirect_uri_mismatch` on a dev BYOC authorize
+(`redirect_uri=https://dev.one.hushh.ai/one/profile/gmail/oauth/return`, founder
+2026-09-03) — the authorizer was borrowing the Gmail door, which dev does not register
+in that form. The borrow is gone (`byoc_oauth_authorizer` now resolves the canonical
+Google return), so **dev BYOC works with no console change**.
+
+**Still founder-only console work, on the dev client `745506018753-…` (add, never remove):**
+
+- `https://dev.one.hushh.ai/one/profile/gmail/oauth/return` — Gmail connect on dev, which
+  the deploy gate forces into this form
+- `http://localhost:3000/one/profile/google/oauth/return`
+- `http://localhost:3002/one/profile/google/oauth/return` — BYOC and Calendar from a local
+  hub; the derived URI is `APP_FRONTEND_ORIGIN` + `/one/profile/google/oauth/return`
+- `http://localhost:3000/one/profile/gmail/oauth/return`,
+  `http://localhost:3002/one/profile/gmail/oauth/return` — only if a local `.env` is to obey
+  the enforced Gmail convention; today the local `.env` uses the registered no-`/one` form
+
+Re-run the probe above after saving; the console takes 5 minutes to a few hours.
+
 ### Runtime profile shape audit
 
 Use this when the local profile files feel inconsistent or a new env key was added in only one place:

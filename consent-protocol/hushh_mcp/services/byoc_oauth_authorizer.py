@@ -129,18 +129,22 @@ def _oauth_client() -> tuple[str, str, str]:
             status_code=503,
             code="NOT_CONFIGURED",
         )
-    # The REGISTERED redirect, deliberately: OAuth clients cannot be edited by
-    # API, and the canonical /one/profile/google/oauth/return path was only ever
-    # registered for the uat origin — observed live 2026-08-20 as Google's
-    # redirect_uri_mismatch blocking the founder's onboarding. The Gmail return
-    # URI in env is the one door PROVEN registered for this deployment's origin
-    # (Gmail OAuth works through it), so this flow borrows that door and the
-    # return page branches on the byoc state prefix. When the canonical URI is
-    # registered platform-side, the env fallback order makes this self-heal.
-    registered = (
-        os.getenv("GOOGLE_OAUTH_REDIRECT_URI") or os.getenv("GMAIL_OAUTH_REDIRECT_URI") or ""
-    ).strip()
-    redirect = registered or svc._redirect_uri(None)  # noqa: SLF001 - registered-origin enforcement
+    # The CANONICAL google return, and deliberately NOT the Gmail door.
+    #
+    # This borrowed `GMAIL_OAUTH_REDIRECT_URI` when the generic setting was unset,
+    # because on 2026-08-20 `/one/profile/google/oauth/return` was registered for the
+    # uat origin only. That is no longer true, and the borrow became the very failure
+    # it was added to prevent. Measured 2026-09-03 by probing both OAuth clients:
+    # every lane's `GMAIL_OAUTH_REDIRECT_URI` now holds the `/one/…/gmail/…` form,
+    # which the DEV client does not register (it registers the no-`/one` Gmail forms
+    # and the `/one` GOOGLE form), so a BYOC authorize on dev sent an unregistered URI
+    # and Google refused the whole flow with `redirect_uri_mismatch`.
+    #
+    # The canonical google return is registered on all three lanes (dev, uat, prod),
+    # so the honest resolution is the explicit setting, then the canonical path derived
+    # from THIS deployment's own frontend origin. Borrowing another flow's door made a
+    # mismatch on one lane invisible until a person hit it.
+    redirect = (os.getenv("GOOGLE_OAUTH_REDIRECT_URI") or "").strip() or svc._redirect_uri(None)  # noqa: SLF001 - one config source for the Google return
     return client_id, client_secret, redirect
 
 
