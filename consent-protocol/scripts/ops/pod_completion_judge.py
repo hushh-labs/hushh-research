@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -152,6 +153,19 @@ def check_command(item: dict[str, Any], timeout: int) -> tuple[str, str]:
     for tool in requires:
         if not shutil.which(tool):
             return UNKNOWN, f"requires {tool!r}, which is not on PATH here"
+    # A PATH check cannot express "this needs a credential", and that gap made this
+    # judge furniture. `no-pod-is-billing-right-now` declared `requires: [uv, gcloud]`
+    # as its cannot-evaluate guard, but the fleet sweep reaches Cloud Run over the
+    # REST API and never invokes gcloud (there is no gcloud CLI here at all -- see
+    # CLAUDE.md). GitHub's runners ship gcloud anyway, so the guard passed, the sweep
+    # ran without GCP_DEPLOY_SA_KEY_B64, and its RuntimeError became a FAIL. The judge
+    # was red on every run from at least run 21 to run 25 for that reason alone, which
+    # is precisely the "nag becomes furniture" failure `check_manual` warns about --
+    # and while it was red, a pod genuinely left billing on dev was indistinguishable
+    # from the missing credential, so the cost control it exists to be was dead.
+    for var in item.get("requires_env") or []:
+        if not os.environ.get(str(var)):
+            return UNKNOWN, f"requires ${var}, which is unset here"
     code, out = _run(["bash", "-lc", str(cmd)], REPO_ROOT, timeout)
     if code == 0:
         return PASS, out

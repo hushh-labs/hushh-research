@@ -73,6 +73,79 @@ def test_something_it_could_not_evaluate_is_UNKNOWN_never_PASS():
     assert not report.finished, "unknown must never count as done"
 
 
+def test_a_command_whose_credential_is_unset_is_UNKNOWN_not_FAILING(monkeypatch):
+    """The mirror of the test above, and the one that was missing.
+
+    `requires` can only ask "is this tool on PATH", so an item needing a CREDENTIAL
+    had no way to say so. `no-pod-is-billing-right-now` tried, by naming gcloud --
+    a CLI its command never invokes and which this environment does not even have.
+    GitHub's runners ship gcloud, so the guard passed, the sweep ran with no
+    GCP_DEPLOY_SA_KEY_B64, and its RuntimeError was graded FAILING. The judge was
+    red for that reason alone across runs 21-25, and while it was, a pod genuinely
+    left billing on dev looked exactly the same as a missing credential.
+    """
+    monkeypatch.delenv("HUSSH_TEST_FAKE_CREDENTIAL", raising=False)
+    report = judge_mod.judge(
+        [
+            _item(
+                "needs-credential",
+                check={
+                    "kind": "command",
+                    "command": "false",  # would FAIL if it were allowed to run
+                    "requires_env": ["HUSSH_TEST_FAKE_CREDENTIAL"],
+                },
+            )
+        ]
+    )
+    assert [v.status for v in report.verdicts] == [judge_mod.UNKNOWN]
+    assert not report.failing, "could not look is not the same sentence as it is broken"
+    assert not report.finished, "unknown must never count as done"
+
+
+def test_a_credential_gated_command_still_runs_and_can_fail_when_it_is_set(monkeypatch):
+    """The control must not be weakened into a way of never looking.
+
+    Whenever the credential IS present the command runs for real, and a genuine
+    failure is still FAILING. Without this, the fix above would be indistinguishable
+    from deleting the check.
+    """
+    monkeypatch.setenv("HUSSH_TEST_FAKE_CREDENTIAL", "present")
+    report = judge_mod.judge(
+        [
+            _item(
+                "needs-credential",
+                check={
+                    "kind": "command",
+                    "command": "false",
+                    "requires_env": ["HUSSH_TEST_FAKE_CREDENTIAL"],
+                },
+            )
+        ]
+    )
+    assert [v.id for v in report.failing] == ["needs-credential"]
+
+
+def test_the_fleet_sweep_declares_the_credential_and_not_a_cli_it_never_runs():
+    """Pin the ledger item, because the wrong prerequisite is invisible when right.
+
+    Naming a tool that happens to exist on the runner is a guard that never fires,
+    and a guard that never fires reads identically to a guard that is correct.
+    """
+    ledger = yaml.safe_load(_LEDGER.read_text(encoding="utf-8"))
+    item = next(a for a in ledger["assertions"] if a["id"] == "no-pod-is-billing-right-now")
+    check = item["check"]
+    assert "GCP_DEPLOY_SA_KEY_B64" in (check.get("requires_env") or []), (
+        "the fleet sweep needs the operator credential; say so where the judge can act on it"
+    )
+    assert "gcloud" not in (check.get("requires") or []), (
+        "pod_fleet.py reaches Cloud Run over REST and never invokes gcloud"
+    )
+    sweep = Path(__file__).resolve().parents[1] / "scripts" / "ops" / "pod_fleet.py"
+    assert "gcloud" not in sweep.read_text(encoding="utf-8"), (
+        "if the sweep ever does shell out to gcloud, this ledger item must say so again"
+    )
+
+
 def test_a_manual_item_is_never_reported_as_passing():
     report = judge_mod.judge([_item("human", check={"kind": "manual", "note": "needs a person"})])
     assert report.verdicts[0].status == judge_mod.UNKNOWN
