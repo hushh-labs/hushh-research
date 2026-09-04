@@ -522,3 +522,53 @@ describe("One setup hub terminal action contract", () => {
     }
   });
 });
+
+describe("One setup hub reaches the cloud choice", () => {
+  // Pins the defect `firstrun-person-reaches-cloud-choice` was opened for. Measured
+  // on 2026-08-28: the hub painted eight capability tiles and one_setup_tile_cloud
+  // was in NEITHER the Remaining nor the Complete group, so nothing in the app
+  // routed to /one/setup/cloud and the whole BYOC path -- a finished backend, a
+  // mounted card, a live route -- was unreachable by a person.
+  //
+  // WHAT THIS DOES AND DOES NOT PROVE. It proves the tile is rendered, pinned, and
+  // aimed at the canonical route. It does NOT prove a brand-new person REACHES it;
+  // only first-run-reachability.mjs settles that, and it needs maintainer-only
+  // credentials. So this is a floor under the regression, never the receipt.
+  const source = () =>
+    readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+  it("renders a cloud tile aimed at the canonical setup route", () => {
+    expect(source()).toContain('id="cloud"');
+    expect(source()).toContain("href={ROUTES.ONE_SETUP_CLOUD}");
+    expect(source()).toContain('voiceControlId="one_setup_tile_cloud"');
+  });
+
+  it("keeps the cloud tile unconditional, which is the half that broke", () => {
+    // The tile existing in the file was never the question -- it can exist and
+    // still render for nobody. This asserts nothing gates it between the group it
+    // belongs to and its own tag, so a future `{cloudEnabled && (` reintroducing
+    // the 2026-08-28 defect fails here rather than in somebody's first run.
+    const src = source();
+    const group = src.indexOf('testId="one-setup-foundation"');
+    const tile = src.indexOf('id="cloud"', group);
+    expect(group).toBeGreaterThan(-1);
+    expect(tile).toBeGreaterThan(group);
+    const between = src.slice(group, tile);
+    expect(between).not.toMatch(/&&\s*\(/);
+    expect(between).not.toMatch(/\?\s*\(/);
+  });
+
+  it("pins the cloud choice above the capability lists", () => {
+    // Founder direction 2026-09-02: where the agent lives decides what can be
+    // chosen after it, so it leads in both states rather than sinking into
+    // "Complete" once connected.
+    const src = source();
+    expect(src.indexOf('testId="one-setup-foundation"')).toBeLessThan(
+      src.indexOf("{item.copy.href}"),
+    );
+  });
+});
+
