@@ -21,6 +21,7 @@
     "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -41,6 +42,7 @@
     "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_bypass_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -56,6 +58,7 @@
     ],
     "protected_pipeline_edit_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -80,6 +83,7 @@
     "require_conversation_resolution": true,
     "review_bypass_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -100,6 +104,7 @@
     "merge_queue_bypass_team_slug": "allowed-maintainers-to-approve",
     "merge_queue_bypass_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -118,6 +123,7 @@
     "environment": "dev",
     "manual_dispatch_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -136,6 +142,7 @@
     ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
+      "msainani",
       "RGlodAkshat",
       "ankitkumarsingh1702",
       "azfx",
@@ -153,6 +160,7 @@
     ],
     "manual_dispatch_users": [
       "kushaltrivedi5",
+      "msainani",
       "ankitkumarsingh1702",
       "RGlodAkshat",
       "DamriaNeelesh",
