@@ -8,12 +8,22 @@ independently guessing the provider contract.
 
 from __future__ import annotations
 
+import re
 from typing import Any
 
+GEMINI_38_FLASH = "gemini-3.8-flash"
 GEMINI_37_FLASH = "gemini-3.7-flash"
 GEMINI_36_FLASH = "gemini-3.6-flash"
+GEMINI_31_PRO_PREVIEW = "gemini-3.1-pro-preview"
 
 _GEMINI_FLASH_UNSUPPORTED_FIELDS = {
+    "candidate_count",
+    "temperature",
+    "top_k",
+    "top_p",
+}
+
+_GEMINI_31_PRO_UNSUPPORTED_FIELDS = {
     "candidate_count",
     "temperature",
     "top_k",
@@ -31,14 +41,24 @@ def is_gemini_36_flash(model: str | None) -> bool:
     return normalized in {GEMINI_36_FLASH, f"models/{GEMINI_36_FLASH}"}
 
 
-def is_gemini_flash_v3(model: str | None) -> bool:
+# 3.6 Flash and newer own their sampling policy; 3.5 and older keep the legacy knobs.
+_GEMINI_FLASH_V3_RE = re.compile(r"^(?:models/)?gemini-3\.(?:[6-9]|[1-9]\d)-flash$")
+
+
+def is_gemini_38_flash(model: str | None) -> bool:
     normalized = str(model or "").strip().lower()
-    return normalized in {
-        GEMINI_37_FLASH,
-        f"models/{GEMINI_37_FLASH}",
-        GEMINI_36_FLASH,
-        f"models/{GEMINI_36_FLASH}",
-    }
+    return normalized in {GEMINI_38_FLASH, f"models/{GEMINI_38_FLASH}"}
+
+
+def is_gemini_flash_v3(model: str | None) -> bool:
+    """Every Flash generation from 3.6 on (3.6, 3.7, 3.8, ...) shares the sampling contract."""
+    normalized = str(model or "").strip().lower()
+    return bool(_GEMINI_FLASH_V3_RE.fullmatch(normalized))
+
+
+def is_gemini_31_pro_preview(model: str | None) -> bool:
+    normalized = str(model or "").strip().lower()
+    return normalized in {GEMINI_31_PRO_PREVIEW, f"models/{GEMINI_31_PRO_PREVIEW}"}
 
 
 def _sanitize_thinking_config_for_flash_v3(thinking_cfg: Any) -> Any:
@@ -65,6 +85,33 @@ def _sanitize_thinking_config_for_flash_v3(thinking_cfg: Any) -> Any:
     return thinking_cfg
 
 
+def _coerce_thinking_level_for_31_pro(thinking_cfg: Any) -> Any:
+    """3.1 Pro preview rejects thinking_level MINIMAL (400 INVALID_ARGUMENT, verified live
+    2026-09-02) but accepts LOW; map the one unsupported level and leave everything else."""
+    if thinking_cfg is None:
+        return None
+    if isinstance(thinking_cfg, dict):
+        level = thinking_cfg.get("thinking_level")
+        if level is not None and str(getattr(level, "value", level)).upper().endswith("MINIMAL"):
+            return {**thinking_cfg, "thinking_level": _low_thinking_level_like(level)}
+        return thinking_cfg
+    level = getattr(thinking_cfg, "thinking_level", None)
+    if level is not None and str(getattr(level, "value", level)).upper().endswith("MINIMAL"):
+        try:
+            thinking_cfg.thinking_level = _low_thinking_level_like(level)
+        except Exception:
+            return thinking_cfg
+    return thinking_cfg
+
+
+def _low_thinking_level_like(level: Any) -> Any:
+    """Return LOW in the same shape as the incoming level (enum member or string)."""
+    enum_type = type(level)
+    if hasattr(enum_type, "LOW"):
+        return enum_type.LOW
+    return "LOW"
+
+
 def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]:
     """Return provider-compatible kwargs without changing non-3.x flash callers."""
     result = {key: value for key, value in kwargs.items() if value is not None}
@@ -77,9 +124,31 @@ def generation_config_kwargs(model: str | None, **kwargs: Any) -> dict[str, Any]
                 result["thinking_config"] = sanitized
             else:
                 result.pop("thinking_config", None)
+    elif is_gemini_31_pro_preview(model):
+        for field in _GEMINI_31_PRO_UNSUPPORTED_FIELDS:
+            result.pop(field, None)
+        if "thinking_config" in result:
+            result["thinking_config"] = _coerce_thinking_level_for_31_pro(result["thinking_config"])
     return result
 
 
 def build_generate_content_config(types_module: Any, model: str | None, **kwargs: Any) -> Any:
     """Build the SDK config after applying the model compatibility contract."""
     return types_module.GenerateContentConfig(**generation_config_kwargs(model, **kwargs))
+
+
+_FLEET_MODEL_ALIASES = {"default", "gemini-default", "active", "gemini-active", "gemini_default"}
+
+
+def resolve_fleet_model_name(model: str | None) -> str:
+    """Map the fleet alias (`gemini-default` and friends) to the switched text model.
+
+    Manifests name the alias so one setting (HUSSH_GEMINI_TEXT_MODEL, read by
+    constants.GEMINI_MODEL) moves every text agent; any other id passes through.
+    """
+    from hushh_mcp.constants import GEMINI_MODEL
+
+    normalized = str(model or "").strip()
+    if not normalized or normalized.lower() in _FLEET_MODEL_ALIASES:
+        return str(GEMINI_MODEL)
+    return normalized

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { getKaiActionById, listKaiActions } from "@/lib/voice/kai-action-gateway";
+import {
+  getKaiActionById,
+  listKaiActions,
+} from "@/lib/voice/kai-action-gateway";
 import {
   firstMissingRequiredSlot,
   resolveJourneyPlan,
@@ -67,7 +70,7 @@ describe("navigation journeys", () => {
       // Both resolve one invitation off the person's own pending list.
       "location.accept_circle_invite",
       // Emergency contacts. Adding resolves against people ELIGIBLE to
-      // receive an SOS -- someone who has not finished their own Location
+      // receive an SOS -- someone who has not finished Location
       // setup cannot receive one, and adding them would build a list that
       // quietly does not work when it is needed. Removing resolves only
       // against the list itself, because matching the wider connection list
@@ -136,7 +139,6 @@ describe("navigation journeys", () => {
       "location.trigger_sos",
       "setup.connect_gmail",
       "setup.finish_calendar",
-      "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",
       "setup.finish_finance",
@@ -144,7 +146,6 @@ describe("navigation journeys", () => {
       "setup.finish_location",
       "setup.finish_ria",
       "setup.skip_calendar",
-      "setup.skip_connected_systems",
       "setup.skip_email",
       "setup.skip_finance",
       "setup.skip_gmail",
@@ -164,9 +165,9 @@ describe("navigation journeys", () => {
       destinationRoute: "/one/connect",
       destinationScreen: "connect",
     });
-    expect(getKaiActionById(journey!.navigationActionId)?.execution_target.path).toBe(
-      "route",
-    );
+    expect(
+      getKaiActionById(journey!.navigationActionId)?.execution_target.path,
+    ).toBe("route");
   });
 
   it("keeps a connection request as its own confirmed journey step", () => {
@@ -262,8 +263,10 @@ describe("journey approval plans", () => {
     expect(risky.length).toBeGreaterThan(0);
 
     const preApproved = new Set(
-      listKaiActions()
-        .flatMap((action) => resolveJourneyPlan(action.action_id)?.batchableActionIds ?? []),
+      listKaiActions().flatMap(
+        (action) =>
+          resolveJourneyPlan(action.action_id)?.batchableActionIds ?? [],
+      ),
     );
 
     risky.forEach((action) => {
@@ -329,7 +332,9 @@ describe("the action that walks someone to a journey's destination", () => {
     // failure this pins, generalised.
     const escorts = listKaiActions()
       .map((entry) => resolveNavigationJourney(entry.action_id))
-      .filter((journey): journey is NonNullable<typeof journey> => journey !== null)
+      .filter(
+        (journey): journey is NonNullable<typeof journey> => journey !== null,
+      )
       .map((journey) => journey.navigationActionId);
     expect(escorts.length).toBeGreaterThan(0);
 
@@ -363,10 +368,13 @@ describe("the action that walks someone to a journey's destination", () => {
         action.execution_policy === "allow_direct",
     );
     const nameOnly = wiredDirect.filter(
-      (a) => a.action_id.startsWith("route.") && a.execution_target.path !== "route",
+      (a) =>
+        a.action_id.startsWith("route.") && a.execution_target.path !== "route",
     );
     const pathOnly = wiredDirect.filter(
-      (a) => !a.action_id.startsWith("route.") && a.execution_target.path === "route",
+      (a) =>
+        !a.action_id.startsWith("route.") &&
+        a.execution_target.path === "route",
     );
 
     expect(nameOnly.length).toBeGreaterThan(0);

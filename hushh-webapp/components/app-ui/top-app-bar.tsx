@@ -248,7 +248,7 @@ function resolveCommonRouteBreadcrumb(
       backHref,
       width: "profile",
       align: "center",
-      items: [{ label: parentLabel, href: backHref }, { label: "Profile" }],
+      items: [{ label: parentLabel, href: backHref }],
     };
   }
 
@@ -287,7 +287,7 @@ function getScrolledRouteTitle(pathname: string): {
     };
   }
   if (pathname === ROUTES.GMAIL) {
-    return { label: "Gmail receipts", icon: Mail, interactive: false as const };
+    return { label: "Gmail", icon: Mail, interactive: false as const };
   }
   if (pathname === ROUTES.PKM) {
     return {
@@ -1056,7 +1056,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
                     <div className="pointer-events-auto flex h-11 w-11 items-center justify-center">
                       <ShellActionSurface
                         variant="icon"
-                        aria-label="Go back"
+                        aria-label={topShellBreadcrumb.backLabel ?? "Go back"}
                         onClick={handleTopShellBack}
                         className="!border-transparent !bg-transparent !text-[color:var(--app-accent-deep)] !shadow-none hover:!bg-transparent active:!scale-100"
                       >

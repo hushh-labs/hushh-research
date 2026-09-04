@@ -7,7 +7,7 @@ import { toast } from "sonner";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { PkmSettingsShell } from "@/components/profile/pkm-settings-shell";
-import { SettingsSegmentedTabs } from "@/components/profile/settings-ui";
+import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { SwipeViews } from "@/lib/morphy-ux/ui/swipe-views";
 import {
   buildPkmSectionPreviewPresentation,
@@ -1018,7 +1018,7 @@ function OneMarketplacePageImpl() {
       description="Private sharing always needs approval."
       actions={
         <div className="flex flex-wrap items-center gap-2">
-          <SettingsSegmentedTabs
+          <SegmentedTabs
             value={view}
             onValueChange={(value) => setView(value as MarketplaceView)}
             options={marketplaceTabOptions}
@@ -1130,7 +1130,7 @@ function OneMarketplacePageImpl() {
                       </div>
 
                       <div className={"mt-4 " + (busy ? "pointer-events-none opacity-60" : "")}>
-                        <SettingsSegmentedTabs
+                        <SegmentedTabs
                           value={section.permission.visibilityPosture}
                           onValueChange={(next) =>
                             onTogglePosture(section, next as PkmVisibilityPosture)

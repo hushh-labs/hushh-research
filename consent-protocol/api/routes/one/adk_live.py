@@ -79,6 +79,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_PENDING_TOOL_TRACE,
     STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
@@ -867,7 +868,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # It fired once per barge-in, not once per directive -- there
                 # is a single call site and the browser only sends `interrupt`
                 # from its own speech-over-playback path.
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
                 continue
             if message.get("type") == "app_context" or "appContext" in message:
                 context_payload = message.get("appContext")
@@ -1548,7 +1551,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
             await websocket.send_text(
-                _safe_json_dumps({"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}})
+                _safe_json_dumps(
+                    {"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}}
+                )
             )
             return
         except Exception as runtime_error:  # noqa: BLE001 - the browser must be told
@@ -1611,10 +1616,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 time_left = getattr(go_away, "time_left", None)
                 logger.info("one_adk_live_go_away time_left=%s", str(time_left)[:32])
                 await websocket.send_text(
-                    _safe_json_dumps({"goAway": {"timeLeft": str(time_left) if time_left else None}})
+                    _safe_json_dumps(
+                        {"goAway": {"timeLeft": str(time_left) if time_left else None}}
+                    )
                 )
             if getattr(event, "interrupted", False):
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"interrupted": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"interrupted": True}})
+                )
             input_tx = getattr(event, "input_transcription", None)
             if input_tx is not None and getattr(input_tx, "text", None):
                 if not getattr(event, "partial", False):
@@ -1642,6 +1651,21 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             # run_app_action calls both reaching the browser.
             actions = getattr(event, "actions", None)
             delta = getattr(actions, "state_delta", None) or {}
+
+            # Read-tool traces (display data for a card alongside the spoken
+            # answer, #6434) are simpler than directives: nothing to execute,
+            # nothing to settle, so harvest-and-forward is the whole job. Same
+            # parallel-tool-call caveat as directives above applies here too --
+            # the system instruction keeps read tools to one per turn.
+            tool_traces_to_send = []
+            for key in list(delta.keys()):
+                if key.startswith(f"{STATE_PENDING_TOOL_TRACE}:"):
+                    trace = delta.pop(key)
+                    if isinstance(trace, dict) and trace:
+                        tool_traces_to_send.append(trace)
+
+            for trace in tool_traces_to_send:
+                await websocket.send_text(_safe_json_dumps({"toolTrace": trace}))
 
             directives_to_issue = []
             for key in list(delta.keys()):
@@ -1861,7 +1885,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
             if getattr(event, "turn_complete", False):
                 turn_count += 1
-                await websocket.send_text(_safe_json_dumps({"serverContent": {"turnComplete": True}}))
+                await websocket.send_text(
+                    _safe_json_dumps({"serverContent": {"turnComplete": True}})
+                )
 
     up = asyncio.create_task(pump_browser_to_queue())
     down = asyncio.create_task(pump_events_to_browser())

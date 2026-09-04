@@ -71,6 +71,12 @@ const KNOWN_EXECUTION_TARGET_PATHS = new Set([
   "local_handler",
   "control",
 ]);
+const SIRI_MODES = new Set([
+  "direct",
+  "review_ui",
+  "conversation_only",
+  "unsupported",
+]);
 
 const SPEAKER_PERSONAS = new Set(["one", "kai", "nav", "kyc"]);
 const AGENT_PERSONAS = new Set([
@@ -79,6 +85,7 @@ const AGENT_PERSONAS = new Set([
   "nav",
   "agent_kyc",
   "agent_nav",
+  "agent_wallet",
   "agent_connected_systems",
   "agent_connections",
   "agent_email",
@@ -635,6 +642,10 @@ function normalizeAction(surface, action) {
   const riskLevel = cleanString(action.risk_level);
   const executionPolicy = cleanString(action.execution_policy);
   const activationPolicy = cleanString(action.activation_policy) || "none";
+  const siriMode = cleanString(action.siri_mode) || "unsupported";
+  const siriVaultLockedFallbackActionId = cleanString(
+    action.siri_vault_locked_fallback_action_id,
+  );
   if (!actionId || !label || !meaning || !riskLevel || !executionPolicy) {
     throw new Error(
       `${surface.surface_id}: action requires action_id, label, meaning, risk_level, execution_policy`,
@@ -643,6 +654,25 @@ function normalizeAction(surface, action) {
   if (!["none", "trusted_activation_required"].includes(activationPolicy)) {
     throw new Error(
       `${actionId}: activation_policy must be none or trusted_activation_required`,
+    );
+  }
+  if (!SIRI_MODES.has(siriMode)) {
+    throw new Error(
+      `${actionId}: siri_mode must be one of ${Array.from(SIRI_MODES).join(", ")}`,
+    );
+  }
+  if (
+    action.siri_requires_vault !== undefined &&
+    typeof action.siri_requires_vault !== "boolean"
+  ) {
+    throw new Error(`${actionId}: siri_requires_vault must be a boolean`);
+  }
+  if (
+    action.siri_vault_locked_fallback_action_id !== undefined &&
+    !siriVaultLockedFallbackActionId
+  ) {
+    throw new Error(
+      `${actionId}: siri_vault_locked_fallback_action_id must be a non-empty action id`,
     );
   }
   const speakerPersona =
@@ -688,6 +718,10 @@ function normalizeAction(surface, action) {
     risk_level: riskLevel,
     execution_policy: executionPolicy,
     activation_policy: activationPolicy,
+    siri_mode: siriMode,
+    siri_requires_vault: action.siri_requires_vault === true,
+    siri_vault_locked_fallback_action_id:
+      siriVaultLockedFallbackActionId || null,
     execution_target: normalizeExecutionTarget(
       action.execution_target,
       actionId,
@@ -708,6 +742,71 @@ function normalizeAction(surface, action) {
   normalized.expected_effects.state_changes =
     deriveDefaultStateChanges(normalized);
   return normalized;
+}
+
+function validateSiriExposure(actions) {
+  const actionsById = new Map(
+    actions.map((action) => [action.action_id, action]),
+  );
+
+  for (const action of actions) {
+    const { execution_target: target } = action;
+    if (action.siri_mode === "direct") {
+      if (
+        target.status !== "wired" ||
+        !["local_handler", "control"].includes(target.path)
+      ) {
+        throw new Error(
+          `${action.action_id}: siri_mode direct requires a wired local_handler or control target`,
+        );
+      }
+      if (action.execution_policy === "manual_only") {
+        throw new Error(
+          `${action.action_id}: a manual_only action cannot be exposed as a direct Siri action`,
+        );
+      }
+    } else if (action.siri_mode === "review_ui") {
+      if (
+        target.status !== "wired" ||
+        target.path !== "route" ||
+        action.execution_policy !== "allow_direct" ||
+        action.risk_level !== "low"
+      ) {
+        throw new Error(
+          `${action.action_id}: siri_mode review_ui requires a wired, low-risk, allow_direct route`,
+        );
+      }
+    } else if (action.siri_mode === "conversation_only") {
+      if (target.status !== "wired" || target.path !== "voice_tool") {
+        throw new Error(
+          `${action.action_id}: siri_mode conversation_only requires a wired voice_tool target`,
+        );
+      }
+    }
+
+    if (
+      action.siri_requires_vault &&
+      action.siri_mode !== "direct"
+    ) {
+      throw new Error(
+        `${action.action_id}: siri_requires_vault is valid only for direct Siri actions`,
+      );
+    }
+
+    const fallbackId = action.siri_vault_locked_fallback_action_id;
+    if (!fallbackId) continue;
+    if (!action.siri_requires_vault || action.siri_mode !== "direct") {
+      throw new Error(
+        `${action.action_id}: a Siri vault fallback requires a vault-gated direct action`,
+      );
+    }
+    const fallback = actionsById.get(fallbackId);
+    if (!fallback || fallback.siri_mode !== "review_ui") {
+      throw new Error(
+        `${action.action_id}: Siri vault fallback ${fallbackId} must resolve to a review_ui action`,
+      );
+    }
+  }
 }
 
 function normalizeSurface(contractPath, raw) {
@@ -981,6 +1080,7 @@ async function main() {
   const checkOnly = args.has("--check");
 
   const contracts = await readContracts();
+  validateSiriExposure(contracts.actions);
   validateAliasCollisions(contracts.actions);
   await validateCapabilityGuardCoverage(contracts);
   const gatewayPayload = createGatewayPayload(contracts);
@@ -1019,6 +1119,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 
 export {
   validateAliasCollisions,
+  validateSiriExposure,
   KNOWN_ALIAS_COLLISIONS,
   GLOBAL_NAV_ACTION_IDS,
   normalizeExecutionTarget,

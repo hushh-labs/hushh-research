@@ -808,6 +808,32 @@ export function ConsentNotificationProvider({
         dismissOneLocationShareNotification(grantId);
       }
 
+      // These three outcomes are a status flip on a request the recipient's
+      // cached state (if any) already has a row for. Patch it in place so the
+      // screen agrees with what just happened as soon as the push arrives,
+      // instead of waiting on the ~25-query full state reload every push
+      // otherwise triggers (see dispatchConsentStateChanged below) -- that
+      // reload still runs and reconciles anything this can't express, such as
+      // the new grant an approval creates.
+      if (
+        requestId &&
+        (msgType === "location_access_denied" ||
+          msgType === "location_access_request_withdrawn" ||
+          msgType === "location_access_approved")
+      ) {
+        OneLocationStateResource.mergeRequestStatus(user.uid, {
+          id: requestId,
+          status:
+            msgType === "location_access_denied"
+              ? "denied"
+              : msgType === "location_access_request_withdrawn"
+                ? "cancelled"
+                : "approved",
+          resolvedAt: new Date().toISOString(),
+          ...(grantId ? { approvedGrantId: grantId } : null),
+        });
+      }
+
       const generatedCopy = locationWorkflowNotificationCopy({
         type: msgType,
         ownerLabel: oneLocationOwnerLabel(data),
@@ -827,6 +853,9 @@ export function ConsentNotificationProvider({
         isExtension: String(data.is_extension || "").trim() === "true",
         extendsGrantExpiresAt: data.extends_grant_expires_at || null,
         grantedDurationHours: data.duration_hours || null,
+        // Approving an extension ADDS to the running share, so the total above
+        // is not the amount to put next to "more".
+        addedDurationHours: data.added_duration_hours || null,
         grantedDurationMode: data.duration_mode || null,
         // Which lane ended. Stamped by the service on the revoke payload,
         // because the grant is gone by the time this arrives -- the client

@@ -32,16 +32,21 @@ import styles from "./HushhIntroGate.module.css";
  * display name nor an email local-part exists. Only THEN does
  * `VaultLockGuard` mount for the first time and reveal the vault screen.
  *
- * Replay behaviour comes for free from how Next.js layouts work: this
- * component lives in the `/one` layout, which stays mounted across every
- * internal navigation between `/one/*` pages (Next only swaps the leaf
- * page), so the mount-once effect below never re-fires for in-app
- * navigation, and reading `useAuth()` here for the greeting does not
- * restart it either — the timers only ever depend on mount, not on any
- * auth/setup state re-rendering this component. The effect only re-fires
- * when the layout itself remounts — a real page load or refresh of `/one`,
- * or a fresh navigation into the section from outside it — which is
- * exactly "the app is opened."
+ * Plays once per browser tab, not once per mount of this layout — those are
+ * NOT the same thing. `/one` is a distinct Next.js route segment from `/ria`,
+ * `/connect`, and `/marketplace`, so crossing between them unmounts and
+ * remounts this layout, same as a real page load would. A `useRef`/`useState`
+ * guard resets on every one of those remounts, and did until this comment:
+ * back out of RIA (a `push` navigation, never a reload) replayed the full
+ * greeting sequence, which read exactly like the back button had given up
+ * and relaunched the app rather than retraced a step.
+ *
+ * `hasIntroPlayedThisSession` below is a plain module-level variable, not
+ * React state, so it survives this component unmounting and remounting --
+ * it only resets when the JS module itself is re-evaluated, which is a real
+ * page load or refresh. That is what "the app is opened" should have meant
+ * all along; crossing a route segment boundary while the tab stays open
+ * never is that, whichever direction the crossing runs.
  *
  * Fully skipped under prefers-reduced-motion — `VaultLockGuard` and
  * `{children}` mount immediately with no overlay at all.
@@ -75,14 +80,31 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 }
 
+// Deliberately outside the component -- see the file header. React state
+// would reset on every remount; this must not.
+let hasIntroPlayedThisSession = false;
+
+// Test-only escape hatch. Nothing in the app calls this -- a real reset
+// only ever happens via a fresh page load, which re-evaluates this module
+// from scratch. Exported so a test can exercise "first mount this session"
+// more than once without spinning up a real navigation.
+export function __resetHushhIntroGateForTests(): void {
+  hasIntroPlayedThisSession = false;
+}
+
 export function HushhIntroGate({ children }: { children: ReactNode }) {
   const { user } = useAuth();
-  const [introComplete, setIntroComplete] = useState(false);
+  const [introComplete, setIntroComplete] = useState(
+    () => hasIntroPlayedThisSession,
+  );
   const [phase, setPhase] = useState<Phase>("idle");
   const firedRef = useRef(false);
 
   useEffect(() => {
+    if (hasIntroPlayedThisSession) return;
+
     if (prefersReducedMotion()) {
+      hasIntroPlayedThisSession = true;
       setIntroComplete(true);
       return;
     }
@@ -94,6 +116,7 @@ export function HushhIntroGate({ children }: { children: ReactNode }) {
       window.setTimeout(() => {
         if (firedRef.current) return;
         firedRef.current = true;
+        hasIntroPlayedThisSession = true;
         setIntroComplete(true);
       }, TOTAL_DURATION_MS),
     );

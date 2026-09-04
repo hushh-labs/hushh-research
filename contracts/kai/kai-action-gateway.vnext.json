@@ -20,7 +20,9 @@
     "hushh-webapp/app/one/setup/kai/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/location/page.voice-action-contract.json",
     "hushh-webapp/app/one/setup/ria/page.voice-action-contract.json",
+    "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
     "hushh-webapp/app/page.voice-action-contract.json",
+    "hushh-webapp/app/people/[personRef]/page.voice-action-contract.json",
     "hushh-webapp/app/register-phone/page.voice-action-contract.json",
     "hushh-webapp/app/ria/claim/page.voice-action-contract.json",
     "hushh-webapp/app/ria/clients/page.voice-action-contract.json",
@@ -32,9 +34,12 @@
     "hushh-webapp/app/ria/settings/page.voice-action-contract.json",
     "hushh-webapp/app/ria/workspace/page.voice-action-contract.json",
     "hushh-webapp/components/agent/specialist-turns.voice-action-contract.json",
+    "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
     "hushh-webapp/components/consent/consent-center-page.voice-action-contract.json",
     "hushh-webapp/components/kai/analysis-controls.voice-action-contract.json",
     "hushh-webapp/components/kai/kai-command-bar-global.voice-action-contract.json",
+    "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
+    "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
     "hushh-webapp/components/kai/views/dashboard-master-view.voice-action-contract.json",
     "hushh-webapp/components/kai/views/kai-market-preview-view.voice-action-contract.json",
     "hushh-webapp/components/onboarding/setup/one-setup-hub.voice-action-contract.json",
@@ -503,6 +508,35 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_wallet",
+      "surface_title": "One Cards",
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md"
+      ],
+      "contract_file": "hushh-webapp/app/one/wallet/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "routes": [
+            "/one/wallet"
+          ],
+          "screens": [
+            "one_wallet"
+          ],
+          "hidden_navigable": false,
+          "navigation_prerequisites": [
+            "signed-in vault owner; the card list decrypts only after vault unlock"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "one_intro",
       "surface_title": "Claim your One",
       "docs_references": [
@@ -524,6 +558,31 @@
         "context_policy": null,
         "trust_boundary": "none",
         "delegation_policy": "no_delegation"
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_person_profile",
+      "surface_title": "Person profile",
+      "docs_references": [],
+      "contract_file": "hushh-webapp/app/people/[personRef]/page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor",
+            "ria"
+          ]
+        },
+        "speaker_persona": "one",
+        "guard_ids": [
+          "auth_signed_in"
+        ]
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
       }
     },
     {
@@ -790,6 +849,41 @@
     },
     {
       "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "one_wallet_widgets",
+      "surface_title": "One Wallet Widgets",
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "contract_file": "hushh-webapp/components/agent/wallet-widgets.voice-action-contract.json",
+      "defaults": {
+        "delegate_agent_id": "agent_wallet",
+        "reachability": {
+          "routes": [
+            "/agent",
+            "/one",
+            "/one/wallet"
+          ],
+          "screens": [
+            "app",
+            "one_agents",
+            "one_wallet"
+          ],
+          "hidden_navigable": true,
+          "navigation_prerequisites": [
+            "signed-in vault-owner token and an unlocked vault are required for card operations"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
       "surface_id": "consents",
       "surface_title": "Consent Center",
       "docs_references": [
@@ -855,6 +949,50 @@
           "active_personas": [
             "investor",
             "ria"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_market_news",
+      "surface_title": "Kai Market News",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/kai-market-news-page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
+          ]
+        }
+      },
+      "orchestration": {
+        "instruction_id": null,
+        "context_policy": null,
+        "trust_boundary": null,
+        "delegation_policy": null
+      }
+    },
+    {
+      "schema_version": "kai.local_action_contract.v1",
+      "surface_id": "kai_portfolio_detail",
+      "surface_title": "Kai Portfolio Detail",
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md"
+      ],
+      "contract_file": "hushh-webapp/components/kai/kai-portfolio-detail-page.voice-action-contract.json",
+      "defaults": {
+        "reachability": {
+          "active_personas": [
+            "investor"
           ]
         }
       },
@@ -1048,6 +1186,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -1151,6 +1292,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -1259,6 +1403,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -1370,6 +1517,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -1472,6 +1622,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "trusted_activation_required",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -1571,6 +1724,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "trusted_activation_required",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -1669,6 +1825,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -1767,6 +1926,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -1866,6 +2028,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -1967,6 +2132,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2076,6 +2244,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -2181,6 +2352,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2291,6 +2465,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2397,6 +2574,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2516,6 +2696,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2633,6 +2816,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2717,7 +2903,7 @@
         "accept their connection request",
         "accept the connection request from",
         "connect back with",
-        "accept their request to connect"
+        "accept request to connect"
       ],
       "search_keywords": [
         "accept",
@@ -2750,6 +2936,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2834,7 +3023,7 @@
         "decline their connection request",
         "decline the connection request from",
         "turn down their connection request",
-        "decline their request to connect"
+        "decline request to connect"
       ],
       "search_keywords": [
         "decline",
@@ -2868,6 +3057,9 @@
       "risk_level": "low",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -2985,6 +3177,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -3097,6 +3292,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -3210,6 +3408,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Only local component handler exists (handleConnectGmail in GmailReceiptsPage).",
@@ -3314,6 +3515,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Implemented only in local page handlers; no shared voice/action adapter yet.",
@@ -3422,6 +3626,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Only local component handler exists (handleDisconnectGmail in GmailReceiptsPage).",
@@ -3523,6 +3730,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -3622,6 +3832,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "kai_command",
@@ -3720,6 +3933,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "kai_command",
@@ -3856,6 +4072,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",
@@ -3958,6 +4177,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",
@@ -4063,6 +4285,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -4174,6 +4399,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Requires opening the local verified address panel in /one/kyc."
@@ -4278,6 +4506,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
@@ -4381,6 +4612,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context and user-visible draft state."
@@ -4485,6 +4719,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -4598,6 +4835,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Voice must not send a response until the selected workflow and explicit confirmation are wired to the same UI approval endpoint."
@@ -4702,6 +4942,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Requires selected workflow context from /one/kyc."
@@ -4811,6 +5054,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -4918,6 +5164,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5023,6 +5272,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5130,6 +5382,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5214,7 +5469,7 @@
         "request",
         "location"
       ],
-      "meaning": "Opens the request composer, where you ask another person to share their location with you. If the person is already named in the same request (e.g. 'ask Alice where she is'), call select_ask_recipient directly instead -- it navigates here and selects them in one step.",
+      "meaning": "Opens the request composer, where you ask another person to share location with you. If the person is already named in the same request (e.g. 'ask Alice where she is'), call select_ask_recipient directly instead -- it navigates here and selects them in one step.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5238,6 +5493,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5309,7 +5567,7 @@
     {
       "action_id": "location.select_ask_recipient",
       "surface_id": "one_location",
-      "label": "Pick someone to ask for their location",
+      "label": "Pick someone to ask for location",
       "aliases": [
         "ask them",
         "pick someone to ask",
@@ -5348,6 +5606,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -5397,7 +5658,7 @@
         "workflow_steps": [
           {
             "type": "action",
-            "label": "Pick someone to ask for their location",
+            "label": "Pick someone to ask for location",
             "failure_behavior": "stop",
             "action_id": "location.select_ask_recipient",
             "settlement_target": {
@@ -5435,7 +5696,7 @@
         "ask them now",
         "send my request",
         "confirm the request",
-        "ask for their location"
+        "send location request"
       ],
       "search_keywords": [
         "send",
@@ -5443,7 +5704,7 @@
         "confirm",
         "ask"
       ],
-      "meaning": "Sends a request to see their location. If one or more people are named in the same turn (e.g. 'ask Alice and Bob for their location'), it resolves and sends to them directly -- no need to select first. Otherwise it sends to whoever is already picked in the request composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
+      "meaning": "Sends a request to see location. If one or more people are named in the same turn (e.g. 'ask Alice and Bob for location'), it resolves and sends to them directly -- no need to select first. Otherwise it sends to whoever is already picked in the request composer, and never chooses who: if nobody is selected it stops and asks you to pick someone first.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -5467,6 +5728,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -5510,10 +5774,19 @@
           },
           {
             "name": "duration_hours",
-            "prompt": "For how long?",
-            "required": false,
+            "prompt": "For how long do you want location? You can say 15 minutes, 30 minutes, 1 hour, 2 hours, 4 hours, 8 hours, or 24 hours.",
+            "required": true,
             "slot": "duration_hours",
-            "resolver": "location_share_duration"
+            "resolver": "location_share_duration",
+            "options": [
+              "0.25",
+              "0.5",
+              "1",
+              "2",
+              "4",
+              "8",
+              "24"
+            ]
           }
         ],
         "input_resolvers": [],
@@ -5592,6 +5865,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5701,6 +5977,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5809,6 +6088,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -5918,6 +6200,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6029,6 +6314,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6140,6 +6428,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6250,6 +6541,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6360,6 +6654,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6469,6 +6766,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6545,7 +6845,7 @@
       "aliases": [
         "shared with me",
         "who is sharing with me",
-        "see their location",
+        "see location",
         "where are my people"
       ],
       "search_keywords": [
@@ -6554,7 +6854,7 @@
         "incoming",
         "location"
       ],
-      "meaning": "Opens the list of people who are currently sharing their location with you.",
+      "meaning": "Opens the list of people who are currently sharing location with you.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -6578,6 +6878,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6689,6 +6992,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -6803,6 +7109,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "control",
@@ -6908,6 +7217,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -7016,6 +7328,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "review_ui",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -7120,6 +7435,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7229,6 +7547,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": "location.open_settings",
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7340,6 +7661,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7460,6 +7784,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7594,6 +7921,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7675,7 +8005,7 @@
       "surface_id": "one_location",
       "label": "Approve a location request",
       "aliases": [
-        "approve their request",
+        "approve request",
         "let them see my location",
         "accept the request from",
         "say yes to"
@@ -7710,6 +8040,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7791,7 +8124,7 @@
       "surface_id": "one_location",
       "label": "Decline a location request",
       "aliases": [
-        "decline their request",
+        "decline request",
         "say no to",
         "deny the request from",
         "turn down"
@@ -7826,6 +8159,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -7944,6 +8280,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8079,6 +8418,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8188,6 +8530,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8284,7 +8629,7 @@
         "contact",
         "add"
       ],
-      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished their own Location setup can be added.",
+      "meaning": "Adds one person to the list who are alerted and receive your live location if you trigger an SOS. Only people who have finished Location setup can be added.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8308,6 +8653,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8424,6 +8772,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8542,6 +8893,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8652,6 +9006,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8770,6 +9127,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -8897,6 +9257,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9023,6 +9386,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9148,6 +9514,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9266,6 +9635,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9385,6 +9757,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9504,6 +9879,9 @@
       "risk_level": "low",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9622,6 +10000,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9739,6 +10120,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9855,6 +10239,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -9962,6 +10349,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -10098,6 +10488,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -10232,6 +10625,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -10335,6 +10731,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -10462,6 +10861,9 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -10568,6 +10970,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -10673,6 +11078,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -10777,6 +11185,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -10865,10 +11276,12 @@
       "delegate_agent_id": null,
       "reachability": {
         "routes": [
-          "/one/pkm"
+          "/one/pkm",
+          "/one/pkm/recent"
         ],
         "screens": [
-          "pkm"
+          "pkm",
+          "pkm_recent"
         ],
         "hidden_navigable": false,
         "navigation_prerequisites": [],
@@ -10882,6 +11295,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -10989,6 +11405,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11091,6 +11510,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "kai_command",
@@ -11191,6 +11613,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11298,6 +11723,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11401,6 +11829,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11503,6 +11934,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11608,6 +12042,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -11674,6 +12111,116 @@
       }
     },
     {
+      "action_id": "help.open_examples",
+      "surface_id": "profile_account",
+      "label": "What can I say",
+      "aliases": [
+        "what can i say",
+        "what can you do",
+        "show me examples",
+        "show me around",
+        "help"
+      ],
+      "search_keywords": [
+        "help",
+        "examples",
+        "what can i say",
+        "tutorial",
+        "guide"
+      ],
+      "meaning": "Opens the \"What can I say\" page, showing example phrases for every part of the app voice can currently act on.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice/examples"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice/examples"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/preferences/voice/examples"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.help.open_examples",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "help.open_examples",
+            "label": "What can I say",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/preferences/voice/examples",
+              "screen": "profile_preferences"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "profile.support.submit_message",
       "surface_id": "profile_account",
       "label": "Submit Support Message",
@@ -11709,6 +12256,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
@@ -11811,6 +12361,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Only handled by local Switch in ProfilePage.",
@@ -11908,6 +12461,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
@@ -12007,6 +12563,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
@@ -12106,6 +12665,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "trusted_activation_required",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12213,6 +12775,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12323,6 +12888,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12435,6 +13003,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12541,6 +13112,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12651,6 +13225,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12759,6 +13336,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12865,6 +13445,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -12970,6 +13553,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13076,6 +13662,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13183,6 +13772,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "trusted_activation_required",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13295,6 +13887,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13405,6 +14000,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13514,6 +14112,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13631,6 +14232,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13748,6 +14352,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13867,6 +14474,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -13971,6 +14581,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14076,6 +14689,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14182,6 +14798,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14286,6 +14905,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14355,6 +14977,113 @@
       }
     },
     {
+      "action_id": "route.one_wallet",
+      "surface_id": "one_wallet",
+      "label": "Open Wallet",
+      "aliases": [
+        "open my wallet",
+        "go to wallet",
+        "show my wallet",
+        "open my cards",
+        "show my cards page"
+      ],
+      "search_keywords": [
+        "cards",
+        "credit card",
+        "debit card",
+        "wallet",
+        "wallet cards"
+      ],
+      "meaning": "Navigates to the owner's private wallet cards surface.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_wallet",
+      "reachability": {
+        "routes": [
+          "/one/wallet"
+        ],
+        "screens": [
+          "one_wallet"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "signed-in vault owner; the card list decrypts only after vault unlock"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/wallet"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/wallet"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.one_wallet",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "navigate",
+            "label": "Open the Wallet surface",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/wallet",
+              "screen": "one_wallet"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "onboarding.claim_one",
       "surface_id": "one_intro",
       "label": "Claim your One",
@@ -14395,6 +15124,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14482,6 +15214,534 @@
       }
     },
     {
+      "action_id": "people.profile.connect",
+      "surface_id": "one_person_profile",
+      "label": "Connect with this person",
+      "aliases": [
+        "connect with them",
+        "send a connection request"
+      ],
+      "search_keywords": [
+        "connect",
+        "request",
+        "person",
+        "profile"
+      ],
+      "meaning": "Sends a connection request to the person whose profile is open. Connecting does not request or grant any information.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.connect"
+      },
+      "control_ids": [
+        "person-profile-connect"
+      ],
+      "state_exposure": [
+        "relationship state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.connect",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.connect",
+            "label": "Connect with this person",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "people.profile.review_information_request",
+      "surface_id": "one_person_profile",
+      "label": "Review an information request",
+      "aliases": [
+        "review my request",
+        "request this information"
+      ],
+      "search_keywords": [
+        "information",
+        "consent",
+        "request",
+        "review"
+      ],
+      "meaning": "Opens the review sheet for the fields already selected on this profile. It does not send the request until the person confirms in the sheet.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [
+          "At least one requestable field is selected."
+        ],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_unlocked"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.review_information_request"
+      },
+      "control_ids": [
+        "person-profile-review-information"
+      ],
+      "state_exposure": [
+        "selected request field count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.review_information_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.review_information_request",
+            "label": "Review an information request",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "people.profile.cancel_connection_request",
+      "surface_id": "one_person_profile",
+      "label": "Cancel this connection request",
+      "aliases": [
+        "cancel the connection request",
+        "withdraw my request"
+      ],
+      "search_keywords": [
+        "cancel",
+        "withdraw",
+        "connection",
+        "request"
+      ],
+      "meaning": "Cancels the pending outgoing connection request to the person whose profile is open.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.cancel_connection_request"
+      },
+      "control_ids": [
+        "person-profile-cancel-connection"
+      ],
+      "state_exposure": [
+        "relationship state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.cancel_connection_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.cancel_connection_request",
+            "label": "Cancel this connection request",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "people.profile.remove_connection",
+      "surface_id": "one_person_profile",
+      "label": "Remove this connection",
+      "aliases": [
+        "remove this connection",
+        "disconnect from them"
+      ],
+      "search_keywords": [
+        "remove",
+        "disconnect",
+        "connection"
+      ],
+      "meaning": "Ends the connection with the person whose profile is open. Existing consent remains governed separately and is not silently changed.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.remove_connection"
+      },
+      "control_ids": [
+        "person-profile-remove-connection"
+      ],
+      "state_exposure": [
+        "relationship state"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.remove_connection",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.remove_connection",
+            "label": "Remove this connection",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "people.profile.manage_consent",
+      "surface_id": "one_person_profile",
+      "label": "Manage consent",
+      "aliases": [
+        "manage access for this person",
+        "review this person's access"
+      ],
+      "search_keywords": [
+        "consent",
+        "access",
+        "manage",
+        "revoke"
+      ],
+      "meaning": "Opens the Consent Center to review, revoke, or manage access independently from the social connection.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/people/[personRef]"
+        ],
+        "screens": [
+          "one_person_profile"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "people.profile.manage_consent"
+      },
+      "control_ids": [
+        "person-profile-manage-consent"
+      ],
+      "state_exposure": [
+        "grant count",
+        "request history count"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-voice-runtime-architecture.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.people.profile.manage_consent",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "people.profile.manage_consent",
+            "label": "Manage consent",
+            "failure_behavior": "stop"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "phone_mandate.select_country",
       "surface_id": "phone_mandate",
       "label": "Choose Country Code",
@@ -14522,6 +15782,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14636,6 +15899,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14741,6 +16007,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14858,6 +16127,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -14975,6 +16247,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -15115,6 +16390,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -15227,6 +16505,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Client workspace routes require a dynamic investor user id from the clicked row.",
@@ -15335,6 +16616,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "control",
@@ -15442,6 +16726,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Shortlisting requires a person id from the opened record.",
@@ -15549,6 +16836,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -15693,6 +16983,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Advisor name verification depends on current form state and must be triggered from the visible onboarding control.",
@@ -15805,6 +17098,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "RIA verification submission changes persona/profile state and must remain user-triggered on the review screen.",
@@ -15917,6 +17213,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Development-only RIA activation must be clicked intentionally in the onboarding UI.",
@@ -16024,6 +17323,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16166,6 +17468,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Priority queue item URLs are dynamic screen state and are not safe to execute from the static gateway yet.",
@@ -16272,6 +17577,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16379,6 +17687,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16484,6 +17795,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16591,6 +17905,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16696,6 +18013,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16801,6 +18121,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -16869,112 +18192,6 @@
       }
     },
     {
-      "action_id": "ria.picks.open_view_debate",
-      "surface_id": "ria_picks",
-      "label": "Show Debate Config",
-      "aliases": [
-        "show debate config",
-        "open debate",
-        "show debate rules"
-      ],
-      "search_keywords": [
-        "debate",
-        "config",
-        "conviction",
-        "screening"
-      ],
-      "meaning": "Opens the read-only debate config sub-view of Picks — the screening rules and conviction bands Kai's investor debate runs on.",
-      "speaker_persona": "kai",
-      "delegate_agent_id": null,
-      "reachability": {
-        "routes": [
-          "/ria/picks?view=debate"
-        ],
-        "screens": [
-          "ria_picks"
-        ],
-        "hidden_navigable": false,
-        "navigation_prerequisites": [],
-        "active_personas": [
-          "ria"
-        ],
-        "requires_persona_switch_confirmation": false
-      },
-      "guard_ids": [
-        "auth_signed_in",
-        "ria_persona_available"
-      ],
-      "risk_level": "low",
-      "execution_policy": "allow_direct",
-      "activation_policy": "none",
-      "execution_target": {
-        "status": "wired",
-        "path": "route",
-        "target": "/ria/picks?view=debate"
-      },
-      "control_ids": [
-        "ria_picks_view_debate"
-      ],
-      "state_exposure": [],
-      "docs_references": [
-        "docs/reference/kai/kai-action-gateway-vnext.md",
-        "hushh-webapp/app/ria/picks/page.tsx"
-      ],
-      "workflow": null,
-      "external_callback": null,
-      "expected_effects": {
-        "state_changes": [
-          "current route becomes /ria/picks?view=debate"
-        ],
-        "backend_effects": []
-      },
-      "trigger": {
-        "primary": "voice",
-        "supported": [
-          "voice",
-          "tap",
-          "keyboard",
-          "programmatic"
-        ]
-      },
-      "goal": {
-        "goal_id": "goal.ria.picks.open_view_debate",
-        "required_inputs": [],
-        "input_resolvers": [],
-        "slot_schema": {},
-        "workflow_steps": [
-          {
-            "type": "action",
-            "action_id": "ria.picks.open_view_debate",
-            "label": "Show Debate Config",
-            "failure_behavior": "stop",
-            "settlement_target": {
-              "route": "/ria/picks?view=debate",
-              "screen": "ria_picks"
-            }
-          }
-        ],
-        "progress_contract": {
-          "mode": "none",
-          "milestone_events": []
-        },
-        "cancellation_contract": {
-          "cancellable": false,
-          "cancel_action_id": null
-        },
-        "result_contract": {
-          "summary_mode": "action_result"
-        },
-        "entrypoint_support": [
-          "voice",
-          "chat",
-          "typed_search",
-          "command_bar",
-          "ui"
-        ]
-      }
-    },
-    {
       "action_id": "ria.picks.start_edit_package",
       "surface_id": "ria_picks",
       "label": "Edit Advisor Package",
@@ -17017,6 +18234,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "The advisor package editor mutates local draft state and is not exposed as a voice tool.",
@@ -17127,6 +18347,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Saving advisor picks writes vault-backed PKM and API state and must stay user-triggered.",
@@ -17239,6 +18462,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "CSV file selection and replacement are browser/file-system interactions and must stay manual.",
@@ -17349,6 +18575,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Copying the Kai package replaces local advisor draft state and must stay user-triggered.",
@@ -17456,6 +18685,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Discarding draft changes must stay user-triggered.",
@@ -17568,6 +18800,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Row-level editing requires structured manual input inside the picks editor.",
@@ -17678,6 +18913,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -17789,6 +19027,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -17894,6 +19135,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -18000,6 +19244,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -18108,6 +19355,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -18216,6 +19466,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -18337,6 +19590,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Email specialist turns require an ingress-minted, task-bound information authority context before delegation.",
@@ -18474,6 +19730,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "conversation_only",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",
@@ -18643,6 +19902,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Connections specialist turns require an ingress-minted, task-bound information and action authority context before delegation.",
@@ -18782,6 +20044,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",
@@ -18921,6 +20186,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Connected Systems turns require an ingress-minted, task-bound information and action authority context before delegation.",
@@ -19011,6 +20279,355 @@
       }
     },
     {
+      "action_id": "wallet.list",
+      "surface_id": "one_wallet_widgets",
+      "label": "List my cards",
+      "aliases": [
+        "list my cards",
+        "what cards do I have",
+        "show my saved cards"
+      ],
+      "search_keywords": [
+        "cards",
+        "wallet cards",
+        "credit card",
+        "debit card"
+      ],
+      "meaning": "Lists card nicknames, brand, last four digits, expiry, and issuing region from the owner's vault, decrypted on this device only.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_wallet",
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/wallet"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "one_wallet"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "signed-in vault-owner token and an unlocked vault are required for card operations"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_list"
+      },
+      "control_ids": [
+        "agent-chat-wallet-list"
+      ],
+      "state_exposure": [
+        "card metadata (nickname, brand, last4, expiry, region)"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.wallet.list",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Decrypt card summaries on this device",
+            "failure_behavior": "stop",
+            "service": "frontend.wallet.list"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "wallet.add",
+      "surface_id": "one_wallet_widgets",
+      "label": "Add a card",
+      "aliases": [
+        "add a card",
+        "save my card",
+        "store a new card"
+      ],
+      "search_keywords": [
+        "add card",
+        "new card",
+        "save card"
+      ],
+      "meaning": "Opens the secure inline add-card form; card secrets are typed into the widget and encrypted under the vault key, never into chat.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_wallet",
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/wallet"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "one_wallet"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "signed-in vault-owner token and an unlocked vault are required for card operations"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_add"
+      },
+      "control_ids": [
+        "secure-card-add-form"
+      ],
+      "state_exposure": [
+        "whether the secure add form is open"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.wallet.add",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "nickname": {
+            "type": "string",
+            "maxLength": 60
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Open the secure add-card form",
+            "failure_behavior": "stop",
+            "service": "frontend.wallet.add"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "wallet.reveal",
+      "surface_id": "one_wallet_widgets",
+      "label": "Reveal a card",
+      "aliases": [
+        "show my card details",
+        "reveal my card",
+        "what is my card number"
+      ],
+      "search_keywords": [
+        "reveal card",
+        "card number",
+        "cvv",
+        "card details"
+      ],
+      "meaning": "Decrypts one stored card in the browser and shows it in a secure inline widget that auto-hides; the details never reach the model or the server.",
+      "speaker_persona": "one",
+      "delegate_agent_id": "agent_wallet",
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/wallet"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "one_wallet"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "signed-in vault-owner token and an unlocked vault are required for card operations"
+        ],
+        "active_personas": [],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "agent_chat_wallet_reveal"
+      },
+      "control_ids": [
+        "secure-card-reveal"
+      ],
+      "state_exposure": [
+        "which stored card was shown (nickname and last4 only)"
+      ],
+      "docs_references": [
+        "docs/reference/one/one-agent-hierarchy.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "The mounted action reports its browser-observed outcome."
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.wallet.reveal",
+        "required_inputs": [
+          {
+            "name": "card_ref",
+            "prompt": "Which card should I show? Use its nickname or last four digits.",
+            "required": true,
+            "slot": "card_ref"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "card_ref": {
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "workflow_steps": [
+          {
+            "type": "tool_call",
+            "label": "Decrypt and show the card privately on this device",
+            "failure_behavior": "stop",
+            "service": "frontend.wallet.reveal"
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.consents",
       "surface_id": "consents",
       "label": "Open Consent Center",
@@ -19044,6 +20661,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "kai_command",
@@ -19108,6 +20728,518 @@
       }
     },
     {
+      "action_id": "consent.request",
+      "surface_id": "consents",
+      "label": "Request someone's information",
+      "aliases": [
+        "request their information",
+        "ask them for their",
+        "send an information request"
+      ],
+      "search_keywords": [
+        "request",
+        "information",
+        "consent",
+        "scopes",
+        "ask for"
+      ],
+      "meaning": "Sends an information request to a named person for the exact fields One already proposed with propose_information_request, with the stated purpose and duration. Runs only from a proposal id that tool returned, so the person never handles field identifiers; One asks once in words, then calls this with confirmed set to true. Never call it before propose_information_request has resolved the person and fields.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.request",
+        "required_inputs": [
+          {
+            "name": "proposal_id",
+            "prompt": "Which proposal should I send?",
+            "required": true,
+            "slot": "proposal_id",
+            "resolver": "opaque_proposal_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "proposal_id": "opaque_proposal_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Request someone's information",
+            "failure_behavior": "stop",
+            "action_id": "consent.request",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.deny",
+      "surface_id": "consents",
+      "label": "Deny a pending request",
+      "aliases": [
+        "deny that request",
+        "decline the request",
+        "say no to"
+      ],
+      "search_keywords": [
+        "deny",
+        "decline",
+        "pending",
+        "request",
+        "consent"
+      ],
+      "meaning": "Declines one request that is waiting on the owner, by the request id list_pending_information_requests returned. One names the requester and what they asked for, gets a yes, then calls this with confirmed set to true. Approval is never done here: approving is the owner's tap on the request card, because the export is encrypted in their own browser.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.deny"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.deny",
+        "required_inputs": [
+          {
+            "name": "request_id",
+            "prompt": "Which request should I deny?",
+            "required": true,
+            "slot": "request_id",
+            "resolver": "opaque_request_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "request_id": "opaque_request_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Deny a pending request",
+            "failure_behavior": "stop",
+            "action_id": "consent.deny",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.revoke",
+      "surface_id": "consents",
+      "label": "Revoke a grant",
+      "aliases": [
+        "revoke that access",
+        "stop sharing that",
+        "take back access"
+      ],
+      "search_keywords": [
+        "revoke",
+        "grant",
+        "access",
+        "stop sharing",
+        "consent"
+      ],
+      "meaning": "Ends one active grant the owner gave earlier, matched by the request it came from, so the other side loses access at once. One names who loses access and to what, gets a yes, then calls this with confirmed set to true.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "high",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.revoke"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.revoke",
+        "required_inputs": [
+          {
+            "name": "request_id",
+            "prompt": "Which grant should I revoke?",
+            "required": true,
+            "slot": "request_id",
+            "resolver": "opaque_request_id"
+          }
+        ],
+        "input_resolvers": [],
+        "slot_schema": {
+          "request_id": "opaque_request_id",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Revoke a grant",
+            "failure_behavior": "stop",
+            "action_id": "consent.revoke",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "consent.cancel_request",
+      "surface_id": "consents",
+      "label": "Cancel a request you sent",
+      "aliases": [
+        "cancel my information request",
+        "withdraw that request",
+        "take back my information request"
+      ],
+      "search_keywords": [
+        "cancel",
+        "withdraw",
+        "request",
+        "sent",
+        "consent"
+      ],
+      "meaning": "Withdraws an information request the owner sent that the other person has not decided yet. With no bundle_id it withdraws the request sent most recently in this conversation, which is the usual case; One confirms in words first, then calls this with confirmed set to true.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/agent",
+          "/one",
+          "/one/consent",
+          "/people/[personRef]",
+          "/one/connect"
+        ],
+        "screens": [
+          "app",
+          "one_agents",
+          "consents",
+          "one_person_profile",
+          "connect"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in",
+        "vault_owner_token"
+      ],
+      "risk_level": "medium",
+      "execution_policy": "confirm_required",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "consent.cancel_request"
+      },
+      "control_ids": [],
+      "state_exposure": [
+        "pending request count"
+      ],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "docs/reference/iam/consent-scope-catalog.md"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/consent"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.consent.cancel_request",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {
+          "bundle_id": "opaque_bundle_id_optional",
+          "confirmed": "boolean"
+        },
+        "workflow_steps": [
+          {
+            "type": "action",
+            "label": "Cancel a request you sent",
+            "failure_behavior": "stop",
+            "action_id": "consent.cancel_request",
+            "settlement_target": {
+              "route": "/one/consent",
+              "screen": "consents"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "analysis.back_to_history",
       "surface_id": "kai_analysis_controls",
       "label": "Back to Analysis History",
@@ -19140,6 +21272,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -19237,6 +21372,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -19334,6 +21472,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -19431,6 +21572,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -19532,6 +21676,9 @@
       "risk_level": "medium",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -19635,6 +21782,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",
@@ -19697,20 +21847,542 @@
       }
     },
     {
+      "action_id": "route.kai_news",
+      "surface_id": "kai_market_news",
+      "label": "Open Market News",
+      "aliases": [
+        "open market news",
+        "show market news",
+        "show news"
+      ],
+      "search_keywords": [
+        "news",
+        "market news"
+      ],
+      "meaning": "Navigates to the market news feed.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/news"
+        ],
+        "screens": [
+          "kai_market_news"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Market route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/news"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-market-news-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/news"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_news",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_news",
+            "label": "Open Market News",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/news",
+              "screen": "kai_market_news"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_holdings",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Holdings",
+      "aliases": [
+        "show my holdings",
+        "show holdings",
+        "open holdings"
+      ],
+      "search_keywords": [
+        "holdings",
+        "positions",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio holdings breakdown -- every position held, not the general portfolio dashboard.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/holdings"
+        ],
+        "screens": [
+          "kai_portfolio_holdings"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/holdings"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/holdings"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_holdings",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_holdings",
+            "label": "Show Holdings",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/holdings",
+              "screen": "kai_portfolio_holdings"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_allocation",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Allocation",
+      "aliases": [
+        "show my allocation",
+        "show allocation",
+        "open allocation"
+      ],
+      "search_keywords": [
+        "allocation",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio allocation breakdown.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/allocation"
+        ],
+        "screens": [
+          "kai_portfolio_allocation"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/allocation"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/allocation"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_allocation",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_allocation",
+            "label": "Show Allocation",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/allocation",
+              "screen": "kai_portfolio_allocation"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_performance",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Performance",
+      "aliases": [
+        "show my performance",
+        "show performance",
+        "open performance"
+      ],
+      "search_keywords": [
+        "performance",
+        "returns",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio performance breakdown.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/performance"
+        ],
+        "screens": [
+          "kai_portfolio_performance"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/performance"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/performance"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_performance",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_performance",
+            "label": "Show Performance",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/performance",
+              "screen": "kai_portfolio_performance"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
+      "action_id": "route.kai_portfolio_sources",
+      "surface_id": "kai_portfolio_detail",
+      "label": "Show Connected Sources",
+      "aliases": [
+        "show my sources",
+        "show connected sources",
+        "open sources"
+      ],
+      "search_keywords": [
+        "sources",
+        "connected accounts",
+        "portfolio"
+      ],
+      "meaning": "Navigates to the portfolio's connected data sources.",
+      "speaker_persona": "kai",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/sources"
+        ],
+        "screens": [
+          "kai_portfolio_sources"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ],
+        "active_personas": [
+          "investor"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/sources"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/kai/portfolio/sources"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.kai_portfolio_sources",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.kai_portfolio_sources",
+            "label": "Show Connected Sources",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/kai/portfolio/sources",
+              "screen": "kai_portfolio_sources"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.kai_dashboard",
       "surface_id": "kai_portfolio_dashboard",
       "label": "Open Portfolio Dashboard",
       "aliases": [
         "open portfolio dashboard",
         "open portfolio",
-        "go to holdings"
+        "show my portfolio"
       ],
       "search_keywords": [
         "portfolio",
-        "dashboard",
-        "holdings"
+        "dashboard"
       ],
-      "meaning": "Navigates to portfolio dashboard for source/holdings context.",
+      "meaning": "Navigates to portfolio dashboard, the overview above holdings/allocation/performance/sources.",
       "speaker_persona": "kai",
       "delegate_agent_id": null,
       "reachability": {
@@ -19731,6 +22403,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -19830,6 +22505,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "kai_command",
@@ -19928,6 +22606,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20039,6 +22720,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20146,6 +22830,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20254,6 +22941,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20360,6 +23050,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20471,6 +23164,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20579,6 +23275,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20687,6 +23386,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20799,6 +23501,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -20906,6 +23611,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "local_handler",
@@ -21016,6 +23724,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Opening a specific account detail requires a dynamic account id selected from the workspace.",
@@ -21127,6 +23838,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21244,6 +23958,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Opening a specific request detail requires a dynamic request id selected from workspace history.",
@@ -21356,6 +24073,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21472,6 +24192,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21587,6 +24310,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21704,6 +24430,9 @@
       "risk_level": "medium",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21825,6 +24554,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -21946,6 +24678,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -22071,6 +24806,9 @@
       "risk_level": "medium",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Opening a specific account detail requires the clicked account branch id from visible row state.",
@@ -22181,6 +24919,9 @@
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",
         "path": "route",
@@ -22301,6 +25042,9 @@
       "risk_level": "high",
       "execution_policy": "confirm_required",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Sending an access request uses selected scopes, account ids, and client-visible note state and must remain user-triggered.",
@@ -22426,6 +25170,9 @@
       "risk_level": "high",
       "execution_policy": "manual_only",
       "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "unwired",
         "reason": "Disconnecting a client relationship is destructive and must remain user-triggered.",

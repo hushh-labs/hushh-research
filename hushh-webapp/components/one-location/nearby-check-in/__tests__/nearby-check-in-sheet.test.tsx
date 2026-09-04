@@ -6,11 +6,15 @@ import {
   waitFor,
   within,
 } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const service = vi.hoisted(() => ({
   checkInNearby: vi.fn(),
   checkoutNearby: vi.fn(),
+  extendNearbyPresence: vi.fn(),
   getPermissionState: vi.fn(),
   getNearbyPresence: vi.fn(),
   nearbyPlaces: vi.fn(),
@@ -25,7 +29,21 @@ const service = vi.hoisted(() => ({
   placesAutocomplete: vi.fn(),
   placesSearchErrorMessage: vi.fn(() => "Place search failed."),
   requestNearbyConnection: vi.fn(),
+  ratePlace: vi.fn(),
+  listPlaceRatingSummaries: vi.fn(),
 }));
+
+// `listPlaceRatingSummaries` resolves empty by default: the averages are an
+// ornament on the place list, and no test here is about them.
+const visitNotes = vi.hoisted(() => ({
+  recordVisitNote: vi.fn(),
+}));
+
+vi.mock("@/lib/one-location/visit-notes", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/one-location/visit-notes")>();
+  return { ...actual, recordVisitNote: visitNotes.recordVisitNote };
+});
 
 const navigation = vi.hoisted(() => ({
   push: vi.fn(),
@@ -77,6 +95,7 @@ vi.mock("@/lib/one-location/saved-locations", async (importOriginal) => {
 });
 
 import { NearbyCheckInSheet } from "@/components/one-location/nearby-check-in/nearby-check-in-sheet";
+import { toast } from "sonner";
 
 const point = {
   latitude: 37.4275,
@@ -89,6 +108,9 @@ const point = {
 describe("NearbyCheckInSheet", () => {
   beforeEach(() => {
     Object.values(service).forEach((mock) => mock.mockReset());
+    // Reset wipes the implementation too, and the place list awaits this on
+    // every render. An undefined return would reject inside the effect.
+    service.listPlaceRatingSummaries.mockResolvedValue([]);
     navigation.push.mockReset();
     locationMemory.readLastKnownFix.mockReset();
     locationMemory.rememberLastKnownFix.mockReset();
@@ -162,7 +184,7 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  it("uses the compact Check in header and a count-aware place expansion", async () => {
+  it("uses the compact nearby check-in header and a count-aware place expansion", async () => {
     service.nearbyPlaces.mockResolvedValue([
       {
         placeId: "long-name-cafe",
@@ -208,13 +230,15 @@ describe("NearbyCheckInSheet", () => {
     );
 
     expect(
-      screen.getByRole("heading", { name: "Check in" }),
+      screen.getByRole("heading", { name: "Check in nearby" }),
     ).toBeInTheDocument();
     // The build-stage badge is gone: it reported how finished the feature is,
     // which is a fact about the roadmap, not about the person's decision.
     expect(screen.queryByText("Preview")).not.toBeInTheDocument();
     expect(
-      screen.queryByText("Choose a real place within 500 m of your current location."),
+      screen.queryByText(
+        "Choose a real place within 500 m of your current location.",
+      ),
     ).not.toBeInTheDocument();
 
     const longName = await screen.findByText(
@@ -232,15 +256,49 @@ describe("NearbyCheckInSheet", () => {
     ).toBeInTheDocument();
     expect(screen.queryByText("Stay visible for")).not.toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: "See all 4" }),
+      screen.getByRole("button", { name: "See all places" }),
     ).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "See all 4" }));
-    expect(await screen.findByRole("radio", { name: /Place Four/ })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Food" }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
+    expect(
+      await screen.findByRole("radio", { name: /Place Four/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
     // Attribution only. The place count that used to lead this line is
     // already on the expansion control and in the list itself.
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
     expect(screen.queryByText(/places · Google Maps/)).not.toBeInTheDocument();
+  });
+
+  it("withdraws a stale average when the server no longer publishes it", async () => {
+    service.listPlaceRatingSummaries
+      .mockResolvedValueOnce([
+        { placeId: "stanford-main", average: 4.8, countBucket: "5+" },
+      ])
+      .mockResolvedValueOnce([]);
+    const props = {
+      open: true,
+      ownerId: "user-1",
+      vaultOwnerToken: "owner-token",
+      captureCurrentPosition: vi.fn().mockResolvedValue(point),
+      onOpenChange: vi.fn(),
+    };
+    const { rerender } = render(<NearbyCheckInSheet {...props} />);
+
+    expect(await screen.findByText(/4\.8 · 5\+/)).toBeInTheDocument();
+    rerender(
+      <NearbyCheckInSheet {...props} vaultOwnerToken="refreshed-owner-token" />,
+    );
+
+    await waitFor(() =>
+      expect(service.listPlaceRatingSummaries).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(screen.queryByText(/4\.8 · 5\+/)).not.toBeInTheDocument(),
+    );
   });
 
   it("is a bottom sheet a phone can put away", async () => {
@@ -291,11 +349,16 @@ describe("NearbyCheckInSheet", () => {
       within(panel)
         .getAllByRole("heading")
         .map((heading) => heading.textContent?.trim()),
-    ).toEqual(["Nearby places", "Visible for"]);
+    ).toEqual(["Nearby places", "Visible for", "Visibility"]);
 
-    // Two one-word chips replace the two that could not fit one.
-    expect(screen.getByRole("button", { name: "Food" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Shops" })).toBeInTheDocument();
+    // Compact setup keeps categories out of the first decision. They appear
+    // only after the person asks for the full chooser.
+    expect(
+      screen.queryByRole("button", { name: "Food" }),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "Shops" }),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByRole("button", { name: "Food & drink" }),
     ).not.toBeInTheDocument();
@@ -304,7 +367,57 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
   });
 
-  it("keeps the required consent visible and drops the optional preference a level", async () => {
+  it("puts the three visible-for lengths on one row, abbreviated to match", async () => {
+    /**
+     * Reported: "Visible for ke jo times hain inko one row mai dikhao ...
+     * looking scattered."
+     *
+     * They were. The shared `DURATION_GRID_CLASS` is two columns because the
+     * ladders that use it carry FOUR cells and land as an even 2x2. This
+     * control has three, so the same class stranded one on a row of its own,
+     * under a heading that reads as a single choice.
+     *
+     * The labels are abbreviated for consistency rather than for width --
+     * "30 min" beside "1 hour" and "2 hours" mixes two registers in one row.
+     */
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    await screen.findByRole("radio", { name: /Stanford University/ });
+    const panel = screen.getByTestId("nearby-presence-setup");
+    const heading = within(panel).getByRole("heading", { name: "Visible for" });
+    const ladder = heading.nextElementSibling as HTMLElement;
+
+    expect(
+      within(ladder)
+        .getAllByRole("button")
+        .map((button) => button.textContent?.trim()),
+    ).toEqual(["30 min", "1 hour", "2 hours"]);
+
+    // Three across on a phone, so nothing wraps to a half-empty second row.
+    // Asserted on the class because JSDOM lays nothing out -- the browser
+    // layout spec is where geometry is proved.
+    expect(ladder.className).toContain("grid-cols-3");
+    expect(ladder.className).not.toContain("grid-cols-2");
+
+    // Still a working ladder, not just a tidier one.
+    fireEvent.click(within(ladder).getByRole("button", { name: "2 hours" }));
+    expect(
+      within(ladder).getByRole("button", { name: "2 hours" }),
+    ).toHaveAttribute("aria-pressed", "true");
+    expect(
+      within(ladder).getByRole("button", { name: "1 hour" }),
+    ).toHaveAttribute("aria-pressed", "false");
+  });
+
+  it("keeps the required consent and connection preference visible", async () => {
     render(
       <NearbyCheckInSheet
         open
@@ -317,25 +430,18 @@ describe("NearbyCheckInSheet", () => {
 
     // Consent gates the Check in button, so hiding it would leave a disabled
     // primary action with no visible reason. It stays in the open.
-    await screen.findByRole("checkbox", { name: /Appear nearby/ });
-    expect(screen.getByText("Your name only")).toBeInTheDocument();
+    await screen.findByRole("checkbox", { name: /Show my name here/ });
+    expect(
+      screen.getByText("Only people checked in at this place can see it."),
+    ).toBeInTheDocument();
     expect(
       screen.queryByText("People see your name only."),
     ).not.toBeInTheDocument();
 
-    // Connection requests defaults off, changes nothing about who can see the
-    // person, and does not need answering before every check-in.
-    const options = screen.getByRole("button", { name: "Options" });
-    expect(options).toHaveAttribute("aria-expanded", "false");
     expect(
-      screen.queryByRole("switch", {
-        name: "Allow nearby connection requests",
-      }),
+      screen.queryByRole("button", { name: "Options" }),
     ).not.toBeInTheDocument();
-
-    fireEvent.click(options);
-    expect(options).toHaveAttribute("aria-expanded", "true");
-    // Same control, same default — only its prominence changed.
+    // Same control, same default, now readable without a disclosure detour.
     expect(
       screen.getByRole("switch", {
         name: "Allow nearby connection requests",
@@ -373,7 +479,9 @@ describe("NearbyCheckInSheet", () => {
       lng: point.longitude,
       category: "all",
     });
-    expect(screen.queryByText("Stanford Shopping Center")).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("Stanford Shopping Center"),
+    ).not.toBeInTheDocument();
     // One supporting line: what kind of place it is. The postal address always
     // truncated, and the tail it cut was the disambiguating half — so it cost
     // a line and answered nothing. It survives in the title attribute.
@@ -404,7 +512,7 @@ describe("NearbyCheckInSheet", () => {
     ).not.toBeInTheDocument();
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
     expect(submit).toBeDisabled();
@@ -413,7 +521,7 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(submit);
 
     await waitFor(() => {
-    expect(service.checkInNearby).toHaveBeenCalledWith({
+      expect(service.checkInNearby).toHaveBeenCalledWith({
         vaultOwnerToken: "owner-token",
         placeId: "stanford-main",
         point: confirmationPoint,
@@ -448,12 +556,10 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     expect(
       await screen.findByText(/couldn't confirm where you are/i),
@@ -522,12 +628,10 @@ describe("NearbyCheckInSheet", () => {
 
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
       expect(service.checkInNearby).toHaveBeenCalledWith(
@@ -648,6 +752,7 @@ describe("NearbyCheckInSheet", () => {
 
     expect(await screen.findByText("Maya Chen")).toBeInTheDocument();
     expect(screen.getByTestId("nearby-attendee-roster")).toBeInTheDocument();
+    expect(screen.queryByText("At this place")).not.toBeInTheDocument();
     expect(
       screen.queryByTestId("nearby-private-share-card"),
     ).not.toBeInTheDocument();
@@ -669,7 +774,7 @@ describe("NearbyCheckInSheet", () => {
     ).toBeDisabled();
   });
 
-  it("prepares a fresh check-in when an active presence expires while open", async () => {
+  it("keeps a clear completed state when an active presence ends while open", async () => {
     service.getNearbyPresence
       .mockResolvedValueOnce({
         presence: {
@@ -700,19 +805,20 @@ describe("NearbyCheckInSheet", () => {
     await screen.findByTestId("nearby-presence-active");
     document.dispatchEvent(new Event("visibilitychange"));
 
-    await screen.findByTestId("nearby-presence-setup");
-    await waitFor(() => {
-      expect(capture).toHaveBeenCalledTimes(1);
-      expect(service.nearbyPlaces).toHaveBeenCalledWith({
-        vaultOwnerToken: "owner-token",
-        lat: point.latitude,
-        lng: point.longitude,
-        category: "all",
-      });
-    });
+    const completed = await screen.findByTestId("nearby-presence-completed");
+    expect(completed).toHaveTextContent("Check-in ended");
+    expect(completed).toHaveTextContent("Stanford University");
+    expect(completed).toHaveTextContent(
+      "You're no longer visible at Stanford University.",
+    );
     expect(
-      screen.getByRole("radio", { name: /Stanford University/ }),
-    ).toHaveAttribute("aria-checked", "false");
+      screen.queryByTestId("nearby-presence-setup"),
+    ).not.toBeInTheDocument();
+    expect(capture).not.toHaveBeenCalled();
+    expect(service.nearbyPlaces).not.toHaveBeenCalled();
+    expect(
+      screen.queryByRole("radio", { name: /Stanford University/ }),
+    ).not.toBeInTheDocument();
   });
 
   it("states the checked-in fact in three lines and nothing more", async () => {
@@ -757,9 +863,7 @@ describe("NearbyCheckInSheet", () => {
 
     // The privacy mechanism is unchanged and is no longer narrated twice on a
     // screen whose subject is a roster of names.
-    expect(
-      screen.queryByText(/not as map pins/i),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByText(/not as map pins/i)).not.toBeInTheDocument();
     expect(
       screen.queryByText(/never pinned on your map/i),
     ).not.toBeInTheDocument();
@@ -826,7 +930,9 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
-    fireEvent.click(screen.getByRole("checkbox", { name: /Appear nearby/ }));
+    fireEvent.click(
+      screen.getByRole("checkbox", { name: /Show my name here/ }),
+    );
     fireEvent.click(screen.getByRole("button", { name: "Check in" }));
     await screen.findByTestId("nearby-presence-active");
   };
@@ -834,9 +940,7 @@ describe("NearbyCheckInSheet", () => {
   it("says nothing about a gap the owner cannot act on", async () => {
     // ~11 m north of the place: inside the building, not a different one.
     await checkInFrom(37.4277);
-    expect(
-      screen.queryByTestId("nearby-active-drift"),
-    ).not.toBeInTheDocument();
+    expect(screen.queryByTestId("nearby-active-drift")).not.toBeInTheDocument();
   });
 
   it("says so plainly once the owner has actually left the place", async () => {
@@ -850,8 +954,7 @@ describe("NearbyCheckInSheet", () => {
     expect(drift).not.toHaveTextContent(/match against the place/i);
   });
 
-  it("ends the check-in with a neutral action, not a destructive one", async () => {
-    service.getNearbyPresence.mockResolvedValue({
+  it("makes leaving the primary active action without using destructive red", async () => {    service.getNearbyPresence.mockResolvedValue({
       presence: {
         status: "active",
         audience: "all_opted_in",
@@ -878,27 +981,20 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    const checkout = screen.getByRole("button", { name: "Check out" });
+    const checkout = screen.getByRole("button", { name: "I'm leaving" });
     // "now" adds nothing a person could act on.
     expect(
       screen.queryByRole("button", { name: "Check out now" }),
     ).not.toBeInTheDocument();
 
-    // Checking out ends a presence that was always going to end on its own
-    // timer and can be redone in three taps. The destructive fill is this
-    // product's signal for SOS, delete, revoke and stop-sharing; spending it
-    // on a reversible lifecycle step makes the calm state read as an alarm.
-    //
-    // Asserted on the FILL token, not on the substring "destructive": every
-    // button in this design system carries `aria-invalid:ring-destructive/20`
-    // in its base class, so a substring check here would pass on a red button
-    // and prove nothing. (Mutation-checked: reinstating variant="destructive"
-    // fails both lines below.)
+    expect(checkout.className).toContain("w-full");
+    expect(checkout.className).toContain("h-[52px]");
     expect(checkout.className).not.toContain(
       "bg-[color:var(--app-destructive)]",
     );
     expect(checkout.className).toContain("bg-[color:var(--app-neutral-fill)]");
-    expect(checkout.className).not.toContain("text-white");
+    const addTime = screen.getByRole("button", { name: "Add time" });
+    expect(addTime.className).toContain("text-[color:var(--app-accent)]");
 
     // Behaviour is untouched: the same one call, with no arguments of its own.
     fireEvent.click(checkout);
@@ -954,8 +1050,8 @@ describe("NearbyCheckInSheet", () => {
     await waitFor(() => {
       expect(service.getNearbyPresence).toHaveBeenCalledTimes(2);
     });
-    fireEvent.click(screen.getByRole("button", { name: "Check out" }));
-    await screen.findByTestId("nearby-presence-setup");
+    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+    await screen.findByTestId("nearby-presence-completed");
 
     resolveOldPoll?.(activeState);
     await Promise.resolve();
@@ -983,9 +1079,8 @@ describe("NearbyCheckInSheet", () => {
       attendees: [],
       checkedOut: true,
     };
-    let resolveCheckout:
-      | ((value: typeof checkedOutState) => void)
-      | null = null;
+    let resolveCheckout: ((value: typeof checkedOutState) => void) | null =
+      null;
     service.getNearbyPresence.mockResolvedValue(activeState);
     service.checkoutNearby.mockImplementationOnce(
       () =>
@@ -1005,7 +1100,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByTestId("nearby-presence-active");
-    fireEvent.click(screen.getByRole("button", { name: "Check out" }));
+    fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
     await waitFor(() => {
       expect(service.checkoutNearby).toHaveBeenCalledTimes(1);
     });
@@ -1018,11 +1113,71 @@ describe("NearbyCheckInSheet", () => {
     await act(async () => {
       resolveCheckout?.(checkedOutState);
     });
-    expect(await screen.findByTestId("nearby-presence-setup")).toBeInTheDocument();
     expect(
-      screen.queryByRole("button", { name: "Check out" }),
+      await screen.findByTestId("nearby-presence-completed"),
+    ).toBeInTheDocument();
+    expect(
+      screen.queryByRole("button", { name: "I'm leaving" }),
     ).not.toBeInTheDocument();
     expect(service.getNearbyPresence).toHaveBeenCalledTimes(1);
+  });
+
+  it("adds time from the active check-in without reopening the setup flow", async () => {
+    const activeState = {
+      presence: {
+        status: "active" as const,
+        audience: "all_opted_in" as const,
+        radiusMeters: 500,
+        allowConnectionRequests: false,
+        consentVersion: "one-location-nearby-presence-v3",
+        checkedInAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 60 * 60_000).toISOString(),
+        placeLabel: "Stanford University",
+      },
+      attendees: [
+        {
+          participantAlias: "alias-1",
+          displayName: "Neelesh Meena",
+          relationship: "connected" as const,
+          canConnect: false,
+          checkedInAt: new Date().toISOString(),
+        },
+      ],
+    };
+    service.getNearbyPresence.mockResolvedValue(activeState);
+    service.extendNearbyPresence.mockResolvedValue({
+      ...activeState,
+      presence: {
+        ...activeState.presence,
+        expiresAt: new Date(Date.now() + 90 * 60_000).toISOString(),
+      },
+    });
+
+    render(
+      <NearbyCheckInSheet
+        open
+        ownerId="user-1"
+        vaultOwnerToken="owner-token"
+        captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+        onOpenChange={vi.fn()}
+      />,
+    );
+
+    const active = await screen.findByTestId("nearby-presence-active");
+    expect(active.textContent).toContain("1 person nearby");
+    fireEvent.click(screen.getByRole("button", { name: "Add time" }));
+    fireEvent.click(screen.getByRole("button", { name: "30 min more" }));
+
+    await waitFor(() => {
+      expect(service.extendNearbyPresence).toHaveBeenCalledWith({
+        vaultOwnerToken: "owner-token",
+        incrementMinutes: 30,
+      });
+    });
+    expect(
+      screen.queryByTestId("nearby-presence-setup"),
+    ).not.toBeInTheDocument();
+    expect(screen.getByTestId("nearby-presence-active")).toBeInTheDocument();
   });
 
   it("does not request location or Places for an already-active check-in", async () => {
@@ -1113,10 +1268,12 @@ describe("NearbyCheckInSheet", () => {
     );
     service.nearbyPlaces.mockClear();
 
-    fireEvent.click(screen.getByPlaceholderText("Search"));
+    fireEvent.click(screen.getByPlaceholderText("Search places"));
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
+    const allPlaces = await screen.findByRole("button", { name: "All" });
     await act(async () => {
       // A failed refresh must degrade the drawer, not blank it.
-      fireEvent.click(screen.getByRole("button", { name: "All" }));
+      fireEvent.click(allPlaces);
     });
 
     // Force the failing refresh through the recovery button.
@@ -1252,7 +1409,9 @@ describe("NearbyCheckInSheet", () => {
       />,
     );
 
-    expect(await screen.findByText("Previous Owner Person")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Previous Owner Person"),
+    ).toBeInTheDocument();
 
     rerender(
       <NearbyCheckInSheet
@@ -1265,7 +1424,9 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await waitFor(() => {
-      expect(screen.queryByText("Previous Owner Person")).not.toBeInTheDocument();
+      expect(
+        screen.queryByText("Previous Owner Person"),
+      ).not.toBeInTheDocument();
     });
     expect(service.getNearbyPresence).toHaveBeenLastCalledWith({
       vaultOwnerToken: "owner-token-2",
@@ -1308,6 +1469,7 @@ describe("NearbyCheckInSheet", () => {
       category: "all",
     });
 
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1317,7 +1479,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(service.nearbyPlaces).toHaveBeenCalledTimes(1);
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     await waitFor(() => {
@@ -1341,19 +1503,17 @@ describe("NearbyCheckInSheet", () => {
     expect(screen.queryByText(/sorted by distance/)).not.toBeInTheDocument();
     expect(screen.getByText("Google Maps")).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "" },
     });
-    expect(await screen.findByRole("button", { name: "Health" })).toHaveAttribute(
-      "aria-pressed",
-      "true",
-    );
+    expect(
+      await screen.findByRole("button", { name: "Health" }),
+    ).toHaveAttribute("aria-pressed", "true");
   });
 
   it("cannot submit an old place while typed search is unresolved", async () => {
     let resolveSearch:
-      | ((value: Array<{ placeId: string; text: string }>) => void)
-      | null = null;
+      ((value: Array<{ placeId: string; text: string }>) => void) | null = null;
     service.placesAutocomplete.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
@@ -1376,7 +1536,7 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
     const submit = screen.getByRole("button", {
@@ -1384,7 +1544,7 @@ describe("NearbyCheckInSheet", () => {
     });
     expect(submit).toBeEnabled();
 
-    fireEvent.change(screen.getByPlaceholderText("Search"), {
+    fireEvent.change(screen.getByPlaceholderText("Search places"), {
       target: { value: "clinic" },
     });
     expect(
@@ -1427,6 +1587,7 @@ describe("NearbyCheckInSheet", () => {
     fireEvent.click(
       await screen.findByRole("radio", { name: /Stanford University/ }),
     );
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1439,12 +1600,10 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
     await waitFor(() => {
@@ -1537,7 +1696,8 @@ describe("NearbyCheckInSheet", () => {
     const capture = vi.fn().mockResolvedValue(point);
     service.checkInNearby.mockRejectedValueOnce(new Error("invalid place"));
     service.nearbyCheckInErrorDetails.mockReturnValueOnce({
-      message: "This place is no longer available. Choose another nearby place.",
+      message:
+        "This place is no longer available. Choose another nearby place.",
       retryLocation: false,
       openAppSettings: false,
       retryPlaces: true,
@@ -1554,6 +1714,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Health" }));
     await waitFor(() => {
       expect(screen.getByRole("button", { name: "Health" })).toHaveAttribute(
@@ -1566,12 +1727,10 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     // The area is re-swept once when the chosen place turns out to be
     // unavailable; the chip the owner was browsing is preserved.
@@ -1600,7 +1759,8 @@ describe("NearbyCheckInSheet", () => {
       .mockResolvedValueOnce(movedPoint);
     service.checkInNearby.mockRejectedValueOnce(new Error("outside radius"));
     service.nearbyCheckInErrorDetails.mockReturnValueOnce({
-      message: "You moved outside that place's range. Choose a nearby place again.",
+      message:
+        "You moved outside that place's range. Choose a nearby place again.",
       retryLocation: false,
       openAppSettings: false,
       retryPlaces: true,
@@ -1621,12 +1781,10 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
       expect(service.nearbyPlaces).toHaveBeenLastCalledWith({
@@ -1708,12 +1866,10 @@ describe("NearbyCheckInSheet", () => {
     );
     fireEvent.click(
       screen.getByRole("checkbox", {
-        name: /Appear nearby/,
+        name: /Show my name here/,
       }),
     );
-    fireEvent.click(
-      screen.getByRole("button", { name: "Check in" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Check in" }));
 
     await waitFor(() => {
       expect(onPlaceFocusChange).toHaveBeenLastCalledWith(
@@ -1764,6 +1920,7 @@ describe("NearbyCheckInSheet", () => {
     );
 
     await screen.findByRole("radio", { name: /Stanford University/ });
+    fireEvent.click(screen.getByRole("button", { name: "See all places" }));
     fireEvent.click(screen.getByRole("button", { name: "Transit" }));
 
     const empty = await screen.findByTestId("nearby-category-empty");
@@ -1955,7 +2112,9 @@ describe("NearbyCheckInSheet", () => {
       // fix was being written here while the grant was not, because the grant
       // was only recorded by the bus, which this surface never attaches.
       await waitFor(() => {
-        expect(locationMemory.rememberLocationGrant).toHaveBeenCalledWith("user-1");
+        expect(locationMemory.rememberLocationGrant).toHaveBeenCalledWith(
+          "user-1",
+        );
       });
     });
 
@@ -2119,7 +2278,7 @@ describe("NearbyCheckInSheet", () => {
     });
   });
 
-  describe("post-checkout Saved Places offer", () => {
+  describe("post-checkout completion", () => {
     const anchoredPresence = {
       presence: {
         status: "active" as const,
@@ -2136,7 +2295,10 @@ describe("NearbyCheckInSheet", () => {
       attendees: [],
     };
 
-    const renderAndCheckOut = async (vaultKey: string | null = "vault-key") => {
+    const renderAndCheckOut = async (
+      vaultKey: string | null = "vault-key",
+      onOpenChange = vi.fn(),
+    ) => {
       service.getNearbyPresence.mockResolvedValue(anchoredPresence);
       service.checkoutNearby.mockResolvedValue({
         presence: null,
@@ -2151,25 +2313,39 @@ describe("NearbyCheckInSheet", () => {
           vaultOwnerToken="owner-token"
           vaultKey={vaultKey}
           captureCurrentPosition={vi.fn().mockResolvedValue(point)}
-          onOpenChange={vi.fn()}
+          onOpenChange={onOpenChange}
         />,
       );
 
       await screen.findByTestId("nearby-presence-active");
-      fireEvent.click(screen.getByRole("button", { name: "Check out" }));
-      await screen.findByTestId("nearby-presence-setup");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await screen.findByTestId("nearby-presence-completed");
+      return onOpenChange;
     };
 
-    it("offers the checked-out venue when it is not already saved", async () => {
+    it("ends in a simple completed state instead of reopening setup", async () => {
       savedPlaces.loadSavedLocations.mockResolvedValue([]);
 
       await renderAndCheckOut();
 
-      const prompt = await screen.findByTestId("nearby-save-place-prompt");
-      expect(prompt.textContent).toContain("Blue Bottle Coffee");
+      const completed = await screen.findByTestId("nearby-presence-completed");
+      expect(completed.textContent).toContain("Check-in ended");
+      expect(completed.textContent).toContain(
+        "You're no longer visible at Blue Bottle Coffee.",
+      );
+      expect(
+        screen.queryByTestId("nearby-presence-setup"),
+      ).not.toBeInTheDocument();
+      expect(screen.queryByText("Checked out from")).not.toBeInTheDocument();
+      expect(
+        await screen.findByRole("button", {
+          name: "Save for faster check-ins",
+        }),
+      ).toBeInTheDocument();
+      expect(toast.success).not.toHaveBeenCalledWith("Check-in ended.");
     });
 
-    it("suppresses the offer when that venue is already saved", async () => {
+    it("suppresses the save action when that venue is already saved", async () => {
       // 37.42755/-122.16975 is a few metres from the anchor, inside the 25 m
       // duplicate radius, so this must read as the same place.
       savedPlaces.loadSavedLocations.mockResolvedValue([
@@ -2189,16 +2365,16 @@ describe("NearbyCheckInSheet", () => {
         expect(savedPlaces.loadSavedLocations).toHaveBeenCalled();
       });
       expect(
-        screen.queryByTestId("nearby-save-place-prompt"),
+        screen.queryByRole("button", { name: "Save for faster check-ins" }),
       ).not.toBeInTheDocument();
     });
 
-    it("does not offer when the vault is locked", async () => {
+    it("does not show the save action when the vault is locked", async () => {
       await renderAndCheckOut(null);
 
       expect(savedPlaces.loadSavedLocations).not.toHaveBeenCalled();
       expect(
-        screen.queryByTestId("nearby-save-place-prompt"),
+        screen.queryByRole("button", { name: "Save for faster check-ins" }),
       ).not.toBeInTheDocument();
     });
 
@@ -2207,8 +2383,11 @@ describe("NearbyCheckInSheet", () => {
       savedPlaces.addSavedLocation.mockResolvedValue([]);
 
       await renderAndCheckOut();
-      await screen.findByTestId("nearby-save-place-prompt");
-      fireEvent.click(screen.getByRole("button", { name: /Save to Places/ }));
+      fireEvent.click(
+        await screen.findByRole("button", {
+          name: "Save for faster check-ins",
+        }),
+      );
 
       await waitFor(() => {
         expect(savedPlaces.addSavedLocation).toHaveBeenCalledTimes(1);
@@ -2223,26 +2402,22 @@ describe("NearbyCheckInSheet", () => {
           longitude: -122.1697,
         },
       });
+      expect(
+        await screen.findByText("Saved for next time."),
+      ).toBeInTheDocument();
     });
 
-    it("dismisses the offer without saving", async () => {
+    it("finishes without saving", async () => {
       savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      const onOpenChange = await renderAndCheckOut("vault-key", vi.fn());
 
-      await renderAndCheckOut();
-      await screen.findByTestId("nearby-save-place-prompt");
-      fireEvent.click(
-        screen.getByRole("button", { name: "Dismiss saved place suggestion" }),
-      );
+      fireEvent.click(screen.getByRole("button", { name: "Done" }));
 
-      await waitFor(() => {
-        expect(
-          screen.queryByTestId("nearby-save-place-prompt"),
-        ).not.toBeInTheDocument();
-      });
+      expect(onOpenChange).toHaveBeenCalledWith(false);
       expect(savedPlaces.addSavedLocation).not.toHaveBeenCalled();
     });
 
-    it("keeps Check out styled as a neutral action, not a destructive one", async () => {
+    it("keeps leaving styled as a neutral action, not a destructive one", async () => {
       service.getNearbyPresence.mockResolvedValue(anchoredPresence);
 
       render(
@@ -2256,10 +2431,271 @@ describe("NearbyCheckInSheet", () => {
       );
 
       await screen.findByTestId("nearby-presence-active");
-      const checkOut = screen.getByRole("button", { name: "Check out" });
+      const checkOut = screen.getByRole("button", { name: "I'm leaving" });
       // Red is reserved for dangerous and irreversible actions. Checking out is
       // neither — you can check back in.
       expect(checkOut.className).not.toContain("app-destructive");
     });
+
+    /** Checkout, with the server offering a rateable visit for the place. */
+    const renderAndCheckOutRateable = async (
+      overrides: Record<string, unknown> = {},
+      onOpenChange = vi.fn(),
+    ) => {
+      service.getNearbyPresence.mockResolvedValue(anchoredPresence);
+      service.checkoutNearby.mockResolvedValue({
+        presence: null,
+        attendees: [],
+        checkedOut: true,
+        reviewPrompt: {
+          visitId: "visit-1",
+          placeId: "ChIJbagmaker",
+          placeLabel: "Bag Maker",
+          visitedAt: "2026-08-31T10:00:00.000Z",
+          expiresAt: "2026-09-07T10:00:00.000Z",
+          googleReviewUrl:
+            "https://search.google.com/local/writereview?placeid=ChIJbagmaker",
+          consentVersion: "one-location-place-rating-v1",
+          ...overrides,
+        },
+      });
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+
+      render(
+        <NearbyCheckInSheet
+          open
+          ownerId="user-1"
+          vaultOwnerToken="owner-token"
+          vaultKey="vault-key"
+          captureCurrentPosition={vi.fn().mockResolvedValue(point)}
+          onOpenChange={onOpenChange}
+        />,
+      );
+
+      await screen.findByTestId("nearby-presence-active");
+      fireEvent.click(screen.getByRole("button", { name: "I'm leaving" }));
+      await screen.findByTestId("nearby-presence-completed");
+      return onOpenChange;
+    };
+
+    it("asks how the visit went, by name", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(await screen.findByTestId("nearby-visit-rating")).toBeTruthy();
+      expect(screen.getByText("How was Bag Maker?")).toBeTruthy();
+      // The one sentence that stops a star row above a Google button reading
+      // as though it publishes somewhere.
+      expect(screen.getByText(/Only you see this\./)).toBeTruthy();
+    });
+
+    it("cannot be saved until a star is chosen", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "4 stars" }));
+
+      expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    });
+
+    it("sends the star to the server and keeps the note in the vault", async () => {
+      // The split is the whole design: an average cannot be computed on a
+      // device, and free text about a named business must not sit in plaintext
+      // on ours.
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 4 });
+      visitNotes.recordVisitNote.mockResolvedValue([]);
+      await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "4 stars" }));
+      fireEvent.change(
+        screen.getByPlaceholderText("Anything worth remembering"),
+        { target: { value: "  Quick and friendly.  " } },
+      );
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await waitFor(() =>
+        expect(service.ratePlace).toHaveBeenCalledWith({
+          vaultOwnerToken: "owner-token",
+          placeId: "ChIJbagmaker",
+          rating: 4,
+          consentVersion: "one-location-place-rating-v1",
+        }),
+      );
+      // No note field reaches the request at all.
+      expect(Object.keys(service.ratePlace.mock.calls[0][0])).not.toContain(
+        "note",
+      );
+      await waitFor(() =>
+        expect(visitNotes.recordVisitNote).toHaveBeenCalledWith(
+          expect.objectContaining({
+            entry: expect.objectContaining({
+              placeId: "ChIJbagmaker",
+              rating: 4,
+              note: "Quick and friendly.",
+            }),
+          }),
+        ),
+      );
+    });
+
+    it("offers the Google hand-off only after the local save succeeds", async () => {
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 5 });
+      await renderAndCheckOutRateable();
+
+      // The order is the mitigation for "why did I write it twice": your
+      // rating is safe with us first, Google is extra.
+      expect(
+        screen.queryByRole("link", { name: "Also post on Google" }),
+      ).toBeNull();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "5 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      const handoff = await screen.findByRole("link", {
+        name: "Also post on Google",
+      });
+      expect(handoff).toHaveAttribute(
+        "href",
+        "https://search.google.com/local/writereview?placeid=ChIJbagmaker",
+      );
+      expect(handoff).toHaveAttribute("rel", "noopener noreferrer");
+      // Honest about what happens next: nothing can be prefilled on Google.
+      expect(
+        screen.getByText("Opens Google Maps — you'll type it there."),
+      ).toBeTruthy();
+    });
+
+    it("says nothing about Google when there is no place id to link to", async () => {
+      // No disabled button and no explanation. The rating succeeded; the
+      // hand-off was only ever a bonus.
+      service.ratePlace.mockResolvedValue({ id: "r1", rating: 3 });
+      await renderAndCheckOutRateable({ googleReviewUrl: null });
+
+      fireEvent.click(await screen.findByRole("radio", { name: "3 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      await screen.findByText("Saved to your places.");
+      expect(screen.queryByText(/Google/)).toBeNull();
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    });
+
+    it("keeps the stars set when the save fails", async () => {
+      // Clearing somebody's input because the network failed turns a retry
+      // into a re-decision.
+      service.ratePlace.mockRejectedValue(new Error("offline"));
+      await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("radio", { name: "2 stars" }));
+      fireEvent.click(screen.getByRole("button", { name: "Save" }));
+
+      expect(
+        await screen.findByText("Couldn't save your rating."),
+      ).toBeTruthy();
+      expect(screen.getByRole("radio", { name: "2 stars" })).toBeChecked();
+      expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled();
+    });
+
+    it("lets someone leave without rating, and writes nothing when they do", async () => {
+      const onOpenChange = await renderAndCheckOutRateable();
+
+      fireEvent.click(await screen.findByRole("button", { name: "Not now" }));
+
+      expect(service.ratePlace).not.toHaveBeenCalled();
+      expect(visitNotes.recordVisitNote).not.toHaveBeenCalled();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    });
+
+    it("does not ask at all when the server offers nothing rateable", async () => {
+      // An expired presence produces no visit, and a backend that predates
+      // ratings sends no reviewPrompt. Both land here, and both must leave the
+      // pane exactly as it was.
+      savedPlaces.loadSavedLocations.mockResolvedValue([]);
+      await renderAndCheckOut();
+
+      expect(screen.queryByTestId("nearby-visit-rating")).toBeNull();
+      expect(screen.getByRole("button", { name: "Done" })).toBeTruthy();
+    });
+
+    it("offers no bookmark control, because rating is the save", async () => {
+      await renderAndCheckOutRateable();
+
+      expect(screen.queryByRole("button", { name: /bookmark/i })).toBeNull();
+    });
+  });
+});
+
+/**
+ * The chip row, and the two ways it can quietly stop being true.
+ *
+ * Reported from Prayagraj: tapping "Hotels" listed a lounge, a construction firm
+ * and two lodges. Most of that fix is server-side, but two client properties
+ * decide whether it is visible at all.
+ */
+describe("the nearby place chips", () => {
+  const sheetSource = readFileSync(
+    path.resolve(__dirname, "..", "nearby-check-in-sheet.tsx"),
+    "utf8",
+  );
+  const layoutSpecSource = readFileSync(
+    path.resolve(
+      __dirname,
+      "../../../..",
+      "e2e/one-location-check-in-panel.layout.spec.ts",
+    ),
+    "utf8",
+  );
+
+  /** The labels the component actually ships, read out of its own table. */
+  function shippedLabels(): string[] {
+    const table = sheetSource.slice(
+      sheetSource.indexOf("const PLACE_CATEGORIES"),
+      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
+    );
+    return [...table.matchAll(/label:\s*"([^"]+)"/g)].map((match) => match[1]);
+  }
+
+  it("offers a chip for every category the backend can return", () => {
+    // The backend classifies exhaustively over Google's Table A and can answer
+    // with any of these. A category with no chip is a set of places that shows
+    // under "All" and is unreachable the moment anything is tapped — which is
+    // how temples, mosques and police stations were invisible.
+    const table = sheetSource.slice(
+      sheetSource.indexOf("const PLACE_CATEGORIES"),
+      sheetSource.indexOf("const NEARBY_RADIUS_METERS"),
+    );
+    const values = [...table.matchAll(/value:\s*"([^"]+)"/g)].map((m) => m[1]);
+    expect(values).toEqual([
+      "all",
+      "food_drink",
+      "health",
+      "shopping_services",
+      "hotels_stays",
+      "education",
+      "outdoors_landmarks",
+      "transit",
+      "worship",
+      "civic",
+      "other",
+    ]);
+  });
+
+  it("keeps the layout spec's replica of the labels honest", () => {
+    // `one-location-check-in-panel.layout.spec.ts` cannot import a React module,
+    // so it hand-copies these labels to measure the row. A copy that falls
+    // behind does not fail — it passes, having measured a row the app no longer
+    // ships. This is the only thing that notices.
+    const replica = layoutSpecSource.slice(
+      layoutSpecSource.indexOf("const CATEGORY_LABELS"),
+      layoutSpecSource.indexOf("const LONGEST_PLACE"),
+    );
+    const replicated = [...replica.matchAll(/"([^"]+)"/g)].map((m) => m[1]);
+    expect(replicated).toEqual(shippedLabels());
+  });
+
+  it("never says 'Outdoors' about a cinema", () => {
+    // The chip owns entertainment, culture, sport and nature. Half of that is
+    // indoors, so the label says what the chip is for rather than where it is.
+    expect(shippedLabels()).toContain("Leisure");
+    expect(shippedLabels()).not.toContain("Outdoors");
   });
 });

@@ -106,9 +106,66 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.getByText("Asha Rao")).toBeInTheDocument();
     expect(screen.getByText("1199")).toBeInTheDocument();
     expect(
-      screen.getByText(/Unmatched contacts stay on this device/i),
+      screen.getByText(/raw phone numbers are never sent to Hushh/i),
     ).toBeInTheDocument();
+    expect(screen.getByText("No match")).toBeInTheDocument();
+    expect(screen.queryByText("Not on Hushh")).toBeNull();
     expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
+  });
+
+  it("explains consent-safe eligibility when no account can be listed", () => {
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [],
+          matchedUserIds: [],
+          matchedContactCount: 0,
+          autoConnectedCount: 0,
+          inviteCandidateCount: 1200,
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    expect(
+      screen.getByText(/Existing connections may still appear/i),
+    ).toBeInTheDocument();
+  });
+
+  it("wraps long matched identities instead of clipping them", () => {
+    const longName =
+      "Wilhelmina Featherstonehaugh-Rajendran International Household";
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({
+          matches: [
+            {
+              lookupId: "lookup_long",
+              userId: "user_long",
+              displayName: longName,
+              photoUrl: null,
+              outcome: "request_required",
+            },
+          ],
+        })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    const identity = screen.getByText(longName);
+    expect(identity.className).toContain("break-words");
+    expect(identity.className).not.toContain("truncate");
+    expect(identity.textContent).toBe(longName);
   });
 
   it("separates outcome-unknown contacts from unmatched invite candidates", () => {

@@ -111,6 +111,113 @@ def build_specialist_capability_catalog(roster_ids: list[str]) -> str:
     )
 
 
+# What a person can actually reach by voice today, grouped the way somebody
+# would describe it rather than by action-id prefix. Only areas a person would
+# recognise as a feature of their own: `route`, `auth`, `setup`, `onboarding`,
+# `phone_mandate` and `vault` are plumbing, and `ria` is persona-gated to
+# advisors, so naming it to an investor would be an offer they cannot take up.
+_USER_FACING_AREAS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Location", ("location",)),
+    ("Connections", ("connect", "people", "connections")),
+    ("Email", ("email",)),
+    ("Identity verification", ("kyc",)),
+    ("Connected systems", ("connected_systems",)),
+)
+
+
+def _runnable_area_names() -> list[str]:
+    """Areas with at least one voice action that can actually run today.
+
+    Derived, not authored, and that is the entire point. A hand-written list of
+    what One can do rots silently: the "What can I say" page used to teach
+    "Connect my Gmail" and "Sync my Gmail receipts now", and both mapped to
+    unwired actions that could not execute (fixed by removing them in #6308,
+    which is what this derivation exists to make durable). Somebody follows
+    the tutorial, the thing does not happen, and they conclude the agent is
+    broken.
+
+    The same three conditions the publishing surfaces use -- wired, a path that
+    actually dispatches, and not manual_only -- so this answer moves with the
+    contract instead of needing a person to remember to edit prose.
+
+    Degrades to an empty list on any read failure. One then explains what it is
+    without listing areas, which is a smaller loss than refusing to talk.
+    """
+    try:
+        payload = json.loads(
+            generated_contract_path("kai", "kai-action-gateway.vnext.json").read_text(
+                encoding="utf-8"
+            )
+        )
+    except (OSError, ValueError):
+        return []
+    actions = payload.get("actions") if isinstance(payload, dict) else None
+    if not isinstance(actions, list):
+        return []
+
+    runnable_prefixes: set[str] = set()
+    for entry in actions:
+        if not isinstance(entry, dict):
+            continue
+        target = entry.get("execution_target")
+        if not isinstance(target, dict) or target.get("status") != "wired":
+            continue
+        if target.get("path") not in ("local_handler", "route", "control"):
+            continue
+        if entry.get("execution_policy") == "manual_only":
+            continue
+        action_id = entry.get("action_id")
+        if isinstance(action_id, str) and "." in action_id:
+            runnable_prefixes.add(action_id.split(".", 1)[0])
+
+    return [
+        name for name, prefixes in _USER_FACING_AREAS if runnable_prefixes.intersection(prefixes)
+    ]
+
+
+_ONE_PRODUCT_EXPLAINER_CORE: str = (
+    "EXPLAINING HUSSH ONE (use this when somebody asks what this app is, what "
+    "you can do, or to show them around):\n"
+    "Say it in your own words, in plain language, and keep it to a few "
+    "sentences. Hushh One is a private agent that looks after somebody's own "
+    "information and acts on it only when they ask. The thing that makes it "
+    "different is not the features, it is who it works for: their data stays "
+    "theirs, it is encrypted with a key only they hold, and nobody -- Hushh "
+    "included -- reads it without their say-so.\n\n"
+    "In practice a person uses it to share where they are with people they "
+    "choose, for as long as they choose and no longer; to keep track of the "
+    "people they trust; and to ask One to do those things out loud instead of "
+    "tapping through screens.\n\n"
+    "How to answer:\n"
+    "- Explain first, briefly. Do not open a screen or run anything to answer "
+    "a question about what the app is.\n"
+    "- Then offer ONE concrete next step they could take right now, phrased as "
+    "an offer and not an instruction, and wait for their answer.\n"
+    "- Never promise a capability that is not in the list below. If somebody "
+    "asks about something that is not there, say plainly that it is not "
+    "something you can do yet rather than implying it might work.\n"
+    "- Never claim you have already done something as part of explaining it."
+)
+
+
+def build_product_explainer() -> str:
+    """One's answer to \"what is this?\" -- durable prose plus a derived truth check."""
+    areas = _runnable_area_names()
+    if not areas:
+        return "\n\n" + _ONE_PRODUCT_EXPLAINER_CORE
+    return (
+        "\n\n"
+        + _ONE_PRODUCT_EXPLAINER_CORE
+        + "\n\nWhat you can actually act on by voice today: "
+        + ", ".join(areas)
+        + ". Anything else is something a person still does by tapping."
+    )
+
+
 def build_one_persona_grounding(roster_ids: list[str]) -> str:
-    """Compose the durable persona core with the generated specialist catalog."""
-    return _ONE_PERSONA_CORE + build_specialist_capability_catalog(list(roster_ids))
+    """Compose the durable persona core, the generated catalog, and the explainer."""
+    return (
+        _ONE_PERSONA_CORE
+        + build_specialist_capability_catalog(list(roster_ids))
+        + build_product_explainer()
+    )

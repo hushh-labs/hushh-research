@@ -265,6 +265,51 @@
       "speaker_persona": "one"
     },
     {
+      "action_id": "help.open_examples",
+      "label": "What can I say",
+      "meaning": "Opens the \"What can I say\" page, showing example phrases for every part of the app voice can currently act on.",
+      "aliases": [
+        "what can i say",
+        "what can you do",
+        "show me examples",
+        "show me around",
+        "help"
+      ],
+      "search_keywords": [
+        "help",
+        "examples",
+        "what can i say",
+        "tutorial",
+        "guide"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/profile/preferences/voice/examples"
+        ],
+        "screens": [
+          "profile_preferences"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "profile route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/preferences/voice/examples"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "speaker_persona": "one"
+    },
+    {
       "action_id": "profile.support.submit_message",
       "label": "Submit Support Message",
       "meaning": "Sends support/bug/developer feedback email via support service.",

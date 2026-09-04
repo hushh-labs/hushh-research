@@ -55,20 +55,27 @@ from hushh_mcp.agents.onboarding.agent import (
 from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
+    discover_person_information,
     get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
+    list_available_models,
     list_location_shared_with_me,
     list_my_connections,
     list_my_location_circles,
     list_my_location_shares,
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
+    list_pending_information_requests,
     list_pending_location_requests,
+    propose_information_request,
+    read_my_pkm_domain_summary,
     run_app_action,
+    set_preferred_model,
     start_app_goal,
 )
 from hushh_mcp.one_adk.one_persona import build_one_persona_grounding
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.specialist_availability import (
     resolve_specialist_availability,
     specialist_label,
@@ -80,6 +87,7 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.crm_product_availability import crm_product_available
 from hushh_mcp.services.live_voice_context import (
     read_pending_specialist_directive,
     record_pending_specialist_directive,
@@ -93,16 +101,17 @@ ONE_APP_NAME = "hussh_one"
 _AGENTS_ROOT = Path(__file__).resolve().parents[1] / "agents"
 
 
-@lru_cache(maxsize=2)
+@lru_cache(maxsize=3)
 def _load_product_agent_manifest(agent_id: str) -> AgentManifestV2:
     """Load the authored AgentManifestV2; Python builders are projections only."""
-    if agent_id not in {"one", "kai"}:
+    if agent_id not in {"one", "kai", "wallet"}:
         raise ValueError(f"Unsupported product-agent manifest: {agent_id}")
     return ManifestLoader.load(str(_AGENTS_ROOT / agent_id / "agent.yaml"))
 
 
 _ONE_MANIFEST = _load_product_agent_manifest("one")
 _KAI_MANIFEST = _load_product_agent_manifest("kai")
+_WALLET_MANIFEST = _load_product_agent_manifest("wallet")
 
 # Session-state keys the relay seeds before the first turn. Tools read them
 # via tool_context.state; the model neither sees nor supplies them.
@@ -124,6 +133,13 @@ STATE_PKM_CONTEXT = "hussh:pkm_context"
 # Pending client directive (navigation etc.) the relay forwards to the browser
 # after the current event batch; written by tools, cleared by the relay.
 STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+# Pending read-tool result trace -- display-safe data a read tool wants shown
+# as a card alongside its spoken answer (see #6434). Same park-and-forward
+# shape as STATE_PENDING_DIRECTIVE, kept as its own prefix since a trace is
+# never executed and never settles -- it is just forwarded and rendered.
+STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
+
+_CRM_PRODUCT_AVAILABLE = crm_product_available()
 
 # Governed navigation allowlist: screen id -> app route. Mirrors the /one
 # roster plus core account surfaces. One can ONLY navigate here; anything
@@ -137,9 +153,10 @@ APP_ROUTES: dict[str, str] = {
     "location": "/one/location",
     "personal_data": "/one/pkm",
     "consent": "/one/consent",
-    "connected_systems": "/one/connected-systems",
     "profile": "/profile",
 }
+if _CRM_PRODUCT_AVAILABLE:
+    APP_ROUTES["connected_systems"] = "/one/connected-systems"
 
 # Voice head model contract. The canonical live model is authored in the One
 # manifest (heads.live) and env-swappable through AGENT_ONE_ADK_MODEL with no
@@ -198,10 +215,9 @@ ONE_LIVE_VOICE_OPTIONS: dict[str, str] = {
 # send_client_content behavior. A BYOK key must never silently fall back to
 # Hussh's managed Vertex identity.
 _BYOK_LIVE_MODEL = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_MODEL") or "").strip()
-# All worker agents resolve the same authored Gemini text generation.
-_SPECIALIST_MODEL = (
-    os.getenv("AGENT_ONE_SPECIALIST_MODEL") or _KAI_MANIFEST.model_config_for_runtime().name
-).strip()
+# All worker agents resolve the same authored Gemini text generation, through the
+# manifest alias rather than a private environment knob no lane ever set.
+_SPECIALIST_MODEL = _KAI_MANIFEST.model_config_for_runtime().name.strip()
 
 
 # The Live compatibility registry lives in runtime_providers so the deploy
@@ -282,20 +298,24 @@ def _build_one_live_model():
 # Folded into ONE_IDENTITY_INSTRUCTION so it reaches BOTH the text head
 # (build_one_text_agent) and the Live head (build_one_root_agent), which share
 # _one_runtime_instruction. It is identity/values grounding, never authority.
-_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(
-    _ONE_MANIFEST.capabilities.get("specialist_roster", [])
-)
+_ACTIVE_SPECIALIST_ROSTER = [
+    agent_id
+    for agent_id in _ONE_MANIFEST.capabilities.get("specialist_roster", [])
+    if agent_id != "agent_connected_systems" or _CRM_PRODUCT_AVAILABLE
+]
+_ONE_PERSONA_GROUNDING: str = build_one_persona_grounding(_ACTIVE_SPECIALIST_ROSTER)
 
 
 ONE_IDENTITY_INSTRUCTION: str = (
     # Agent identity is authored in AgentManifestV2. The remainder is dynamic
     # runtime/tool policy that cannot be represented as another authored agent.
-    str(_ONE_MANIFEST.system_instruction).strip()
+    str(_ONE_MANIFEST.system_instruction).strip()  # nosec B608 - prompt text, not SQL
     + '\n\nIf anyone asks your name or who you are, answer simply: "I\'m One." '
     "Never call yourself Kai, Gemini, or any other name. Speak warmly, "
     "concisely, and in plain English.\n\n"
     # Section 1b: durable persona, north stars, and authoritative roster.
-     + _ONE_PERSONA_GROUNDING + "\n\n"
+    + _ONE_PERSONA_GROUNDING  # nosec B608 - prompt text, not SQL
+    + "\n\n"
     # Section 2: conversational rules.
     "Visible controls take priority over introductions. Use your intelligence in "
     "the current turn to assess what the person means: whether they are asking "
@@ -371,8 +391,12 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "reasoning -- ask it direct, specific questions rather than broad ones it "
     "cannot interpret. Its Connections subagent handles the trusted-people "
     "graph itself; both surface in the Consent Center.\n"
-    "- Connected Systems: CRM and external system workflows.\n\n"
-    "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
+    + (
+        "- Connected Systems: CRM and external system workflows.\n\n"
+        if _CRM_PRODUCT_AVAILABLE
+        else "\n"
+    )
+    + "Gmail receipt sync and inbox search are paused. Do not claim receipt or "
     "inbox access, and do not call a tool for either. This does not limit the "
     "open_gmail_email_draft tool for an explicit personal-email request.\n\n"
     # Section 4: tool invocation conditions, one tool per sentence.
@@ -564,6 +588,34 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "tool says; never guess which circle was meant. Summarize what these "
     "tools return in plain language; never invent a name, count, or status "
     "they did not report.\n\n"
+    "When the person asks what information can be requested from a named connection, "
+    "or narrows that request to a domain such as financial or identity, call "
+    "discover_person_information with the name and optional domain. Present only the exact "
+    "labels, descriptions, domain groups, and sensitivity returned. Never invent a scope, "
+    "show a raw scope identifier, or imply that a social connection grants access. End with "
+    "a Markdown link using the returned profilePath so the person can select exact fields "
+    "and confirm the consent request. Do not claim a request was sent from discovery alone.\n\n"
+    # Reading the person's own PKM data. One general read tool, not one per
+    # domain -- every domain listed here is read the same way (the
+    # discovery-only summary index, never decrypted holdings), so a new
+    # domain needs no new tool, just the domain key added below.
+    "For 'what do you know about my X' / 'tell me about my X' questions -- "
+    "portfolio or investments, health, travel, subscriptions, professional "
+    "background, identity, food preferences, RIA practice, wallet, "
+    "entertainment, shopping, social, location, or anything else about the "
+    "person themselves -- call read_my_pkm_domain_summary with the matching "
+    "domain key: identity, financial, subscriptions, health, travel, food, "
+    "professional, ria, source_library, wallet, entertainment, shopping, "
+    "social, location, or general. Map the person's own words to the "
+    "closest key yourself; if the tool reports the key was not recognised, "
+    "read back the domains it lists rather than guessing again blind. If "
+    "has_data is false, say plainly that nothing has been captured for that "
+    "area yet rather than implying an error. The summary is redacted, "
+    "sanitized metadata, not raw records -- speak only the fields it "
+    "actually returned, in plain language; never invent a figure, date, or "
+    "status it did not report. This is a different tool from the "
+    "Location/Connect read tools above: those read live app data with "
+    "their own services, this reads the general PKM domains only.\n\n"
     # Guide mode: some actions cannot be triggered by the app at all, only by
     # the person (run_app_action reports these as 'manual_only', e.g. picking
     # a file or connecting a third-party account). This is not a dead end.
@@ -634,7 +686,9 @@ def _one_runtime_instruction(context: Any) -> str:
     """Inject bounded server-sanitized route, layer, and action guidance."""
     state = getattr(context, "state", None)
     state_getter = getattr(state, "get", None)
-    pkm_context = state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    pkm_context = resolve_request_secret(
+        state_getter(STATE_PKM_CONTEXT) if callable(state_getter) else None
+    )
     pkm_instruction = ""
     if isinstance(pkm_context, str) and pkm_context.strip():
         pkm_instruction = (
@@ -865,7 +919,7 @@ async def resolve_onboarding_goal(
             "status": "disabled",
             "message": "Onboarding goals are not enabled for this session.",
         }
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     phase = str(onboarding.get("phase") or "anonymous_auth")
     # One's current ADK turn supplies semantic fields. The deterministic layer
     # validates them but never reclassifies the request with keywords.
@@ -935,7 +989,7 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
     """
     state = tool_context.state
     user_id = str(state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(state.get(STATE_CONSENT_TOKEN))
     if not user_id or not consent_token:
         return None
     conversation_id = str(state.get(STATE_CONVERSATION_ID) or "").strip() or None
@@ -958,7 +1012,7 @@ async def _specialist_turn(
 
     voice_context = tool_context.state.get(STATE_VOICE_CONTEXT)
     user_id = str(tool_context.state.get(STATE_USER_ID) or "").strip()
-    consent_token = str(tool_context.state.get(STATE_CONSENT_TOKEN) or "").strip()
+    consent_token = resolve_request_secret(tool_context.state.get(STATE_CONSENT_TOKEN))
     availability = resolve_specialist_availability(
         agent_id=agent_id,
         user_id=user_id,
@@ -1381,6 +1435,15 @@ def _build_ria_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
+def _resolve_text_model(model: Any | None) -> Any:
+    """Resolve text-model authority without requiring cloud ADC in test collection."""
+    if model is not None:
+        return model
+    if os.getenv("TESTING", "").strip().lower() in {"1", "true", "yes"}:
+        return _SPECIALIST_MODEL
+    return build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+
+
 def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """Build One's semantic but lower-privilege pre-vault text head.
 
@@ -1390,7 +1453,7 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
     """
     return LlmAgent(
         name="one_intro",
-        model=model or build_managed_gemini_adk_model(_SPECIALIST_MODEL),
+        model=_resolve_text_model(model),
         description="One's informational, pre-vault private-agent surface.",
         instruction=(
             "You are One, the private agent inside Hussh. This is an informational "
@@ -1459,7 +1522,7 @@ def _financial_readiness_instruction(context: Any) -> str:
 def _bounded_finance_context(context: Any) -> str:
     state = getattr(context, "state", None)
     getter = getattr(state, "get", None)
-    pkm_context = getter(STATE_PKM_CONTEXT) if callable(getter) else None
+    pkm_context = resolve_request_secret(getter(STATE_PKM_CONTEXT) if callable(getter) else None)
     if not isinstance(pkm_context, str) or not pkm_context.strip():
         return _financial_readiness_instruction(context)
     return _financial_readiness_instruction(context) + (
@@ -1502,6 +1565,25 @@ def _build_finance_agent(*, model: Any | None = None) -> LlmAgent:
             AgentTool(agent=_build_ria_agent(model=specialist_model)),
             AgentTool(agent=_build_investor_agent(model=specialist_model)),
         ],
+    )
+
+
+def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
+    """Cards head: metadata-only conversation over client-executed actions.
+
+    Unlike Finance, no PKM context is ever injected - the manifest's
+    context_allowlist is empty by design. Every real operation (list, add,
+    reveal) executes client-side through the Action Gateway, where the browser
+    decrypts under the vault key; card secrets never reach this agent, the
+    model, or the server in plaintext.
+    """
+    specialist_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    return LlmAgent(
+        name="wallet",
+        model=specialist_model,
+        description=_WALLET_MANIFEST.description,
+        instruction=str(_WALLET_MANIFEST.system_instruction),
+        tools=[],
     )
 
 
@@ -1552,7 +1634,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         ),
         tools=[GoogleSearchTool()],
     )
-    return [
+    tools = [
         AgentTool(agent=search_agent, propagate_grounding_metadata=True),
         open_screen,
         resolve_onboarding_goal,
@@ -1564,7 +1646,6 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         AgentTool(agent=_build_finance_agent(model=specialist_model)),
         ask_email_agent,
         ask_location_agent,
-        ask_connected_systems_agent,
         ask_consent_agent,
         list_my_location_circles,
         get_location_circle_members,
@@ -1573,6 +1654,12 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         list_pending_location_requests,
         list_my_outgoing_location_requests,
         list_my_connections,
+        read_my_pkm_domain_summary,
+        discover_person_information,
+        list_available_models,
+        list_pending_information_requests,
+        propose_information_request,
+        set_preferred_model,
         list_pending_connection_requests,
         calendar_summary,
         calendar_events,
@@ -1582,6 +1669,13 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         propose_calendar_reschedule,
         propose_calendar_cancellation,
     ]
+    if _CRM_PRODUCT_AVAILABLE:
+        tools.insert(tools.index(ask_consent_agent), ask_connected_systems_agent)
+    tools.insert(
+        tools.index(ask_email_agent),
+        AgentTool(agent=_build_wallet_agent(model=specialist_model)),
+    )
+    return tools
 
 
 def build_one_root_agent(
@@ -1607,7 +1701,10 @@ def build_one_text_agent(*, model: Any | None = None) -> LlmAgent:
     surfaces run the specialist-generation model with the identical
     instruction and roster - ONE decision-maker, two transport heads.
     """
-    text_model = model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
+    # Route modules construct both ADK apps during import so FastAPI can
+    # register the canonical endpoint. The shared resolver keeps that import
+    # credential-independent in tests while hosted runtimes stay explicit.
+    text_model = _resolve_text_model(model)
     return LlmAgent(
         name="one",
         model=text_model,

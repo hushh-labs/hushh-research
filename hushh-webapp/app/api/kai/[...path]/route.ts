@@ -33,11 +33,6 @@ const GMAIL_CONNECT_COMPLETE_TIMEOUT_MS = resolveSlowRequestTimeoutMs(30_000, {
   developmentFloorMs: 30_000,
   overrideEnvKey: "HUSHH_KAI_GMAIL_CONNECT_COMPLETE_TIMEOUT_MS",
 });
-const AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS = resolveSlowRequestTimeoutMs(120_000, {
-  developmentFloorMs: 120_000,
-  overrideEnvKey: "HUSHH_KAI_AGENT_CHAT_STREAM_TIMEOUT_MS",
-});
-
 function isGmailPath(path: string): boolean {
   return path === "gmail" || path.startsWith("gmail/");
 }
@@ -69,8 +64,12 @@ function isClientAbortError(error: unknown): boolean {
 
 function resolveUpstreamSignal(
   requestSignal: AbortSignal,
-  timeoutMs: number | null
+  timeoutMs: number | null,
+  options?: { ignoreClientAbort?: boolean }
 ): AbortSignal {
+  if (options?.ignoreClientAbort) {
+    return timeoutMs ? AbortSignal.timeout(timeoutMs) : new AbortController().signal;
+  }
   if (!timeoutMs) {
     return requestSignal;
   }
@@ -153,9 +152,6 @@ function buildUpstreamFailurePayload(path: string, error: unknown) {
 }
 
 function resolveKaiUpstreamTimeoutMs(path: string): number | null {
-  if (path === "agent/chat/stream") {
-    return AGENT_CHAT_STREAM_PROXY_TIMEOUT_MS;
-  }
   if (path === "gmail/receipts-memory/preview") {
     return GMAIL_RECEIPTS_MEMORY_PREVIEW_TIMEOUT_MS;
   }
@@ -288,7 +284,13 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       method: request.method,
       headers: headers,
       body: body,
-      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs),
+      // The callback page can close as soon as the provider hands control
+      // back. Its single-use code exchange must still finish within the
+      // bounded server timeout so the Gmail opener can recover from persisted
+      // connection state on focus/close.
+      signal: resolveUpstreamSignal(request.signal, upstreamTimeoutMs, {
+        ignoreClientAbort: path === "gmail/connect/complete",
+      }),
     });
 
     // Check for SSE stream response

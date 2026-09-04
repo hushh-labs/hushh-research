@@ -5,7 +5,7 @@ version: 2.0.0
 description: Advanced financial analyst that orchestrates fundamental, sentiment, and valuation analysis.
 model:
   provider: gemini
-  name: gemini-3.7-flash
+  name: gemini-default
   mode: hushh_managed_vertex
   credential_ref: null
 credential_policy:
@@ -122,7 +122,7 @@ subagents:
     description: Advisor-workspace subagent owned by Kai Finance.
     model:
       provider: gemini
-      name: gemini-3.7-flash
+      name: gemini-default
       mode: hushh_managed_vertex
     runtime:
       kind: adk
@@ -142,7 +142,6 @@ subagents:
       latency_p95_ms: 4000
       max_output_tokens: 2048
     rollout:
-      kill_switch: HUSHH_RIA_AGENT_DISABLED
       strategy: canary
       rollback: Disable RIA delegation and keep the Finance head active.
   - id: agent_investor
@@ -150,7 +149,7 @@ subagents:
     description: Personal portfolio-review subagent owned by Kai Finance.
     model:
       provider: gemini
-      name: gemini-3.7-flash
+      name: gemini-default
       mode: hushh_managed_vertex
     runtime:
       kind: adk
@@ -170,6 +169,5 @@ subagents:
       latency_p95_ms: 4000
       max_output_tokens: 2048
     rollout:
-      kill_switch: HUSHH_INVESTOR_AGENT_DISABLED
       strategy: canary
       rollback: Disable Investor delegation and keep the Finance head active.

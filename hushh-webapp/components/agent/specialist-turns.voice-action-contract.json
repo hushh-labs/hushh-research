@@ -175,6 +175,8 @@
       ],
       "risk_level": "medium",
       "execution_policy": "allow_direct",
+      "siri_mode": "conversation_only",
+      "siri_requires_vault": false,
       "execution_target": {
         "status": "wired",
         "path": "voice_tool",

@@ -29,6 +29,8 @@ from hushh_mcp.services.connection_graph_service import (
     ensure_connection_origin,
     revoke_circle_origins,
 )
+from hushh_mcp.services.people_search_sql import people_query_match_params
+from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from mcp_modules.log_redaction import redact_log_field
 
 logger = logging.getLogger(__name__)
@@ -38,7 +40,7 @@ CIRCLE_CODE_TTL_HOURS = 72
 # invited. It stays because the invitations written before that change are
 # still readable, and accept/decline still refuse the ones that ran out.
 CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
-CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
+CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 1
 # How many people may be on one SMS Circle.
 #
 # Deliberately far below an ordinary Circle's hundred, because this is not a
@@ -117,6 +119,26 @@ class OneLocationCircleError(RuntimeError):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+def _format_cooldown_remaining(remaining_seconds: int | float | None) -> str:
+    """ "in 47 minutes" / "in 2 hours 5 minutes" / "in under a minute".
+
+    Rounds UP to the minute so the toast never promises a shorter wait than
+    the database will actually honor -- the person re-tries at the stated
+    time and it works, rather than "in 1 minute" meaning "in 1-119 seconds".
+    """
+    total_seconds = max(0, int(remaining_seconds or 0))
+    if total_seconds < 60:
+        return "in under a minute"
+    total_minutes = -(-total_seconds // 60)  # ceil
+    hours, minutes = divmod(total_minutes, 60)
+    if hours <= 0:
+        return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+    parts = [f"{hours} hour{'s' if hours != 1 else ''}"]
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    return "in " + " ".join(parts)
 
 
 def normalize_circle_code(value: str) -> str:
@@ -591,6 +613,7 @@ class OneLocationCircleService:
         return {
             "userId": str(row.get("user_id") or ""),
             "displayName": display_name or "Circle member",
+            "publicPersonRef": str(row.get("public_person_ref") or "") or None,
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "role": str(row.get("role") or "member"),
             "joinedAt": _iso(row.get("joined_at")),
@@ -616,6 +639,7 @@ class OneLocationCircleService:
             # can start.
             "canConnect": (relationship == "none" and bool(row.get("phone_verified"))),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -652,6 +676,7 @@ class OneLocationCircleService:
             "photoUrl": str(row.get("custom_photo_url") or row.get("photo_url") or "") or None,
             "connectedAt": _iso(row.get("connected_at")),
             "connectedFromContacts": bool(row.get("connected_from_contacts")),
+            "isRia": bool(row.get("is_ria")),
         }
 
     @staticmethod
@@ -832,7 +857,7 @@ class OneLocationCircleService:
                     status_code=404,
                 )
             members_result = self._db.execute_raw(
-                """
+                f"""
                 SELECT
                   membership.user_id, membership.role, membership.joined_at,
                   identity.display_name, identity.email, identity.photo_url,
@@ -840,6 +865,12 @@ class OneLocationCircleService:
                   recipient_key.key_id, recipient_key.public_key_jwk,
                   recipient_key.algorithm,
                   recipient_key.created_at AS key_created_at,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = membership.user_id
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria,
                   EXISTS (
                     SELECT 1
                     FROM connections contact_connection
@@ -900,7 +931,7 @@ class OneLocationCircleService:
                 ORDER BY
                   CASE membership.role WHEN 'owner' THEN 0 ELSE 1 END,
                   COALESCE(identity.display_name, membership.user_id)
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {"circle_id": cleaned_circle_id, "viewer_user_id": user_id},
             )
             circle = self._circle_summary(dict(summary_row))
@@ -1031,10 +1062,11 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
+        query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 WITH authorized_circle AS (
                   SELECT circle.id, circle.owner_user_id
                   FROM one_location_circles circle
@@ -1050,6 +1082,13 @@ class OneLocationCircleService:
                   SELECT membership.user_id, membership.role, membership.joined_at,
                          identity.display_name, identity.email, identity.photo_url,
                          identity.custom_photo_url, identity.phone_verified,
+                         profile.public_person_ref,
+                         EXISTS (
+                           SELECT 1
+                           FROM ria_profiles ria_annotation
+                           WHERE ria_annotation.user_id = membership.user_id
+                             AND {RIA_VERIFIED_STATUS_SQL}
+                         ) AS is_ria,
                          LOWER(CASE
                            WHEN BTRIM(COALESCE(identity.display_name, '')) <> ''
                             AND BTRIM(identity.display_name) <> membership.user_id
@@ -1075,16 +1114,48 @@ class OneLocationCircleService:
                    AND membership.status = 'active'
                   LEFT JOIN actor_identity_cache identity
                     ON identity.user_id = membership.user_id
-                ), filtered AS (
-                  SELECT * FROM candidates
+                  LEFT JOIN actor_profiles profile
+                    ON profile.user_id = membership.user_id
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
                   WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
                 ), total AS (
                   SELECT COUNT(*)::BIGINT AS total_count,
                          EXISTS (SELECT 1 FROM authorized_circle) AS authorized
                   FROM filtered
                 ), page_rows AS (
                   SELECT * FROM filtered
-                  ORDER BY normalized_name, user_id
+                  ORDER BY match_rank, normalized_name, user_id
                   OFFSET :offset LIMIT :limit
                 )
                 SELECT page_rows.*,
@@ -1130,12 +1201,14 @@ class OneLocationCircleService:
                   WHERE key.user_id = page_rows.user_id AND key.status = 'active'
                   ORDER BY key.created_at DESC LIMIT 1
                 ) recipient_key ON TRUE
-                ORDER BY page_rows.normalized_name, page_rows.user_id
-                """,
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "viewer_user_id": user_id,
                     "query": normalized_query,
+                    **query_match,
                     "offset": offset,
                     "limit": normalized_limit,
                 },
@@ -2715,7 +2788,7 @@ class OneLocationCircleService:
                     status_code=403,
                 )
             result = self._db.execute_raw(
-                """
+                f"""
                 SELECT DISTINCT
                   connection.id AS connection_id,
                   CASE
@@ -2733,7 +2806,17 @@ class OneLocationCircleService:
                       AND contact_origin.status = 'active'
                       AND contact_origin.origin_kind = 'contact_sync'
                       AND contact_origin.source_ref = :actor_user_id
-                  ) AS connected_from_contacts
+                  ) AS connected_from_contacts,
+                  EXISTS (
+                    SELECT 1
+                    FROM ria_profiles ria_annotation
+                    WHERE ria_annotation.user_id = CASE
+                      WHEN connection.user_a_id = :actor_user_id
+                      THEN connection.user_b_id
+                      ELSE connection.user_a_id
+                    END
+                      AND {RIA_VERIFIED_STATUS_SQL}
+                  ) AS is_ria
                 FROM one_location_circles circle
                 JOIN one_location_circle_memberships actor_membership
                   ON actor_membership.circle_id = circle.id
@@ -2790,7 +2873,7 @@ class OneLocationCircleService:
                       AND invite.expires_at > NOW()
                   )
                 ORDER BY identity.display_name NULLS LAST
-                """,
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
@@ -2821,10 +2904,11 @@ class OneLocationCircleService:
         normalized_page = max(1, int(page or 1))
         normalized_limit = max(1, min(int(limit or 50), 100))
         normalized_query = str(query or "").strip().lower()
+        query_match = people_query_match_params(normalized_query)
         offset = (normalized_page - 1) * normalized_limit
         try:
             result = self._db.execute_raw(
-                """
+                f"""
                 WITH authorized_circle AS (
                   SELECT circle.id, circle.owner_user_id
                   FROM one_location_circles circle
@@ -2893,16 +2977,46 @@ class OneLocationCircleService:
                                                        ELSE connection.user_a_id END
                       AND invite.status = 'pending' AND invite.expires_at > NOW()
                   )
-                ), filtered AS (
-                  SELECT * FROM candidates
+                ), matched AS (
+                  -- How well the query matches, in the same three tiers the
+                  -- client picker uses (lib/one-location/people-search.ts):
+                  --   0  the name itself begins with it
+                  --   1  a word inside the name begins with it
+                  --   2  it only appears mid-word
+                  -- People read a name from the start of its words, so `n`
+                  -- means Neelesh, not the "n" inside "Ankit".
+                  SELECT *,
+                    CASE
+                      WHEN :query = '' THEN 0
+                      WHEN normalized_name ~ :query_prefix_re THEN 0
+                      WHEN normalized_name ~ :query_word_re THEN 1
+                      ELSE 2
+                    END AS match_rank
+                  FROM candidates
                   WHERE :query = '' OR POSITION(:query IN normalized_name) > 0
+                ), filtered AS (
+                  -- A single character is only meaningful as a BEGINNING:
+                  -- mid-word it matches most names in any list, which is
+                  -- exactly why one-letter search read as broken. So one
+                  -- character keeps just the word-beginning matches -- unless
+                  -- nothing begins with it, in which case the loose matches
+                  -- stand rather than emptying a list that has a match.
+                  -- Two characters and up drop nothing, so "ingh" still finds
+                  -- Singh. Same rule as the client, so a paged list and an
+                  -- unpaged one never disagree about what a query means.
+                  SELECT * FROM matched
+                  WHERE NOT :query_is_single_char
+                     OR match_rank < 2
+                     OR NOT EXISTS (
+                          SELECT 1 FROM matched narrow WHERE narrow.match_rank < 2
+                        )
                 ), total AS (
                   SELECT COUNT(*)::BIGINT AS total_count,
                          EXISTS (SELECT 1 FROM authorized_circle) AS authorized
                   FROM filtered
                 ), page_rows AS (
                   SELECT * FROM filtered
-                  ORDER BY normalized_name, user_id, connection_id
+                  ORDER BY match_rank, normalized_name, user_id, connection_id
                   OFFSET :offset LIMIT :limit
                 )
                 SELECT page_rows.*, total.total_count, total.authorized,
@@ -2912,14 +3026,22 @@ class OneLocationCircleService:
                            AND contact_origin.status = 'active'
                            AND contact_origin.origin_kind = 'contact_sync'
                            AND contact_origin.source_ref = :actor_user_id
-                       ) END AS connected_from_contacts
+                       ) END AS connected_from_contacts,
+                       CASE WHEN page_rows.connection_id IS NULL THEN FALSE ELSE EXISTS (
+                         SELECT 1
+                         FROM ria_profiles ria_annotation
+                         WHERE ria_annotation.user_id = page_rows.user_id
+                           AND {RIA_VERIFIED_STATUS_SQL}
+                       ) END AS is_ria
                 FROM total LEFT JOIN page_rows ON TRUE
-                ORDER BY page_rows.normalized_name, page_rows.user_id, page_rows.connection_id
-                """,
+                ORDER BY page_rows.match_rank, page_rows.normalized_name,
+                         page_rows.user_id, page_rows.connection_id
+                """,  # nosec B608 - RIA_VERIFIED_STATUS_SQL is a static module constant.
                 {
                     "circle_id": cleaned_circle_id,
                     "actor_user_id": actor_user_id,
                     "query": normalized_query,
+                    **query_match,
                     "offset": offset,
                     "limit": normalized_limit,
                 },
@@ -3301,7 +3423,12 @@ class OneLocationCircleService:
                                 AND ended_at > NOW() - make_interval(
                                   hours => :reinvite_cooldown_hours
                                 )
-                              ) AS left_recently
+                              ) AS left_recently,
+                              GREATEST(0, EXTRACT(EPOCH FROM (
+                                ended_at + make_interval(
+                                  hours => :reinvite_cooldown_hours
+                                ) - NOW()
+                              )))::int AS left_recently_remaining_seconds
                             FROM one_location_circle_memberships
                             WHERE circle_id = CAST(:circle_id AS UUID)
                               AND user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
@@ -3316,11 +3443,61 @@ class OneLocationCircleService:
                         },
                     )
                 )
-                if any(str(row.get("status") or "") == "active" for row in target_membership_rows):
+                # One ineligible person must not take the rest of the batch
+                # down with them.
+                #
+                # These two rules used to reject the whole request: pick
+                # five people, and if a single one had left the Circle
+                # recently, nobody was added and the only explanation was
+                # that "someone" you selected had left. The rules
+                # themselves are right -- an existing member should not be
+                # re-added, and leaving costs a cooldown that binds the
+                # owner too -- but they are about one person each, so they
+                # now remove that person and let the rest through.
+                #
+                # Nothing is relaxed: a blocked person is still blocked,
+                # the same transaction still covers everyone who does get
+                # added, and an add naming only blocked people still fails
+                # loudly rather than silently succeeding with nobody.
+                blocked_reasons: dict[str, str] = {}
+                left_recently_remaining_seconds: list[int] = []
+                for row in target_membership_rows:
+                    blocked_user_id = str(row.get("user_id") or "")
+                    if not blocked_user_id:
+                        continue
+                    if str(row.get("status") or "") == "active":
+                        blocked_reasons[blocked_user_id] = "already_member"
+                    elif bool(row.get("left_recently")):
+                        blocked_reasons[blocked_user_id] = "left_recently"
+                        left_recently_remaining_seconds.append(
+                            int(row.get("left_recently_remaining_seconds") or 0)
+                        )
+                if blocked_reasons:
+                    cleaned_invitee_user_ids = [
+                        user_id
+                        for user_id in cleaned_invitee_user_ids
+                        if user_id not in blocked_reasons
+                    ]
+                if not cleaned_invitee_user_ids:
+                    # Nobody addable. Report the reason that applies to
+                    # everyone named, so a single-person add still gets
+                    # the precise error it always did.
+                    if all(reason == "already_member" for reason in blocked_reasons.values()):
+                        raise OneLocationCircleError(
+                            "LOCATION_CIRCLE_ALREADY_MEMBER",
+                            "One or more selected connections are already in the Circle.",
+                            status_code=409,
+                        )
+                    # The longest wait among everyone blocked this way, so the
+                    # toast never understates how long the cooldown actually
+                    # runs when more than one person is affected at once.
+                    retry_in = _format_cooldown_remaining(
+                        max(left_recently_remaining_seconds, default=0)
+                    )
                     raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_ALREADY_MEMBER",
-                        "One or more selected connections are already in the Circle.",
-                        status_code=409,
+                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
+                        f"They recently left this Circle. You can add them again {retry_in}.",
+                        status_code=429,
                     )
                 # Leaving is that person saying no to this Circle specifically,
                 # and it now costs a cooldown the way declining an invitation
@@ -3333,12 +3510,7 @@ class OneLocationCircleService:
                 # It binds the OWNER too. Every other rule here protects the
                 # Circle from its members; this one protects a person from the
                 # Circle, and the owner is who they are leaving.
-                if any(bool(row.get("left_recently")) for row in target_membership_rows):
-                    raise OneLocationCircleError(
-                        "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
-                        "Someone you selected recently left this Circle. Try again later.",
-                        status_code=429,
-                    )
+
                 connection_rows = _all(
                     conn.execute(
                         text(
@@ -3486,14 +3658,26 @@ class OneLocationCircleService:
                 # actor; the check above requires it. So everyone named here is
                 # added, and nobody is left waiting.
                 new_user_ids = list(cleaned_invitee_user_ids)
-                if any(
-                    str(row.get("invitee_user_id") or "") in new_user_ids
-                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                cooldown_invite_rows = [
+                    row
                     for row in existing_rows
-                ):
+                    if str(row.get("invitee_user_id") or "") in new_user_ids
+                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                ]
+                if cooldown_invite_rows:
+                    now = datetime.now(timezone.utc)
+                    responded_at_values = [
+                        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+                        for row in cooldown_invite_rows
+                        if isinstance(value := row.get("updated_at"), datetime)
+                    ]
+                    cooldown_until = max(responded_at_values, default=now) + timedelta(
+                        hours=CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS
+                    )
+                    retry_in = _format_cooldown_remaining((cooldown_until - now).total_seconds())
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_COOLDOWN",
-                        "This person recently responded to a Circle invitation. Try again later.",
+                        f"This person recently responded to a Circle invitation. Try again {retry_in}.",
                         status_code=429,
                     )
                 capacity_row = _first(
@@ -3688,6 +3872,13 @@ class OneLocationCircleService:
                 "invites": [],
                 "createdInviteIds": [],
                 "addedUserIds": added_user_ids,
+                # Who was named but not added, and why. Additive: a caller
+                # that ignores this reads exactly what it read before. It
+                # exists so a partial add can SAY it was partial -- without
+                # it, dropping the blocked people would be indistinguishable
+                # from never having selected them.
+                "skippedUserIds": sorted(blocked_reasons),
+                "skippedReasons": dict(blocked_reasons),
             }
         except OneLocationCircleError:
             raise

@@ -68,8 +68,13 @@ if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surf
   ran=1
 fi
 
-if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
+if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|lib/capacitor/one-system-action-invocation\.ts|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
+  # Signature parity across the three flows. Static parity checks the route
+  # inventory; this checks that a plugin method declared in TypeScript is
+  # actually implemented AND registered on both iOS and Android. A change under
+  # ios/ or android/ is exactly when that can drift.
+  run_check "Capacitor plugin contracts" npm run verify:capacitor:plugins
   ran=1
 fi
 
@@ -135,7 +140,13 @@ fi
 # caught here, and one of them -- an open-ended duration offered on the Request
 # screen -- emits a non-numeric sentinel into a field the same lane runs
 # Number() over.
-if has_match '^hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)'; then
+#
+# `google_maps_service.py` is in this glob because the check-in drawer's category
+# chips are its output: the backend classifies every nearby place and the client
+# only filters what it is handed. A taxonomy change is a backend-only diff that
+# nothing on this side would otherwise run -- which is how "Hotels" shipped
+# listing a lounge.
+if has_match '^(hushh-webapp/(components/one-location/|__tests__/components/one-location|app/one/location/|lib/one-location/|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/hushh_mcp/services/(google_maps_service|place_taxonomy)\.py)'; then
   run_check "One Location flows" npm run verify:one-location
   ran=1
 fi

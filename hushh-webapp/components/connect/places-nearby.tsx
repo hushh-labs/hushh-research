@@ -48,6 +48,9 @@ const OVERVIEW_LIMIT = 8;
 
 const CATEGORY_SLUGS = PLACES_CATEGORIES.map((entry) => entry.slug);
 
+const hasPlaceRows = (groups: Record<string, PlaceCard[]>) =>
+  Object.values(groups).some((items) => items.length > 0);
+
 /**
  * "Places near you" — the ten business categories around the account's position.
  *
@@ -87,6 +90,11 @@ export function PlacesNearby({
 
   const requestRef = useRef(0);
   const abortRef = useRef<AbortController | null>(null);
+  const byCategoryRef = useRef<Record<string, PlaceCard[]>>({});
+
+  useEffect(() => {
+    byCategoryRef.current = byCategory;
+  }, [byCategory]);
 
   useEffect(() => {
     if (!location.snapshot) return;
@@ -110,10 +118,13 @@ export function PlacesNearby({
       abortRef.current = controller;
 
       const token = ++requestRef.current;
+      const hasRetainedRows = hasPlaceRows(byCategoryRef.current);
       setStreaming(true);
       setError(null);
-      setByCategory({});
-      setAttribution(null);
+      if (!hasRetainedRows) {
+        setByCategory({});
+        setAttribution(null);
+      }
 
       const origin =
         target.kind === "coords"
@@ -128,7 +139,11 @@ export function PlacesNearby({
         // A slower earlier sweep must never write into a newer one.
         if (token !== requestRef.current) return;
         categoriesAnswered += 1;
-        setByCategory((current) => ({ ...current, [category]: items }));
+        setByCategory((current) => {
+          const next = { ...current, [category]: items };
+          byCategoryRef.current = next;
+          return next;
+        });
       };
 
       try {
@@ -187,18 +202,25 @@ export function PlacesNearby({
         // Nothing answered and something refused: the provider is down, not the
         // neighbourhood. Saying "Nothing nearby" here would be a claim about
         // the world that we have no evidence for.
-        if (token === requestRef.current && categoriesAnswered === 0 && failed.size > 0) {
+        if (
+          token === requestRef.current &&
+          categoriesAnswered === 0 &&
+          failed.size > 0 &&
+          !hasPlaceRows(byCategoryRef.current)
+        ) {
           setError("Places are unavailable right now.");
         }
       } catch (caught) {
         if (controller.signal.aborted) return;
         if (token !== requestRef.current) return;
         if (caught instanceof DOMException && caught.name === "AbortError") return;
-        setError(
-          caught instanceof Error
-            ? caught.message
-            : "Places are unavailable right now.",
-        );
+        if (!hasPlaceRows(byCategoryRef.current)) {
+          setError(
+            caught instanceof Error
+              ? caught.message
+              : "Places are unavailable right now.",
+          );
+        }
       } finally {
         if (token === requestRef.current) setStreaming(false);
       }
@@ -337,10 +359,10 @@ export function PlacesNearby({
               onClick={() => setChip(entry.slug)}
               data-testid={`places-chip-${entry.slug}`}
               className={cn(
-                "type-footnote shrink-0 rounded-full border px-3 py-1.5 transition-colors",
+                "type-footnote press-scale shrink-0 rounded-full border px-3 py-1.5 transition-[background-color,border-color,color,transform] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
                 active
-                  ? "border-transparent bg-foreground text-background"
-                  : "border-border text-muted-foreground hover:text-foreground",
+                  ? "border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-surface)] text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]"
+                  : "border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-compact)] text-[color:var(--app-secondary-label)] hover:bg-foreground/[0.035] hover:text-[color:var(--app-primary-label)]",
               )}
             >
               {entry.label}
@@ -454,8 +476,10 @@ export function PlacesNearby({
                   icon={MapPin}
                   iconTone="gray"
                   title={
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate">{card.name}</span>
+                    <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                      <span className="min-w-0 whitespace-normal [overflow-wrap:anywhere]">
+                        {card.name}
+                      </span>
                       <NearbyTagBadge>
                         {placesCategoryLabel(card.category)}
                       </NearbyTagBadge>

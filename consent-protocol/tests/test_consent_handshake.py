@@ -689,6 +689,44 @@ def test_cancel_consent_records_event(monkeypatch):
     assert len(cancelled) == 1
 
 
+def test_revoke_targets_exact_request_when_scope_is_shared_with_multiple_people(monkeypatch):
+    fake_db = _FakeConsentDBService()
+    revoked_tokens: list[str] = []
+
+    import hushh_mcp.consent.token as token_module
+
+    monkeypatch.setattr(consent, "ConsentDBService", lambda: fake_db)
+    monkeypatch.setattr(token_module, "revoke_token", lambda token: revoked_tokens.append(token))
+    monkeypatch.setattr(consent, "RIAIAMService", _NoOpRIAIAMService)
+
+    now_ms = int(time.time() * 1000)
+    for suffix in ("a", "b"):
+        fake_db.active[(f"one_person:{suffix}", "attr.identity.legal_name")] = {
+            "user_id": "investor_1",
+            "agent_id": f"one_person:{suffix}",
+            "scope": "attr.identity.legal_name",
+            "token_id": f"token_{suffix}",
+            "issued_at": now_ms,
+            "expires_at": now_ms + 86_400_000,
+            "request_id": f"request_{suffix}",
+        }
+
+    response = TestClient(_build_app()).post(
+        "/api/consent/revoke",
+        json={
+            "userId": "investor_1",
+            "scope": "attr.identity.legal_name",
+            "requestId": "request_b",
+        },
+    )
+
+    assert response.status_code == 200
+    assert revoked_tokens == ["token_b"]
+    revoked = [event for event in fake_db.events if event["action"] == "REVOKED"]
+    assert revoked[-1]["request_id"] == "request_b"
+    assert revoked[-1]["agent_id"] == "one_person:b"
+
+
 def test_no_data_access_before_approved_consent(monkeypatch):
     """
     Core invariant: consent/data endpoint rejects requests with no valid token.

@@ -477,6 +477,7 @@ def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
     async def _mock_sync(self, user_id: str, **kwargs):  # noqa: ANN003
         assert user_id == "user_test_123"
         assert kwargs["source_data_version"] == 7
+        assert kwargs["investor_debate_thesis"] == "Pressure-test concentration risk."
         return {
             "status": "synced",
             "share_artifacts_updated": 2,
@@ -498,6 +499,7 @@ def test_ria_picks_post_syncs_share_artifacts(monkeypatch):
             "avoid_rows": [],
             "screening_sections": [],
             "source_data_version": 7,
+            "investor_debate_thesis": "Pressure-test concentration risk.",
         },
     )
 

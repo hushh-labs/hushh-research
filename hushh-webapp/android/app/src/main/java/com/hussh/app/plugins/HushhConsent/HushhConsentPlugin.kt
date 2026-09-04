@@ -157,6 +157,7 @@ class HushhConsentPlugin : Plugin() {
     fun revokeConsent(call: PluginCall) {
         val userId = call.getString("userId")
         val scope = call.getString("scope")
+        val requestId = call.getString("requestId")
         
         if (userId == null || scope == null) {
             call.reject("Missing required parameters: userId and scope")
@@ -177,6 +178,7 @@ class HushhConsentPlugin : Plugin() {
                 val jsonBody = JSONObject().apply {
                     put("userId", userId)
                     put("scope", scope)
+                    if (!requestId.isNullOrBlank()) put("requestId", requestId)
                 }
                 val requestBody = jsonBody.toString().toRequestBody("application/json".toMediaType())
                 

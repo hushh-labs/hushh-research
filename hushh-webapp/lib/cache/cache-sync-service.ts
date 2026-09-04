@@ -7,6 +7,7 @@ import {
 import { DeviceResourceCacheService } from "@/lib/services/device-resource-cache-service";
 import { RiaOnboardingStatusLocalService } from "@/lib/services/ria-onboarding-status-local-service";
 import { bumpRiaInvalidationEpoch } from "@/lib/cache/ria-invalidation-epoch";
+import { bumpPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
 import {
   clearAllLocationWorkspaceMemory,
@@ -358,6 +359,7 @@ export class CacheSyncService {
         }),
       );
     };
+    bumpPkmInvalidationEpoch(userId);
     const cache = CacheService.getInstance();
     const writeThroughMetadata = options?.writeThroughMetadata !== false;
     cache.invalidate(CACHE_KEYS.PKM_DECRYPTED_BLOB(userId));
@@ -456,6 +458,7 @@ export class CacheSyncService {
       cache.invalidate(CACHE_KEYS.PORTFOLIO_DATA(userId));
       this.invalidateKaiFinancialResource(userId);
     }
+    bumpPkmInvalidationEpoch(userId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {
@@ -497,6 +500,7 @@ export class CacheSyncService {
       this.invalidateKaiFinancialResource(userId, { includeDevice: true });
       this.onKaiMarketContextChanged(userId);
     }
+    bumpPkmInvalidationEpoch(userId);
     if (typeof window !== "undefined") {
       window.dispatchEvent(
         new CustomEvent("pkm-domain-changed", {

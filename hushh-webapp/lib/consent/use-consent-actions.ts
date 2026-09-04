@@ -685,7 +685,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
    * For VAULT_OWNER scope, this will also lock the vault
    */
   const handleRevoke = useCallback(
-    (scope: string): Promise<void> => {
+    (scope: string, requestId?: string | null): Promise<void> => {
       const normalizedScope = scope.trim();
       const actionKey = `revoke:${normalizedScope}`;
       return runWithActionLock(
@@ -698,6 +698,7 @@ export function useConsentActions(options: UseConsentActionsOptions = {}) {
         const response = await ApiService.revokeConsent({
           userId,
           scope: normalizedScope,
+          requestId: String(requestId || "").trim() || undefined,
           // Revoke is consent-gated; always include the VAULT_OWNER token explicitly.
           // (On native builds, relying on sessionStorage can be flaky across webview lifecycles.)
           token: vaultOwnerToken || "",

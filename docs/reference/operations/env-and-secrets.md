@@ -194,13 +194,59 @@ It checks that:
 6. App-review toggles, reviewer identity secrets, bypass flags, and rehearsal keys are maintainer-only overlays and are intentionally excluded from the canonical contributor runtime contract.
 7. UAT backend revisions still mount `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager so reviewer-mode smoke can mint the Firebase custom token after deploy.
 8. The canonical non-production reviewer fixture is `REVIEWER_UID` plus `REVIEWER_VAULT_PASSPHRASE`; `UAT_SMOKE_*` and `KAI_TEST_*` are deprecated migration aliases, and no `NEXT_PUBLIC_*` passphrase is allowed.
-9. Localhost agent review: the local backend loads `consent-protocol/.env.local` as a maintainer overlay (`hushh_mcp/runtime_settings.py`; the file is absent in deployed environments, so this is a no-op there, and `override=False` keeps the canonical `.env` authoritative). Setting `APP_REVIEW_MODE=true` there, alongside the Secret-Manager-sourced `REVIEWER_UID` / `REVIEWER_VAULT_PASSPHRASE`, enables the `/api/app-config/review-mode/session` custom-token minter on `localhost` so reviewer browser rehearsals (and agents reviewing app changes) can run against `http://localhost:3000` without a deploy. It stays local-only: `.env.local` never ships.
+9. Localhost private-agent review: the local backend loads `consent-protocol/.env.local` as a maintainer overlay (`hushh_mcp/runtime_settings.py`; the file is absent in deployed environments, so this is a no-op there, and `override=False` keeps the canonical `.env` authoritative). Use `bash scripts/env/reviewer_mode.sh enable`, restart the backend, and run the reviewer preflight with `REVIEWER_SECRET_PROJECT=hushh-pda-uat`; it resolves `REVIEWER_UID` and `REVIEWER_VAULT_PASSPHRASE` from Secret Manager only into the test process. The overlay holds only `APP_REVIEW_MODE=true`; it never holds reviewer secrets. The preflight proves the localhost custom-token minter is enabled before Chromium launches, and the standard rehearsal blocks unapproved state-changing HTTP. Afterward, disable the mode and restart the backend. The overlay never ships.
 
 ### Environment divergence note (current)
 
 1. UAT and production use the same canonical frontend key shape.
 2. Each deployed environment resolves one active analytics measurement ID and one active GTM ID.
 3. Maintainer-only overlays are intentionally excluded from generated contributor runtime files.
+
+### Fleet text model switch (2026-09-02)
+
+`HUSSH_GEMINI_TEXT_MODEL` (backend, `_HUSSH_GEMINI_TEXT_MODEL` substitution) moves
+every text agent to one Gemini generation at once: agent manifests say
+`gemini-default`, which resolves to `constants.GEMINI_MODEL`. Blank keeps the last
+default generation (`FLEET_TEXT_MODEL_DEFAULT`, **3.8 Flash** since 2026-09-02).
+Production pins `gemini-3.7-flash` explicitly in `deploy-production.yml`, because its
+Vertex allowed-models policy still refuses 3.8 (verified live: 400 on `hushh-pda`,
+3.7 succeeds). Remove that pin once an org-policy admin admits 3.8 there. A
+lane may flip it only after its project's `constraints/vertexai.allowedModels`
+policy admits the id. `gemini-3.8-flash` was admitted for `hushh-pda-uat` on
+2026-09-02, so the dev lane (whose Gemini project is `hushh-pda-uat`) runs it. UAT's
+Gemini project is `hushh-gemini-bridge`, whose allowlist still rejects it (verified
+2026-09-02: a direct generateContent returns a policy violation), so UAT stays on the
+default until an org-policy admin admits the id there; production likewise. The
+deploy-time Vertex readiness probe resolves the alias through the same resolver and
+receives `HUSSH_GEMINI_TEXT_MODEL`, so it validates the lane's switched model, never
+the literal alias. Every text agent names the alias, the memory chain and reducer included; only the
+Live head keeps an explicit pin.
+
+### Wallet subagent flags and the central One mailbox (2026-09-02)
+
+- The Wallet ships unconditionally. `ONE_WALLET_ENABLED` and
+  `NEXT_PUBLIC_ONE_WALLET_ENABLED` were removed on 2026-09-02: the feature was
+  complete, the frontend flag was a build-time constant that duplicated the
+  backend's authority, and the manifest's `HUSHH_WALLET_AGENT_DISABLED` kill switch
+  was never wired to anything. Nothing gates the Wallet now, in any lane.
+- Support, invite, and capability mail: every `SUPPORT_EMAIL_*` address defaults to
+  `ONE_EMAIL_ADDRESS` (`one@hushh.ai`). UAT and production carry no overrides; the
+  dev project's `SUPPORT_EMAIL_*` secrets point at `one@hushh.ai` in test mode. The
+  mailbox credential is never stored in the repo or Secret Manager; sending rides
+  the delegated service identity. Forwarding from `one@hushh.ai` to a person is a
+  Google Workspace admin setting, not a repo concern.
+
+### Deploy-step env plumbing and the Cloud Build arg cap (2026-09-02)
+
+The `deploy-backend` step body in `deploy/backend.cloudbuild.yaml` is one Cloud Build
+arg, capped at 10,000 characters after substitution. Optional env values now travel
+through the step's `env:` field (`_NAME=${_NAME}`, which does not count toward the cap)
+and one `for n in ...` loop reads them with `${!v}`; only names that existing contract
+tests assert literally stay as flat `add_env` lines. The file has no
+`automapSubstitutions`, so a name in the loop without an `env:` entry deploys nothing:
+that is how the Gmail personal-information-request monitor settings were silently
+unset before this change. `tests/test_cloudbuild_step_arg_limit.py` guards the cap, the
+per-lane headroom, and the loop-to-`env:` pairing.
 
 ### Ops-only GitHub identity variables (deploy/backup governance)
 

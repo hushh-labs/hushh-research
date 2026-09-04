@@ -799,9 +799,15 @@ textarea {
   --ios-account-label: var(--foreground, #1d1d1f);
   --ios-account-secondary-label: var(--muted-foreground, #8e8e93);
   --ios-account-tertiary-label: #aeaeb2;
-  --ios-account-separator: var(--app-card-border-standard, rgba(60, 60, 67, 0.1));
+  --ios-account-separator: var(
+    --app-card-border-standard,
+    rgba(60, 60, 67, 0.1)
+  );
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.12);
-  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #8e8e93);
+  --ios-account-utility-icon-tile-background: var(
+    --app-icon-tile-background,
+    #8e8e93
+  );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #1c1c1e;
   --ios-account-service-icon-glyph: #ffffff;
@@ -812,8 +818,8 @@ textarea {
   --ios-account-title-line: var(--type-page-title-line);
   --ios-account-title-weight: 700;
   --ios-account-title-tracking: normal;
-  --ios-account-description-size: 15px;
-  --ios-account-description-line: 20.7px;
+  --ios-account-description-size: var(--type-row-description-size);
+  --ios-account-description-line: var(--type-row-description-line);
   --ios-account-section-header-size: 15px;
   --ios-account-section-header-line: 20px;
   --ios-account-regular-weight: var(--foundation-body-weight);
@@ -827,7 +833,7 @@ textarea {
   --ios-account-tab-label-line: 13.75px;
   --ios-account-card-margin-inline: 0px;
   --ios-account-card-outer-offset: 0px;
-  --ios-account-card-radius: 24px;
+  --ios-account-card-radius: var(--app-radius-lg);
   --ios-account-card-leading-inset: 20px;
   --ios-account-row-min-height: 58px;
   --ios-account-row-vertical-pad: 11px;
@@ -895,6 +901,7 @@ textarea {
   /* Foundation (bible): a bright white canvas carries the ambient wash while
      cards remain legible without reverting the app to an opaque flat page. */
   --background: #f2f2f7;
+  --one-launcher-background: #f3f3f7;
   --foreground: oklch(0.232 0.004 286.1);
   --card: #ffffff;
   --card-foreground: oklch(0.232 0.004 286.1);
@@ -1030,9 +1037,9 @@ textarea {
   /* ── Apple iCloud card contract ───────────────────────────────── */
   /* Shared app card contract */
   --theme-color-boxShadow: rgba(120, 120, 128, 0.16);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: #f7f7fa;
   --app-card-surface-compact: #fcfcfd;
   --app-card-surface-default: #ffffff;
@@ -1043,16 +1050,29 @@ textarea {
   --app-card-surface-sticky-header-solid: #f6f7fb;
   --app-card-border-standard: rgba(60, 60, 67, 0.09);
   --app-card-border-strong: rgba(60, 60, 67, 0.18);
-  --app-card-shadow-standard: 0 4px 18px rgba(0, 0, 0, 0.04);
-  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.05);
+  --app-card-shadow-standard: none;
+  --app-card-shadow-feature: 0 8px 24px rgba(0, 0, 0, 0.04);
   --app-list-row-surface: color-mix(
     in srgb,
     var(--app-card-surface-default-solid) 90%,
     transparent
   );
-  --app-segmented-active-surface: #ffffff;
-  --app-segmented-active-foreground: #000000;
-  --app-segmented-active-border: #000000;
+  /* One segmented-control material, shared by every segmented strip.
+     Location's top strip drew a grey track with a white sliding pill; every
+     `SegmentedTabs` drew a near-white track with a bordered pill. Same control,
+     two materials, and the difference read as two different components on the
+     Location and Connect pages. These tokens are now that one material, and the
+     track token is what the shared component reads instead of the generic card
+     surface it had been borrowing. */
+  --app-segmented-track-surface: var(--app-neutral-fill);
+  --app-segmented-active-surface: var(--app-card-surface-default-solid);
+  /* Not the accent. A segmented control marks the selection with the PILL --
+     a second signal in accent tint is what tab bars use, and using both makes
+     a segmented strip read as a tab bar. See the scoped `[role="tab"]` rule
+     further down, which is where Location was getting blue from. */
+  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-border: transparent;
+  --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(255, 255, 255, 0.9);
   --app-shell-surface-border: var(--app-glass-border);
@@ -1079,12 +1099,13 @@ textarea {
 .dark {
   --app-screen-background: #000000;
   --app-grouped-background: #000000;
+  --one-launcher-background: var(--background);
   --app-primary-surface: #1c1c1e;
   --app-secondary-surface: #2c2c2e;
   --app-elevated-surface: #2c2c2e;
   --app-label: #f5f5f7;
-  --app-secondary-label: rgba(235, 235, 245, 0.6);
-  --app-section-label: rgba(235, 235, 245, 0.6);
+  --app-secondary-label: rgba(235, 235, 245, 0.72);
+  --app-section-label: rgba(235, 235, 245, 0.72);
   --app-tertiary-label: rgba(235, 235, 245, 0.3);
   --app-quaternary-label: rgba(235, 235, 245, 0.18);
   --app-separator: rgba(84, 84, 88, 0.65);
@@ -1159,9 +1180,15 @@ textarea {
   --ios-account-label: var(--foreground, #ffffff);
   --ios-account-secondary-label: var(--muted-foreground, #98989d);
   --ios-account-tertiary-label: #636366;
-  --ios-account-separator: var(--app-card-border-standard, rgba(84, 84, 88, 0.65));
+  --ios-account-separator: var(
+    --app-card-border-standard,
+    rgba(84, 84, 88, 0.65)
+  );
   --ios-account-icon-tile-background: rgba(120, 120, 128, 0.24);
-  --ios-account-utility-icon-tile-background: var(--app-icon-tile-background, #636366);
+  --ios-account-utility-icon-tile-background: var(
+    --app-icon-tile-background,
+    #636366
+  );
   --ios-account-utility-icon-glyph: var(--app-icon-tile-foreground, #ffffff);
   --ios-account-service-icon-tile-background: #3a3a3c;
   --ios-account-service-icon-glyph: #ffffff;
@@ -1349,7 +1376,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   margin-top: 14px;
 }
 
-.profile-account-content [data-testid="settings-group"]:first-child > div:first-child {
+.profile-account-content
+  [data-testid="settings-group"]:first-child
+  > div:first-child {
   margin-top: 8px;
 }
 
@@ -1368,7 +1397,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 [data-profile-stack-screen="account"] [data-slot="settings-group-shell"],
 [data-profile-stack-screen="panel:account"] [data-slot="settings-group-shell"],
 .profile-account-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -1693,7 +1722,8 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
     filter 180ms ease;
 }
 
-.profile-home-screen [data-profile-avatar-frame="true"][aria-busy="true"]
+.profile-home-screen
+  [data-profile-avatar-frame="true"][aria-busy="true"]
   [data-profile-avatar-display="true"] {
   filter: saturate(0.92);
   opacity: 0.82;
@@ -1751,11 +1781,11 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 .profile-home-meta {
   color: var(--ios-account-secondary-label) !important;
   font-family: var(--font-app-body);
-  font-size: 15px !important;
+  font-size: var(--type-row-description-size) !important;
   margin-top: 0 !important;
   font-weight: 400;
   letter-spacing: 0 !important;
-  line-height: 20px !important;
+  line-height: var(--type-row-description-line) !important;
 }
 
 .profile-home-meta svg {
@@ -1787,7 +1817,9 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
   margin-top: 18px;
 }
 
-.profile-home-content [data-testid="settings-group"]:first-child > div:first-child {
+.profile-home-content
+  [data-testid="settings-group"]:first-child
+  > div:first-child {
   margin-top: 8px;
 }
 
@@ -1803,7 +1835,7 @@ body:has([data-profile-account-preview-root]) nextjs-portal {
 }
 
 .profile-home-content [data-slot="settings-group-shell"] {
-  --settings-group-radius: 22px;
+  --settings-group-radius: var(--ios-account-card-radius);
   background: var(--ios-account-card-background);
   border-color: transparent;
   box-shadow: none;
@@ -2114,9 +2146,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   transition: opacity 150ms ease;
 }
 
-
-
-
 /* The 🤫 brand mark. Every surface that renders it — top bar, sidebar, intro
    gate, onboarding — goes through this class so the glyph is chosen the same
    way everywhere instead of per-component inline stacks (only the top bar had
@@ -2140,29 +2169,54 @@ html.kb-open .ambient-chrome-mask--bottom {
   padding-bottom: var(--app-page-content-bottom-gap);
 }
 
+body:has([data-one-launcher-root="true"]) {
+  background: var(--one-launcher-background) !important;
+}
+
+body:has([data-one-launcher-root="true"]) .foundation-public-ambient {
+  background-color: var(--one-launcher-background);
+}
+
 .one-agent-launcher-grid {
-  --one-agent-icon-size: clamp(54px, 15.2vw, 62px);
-  --one-agent-cell-height: clamp(86px, 23vw, 98px);
-  --one-agent-column-gap: clamp(8px, 3vw, 16px);
-  --one-agent-row-gap: clamp(8px, 2.3vh, 18px);
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  column-gap: 12px;
+  row-gap: 20px;
 }
 
-.one-agent-launcher-grid-inner {
-  column-gap: var(--one-agent-column-gap);
-  row-gap: var(--one-agent-row-gap);
+.one-agent-launcher-tile {
+  grid-column: span 2;
 }
 
-@media (max-height: 620px) {
+.one-agent-launcher-tile:nth-last-child(2):nth-child(3n + 1) {
+  grid-column: 2 / span 2;
+}
+
+.one-agent-launcher-tile:last-child:nth-child(3n + 2) {
+  grid-column: 4 / span 2;
+}
+
+@media (min-width: 430px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 52px;
-    --one-agent-cell-height: 84px;
+    column-gap: 20px;
   }
 }
 
 @media (min-width: 768px) {
   .one-agent-launcher-grid {
-    --one-agent-icon-size: 62px;
-    --one-agent-cell-height: 98px;
+    column-gap: 28px;
+    row-gap: 28px;
+  }
+}
+
+@media (max-width: 300px) {
+  .one-agent-launcher-tile {
+    grid-column: span 3;
+  }
+
+  .one-agent-launcher-tile:nth-last-child(2):nth-child(3n + 1),
+  .one-agent-launcher-tile:last-child:nth-child(3n + 2) {
+    grid-column-start: auto;
   }
 }
 
@@ -2176,7 +2230,6 @@ html.kb-open .ambient-chrome-mask--bottom {
   min-height: 0 !important;
   flex: 0 0 auto;
 }
-
 
 .app-page-shell--reading {
   max-width: 54rem;
@@ -2431,11 +2484,13 @@ html.native-ios [data-testid="one-location-onboarding"] {
 html:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
 html:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
 html:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
-html:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass],
+html:has([data-testid="one-location-onboarding"])
+  [data-app-bottom-chrome-glass],
 body:has([data-testid="one-location-onboarding"]) [data-app-bottom-nav],
 body:has([data-testid="one-location-onboarding"]) [data-app-bottom-shell],
 body:has([data-testid="one-location-onboarding"]) [data-agent-bar-shell],
-body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass] {
+body:has([data-testid="one-location-onboarding"])
+  [data-app-bottom-chrome-glass] {
   visibility: hidden !important;
   pointer-events: none !important;
 }
@@ -3630,7 +3685,7 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --secondary: #2c2c2e;
   --secondary-foreground: #f5f5f7;
   --muted: #2c2c2e;
-  --muted-foreground: rgba(235, 235, 245, 0.6);
+  --muted-foreground: rgba(235, 235, 245, 0.72);
   --accent: var(--app-accent);
   --accent-foreground: var(--app-accent-fg);
   --destructive: #ff453a;
@@ -3720,9 +3775,9 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 
   /* Dark: shared app card contract */
   --theme-color-boxShadow: rgba(0, 0, 0, 0.65);
-  --app-card-radius-compact: 24px;
-  --app-card-radius-standard: 24px;
-  --app-card-radius-feature: 24px;
+  --app-card-radius-compact: 16px;
+  --app-card-radius-standard: 18px;
+  --app-card-radius-feature: 20px;
   --app-card-surface-data: var(--app-primary-surface);
   --app-card-surface-compact: var(--app-primary-surface);
   --app-card-surface-default: var(--app-primary-surface);
@@ -3735,9 +3790,14 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
   --app-card-border-strong: rgba(255, 255, 255, 0.18);
   --app-card-shadow-standard: none;
   --app-card-shadow-feature: none;
-  --app-segmented-active-surface: var(--app-neutral-fill-strong);
-  --app-segmented-active-foreground: #ffffff;
-  --app-segmented-active-border: #ffffff;
+  --app-segmented-track-surface: var(--app-neutral-fill);
+  /* The raised pill has to read as raised against a dark track, and a shadow
+     alone cannot do that in dark mode -- so here the lift comes from the
+     surface being lighter than the track, not from the shadow. */
+  --app-segmented-active-surface: var(--app-card-surface-default-solid);
+  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-border: transparent;
+  --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --app-shell-surface-bg: var(--app-glass-surface);
   --app-shell-surface-bg-hover: rgba(48, 48, 52, 0.96);
   --app-shell-surface-border: rgba(255, 255, 255, 0.08);
@@ -3750,8 +3810,8 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 @media (max-width: 639px) {
   html.light,
   .light {
-    --app-card-shadow-standard: 0 10px 28px 0 rgba(120, 120, 128, 0.14);
-    --shadow-md: 0 8px 22px 0 rgba(120, 120, 128, 0.16);
+    --app-card-shadow-standard: none;
+    --shadow-md: 0 6px 18px 0 rgba(120, 120, 128, 0.08);
   }
 
   html.dark,
@@ -3834,6 +3894,20 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
 @layer base {
   * {
     @apply border-border outline-ring/50;
+  }
+
+  /* Text selection follows the active theme. Without this the browser paints its
+     own default (an orange-red on this platform), which is the one piece of the
+     interface the design system never reached. Accent-tinted rather than solid so
+     long passages stay readable while selected. */
+  ::selection {
+    background-color: color-mix(in oklab, var(--app-accent) 28%, transparent);
+    color: inherit;
+  }
+
+  ::-moz-selection {
+    background-color: color-mix(in oklab, var(--app-accent) 28%, transparent);
+    color: inherit;
   }
 
   h1,
@@ -3990,9 +4064,7 @@ body:has([data-testid="one-location-onboarding"]) [data-app-bottom-chrome-glass]
     text-transform: none !important;
   }
 
-  .app-page-shell
-    .profile-home-content
-    [data-slot="settings-group-heading"],
+  .app-page-shell .profile-home-content [data-slot="settings-group-heading"],
   .app-page-shell
     .profile-home-content
     [data-slot="settings-group-heading"][role="heading"][aria-level="2"] {
@@ -4563,9 +4635,21 @@ html:not([data-ambient-chrome-primed="true"]) .ambient-chrome-mask {
      coloured plastic. Stationary, unlike the bar's breathing aurora -- motion
      on a dialog the person is being asked to read would fight the reading. */
   background-image:
-    radial-gradient(120% 100% at 6% 0%, var(--agent-approval-hue-gold), transparent 55%),
-    radial-gradient(110% 100% at 100% 18%, var(--agent-approval-hue-indigo), transparent 58%),
-    radial-gradient(130% 120% at 62% 108%, var(--agent-approval-hue-pink), transparent 62%);
+    radial-gradient(
+      120% 100% at 6% 0%,
+      var(--agent-approval-hue-gold),
+      transparent 55%
+    ),
+    radial-gradient(
+      110% 100% at 100% 18%,
+      var(--agent-approval-hue-indigo),
+      transparent 58%
+    ),
+    radial-gradient(
+      130% 120% at 62% 108%,
+      var(--agent-approval-hue-pink),
+      transparent 62%
+    );
   -webkit-backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   backdrop-filter: blur(var(--agent-approval-blur)) saturate(180%);
   border: 1px solid var(--agent-approval-edge);
@@ -6116,7 +6200,12 @@ body[data-persona-surface="ria"] {
   text-transform: none !important;
 }
 
-:is(.ui-text-body, .ui-text-row-label, .ui-text-medium-row-label, .ui-text-row-label-emphasized) {
+:is(
+  .ui-text-body,
+  .ui-text-row-label,
+  .ui-text-medium-row-label,
+  .ui-text-row-label-emphasized
+) {
   color: var(--app-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-row-label-size) !important;
@@ -6240,8 +6329,24 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
 }
 
+/* Accent marks the selection on an UNDERLINE tab bar, where there is no other
+   signal -- Consent Center, RIA, Finance. A segmented strip already marks it
+   with the raised pill, and tinting the label too gave Location's `Now /
+   People / Links` a blue active label while Connect's identical control sat
+   dark, because Connect's label class forces `--app-label`. Two components,
+   two global rules, opposite results, and neither component's own colour ever
+   applied: both lost to these `!important` declarations.
+
+   Scoped by the strip's own `data-top-shell-tab-set`, which `TopShellTabs`
+   already writes, so the underline arm is untouched. */
 [role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
   color: var(--app-accent) !important;
+}
+
+[data-top-shell-tab-set="location"]
+  [role="tab"][aria-selected="true"]
+  :is(.ui-text-agent-tab-label) {
+  color: var(--app-label) !important;
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {
@@ -6272,11 +6377,26 @@ body[data-persona-surface="ria"] {
 .app-page-shell
   :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-xs"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[10px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[10px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[11px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[11px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-[12px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-muted-foreground"][class*="text-[12px]"],
 .app-page-shell
   :is(p, span, div, label)[class*="text-[#8E8E93]"][class*="text-[12px]"],
 .app-page-shell
@@ -6300,15 +6420,39 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[10px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[11px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg3)]"][class*="text-[12px]"],
 .app-page-shell
   :is(p, span, div, label, time)[class*="text-[#8e8e93]"][class*="text-[13px]"],
 .app-page-shell
-  :is(p, span, div, label, time)[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
+  :is(
+    p,
+    span,
+    div,
+    label,
+    time
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[12px]"] {
   color: var(--app-tertiary-label) !important;
   font-family: var(--font-app-body) !important;
   font-size: var(--type-helper-text-size) !important;
@@ -6320,9 +6464,19 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[13px]"],
 .app-page-shell
-  :is(p, span, div, label)[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
+  :is(
+    p,
+    span,
+    div,
+    label
+  )[class*="text-[color:var(--one-fg2)]"][class*="text-[14px]"],
 .app-page-shell
   :is(p, span, div, label)[class*="text-muted-foreground"][class*="text-sm"] {
   color: var(--app-secondary-label) !important;
@@ -6347,11 +6501,25 @@ body[data-persona-surface="ria"] {
 }
 
 .app-page-shell
-  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-muted-foreground"],
+  :is(
+    p,
+    span,
+    div,
+    h2,
+    h3,
+    label
+  )[class*="uppercase"][class*="text-muted-foreground"],
 .app-page-shell
   :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#96999e]"],
 .app-page-shell
-  :is(p, span, div, h2, h3, label)[class*="uppercase"][class*="text-[#8b93a1]"] {
+  :is(
+    p,
+    span,
+    div,
+    h2,
+    h3,
+    label
+  )[class*="uppercase"][class*="text-[#8b93a1]"] {
   letter-spacing: 0 !important;
   text-transform: none !important;
 }

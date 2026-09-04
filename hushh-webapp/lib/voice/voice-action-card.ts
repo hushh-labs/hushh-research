@@ -110,9 +110,54 @@ export type VoiceConfirm = {
   confirmLabel: string;
 };
 
+/**
+ * A read tool's answer, illustrated rather than only spoken -- "your
+ * connections" as a list of people, a PKM domain summary as figures. Unlike
+ * `choice`/`confirm`, nothing here is stuck: it does not block a decision and
+ * has no button of its own. It is shown in sync with the readout and cleared
+ * once One stops speaking (see the auto-clear effect in voice-action-card.tsx)
+ * or replaced by whatever card comes next.
+ *
+ * Two shapes because a list of people and a sheet of figures do not share a
+ * layout -- forcing them into one would mean either a list that cannot show a
+ * number or a stat sheet that cannot show a row per person.
+ */
+export type VoiceDataListItem = {
+  id: string;
+  name: string;
+  detail?: string | null;
+  photoUrl?: string | null;
+};
+
+export type VoiceDataSummaryField = {
+  label: string;
+  value: string;
+};
+
+/**
+ * A sub-group of figures within a summary card -- e.g. an asset allocation
+ * split. Kept separate from `VoiceDataSummaryField` rather than folded into
+ * one polymorphic row type, the same way `list`/`summary` are already two
+ * distinct card shapes instead of one.
+ */
+export type VoiceDataBreakdownItem = { label: string; value: string };
+export type VoiceDataBreakdown = { label: string; items: VoiceDataBreakdownItem[] };
+
+export type VoiceDataCard = {
+  /** One short line above the card, naming what this illustrates. */
+  heading: string;
+} & (
+  | { shape: "list"; list: { items: VoiceDataListItem[] } }
+  | {
+      shape: "summary";
+      summary: { fields: VoiceDataSummaryField[]; breakdowns: VoiceDataBreakdown[] };
+    }
+);
+
 export type VoiceCardRequest =
   | ({ kind: "choice" } & VoiceDisambiguation)
-  | ({ kind: "confirm" } & VoiceConfirm);
+  | ({ kind: "confirm" } & VoiceConfirm)
+  | ({ kind: "data" } & VoiceDataCard);
 
 /** The keys a handler result carries each shape under. */
 export const VOICE_DISAMBIGUATION_DATA_KEY = "disambiguation";
@@ -280,4 +325,159 @@ export function parseVoiceDisambiguation(
     prompt: String(value.prompt ?? "").trim() || "Which one did you mean?",
     candidates,
   };
+}
+
+/** How many summary trailing wins is worth showing before a card stops being a glance. */
+const MAX_SUMMARY_FIELDS = 8;
+
+/** "portfolio_value_bucket" -> "Portfolio Value Bucket". */
+function humanizeFieldLabel(key: string): string {
+  const spaced = key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .trim();
+  if (!spaced) return key;
+  return spaced.replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function summaryFieldsFrom(summary: Record<string, unknown>): VoiceDataSummaryField[] {
+  const fields: VoiceDataSummaryField[] = [];
+  for (const [key, raw] of Object.entries(summary)) {
+    if (fields.length >= MAX_SUMMARY_FIELDS) break;
+    if (raw === null || raw === undefined || raw === "") continue;
+    const value =
+      typeof raw === "string" || typeof raw === "number" || typeof raw === "boolean"
+        ? String(raw)
+        : Array.isArray(raw)
+          ? raw.map((item) => String(item)).join(", ")
+          : null;
+    if (value === null) continue;
+    const trimmed = value.trim();
+    if (!trimmed) continue;
+    fields.push({ label: humanizeFieldLabel(key), value: trimmed });
+  }
+  return fields;
+}
+
+const MAX_BREAKDOWNS = 3;
+const MAX_BREAKDOWN_ITEMS = 8;
+
+function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every(([, item]) => typeof item === "number" && Number.isFinite(item));
+}
+
+/**
+ * Pull the figure sub-groups a summary carries alongside its scalar fields
+ * -- today exactly one shape exists server-side (a flat {name: number}
+ * breakdown, e.g. asset allocation). Detected generically by shape (every
+ * value in the object is a finite number) rather than by key name, so a
+ * future similarly-shaped field needs no frontend change here. Runs as its
+ * own full scan, independent of summaryFieldsFrom's early-exit cap, so a
+ * breakdown appearing after the 8th scalar key is never missed.
+ */
+function summaryBreakdownsFrom(summary: Record<string, unknown>): VoiceDataBreakdown[] {
+  const breakdowns: VoiceDataBreakdown[] = [];
+  for (const [key, raw] of Object.entries(summary)) {
+    if (breakdowns.length >= MAX_BREAKDOWNS) break;
+    if (!isFiniteNumberRecord(raw)) continue;
+    const entries = Object.entries(raw);
+    const isPercentKey = /_(pct|percent)$/i.test(key);
+    // The real producer of a `_pct`-suffixed field (asset_allocation_pct)
+    // stores fractions in [0, 1], not 0-100 -- decided once per breakdown,
+    // from every value in it, so a mix of scales within one object can't
+    // happen. A field already scaled 0-100 is left as-is.
+    const scale = isPercentKey && entries.every(([, item]) => item <= 1.5) ? 100 : 1;
+    const items = entries
+      .map(([itemKey, itemValue]) => {
+        const scaled = itemValue * scale;
+        const rounded = Math.round(scaled * 10) / 10;
+        return {
+          label: humanizeFieldLabel(itemKey),
+          value: isPercentKey ? `${rounded}%` : String(rounded),
+          sortValue: scaled,
+        };
+      })
+      .sort((a, b) => b.sortValue - a.sortValue)
+      .slice(0, MAX_BREAKDOWN_ITEMS)
+      .map(({ label, value }) => ({ label, value }));
+    if (items.length === 0) continue;
+    breakdowns.push({
+      // Redundant once every item already carries "%" -- "Asset Allocation"
+      // reads better than "Asset Allocation Pct" as a sub-heading.
+      label: humanizeFieldLabel(key).replace(/\s+(Pct|Percent)$/i, ""),
+      items,
+    });
+  }
+  return breakdowns;
+}
+
+/**
+ * Turn a relay `toolTrace` envelope into a card, or nothing if there is
+ * genuinely nothing worth showing. Validated the same way the disambiguation
+ * and confirm parsers are: a malformed or empty payload must render no card
+ * rather than a blank one.
+ */
+export function parseToolTraceCard(
+  trace: { kind?: string; payload?: Record<string, unknown> } | null | undefined,
+): VoiceCardRequest | null {
+  if (!trace) return null;
+  const kind = String(trace.kind ?? "").trim();
+  if (!kind) return null;
+  const payload =
+    trace.payload && typeof trace.payload === "object" ? trace.payload : {};
+
+  // Both are the same row shape (id/name/detail/photoUrl) and the same list
+  // layout -- "people_list" backs every person-shaped live-data read
+  // (connections, shares, requests, circle members); "circles_list" is the
+  // one live-data list that isn't people (a circle has a member count and a
+  // role, not an email or a phone). Kept as two kinds rather than one so the
+  // heading default and any future kind-specific rendering can diverge
+  // without a payload-shape guess.
+  if (kind === "people_list" || kind === "circles_list") {
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    const items: VoiceDataListItem[] = rawItems
+      .filter(
+        (item): item is Record<string, unknown> =>
+          Boolean(item && typeof item === "object"),
+      )
+      .map((item) => ({
+        id: String(item.id ?? "").trim(),
+        name: String(item.name ?? "").trim() || "Hussh member",
+        detail: item.detail ? String(item.detail).trim() : null,
+        photoUrl: item.photoUrl ? String(item.photoUrl).trim() : null,
+      }))
+      .filter((item) => item.id.length > 0);
+    if (items.length === 0) return null;
+    const heading =
+      String(payload.heading ?? "").trim() ||
+      (kind === "circles_list" ? "Your circles" : "People");
+    return {
+      kind: "data",
+      heading,
+      shape: "list",
+      list: { items },
+    };
+  }
+
+  if (kind === "pkm_domain_summary") {
+    const rawSummary =
+      payload.summary && typeof payload.summary === "object"
+        ? (payload.summary as Record<string, unknown>)
+        : {};
+    const fields = summaryFieldsFrom(rawSummary);
+    const breakdowns = summaryBreakdownsFrom(rawSummary);
+    if (fields.length === 0 && breakdowns.length === 0) return null;
+    const heading = String(payload.label ?? "").trim() || "Your info";
+    return {
+      kind: "data",
+      heading,
+      shape: "summary",
+      summary: { fields, breakdowns },
+    };
+  }
+
+  return null;
 }

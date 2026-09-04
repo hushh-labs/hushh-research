@@ -32,6 +32,7 @@ from hushh_mcp.services.pkm_mutation_contracts import (
 )
 from hushh_mcp.services.pkm_upgrade_service import get_pkm_upgrade_service
 from hushh_mcp.services.trusted_device_service import TrustedDeviceService
+from hushh_mcp.services.wallet_card_validation import validate_wallet_card_envelope
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +43,7 @@ _UserId = Annotated[str, Path(min_length=1, max_length=128)]
 _Domain = Annotated[str, Path(min_length=1, max_length=128)]
 _RunId = Annotated[str, Path(min_length=1, max_length=128)]
 _AttributeKey = Annotated[str, Path(min_length=1, max_length=256)]
+_JsonPath = Annotated[str, Field(min_length=1, max_length=1024)]
 
 _COMPACT_SCOPE_SOURCE_KINDS = {"pkm_index", "pkm_manifests.top_level_scope_paths"}
 _INTERNAL_ONLY_PKM_DOMAINS = {"kyc_connector", "kyc_workflow"}
@@ -374,7 +376,7 @@ class PathDescriptorPayload(BaseModel):
 class StructureDecisionPayload(BaseModel):
     action: str = Field(default="match_existing_domain", min_length=1, max_length=128)
     target_domain: Optional[str] = Field(default=None, max_length=256)
-    json_paths: List[str] = Field(default_factory=list, max_length=1000)
+    json_paths: List[_JsonPath] = Field(default_factory=list, max_length=1000)
     top_level_scope_paths: List[str] = Field(default_factory=list, max_length=1000)
     externalizable_paths: List[str] = Field(default_factory=list, max_length=1000)
     summary_projection: dict = Field(default_factory=dict)
@@ -496,6 +498,29 @@ class StoreDomainResponse(BaseModel):
 EncryptedBlob.model_rebuild()
 
 
+def _enforce_wallet_write_policy(request: "StoreDomainRequest", canonical_domain: str) -> None:
+    """Reserved wallet writes: flag-gated, summary envelope validated.
+
+    The blob is ciphertext (BYOK), so the non-secret summary is the only
+    surface the server can hold to the region barrier - and the only place a
+    buggy client could leak a secret in plaintext, which is refused outright.
+    """
+    if canonical_domain != "wallet":
+        return
+    try:
+        validate_wallet_card_envelope(request.summary)
+    except ValueError as exc:
+        logger.warning("[PKM] wallet write refused: envelope reason=%s", exc)
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail={
+                "code": "WALLET_CARD_ENVELOPE_INVALID",
+                "message": "The payment card summary failed region or shape validation.",
+                "reason": str(exc),
+            },
+        ) from exc
+
+
 @router.post("/store-domain/validate", response_model=StoreDomainResponse)
 async def validate_store_domain(
     payload: dict = Body(...),
@@ -543,6 +568,7 @@ async def validate_store_domain(
                 "reason": str(exc),
             },
         ) from exc
+    _enforce_wallet_write_policy(request, canonical_domain)
     if request.mutation_plan is not None:
         try:
             validate_mutation_plan_for_write(
@@ -601,6 +627,8 @@ async def store_domain(
             },
         ) from exc
 
+    _enforce_wallet_write_policy(request, canonical_domain)
+
     if request.upgrade_claim is None and request.mutation_plan is None:
         raise HTTPException(
             status_code=status.HTTP_428_PRECONDITION_REQUIRED,
@@ -646,6 +674,11 @@ async def store_domain(
                 domain=canonical_domain,
             )
         except ValueError as exc:
+            logger.warning(
+                "[PKM] store-domain refused domain=%s: mutation plan reason=%s",
+                canonical_domain,
+                exc,
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail={

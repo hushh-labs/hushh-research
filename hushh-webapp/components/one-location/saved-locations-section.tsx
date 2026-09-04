@@ -37,7 +37,10 @@ import {
   type SavedLocationAddressDetails,
 } from "@/lib/one-location/saved-location-address";
 
-import { readOneLocationControlState } from "@/lib/one-location/location-control-state";
+import {
+  readOneLocationControlState,
+  updateOneLocationControlState,
+} from "@/lib/one-location/location-control-state";
 import { OneLocationService } from "@/lib/one-location/service";
 import type { PlainLocationPoint } from "@/lib/one-location/types";
 import { useOneLocationControlState } from "@/lib/one-location/use-location-control-state";
@@ -49,7 +52,11 @@ function CategoryIcon({ category }: { category: SavedLocationCategory }) {
     category === "home" ? Home : category === "work" ? Briefcase : MapPin;
   return (
     <span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-foreground)] text-white"
+      // Was `bg-[...-foreground]` with `text-white` -- the tile's own
+      // foreground token IS white, so that painted a white icon on a white
+      // tile. Every other icon tile in the app pairs -background (the tile)
+      // with -foreground (the glyph); see components/app-ui/page-sections.tsx.
+      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
       data-testid={`saved-location-icon-${category}`}
       data-icon-tone="neutral-graphite"
       aria-hidden="true"
@@ -371,6 +378,26 @@ export function SavedLocationsSection() {
               input,
             });
         if (!isCurrentVaultSession(session)) return;
+        // Confirming a pin turns the live preview on, exactly as the onboarding
+        // save path already does.
+        //
+        // Saving a place is the one action in the product where the owner has
+        // just granted permission, let the device take a fix, dragged a pin to
+        // their own doorstep and named it -- and then landed back on a hub whose
+        // header switch read "Location off". Nothing here had ever gone through
+        // `activateMyLocation`, so `selfPreviewEnabled` stayed false; a person
+        // with no grants and no nearby presence has all three disjuncts behind
+        // `locationEnabled` false, and the screen contradicted what they had
+        // just done.
+        //
+        // Only the preview flag is written. `paused` is left exactly as it is,
+        // so this can never resume a Location the owner deliberately paused --
+        // `updateOneLocationControlState` already forces the preview back off
+        // while paused, which keeps this fail-closed rather than fail-friendly.
+        updateOneLocationControlState(userId, (current) => ({
+          ...current,
+          selfPreviewEnabled: true,
+        }));
         addressResolutionIdRef.current += 1;
         setLocations(sortSavedLocationsForDisplay(next));
         setSaveLocationModalOpen(false);

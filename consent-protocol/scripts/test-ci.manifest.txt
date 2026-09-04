@@ -92,6 +92,13 @@ tests/test_verify_uat_release.py
 # test, and this manifest is the only pytest invocation in any lane.
 tests/test_contact_match_correctness.py
 
+# Identity cache warmup must run on an asyncio loop, and the match/mutation
+# contract must keep verified-phone, uniqueness, explicit target-consent, and
+# tombstone checks fail-closed. These are one end-to-end contact-sync boundary.
+tests/test_api_middleware.py
+tests/test_contact_sync_connection_contract.py
+tests/services/test_actor_identity_service.py
+
 # One Location Circles, and the migration guards that protect them.
 #
 # Every file below was written to lock a behaviour that had already broken
@@ -102,7 +109,22 @@ tests/test_contact_match_correctness.py
 # `test_migrations_are_replay_safe.py` the one written after 158/159 rolled a
 # production deploy back -- both green, both unrun, for as long as they have
 # existed.
+# The extra-time lane. Fourteen guards on the ask->approve round trip that had
+# never run anywhere: the amount surviving the request, the extension being
+# detected, an owner still able to grant less, a refused extension leaving
+# live access alone -- plus the ones added with #6256, which is the defect
+# an unrun suite let through (approving "30 min more" REPLACED the 1h50m it
+# was meant to add to).
+# The nearby-place taxonomy behind the check-in drawer. None of these ran in any
+# lane, which is how "Hotels" came to list a lounge and a construction firm while
+# temples, mosques and police stations matched no category at all: ruff, mypy and
+# bandit were the only things reading this code.
+tests/test_place_taxonomy.py
+tests/services/test_google_maps_service.py
+tests/test_places_directory.py
+tests/services/test_one_location_extra_time_requests.py
 tests/services/test_one_location_circle_service.py
+tests/services/test_people_search_sql.py
 tests/test_one_location_system_circle_migration.py
 tests/test_one_location_system_circle_kinds_migration.py
 tests/test_migrations_are_replay_safe.py
@@ -119,4 +141,32 @@ tests/test_pool_acquire_is_bounded.py
 # it is decoration.
 tests/test_contact_discovery_hardening.py
 tests/test_trusted_device_routes.py
+tests/test_trusted_device_heartbeat.py
 tests/quality/test_revocation_persistence.py
+
+# One Location place ratings.
+#
+# The first durable link between a person and a venue this product has ever
+# kept, so the guards below hold the properties that cannot be fixed after
+# launch: a rating is writable only by someone the server recorded at the
+# place; the visit ledger holds the venue only as ciphertext; a rating row
+# carries no author display identity for a future read path to leak; one
+# person gets one vote per place; and no average is published until enough
+# people have rated that the average is not a re-identification of one of them.
+#
+# This manifest is the only pytest invocation in any lane, including the merge
+# queue, so a test absent from it is decoration.
+tests/test_one_location_place_rating_migration.py
+tests/services/test_one_location_place_rating_service.py
+tests/test_one_location_place_rating_consent_scope.py
+
+# Nearby check-in, which place ratings are built on top of.
+#
+# Every file below has existed and been green for as long as the feature has,
+# and not one of them has ever run: none was in this manifest. They are added
+# here because the change above edits the service and the route they cover.
+tests/test_one_location_nearby_presence_migration.py
+tests/test_one_location_nearby_presence_routes.py
+tests/services/test_one_location_nearby_presence_service.py
+tests/test_one_location_nearby_point_contract_migration.py
+tests/test_one_location_nearby_check_in_preferences_migration.py

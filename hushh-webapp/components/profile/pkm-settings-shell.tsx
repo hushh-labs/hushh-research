@@ -16,18 +16,21 @@ import {
   getMorphyEaseName,
 } from "@/lib/morphy-ux/gsap-init";
 import { getGsap, prefersReducedMotion } from "@/lib/morphy-ux/gsap";
+import { cn } from "@/lib/utils";
 
 export function PkmSettingsShell({
   title,
   description,
   eyebrow,
   actions,
+  innerClassName,
   children,
 }: {
   title: string;
   description?: string;
   eyebrow?: string;
   actions?: ReactNode;
+  innerClassName?: string;
   children: ReactNode;
 }) {
   const pathname = usePathname();
@@ -102,16 +105,18 @@ export function PkmSettingsShell({
   return (
     <AppPageShell as="div" width="reading">
       <AppPageHeaderRegion>
-        <PageHeader
-          eyebrow={eyebrow}
-          title={title}
-          description={description}
-          actions={actions}
-        />
+        <div className={cn("w-full", innerClassName)}>
+          <PageHeader
+            eyebrow={eyebrow}
+            title={title}
+            description={description}
+            actions={actions}
+          />
+        </div>
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
-        <div ref={shellRef} className="space-y-4">
+        <div ref={shellRef} className={cn("w-full space-y-4", innerClassName)}>
           <div data-pkm-detail-panel="true">
             <SurfaceStack compact>{children}</SurfaceStack>
           </div>

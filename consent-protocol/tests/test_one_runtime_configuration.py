@@ -6,6 +6,7 @@ from fastapi import HTTPException
 from starlette.requests import Request
 
 from api.routes.one import runtime
+from hushh_mcp.constants import GEMINI_MODEL
 
 
 def _request() -> Request:
@@ -48,7 +49,7 @@ async def test_managed_readiness_uses_canonical_binding_and_cache(
 
     assert first == second
     assert first.status == "ready"
-    assert first.model == "gemini-3.7-flash"
+    assert first.model == GEMINI_MODEL
     assert first.location == "asia-southeast1"
     generate_content.assert_awaited_once()
 
@@ -70,7 +71,7 @@ async def test_gemini_validation_proves_generation_quota(monkeypatch: pytest.Mon
     assert result.status == "ready"
     generate_content.assert_awaited_once()
     call = generate_content.await_args
-    assert call.kwargs["model"] == "gemini-3.7-flash"
+    assert call.kwargs["model"] == GEMINI_MODEL
     assert call.kwargs["contents"] == "Reply OK."
     assert call.kwargs["config"].max_output_tokens == 4
     assert call.kwargs["config"].thinking_config.include_thoughts is False

@@ -891,7 +891,14 @@ class DatabaseClient:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Raw SQL error: {e}")
+            # SQLAlchemy exception strings can include the complete statement
+            # and bound values. Keep runtime telemetry useful without placing
+            # owner identifiers, ciphertext, or other private values in logs.
+            logger.error(
+                "Raw SQL operation failed error_type=%s sql_fingerprint=%s",
+                type(e).__name__,
+                hashlib.sha256(sql.encode("utf-8")).hexdigest()[:12],
+            )
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name="<raw_sql>",

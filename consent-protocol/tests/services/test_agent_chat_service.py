@@ -4,6 +4,7 @@ from types import SimpleNamespace
 
 import pytest
 
+from hushh_mcp.constants import GEMINI_MODEL
 from hushh_mcp.services.agent_chat_service import (
     AGENT_SYSTEM_PROMPT,
     AgentChatActionPlan,
@@ -28,7 +29,7 @@ from hussh_sdk import (
 def test_agent_chat_service_uses_agent_yaml_model(test_vault_key):
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-3.7-flash"
+    assert service.model == GEMINI_MODEL
 
 
 def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_key):
@@ -36,7 +37,7 @@ def test_agent_chat_service_ignores_env_model_override(monkeypatch, test_vault_k
 
     service = AgentChatService(vault_key_hex=test_vault_key)
 
-    assert service.model == "gemini-3.7-flash"
+    assert service.model == GEMINI_MODEL
 
 
 def test_agent_chat_runtime_contract_defaults_to_hushh_managed(test_vault_key):
@@ -146,7 +147,7 @@ async def test_agent_chat_service_prepares_byok_runtime_from_pkm_secret(
     )
 
     assert prepared.mode == "byok"
-    assert prepared.model == "gemini-3.7-flash"
+    assert prepared.model == GEMINI_MODEL
     assert prepared.client.kind == "client"
     assert calls == [{"vertexai": False, "api_key": sample_runtime_value}]
     assert sample_runtime_value not in str(prepared.evidence)
@@ -473,7 +474,9 @@ def test_agent_chat_translates_gemini_function_call_to_pkm_add(test_vault_key):
     assert action_plan.call_id == "gemini-call-3"
     assert action_plan.action_id == "pkm.add"
     assert action_plan.execution == "frontend"
-    assert action_plan.slots == {}
+    assert action_plan.slots == {
+        "source_text": "My name is Akshat Kumar and I study at IIT Bombay."
+    }
     assert action_plan.message == "Checking PKM and saving what fits."
     assert action_plan.reason == "durable personal context"
 

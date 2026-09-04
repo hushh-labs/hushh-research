@@ -128,6 +128,7 @@ vi.mock("sonner", () => ({
 import { SavedLocationsSection } from "@/components/one-location/saved-locations-section";
 import {
   forgetOneLocationControlPreference,
+  readOneLocationControlState,
   updateOneLocationControlState,
 } from "@/lib/one-location/location-control-state";
 import { DuplicateSavedLocationError } from "@/lib/one-location/saved-locations";
@@ -203,9 +204,17 @@ describe("SavedLocationsSection", () => {
     expect(
       screen.queryByText("Encrypted in your vault."),
     ).not.toBeInTheDocument();
-    expect(screen.getByTestId("saved-location-icon-home")).toHaveAttribute(
-      "data-icon-tone",
-      "neutral-graphite",
+    const homeIcon = screen.getByTestId("saved-location-icon-home");
+    expect(homeIcon).toHaveAttribute("data-icon-tone", "neutral-graphite");
+    // Regression guard: this tile previously painted a white icon on a white
+    // background (both pointed at the "foreground" token), rendering
+    // invisible. The tile must use -background and the glyph -foreground,
+    // like every other icon tile in the app.
+    expect(homeIcon.className).toContain(
+      "bg-[color:var(--app-icon-tile-background)]",
+    );
+    expect(homeIcon.className).toContain(
+      "text-[color:var(--app-icon-tile-foreground)]",
     );
     expect(screen.queryByText(/12\.9763|77\.5929/)).not.toBeInTheDocument();
     expect(mocks.loadSavedLocations).toHaveBeenCalledWith({
@@ -366,6 +375,46 @@ describe("SavedLocationsSection", () => {
           },
         },
       }),
+    );
+
+    // QA: "confirm pin karke bhi agar main apna address save kar rahi hun, aur
+    // main screen par ja rahi hun, wahan toggle off kyun dikha raha hai?"
+    //
+    // The header switch reads `selfPreviewEnabled || nearbyPresenceActive ||
+    // grants`. Saving a place went through none of those, so someone who had
+    // just granted permission, dragged a pin onto their own door and named it
+    // Home was shown "Location off" on the very next screen. Confirming a pin
+    // is the person saying where they are; the control has to agree.
+    await waitFor(() =>
+      expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(
+        true,
+      ),
+    );
+  });
+
+  it("cannot turn the preview on while Location is paused", async () => {
+    // The preview flag is the ONLY thing the save writes, and pause outranks
+    // it. Someone who paused Location is told to resume it first, so no place
+    // is saved and nothing flips the header switch back on behind them.
+    mocks.loadSavedLocations.mockResolvedValueOnce([]);
+    render(<SavedLocationsSection />);
+    await screen.findByText(/no places yet/i);
+
+    updateOneLocationControlState("user-123", (current) => ({
+      ...current,
+      paused: true,
+    }));
+
+    fireEvent.click(screen.getByRole("button", { name: /add place/i }));
+
+    await waitFor(() =>
+      expect(mocks.toastError).toHaveBeenCalledWith(
+        "Resume Location before adding a saved place.",
+      ),
+    );
+    expect(mocks.addSavedLocation).not.toHaveBeenCalled();
+    expect(readOneLocationControlState("user-123").selfPreviewEnabled).toBe(
+      false,
     );
   });
 

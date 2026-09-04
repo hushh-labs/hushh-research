@@ -25,6 +25,12 @@ DEFAULT_REPO = "hushh-labs/hushh-research"
 # grant on 2026-08-28 widened the gap to 5-vs-2). Stated explicitly now.
 PRODUCTION_MANUAL_DISPATCH_USERS = [
     "kushaltrivedi5",
+    # Manish Sainani's second GitHub account, granted parity with `kushaltrivedi5`
+    # on 2026-09-04 at the founder's request after `msainani` became the pushing
+    # actor and every protected-surface edit on the workstream branch went red.
+    # Mirrored here deliberately, which is what this constant exists to force: a
+    # production-dispatch grant is stated twice or not at all.
+    "msainani",
     "ankitkumarsingh1702",
     "RGlodAkshat",
     "DamriaNeelesh",

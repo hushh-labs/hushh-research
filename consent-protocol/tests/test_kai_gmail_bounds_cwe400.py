@@ -10,6 +10,7 @@ from api.routes.kai.gmail import (
     GmailConnectCompleteRequest,
     GmailConnectStartRequest,
     GmailDisconnectRequest,
+    GmailNativeConnectCompleteRequest,
     GmailReceiptMemoryPreviewRequest,
     GmailReconcileRequest,
     GmailSyncRequest,
@@ -46,6 +47,22 @@ class TestGmailConnectCompleteRequest:
     def test_state_bounds(self):
         with pytest.raises(ValidationError):
             GmailConnectCompleteRequest(user_id="user-123", code="code123", state="A" * 513)
+
+
+class TestGmailNativeConnectCompleteRequest:
+    def test_valid(self):
+        req = GmailNativeConnectCompleteRequest(
+            user_id="user-123",
+            server_auth_code="server-code",
+        )
+        assert req.server_auth_code == "server-code"
+
+    def test_server_auth_code_bounds(self):
+        with pytest.raises(ValidationError):
+            GmailNativeConnectCompleteRequest(
+                user_id="user-123",
+                server_auth_code="A" * 2049,
+            )
 
 
 class TestGmailDisconnectRequest:

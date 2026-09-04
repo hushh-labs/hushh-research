@@ -3,6 +3,7 @@ import {
   BookMarked,
   CalendarDays,
   ContactRound,
+  CreditCard,
   FileCheck2,
   KeyRound,
   Landmark,
@@ -15,6 +16,7 @@ import {
 
 import { buildConsentCenterHref } from "@/lib/consent/consent-sheet-route";
 import { ROUTES } from "@/lib/navigation/routes";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import {
   ONE_SETUP_CAPABILITY_IDS,
   type OneSetupCapabilityId,
@@ -98,7 +100,7 @@ export interface OneCapability {
   tone: OneCapabilityTone;
   group: OneCapabilityGroup;
   /** A paused surface remains route-addressable but is omitted from One setup and navigation. */
-  availability?: "enabled" | "paused";
+  availability?: "enabled" | "paused" | "local-only";
   /**
    * True when this capability collects NOTHING from the user — there is no information
    * to enter or connection to authorize, the tab is usable as soon as it opens.
@@ -140,6 +142,18 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     href: ROUTES.KAI_HOME,
     icon: lucideCapabilityIcon(Landmark),
     tone: "finance",
+    group: "workflow",
+    requiresVault: true,
+  },
+  {
+    id: "wallet",
+    agentId: "agent_wallet",
+    title: "Wallet",
+    description: "Every credit and debit card, encrypted in your vault.",
+    previewLabel: "Your cards, in your vault",
+    href: ROUTES.ONE_WALLET,
+    icon: lucideCapabilityIcon(CreditCard),
+    tone: "pkm",
     group: "workflow",
     requiresVault: true,
   },
@@ -272,6 +286,7 @@ export const ONE_CAPABILITIES: readonly OneCapability[] = [
     tone: "connected",
     group: "workflow",
     requiresVault: true,
+    availability: "local-only",
   },
 ] as const;
 
@@ -333,9 +348,9 @@ export { ONE_CAPABILITY_ICON_CLASS_BY_TONE };
 export function isOneCapabilityEnabled(capability: OneCapability | string | undefined | null): boolean {
   const resolved =
     typeof capability === "string" ? getOneCapability(capability) : capability;
-  return Boolean(
-    resolved &&
-      resolved.id !== "marketplace" &&
-      resolved.availability !== "paused",
-  );
+  if (!resolved || resolved.id === "marketplace" || resolved.availability === "paused") {
+    return false;
+  }
+  if (resolved.availability === "local-only") return isLocalCrmBuildEnabled();
+  return true;
 }

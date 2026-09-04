@@ -266,9 +266,25 @@ function ConnectAgentDefaultsGroup({
       title="Connect"
       description="Defaults One uses for voice-initiated connection requests."
     >
+      {/*
+        The old copy said the setting lets a repeat request "offer the same
+        access as last time". It does more than offer: connect.send_request
+        reuses BOTH offeredScopeHandles and requestedScopeHandles, so it also
+        ASKS for the same access again. On a consent control that asymmetry is
+        the whole point -- somebody reading "offer" reasonably concludes this
+        only affects what they give away, not what they request.
+
+        "last time" was also vaguer than the behaviour. Scopes come from this
+        requester's most recent request to THIS exact person; there is
+        deliberately no wider "usual scopes" fallback, so a repeat can never
+        extrapolate from someone else and a first request is always empty.
+        That narrowness is reassuring, and the copy was hiding it.
+
+        "Scopes" is our word, not a person's. The row says access instead.
+      */}
       <SettingsRow
-        title="Reuse scopes from last request"
-        description="Let a repeat voice request offer the same access as last time. The other person still approves every request."
+        title="Reuse access from last time"
+        description="A repeat voice request asks for and offers the same access you did with that person before. They still approve every request."
         trailing={
           <Switch
             checked={shareScopes}
@@ -283,7 +299,7 @@ function ConnectAgentDefaultsGroup({
                 )
                 .catch(() => setShareScopes(!checked));
             }}
-            aria-label="Reuse scopes from last request"
+            aria-label="Reuse access from last time"
           />
         }
       />
@@ -380,10 +396,31 @@ export function VoicePreferencesPanel({
           stackTrailingOnMobile
         />
       </SettingsGroup>
-      <SettingsGroup title="Safety" description="For actions that already ask to confirm.">
+      {/*
+        The old copy here read "For actions that already ask to confirm" /
+        "Stops a spoken yes or no from confirming." Both were wrong, and
+        together they made a working control look broken.
+
+        Nothing "already asks". Voice deliberately does not confirm by
+        default -- `_directive_flags` in action_tools.py raises a card only
+        for `trusted_activation_required` (4 actions of 198) unless this
+        setting is on. So the group described a set that is empty in
+        practice, and the row promised to stop a spoken yes that was never
+        being asked for in the first place.
+
+        Turn this on and 35 `confirm_required` actions start asking, and
+        only a tap settles them. Both halves matter: the asking is new, not
+        just the tap. Somebody who reads the old copy tries it on an
+        ordinary action, sees no card, and concludes the switch does
+        nothing.
+      */}
+      <SettingsGroup
+        title="Safety"
+        description="For actions that share or change something."
+      >
         <SettingsRow
           title="Require a tap to confirm"
-          description="Stops a spoken yes or no from confirming."
+          description="They ask first, and a spoken yes won't do."
           disabled={!state.voiceEnabled}
           trailing={
             <Switch

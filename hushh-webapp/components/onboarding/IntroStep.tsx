@@ -92,10 +92,6 @@ export function IntroStep({ onLogin }: { onLogin?: () => void }) {
 
         {/* ── Typography-led hero. No cards, no fake metrics. ── */}
         <div className={styles.hero}>
-          <span className={styles.eyebrow}>
-            Your private agent
-          </span>
-
           <span
             aria-hidden="true"
             className={`hushh-brand-mark ${styles.emoji}`}

@@ -25,7 +25,7 @@ Store submission.
 
 1. **Closed Train Rule:** App Store Connect permanently closes a `MARKETING_VERSION` train (e.g. `1.3.6`) once that version is approved and released on the App Store. Apple's upload API rejects any new build targeting a closed train with `Invalid Pre-Release Train. The train version '1.3.6' is closed for new build submissions`.
 2. **Version Bump Cadence:** When an App Store release closes a train, bump `MARKETING_VERSION` (Patch increment, e.g., `1.3.6` → `1.3.7`) in `hushh-webapp/ios/App/App.xcodeproj/project.pbxproj` (Debug and Release targets) and land on `main`.
-3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes `max(asc_latest, pbxproj_current) + 1`.
+3. **Monotonic Build Numbers:** For an open train (e.g., `1.3.7`), TestFlight iterations increment `CURRENT_PROJECT_VERSION` (`CFBundleVersion`) monotonically (`57`, `58`, `59`...). The build-number resolver (`scripts/ci/resolve-ios-build-number.py`) computes one above the repository value, imported App Store Connect builds, and retained upload records. This prevents a rejected or awaiting upload that disappeared from `/v1/builds` from causing a stale build-number reuse.
 4. **Automated Export Compliance Questionnaire:** `ITSAppUsesNonExemptEncryption = false` in `Info.plist` automatically fulfills App Store Connect's encryption questionnaire upon upload. When processing completes (`processingState = VALID`), the build immediately enters `IN_BETA_TESTING` for internal testers with zero manual forms or clicks.
 
 ## How it works (what the workflow runs)
@@ -34,11 +34,13 @@ Store submission.
 npm ci --prefix hushh-webapp                    # MUST precede SPM (Package.swift → ../../node_modules)
 # materialize UAT NEXT_PUBLIC_* contract + native GoogleService-Info.plist from GCP Secret Manager
 NODE_OPTIONS=--max-old-space-size=8192 npm run ios:prepare:uat   # cap:build + cap:sync:ios + verify backend
-NEXT_BUILD = max(asc_latest_build(MARKETING_VERSION), pbxproj CURRENT_PROJECT_VERSION) + 1
+NEXT_BUILD = max(asc_latest_build, asc_latest_build_upload, pbxproj CURRENT_PROJECT_VERSION) + 1
 
 xcodebuild -resolvePackageDependencies -project ios/App/App.xcodeproj -scheme App -clonedSourcePackagesDirPath …
+xcodebuild test -project ios/App/App.xcodeproj -scheme App -only-testing:AppTests  # blocks upload on native unit failures
 xcodebuild archive        -allowProvisioningUpdates -authenticationKey{Path,ID,IssuerID} CURRENT_PROJECT_VERSION=$NEXT_BUILD
 xcodebuild -exportArchive -exportOptionsPlist ios/ExportOptions/AppStoreConnect.plist  # destination=upload → TestFlight
+python3 scripts/ci/wait_for_testflight_build.py ... # reject failed upload; require exact build=VALID
 ```
 
 Signing needs no build-setting overrides — `CODE_SIGN_STYLE=Automatic`,
@@ -47,6 +49,13 @@ Signing needs no build-setting overrides — `CODE_SIGN_STYLE=Automatic`,
 `CFBundleVersion=$(CURRENT_PROJECT_VERSION)`, so the resolved build number bakes in with no
 `agvtool`/pbxproj edit. `ITSAppUsesNonExemptEncryption=false` in `Info.plist` is what keeps the
 upload out of "Missing Compliance".
+
+The upload step is not the terminal release proof. The workflow polls Apple's
+exact `buildUploads` record and the corresponding TestFlight `build` independently:
+delivery failures (including `ITMS-*` import errors) fail the run, while a lagging
+`buildUploads` state cannot hide an already imported build. The exact build must
+reach `processingState=VALID`; missing uploads/builds, API failures, and timeouts
+fail closed.
 
 ## One-time setup (secret-touching — the operator does this)
 
@@ -90,9 +99,10 @@ The workflow decodes and imports `APPSTORE_DISTRIBUTION_CERT_P12_B64` directly i
 
 ### 3. Native iOS Firebase config
 
-The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into `ios/App/App/GoogleService-Info.plist`
-(it does **not** run `sync:native-firebase-configs`, which hard-requires the Android
-`google-services.json`). If not already present:
+The workflow decodes `IOS_GOOGLESERVICE_INFO_PLIST_B64` into the ignored repository-root
+`GoogleService-Info.plist`. The iOS-only native sync validates its bundle id and copies it into
+`ios/App/App/GoogleService-Info.plist`; it does not require the Android `google-services.json`.
+If the secret is not already present:
 
 ```bash
 base64 -i GoogleService-Info.plist \
@@ -133,7 +143,8 @@ names into this runbook, and never infer production authority from UAT authoriza
 
 ## Verify (don't stop at "workflow green")
 
-1. Read the run's job summary: SHA, resolved marketing version and build number, upload vs dry run.
+1. Confirm the native `AppTests` release gate passed, then read the run's job summary: SHA,
+   resolved marketing version and build number, upload vs dry run.
 2. For a real run, confirm the resolved version/build appears in **TestFlight** for internal
    testers after Apple finishes processing (a few minutes), already compliant.
 3. On device: the TestFlight build boots against **UAT** backend — asserted by

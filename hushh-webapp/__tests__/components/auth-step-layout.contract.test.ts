@@ -22,8 +22,11 @@ describe("AuthStep layout contract", () => {
     );
 
     expect(source).toContain(
-      "normalizeInternalRouteHref(resumeTarget || redirectPath) ??",
+      "const explicitTargetPath = normalizeInternalRouteHref(",
     );
+    expect(source).toContain("const targetPath = explicitTargetPath ?? ROUTES.ONE_HOME;");
+    expect(source).toContain("redirectPath: explicitTargetPath ?? undefined,");
+    expect(source).not.toContain("ROUTES.KAI_HOME;");
     expect(source).not.toContain("const fallbackPath = targetPath ||");
     expect(source).not.toContain(
       "lastResolvedNavigationPathRef.current || targetPath ||",

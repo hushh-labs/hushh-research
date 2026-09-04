@@ -71,6 +71,62 @@ export const DIALOG_SURFACE_CLASSNAME = "w-full max-h-[min(92dvh,760px)]";
  */
 export const SHEET_PRESENTATION_QUERY = "(max-width: 639.98px)";
 
+/* ------------------------------------------------------------------ */
+/* Takeover: the same surface, presented as an onboarding STEP.        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE LAYER, during Location onboarding.
+ *
+ * A bottom sheet leaves the top of the screen showing, which is right when the
+ * thing behind it is a screen you are coming back to. During onboarding it is
+ * not: QA photographed the pin step with the app's back arrow, avatar and the
+ * Now / People / Links strip sitting above it -- "onboarding screen mein yeh
+ * nav bar dikhna hi nahi chahiye". Navigation you cannot use yet, over a step
+ * you have not finished.
+ *
+ * The z-values are the second half of the same defect. This surface was pinned
+ * at 600/601 against a comment reading "Location onboarding is a full-screen
+ * takeover at z-560". The takeover has since moved to `z-[9000]`, and nothing
+ * moved these -- so the scrim and the sheet were being painted UNDERNEATH the
+ * screen they belong to. They are stated as constants here, next to the number
+ * they have to beat, rather than inline in the component where they drifted.
+ */
+export const TAKEOVER_OVERLAY_Z_CLASSNAME = "z-[9100]";
+export const TAKEOVER_SURFACE_Z_CLASSNAME = "z-[9101]";
+
+/**
+ * Full height, square, no border: from the top of the screen to just above the
+ * keyboard.
+ *
+ * `top-0` rather than a height, so the primitive's `bottom-[var(--kb-height)]`
+ * survives and the surface still lifts above the on-screen keyboard. Setting a
+ * `h-dvh` here would subtract the keyboard a second time -- the same mistake
+ * the `max-h` comment above documents.
+ *
+ * This REPLACES `SHEET_SURFACE_CLASSNAME` rather than overriding it, which is
+ * why it restates `w-full`. tailwind-merge cannot parse
+ * `max-h-[calc((100dvh-var(--kb-height,0px))*0.92)]` -- the nested parentheses
+ * defeat its arbitrary-value matcher -- so it files the class as unknown and
+ * leaves BOTH it and `max-h-none` on the element, where the winner is decided
+ * by stylesheet order. Measured: the cap survived and the surface still
+ * stopped 8% short of the top. Choosing one string is the only reliable way
+ * to say which geometry applies.
+ */
+export const SHEET_TAKEOVER_SURFACE_CLASSNAME =
+  "w-full top-0 max-h-none rounded-none border-0";
+
+/**
+ * The status bar and notch, which a bottom sheet never had to think about
+ * because it never reached them. Two values, because the two panes start from
+ * different padding: the map/summary pane is padded 20px all round, and the
+ * details pane is a fixed frame at `p-0` whose own header supplies the rest.
+ */
+export const SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME =
+  "pt-[calc(env(safe-area-inset-top,0px)+20px)]";
+export const SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME =
+  "pt-[env(safe-area-inset-top,0px)]";
+
 /**
  * Sheet shell while the details pane is on screen. Turns the surface from "one
  * long scroll box with padding" into a fixed frame whose middle row scrolls.

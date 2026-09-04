@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import secrets
+from datetime import datetime, timedelta, timezone
 from typing import Annotated, Any, Literal
 
 import asyncpg
@@ -182,6 +183,7 @@ class RIAPicksParseRequest(BaseModel):
 class RIAPicksSyncRequest(BaseModel):
     label: str | None = Field(None, max_length=256)
     package_note: str | None = Field(None, max_length=1000)
+    investor_debate_thesis: str | None = Field(None, max_length=2000)
     top_picks: list[dict] = Field(default_factory=list, max_length=5000)
     avoid_rows: list[dict] = Field(default_factory=list, max_length=5000)
     screening_sections: list[dict] = Field(default_factory=list, max_length=100)
@@ -925,6 +927,7 @@ async def upload_ria_picks(
             firebase_uid,
             label=payload.label,
             package_note=payload.package_note,
+            investor_debate_thesis=payload.investor_debate_thesis,
             top_picks=payload.top_picks,
             avoid_rows=payload.avoid_rows,
             screening_sections=payload.screening_sections,
@@ -1330,24 +1333,60 @@ def _redispatch_dossier(*, dossier_id: int, user_id: str, context: dict[str, Any
 # reloads twice does not stack workers on one row.
 _DOSSIER_RESUMING: set[int] = set()
 
+# How long a row may sit in `queued` before a read treats it as stranded
+# rather than a worker that is legitimately still starting up. Generous next
+# to the ~10s frontend poll interval and the resolve_email/build_payload/
+# start_scan calls a live worker makes before its first status write, so a
+# request landing while dispatch is genuinely still in flight does not race
+# it into starting a second scan.
+_DOSSIER_QUEUED_STALL_THRESHOLD = timedelta(seconds=90)
+
 
 async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
-    """Re-enter the poll for a row left mid-scan, if one is stalled.
+    """Re-enter the poll for a row left mid-scan or never started, if stalled.
 
     The worker is an in-process background task on a CPU-throttled Cloud Run
     service: once an instance stops receiving requests its CPU is withdrawn,
-    the poll freezes mid-flight, and the row is stranded in `scanning` forever
-    with the scan itself finishing perfectly well upstream. The read that
-    renders the card is a request, so it is also the thing that can revive the
-    poll — the scan id is already durable on the row, so resuming costs one
-    poll rather than a new scan.
+    a poll can freeze mid-flight, and a row can be stranded forever with the
+    scan itself finishing perfectly well upstream. The read that renders the
+    card is a request, so it is also the thing that can revive it.
+
+    Two stall points, not one. `scanning` was the only one handled here --
+    the scan id is durable on the row, so resuming it costs one poll rather
+    than a new scan. But the SAME withdrawal can happen even earlier: the
+    background task is scheduled the instant the claim HTTP response goes
+    out, and if CPU is pulled before that task gets its first turn on the
+    event loop, the row never leaves `queued` at all -- reported as
+    "Preparing your dossier..." frozen indefinitely, because nothing was ever
+    driving it in the first place. That case has no scan id to resume, so it
+    re-enters the worker from the start rather than resuming a poll, gated by
+    `_DOSSIER_QUEUED_STALL_THRESHOLD` so a request landing while the original
+    dispatch is genuinely still starting up does not race it into a second
+    scan.
     """
-    if str(row["status"] or "") != "scanning" or row["completed_at"] is not None:
+    status = str(row["status"] or "")
+    if row["completed_at"] is not None:
         return
-    scan_id = str(row["scan_id"] or "").strip()
     dossier_id = int(row["id"])
-    if not scan_id or dossier_id in _DOSSIER_RESUMING:
+    if dossier_id in _DOSSIER_RESUMING:
         return
+
+    resume_scan_id = ""
+    if status == "scanning":
+        resume_scan_id = str(row["scan_id"] or "").strip()
+        if not resume_scan_id:
+            return
+    elif status == "queued":
+        requested_at = row["requested_at"]
+        if requested_at is None:
+            return
+        if requested_at.tzinfo is None:
+            requested_at = requested_at.replace(tzinfo=timezone.utc)
+        if datetime.now(timezone.utc) - requested_at < _DOSSIER_QUEUED_STALL_THRESHOLD:
+            return
+    else:
+        return
+
     context = await _load_dossier_claim_context(user_id)
     if context is None:
         return
@@ -1367,7 +1406,7 @@ async def _resume_stalled_dossier(row: Any, user_id: str) -> None:
                 ria_profile_id=str(context.get("ria_profile_id") or ""),
                 claim_type=str(metadata.get("claim_type") or ""),
                 reference_metadata=metadata,
-                resume_scan_id=scan_id,
+                resume_scan_id=resume_scan_id,
             )
         finally:
             _DOSSIER_RESUMING.discard(dossier_id)

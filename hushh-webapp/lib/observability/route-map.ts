@@ -53,6 +53,7 @@ export const ROUTE_ID_VALUES = [
   "gmail",
   "email_agent",
   "pkm",
+  "pkm_recent",
   "connected_systems",
   "profile_pkm",
   "profile_pkm_agent_lab",
@@ -62,6 +63,8 @@ export const ROUTE_ID_VALUES = [
   "consents",
   "feed",
   "agent",
+  "puppy_one",
+  "person_profile",
   "connect",
   "connect_settings",
   "marketplace",
@@ -77,6 +80,7 @@ export const ROUTE_ID_VALUES = [
   "one_location_circle_invite",
   "one_location_circle_join",
   "one_wallet_card",
+  "one_wallet",
   "wallet_card_public",
   "portfolio_shared",
   "ria_home",
@@ -221,6 +225,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
     return "gmail";
   if (pathname === ROUTES.EMAIL_AGENT) return "email_agent";
   if (pathname === ROUTES.PKM || pathname === ROUTES.LEGACY_PKM) return "pkm";
+  if (pathname === ROUTES.PKM_RECENT) return "pkm_recent";
   if (pathname === ROUTES.ONE_MARKETPLACE) return "one_marketplace";
   if (
     pathname === ROUTES.CONNECTED_SYSTEMS ||
@@ -246,6 +251,10 @@ export function resolveRouteId(rawPathname: string): RouteId {
   }
   if (pathname === ROUTES.ONE_FEED) return "feed";
   if (pathname === ROUTES.AGENT) return "agent";
+  if (pathname === ROUTES.ONE_PUPPY) return "puppy_one";
+  // `public_person_ref` is intentionally opaque.  Never let the dynamic
+  // segment fall through to `unknown`, where callers may retain raw paths.
+  if (/^\/people\/[^/]+$/.test(pathname)) return "person_profile";
   if (pathname === ROUTES.CONNECT) return "connect";
   if (pathname === ROUTES.CONNECT_SETTINGS) return "connect_settings";
   if (pathname === ROUTES.MARKETPLACE) return "marketplace";
@@ -264,7 +273,12 @@ export function resolveRouteId(rawPathname: string): RouteId {
   if (pathname === ROUTES.ONE_LOCATION_MAP) return "one_location_map";
   // Its own id rather than the map's: these are separate screens now, and
   // folding them together would hide the split from every page-view metric.
-  if (pathname === ROUTES.ONE_LOCATION_CHECK_IN) return "one_location_check_in";
+  if (
+    pathname === ROUTES.ONE_LOCATION_CHECK_IN ||
+    pathname === ROUTES.ONE_LOCATION_HOTEL_CHECK_IN
+  ) {
+    return "one_location_check_in";
+  }
   if (pathname === ROUTES.ONE_LOCATION) return "one_location";
   // Both paths and both forms.
   //
@@ -298,6 +312,7 @@ export function resolveRouteId(rawPathname: string): RouteId {
   // a join code. Same reasoning as the public request and invite links above.
   if (pathname === "/circle/join") return "one_location_circle_join";
   if (pathname === ROUTES.ONE_WALLET_CARD) return "one_wallet_card";
+  if (pathname === ROUTES.ONE_WALLET) return "one_wallet";
   // The scanned page emits no analytics of its own (isAnalyticsExemptRoute),
   // so this ID is never attached to a page view. It exists because "unknown"
   // is not inert: callers that fall through to it log the raw pathname, and on
@@ -482,16 +497,16 @@ const API_TEMPLATE_RULES: Array<{ regex: RegExp; template: string }> = [
     template: "/api/one/location/public-invites/{public_invite_id}",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/stream(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/stream",
+    regex: /^\/api\/one\/agent-chat(?:\?.*)?$/i,
+    template: "/api/one/agent-chat",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/conversations\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/conversations/{user_id}",
+    regex: /^\/api\/one\/agent-chat\/conversations\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/conversations/{user_id}",
   },
   {
-    regex: /^\/api\/kai\/agent\/chat\/history\/[^/?]+(?:\?.*)?$/i,
-    template: "/api/kai/agent/chat/history/{conversation_id}",
+    regex: /^\/api\/one\/agent-chat\/history\/[^/?]+(?:\?.*)?$/i,
+    template: "/api/one/agent-chat/history/{conversation_id}",
   },
   {
     regex: /^\/api\/kai\/market\/insights\/baseline\/[^/?]+(?:\?.*)?$/i,

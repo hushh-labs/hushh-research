@@ -1,0 +1,180 @@
+{
+  "schema_version": "kai.local_action_contract.v1",
+  "surface_id": "kai_portfolio_detail",
+  "surface_title": "Kai Portfolio Detail",
+  "docs_references": [
+    "docs/reference/kai/kai-action-gateway-vnext.md"
+  ],
+  "defaults": {
+    "reachability": {
+      "active_personas": [
+        "investor"
+      ]
+    }
+  },
+  "actions": [
+    {
+      "action_id": "route.kai_portfolio_holdings",
+      "label": "Show Holdings",
+      "meaning": "Navigates to the portfolio holdings breakdown -- every position held, not the general portfolio dashboard.",
+      "aliases": [
+        "show my holdings",
+        "show holdings",
+        "open holdings"
+      ],
+      "search_keywords": [
+        "holdings",
+        "positions",
+        "portfolio"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/holdings"
+        ],
+        "screens": [
+          "kai_portfolio_holdings"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/holdings"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_portfolio_allocation",
+      "label": "Show Allocation",
+      "meaning": "Navigates to the portfolio allocation breakdown.",
+      "aliases": [
+        "show my allocation",
+        "show allocation",
+        "open allocation"
+      ],
+      "search_keywords": [
+        "allocation",
+        "portfolio"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/allocation"
+        ],
+        "screens": [
+          "kai_portfolio_allocation"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/allocation"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_portfolio_performance",
+      "label": "Show Performance",
+      "meaning": "Navigates to the portfolio performance breakdown.",
+      "aliases": [
+        "show my performance",
+        "show performance",
+        "open performance"
+      ],
+      "search_keywords": [
+        "performance",
+        "returns",
+        "portfolio"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/performance"
+        ],
+        "screens": [
+          "kai_portfolio_performance"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/performance"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    },
+    {
+      "action_id": "route.kai_portfolio_sources",
+      "label": "Show Connected Sources",
+      "meaning": "Navigates to the portfolio's connected data sources.",
+      "aliases": [
+        "show my sources",
+        "show connected sources",
+        "open sources"
+      ],
+      "search_keywords": [
+        "sources",
+        "connected accounts",
+        "portfolio"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/kai/portfolio/sources"
+        ],
+        "screens": [
+          "kai_portfolio_sources"
+        ],
+        "hidden_navigable": true,
+        "navigation_prerequisites": [
+          "Portfolio route must be active"
+        ]
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/kai/portfolio/sources"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "components/kai/kai-portfolio-detail-page.tsx"
+      ],
+      "speaker_persona": "kai"
+    }
+  ]
+}

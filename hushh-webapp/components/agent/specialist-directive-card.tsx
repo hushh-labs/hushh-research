@@ -27,7 +27,10 @@ export function SpecialistDirectiveCard({
   busy,
 }: SpecialistCardProps) {
   return (
-    <div className="rounded-2xl border border-primary/20 bg-primary/5 p-3">
+    <div
+      className="rounded-2xl border border-primary/20 bg-primary/5 p-3"
+      data-testid="specialist-directive-card"
+    >
       <p className="text-sm font-medium text-foreground/90">{summary}</p>
       <div className="mt-3 flex gap-2">
         <button
@@ -35,6 +38,7 @@ export function SpecialistDirectiveCard({
           onClick={onConfirm}
           disabled={busy}
           className="rounded-full bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground disabled:opacity-60"
+          data-testid="specialist-directive-confirm"
         >
           {busy ? "Working…" : confirmLabel}
         </button>
@@ -43,6 +47,7 @@ export function SpecialistDirectiveCard({
           onClick={onCancel}
           disabled={busy}
           className="rounded-full bg-black/5 px-4 py-1.5 text-sm dark:bg-white/10"
+          data-testid="specialist-directive-cancel"
         >
           Cancel
         </button>

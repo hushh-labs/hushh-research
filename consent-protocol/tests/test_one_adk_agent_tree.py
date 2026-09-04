@@ -26,6 +26,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_CONSENT_TOKEN,
     _STATE_GOAL_RUN,
     _STATE_PENDING_DIRECTIVE,
+    _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
@@ -36,6 +37,7 @@ from hushh_mcp.one_adk.action_tools import (
     _journey_slots,
     _navigation_journey_definition,
     continue_app_goal,
+    discover_person_information,
     get_location_circle_members,
     list_app_actions,
     list_location_shared_with_me,
@@ -45,6 +47,7 @@ from hushh_mcp.one_adk.action_tools import (
     list_my_outgoing_location_requests,
     list_pending_connection_requests,
     list_pending_location_requests,
+    read_my_pkm_domain_summary,
     run_app_action,
     start_app_goal,
 )
@@ -53,6 +56,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_IDENTITY_INSTRUCTION,
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
+    STATE_PENDING_TOOL_TRACE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
@@ -116,10 +120,9 @@ class TestAgentTreeShape:
             for t in finance_tool.agent.tools
         }
         assert {"ria", "investor"} <= finance_sub_names
-        assert {
+        expected_tools = {
             "ask_email_agent",
             "ask_location_agent",
-            "ask_connected_systems_agent",
             "ask_consent_agent",
             "calendar_summary",
             "calendar_events",
@@ -128,7 +131,13 @@ class TestAgentTreeShape:
             "propose_calendar_event",
             "propose_calendar_reschedule",
             "propose_calendar_cancellation",
-        } <= tool_names
+            "discover_person_information",
+            "list_pending_information_requests",
+            "propose_information_request",
+        }
+        if _tree._CRM_PRODUCT_AVAILABLE:
+            expected_tools.add("ask_connected_systems_agent")
+        assert expected_tools <= tool_names
         assert "ask_connections_agent" not in tool_names
         assert "ask_gmail_agent" not in tool_names
 
@@ -211,6 +220,22 @@ class TestAgentTreeShape:
         assert agent.model is turn_model
         assert finance_tool.agent.model is turn_model
         assert investor_tool.agent.model is turn_model
+
+    def test_text_runtime_import_is_credential_independent_in_ci(
+        self, monkeypatch: pytest.MonkeyPatch
+    ):
+        monkeypatch.setenv("TESTING", "true")
+        monkeypatch.setattr(
+            _tree,
+            "build_managed_gemini_adk_model",
+            lambda *_args, **_kwargs: pytest.fail("CI collection must not resolve Vertex ADC"),
+        )
+
+        agent = build_one_text_agent()
+        intro_agent = _tree.build_one_intro_text_agent()
+
+        assert agent.model == _tree._SPECIALIST_MODEL
+        assert intro_agent.model == _tree._SPECIALIST_MODEL
 
     def test_byok_live_registry_rejects_models_outside_the_matrix(
         self, monkeypatch: pytest.MonkeyPatch
@@ -899,6 +924,7 @@ class TestGmailEmailDraftDirective:
 class TestRunAppAction:
     def test_state_keys_stay_in_sync_with_agent_tree(self):
         assert _STATE_PENDING_DIRECTIVE == _tree.STATE_PENDING_DIRECTIVE
+        assert _STATE_PENDING_TOOL_TRACE == STATE_PENDING_TOOL_TRACE
         assert _STATE_SCREEN == _tree.STATE_SCREEN
         assert _STATE_USER_ID == STATE_USER_ID
         assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
@@ -1458,9 +1484,7 @@ class TestBackendDirectCheckoutNearby:
                 OneLocationNearbyPresenceService, "checkout", autospec=True
             ) as checkout_mock,
         ):
-            result = await run_app_action(
-                "location.checkout_nearby", {}, _tool_context(state)
-            )
+            result = await run_app_action("location.checkout_nearby", {}, _tool_context(state))
         assert result["status"] == "completed"
         assert "checked you out" in result["message"].lower()
         checkout_mock.assert_called_once()
@@ -1984,7 +2008,9 @@ class TestBackendDirectLocationSendRequest:
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
             result = await run_app_action(
-                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+                "location.send_request",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
             )
         assert result["status"] == "completed"
         assert "Sarah Chen" in result["message"]
@@ -2033,7 +2059,7 @@ class TestBackendDirectLocationSendRequest:
         ):
             result = await run_app_action(
                 "location.send_request",
-                {"person": "Sarah Chen and Abdul"},
+                {"person": "Sarah Chen and Abdul", "duration_hours": "1"},
                 _tool_context(state),
             )
         assert result["status"] == "completed"
@@ -2058,7 +2084,9 @@ class TestBackendDirectLocationSendRequest:
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
             result = await run_app_action(
-                "location.send_request", {"person": "Sarah"}, _tool_context(state)
+                "location.send_request",
+                {"person": "Sarah", "duration_hours": "1"},
+                _tool_context(state),
             )
         assert result["status"] == "failed"
         assert "more than one connection" in result["message"].lower()
@@ -2074,7 +2102,11 @@ class TestBackendDirectLocationSendRequest:
             self._auth_patch(),
             patch.object(OneLocationAgentService, "request_access", autospec=True) as request_mock,
         ):
-            result = await run_app_action("location.send_request", {}, _tool_context(state))
+            result = await run_app_action(
+                "location.send_request",
+                {"duration_hours": "1"},
+                _tool_context(state),
+            )
         request_mock.assert_not_called()
         assert result["status"] in ("ready_to_run", "confirm_pending")
         directive_keys = [k for k in state if k.startswith(f"{_STATE_PENDING_DIRECTIVE}:")]
@@ -2936,7 +2968,9 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(OneLocationCircleService, "leave_circle", autospec=True),
         ):
-            await run_app_action("location.leave_circle", {"circle": "family"}, _tool_context(state))
+            await run_app_action(
+                "location.leave_circle", {"circle": "family"}, _tool_context(state)
+            )
         assert self._parked_subject(state, "location.leave_circle") is None
 
     @pytest.mark.asyncio
@@ -3028,9 +3062,7 @@ class TestBackendDirectActionResultSubject:
             ),
             patch.object(ConnectionsService, "create_request", autospec=True),
         ):
-            await run_app_action(
-                "connect.send_request", {"person": "Sarah"}, _tool_context(state)
-            )
+            await run_app_action("connect.send_request", {"person": "Sarah"}, _tool_context(state))
         assert self._parked_subject(state, "connect.send_request") == {"name": "Sarah Chen"}
 
     @pytest.mark.asyncio
@@ -3284,6 +3316,32 @@ class TestBackendDirectLocationReadTools:
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_my_location_circles_parks_a_circles_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[
+                    {"id": "c1", "name": "Family", "memberCount": 4, "role": "owner"},
+                    {"id": "c2", "name": "Trusted", "memberCount": 1, "role": "member"},
+                ],
+            ),
+        ):
+            await list_my_location_circles(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_location_circles"]
+        assert trace["kind"] == "circles_list"
+        assert trace["payload"] == {
+            "heading": "Your circles",
+            "items": [
+                {"id": "c1", "name": "Family", "detail": "4 members · Owner", "photoUrl": None},
+                {"id": "c2", "name": "Trusted", "detail": "1 member · Member", "photoUrl": None},
+            ],
+        }
+
+    @pytest.mark.asyncio
     async def test_list_my_location_shares_reads_active_owner_grants(self):
         state = self._authorized_state()
         with (
@@ -3299,6 +3357,33 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["shares"][0]["recipientDisplayName"] == "Roopmann"
         assert grants_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_location_shares_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_owner_grants",
+                autospec=True,
+                return_value=[
+                    {
+                        "recipientUserId": "u1",
+                        "recipientDisplayName": "Roopmann",
+                        "recipientPhotoUrl": "https://x/r.jpg",
+                        "recipientMaskedPhone": "+1***1234",
+                    }
+                ],
+            ),
+        ):
+            await list_my_location_shares(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_location_shares"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Sharing your location with"
+        assert trace["payload"]["items"] == [
+            {"id": "u1", "name": "Roopmann", "detail": "+1***1234", "photoUrl": "https://x/r.jpg"}
+        ]
 
     @pytest.mark.asyncio
     async def test_list_location_shared_with_me_reads_active_recipient_grants(self):
@@ -3318,6 +3403,26 @@ class TestBackendDirectLocationReadTools:
         assert grants_mock.call_args.kwargs == {"recipient_user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_location_shared_with_me_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_active_recipient_grants",
+                autospec=True,
+                return_value=[{"ownerUserId": "u2", "ownerDisplayName": "Friend"}],
+            ),
+        ):
+            await list_location_shared_with_me(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_location_shared_with_me"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Sharing their location with you"
+        assert trace["payload"]["items"] == [
+            {"id": "u2", "name": "Friend", "detail": None, "photoUrl": None}
+        ]
+
+    @pytest.mark.asyncio
     async def test_list_pending_location_requests_reads_pending_owner_requests(self):
         state = self._authorized_state()
         with (
@@ -3333,6 +3438,26 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["requests"][0]["requesterDisplayName"] == "Asker"
         assert requests_mock.call_args.kwargs == {"owner_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_location_requests_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_owner_requests",
+                autospec=True,
+                return_value=[{"requesterUserId": "u3", "requesterDisplayName": "Asker"}],
+            ),
+        ):
+            await list_pending_location_requests(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_location_requests"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Location requests waiting on you"
+        assert trace["payload"]["items"] == [
+            {"id": "u3", "name": "Asker", "detail": None, "photoUrl": None}
+        ]
 
     @pytest.mark.asyncio
     async def test_list_my_outgoing_location_requests_reads_pending_requester_requests(self):
@@ -3353,6 +3478,26 @@ class TestBackendDirectLocationReadTools:
         assert result["status"] == "ok"
         assert result["requests"][0]["ownerDisplayName"] == "Sarah"
         assert requests_mock.call_args.kwargs == {"requester_user_id": "user_1"}
+
+    @pytest.mark.asyncio
+    async def test_list_my_outgoing_location_requests_parks_a_people_list_trace(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationAgentService,
+                "list_pending_requester_requests",
+                autospec=True,
+                return_value=[{"ownerUserId": "u4", "ownerDisplayName": "Sarah"}],
+            ),
+        ):
+            await list_my_outgoing_location_requests(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_outgoing_location_requests"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Requests you've sent"
+        assert trace["payload"]["items"] == [
+            {"id": "u4", "name": "Sarah", "detail": None, "photoUrl": None}
+        ]
 
     @pytest.mark.asyncio
     async def test_get_location_circle_members_returns_names_not_just_a_count(self):
@@ -3401,6 +3546,41 @@ class TestBackendDirectLocationReadTools:
         assert "keyId" not in result["members"][0]
         assert "publicKeyJwk" not in result["members"][0]
         assert get_circle_mock.call_args.kwargs == {"user_id": "user_1", "circle_id": "c1"}
+
+    @pytest.mark.asyncio
+    async def test_get_location_circle_members_parks_a_people_list_trace_named_by_the_circle(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                OneLocationCircleService,
+                "list_circles",
+                autospec=True,
+                return_value=[{"id": "c1", "name": "Family"}],
+            ),
+            patch.object(
+                OneLocationCircleService,
+                "get_circle",
+                autospec=True,
+                return_value={
+                    "name": "Family",
+                    "kind": "trusted",
+                    "members": [
+                        {"displayName": "Sarah Chen", "role": "owner", "keyId": "should-not-leak"},
+                        {"displayName": "Alex Kim", "role": "member"},
+                    ],
+                },
+            ),
+        ):
+            await get_location_circle_members("Family", _tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:get_location_circle_members"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Family members"
+        assert trace["payload"]["items"] == [
+            {"id": "member-0", "name": "Sarah Chen", "detail": "Owner", "photoUrl": None},
+            {"id": "member-1", "name": "Alex Kim", "detail": "Member", "photoUrl": None},
+        ]
+        assert "keyId" not in str(trace)
 
     @pytest.mark.asyncio
     async def test_get_location_circle_members_reports_not_found_instead_of_raising(self):
@@ -3492,7 +3672,9 @@ class TestBackendDirectLocationReadTools:
                 OneLocationAgentService,
                 "list_active_owner_grants",
                 autospec=True,
-                side_effect=OneLocationAgentError("LOCATION_STATE_UNAVAILABLE", "Try again shortly."),
+                side_effect=OneLocationAgentError(
+                    "LOCATION_STATE_UNAVAILABLE", "Try again shortly."
+                ),
             ),
         ):
             result = await list_my_location_shares(_tool_context(state))
@@ -3554,6 +3736,135 @@ class TestBackendDirectConnectionReadTools:
         assert list_mock.call_args.kwargs == {"user_id": "user_1"}
 
     @pytest.mark.asyncio
+    async def test_list_my_connections_parks_a_card_safe_trace_for_the_relay(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {
+                        "connectionId": "cx1",
+                        "displayName": "Sarah Chen",
+                        "email": "sarah.chen@example.com",
+                        "photoUrl": "https://example.com/sarah.jpg",
+                        # public key material a card must never see.
+                        "publicPersonRef": "11111111-1111-4111-8111-111111111111",
+                    },
+                    {"connectionId": "cx2", "displayName": "Alex Kim"},
+                ],
+            ),
+        ):
+            await list_my_connections(_tool_context(state))
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_my_connections"]
+        assert trace["kind"] == "people_list"
+        assert trace["payload"]["heading"] == "Your connections"
+        people = trace["payload"]["items"]
+        assert people == [
+            {
+                "id": "cx1",
+                "name": "Sarah Chen",
+                "detail": "s***n@example.com",
+                "photoUrl": "https://example.com/sarah.jpg",
+            },
+            {"id": "cx2", "name": "Alex Kim", "detail": None, "photoUrl": None},
+        ]
+        assert "publicPersonRef" not in str(trace)
+
+    @pytest.mark.asyncio
+    async def test_list_my_connections_publishes_no_trace_when_there_is_nothing_to_show(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_connections", autospec=True, return_value=[]),
+        ):
+            result = await list_my_connections(_tool_context(state))
+        assert result["status"] == "ok"
+        assert f"{_STATE_PENDING_TOOL_TRACE}:list_my_connections" not in state
+
+    @pytest.mark.asyncio
+    async def test_discovers_exact_opaque_scopes_for_one_connected_person(self):
+        state = self._authorized_state()
+        profile = {
+            "displayName": "Sarah Chen",
+            "relationship": {"status": "connected"},
+            "requestableScopes": [
+                {
+                    "scopeRef": "psr_opaque",
+                    "label": "Employment status",
+                    "description": "Current employment standing",
+                    "domain": "professional",
+                    "sensitivity": "confidential",
+                },
+                {
+                    "scopeRef": "psr_other",
+                    "label": "Favorite cuisine",
+                    "domain": "food",
+                    "sensitivity": "standard",
+                },
+            ],
+        }
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {
+                        "displayName": "Sarah Chen",
+                        "publicPersonRef": "11111111-1111-4111-8111-111111111111",
+                    }
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(return_value=profile),
+            ),
+        ):
+            result = await discover_person_information(
+                "Sarah", _tool_context(state), "professional"
+            )
+        assert result["status"] == "ok"
+        assert result["person"]["profilePath"].startswith("/people/")
+        assert result["requestableScopes"] == [
+            {
+                "scopeRef": "psr_opaque",
+                "label": "Employment status",
+                "description": "Current employment standing",
+                "domain": "professional",
+                "sensitivity": "confidential",
+            }
+        ]
+        assert "attr." not in str(result)
+
+    @pytest.mark.asyncio
+    async def test_information_discovery_requires_an_unambiguous_connection(self):
+        state = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(
+                ConnectionsService,
+                "list_connections",
+                autospec=True,
+                return_value=[
+                    {"displayName": "Alex Kim", "publicPersonRef": "ref-1"},
+                    {"displayName": "Alex Singh", "publicPersonRef": "ref-2"},
+                ],
+            ),
+            patch(
+                "hushh_mcp.one_adk.action_tools.PersonProfileService.get_viewer_profile",
+                new=AsyncMock(),
+            ) as profile_mock,
+        ):
+            result = await discover_person_information("Alex", _tool_context(state))
+        assert result["status"] == "needs_clarification"
+        assert "Alex Kim" in result["message"]
+        profile_mock.assert_not_awaited()
+
+    @pytest.mark.asyncio
     async def test_list_pending_connection_requests_defaults_to_incoming(self):
         state = self._authorized_state()
         with (
@@ -3578,6 +3889,34 @@ class TestBackendDirectConnectionReadTools:
             result = await list_pending_connection_requests(_tool_context(state), "outgoing")
         assert result["status"] == "ok"
         assert requests_mock.call_args.kwargs == {"user_id": "user_1", "direction": "outgoing"}
+
+    @pytest.mark.asyncio
+    async def test_list_pending_connection_requests_parks_a_trace_with_a_direction_matched_heading(
+        self,
+    ):
+        state = self._authorized_state()
+        row = [{"counterpartUserId": "u5", "counterpartDisplayName": "Priya"}]
+
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=row),
+        ):
+            await list_pending_connection_requests(_tool_context(state))
+        incoming_trace = state[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_connection_requests"]
+        assert incoming_trace["kind"] == "people_list"
+        assert incoming_trace["payload"]["heading"] == "Connection requests waiting on you"
+        assert incoming_trace["payload"]["items"] == [
+            {"id": "u5", "name": "Priya", "detail": None, "photoUrl": None}
+        ]
+
+        state2 = self._authorized_state()
+        with (
+            self._auth_patch(),
+            patch.object(ConnectionsService, "list_requests", autospec=True, return_value=row),
+        ):
+            await list_pending_connection_requests(_tool_context(state2), "outgoing")
+        outgoing_trace = state2[f"{_STATE_PENDING_TOOL_TRACE}:list_pending_connection_requests"]
+        assert outgoing_trace["payload"]["heading"] == "Requests you've sent"
 
     @pytest.mark.asyncio
     async def test_refuses_without_a_consent_token(self):
@@ -3617,6 +3956,132 @@ class TestBackendDirectConnectionReadTools:
         ):
             result = await list_pending_connection_requests(_tool_context(state))
         assert result == {"status": "failed", "message": "Try again shortly."}
+
+
+class _FakePkmIndex:
+    def __init__(self, available_domains, domain_summaries):
+        self.available_domains = available_domains
+        self.domain_summaries = domain_summaries
+
+
+class TestReadMyPkmDomainSummary:
+    """read_my_pkm_domain_summary -- the general PKM domain-summary read tool."""
+
+    def _authorized_state(self) -> dict:
+        return {STATE_USER_ID: "user_1", STATE_CONSENT_TOKEN: "token_1"}
+
+    def _auth_patch(self):
+        return patch(
+            "hushh_mcp.one_adk.action_tools.validate_token_with_db",
+            new=AsyncMock(return_value=(True, None, SimpleNamespace(user_id="user_1"))),
+        )
+
+    def _pkm_patch(self, index):
+        fake_service = SimpleNamespace(get_index_v2=AsyncMock(return_value=index))
+        return patch(
+            "hushh_mcp.one_adk.action_tools.get_pkm_service",
+            return_value=fake_service,
+        )
+
+    @pytest.mark.asyncio
+    async def test_reads_the_summary_for_a_domain_the_person_has_data_in(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(
+            available_domains=["financial", "identity"],
+            domain_summaries={
+                "financial": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"}
+            },
+        )
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result == {
+            "status": "ok",
+            "result": {
+                "has_data": True,
+                "domain": "financial",
+                "summary": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"},
+            },
+        }
+        trace = state[f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary"]
+        assert trace == {
+            "kind": "pkm_domain_summary",
+            "payload": {
+                "domain": "financial",
+                "label": "Financial",
+                "summary": {"holdings_count": 12, "portfolio_value_bucket": "100k-250k"},
+            },
+        }
+
+    @pytest.mark.asyncio
+    async def test_reports_no_data_rather_than_erroring_for_a_domain_with_none_yet(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(available_domains=["identity"], domain_summaries={})
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result == {
+            "status": "ok",
+            "result": {"has_data": False, "domain": "financial", "summary": {}},
+        }
+        # Nothing worth a card -- the spoken answer already says there's
+        # nothing on record, so no trace should be parked for the relay.
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
+
+    @pytest.mark.asyncio
+    async def test_publishes_no_trace_when_the_domain_exists_but_the_summary_is_empty(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(available_domains=["financial"], domain_summaries={"financial": {}})
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result["result"]["has_data"] is True
+        assert f"{_STATE_PENDING_TOOL_TRACE}:read_my_pkm_domain_summary" not in state
+
+    @pytest.mark.asyncio
+    async def test_normalizes_case_and_whitespace_on_the_spoken_domain(self):
+        state = self._authorized_state()
+        index = _FakePkmIndex(
+            available_domains=["health"], domain_summaries={"health": {"steps_tracked": True}}
+        )
+        with self._auth_patch(), self._pkm_patch(index):
+            result = await read_my_pkm_domain_summary("  Health  ", _tool_context(state))
+        assert result["result"]["domain"] == "health"
+        assert result["result"]["has_data"] is True
+
+    @pytest.mark.asyncio
+    async def test_rejects_an_unknown_domain_and_lists_the_real_ones(self):
+        state = self._authorized_state()
+        with self._auth_patch():
+            result = await read_my_pkm_domain_summary("crypto_wallets", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "financial" in result["message"]
+        assert "health" in result["message"]
+
+    @pytest.mark.asyncio
+    async def test_never_reads_back_runtime_secrets_even_if_asked_by_that_exact_key(self):
+        # Credential-shaped domain: excluded regardless of what the model
+        # passes, not filtered after the fact -- see the module-level
+        # _VOICE_UNREADABLE_PKM_DOMAINS comment for why.
+        state = self._authorized_state()
+        with self._auth_patch():
+            result = await read_my_pkm_domain_summary("runtime_secrets", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "runtime_secrets" not in result["message"].split("Available domains: ")[-1]
+
+    @pytest.mark.asyncio
+    async def test_a_db_hiccup_fails_clean_instead_of_killing_the_session(self):
+        state = self._authorized_state()
+        fake_service = SimpleNamespace(
+            get_index_v2=AsyncMock(side_effect=RuntimeError("connection pool exhausted"))
+        )
+        with (
+            self._auth_patch(),
+            patch(
+                "hushh_mcp.one_adk.action_tools.get_pkm_service",
+                return_value=fake_service,
+            ),
+        ):
+            result = await read_my_pkm_domain_summary("financial", _tool_context(state))
+        assert result["status"] == "failed"
+        assert "try again" in result["message"].lower()
 
 
 class TestSettledActionJourneys:
@@ -3957,6 +4422,54 @@ class TestListAppActions:
         by_id = {r["action_id"]: r for r in result["results"]}
         if "email.chat.turn" in by_id:
             assert by_id["email.chat.turn"]["use_tool"] == "ask_email_agent"
+
+    @pytest.mark.asyncio
+    async def test_a_shared_alias_resolves_to_the_action_on_this_screen(self):
+        """Two actions can own the same alias if they live on different screens.
+
+        "people tab" is the honest name for the People tab on BOTH Connect and
+        Location, so neither should give it up -- taking it from one would just
+        break that phrase on that surface. The generator's collision guard
+        allows the pair for exactly this reason: their reachable screens do not
+        overlap.
+
+        What makes that safe is this ordering. Both score identically on an
+        exact alias match, and the tie is broken by _AVAILABILITY_ORDER, so
+        whichever one is reachable from the screen the person is actually on
+        wins. Pinned here because it is the only thing standing between a
+        deliberate shared alias and an arbitrary coin flip, and because the
+        obvious "fix" for such a pair -- deleting one of the aliases -- would
+        be a regression this test should make someone stop and reconsider.
+        """
+        location_state = {_STATE_SCREEN: "one_location"}
+        location_state["hussh:voice_context"] = {
+            "route_pattern": "/one/location",
+            "screen": "one_location",
+            "context_revision": "loc-1",
+            "available_action_ids": ["location.open_people"],
+        }
+        result = await list_app_actions("people tab", _tool_context(location_state))
+        ordered = [r["action_id"] for r in result["results"]]
+        assert "location.open_people" in ordered
+        if "connect.open_people" in ordered:
+            assert ordered.index("location.open_people") < ordered.index("connect.open_people"), (
+                "the on-screen action must outrank the identically-aliased one"
+            )
+
+        connect_state = {_STATE_SCREEN: "connect"}
+        connect_state["hussh:voice_context"] = {
+            "route_pattern": "/connect",
+            "screen": "connect",
+            "context_revision": "con-1",
+            "available_action_ids": ["connect.open_people"],
+        }
+        result = await list_app_actions("people tab", _tool_context(connect_state))
+        ordered = [r["action_id"] for r in result["results"]]
+        assert "connect.open_people" in ordered
+        if "location.open_people" in ordered:
+            assert ordered.index("connect.open_people") < ordered.index("location.open_people"), (
+                "the same phrase must resolve the other way on the other screen"
+            )
 
 
 class TestContractDrivenNavigationJourneys:
@@ -4638,14 +5151,21 @@ def test_no_wired_action_is_a_dead_end_from_a_foreign_screen():
     end -- One has nothing to offer and says so, which reads as the app
     refusing to do something it can plainly do.
 
-    The allowlist is the OTP flow, and it is correct: a verification code
-    belongs to the screen showing it, and "start the code journey from
-    somewhere else" is not a thing anyone can mean.
+    The allowlist contains controls whose subject exists only in the mounted
+    screen context: OTP fields and actions phrased around "this person" on an
+    already-open profile. Cross-screen person requests use the named-person
+    Connect and information-discovery journeys instead; guessing a profile
+    reference here would be an authority bug.
     """
     from hushh_mcp.one_adk.action_tools import _reachability
     from hushh_mcp.services.action_gateway import list_action_gateway_actions
 
     SCREEN_BOUND_BY_DESIGN = {
+        "people.profile.cancel_connection_request",
+        "people.profile.connect",
+        "people.profile.manage_consent",
+        "people.profile.remove_connection",
+        "people.profile.review_information_request",
         "phone_mandate.close_country_picker",
         "phone_mandate.select_country",
         "phone_mandate.submit_code",

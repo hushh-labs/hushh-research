@@ -20,11 +20,10 @@ import type {
 import type { CircleRecipientSelection } from "@/lib/one-location/circle-recipient-selection";
 import { TaskFlowHeader } from "@/components/one-location/redesign/primitives";
 import {
-  CONTACT_AVATAR_TONE,
+  ContactAvatar,
   ContactGroup,
   ContactRow,
   EmptyStateCard,
-  initials,
 } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleMemberPicker } from "@/components/one-location/redesign/contact-picker/circle-member-picker";
 import { ContactListControls } from "@/components/one-location/redesign/contact-picker/list-controls";
@@ -329,6 +328,8 @@ export function SmsContactsFlow({
                     return (
                       <ContactRow
                         label={label}
+                        photoUrl={recipient.photoUrl}
+                        verified={Boolean(recipient.isRia)}
                         subtitle={recipientSubtitle(recipient)}
                         fromContacts={recipient.connectedFromContacts}
                         selected={selectedIds.has(recipient.userId)}
@@ -387,15 +388,12 @@ export function SmsContactsFlow({
                 orange well read as "attention" on a face, and white on
                 --app-warning measures ~2.2:1. The danger in this dialog is
                 carried by the red Remove button and the title copy. */}
-            <span
-              className={cn(
-                "flex h-[52px] w-[52px] items-center justify-center rounded-[16px] text-xl font-semibold",
-                CONTACT_AVATAR_TONE,
-              )}
-              aria-hidden
-            >
-              {pendingRemoval ? initials(recipientLabel(pendingRemoval)) : "?"}
-            </span>
+            <ContactAvatar
+              label={pendingRemoval ? recipientLabel(pendingRemoval) : "?"}
+              photoUrl={pendingRemoval?.photoUrl}
+              verified={Boolean(pendingRemoval?.isRia)}
+              className="h-[52px] w-[52px] rounded-[16px] text-xl"
+            />
             <AlertDialogTitle className="mt-1 !text-center !text-[20px] !font-semibold !leading-[25px] !tracking-normal">
               <span className="text-foreground">
                 Remove{" "}

@@ -254,6 +254,110 @@ Production selection must use an allowlisted immutable environment bundle. It
 must not accept arbitrary origins, and switching environments requires
 disconnecting and clearing local custody first.
 
+## Liveness Heartbeat
+
+`last_synced_at` cannot answer "is this agent reachable right now?" It advances
+only when the device pulls the PKM sync channel, so an agent that is running but
+idle reads as days stale.
+
+Migration 189 adds `last_heartbeat_at` and a `heartbeat` JSONB column, written by
+`POST /api/account/trusted-devices/{device_id}/heartbeat`. The endpoint is
+Firebase-authed like the own-device status read: a heartbeat grants nothing, so
+it needs no device signature.
+
+Three properties keep it safe. The payload is untrusted device input written to
+JSONB, so the service reduces it to a fixed allow-list of runtime scalars
+(machine identifier, configured model, agent version, busy flag, active session
+count, next cron run, and the machine's brand, processor, RAM total and used
+share, battery percentage, minutes remaining, charging and mains state) and
+drops everything else rather than sanitizing it, truncating text to 120
+characters and dropping out-of-range numbers; the reduction runs again on read.
+The server stamps its own timestamp, so a device cannot backdate or
+forward-date liveness. Only rows with `status = 'active'` are updated, so a
+revoked device can never appear live again. Enforcement never consults these
+columns: trust remains decided by `status` and `is_trusted_device_active`.
+
+The route itself does not validate the body with a typed model, on purpose. A
+bounded request model in front of the allow-list rejected the WHOLE beat with a
+422 when one value ran over (a 121-character model id did it), and a device
+whose beats are refused reads as gone in One while it is healthy. The route
+forwards the body and the service decides per field. It also reads both body
+shapes: Hermes builds from 2026-08-28 to 2026-09-03 posted the telemetry
+wrapped as `{"heartbeat": {...}}`, later builds post it flat, and top-level
+keys win over the wrapped block. The wrapper can be retired once every
+installed agent has updated.
+
+### A login is not trust
+
+A trusted device holds two separable things, and conflating them cost the
+founder's machine weeks of invisible downtime in August 2026.
+
+**Trust** is the `trusted_devices` row. Only the owner revokes it, and
+revocation seals the device's local copy. **A login** is the Firebase refresh
+token the device holds. It ages out on its own, and dies outright when the
+account's sessions are reset.
+
+When the login dies the failure is silent by design. `post_heartbeat`
+deliberately reads the cached token and never refreshes it, because refreshing
+runs the revocation check, which can seal the device: telemetry must never be
+able to destroy local data as a side effect of being sent. So a dead login
+means no heartbeat, and this page shows the machine as gone while every surface
+on the machine reports healthy.
+
+The repair is `/hussh-one reconnect` on the device (or
+`POST /api/hussh-one/connect {"reconnect": true}` against its local dashboard).
+It re-approves the **same** account through this same authorize page, passes
+`replaces_device_id` so the server swaps the row atomically, and removes
+nothing: the vault envelope, the encrypted replica and Source Library custody
+all survive, and the device refuses the exchange outright if the browser comes
+back signed in as a different account. Switching accounts remains the explicit
+disconnect path, because that custody belongs to the account being left.
+
+The flow is per device. A second machine repairs itself the same way without
+touching the first, and each device's approval is a separate row here.
+
+The devices surface reports `Active now` only while a heartbeat is fresher than
+21 minutes (`HEARTBEAT_FRESH_MS` in `hushh-webapp/lib/trusted-device/sync-display.ts`,
+kept above twice the agent's 600-second keepalive so one missed beat does not
+show a live machine as gone), and otherwise falls back to the trust-only label.
+The heartbeat is posted to whichever environment the device enrolled in
+(`api_base` in the device's identity record), so a device enrolled against UAT
+shows as live on the UAT devices page and nowhere else.
+
+## Talking To The Agent On This Machine
+
+Puppy One is its own surface, `/one/puppy`, not a mode of the cloud
+conversation: it is a different agent with a different model and a different
+memory, doing its work on the user's own hardware, and mixing its turns into
+the cloud transcript would make the transcript lie about where each answer
+came from. The surface carries an `on-device` / `any model` pill that pins the
+turn to the local provider, and a model picker that labels each provider as
+staying on this machine or leaving it.
+
+Requests go to `/api/hermes/status`, `/api/hermes/models` and
+`/api/hermes/chat/stream`, Next route handlers
+that run on the same machine and forward to the Hermes `api_server` on loopback
+`127.0.0.1:8642`. The `api_server` bearer key is effectively host
+remote-code-execution, so it is read server-side from `HERMES_API_SERVER_KEY`
+and never reaches the browser; the browser only ever talks to its own origin.
+The bridge refuses any non-loopback target rather than forwarding that key to
+another host.
+
+| Variable | Purpose |
+| --- | --- |
+| `HERMES_API_SERVER_KEY` | Bearer key for the local Hermes `api_server`. Absent means the toggle renders a calm "not connected" state. |
+| `HERMES_API_SERVER_URL` | Optional override, loopback only. Defaults to `http://127.0.0.1:8642`. |
+
+The on-device pin sets `provider: "lmstudio"` so generation happens on the local
+model rather than reaching a model vendor, and each answer shows the provider
+and model that actually ran instead of asserting where it came from.
+
+This bridge is localhost-only by construction: a cloud-hosted One cannot reach a
+loopback service on a user's machine. Serving the toggle from a deployed
+environment requires the outbound rendezvous in the One and Hermes live-bridge
+design, where the agent dials out and nothing dials in. That transport is not
+built.
+
 ## Related References
 
 - [IAM Architecture](./architecture.md)

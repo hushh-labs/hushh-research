@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -119,7 +125,10 @@ beforeEach(() => {
   mocks.listCircles.mockResolvedValue([]);
   mocks.ensureTrusted.mockResolvedValue({});
   mocks.searchParams = new URLSearchParams("tab=circles");
-  mocks.createNamedCircle.mockResolvedValue({ id: "new-circle", name: "Roommates" });
+  mocks.createNamedCircle.mockResolvedValue({
+    id: "new-circle",
+    name: "Roommates",
+  });
   mocks.getCircle.mockResolvedValue({
     id: "mine",
     name: "Roommates",
@@ -175,7 +184,7 @@ describe("circleRowDescription", () => {
       "Everyone you're connected to · 7 people",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 4, "sms"))).toBe(
-      "Gets your SOS text · 3 people",
+      "Gets your SMS · 3 people",
     );
   });
 
@@ -184,7 +193,7 @@ describe("circleRowDescription", () => {
       "Everyone you're connected to",
     );
     expect(circleRowDescription(circle("s", "SMS Circle", 1, "sms"))).toBe(
-      "Gets your SOS text · no one yet",
+      "Gets your SMS · no one yet",
     );
   });
 
@@ -193,51 +202,125 @@ describe("circleRowDescription", () => {
     // the ones you do not own -- "Alice's SMS Circle" -- because three
     // friends' rosters would otherwise be three identical rows.
     const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
-    expect(circleRowDescription(theirs)).toBe("You'll get their SOS text");
+    expect(circleRowDescription(theirs)).toBe("You'll get their SMS");
   });
 
-  it("never tells a member it is their own SOS text", () => {
+  it("never tells a member it is their own SMS", () => {
     const theirs = circle("s", "Alice's SMS Circle", 4, "sms", "member");
-    expect(circleRowDescription(theirs)).not.toContain("your SOS");
+    // SMS is Save my Soul, this product's own name for the lane; "SOS" is the
+    // server's word and is never shown to a person. Both are checked so the
+    // rename cannot regress in either direction.
+    expect(circleRowDescription(theirs)).not.toContain("your SMS");
+    expect(circleRowDescription(theirs)).not.toMatch(/SOS/i);
   });
 
   it("still recognises an SMS Circle from a server that predates systemKind", () => {
     const legacy = { ...circle("s", "SMS Circle", 3, "sms"), systemKind: null };
-    expect(circleRowDescription(legacy)).toBe("Gets your SOS text · 2 people");
+    expect(circleRowDescription(legacy)).toBe("Gets your SMS · 2 people");
   });
 });
 
 describe("orderCircles", () => {
-  it("puts Trusted first, then SMS, then the ones you made", () => {
-    // What is yours and what is the app's, answerable at a glance rather than
-    // per row -- and Trusted first because it is what a person opens this tab
-    // to see.
-    const { system, owned } = orderCircles([
+  it("separates circles you own from circles you joined", () => {
+    // What is yours and what you joined, answerable at a glance rather than per
+    // row -- with your product-managed circles still pinned first.
+    const { owned, joined } = orderCircles([
       circle("mine", "Roommates", 3),
-      circle("sms", "SMS Circle", 4, "sms"),
+      circle("family", "Family", 2, null, "member"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("sms", "SMS Circle", 4, "sms", "owner"),
       circle("trusted", "Trusted", 20, "trusted"),
     ]);
 
-    expect(system.map((c) => c.id)).toEqual(["trusted", "sms"]);
-    expect(owned.map((c) => c.id)).toEqual(["mine"]);
+    expect(owned.map((c) => c.id)).toEqual(["trusted", "sms", "mine"]);
+    expect(joined.map((c) => c.id)).toEqual(["family", "their-sms"]);
   });
 });
 
 describe("ConnectCirclesTab", () => {
-  it("shows the system Circles above the ones you made", async () => {
+  it("shows your Circles separately from joined Circles", async () => {
     mocks.listCircles.mockResolvedValue([
       circle("mine", "Roommates", 3),
+      circle("joined", "Family", 2, null, "member"),
+      circle("trusted", "Trusted", 20, "trusted"),
+      circle("sms", "SMS Circle", 4, "sms"),
+      circle("their-sms", "Alice's SMS Circle", 4, "sms", "member"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    const owned = await screen.findByTestId("connect-circle-group-owned");
+    const joined = screen.getByTestId("connect-circle-group-joined");
+
+    expect(within(owned).getByText("Your circles")).toBeTruthy();
+    expect(within(owned).getByText("Trusted")).toBeTruthy();
+    expect(within(owned).getByText("SMS Circle")).toBeTruthy();
+    expect(within(owned).getByText("Roommates")).toBeTruthy();
+    expect(within(owned).queryByText("Family")).toBeNull();
+
+    expect(within(joined).getByText("Joined circles")).toBeTruthy();
+    expect(within(joined).getByText("Family")).toBeTruthy();
+    expect(within(joined).getByText("Alice's SMS Circle")).toBeTruthy();
+    expect(within(joined).queryByText("Roommates")).toBeNull();
+    expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
+    const smsCircle = within(owned).getByTestId("connect-circle-sms");
+    expect(smsCircle).toBeTruthy();
+    expect(smsCircle.querySelector("[data-one-sms-text-icon]")).toBeTruthy();
+  });
+
+  it("gives the SMS Circle the same red mark Location's People tab gives it", async () => {
+    // Reported: the same Circle looked like two different things depending on
+    // which tab you opened. Location's People tab draws a filled red disc
+    // reading "SMS"; this list drew a `Siren` glyph in the same indigo well it
+    // gives Trusted and every user-made Circle, so the one row whose whole
+    // point is that it behaves differently in an emergency read as another
+    // ordinary group.
+    //
+    // Upstream landed the same fix while this branch was in review, with a
+    // shared `SmsTextIcon` and the destructive token instead of a literal hex.
+    // The claim is unchanged, so it is asserted against what ships.
+    mocks.listCircles.mockResolvedValue([
       circle("trusted", "Trusted", 20, "trusted"),
       circle("sms", "SMS Circle", 4, "sms"),
     ]);
 
     render(<ConnectCirclesTab />);
 
-    expect(await screen.findByText("Trusted")).toBeTruthy();
-    expect(screen.getByText("SMS Circle")).toBeTruthy();
-    expect(screen.getByText("Roommates")).toBeTruthy();
-    expect(screen.getByTestId("connect-circle-trusted")).toBeTruthy();
-    expect(screen.getByTestId("connect-circle-sms")).toBeTruthy();
+    const smsRow = await screen.findByTestId("connect-circle-sms");
+    const mark = within(smsRow).getByText("SMS");
+    const disc = mark.parentElement!;
+    // Red, round and filled -- the identity, not a tinted utility well.
+    expect(disc.className).toContain("bg-[color:var(--app-destructive)]");
+    expect(disc.className).toContain("rounded-full");
+    // 28px, because these rows are `density="compact"` and that is the size of
+    // the icon well beside them. Location's list draws the same disc at 36px,
+    // which is the size of ITS rows -- dropping that one in here would make
+    // the SMS row taller than its neighbours and push it past the compact
+    // separator's 58px inset.
+    expect(disc.className).toContain("h-7");
+    expect(disc.className).toContain("w-7");
+
+    // The indigo utility well is gone from this row, and only this row.
+    expect(smsRow.querySelector('[data-slot="settings-row-icon"]')).toBeNull();
+    const trustedIcon = screen
+      .getByTestId("connect-circle-trusted")
+      .querySelector('[data-slot="settings-row-icon"]');
+    expect(trustedIcon).not.toBeNull();
+    expect(trustedIcon).toHaveAttribute("data-icon-tone", "indigo");
+  });
+
+  it("marks every SMS Circle on the list, not only the one you own", async () => {
+    // An SMS Circle appears in the list of everyone ON it, so a viewer can see
+    // several. The mark is per row, not a badge on the first system Circle.
+    mocks.listCircles.mockResolvedValue([
+      circle("theirs", "Alice's SMS Circle", 4, "sms", "member"),
+      circle("mine", "SMS Circle", 3, "sms", "owner"),
+    ]);
+
+    render(<ConnectCirclesTab />);
+
+    await screen.findByText("Alice's SMS Circle");
+    expect(screen.getAllByText("SMS")).toHaveLength(2);
   });
 
   it("renders the server's name for a Circle you do not own", async () => {
@@ -435,7 +518,9 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
     // The whole point. Before this, the same tap was a router.push into
     // /one/location, where a first-run onboarding takeover -- decided without
     // reading any query parameter -- rendered instead.
-    mocks.searchParams = new URLSearchParams("tab=circles&action=create-circle");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=create-circle",
+    );
 
     render(<ConnectCirclesTab />);
 
@@ -482,7 +567,9 @@ describe("the flows are hosted on Connect, not linked away to Location", () => {
   });
 
   it("shows the list, not a flow, when circle-detail carries no id", async () => {
-    mocks.searchParams = new URLSearchParams("tab=circles&action=circle-detail");
+    mocks.searchParams = new URLSearchParams(
+      "tab=circles&action=circle-detail",
+    );
 
     render(<ConnectCirclesTab />);
 

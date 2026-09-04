@@ -28,6 +28,12 @@ and an exact per-message final confirmation. It never sends as `one@hushh.ai`
 and does not reuse this KYC workflow. See
 [Owner-Approved Gmail Email](../one/gmail-owner-approved-email.md).
 
+Opt-in classification of personal Gmail information requests now starts in the
+Email Agent workspace and keeps its own metadata-only workflow state. It does
+not reuse this platform-mailbox intake, receipt watch state, or this workflow's
+stored consent metadata. See
+[Personal Gmail Information Requests](./personal-gmail-information-requests.md).
+
 ## Current Runtime
 
 - Backend owner: `consent-protocol/hushh_mcp/services/one_email_kyc_service.py`.

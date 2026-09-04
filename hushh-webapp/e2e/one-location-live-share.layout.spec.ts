@@ -14,8 +14,6 @@ import {
   LIVE_SHARE_FOOTER_CLASSNAME,
   LIVE_SHARE_FOOTER_ROW_CLASSNAME,
   LIVE_SHARE_HEADER_CLASSNAME,
-  LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
-  LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
   LIVE_SHARE_TITLE_CLASSNAME,
 } from "../components/one-location/redesign/live-share-card-layout";
 
@@ -109,8 +107,6 @@ async function buildFixture(): Promise<string> {
     LIVE_SHARE_TITLE_CLASSNAME,
     LIVE_SHARE_CLOCK_ROW_CLASSNAME,
     LIVE_SHARE_CLOCK_CLASSNAME,
-    LIVE_SHARE_PROGRESS_TRACK_CLASSNAME,
-    LIVE_SHARE_PROGRESS_FILL_CLASSNAME,
     LIVE_SHARE_FOOTER_CLASSNAME,
     LIVE_SHARE_FOOTER_ROW_CLASSNAME,
     "h-2 w-2 shrink-0 rounded-full inline-flex items-center justify-center",
@@ -128,12 +124,11 @@ async function buildFixture(): Promise<string> {
     <p class="${LIVE_SHARE_CLOCK_ROW_CLASSNAME}">
       <span class="${LIVE_SHARE_CLOCK_CLASSNAME}" data-testid="clock-${item.id}">${item.clock}</span>
       <span data-testid="unit-${item.id}">left</span>
+      <span>·</span>
+      <span class="${LIVE_SHARE_FOOTER_CLASSNAME}" data-testid="footer-${item.id}">${item.footer}</span>
     </p>
-    <div class="${LIVE_SHARE_PROGRESS_TRACK_CLASSNAME}" data-testid="track-${item.id}">
-      <div class="${LIVE_SHARE_PROGRESS_FILL_CLASSNAME}" style="width:33%" data-testid="fill-${item.id}"></div>
-    </div>
-    <div class="${LIVE_SHARE_FOOTER_ROW_CLASSNAME}" data-testid="footer-row-${item.id}">
-      <p class="${LIVE_SHARE_FOOTER_CLASSNAME}" data-testid="footer-${item.id}">${item.footer}</p>
+    <button class="${LIVE_SHARE_ACTION_CLASSNAME} mt-4 inline-flex min-h-[48px] w-full items-center justify-center rounded-[16px] px-5" data-testid="share-more-${item.id}">Share with more</button>
+    <div class="${LIVE_SHARE_FOOTER_ROW_CLASSNAME}">
       <button class="${LIVE_SHARE_ACTION_CLASSNAME} inline-flex items-center justify-center" data-testid="change-${item.id}">Change time</button>
     </div>
   </section>`,
@@ -235,11 +230,8 @@ test.describe("One Location live share card layout", () => {
         expect(stop.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
         expect(stop.right).toBeLessThanOrEqual(width + 1);
 
-        // "Change time" shares the footer line with the end time. At 320px
-        // that is the tight case: it either fits beside "Ends 11:30 PM" or
-        // wraps under it, and either way it has to stay fully on screen, fully
-        // tappable, and with its whole label — "Change" alone is a different
-        // promise.
+        // "Change time" is deliberately lighter than "Share with more", but it
+        // remains a real tap target after the primary CTA.
         const change = await page.getByTestId(`change-${item.id}`).evaluate(PROBE);
         expect(
           change.height,
@@ -253,18 +245,11 @@ test.describe("One Location live share card layout", () => {
           `change-${item.id} clipped its label at ${width}px`,
         ).toBeLessThanOrEqual(change.clientWidth + 1);
 
-        // And the end time it sits beside is not squeezed out by it.
-        const footerRow = await page
-          .getByTestId(`footer-row-${item.id}`)
+        const shareMore = await page
+          .getByTestId(`share-more-${item.id}`)
           .evaluate(PROBE);
-        expect(footerRow.scrollHeight).toBeLessThanOrEqual(
-          footerRow.clientHeight + 1,
-        );
-
-        // The progress fill must stay inside its rounded track.
-        const track = await page.getByTestId(`track-${item.id}`).evaluate(PROBE);
-        const fill = await page.getByTestId(`fill-${item.id}`).evaluate(PROBE);
-        expect(fill.right).toBeLessThanOrEqual(track.right + 1);
+        expect(shareMore.height).toBeGreaterThanOrEqual(MIN_TOUCH_TARGET);
+        expect(shareMore.right).toBeLessThanOrEqual(width + 1);
       }
     });
   }

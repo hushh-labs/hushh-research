@@ -2,6 +2,74 @@ import UIKit
 import Capacitor
 import WebKit
 
+struct HushhNativeRouter: Router {
+    private static let nativeStaticPersonProfileRef = "00000000-0000-4000-8000-000000000001"
+    private static let personProfileRoutePrefix = "/people/"
+    private static let personProfileStaticAssetNames: Set<String> = [
+        "__next._full.txt",
+        "__next._head.txt",
+        "__next._index.txt",
+        "__next._tree.txt",
+        "__next.people.$d$personRef.__PAGE__.txt",
+        "__next.people.$d$personRef.txt",
+        "__next.people.txt",
+        "index.html",
+        "index.txt",
+    ]
+
+    var basePath: String = ""
+
+    func route(for path: String) -> String {
+        if let personProfileAssetPath = personProfileAssetPath(for: path) {
+            return basePath + personProfileAssetPath
+        }
+
+        let pathUrl = URL(fileURLWithPath: path)
+
+        if pathUrl.pathExtension.isEmpty {
+            return basePath + "/index.html"
+        }
+
+        return basePath + path
+    }
+
+    func personProfileAssetPath(for path: String) -> String? {
+        guard path.hasPrefix(Self.personProfileRoutePrefix) else {
+            return nil
+        }
+
+        let remainder = path.dropFirst(Self.personProfileRoutePrefix.count)
+        guard !remainder.isEmpty else {
+            return nil
+        }
+        if remainder.hasSuffix(".txt") && !remainder.contains("/") {
+            let personRef = remainder.dropLast(4)
+            guard !personRef.isEmpty else {
+                return nil
+            }
+            return "\(Self.personProfileRoutePrefix)\(Self.nativeStaticPersonProfileRef)/index.txt"
+        }
+
+        let parts = remainder.split(separator: "/", maxSplits: 1, omittingEmptySubsequences: false)
+        guard let personRef = parts.first, !personRef.isEmpty else {
+            return nil
+        }
+
+        let assetName: String
+        if parts.count == 1 || parts[1].isEmpty {
+            assetName = "index.html"
+        } else {
+            assetName = String(parts[1])
+        }
+
+        guard Self.personProfileStaticAssetNames.contains(assetName) else {
+            return nil
+        }
+
+        return "\(Self.personProfileRoutePrefix)\(Self.nativeStaticPersonProfileRef)/\(assetName)"
+    }
+}
+
 /**
  * MyViewController - Custom Capacitor Bridge View Controller
  * 
@@ -16,6 +84,10 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     private var nativeTestStatusLabel: NativeTestStatusLabel?
     private var nativeTestPollTimer: Timer?
     private var nativeTestPollInFlight = false
+
+    override open func router() -> Router {
+        HushhNativeRouter()
+    }
 
     deinit {
         nativeTestPollTimer?.invalidate()
@@ -70,8 +142,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhNotificationsPlugin())
         bridge?.registerPluginInstance(HushhLocationPlugin())
         bridge?.registerPluginInstance(HushhContactsPlugin())
+        bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
         
-        print("✅ [MyViewController] All 12 plugins registered successfully:")
+        print("✅ [MyViewController] All 13 plugins registered successfully:")
         print("   - HushhAuth (Google Sign-In)")
         print("   - HushhVault (Encryption + Cloud DB)")
         print("   - HushhConsent (Token Management)")
@@ -84,6 +157,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhNotifications (Push Token Registration)")
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
+        print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()
@@ -105,7 +179,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhAccount",
             "HushhNotifications",
             "HushhLocation",
-            "HushhContacts"
+            "HushhContacts",
+            "HushhVoiceInvocation"
         ]
         
         for name in pluginNames {

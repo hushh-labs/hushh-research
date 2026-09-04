@@ -27,6 +27,7 @@ import { usePathname, useSearchParams } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useVault } from "@/lib/vault/vault-context";
 import { usePersonaState } from "@/lib/persona/persona-context";
+import { isRiaAdvisoryAccessReady } from "@/lib/ria/ria-profile-view-model";
 import { useKaiSession } from "@/lib/stores/kai-session-store";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import {
@@ -40,6 +41,7 @@ import {
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentVoiceState } from "@/lib/agent/agent-voice-state";
+import { resolveEffectiveDisabledDomains } from "@/lib/agent/voice-engine-domains";
 import {
   readVoicePreferences,
   subscribeVoicePreferences,
@@ -184,7 +186,9 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
     personaTransitionTarget,
     riaSetupAvailable,
     riaSwitchAvailable,
+    riaOnboardingStatus,
   } = usePersonaState();
+  const riaOnboardingComplete = isRiaAdvisoryAccessReady(riaOnboardingStatus);
   const analysisParams = useKaiSession((state) => state.analysisParams);
   const busyOperations = useKaiSession((state) => state.busyOperations);
 
@@ -369,6 +373,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         transition_target: personaTransitionTarget,
         ria_switch_available: riaSwitchAvailable,
         ria_setup_available: riaSetupAvailable,
+        ria_onboarding_complete: riaOnboardingComplete,
       },
       voice: {
         available: voiceActive,
@@ -381,6 +386,7 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
       activeAnalysisTicker,
       activePersona,
       availablePersonas,
+      riaOnboardingComplete,
       busyOperations,
       hasPortfolioData,
       isVaultUnlocked,
@@ -424,7 +430,11 @@ export function AgentRuntimeStateProvider({ children }: { children: ReactNode })
         voiceSettings: {
           voiceEnabled: voicePreferences.voiceEnabled,
           requireTapConfirmation: voicePreferences.requireTapConfirmation,
-          disabledDomains: voicePreferences.disabledDomains,
+          // Unenforced domains have no switch, so a key left over from when
+          // they did must not keep restricting voice with no way to undo it.
+          disabledDomains: resolveEffectiveDisabledDomains(
+            voicePreferences.disabledDomains,
+          ),
         },
         onboarding: {
           phase: (path === ROUTES.GETTING_STARTED || path === ROUTES.LOGIN || path === ROUTES.PHONE_MANDATE || path.startsWith(ROUTES.ONE_SETUP))

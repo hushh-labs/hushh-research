@@ -60,6 +60,12 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     }
   }
 
+  async connectGmail(_options: {
+    serverClientId: string;
+  }): Promise<{ serverAuthCode: string }> {
+    throw new Error("Native Gmail consent is only available in the mobile app.");
+  }
+
   async signInWithApple(): Promise<{
     idToken: string;
     accessToken?: string;

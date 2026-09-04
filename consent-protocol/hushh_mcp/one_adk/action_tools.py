@@ -23,12 +23,15 @@ from __future__ import annotations
 import json
 import logging
 import re
+import uuid
 from typing import Any, Callable, Literal
 
 from google.adk.tools.tool_context import ToolContext
 
+from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
@@ -46,6 +49,19 @@ from hushh_mcp.services.action_gateway import (
     list_action_gateway_actions,
 )
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.consent_lifecycle_service import (
+    ConsentLifecycleError,
+    ConsentLifecycleService,
+)
+from hushh_mcp.services.domain_contracts import (
+    CANONICAL_DOMAIN_REGISTRY,
+    get_canonical_domain_metadata,
+    normalize_domain_key,
+)
+from hushh_mcp.services.information_request_service import (
+    InformationRequestError,
+    InformationRequestService,
+)
 from hushh_mcp.services.live_voice_context import (
     read_completed_action,
     read_failed_action,
@@ -53,6 +69,7 @@ from hushh_mcp.services.live_voice_context import (
     record_completed_action,
     record_failed_action,
 )
+from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentError,
     OneLocationAgentService,
@@ -65,6 +82,11 @@ from hushh_mcp.services.one_location_nearby_presence_service import (
     NearbyPresenceError,
     OneLocationNearbyPresenceService,
 )
+from hushh_mcp.services.person_profile_service import (
+    PersonProfileNotFoundError,
+    PersonProfileService,
+)
+from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -81,6 +103,7 @@ logger = logging.getLogger(__name__)
 # Session state keys shared with agent_tree/adk_live (duplicated string to
 # avoid a circular import; guarded by a test asserting equality).
 _STATE_PENDING_DIRECTIVE = "hussh:pending_directive"
+_STATE_PENDING_TOOL_TRACE = "hussh:tool_trace"
 _STATE_SCREEN = "hussh:screen"
 _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
@@ -306,8 +329,34 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
         "connect.accept_request",
         "connect.reject_request",
         "location.checkout_nearby",
+        "consent.request",
+        "consent.deny",
+        "consent.revoke",
+        "consent.cancel_request",
     }
 )
+
+# Consent lifecycle actions are backend-direct and gated by a spoken yes (the
+# `confirmed` slot), like connect.remove_connection. They have no local handler
+# on any page, so the person's tap-confirmation preference must never park a
+# browser directive for them: there would be nothing on screen to run it, and
+# the action would silently die. The spoken confirmation is the gate.
+BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
+    {
+        "consent.request",
+        "consent.deny",
+        "consent.revoke",
+        "consent.cancel_request",
+    }
+)
+
+# Proposals parked by propose_information_request, keyed by an opaque id the
+# model hands back to consent.request. The model never sees a scope ref.
+_STATE_INFORMATION_REQUEST_PROPOSALS = "hussh:information_request_proposals"
+_STATE_LAST_INFORMATION_REQUEST = "hussh:last_information_request"
+_INFORMATION_REQUEST_DEFAULT_HOURS = 168
+_INFORMATION_REQUEST_MAX_HOURS = 720
+_INFORMATION_REQUEST_MAX_PROPOSALS = 5
 
 # Directory search shape connect.send_request's resolution mirrors exactly --
 # app/connect/page-client.tsx's own DIRECTORY_RESOLVE_MAX_PAGES/_PAGE_SIZE.
@@ -352,6 +401,7 @@ _BackendDirectError = (
     OneLocationAgentError,
     ConnectionsError,
     NearbyPresenceError,
+    ConsentLifecycleError,
 )
 
 
@@ -396,7 +446,7 @@ async def _verify_backend_direct_authorization(
     session_user_id = str(tool_context.state.get(_STATE_USER_ID) or "").strip()
     if not session_user_id:
         return False, "", "The user is not signed in."
-    token = str(tool_context.state.get(_STATE_CONSENT_TOKEN) or "").strip()
+    token = resolve_request_secret(tool_context.state.get(_STATE_CONSENT_TOKEN))
     if not token:
         return False, "", "The vault is locked. Unlock it, then try again."
     valid, _reason, token_obj = await validate_token_with_db(token, ConsentScope.VAULT_OWNER)
@@ -801,9 +851,7 @@ async def _execute_backend_direct_mutation(
                         owner_user_id=user_id, grant_id=str(grant.get("id") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(grant_name)
                     continue
                 stopped_names.append(grant_name)
@@ -1196,9 +1244,7 @@ async def _execute_backend_direct_mutation(
                         user_id=user_id, connection_id=str(connection.get("connectionId") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(connection_name)
                     continue
                 removed_names.append(connection_name)
@@ -1228,9 +1274,7 @@ async def _execute_backend_direct_mutation(
             name_of = lambda r: str(r.get("counterpartDisplayName") or "")  # noqa: E731
             resolution = resolve_spoken_names(outgoing, raw_people, name_of)
             if not resolution.resolved:
-                ambiguous = next(
-                    (u for u in resolution.unresolved if u.kind == "ambiguous"), None
-                )
+                ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
                 if ambiguous is not None:
                     names = ambiguous_match_names(ambiguous.matches, name_of)
                     raise ConnectionsError(
@@ -1251,9 +1295,7 @@ async def _execute_backend_direct_mutation(
                         user_id=user_id, request_id=str(request.get("id") or "")
                     )
                 except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest
-                    logger.exception(
-                        "one_adk_backend_direct_partial_failure action=%s", action_id
-                    )
+                    logger.exception("one_adk_backend_direct_partial_failure action=%s", action_id)
                     failed_names.append(request_name)
                     continue
                 cancelled_names.append(request_name)
@@ -1332,9 +1374,7 @@ async def _execute_backend_direct_mutation(
                 f"You're connected now.{note}"
             )
         else:
-            message = (
-                f"Declined {join_names_for_speech(settled_names)}'s connection request.{note}"
-            )
+            message = f"Declined {join_names_for_speech(settled_names)}'s connection request.{note}"
         return message, {"name": join_names_for_speech(settled_names)}
 
     if action_id == "location.checkout_nearby":
@@ -1343,6 +1383,9 @@ async def _execute_backend_direct_mutation(
         # never names a person or a place.
         OneLocationNearbyPresenceService().checkout(user_id=user_id)
         return "Checked you out. You're no longer visible to people nearby.", None
+
+    if action_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
+        return await _execute_consent_lifecycle_action(action_id, slots, user_id, tool_context)
 
     raise AssertionError(f"{action_id} is in BACKEND_DIRECT_ACTION_IDS with no execution branch")
 
@@ -1388,6 +1431,67 @@ async def _read_tool_user_id(tool_context: ToolContext) -> tuple[str | None, dic
     return user_id, None
 
 
+def _publish_tool_trace(
+    tool_context: ToolContext, tool_name: str, *, kind: str, payload: dict[str, Any]
+) -> None:
+    """Park a read tool's display-safe result for the relay to forward to the
+    browser alongside the spoken answer, so the app can render a card in sync
+    with the readout (#6434).
+
+    Only ever park what is already safe to speak -- never the raw service
+    result. Optional: a read tool that returns nothing worth a visual (an
+    empty list, no data yet) should simply not call this, not call it with an
+    empty payload.
+    """
+    tool_context.state[f"{_STATE_PENDING_TOOL_TRACE}:{tool_name}"] = {
+        "kind": kind,
+        "payload": payload,
+    }
+
+
+def _trace_list_rows(
+    rows: list[dict[str, Any]],
+    *,
+    id_key: str,
+    name_key: str,
+    photo_key: str | None = None,
+    detail_fn: Callable[[dict[str, Any]], str | None] | None = None,
+) -> list[dict[str, Any]]:
+    """Reduce a raw service row list to the card-safe {id, name, detail,
+    photoUrl} shape every list-shaped voice card renders -- never the raw
+    row (key material, capability scopes, unmasked contact info, etc). A row
+    with no usable id is dropped rather than shown with a broken React key.
+    """
+    items = [
+        {
+            "id": str(row.get(id_key) or ""),
+            "name": str(row.get(name_key) or "").strip() or "Hussh member",
+            "detail": detail_fn(row) if detail_fn else None,
+            "photoUrl": (str(row.get(photo_key)) if photo_key and row.get(photo_key) else None),
+        }
+        for row in rows
+    ]
+    return [item for item in items if item["id"]]
+
+
+def _publish_list_trace(
+    tool_context: ToolContext,
+    tool_name: str,
+    *,
+    kind: Literal["people_list", "circles_list"],
+    heading: str,
+    items: list[dict[str, Any]],
+) -> None:
+    """`_publish_tool_trace`, specialized for the list-shaped card -- parks
+    nothing when there is nothing to show (an empty list is not a card).
+    """
+    if not items:
+        return
+    _publish_tool_trace(
+        tool_context, tool_name, kind=kind, payload={"heading": heading, "items": items}
+    )
+
+
 async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
     """List the person's own Location circles: name, kind, and role in each.
 
@@ -1399,9 +1503,28 @@ async def list_my_location_circles(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your circles", "circles", lambda: OneLocationCircleService().list_circles(user_id=user_id)
     )
+    if result.get("status") == "ok":
+
+        def _circle_detail(row: dict[str, Any]) -> str:
+            count = int(row.get("memberCount") or 0)
+            noun = "member" if count == 1 else "members"
+            role = str(row.get("role") or "member").capitalize()
+            return f"{count} {noun} · {role}"
+
+        items = _trace_list_rows(
+            result.get("circles") or [], id_key="id", name_key="name", detail_fn=_circle_detail
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_circles",
+            kind="circles_list",
+            heading="Your circles",
+            items=items,
+        )
+    return result
 
 
 async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
@@ -1411,11 +1534,27 @@ async def list_my_location_shares(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your location shares",
         "shares",
         lambda: OneLocationAgentService().list_active_owner_grants(owner_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="recipientUserId",
+            name_key="recipientDisplayName",
+            photo_key="recipientPhotoUrl",
+            detail_fn=lambda row: row.get("recipientMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_location_shares",
+            kind="people_list",
+            heading="Sharing your location with",
+            items=items,
+        )
+    return result
 
 
 async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, Any]:
@@ -1425,11 +1564,27 @@ async def list_location_shared_with_me(tool_context: ToolContext) -> dict[str, A
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "who's sharing with you",
         "shares",
         lambda: OneLocationAgentService().list_active_recipient_grants(recipient_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("shares") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_location_shared_with_me",
+            kind="people_list",
+            heading="Sharing their location with you",
+            items=items,
+        )
+    return result
 
 
 async def list_pending_location_requests(tool_context: ToolContext) -> dict[str, Any]:
@@ -1439,11 +1594,46 @@ async def list_pending_location_requests(tool_context: ToolContext) -> dict[str,
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your pending location requests",
         "requests",
         lambda: OneLocationAgentService().list_pending_owner_requests(owner_user_id=user_id),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="requesterUserId",
+            name_key="requesterDisplayName",
+            photo_key="requesterPhotoUrl",
+            detail_fn=lambda row: row.get("requesterMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_location_requests",
+            kind="people_list",
+            heading="Location requests waiting on you",
+            items=items,
+        )
+    return result
+
+
+def _connections_trace_people(connections: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Reduce a raw connections row list to the card-safe fields -- the same
+    name+masked-email shape disambiguation candidates already show over
+    voice, never the raw row (public key material, unmasked email, etc).
+    """
+    people = []
+    for row in connections:
+        email = row.get("email")
+        people.append(
+            {
+                "id": str(row.get("connectionId") or row.get("userId") or ""),
+                "name": str(row.get("displayName") or "").strip() or "Hussh member",
+                "detail": mask_email(str(email)) if email else None,
+                "photoUrl": row.get("photoUrl") or None,
+            }
+        )
+    return [p for p in people if p["id"]]
 
 
 async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
@@ -1453,9 +1643,603 @@ async def list_my_connections(tool_context: ToolContext) -> dict[str, Any]:
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
-        "your connections", "connections", lambda: ConnectionsService().list_connections(user_id=user_id)
+    result = await _read_tool_result(
+        "your connections",
+        "connections",
+        lambda: ConnectionsService().list_connections(user_id=user_id),
     )
+    if result.get("status") == "ok":
+        people = _connections_trace_people(result.get("connections") or [])
+        _publish_list_trace(
+            tool_context,
+            "list_my_connections",
+            kind="people_list",
+            heading="Your connections",
+            items=people,
+        )
+    return result
+
+
+# Domains this tool will never read back over voice, even though they are
+# real PKM domains: runtime_secrets is BYOK model credential material, not
+# personal information -- there is no phrasing of "what do you know about my
+# X" that should ever resolve to it. Kept separate from the general domain
+# registry rather than filtered ad hoc, so a new sensitive domain has one
+# obvious place to be added.
+_VOICE_UNREADABLE_PKM_DOMAINS = frozenset({"runtime_secrets"})
+
+_PKM_READABLE_DOMAIN_KEYS = tuple(
+    entry.domain_key
+    for entry in CANONICAL_DOMAIN_REGISTRY
+    if entry.domain_key not in _VOICE_UNREADABLE_PKM_DOMAINS
+)
+
+
+async def read_my_pkm_domain_summary(domain: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own redacted PKM summary for one domain and report it.
+
+    Covers every general information domain (financial, health, travel,
+    subscriptions, professional, identity, and the rest of the canonical PKM
+    registry) through one tool rather than one per domain, since they are all
+    read the same way -- the discovery-only index, never decrypted holdings.
+    Live app data with its own service (Connect's actual connections list,
+    Location's circles) is deliberately out of scope here; use the
+    dedicated read tools for those instead.
+
+    The summary is whatever sanitized, non-sensitive metadata
+    update_domain_summary() has accumulated for that domain -- it may be
+    partial or empty even when the domain itself exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    requested = normalize_domain_key(domain)
+    if requested not in _PKM_READABLE_DOMAIN_KEYS:
+        return {
+            "status": "failed",
+            "message": (
+                f'"{domain}" is not a domain I can read. Available domains: '
+                + ", ".join(_PKM_READABLE_DOMAIN_KEYS)
+                + "."
+            ),
+        }
+
+    label = (
+        get_canonical_domain_metadata(requested).display_name
+        if get_canonical_domain_metadata(requested)
+        else requested
+    )
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around
+    # a *synchronous* service call (every existing read tool's service method
+    # is sync), but get_index_v2 is genuinely async. Same shape and same
+    # failure-boundary reasoning as _read_tool_result -- an exception must
+    # never escape a live-session tool call -- just awaited instead of called.
+    try:
+        index = await get_pkm_service().get_index_v2(user_id)
+    except Exception:  # noqa: BLE001 - the model must be told something failed, not why internally
+        logger.exception("one_adk_read_tool_failed label=%s reason=unexpected", label)
+        return {
+            "status": "failed",
+            "message": f"Could not check {label} right now. Try again in a moment.",
+        }
+    available = list(index.available_domains) if index else []
+    if requested not in available:
+        return {"status": "ok", "result": {"has_data": False, "domain": requested, "summary": {}}}
+    summary = (index.domain_summaries or {}).get(requested) or {}
+    if summary:
+        # Only when there is something to show -- an empty summary dict would
+        # otherwise render as a blank card while the spoken answer already
+        # says "nothing on record yet".
+        _publish_tool_trace(
+            tool_context,
+            "read_my_pkm_domain_summary",
+            kind="pkm_domain_summary",
+            payload={"domain": requested, "label": label, "summary": dict(summary)},
+        )
+    return {
+        "status": "ok",
+        "result": {"has_data": True, "domain": requested, "summary": dict(summary)},
+    }
+
+
+async def discover_person_information(
+    person: str,
+    tool_context: ToolContext,
+    domain: str = "",
+) -> dict[str, Any]:
+    """Resolve a connected person and list the exact information they expose for requests.
+
+    This is discovery only. It returns opaque ``scopeRef`` values and a public
+    profile route; it never creates consent, exposes raw ``attr.*`` scopes, or
+    reads a granted value. The profile review surface remains the sole place
+    where the requester selects fields and confirms a request.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    try:
+        try:
+            person_ref, resolved_name = _resolve_person_for_information(
+                ConnectionsService(), user_id, person
+            )
+        except ConsentLifecycleError as exc:
+            status = {
+                "PERSON_AMBIGUOUS": "needs_clarification",
+                "PERSON_NOT_FOUND": "not_found",
+                "PERSON_PROFILE_NOT_READY": "unavailable",
+                "PERSON_REQUIRED": "needs_clarification",
+            }.get(exc.code, "failed")
+            return {"status": status, "message": exc.message}
+        connection = {"displayName": resolved_name}
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id,
+            public_person_ref=person_ref,
+        )
+        requested_domain = normalize_spoken_name(domain)
+        scopes = []
+        for item in profile.get("requestableScopes") or []:
+            item_domain = str(item.get("domain") or "").strip()
+            if requested_domain and requested_domain not in normalize_spoken_name(item_domain):
+                continue
+            scopes.append(
+                {
+                    "scopeRef": item.get("scopeRef"),
+                    "label": item.get("label") or "Information",
+                    "description": item.get("description"),
+                    "domain": item_domain or "Other",
+                    "sensitivity": item.get("sensitivity") or "standard",
+                }
+            )
+        return {
+            "status": "ok",
+            "person": {
+                "displayName": profile.get("displayName")
+                or connection.get("displayName")
+                or "Hussh member",
+                "personRef": person_ref,
+                "profilePath": f"/people/{person_ref}",
+                "relationship": (profile.get("relationship") or {}).get("status"),
+            },
+            "domainFilter": domain.strip() or None,
+            "requestableScopes": scopes,
+            "scopeCount": len(scopes),
+            "nextStep": (
+                "Present these exact fields grouped by domain, then link to profilePath. "
+                "The person must select fields and confirm the request on that profile."
+            ),
+        }
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("discover_person_information failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+def _directory_candidates(
+    connections_service: ConnectionsService, user_id: str, spoken_name: str
+) -> list[dict[str, Any]]:
+    """Page the server-owned directory for one spoken name, exactly as connect.send_request does."""
+    search_term = max(spoken_name.split() or [spoken_name], key=len)
+    candidates: list[dict[str, Any]] = []
+    page = 1
+    while page <= _DIRECTORY_RESOLVE_MAX_PAGES:
+        result = connections_service.search_directory(
+            user_id, query=search_term, page=page, limit=_DIRECTORY_RESOLVE_PAGE_SIZE
+        )
+        candidates.extend(result.get("items") or [])
+        if not result.get("hasMore"):
+            break
+        page += 1
+    return candidates
+
+
+def _person_display_name(person: dict[str, Any]) -> str:
+    return str(person.get("displayName") or "")
+
+
+def _resolve_person_for_information(
+    connections_service: ConnectionsService, user_id: str, spoken: str
+) -> tuple[str, str]:
+    """Resolve one named person to ``(public_person_ref, display_name)``.
+
+    Connections first, then the server-owned directory, the same two sources
+    the Connect screen offers. Ambiguity names the candidates and refuses; a
+    request is never sent to a guess. A relationship grants nothing here: the
+    catalog and every mutation are still re-checked by the person profile
+    service against the subject's own exposure choices.
+    """
+    spoken = str(spoken or "").strip()
+    if not spoken:
+        raise ConsentLifecycleError("PERSON_REQUIRED", "Say whose information you mean.")
+    connections = connections_service.list_connections(user_id=user_id)
+    resolution = resolve_spoken_names(connections, spoken, _person_display_name)
+    person: dict[str, Any] | None = None
+    if resolution.unresolved:
+        unresolved = resolution.unresolved[0]
+        if unresolved.kind == "ambiguous":
+            raise ConsentLifecycleError(
+                "PERSON_AMBIGUOUS",
+                "More than one connection matched. Ask which person they mean: "
+                f"{ambiguous_match_names(unresolved.matches, _person_display_name)}.",
+            )
+        try:
+            candidates = _directory_candidates(connections_service, user_id, spoken)
+        except Exception:  # noqa: BLE001 - the directory is a fallback, never a blocker
+            logger.exception("information_request_directory_lookup_failed")
+            candidates = []
+        matches = match_by_name(candidates, spoken, _person_display_name)
+        if not matches:
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND",
+                f"{unresolved.spoken_text or spoken} is not in your connections or the directory.",
+            )
+        if len(matches) > 1:
+            names = ", ".join(_person_display_name(c) for c in matches[:4])
+            raise ConsentLifecycleError(
+                "PERSON_AMBIGUOUS",
+                f"More than one person matches that name: {names}. Say which one.",
+            )
+        person = matches[0]
+    elif len(resolution.resolved) != 1:
+        raise ConsentLifecycleError(
+            "PERSON_AMBIGUOUS", "Name one person whose information you want."
+        )
+    else:
+        person = resolution.resolved[0]
+    person_ref = str(person.get("publicPersonRef") or "").strip()
+    if not person_ref:
+        raise ConsentLifecycleError(
+            "PERSON_PROFILE_NOT_READY", "That person's request profile is not ready yet."
+        )
+    return person_ref, _person_display_name(person) or "Hussh member"
+
+
+def _split_requested_fields(fields: str) -> list[str]:
+    parts = re.split(r",|;|\band\b|\n", str(fields or ""))
+    seen: list[str] = []
+    for part in parts:
+        cleaned = part.strip(" .")
+        if cleaned and normalize_spoken_name(cleaned) not in {
+            normalize_spoken_name(x) for x in seen
+        }:
+            seen.append(cleaned)
+    return seen
+
+
+def _match_requested_fields(
+    requestable: list[dict[str, Any]], fields: str
+) -> tuple[list[dict[str, Any]], list[str]]:
+    """Match the person's words to catalog labels; a domain name selects that whole domain."""
+    matched: list[dict[str, Any]] = []
+    unmatched: list[str] = []
+    for spoken in _split_requested_fields(fields):
+        wanted = normalize_spoken_name(spoken)
+        if not wanted:
+            continue
+        exact = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("label") or "")) == wanted
+        ]
+        partial = [
+            item
+            for item in requestable
+            if wanted in normalize_spoken_name(str(item.get("label") or ""))
+            or normalize_spoken_name(str(item.get("label") or "")) in wanted
+        ]
+        by_domain = [
+            item
+            for item in requestable
+            if normalize_spoken_name(str(item.get("domain") or "")) == wanted
+        ]
+        chosen = exact or partial or by_domain
+        if not chosen:
+            unmatched.append(spoken)
+            continue
+        for item in chosen:
+            if all(item.get("scopeRef") != m.get("scopeRef") for m in matched):
+                matched.append(item)
+    return matched, unmatched
+
+
+def _pending_scope_labels(scopes: list[dict[str, Any]]) -> list[str]:
+    return [str(item.get("label") or "Information") for item in scopes]
+
+
+async def list_pending_information_requests(tool_context: ToolContext) -> dict[str, Any]:
+    """List the information requests waiting on the owner's decision: who asks, for what, until when.
+
+    Labels only, never a raw scope or an internal id. Approval is not a tool:
+    the browser shows each request as a card and the owner's tap approves it,
+    because the export is encrypted in their unlocked browser. To decline one,
+    use consent.deny with its requestId after the owner says yes.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        pending = await ConsentLifecycleService().list_pending_incoming(user_id)
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("list_pending_information_requests failed")
+        return {
+            "status": "failed",
+            "message": "Your pending requests are temporarily unavailable. Please try again.",
+        }
+    request_ids = [str(item.get("requestId") or "") for item in pending if item.get("requestId")]
+    return {
+        "status": "ok",
+        "pendingRequests": pending,
+        "count": len(pending),
+        "pendingRequestIds": request_ids,
+        "nextStep": (
+            "Say who is asking and for what. The browser is showing each request as a card "
+            "with Approve and Deny; approving is the owner's tap. To decline one from here, "
+            "name it, get a yes, then run consent.deny with its requestId and confirmed true."
+            if pending
+            else "Nothing is waiting on them right now."
+        ),
+    }
+
+
+async def propose_information_request(
+    person: str,
+    fields: str,
+    purpose: str,
+    tool_context: ToolContext,
+    duration_hours: int = _INFORMATION_REQUEST_DEFAULT_HOURS,
+) -> dict[str, Any]:
+    """Prepare an information request to one named person for the fields they said, ready to confirm.
+
+    Resolves the person (connections, then the directory), matches the spoken
+    fields to that person's requestable catalog by label or domain, checks the
+    purpose and duration, and parks a proposal. Nothing is sent: read the
+    proposal back, and only after a yes run_app_action("consent.request") with
+    the proposalId and confirmed true. If connectorReady is false the request
+    cannot be sent from chat yet; open profilePath once to set up the secure
+    connector.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+    try:
+        connections_service = ConnectionsService()
+        person_ref, display_name = _resolve_person_for_information(
+            connections_service, user_id, person
+        )
+        profile = await PersonProfileService().get_viewer_profile(
+            viewer_user_id=user_id, public_person_ref=person_ref
+        )
+        requestable = [
+            item for item in (profile.get("requestableScopes") or []) if item.get("scopeRef")
+        ]
+        profile_path = f"/people/{person_ref}"
+        if not requestable:
+            return {
+                "status": "nothing_requestable",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": f"{display_name} has not made any information requestable yet.",
+            }
+        matched, unmatched = _match_requested_fields(requestable, fields)
+        if not matched:
+            by_domain: dict[str, list[str]] = {}
+            for item in requestable[:40]:
+                by_domain.setdefault(str(item.get("domain") or "Other"), []).append(
+                    str(item.get("label") or "Information")
+                )
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "unmatchedFields": unmatched,
+                "availableFields": by_domain,
+                "message": (
+                    f"None of those fields match what {display_name} makes requestable. "
+                    "Offer the available fields grouped by domain and ask which they want."
+                ),
+            }
+        cleaned_purpose = str(purpose or "").strip()
+        if not 8 <= len(cleaned_purpose) <= 500:
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": "Ask for a purpose of at least a short sentence (8 to 500 characters); "
+                "the other person reads it before deciding.",
+            }
+        try:
+            hours = int(duration_hours or _INFORMATION_REQUEST_DEFAULT_HOURS)
+        except (TypeError, ValueError):
+            hours = _INFORMATION_REQUEST_DEFAULT_HOURS
+        if not 1 <= hours <= _INFORMATION_REQUEST_MAX_HOURS:
+            return {
+                "status": "needs_clarification",
+                "person": {"displayName": display_name, "profilePath": profile_path},
+                "message": "Access lasts between 1 hour and 30 days (720 hours). Ask for a duration in that range.",
+            }
+        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
+        connector_ready = bool((connector or {}).get("configured"))
+        proposal_id = uuid.uuid4().hex
+        proposals = dict(tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {})
+        proposals[proposal_id] = {
+            "personRef": person_ref,
+            "displayName": display_name,
+            "scopeRefs": [str(item.get("scopeRef")) for item in matched],
+            "labels": _pending_scope_labels(matched),
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+        }
+        for stale in list(proposals)[:-_INFORMATION_REQUEST_MAX_PROPOSALS]:
+            proposals.pop(stale, None)
+        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = proposals
+        return {
+            "status": "proposal_ready",
+            "proposalId": proposal_id,
+            "person": {"displayName": display_name, "profilePath": profile_path},
+            "fields": _pending_scope_labels(matched),
+            "unmatchedFields": unmatched,
+            "purpose": cleaned_purpose,
+            "durationHours": hours,
+            "connectorReady": connector_ready,
+            "nextStep": (
+                "Read back the person, the fields, the purpose, and the duration, then ask for a yes. "
+                "After the yes, call run_app_action with action_id consent.request and slots "
+                "{proposal_id, confirmed: true}. Say nothing was sent until that result confirms it."
+                if connector_ready
+                else "This request cannot be sent from chat yet: their secure connector is not set up. "
+                "Send them to profilePath once to set it up, then they can ask again."
+            ),
+        }
+    except ConsentLifecycleError as exc:
+        status = {
+            "PERSON_AMBIGUOUS": "needs_clarification",
+            "PERSON_NOT_FOUND": "not_found",
+            "PERSON_PROFILE_NOT_READY": "unavailable",
+        }.get(exc.code, "failed")
+        return {"status": status, "message": exc.message}
+    except (ConnectionsError, PersonProfileNotFoundError, ValueError) as exc:
+        return {"status": "failed", "message": str(exc)}
+    except Exception:  # noqa: BLE001 - consumer-safe boundary
+        logger.exception("propose_information_request failed")
+        return {
+            "status": "failed",
+            "message": "That information catalog is temporarily unavailable. Please try again.",
+        }
+
+
+async def _execute_consent_lifecycle_action(
+    action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
+) -> tuple[str, dict[str, str] | None]:
+    """The four consent transitions One may run after a spoken yes."""
+    confirmed = bool(slots.get("confirmed") is True)
+    if action_id == "consent.request":
+        proposal_id = str(slots.get("proposal_id") or "").strip()
+        proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
+        proposal = proposals.get(proposal_id) if isinstance(proposals, dict) else None
+        if not proposal:
+            raise ConsentLifecycleError(
+                "PROPOSAL_NOT_FOUND",
+                "Propose the request first with propose_information_request, then confirm it.",
+            )
+        name = str(proposal.get("displayName") or "this person")
+        labels = list(proposal.get("labels") or [])
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                f"Ask: send {name} a request for {join_names_for_speech(labels)} "
+                f"for {proposal.get('durationHours')} hours, purpose: {proposal.get('purpose')}? "
+                "Only call this action again with confirmed set to true after they say yes."
+            )
+        connector = await OneEmailKycService().get_client_connector(user_id=user_id)
+        connector_key_id = str(
+            ((connector or {}).get("connector") or {}).get("connector_key_id") or ""
+        )
+        if not connector_key_id:
+            raise ConsentLifecycleError(
+                "CONNECTOR_NOT_READY",
+                f"Your secure connector is not set up yet. Open {name}'s profile once to set it up, "
+                "then ask me again.",
+                status_code=409,
+            )
+        try:
+            created = await InformationRequestService().create(
+                requester_user_id=user_id,
+                person_ref=str(proposal.get("personRef")),
+                scope_refs=list(proposal.get("scopeRefs") or []),
+                purpose=str(proposal.get("purpose") or ""),
+                duration_seconds=int(proposal.get("durationHours") or 0) * 3600,
+                connector_key_id=connector_key_id,
+                idempotency_key=f"agent-chat-{proposal_id}",
+            )
+        except InformationRequestError as exc:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_FAILED", str(exc), status_code=exc.status_code
+            ) from exc
+        except PersonProfileNotFoundError as exc:
+            raise ConsentLifecycleError(
+                "PERSON_NOT_FOUND", f"{name}'s request profile is no longer available."
+            ) from exc
+        remaining = dict(proposals)
+        remaining.pop(proposal_id, None)
+        tool_context.state[_STATE_INFORMATION_REQUEST_PROPOSALS] = remaining
+        bundle_id = str((created or {}).get("bundleId") or (created or {}).get("bundle_id") or "")
+        tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {
+            "bundleId": bundle_id,
+            "displayName": name,
+        }
+        return (
+            f"Sent {name} a request for {join_names_for_speech(labels)}. "
+            "They will see it in their Consent Center; what they approve appears on their profile.",
+            {"name": name},
+        )
+
+    if action_id == "consent.deny":
+        request_id = str(slots.get("request_id") or "").strip()
+        if not request_id:
+            raise ConsentLifecycleError(
+                "CONSENT_REQUEST_ID_REQUIRED",
+                "Say which request to deny; list_pending_information_requests names them.",
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: deny that request? Only call this action again with confirmed set to true "
+                "after they say yes."
+            )
+        result = await ConsentLifecycleService().deny_pending_request(user_id, request_id)
+        return f"Denied that request. {result.get('message') or ''}".strip(), None
+
+    if action_id == "consent.revoke":
+        revoke_request_id = str(slots.get("request_id") or "").strip() or None
+        scope = str(slots.get("scope") or "").strip() or None
+        if not revoke_request_id and not scope:
+            raise ConsentLifecycleError(
+                "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: revoke that access now? Only call this action again with confirmed set to "
+                "true after they say yes."
+            )
+        await ConsentLifecycleService().revoke_active_grant(
+            user_id, scope=scope, request_id=revoke_request_id
+        )
+        return "Revoked. They no longer have that access.", None
+
+    if action_id == "consent.cancel_request":
+        bundle_id = str(slots.get("bundle_id") or "").strip()
+        last = tool_context.state.get(_STATE_LAST_INFORMATION_REQUEST) or {}
+        if bundle_id.lower() in ("", "last", "latest", "that", "it"):
+            bundle_id = str(last.get("bundleId") or "")
+        if not bundle_id:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_ID_REQUIRED",
+                "Say which request to cancel; the ones you sent are on that person's profile.",
+            )
+        if not confirmed:
+            raise _BackendDirectConfirmationNeeded(
+                "Ask: cancel that request? Only call this action again with confirmed set to true "
+                "after they say yes."
+            )
+        try:
+            await InformationRequestService().cancel(requester_user_id=user_id, bundle_id=bundle_id)
+        except InformationRequestError as exc:
+            raise ConsentLifecycleError(
+                "INFORMATION_REQUEST_CANCEL_FAILED", str(exc), status_code=exc.status_code
+            ) from exc
+        if str(last.get("bundleId") or "") == bundle_id:
+            tool_context.state[_STATE_LAST_INFORMATION_REQUEST] = {}
+        return "Cancelled that request.", None
+
+    raise AssertionError(f"{action_id} is not a consent lifecycle action")
 
 
 async def list_pending_connection_requests(
@@ -1469,11 +2253,33 @@ async def list_pending_connection_requests(
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your pending connection requests",
         "requests",
         lambda: ConnectionsService().list_requests(user_id=user_id, direction=direction),
     )
+    if result.get("status") == "ok":
+        # No photo/masked-contact field on a connection-request row (see
+        # ConnectionsService.list_requests) -- name only, same as any other
+        # row a service genuinely has nothing more to say about.
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="counterpartUserId",
+            name_key="counterpartDisplayName",
+        )
+        heading = (
+            "Requests you've sent"
+            if direction == "outgoing"
+            else "Connection requests waiting on you"
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_pending_connection_requests",
+            kind="people_list",
+            heading=heading,
+            items=items,
+        )
+    return result
 
 
 async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[str, Any]:
@@ -1485,11 +2291,29 @@ async def list_my_outgoing_location_requests(tool_context: ToolContext) -> dict[
         return blocked
     if user_id is None:
         raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
-    return await _read_tool_result(
+    result = await _read_tool_result(
         "your outgoing location requests",
         "requests",
-        lambda: OneLocationAgentService().list_pending_requester_requests(requester_user_id=user_id),
+        lambda: OneLocationAgentService().list_pending_requester_requests(
+            requester_user_id=user_id
+        ),
     )
+    if result.get("status") == "ok":
+        items = _trace_list_rows(
+            result.get("requests") or [],
+            id_key="ownerUserId",
+            name_key="ownerDisplayName",
+            photo_key="ownerPhotoUrl",
+            detail_fn=lambda row: row.get("ownerMaskedPhone") or None,
+        )
+        _publish_list_trace(
+            tool_context,
+            "list_my_outgoing_location_requests",
+            kind="people_list",
+            heading="Requests you've sent",
+            items=items,
+        )
+    return result
 
 
 async def get_location_circle_members(circle: str, tool_context: ToolContext) -> dict[str, Any]:
@@ -1531,6 +2355,26 @@ async def get_location_circle_members(circle: str, tool_context: ToolContext) ->
         }
         for member in (detail.get("members") or [])
     ]
+    circle_name = str(detail.get("name") or "That circle")
+    # No stable id on a member row (deliberately -- see the comment above);
+    # the row's position is a fine React key for a roster that only exists
+    # for the life of this one card.
+    trace_items = [
+        {
+            "id": f"member-{index}",
+            "name": member["displayName"],
+            "detail": member["role"].capitalize(),
+            "photoUrl": None,
+        }
+        for index, member in enumerate(members)
+    ]
+    _publish_list_trace(
+        tool_context,
+        "get_location_circle_members",
+        kind="people_list",
+        heading=f"{circle_name} members",
+        items=trace_items,
+    )
     return {
         "status": "ok",
         "circle": {"name": str(detail.get("name") or ""), "kind": str(detail.get("kind") or "")},
@@ -1862,6 +2706,8 @@ async def run_app_action(
     )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
+    if clean_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
+        needs_confirmation = False
 
     # Backend-direct actions never reach the directive-parking path below --
     # once no confirmation is owed (the ordinary case; the person's own
@@ -1893,6 +2739,10 @@ async def run_app_action(
     )
     return {
         "status": "confirm_pending" if needs_confirmation else "ready_to_run",
+        # The AG-UI text chat has no session-state directive relay (that is the
+        # Live voice path), so the browser learns about the parked action from
+        # this tool result and stages or runs it itself.
+        "directive": directive_payload,
         # The model reads this and says it out loud, so it has to match what
         # will actually happen. Promising a confirmation that never comes --
         # "I'll ask you to confirm", followed by the thing simply happening --
@@ -2795,4 +3645,69 @@ async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, A
         "status": "ok",
         "total_actions": len(list_action_gateway_actions()),
         "results": results,
+    }
+
+
+async def list_available_models(tool_context: ToolContext) -> dict[str, Any]:
+    """List the models this agent can run on, which one the owner picked, and which is running.
+
+    The catalog is server-side, so the choices are whatever the deployment can actually
+    serve rather than anything the model believes exists.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to see which models are available."}
+    try:
+        from hushh_mcp.services.model_preference_service import get_preference
+
+        preference = await get_preference(user_id=user_id)
+    except Exception:
+        logger.exception("list_available_models failed")
+        return {"status": "error", "message": "Could not read the available models."}
+    return {
+        "status": "ok",
+        "models": [
+            {
+                "model": choice["label"],
+                "model_id": choice["model_id"],
+                "running_now": choice["is_active"],
+                "default": choice["is_default"],
+            }
+            for choice in preference["choices"]
+        ],
+        "chosen_by_owner": preference["selected_model"] is not None,
+        "running_now": preference["effective_model"],
+    }
+
+
+async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[str, Any]:
+    """Set the model this owner's agent runs on. Pass an empty string to follow the default again.
+
+    Takes effect on the owner's next message; nothing is redeployed and no other person
+    is affected. A model outside the served catalog is refused with the list that is.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        return {"status": "blocked", "message": "Sign in to choose a model."}
+    try:
+        from hushh_mcp.services.model_preference_service import (
+            ModelPreferenceError,
+            set_preference,
+        )
+
+        preference = await set_preference(user_id=user_id, model_id=model_id)
+    except ModelPreferenceError as exc:
+        return {"status": "rejected", "message": str(exc)}
+    except Exception:
+        logger.exception("set_preferred_model failed")
+        return {"status": "error", "message": "Could not change the model."}
+    return {
+        "status": "ok",
+        "running_now": preference["effective_model"],
+        "following_default": preference["selected_model"] is None,
+        "takes_effect": "next_message",
     }

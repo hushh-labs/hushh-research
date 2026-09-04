@@ -1091,6 +1091,36 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
+  it("keeps a draft/submitted/rejected advisor in the wizard instead of bouncing to profile", async () => {
+    // Regression: `exists: true` alone used to count as "established" and
+    // send the advisor straight to /ria/profile, even mid-verification. The
+    // Clients page's own gate still blocked them (not verified), so the
+    // "Complete verification" CTA became a dead end -- profile had nothing
+    // for them to finish. Only an actually-verified status may redirect.
+    for (const status of ["draft", "submitted", "rejected"]) {
+      mocks.routerReplace.mockClear();
+      mocks.usePersonaState.mockReturnValue({
+        refresh: mocks.refreshPersonaState,
+        riaCapability: "setup",
+        loading: false,
+        refreshing: false,
+        riaOnboardingStatus: {
+          exists: true,
+          advisory_status: status,
+          verification_status: status,
+        },
+      });
+
+      const { unmount } = render(<RiaOnboardingPage />);
+
+      await waitFor(() => {
+        expect(screen.getByTestId("onboarding-shell")).toBeTruthy();
+      });
+      expect(mocks.routerReplace).not.toHaveBeenCalledWith("/ria/profile");
+      unmount();
+    }
+  });
+
   it("keeps a switch advisor in the wizard when re-verifying via ?edit=license", async () => {
     mocks.useSearchParams.mockReturnValue(new URLSearchParams("edit=license"));
     mocks.usePersonaState.mockReturnValue({

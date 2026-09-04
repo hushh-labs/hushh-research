@@ -106,7 +106,7 @@ function opaqueId(kind: "plan" | "receipt"): string {
   return `pkm_${kind}_${entropy}`;
 }
 
-async function sha256Hex(value: string): Promise<string> {
+export async function sha256Hex(value: string): Promise<string> {
   if (globalThis.crypto?.subtle) {
     const digest = await globalThis.crypto.subtle.digest(
       "SHA-256",

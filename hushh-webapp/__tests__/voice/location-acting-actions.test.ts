@@ -220,7 +220,7 @@ describe("'send it' is not owned by two acting actions at once (#6082)", () => {
   const SHARE_IT = "location.share_selected";
 
   it("removed the shared alias from both composers' finalizers", () => {
-    // Regression: both the ask-for-their-location composer and the
+    // Regression: both the ask-for-location composer and the
     // share-my-location composer carried the identical alias "send it",
     // which action_tools.py's exact-match scoring cannot break a tie on.
     // Neither composer needs it -- both still have unambiguous finalizers
@@ -244,5 +244,45 @@ describe("'share my location' redirects to the sender once recipients are picked
     // matching the pattern already established for location.sos_default.
     expect(getKaiActionById(OPEN)?.meaning ?? "").toMatch(/share_selected/);
     expect(getKaiActionById(SEND)?.meaning ?? "").toMatch(/open_share/);
+  });
+});
+
+describe("asking for someone's location asks how long, like sharing does", () => {
+  const ASK = "location.send_request";
+  const SHARE = "location.share_selected";
+
+  it("requires a duration, with the same bounded options a share uses", () => {
+    // Reported live: "ask location doesn't ask for duration like share does."
+    // It declared the slot but left it optional and unbounded, so One never
+    // asked and the request went out carrying whatever `durationHours`
+    // happened to hold -- shared state written by the share composer and the
+    // link controls, never by the Ask screen, which has no duration control
+    // at all. The number is what the OTHER person is shown and approves, so
+    // guessing it asks a question on their behalf.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.required).toBe(true);
+    expect(input?.options).toEqual(["0.25", "0.5", "1", "2", "4", "8", "24"]);
+  });
+
+  it("offers the same lengths as a share, so the two do not disagree", () => {
+    const ask = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    const share = getKaiActionById(SHARE)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(ask?.options).toEqual(share?.options);
+  });
+
+  it("never offers an open-ended request", () => {
+    // requestAccess is sent as requestedDurationMode: "timed", so
+    // "until I stop" has nothing to map onto and would resolve to NaN hours.
+    const input = getKaiActionById(ASK)?.goal?.required_inputs?.find(
+      (spec) => spec.slot === "duration_hours",
+    );
+    expect(input?.options).not.toContain("until_stopped");
+    expect(input?.prompt ?? "").not.toMatch(/until you stop/i);
   });
 });

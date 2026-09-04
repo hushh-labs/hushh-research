@@ -19,6 +19,7 @@ from hushh_mcp.runtime_providers import (
     build_generate_content_config,
     build_managed_runtime_client,
 )
+from hushh_mcp.runtime_providers.gemini_config import resolve_fleet_model_name
 from hushh_mcp.services.domain_contracts import (
     CANONICAL_DOMAIN_REGISTRY,
     DYNAMIC_DOMAIN_CONTRACT_VERSION,
@@ -330,6 +331,32 @@ Deletions are signaled by: forget, remove, delete, don't remember this anymore.
 Refinements are signaled by: also, still, usually, when possible, prefer, more often.
 
 Output JSON only. Follow the schema exactly. If unsure, choose confirm_first or no_op."""
+_SENSITIVE_VALUE_PATTERNS: tuple[tuple[str, re.Pattern[str]], ...] = (
+    (
+        "card_security_code",
+        re.compile(r"\b(?:cvv|cvc|cvv2|pin)\b\s*(?:is|:|=|-)?\s*\d{3,6}\b", re.I),
+    ),
+    (
+        "credential",
+        re.compile(
+            r"\b(?:password|passwd|passphrase|api[ _-]?key|secret[ _-]?key|access[ _-]?token|"
+            r"refresh[ _-]?token|private[ _-]?key|client[ _-]?secret)\b\s*(?:is|:|=|-)\s*\S+",
+            re.I,
+        ),
+    ),
+    ("credential", re.compile(r"\b(?:sk|pk|rk)_(?:live|test|prod)_[A-Za-z0-9]{8,}\b")),
+    ("government_id", re.compile(r"\b\d{3}-\d{2}-\d{4}\b")),
+    ("government_id", re.compile(r"\b\d{4}\s\d{4}\s\d{4}\b")),
+    ("government_id", re.compile(r"\bpassport\b[^\n]{0,24}\b[A-Z]{1,2}\d{6,8}\b", re.I)),
+    (
+        "bank_account",
+        re.compile(
+            r"\b(?:account|routing|iban)\s*(?:number|no\.?|#)?\s*(?:is|:|=|-)?\s*[A-Z]{0,2}\d{8,}\b",
+            re.I,
+        ),
+    ),
+)
+
 _INTERNAL_METADATA_SCOPE_TOKENS = {
     "artifact",
     "artifact_id",
@@ -405,6 +432,10 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
 # One retry absorbs transient provider tail latency without introducing another
 # runtime configuration surface or extending the shared preview deadline.
 _AGENT_CONTRACT_MAX_ATTEMPTS = 2
+_PKM_SALIENCE_AGENT_TIMEOUT_SECONDS = max(
+    _AGENT_CONTRACT_TIMEOUT_SECONDS,
+    float(os.getenv("PKM_SALIENCE_AGENT_TIMEOUT_SECONDS", "15") or "15"),
+)
 _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     4.0,
     # The graph is bounded but sequential after segmentation. Five additional
@@ -597,6 +628,24 @@ _STRUCTURE_PREVIEW_SCHEMA = {
         "validation_hints",
     ],
 }
+
+
+def _manifest_model_name(manifest: Any) -> str:
+    """The text model a manifest asks for, with the fleet alias resolved.
+
+    Real manifests own the mapping (`model_config_for_runtime`); the lightweight
+    stand-ins tests use only carry `.model`. Either way `gemini-default` lands on
+    the switched fleet model (constants.GEMINI_MODEL).
+    """
+    resolver = getattr(manifest, "model_config_for_runtime", None)
+    if callable(resolver):
+        try:
+            return str(resolver().name or "")
+        except Exception:  # noqa: BLE001 - fall back to the raw field
+            pass
+    raw = getattr(manifest, "model", None)
+    name = getattr(raw, "name", raw)
+    return resolve_fleet_model_name(name if isinstance(name, str) else None)
 
 
 class PKMAgentLabService:
@@ -868,14 +917,14 @@ class PKMAgentLabService:
         *,
         message: str,
     ) -> list[dict[str, Any]]:
-        fallback = cls._fallback_segmented_messages(message)
         if not isinstance(raw, dict):
-            return fallback
+            return []
 
         items = raw.get("segments")
         if not isinstance(items, list):
-            return fallback
+            return []
 
+        normalized_message = cls._safe_excerpt(message, limit=50000).casefold()
         sanitized: list[dict[str, Any]] = []
         seen: set[str] = set()
         for item in items:
@@ -888,6 +937,11 @@ class PKMAgentLabService:
             if not source_text:
                 continue
             normalized = source_text.casefold()
+            # Segmentation may select only a direct part of the owner's text.
+            # Never let a rewritten or invented clause become a persistence
+            # candidate, even if a provider returned valid JSON.
+            if normalized not in normalized_message:
+                continue
             if normalized in seen:
                 continue
             seen.add(normalized)
@@ -899,9 +953,7 @@ class PKMAgentLabService:
                     or "Segmented memory candidate.",
                 }
             )
-        if len(fallback) == 1 and len(sanitized) == 1:
-            return fallback
-        return sanitized or fallback
+        return sanitized
 
     @classmethod
     def _stable_entity_id(
@@ -936,6 +988,39 @@ class PKMAgentLabService:
             seen.add(normalized)
             unique.append(normalized)
         return unique
+
+    @staticmethod
+    def _luhn_ok(digits: str) -> bool:
+        total = 0
+        for index, char in enumerate(reversed(digits)):
+            value = ord(char) - 48
+            if index % 2 == 1:
+                value *= 2
+                if value > 9:
+                    value -= 9
+            total += value
+        return total % 10 == 0
+
+    @classmethod
+    def _contains_sensitive_secret(cls, message: str) -> str | None:
+        """Name the kind of secret a passage carries, or None.
+
+        A card number, a CVV or PIN, a password or API key, a government id, or
+        a bank account never becomes a plain memory, whatever domain the model
+        proposes: the wallet and the vault's secret surfaces exist for those.
+        This runs before any agent so the passage is rejected, not redirected.
+        """
+        text = str(message or "")
+        if not text.strip():
+            return None
+        for run in re.findall(r"(?<!\d)(?:\d[ -]?){13,19}(?!\d)", text):
+            digits = re.sub(r"[ -]", "", run)
+            if 13 <= len(digits) <= 19 and cls._luhn_ok(digits):
+                return "card_number"
+        for kind, pattern in _SENSITIVE_VALUE_PATTERNS:
+            if pattern.search(text):
+                return kind
+        return None
 
     @classmethod
     def _looks_opaque_or_nonsense(cls, message: str) -> bool:
@@ -1448,7 +1533,13 @@ class PKMAgentLabService:
         deadline = time.perf_counter() + timeout_seconds if timeout_seconds is not None else None
         from google.genai import types as genai_types
 
-        active_model = model_override or manifest.model or GEMINI_MODEL
+        active_model = model_override or _manifest_model_name(manifest) or GEMINI_MODEL
+        is_salience_model = active_model == "gemini-3.1-pro-preview"
+        thinking_level = (
+            genai_types.ThinkingLevel.LOW
+            if is_salience_model
+            else genai_types.ThinkingLevel.MINIMAL
+        )
         config = build_generate_content_config(
             genai_types,
             active_model,
@@ -1456,16 +1547,17 @@ class PKMAgentLabService:
             # These calls are deterministic schema workers inside a bounded,
             # sequential PKM graph. Gemini's default thinking can consume the
             # shared preview deadline before the final structure contract runs.
-            # Minimal thinking preserves Gemini 3.5 Flash semantics while
-            # keeping the user-facing chain within its existing latency budget.
+            # Flash stays bounded for the fast structural stages; the two
+            # salience stages use the higher-capability model deliberately.
             thinking_config=genai_types.ThinkingConfig(
-                thinking_level=genai_types.ThinkingLevel.MINIMAL,
+                thinking_level=thinking_level,
             ),
             response_mime_type="application/json",
             automatic_function_calling=genai_types.AutomaticFunctionCallingConfig(disable=True),
             response_schema=response_schema,
         )
-        for attempt in range(1, _AGENT_CONTRACT_MAX_ATTEMPTS + 1):
+        max_attempts = 1 if is_salience_model else _AGENT_CONTRACT_MAX_ATTEMPTS
+        for attempt in range(1, max_attempts + 1):
             remaining_seconds = (
                 max(0.0, deadline - time.perf_counter()) if deadline is not None else None
             )
@@ -1479,11 +1571,15 @@ class PKMAgentLabService:
                 )
                 record("budget_exhausted", attempts=attempt - 1)
                 return None
-            effective_timeout = _AGENT_CONTRACT_TIMEOUT_SECONDS
+            effective_timeout = (
+                _PKM_SALIENCE_AGENT_TIMEOUT_SECONDS
+                if is_salience_model
+                else _AGENT_CONTRACT_TIMEOUT_SECONDS
+            )
             if remaining_seconds is not None:
                 effective_timeout = max(
                     0.25,
-                    min(_AGENT_CONTRACT_TIMEOUT_SECONDS, remaining_seconds),
+                    min(effective_timeout, remaining_seconds),
                 )
             try:
                 response = await asyncio.wait_for(
@@ -1505,7 +1601,7 @@ class PKMAgentLabService:
                 record("invalid_response", attempts=attempt)
                 return None
             except asyncio.TimeoutError:
-                can_retry = attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
+                can_retry = attempt < max_attempts
                 retry_budget_seconds = (
                     max(0.0, deadline - time.perf_counter()) if deadline is not None else None
                 )
@@ -1515,7 +1611,7 @@ class PKMAgentLabService:
                         "max_attempts=%s timeout_seconds=%s budget_remaining_seconds=%s",
                         getattr(manifest, "id", "unknown"),
                         attempt,
-                        _AGENT_CONTRACT_MAX_ATTEMPTS,
+                        max_attempts,
                         round(effective_timeout, 3),
                         round(retry_budget_seconds, 3)
                         if retry_budget_seconds is not None
@@ -1531,10 +1627,7 @@ class PKMAgentLabService:
                 record("timeout", attempts=attempt)
                 return None
             except Exception as exc:
-                can_retry = (
-                    attempt < _AGENT_CONTRACT_MAX_ATTEMPTS
-                    and self._is_retryable_provider_error(exc)
-                )
+                can_retry = attempt < max_attempts and self._is_retryable_provider_error(exc)
                 if can_retry:
                     retry_delay_seconds = self._provider_retry_delay_seconds(attempt)
                     retry_budget_seconds = (
@@ -1549,7 +1642,7 @@ class PKMAgentLabService:
                             "max_attempts=%s delay_seconds=%s error_type=%s",
                             getattr(manifest, "id", "unknown"),
                             attempt,
-                            _AGENT_CONTRACT_MAX_ATTEMPTS,
+                            max_attempts,
                             round(retry_delay_seconds, 3),
                             type(exc).__name__,
                         )
@@ -1653,17 +1746,20 @@ class PKMAgentLabService:
         header = (
             "You are the Memory Segmentation Agent for Hussh Kai.\n"
             "Return JSON only with segments, source_agent, contract_version.\n"
-            "Split a single natural-language prompt into 1 to 8 meaningful memory candidates.\n"
+            "Select zero to eight direct quotes that could be durable PKM memory candidates.\n"
         )
         if strict_small_model:
             return (
                 f"{header}"
                 f"Message: {message}\n"
                 "Rules:\n"
+                "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+                "- Keep only direct owner-stated claims that remain useful after this conversation.\n"
+                "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
                 "- Keep each segment self-contained and short.\n"
-                "- Split only when the prompt clearly contains multiple durable or semi-durable ideas.\n"
-                "- Do not invent facts that were not stated.\n"
-                "- If the prompt is one coherent memory, return one segment only.\n"
+                "- source_text must be an exact contiguous quote from the message.\n"
+                "- Split only when the prompt clearly contains multiple independent durable ideas.\n"
+                "- Numbered or Markdown headings are boundaries: never merge across two headings, and never include the heading line in source_text.\n"
                 "- contract_version must be 1.\n"
                 'Examples: {"message":"I like to swim and prefer early breakfasts.","segments":[{"source_text":"I like to swim.","confidence":0.91,"reason":"Exercise preference."},{"source_text":"I prefer early breakfasts.","confidence":0.84,"reason":"Separate food habit."}]} '
                 '{"message":"I usually book aisle seats.","segments":[{"source_text":"I usually book aisle seats.","confidence":0.97,"reason":"Single travel preference."}]}'
@@ -1672,10 +1768,12 @@ class PKMAgentLabService:
             f"{header}"
             f"Natural language message: {message}\n"
             "Rules:\n"
-            "- Return 1 segment for a single coherent memory.\n"
-            "- Return multiple segments only when the prompt clearly contains multiple distinct memories, routines, preferences, or facts.\n"
-            "- Do not split purely stylistic repetition.\n"
-            "- Keep source_text close to the user's own wording.\n"
+            "- Return an empty segments array when there is no explicit durable fact, preference, routine, goal, relationship, or health constraint.\n"
+            "- Exclude greetings, introductions, filler, generic self-description, one-off plans, current moods, requests, and form/chat boilerplate.\n"
+            "- Return one segment for one eligible claim; return multiple segments only for independent eligible claims.\n"
+            "- Do not split stylistic repetition, explanations, or connective narrative.\n"
+            "- source_text must be an exact contiguous quote from the user's message.\n"
+            "- Numbered or Markdown section headings are boundaries: never merge candidates across two headings, and never include the heading line in source_text.\n"
             "- Never emit more than 8 segments.\n"
             "- contract_version must be 1.\n"
         )
@@ -3339,6 +3437,30 @@ class PKMAgentLabService:
         fallback_target_domain: str,
         simulated_state: dict[str, Any] | None,
     ) -> dict[str, Any]:
+        secret_kind = cls._contains_sensitive_secret(message)
+        if secret_kind:
+            # Same terminal shape as the reserved-target rejection: never
+            # redirected, never owner-confirmable, and the hint tells the
+            # surface to point at the secure form instead.
+            return {
+                "candidate_payload": {},
+                "structure_decision": {
+                    "action": "reject_sensitive_secret",
+                    "target_domain": "",
+                    "json_paths": [],
+                    "top_level_scope_paths": [],
+                    "externalizable_paths": [],
+                    "summary_projection": {},
+                    "sensitivity_labels": {},
+                    "confidence": 0.0,
+                    "source_agent": "pkm_structure_agent",
+                    "contract_version": DYNAMIC_DOMAIN_CONTRACT_VERSION,
+                },
+                "write_mode": "do_not_save",
+                "primary_json_path": None,
+                "target_entity_scope": None,
+                "validation_hints": [f"sensitive_{secret_kind}_rejected"],
+            }
         raw_structure = parsed_structure or {}
         raw_decision = raw_structure.get("structure_decision")
         raw_decision = raw_decision if isinstance(raw_decision, dict) else {}
@@ -3575,7 +3697,10 @@ class PKMAgentLabService:
 
         write_mode = str(raw_structure.get("write_mode") or "").strip().lower()
         if write_mode not in _WRITE_MODES:
-            write_mode = "can_save"
+            # A missing structure decision is not owner approval. Keep the
+            # malformed result review-only instead of synthesizing a write.
+            write_mode = "confirm_first"
+            validation_hints.append("invalid_write_mode_requires_review")
 
         if intent_frame.get("save_class") == "ephemeral":
             write_mode = "do_not_save"
@@ -4554,7 +4679,7 @@ class PKMAgentLabService:
         return {
             "agent_id": agent_manifest.id,
             "agent_name": agent_manifest.name,
-            "model": model_override or agent_manifest.model or GEMINI_MODEL,
+            "model": model_override or _manifest_model_name(agent_manifest) or GEMINI_MODEL,
             "used_fallback": used_fallback,
             "intent_used_fallback": intent_used_fallback,
             "merge_used_fallback": merge_used_fallback,
@@ -4755,7 +4880,7 @@ class PKMAgentLabService:
                     "agent_id": self.memory_segmentation_manifest.id,
                     "agent_name": self.memory_segmentation_manifest.name,
                     "model": model_override
-                    or self.memory_segmentation_manifest.model
+                    or _manifest_model_name(self.memory_segmentation_manifest)
                     or GEMINI_MODEL,
                     "used_fallback": True,
                     "intent_used_fallback": False,

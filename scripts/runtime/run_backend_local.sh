@@ -127,6 +127,10 @@ else:
 PY
 }
 
+# Resolved before any port check so a peer worktree on another port is never stopped.
+BACKEND_PORT="${BACKEND_PORT:-$(read_env_value "$BACKEND_ENV_FILE" 'BACKEND_PORT')}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
+
 wait_for_port() {
   local host="$1"
   local port="$2"
@@ -170,7 +174,7 @@ listener_pids() {
 
 stop_existing_repo_backend() {
   local pids
-  pids="$(listener_pids 8000 || true)"
+  pids="$(listener_pids "${BACKEND_PORT:-8000}" || true)"
   if [ -z "$pids" ]; then
     return 0
   fi
@@ -352,9 +356,9 @@ export DB_SQLALCHEMY_POOL_SIZE="${DB_SQLALCHEMY_POOL_SIZE:-2}"
 export DB_SQLALCHEMY_MAX_OVERFLOW="${DB_SQLALCHEMY_MAX_OVERFLOW:-0}"
 echo "Local Cloud SQL connection budget: async=${DB_POOL_MIN_SIZE}-${DB_POOL_MAX_SIZE}, sql=${DB_SQLALCHEMY_POOL_SIZE}+${DB_SQLALCHEMY_MAX_OVERFLOW}."
 
-echo "Starting backend on :8000 for runtime mode ${PROFILE}..."
+echo "Starting backend on :${BACKEND_PORT} for runtime mode ${PROFILE}..."
 cd "$REPO_ROOT/consent-protocol"
-uvicorn_args=(server:app --port 8000)
+uvicorn_args=(server:app --port "$BACKEND_PORT")
 reload_mode="$(printf '%s' "$BACKEND_RELOAD" | tr '[:upper:]' '[:lower:]')"
 case "$reload_mode" in
   1|true|yes|on)

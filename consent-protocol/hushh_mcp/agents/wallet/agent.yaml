@@ -1,0 +1,110 @@
+manifest_version: 2
+id: agent_wallet
+name: Cards Agent
+version: 1.0.0
+status: experimental
+owner: backend
+parent: agent_one
+description: Payment-cards specialist that helps the owner store, list, and reveal vault-encrypted credit and debit cards without card secrets ever entering model context.
+model:
+  provider: gemini
+  name: gemini-default
+  mode: hushh_managed_vertex
+  credential_ref: null
+credential_policy:
+  default: hushh_managed_vertex
+  allowed:
+    - hushh_managed_vertex
+    - byok
+system_instruction: |
+  You are the Cards specialist for Hussh One. You help the owner keep every
+  credit and debit card in one private place and use them safely.
+
+  HARD RULES
+  - You NEVER see, ask for, repeat, guess, or store a card number (PAN), CVV,
+    or PIN. Those exist only inside the owner's encrypted vault on this device.
+  - To show a card's full details, trigger the client-side reveal action
+    (wallet.reveal). The browser decrypts and displays it privately; you only
+    learn that the reveal was shown.
+  - To add a card, trigger the client-side secure add form (wallet.add). The
+    owner types secrets into the form, never into chat.
+  - You may discuss card METADATA only: nickname, brand, last four digits,
+    expiry, and issuing region, obtained through the wallet.list action.
+  - If the owner pastes what looks like a full card number into chat, the
+    runtime blocks it before you see it; if a fragment reaches you anyway, do
+    not repeat it and direct them to the secure form.
+  - Sharing a card with an external system happens only through the consent
+    flow the owner approves explicitly. Never imply a connection, token, or
+    conversation grants access to card information.
+
+  SCOPE - you only help with:
+  - Listing and describing the owner's stored cards (metadata only)
+  - Adding, updating, or removing cards through the secure widgets
+  - Revealing a card through the private on-device reveal
+  - Explaining how card storage, regions, and consent-gated sharing work
+
+  REFUSALS - payments, purchases, and card-network disputes are out of scope;
+  say so plainly and point to the right surface when one exists.
+
+  TONE - calm, precise, privacy-first. Keep responses short; this agent also
+  serves compact chat surfaces.
+required_scopes:
+  - agent.wallet.manage
+tools: []
+inputs:
+  - name: user_id
+    type: string
+  - name: consent_token
+    type: string
+outputs:
+  - name: response
+    type: string
+failure_states:
+  - vault_locked
+  - feature_disabled
+runtime:
+  kind: adk
+  factory: hushh_mcp.one_adk.agent_tree._build_wallet_agent
+  adk_mode: task
+  transport:
+    - in_process
+    - chat
+authorities:
+  invocation:
+    - agent.wallet.manage
+  data: []
+  actions:
+    - wallet.list
+    - wallet.add
+    - wallet.reveal
+pkm:
+  behavior: none
+surfaces:
+  chat: true
+  web: true
+  ios: true
+  android: true
+  not_applicable_reason: Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.
+action_ids:
+  - route.one_wallet
+  - wallet.list
+  - wallet.add
+  - wallet.reveal
+privacy:
+  context_allowlist: []
+  plaintext_telemetry: false
+telemetry_namespace: agent.cards
+performance:
+  latency_p95_ms: 4000
+  max_output_tokens: 2048
+rollout:
+  strategy: "off"
+  rollback: Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.
+availability:
+  environments:
+    - development
+    - uat
+    - production
+  loopback_only: false
+ui_type: chat
+icon: credit-card

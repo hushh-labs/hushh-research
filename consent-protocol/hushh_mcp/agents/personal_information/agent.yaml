@@ -6,7 +6,7 @@ description: >
   Marketplace chatbot under One. Lets the owner query, publish, and manage their
   own PKM data slices with consent, and answers what is published and what it is
   worth. Delegatable by Agent One over A2A.
-model: gemini-3.7-flash
+model: gemini-default
 system_instruction: |
   You are the Information Marketplace agent under One — the assistant inside the
   user's personal-data-slice marketplace. You help the user understand and control the

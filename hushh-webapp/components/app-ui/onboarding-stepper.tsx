@@ -43,6 +43,10 @@ export interface OnboardingStepperProps {
   ariaLabel?: string;
   /** Show the visible "Step X of Y" text + percentage. Default true. */
   showLabel?: boolean;
+  /** Compact flow headers show only "X of Y" and omit the percentage. */
+  compact?: boolean;
+  /** Inverse colours for progress shown over an accent or map surface. */
+  inverse?: boolean;
   className?: string;
 }
 
@@ -51,13 +55,16 @@ export function OnboardingStepper({
   currentIndex,
   ariaLabel = "Setup steps",
   showLabel = true,
+  compact = false,
+  inverse = false,
   className,
 }: OnboardingStepperProps) {
   const total = steps.length;
   const safeIndex = Math.min(Math.max(currentIndex, 0), Math.max(total - 1, 0));
   const human = total > 0 ? safeIndex + 1 : 0;
   const activeStep = steps[safeIndex];
-  const progressValue = total > 1 ? Math.round((safeIndex / (total - 1)) * 100) : 100;
+  const progressValue =
+    total > 1 ? Math.round((safeIndex / (total - 1)) * 100) : 100;
   const valueText =
     total > 0
       ? `Step ${human} of ${total}${activeStep ? `: ${activeStep.label}` : ""}`
@@ -83,13 +90,25 @@ export function OnboardingStepper({
       </span>
 
       {showLabel ? (
-        <div className="flex items-center justify-between text-[13px] text-muted-foreground">
-          <span className="font-medium tracking-normal">
-            Step {human} of {total}
+        <div
+          className={cn(
+            "flex items-center justify-between text-[13px] text-muted-foreground",
+            inverse && "text-white/90",
+          )}
+        >
+          <span className="font-semibold tracking-normal tabular-nums">
+            {compact ? `${human} of ${total}` : `Step ${human} of ${total}`}
           </span>
-          <span className="text-[12px] font-medium tabular-nums text-muted-foreground">
-            {progressValue}%
-          </span>
+          {!compact ? (
+            <span
+              className={cn(
+                "text-[12px] font-medium tabular-nums text-muted-foreground",
+                inverse && "text-white/75",
+              )}
+            >
+              {progressValue}%
+            </span>
+          ) : null}
         </div>
       ) : null}
 
@@ -113,8 +132,12 @@ export function OnboardingStepper({
                 className={cn(
                   "block h-1 rounded-full transition-colors duration-200",
                   isActive || isComplete
-                    ? "bg-foreground/70"
-                    : "bg-foreground/15",
+                    ? inverse
+                      ? "bg-white"
+                      : "bg-foreground/70"
+                    : inverse
+                      ? "bg-white/25"
+                      : "bg-foreground/15",
                 )}
               />
             </li>

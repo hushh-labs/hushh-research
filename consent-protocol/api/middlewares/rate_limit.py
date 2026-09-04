@@ -189,6 +189,11 @@ class RateLimits:
     # Agent chat - moderate limit
     AGENT_CHAT = "30/minute"  # noqa: S105
 
+    # Public person identity is intentionally tiny, but it is also an anonymous
+    # lookup surface. Keep it below directory browse rates so opaque-reference
+    # guessing cannot become a high-throughput identity oracle.
+    PUBLIC_PERSON_PROFILE_READ = "30/minute"  # noqa: S105
+
     # Human-entered Circle codes are deliberately short enough to type. Keep
     # resolve/join attempts in their own authenticated-user bucket so guessing
     # cannot consume unrelated consent budgets. RATE_LIMIT_STORAGE_URI remains
@@ -241,6 +246,13 @@ class RateLimits:
 
     ONE_LOCATION_NEARBY_WRITE = "6/minute"  # noqa: S105
     ONE_LOCATION_NEARBY_CONNECT = "10/minute"  # noqa: S105
+    # Two ceilings, for two different attacks. The minute bound stops a tight
+    # loop; the daily bound stops the patient walk -- rating forty venues over
+    # an afternoon is the realistic way to move an average, and a per-minute
+    # limit does nothing about it.
+    ONE_LOCATION_PLACE_RATING_WRITE = "6/minute"  # noqa: S105
+    ONE_LOCATION_PLACE_RATING_WRITE_DAILY = "40/day"  # noqa: S105
+    ONE_LOCATION_PLACE_RATING_READ = "20/minute"  # noqa: S105
     # Provider-backed search/details incur external cost. Keep a separate,
     # comfortably interactive bucket so search cannot consume nearby roster or
     # check-in budgets while still bounding scripted abuse per signed owner.

@@ -4,7 +4,7 @@
       "id": "agent_calendar",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "CALENDAR_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable Calendar Agent and retain existing Google connection records without executing proposals.",
         "strategy": "internal"
       },
@@ -37,7 +37,7 @@
       "id": "agent_connected_systems",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -70,7 +70,7 @@
       "id": "agent_connections",
       "parent": "agent_nav",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -103,7 +103,7 @@
       "id": "agent_email",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -136,7 +136,7 @@
       "id": "agent_financial_guard",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -169,7 +169,7 @@
       "id": "agent_gmail",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -202,7 +202,7 @@
       "id": "agent_kai",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -237,7 +237,7 @@
       "id": "agent_kyc",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -270,7 +270,7 @@
       "id": "agent_location",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -303,7 +303,7 @@
       "id": "agent_memory_intent",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -336,7 +336,7 @@
       "id": "agent_memory_merge",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -369,7 +369,7 @@
       "id": "agent_memory_segmentation",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -402,7 +402,7 @@
       "id": "agent_nav",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -470,7 +470,7 @@
       "id": "agent_one",
       "parent": null,
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -506,7 +506,7 @@
       "id": "agent_personal_information",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -539,7 +539,7 @@
       "id": "agent_pkm_structure",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -572,7 +572,7 @@
       "id": "agent_portfolio_import",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -605,7 +605,7 @@
       "id": "agent_summary_reducer",
       "parent": "agent_one",
       "rollout": {
-        "kill_switch": "HUSHH_AGENT_DISABLED",
+        "kill_switch": null,
         "rollback": "Disable the agent and restore the prior manifest.",
         "strategy": "off"
       },
@@ -627,6 +627,40 @@
         "not_applicable_reason": null,
         "voice": false,
         "web": false
+      },
+      "wiring": {
+        "a2a_scope": null,
+        "in_process_dispatch": false,
+        "one_specialist_tool": null
+      }
+    },
+    {
+      "id": "agent_wallet",
+      "parent": "agent_one",
+      "rollout": {
+        "kill_switch": null,
+        "rollback": "Remove the Wallet AgentTool from One's roster; the /one/wallet surface keeps working without chat.",
+        "strategy": "off"
+      },
+      "runtime": {
+        "adk_mode": "task",
+        "factory": "hushh_mcp.one_adk.agent_tree._build_wallet_agent",
+        "kind": "adk",
+        "transport": [
+          "in_process",
+          "chat"
+        ]
+      },
+      "status": "experimental",
+      "surfaces": {
+        "a2a": false,
+        "android": true,
+        "chat": true,
+        "ios": true,
+        "mcp": false,
+        "not_applicable_reason": "Voice, remote A2A, and MCP exposure are deliberately withheld while card reveal is a screen-only interaction.",
+        "voice": false,
+        "web": true
       },
       "wiring": {
         "a2a_scope": null,
@@ -665,12 +699,13 @@
       "data_class": "personal_encrypted",
       "exact_tables": [
         "agent_chat_conversations",
-        "agent_chat_messages"
+        "agent_chat_messages",
+        "one_adk_sessions"
       ],
       "id": "agent_chat_encrypted_memory",
       "lifecycle_status": "current",
       "owner": "backend-agents-operons",
-      "primary_access_path": "Gemini-backed Agent text chat streaming, encrypted chat history restore, and LLM context assembly"
+      "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
     },
     {
       "data_class": "audit_regulated",
@@ -807,6 +842,18 @@
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "gmail_personal_information_request_preferences",
+        "gmail_personal_information_request_scan_states",
+        "gmail_personal_information_requests"
+      ],
+      "id": "gmail_personal_information_request_monitor",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Email Agent opt-in personal Gmail monitor, owner review queue, and scheduled eligible-user scanner"
     },
     {
       "data_class": "provider_cache",
@@ -985,6 +1032,26 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
+        "one_agent_message_feedback"
+      ],
+      "id": "one_agent_message_feedback",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "message feedback service, written from the Agent One chat thumbs control via /api/one/agent-chat/feedback and read for response-quality reporting"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_model_preferences"
+      ],
+      "id": "one_agent_model_preference",
+      "lifecycle_status": "current",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "model preference service, read on every agent chat turn and written from Agent chat or /api/one/models/preference"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
         "one_email_mailbox_state",
         "one_email_kyc_preferences",
         "one_kyc_workflows",
@@ -1032,6 +1099,38 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Authenticated One Location People-tab Circle creation, code join, targeted existing-direct-connection invitation and acceptance, membership listing, removal, leave, and deletion workflows. Code join or targeted-invite acceptance creates source-aware canonical mutual connection origins with every active Circle member; creating a targeted invitation alone creates no membership or connection."
+    },
+    {
+      "data_class": "personal_encrypted",
+      "exact_tables": [
+        "one_location_nearby_visits"
+      ],
+      "id": "one_location_place_rating_visits",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Short-lived ledger of completed nearby check-in visits, so the place a person just left can be rated and so the check-in travel-continuity guard survives a checkout that clears the presence anchor. The venue is readable only as an AES-256-GCM envelope bound by AAD to its owner, alongside a server-keyed equality token that allows same-venue and distinct-place checks without decryption."
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "one_location_place_ratings",
+        "one_location_place_rating_aggregates"
+      ],
+      "id": "one_location_place_ratings",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "One 1-5 star rating per person per place, private to its author and readable only by them, plus an anonymous per-place count and sum derived from those rows. This is the only durable person-to-venue link in One Location and is created solely on acceptance of the named, versioned consent one-location-place-rating-v1. It stores no review text, no author display identity, and no author reference reaches any cross-user projection; the aggregate holds no user reference at all and is withheld below five raters and reported in buckets."
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "one_information_request_bundles",
+        "one_information_request_items"
+      ],
+      "id": "one_person_information_requests",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "Authenticated person-profile and Agent One workflows that prepare, create, inspect, cancel, expire, revoke, and export viewer-to-owner consent requests using opaque consumer scope references."
     },
     {
       "data_class": "workflow_state",
@@ -1217,7 +1316,7 @@
       "id": "trusted_device_registry",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, and advisory remote-revoke seal telemetry through TrustedDeviceService."
+      "primary_access_path": "First-party Hermes device registration, listing, proof-of-possession lookup, last-used and last-synced tracking, revocation, advisory remote-revoke seal telemetry, and advisory liveness heartbeats through TrustedDeviceService."
     },
     {
       "data_class": "workflow_state",
@@ -1439,8 +1538,14 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
-        "delegate_agent_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
+        "delegate_agent_ids": [
+          "agent_wallet"
+        ],
         "playbook_id": "route.agent"
       }
     },
@@ -1491,7 +1596,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.blog.slug"
       }
@@ -2205,11 +2314,15 @@
           "route.one_feed",
           "route.one_location",
           "route.one_pkm",
-          "route.voice_settings"
+          "route.voice_settings",
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
         ],
         "delegate_agent_ids": [
           "agent_location",
-          "agent_nav"
+          "agent_nav",
+          "agent_wallet"
         ],
         "playbook_id": "route.one.home"
       }
@@ -2353,7 +2466,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.connected.systems.systemid"
       }
@@ -2446,7 +2563,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.email"
       }
@@ -2755,7 +2876,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_news"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.news"
       }
@@ -2874,7 +2997,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_allocation"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.allocation"
       }
@@ -2898,7 +3023,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_holdings"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.holdings"
       }
@@ -2922,7 +3049,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_performance"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.performance"
       }
@@ -2946,7 +3075,9 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "route.kai_portfolio_sources"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.kai.portfolio.sources"
       }
@@ -3220,6 +3351,29 @@
       "implementation_override": null,
       "lifecycle": "canonical",
       "native_surface_id": null,
+      "page_file": "app/one/location/check-in/hotel/page.tsx",
+      "pathname": "/one/location/check-in/hotel",
+      "route_mode": "hidden",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.location.check-in.hotel"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
       "page_file": "app/one/location/invite/[token]/page.tsx",
       "pathname": "/one/location/invite/[token]",
       "route_mode": "hidden",
@@ -3357,7 +3511,7 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
           "unknown"
         ]
@@ -3383,6 +3537,31 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-pkm-recent",
+      "page_file": "app/one/pkm/recent/page.tsx",
+      "pathname": "/one/pkm/recent",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_pkm"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.pkm.recent"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "vault_metadata",
@@ -3398,6 +3577,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3476,6 +3656,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3508,6 +3689,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3690,7 +3872,7 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
-        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
         "resource_classes": [
           "unknown"
         ]
@@ -3803,6 +3985,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3828,6 +4011,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3853,6 +4037,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3878,6 +4063,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3903,6 +4089,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3928,6 +4115,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -3953,6 +4141,7 @@
       "semantic_routes": [],
       "voice": {
         "action_ids": [
+          "help.open_examples",
           "route.voice_settings"
         ],
         "delegate_agent_ids": [],
@@ -4225,6 +4414,33 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.profile.support.routing"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": null,
+      "page_file": "app/one/puppy/page.tsx",
+      "pathname": "/one/puppy",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.puppy"
       }
     },
     {
@@ -4563,6 +4779,36 @@
       "api_dependencies": [],
       "cache": {
         "policy": "memory-only",
+        "refresh_trigger": "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-wallet",
+      "page_file": "app/one/wallet/page.tsx",
+      "pathname": "/one/wallet",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "route.one_wallet",
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
+        "delegate_agent_ids": [
+          "agent_wallet"
+        ],
+        "playbook_id": "route.one_wallet"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
         "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
         "resource_classes": [
           "unknown"
@@ -4576,9 +4822,60 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.wallet.card"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [
+        {
+          "backend_endpoint_family": "/api/{public/people/*,one/people/*,one/information-requests/*}",
+          "native_transport": "CapacitorHttp direct backend via ApiService.apiFetch; native static export emits one non-production route fixture while runtime identity remains the opaque personRef.",
+          "nextjs_api_route": "/api/{public/people/{personRef},one/{path*}}",
+          "nextjs_proxy_file": "app/api/public/people/[personRef]/route.ts; app/api/one/[...path]/route.ts",
+          "service_file": "lib/services/person-profile-service.ts",
+          "service_methods": [
+            "getPublic",
+            "getViewer",
+            "createInformationRequest",
+            "getInformationRequestExports",
+            "cancelInformationRequest",
+            "connect",
+            "cancelConnectionRequest",
+            "removeConnection"
+          ]
+        }
+      ],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-person-profile",
+      "page_file": "app/people/[personRef]/page.tsx",
+      "pathname": "/people/[personRef]",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "people.profile.cancel_connection_request",
+          "people.profile.connect",
+          "people.profile.manage_consent",
+          "people.profile.remove_connection",
+          "people.profile.review_information_request"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.people.person_profile"
       }
     },
     {
@@ -4797,7 +5094,11 @@
       "route_mode": "standard",
       "semantic_routes": [],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.research.protocol"
       }
@@ -5016,7 +5317,6 @@
           "ria.picks.open_category_top_picks",
           "ria.picks.open_source_kai",
           "ria.picks.open_source_my",
-          "ria.picks.open_view_debate",
           "route.ria_picks"
         ],
         "delegate_agent_ids": [],
@@ -5171,7 +5471,11 @@
         }
       ],
       "voice": {
-        "action_ids": [],
+        "action_ids": [
+          "wallet.add",
+          "wallet.list",
+          "wallet.reveal"
+        ],
         "delegate_agent_ids": [],
         "playbook_id": "route.welcome"
       }
@@ -5180,28 +5484,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "134924af217c3cd05bf4ea2f4b96f6f5ca0ed031f2e9c9c9e03f11c9d9f479eb",
-    "agent_registry": "a9fd61fc5da948e28aed7ee2132f79e9f4a40ebf8685aee1c824c7538ee3685f",
-    "cache_manifest": "734cae0bc468da32e9aa6f5b680c5fb40d49696e3b90629c533791ad5288f8f4",
-    "data_plane": "16a6bb7ebddcbfd360a07034ed83ba0b966d8667fe879bee928991d0f591e04d",
+    "action_gateway": "7b411158545f57fe5160dca108311d50e9cb1b6fdadc8831d03fd1e07a27265d",
+    "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
+    "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
+    "data_plane": "d2706bc9683b88a5e34015bc6bc5fd6f0c1c90618342e62da7ff560f2bc8daf2",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "f2c4248adbaa8615f745339fae7722a69588c49cf8bac23e2d19248c54135f7b",
-    "route_index": "8b0278cc2a76ccc2b3c5b35e4e9bb4d0ca8dcf4b08f313f368ca992f634ea262",
-    "route_layout": "178064ac4f170604e1014eb9eb87fad2aae55c1a9a7039dbd34c4b20ea51704b",
-    "surface_map": "24c517f46dab35bc730499bb1bde7191a7b06b7f3243d681c60c0568898ee216",
+    "one_specialist_tools": "f91a213f8eda5ce9d17b9fed0062e77e0c3e8faca7786f1a7a7b9810ebe6002f",
+    "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
+    "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
+    "surface_map": "f5fffd96f19e2c2e949c47840a815f87c0fa0936eff7a50cc9c7a180590ba7b3",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 193,
-    "agents": 19,
+    "actions": 211,
+    "agents": 20,
     "aliases": 3,
     "decision_required": 2,
     "in_process_specialists": 3,
     "one_specialist_tools": 5,
-    "physical_routes": 134,
+    "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 53
+    "table_families": 59
   }
 }

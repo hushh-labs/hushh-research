@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -55,6 +55,7 @@ function vm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewModel
     incomingCircleMemberInvitesLoading: false,
     incomingCircleMemberInvitesError: null,
     incomingCircleMemberInviteFocusResolved: true,
+    recipients: [recipient],
     visibleRecipients: [recipient],
     recipientSearch: "",
     setRecipientSearch: vi.fn(),
@@ -97,7 +98,72 @@ function vm(overrides: Partial<LocationHubViewModel> = {}): LocationHubViewModel
 }
 
 describe("PeopleHub requests sent manage surface", () => {
-  it("uses quick extension actions instead of the old duration editor", () => {
+  function renderPeopleHub({
+    viewModel = vm(),
+    onStartShare = vi.fn(),
+    onStartAsk = vi.fn(),
+    onOpenSharedWithMe = vi.fn(),
+    onOpenActiveShares = vi.fn(),
+    onAddConnections = vi.fn(),
+  }: {
+    viewModel?: LocationHubViewModel;
+    onStartShare?: ReturnType<typeof vi.fn>;
+    onStartAsk?: ReturnType<typeof vi.fn>;
+    onOpenSharedWithMe?: ReturnType<typeof vi.fn>;
+    onOpenActiveShares?: ReturnType<typeof vi.fn>;
+    onAddConnections?: ReturnType<typeof vi.fn>;
+  } = {}) {
+    render(
+      <PeopleHub
+        vm={viewModel}
+        onAddConnections={onAddConnections}
+        onInvite={vi.fn()}
+        onOpenCircleManager={vi.fn()}
+        focusedInviteId={null}
+        onDismissFocusedInvite={vi.fn()}
+        onStartShare={onStartShare}
+        onStartAsk={onStartAsk}
+        onOpenActiveShares={onOpenActiveShares}
+        onOpenSharedWithMe={onOpenSharedWithMe}
+      />,
+    );
+    return {
+      onStartShare,
+      onStartAsk,
+      onOpenSharedWithMe,
+      onOpenActiveShares,
+      onAddConnections,
+    };
+  }
+
+  it("uses the Connect avatar renderer for Location people rows", () => {
+    renderPeopleHub({
+      viewModel: vm({
+          requestedByMe: [],
+          receivedGrants: [],
+          editingGrantId: null,
+          visibleRecipients: [
+            {
+              ...recipient,
+              photoUrl: "https://cdn.example.test/roopmann-location.jpg",
+              isRia: true,
+            },
+          ],
+        }),
+    });
+
+    const peopleList = screen.getByTestId("one-location-people-list");
+    expect(
+      peopleList.querySelector(
+        '[data-photo-url="https://cdn.example.test/roopmann-location.jpg"]',
+      ),
+    ).toBeTruthy();
+    expect(
+      within(peopleList).getByLabelText("Verified advisor"),
+    ).toBeInTheDocument();
+  });
+
+  it("starts People with the Circles summary row", () => {
     render(
       <PeopleHub
         vm={vm()}
@@ -112,72 +178,86 @@ describe("PeopleHub requests sent manage surface", () => {
       />,
     );
 
-    expect(screen.getByText("Sharing with you · 42 min left")).toBeTruthy();
-    expect(screen.getByText("Ask for more time")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "30 min more" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "2 hours more" })).toBeTruthy();
-    expect(screen.getByText("They’ll need to approve.")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Stop viewing" })).toBeTruthy();
-    expect(screen.queryByText("New duration")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save" })).toBeNull();
+    const hub = screen.getByTestId("one-location-people-hub");
+    const sectionStack = hub.firstElementChild as HTMLElement | null;
+    const circles = screen.getByTestId("one-location-circles-summary");
+
+    expect(hub).not.toHaveClass("pt-5");
+    expect(hub).not.toHaveClass("sm:pt-9");
+    expect(sectionStack?.firstElementChild).toBe(circles);
   });
 
-  it("sends the selected extension amount with the active grant id", () => {
-    const onRequestMoreTime = vi.fn().mockResolvedValue(undefined);
-    render(
-      <PeopleHub
-        vm={vm({ onRequestMoreTime })}
-        onAddConnections={vi.fn()}
-        onInvite={vi.fn()}
-        onCreateCircle={vi.fn()}
-        onJoinCircle={vi.fn()}
-        onOpenCircle={vi.fn()}
-        focusedInviteId={null}
-        onDismissFocusedInvite={vi.fn()}
-        onStartShare={vi.fn()}
-      />,
+  it("opens received-location management from the row", () => {
+    const onOpenSharedWithMe = vi.fn();
+    const onStartShare = vi.fn();
+    renderPeopleHub({ onOpenSharedWithMe, onStartShare });
+    expect(screen.getByText("Sharing with you · 42 min left")).toBeTruthy();
+    expect(screen.queryByText("Ask for more time")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Stop viewing" })).toBeNull();
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Open Location actions for Roopmann V/i,
+      }),
     );
 
-    fireEvent.click(screen.getByRole("button", { name: "30 min more" }));
-    expect(onRequestMoreTime).toHaveBeenCalledWith({
-      ownerUserId: "owner_roopmann",
-      grantId: "grant_live",
-      ownerLabel: "Roopmann V",
-      additionalHours: 0.5,
-    });
+    expect(
+      screen.getByRole("dialog", { name: "Roopmann V" }),
+    ).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "View their location" }));
+    expect(onOpenSharedWithMe).toHaveBeenCalled();
+    expect(onStartShare).not.toHaveBeenCalled();
   });
 
-  it("shows pending extension state and keeps Take back wired", () => {
-    const pendingExtension = {
+  it("hands neutral people to the existing Share composer without a dialog", () => {
+    const onStartShare = vi.fn();
+    const onStartAsk = vi.fn();
+    renderPeopleHub({
+      viewModel: vm({
+        requestedByMe: [],
+        receivedGrants: [],
+        editingGrantId: null,
+      }),
+      onStartShare,
+      onStartAsk,
+    });
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Share with Roopmann V",
+      }),
+    );
+
+    expect(onStartShare).toHaveBeenCalledWith("owner_roopmann");
+    expect(onStartAsk).not.toHaveBeenCalled();
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  it("keeps pending request cancellation in the person actions sheet", () => {
+    const pendingRequest = {
       ...approvedRequest,
-      id: "request_extension",
+      id: "request_pending",
       status: "pending",
-      extendsGrantId: activeGrant.id,
-      requestedDurationHours: 2,
+      extendsGrantId: undefined,
     } as OneLocationAccessRequest;
     const onWithdrawRequest = vi.fn();
-    render(
-      <PeopleHub
-        vm={vm({
-          requestedByMe: [approvedRequest, pendingExtension],
-          onWithdrawRequest,
-        })}
-        onAddConnections={vi.fn()}
-        onInvite={vi.fn()}
-        onCreateCircle={vi.fn()}
-        onJoinCircle={vi.fn()}
-        onOpenCircle={vi.fn()}
-        focusedInviteId={null}
-        onDismissFocusedInvite={vi.fn()}
-        onStartShare={vi.fn()}
-      />,
+    renderPeopleHub({
+      viewModel: vm({
+        requestedByMe: [pendingRequest],
+        receivedGrants: [],
+        editingGrantId: null,
+        onWithdrawRequest,
+      }),
+    });
+
+    expect(screen.getByText("Waiting for response")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Requests sent" })).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: /Open Location actions for Roopmann V/i,
+      }),
     );
-
-    expect(screen.getByText("2 hours more requested")).toBeTruthy();
-    expect(screen.getByText("Waiting for approval")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "30 min more" })).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "Take back" }));
-    expect(onWithdrawRequest).toHaveBeenCalledWith("request_extension");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel request" }));
+    expect(onWithdrawRequest).toHaveBeenCalledWith("request_pending");
   });
 });

@@ -23,6 +23,7 @@ import {
   CacheService,
 } from "@/lib/services/cache-service";
 import { OneLocationStateResource } from "@/lib/one-location/one-location-state-resource";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import {
   locationApproveActionLabel,
   locationAskPromptLine,
@@ -92,6 +93,11 @@ export interface FeedActionable {
   id: string;
   icon: LucideIcon;
   iconTone: FeedIconTone;
+  /** Person identity to render before falling back to the domain icon. */
+  person?: {
+    displayName: string;
+    photoUrl: string | null;
+  } | null;
   /** Running work animates its leading glyph. */
   spinning?: boolean;
   title: string;
@@ -104,7 +110,7 @@ export interface FeedActionable {
   actions: FeedActionButton[];
   sortAt: number;
   /**
-   * Real-world instant to render as the row's "Today - 3:45 PM" label.
+   * Real-world instant to render as the row's local time label.
    * Distinct from `sortAt` (which falls back to when the row was first seen so
    * ordering never breaks) — null/absent exactly when there is no real
    * timestamp to show the user (a consent entry with no `issued_at`, or any
@@ -167,7 +173,7 @@ function consentSummary(entry: ConsentCenterEntry): string {
 
 /**
  * A pending location access request is actionable in the viewer's "Needs you"
- * feed only when the viewer OWNS the request (their location is being asked for)
+ * feed only when the viewer OWNS the request (location is being asked for)
  * and did NOT send it themselves. `state.requests` carries BOTH directions, so
  * without this guard a user's own OUTGOING request leaks back onto their feed as
  * an incoming "wants to see your location" card labelled with their own name.
@@ -177,9 +183,10 @@ function consentSummary(entry: ConsentCenterEntry): string {
 export function isIncomingLocationRequestActionable(
   request: OneLocationAccessRequest,
   userId: string,
+  nowMs = Date.now(),
 ): boolean {
   return (
-    request.status === "pending" &&
+    isLocationRequestPending(request, nowMs) &&
     request.ownerUserId === userId &&
     request.requesterUserId !== userId
   );
@@ -237,6 +244,35 @@ function writeDismissedSmsEmergencyIds(userId: string, ids: Set<string>): void {
 export function notifyFeedActionResolved(): void {
   dispatchConsentStateChanged({ source: "feed_actionable" });
   dispatchFeedStateChanged();
+}
+
+export function classifyDebateFeedState(
+  task: DebateRunTask,
+): "running" | "ready" | "failed_save" | null {
+  if (task.dismissedAt) return null;
+  if (task.status === "running") return "running";
+  if (task.persistenceState === "failed") return "failed_save";
+  if (
+    task.status === "completed" &&
+    (task.persistenceState === "pending" || task.persistenceState === "saved")
+  ) {
+    return "ready";
+  }
+  return null;
+}
+
+/**
+ * A completed run must open through its durable PKM history identity. A live
+ * `run_id` route depends on the task still being undisposed in session state,
+ * which is intentionally no longer true once the Feed item is settled.
+ */
+export function buildDebateFeedAnalysisHref(
+  runId: string,
+  settled: boolean,
+): string {
+  return settled
+    ? buildKaiMarketRoute("analysis", { analysis_id: `run:${runId}` })
+    : buildKaiMarketRoute("analysis", { focus: "active", run_id: runId });
 }
 
 export function useFeedActionables(): UseFeedActionablesResult {
@@ -385,10 +421,12 @@ export function useFeedActionables(): UseFeedActionablesResult {
   });
 
   const openAnalysis = useCallback(
-    (runId: string) => {
-      router.push(
-        buildKaiMarketRoute("analysis", { focus: "active", run_id: runId }),
-      );
+    (runId: string, settleReadyState = false) => {
+      const href = buildDebateFeedAnalysisHref(runId, settleReadyState);
+      if (settleReadyState) {
+        DebateRunManagerService.dismissTask(runId);
+      }
+      router.push(href);
     },
     [router],
   );
@@ -576,12 +614,24 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `sms-emergency:${grant.id}`,
         icon: Siren,
         iconTone: "red",
-        // Only a still-live SOS gets the pinned "Live" emergency treatment.
+        person:
+          label !== "A contact"
+            ? {
+                displayName: label,
+                photoUrl: grant.ownerPhotoUrl ?? null,
+              }
+            : null,
+        // Only a still-live alert gets the pinned "Live" emergency treatment.
         // A revoked/expired one renders as a plain "Needs you" row (see
         // feed-page.tsx) — Siren icon + red icon-well tint are all that's
-        // left as the "this was an SOS" signal.
+        // left as the "this was an emergency" signal.
         emphasis: isRevoked ? undefined : "emergency",
-        title: `${label} triggered an SOS`,
+        // "sent an SMS", not "triggered an SOS". SMS is Save my Soul, this
+        // product's own name for the lane, and the rule that recipient-facing
+        // copy never says "SOS" is already enforced for the notification
+        // copy by one-location-sms-revoke-notification.test.ts. This row was
+        // saying both at once: an "SOS" title above an "Emergency SMS" body.
+        title: `${label} sent an SMS`,
         description: isRevoked
           ? "Emergency SMS - Revoked"
           : "Emergency SMS - Sent.",
@@ -611,6 +661,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `location:${request.id}`,
         icon: MapPin,
         iconTone: "blue",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: request.requesterPhotoUrl ?? null,
+              }
+            : null,
         title: label,
         // Names the amount, and says when it is extra time on a live share.
         description:
@@ -676,6 +733,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `circle-invite:${invite.id}`,
         icon: Users,
         iconTone: "blue",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: null,
+              }
+            : null,
         title: label,
         description: `Invited you to join ${circleName}.`,
         actions: [
@@ -736,6 +800,13 @@ export function useFeedActionables(): UseFeedActionablesResult {
         id: `connection:${request.id}`,
         icon: UserRound,
         iconTone: "green",
+        person:
+          label !== "Someone"
+            ? {
+                displayName: label,
+                photoUrl: null,
+              }
+            : null,
         title: label,
         description: request.message?.trim() || "Wants to connect with you.",
         href: requiresScopeReview ? reviewHref : null,
@@ -794,22 +865,30 @@ export function useFeedActionables(): UseFeedActionablesResult {
       });
     }
 
-    // Running / failed Kai debates — Resume (reconnect the stream) + Cancel.
+    // Kai debates remain visible while running and after completion until the
+    // person opens or dismisses the ready result. The debate manager remains
+    // the authority; Feed is only its consumer-safe projection.
     const debateTasks = debateState.tasks.filter(
       (task: DebateRunTask) => task.userId === userId && !task.dismissedAt,
     );
     for (const task of debateTasks) {
-      const running = task.status === "running";
-      const failedSave =
-        task.status !== "running" && task.persistenceState === "failed";
-      if (!running && !failedSave) continue;
+      const feedState = classifyDebateFeedState(task);
+      if (!feedState) continue;
+      const running = feedState === "running";
+      const ready = feedState === "ready";
+      const failedSave = feedState === "failed_save";
+      const persisted = ready && task.persistenceState === "saved";
       const statusText = running
         ? task.streamState === "reconnecting"
           ? "Reconnecting…"
           : task.streamState === "paused"
             ? "Updates paused"
             : "Analyzing…"
-        : task.persistenceError || "History save failed.";
+        : ready
+          ? task.persistenceState === "pending"
+            ? "Analysis ready. Saving to history…"
+            : "Analysis ready to review."
+        : "Analysis is ready, but could not be saved. Retry to keep it in history.";
       const actions: FeedActionButton[] = [];
       if (running) {
         actions.push({
@@ -827,7 +906,7 @@ export function useFeedActionables(): UseFeedActionablesResult {
             });
           },
         });
-      } else {
+      } else if (failedSave) {
         actions.push({
           key: "retry",
           label: "Retry",
@@ -842,16 +921,32 @@ export function useFeedActionables(): UseFeedActionablesResult {
           tone: "ghost",
           run: () => DebateRunManagerService.dismissTask(task.runId),
         });
+      } else {
+        actions.push({
+          key: "open",
+          label: "Open",
+          tone: "primary",
+          run: () => openAnalysis(task.runId, persisted),
+        });
+        actions.push({
+          key: "dismiss",
+          label: "Dismiss",
+          tone: "ghost",
+          run: () => DebateRunManagerService.dismissTask(task.runId),
+        });
       }
       items.push({
         id: `debate:${task.runId}`,
         icon: TrendingUp,
         iconTone: "accent",
-        spinning: running,
+        spinning: running || task.persistenceState === "pending",
         title: task.ticker || "Analysis",
         description: statusText,
-        onSelect: running ? () => openAnalysis(task.runId) : undefined,
-        chevron: running,
+        onSelect:
+          running || ready
+            ? () => openAnalysis(task.runId, persisted)
+            : undefined,
+        chevron: running || ready,
         actions,
         sortAt:
           toTimestamp(task.updatedAt || task.startedAt) ||

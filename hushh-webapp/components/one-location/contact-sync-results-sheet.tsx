@@ -93,8 +93,9 @@ export function ContactSyncResultsSheet({
         <SheetHeader className="text-left">
           <SheetTitle>Contact sync results</SheetTitle>
           <SheetDescription>
-            Only matched Hushh accounts are listed. Unmatched contacts stay on
-            this device and are shown as counts only.
+            Only eligible Hushh accounts are listed. Names and raw phone numbers
+            are never sent to Hushh; contacts without a match are shown only as
+            counts.
           </SheetDescription>
         </SheetHeader>
 
@@ -103,7 +104,7 @@ export function ContactSyncResultsSheet({
             ["Checked", result.checkedContactCount],
             ["Matched", result.matchedContactCount],
             ["Connected", connectedCount],
-            ["Not on Hushh", result.unmatchedContactCount],
+            ["No match", result.unmatchedContactCount],
           ].map(([label, count]) => (
             <div
               key={String(label)}
@@ -177,8 +178,8 @@ export function ContactSyncResultsSheet({
                       <AvatarFallback>{initials(name)}</AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center gap-1.5">
-                        <p className="min-w-0 truncate text-sm font-semibold">
+                      <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
+                        <p className="min-w-0 break-words text-sm font-semibold [overflow-wrap:anywhere]">
                           {name}
                         </p>
                         {match.outcome === "auto_connected" ||
@@ -186,7 +187,7 @@ export function ContactSyncResultsSheet({
                           <ContactSourceBadge />
                         ) : null}
                       </div>
-                      <p className="truncate text-xs text-muted-foreground">
+                      <p className="break-words text-xs text-muted-foreground [overflow-wrap:anywhere]">
                         {requested ? "Request sent" : resultStatus(match.outcome)}
                       </p>
                     </div>
@@ -233,7 +234,9 @@ export function ContactSyncResultsSheet({
             </ul>
           ) : (
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              No Hushh accounts matched in this sync.
+              No eligible contacts matched. New matches require a verified
+              phone and contact matching enabled. Existing connections may
+              still appear.
             </div>
           )}
           {hiddenMatchCount ? (

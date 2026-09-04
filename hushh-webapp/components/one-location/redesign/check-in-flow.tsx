@@ -55,6 +55,7 @@ import {
   mergeRecipientsByUserId,
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
+import { ContactAvatar } from "@/components/one-location/redesign/contact-picker/atoms";
 import { CircleGrowActions } from "@/components/one-location/redesign/circles/circle-grow-actions";
 
 import { TaskFlowHeader } from "./primitives";
@@ -84,28 +85,6 @@ const CARD =
 // A thin, touch-friendly scrollbar keeps it unobtrusive on mobile.
 const CONTACT_LIST_SCROLL_CLASS =
   "max-h-[280px] overflow-y-auto overscroll-contain [scrollbar-width:thin] [&::-webkit-scrollbar]:w-1.5 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-full [&::-webkit-scrollbar-thumb]:bg-black/15 dark:[&::-webkit-scrollbar-thumb]:bg-white/20";
-
-function initialsOf(label: string): string {
-  const words = label.trim().split(/\s+/).filter(Boolean);
-  if (words.length >= 2) {
-    return `${words[0]![0] ?? ""}${words[1]![0] ?? ""}`.toUpperCase();
-  }
-  return (words[0]?.slice(0, 1) || "?").toUpperCase();
-}
-
-/**
- * A person avatar reports no state, so it renders in the NEUTRAL role and lets
- * the initials do the identifying.
- *
- * It used to rotate five raw palette colours by list position, which meant the
- * same contact changed colour whenever the search filter reordered the list,
- * and put danger red on a row that carries no danger.
- */
-const CONTACT_AVATAR_TONE = cn(
-  roleClasses("neutral").tile,
-  roleClasses("neutral").glyph,
-);
-
 
 function accuracyLine(point: PlainLocationPoint | null): string | null {
   if (!point) return null;
@@ -157,6 +136,8 @@ function ContactRow({
   locked,
   completed,
   label,
+  photoUrl,
+  verified,
   fromContacts,
   isLast,
   onToggle,
@@ -166,6 +147,8 @@ function ContactRow({
   locked: boolean;
   completed: boolean;
   label: string;
+  photoUrl?: string | null;
+  verified?: boolean;
   fromContacts?: boolean;
   isLast: boolean;
   onToggle: () => void;
@@ -183,15 +166,12 @@ function ContactRow({
         disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
       )}
     >
-      <span
-        className={cn(
-          "flex h-[42px] w-[42px] shrink-0 items-center justify-center rounded-full",
-          CONTACT_AVATAR_TONE,
-        )}
-        aria-hidden
-      >
-        <StatusText as="span">{initialsOf(label)}</StatusText>
-      </span>
+      <ContactAvatar
+        label={label}
+        photoUrl={photoUrl}
+        verified={verified}
+        className="h-[42px] w-[42px]"
+      />
       <span className="min-w-0 flex-1">
         <span className="flex min-w-0 items-start gap-1.5">
           <MediumRowLabel as="span" className="min-w-0 flex-1 truncate">
@@ -771,6 +751,8 @@ export function CheckInFlow({
                 locked={retryLocked}
                 completed={completedRecipientIds.includes(recipient.userId)}
                 label={vm.recipientLabel(recipient)}
+                photoUrl={recipient.photoUrl}
+                verified={Boolean(recipient.isRia)}
                 fromContacts={recipient.connectedFromContacts}
                 isLast={index === filtered.length - 1}
                 onToggle={() => toggle(recipient.userId)}

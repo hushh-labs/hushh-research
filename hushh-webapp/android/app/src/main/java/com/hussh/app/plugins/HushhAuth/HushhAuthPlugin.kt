@@ -17,6 +17,7 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount
 import com.google.android.gms.auth.api.signin.GoogleSignInClient
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions
 import com.google.android.gms.common.api.ApiException
+import com.google.android.gms.common.api.Scope
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
@@ -43,7 +44,9 @@ class HushhAuthPlugin : Plugin() {
     private val TAG = "HushhAuth"
     private lateinit var googleSignInClient: GoogleSignInClient
     private var pendingCall: PluginCall? = null
+    private var pendingGmailConnectCall: PluginCall? = null
     private lateinit var signInLauncher: ActivityResultLauncher<Intent>
+    private lateinit var gmailConnectLauncher: ActivityResultLauncher<Intent>
 
     // Current user data
     private var currentIdToken: String? = null
@@ -73,6 +76,11 @@ class HushhAuthPlugin : Plugin() {
             ActivityResultContracts.StartActivityForResult()
         ) { result ->
             handleSignInResult(result.resultCode, result.data)
+        }
+        gmailConnectLauncher = activity.registerForActivityResult(
+            ActivityResultContracts.StartActivityForResult()
+        ) { result ->
+            handleGmailConnectResult(result.data)
         }
     }
 
@@ -211,6 +219,68 @@ class HushhAuthPlugin : Plugin() {
                     pendingCall = null
                 }
             }
+    }
+
+    // ==================== Gmail Connect ====================
+
+    /**
+     * Requests Gmail consent separately from Firebase sign-in. The platform SDK
+     * returns a one-time server authorization code; no Gmail credential is
+     * persisted by this plugin.
+     */
+    @PluginMethod
+    fun connectGmail(call: PluginCall) {
+        val serverClientId = call.getString("serverClientId")?.trim()
+        if (serverClientId.isNullOrEmpty()) {
+            call.reject("Missing Google server client ID")
+            return
+        }
+        if (pendingGmailConnectCall != null) {
+            call.reject("Gmail connection is already in progress")
+            return
+        }
+
+        pendingGmailConnectCall = call
+        val gmailOptions = GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestServerAuthCode(serverClientId, true)
+            .requestEmail()
+            .requestScopes(
+                Scope("https://www.googleapis.com/auth/gmail.readonly"),
+                Scope("https://www.googleapis.com/auth/gmail.send")
+            )
+            .build()
+        val gmailSignInClient = GoogleSignIn.getClient(activity, gmailOptions)
+
+        activity.runOnUiThread {
+            gmailConnectLauncher.launch(gmailSignInClient.signInIntent)
+        }
+    }
+
+    private fun handleGmailConnectResult(data: Intent?) {
+        val call = pendingGmailConnectCall ?: run {
+            Log.e(TAG, "❌ [HushhAuth] No pending Gmail connection call")
+            return
+        }
+
+        try {
+            val account = GoogleSignIn.getSignedInAccountFromIntent(data)
+                .getResult(ApiException::class.java)
+            val serverAuthCode = account.serverAuthCode
+            if (serverAuthCode.isNullOrBlank()) {
+                call.reject("Google did not return a Gmail authorization code")
+            } else {
+                call.resolve(JSObject().put("serverAuthCode", serverAuthCode))
+            }
+        } catch (error: ApiException) {
+            Log.e(TAG, "❌ [HushhAuth] Gmail connection failed: ${error.statusCode} - ${error.message}")
+            if (error.statusCode == 12501) {
+                call.reject("Gmail connection was cancelled", "USER_CANCELLED")
+            } else {
+                call.reject("Gmail sign-in failed: ${error.message}")
+            }
+        } finally {
+            pendingGmailConnectCall = null
+        }
     }
 
     // ==================== Sign Out ====================

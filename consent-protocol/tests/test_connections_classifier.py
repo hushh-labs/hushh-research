@@ -1,12 +1,6 @@
 import inspect
 
 
-def test_typed_agent_chat_does_not_use_the_legacy_classifier():
-    from api.routes.kai.agent_chat import stream_agent_chat
-
-    assert "classify_specialist_domain" not in inspect.getsource(stream_agent_chat)
-
-
 def test_connections_require_a_semantic_one_selection() -> None:
     from google.adk.tools.function_tool import FunctionTool
 

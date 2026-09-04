@@ -55,11 +55,14 @@ function DialogContent({
   className,
   children,
   showCloseButton = true,
+  srDescription = "Dialog content",
   overlayClassName,
   overlayStyle,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /** Accessible context for dialogs whose explanatory copy is intentionally hidden. */
+  srDescription?: React.ReactNode
   overlayClassName?: string
   overlayStyle?: React.CSSProperties
 }) {
@@ -87,7 +90,7 @@ function DialogContent({
         {...props}
       >
         <DialogDescription className="sr-only">
-          Dialog content
+          {srDescription}
         </DialogDescription>
 
         {children}

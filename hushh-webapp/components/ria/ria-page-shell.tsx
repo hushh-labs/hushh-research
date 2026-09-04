@@ -42,7 +42,14 @@ export function RiaPageShell({
   icon = BriefcaseBusiness,
   statusPanel,
   children,
-  width = "standard",
+  // "standard" (90rem / 1440px) matched Connect and Marketplace, but those
+  // are directory-browsing surfaces; RIA's own screens are read-and-act
+  // workspaces, closer in shape to Location's primary surface, which uses
+  // "agent" (880px). At phone width the two are visually identical --
+  // both exceed the viewport, so `width: 100%` governs either way -- the
+  // difference shows up on an iPad or any Capacitor window wider than a
+  // phone, which is where "very wide, wrong container" was reported from.
+  width = "agent",
   className,
   headerClassName,
   contentClassName,
@@ -275,12 +282,12 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
     return (
       <div className="mx-auto my-12 flex w-full max-w-xl flex-col items-center px-4 text-center sm:px-6">
         {/* Header Icon */}
-        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/15 text-amber-400">
+        <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl border border-[color:var(--app-accent-border)] bg-[color:var(--app-accent-tint)] text-[color:var(--ria-gold,var(--app-accent))]">
           <ShieldAlert className="h-7 w-7" />
         </div>
 
         {/* Eyebrow */}
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ria-gold,#d97706)]">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[color:var(--ria-gold,var(--app-accent))]">
           {RIA_COPY.clients.verifyGate.eyebrow}
         </p>
 
@@ -301,7 +308,7 @@ export function RiaVerificationGate({ children }: { children: ReactNode }) {
 
         {/* Action CTA Button */}
         <Button
-          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,#d97706)] px-8 text-sm font-semibold text-slate-950 shadow-lg shadow-amber-500/25 hover:bg-amber-400 active:scale-[0.98] transition-all cursor-pointer"
+          className="mt-6 h-11 rounded-full bg-[color:var(--ria-gold,var(--app-accent))] px-8 text-sm font-semibold text-[color:var(--app-accent-fg)] shadow-lg hover:bg-[color:var(--app-accent-hover)] active:scale-[0.98] transition-all cursor-pointer"
           onClick={() => router.push(ROUTES.RIA_ONBOARDING)}
           data-testid="ria-clients-verify-gate-cta"
         >

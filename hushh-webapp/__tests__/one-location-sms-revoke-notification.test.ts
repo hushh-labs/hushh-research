@@ -26,7 +26,7 @@ describe("stopping an SMS location share", () => {
 
     expect(copy.title).toBe("SMS location sharing stopped");
     expect(copy.description).toBe(
-      "Neelesh stopped sharing their location with you over SMS.",
+      "Neelesh stopped sharing location with you over SMS.",
     );
     // "SOS" is the server's word for the lane. The recipient's word is SMS --
     // an SMS alert is how it reached them, and the copy has to match what they

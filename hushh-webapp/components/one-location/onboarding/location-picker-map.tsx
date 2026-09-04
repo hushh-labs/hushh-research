@@ -71,6 +71,8 @@ export interface LocationPickerMapProps {
    * reading the imperative handle during render -- where a ref is still null.
    */
   onReadyChange?: (ready: boolean) => void;
+  /** Keep the chosen point/address in sync with a unified parent form. */
+  onSelectionChange?: (picked: PickedLocation) => void;
   /** Dismiss the map without changing the captured point. */
   onCancel: () => void;
   /**
@@ -83,6 +85,8 @@ export interface LocationPickerMapProps {
 
   confirmLabel?: string;
   cancelLabel?: string;
+  /** Render only the map, hint, and recovery state inside a larger screen. */
+  embedded?: boolean;
   className?: string;
 }
 
@@ -129,11 +133,13 @@ export function LocationPickerMap({
   onLocateMe,
   onConfirm,
   onReadyChange,
+  onSelectionChange,
   onCancel,
   rendererDisclosureAccepted = false,
   onAcceptRendererDisclosure,
   confirmLabel = "Confirm location",
   cancelLabel = "Cancel",
+  embedded = false,
   className,
 }: LocationPickerMapProps) {
   // The map opens directly now (no pre-map disclosure gate), so Google Maps
@@ -173,7 +179,6 @@ export function LocationPickerMap({
   // to the captured-point flow so the owner is never blocked behind an infinite
   // "Loading map…". See the timeout effect below.
   const [timedOut, setTimedOut] = useState(false);
-
 
   useEffect(() => {
     if (hasInteractedRef.current) return;
@@ -257,7 +262,6 @@ export function LocationPickerMap({
     },
     [reverseGeocodeViaNearestPlace],
   );
-
 
   const scheduleResolve = useCallback(
     (lat: number, lng: number) => {
@@ -585,6 +589,12 @@ export function LocationPickerMap({
     onReadyChange?.(canConfirm);
   }, [canConfirm, onReadyChange]);
 
+  useEffect(() => {
+    if (!canConfirm || !onSelectionChange) return;
+    const { lat, lng } = centerRef.current;
+    onSelectionChange({ latitude: lat, longitude: lng, address });
+  }, [address, canConfirm, onSelectionChange]);
+
   /**
    * One short line, and it only changes when the advice changes.
    *
@@ -603,30 +613,31 @@ export function LocationPickerMap({
       : "Move the pin if needed.";
 
   return (
-
     <div className={cn("flex flex-col gap-3", className)}>
-      <div className="flex items-center justify-between">
-        {/* Three words. "on the map" described the thing the person is already
+      {!embedded ? (
+        <div className="flex items-center justify-between">
+          {/* Three words. "on the map" described the thing the person is already
             looking at, and this row shares a sheet header with the step rail --
             every word here is a word the title has to fit beside a 44px close
             target at 320px. */}
-        <p className="text-[15px] font-semibold text-foreground">
-          Pin your entrance
-        </p>
-        <button
-          type="button"
-          onClick={onCancel}
-          aria-label="Close map"
-          className={cn(
-            "press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]",
-            // 32px circle, 44x44 tappable. The `::after` box is painted, not
-            // laid out, so the header row does not move.
-            "relative after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",
-          )}
-        >
-          <X className="h-4 w-4" strokeWidth={2.4} />
-        </button>
-      </div>
+          <p className="text-[15px] font-semibold text-foreground">
+            Pin your entrance
+          </p>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label="Close map"
+            className={cn(
+              "press-scale flex h-8 w-8 items-center justify-center rounded-full bg-black/[0.05] text-[#4b5563] transition-colors hover:bg-black/[0.08] dark:bg-white/[0.08] dark:text-[#aeb8c7]",
+              // 32px circle, 44x44 tappable. The `::after` box is painted, not
+              // laid out, so the header row does not move.
+              "relative after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']",
+            )}
+          >
+            <X className="h-4 w-4" strokeWidth={2.4} />
+          </button>
+        </div>
+      ) : null}
 
       <div
         // Panning the map is a horizontal drag too. Marked so an enclosing
@@ -635,7 +646,9 @@ export function LocationPickerMap({
         data-location-picker-surface
         className={cn(
           "relative w-full overflow-hidden rounded-2xl border border-black/[0.08] shadow-[0_8px_24px_rgba(16,24,40,0.12)] ring-1 ring-black/[0.02] dark:border-white/[0.1] dark:shadow-[0_8px_24px_rgba(0,0,0,0.4)]",
-          PICKER_MAP_HEIGHT_CLASSNAME,
+          embedded
+            ? "h-[clamp(160px,25dvh,240px)] lg:h-[clamp(300px,44dvh,460px)]"
+            : PICKER_MAP_HEIGHT_CLASSNAME,
           // The native map draws below the WebView, so the surface must stay
           // transparent for it to show through. Web keeps the neutral tile bg.
           native
@@ -643,7 +656,6 @@ export function LocationPickerMap({
             : "bg-[#eef2f7] dark:bg-[#10151d]",
         )}
       >
-
         {/* NATIVE: the @capacitor/google-maps element must be mounted BEFORE
             GoogleMap.create runs (create needs a real element). Gating it behind
             status==="ready" deadlocked the picker — the element only mounted
@@ -730,7 +742,12 @@ export function LocationPickerMap({
                   />
                   {/* Inner dot */}
                   <circle cx="20" cy="18.5" r="6.2" fill="#ffffff" />
-                  <circle cx="20" cy="18.5" r="3" fill="var(--app-accent,#087ff5)" />
+                  <circle
+                    cx="20"
+                    cy="18.5"
+                    r="3"
+                    fill="var(--app-accent,#087ff5)"
+                  />
                 </svg>
                 {/* Ground shadow under the tip */}
                 <span
@@ -743,7 +760,6 @@ export function LocationPickerMap({
                 />
               </div>
             </div>
-
 
             {onLocateMe ? (
               <button
@@ -781,65 +797,69 @@ export function LocationPickerMap({
         </p>
       ) : null}
 
-      <div
-        aria-live="polite"
-        className="flex items-start gap-2 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]"
-      >
-        <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
-          <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
-        </span>
-        <div className="min-w-0 flex-1">
-          <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
-            Selected spot
-          </p>
-          {resolving ? (
-            <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
-              <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              Finding this address…
-            </span>
-          ) : (
-            <p className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
-              {address ||
-                (unavailable
-                  ? "Captured point ready"
-                  : hasInteracted
-                    ? "Address not found — add details on the next step"
-                    : "Move the map to choose a place")}
+      {!embedded ? (
+        <div
+          aria-live="polite"
+          className="flex items-start gap-2 rounded-2xl bg-[#f4f6fa] px-3.5 py-3 dark:bg-white/[0.05]"
+        >
+          <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-white text-[color:var(--app-accent,#087ff5)] shadow-sm dark:bg-[#1c2430]">
+            <MapPin className="h-4 w-4" strokeWidth={2.4} aria-hidden />
+          </span>
+          <div className="min-w-0 flex-1">
+            <p className="text-[13px] font-normal leading-[18px] tracking-normal text-[#8b93a1] dark:text-[#7f8a99]">
+              Selected spot
             </p>
-          )}
+            {resolving ? (
+              <span className="mt-0.5 flex items-center gap-1.5 text-[13px] text-[#5b6472] dark:text-[#9aa6b6]">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                Finding this address…
+              </span>
+            ) : (
+              <p className="mt-0.5 text-[14px] font-semibold text-[#111827] dark:text-[#e9eef7]">
+                {address ||
+                  (unavailable
+                    ? "Captured point ready"
+                    : hasInteracted
+                      ? "Address not found — add details on the next step"
+                      : "Move the map to choose a place")}
+              </p>
+            )}
+          </div>
         </div>
-      </div>
+      ) : null}
 
-      <div className="flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-        <button
-          type="button"
-          onClick={() => void handleConfirm()}
-          disabled={!canConfirm}
-          aria-describedby={
-            unavailable ? mapUnavailableDescriptionId : undefined
-          }
-          className={cn(
-            "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed",
-            // Blue means "this will take you forward". While the pin is still
-            // settling or its address is still resolving it cannot, so it does
-            // not get to look like it can -- a dimmed blue button still reads
-            // as the live primary action and invites a dead tap.
-            canConfirm
-              ? "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]"
-              : "bg-[#e6e9ef] text-[#98a1ae] dark:bg-white/[0.08] dark:text-[#6d7787]",
-          )}
-        >
-          <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
-          {unavailable ? "Use captured point" : confirmLabel}
-        </button>
-        <button
-          type="button"
-          onClick={onCancel}
-          className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
-        >
-          {cancelLabel}
-        </button>
-      </div>
+      {!embedded ? (
+        <div className="flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+          <button
+            type="button"
+            onClick={() => void handleConfirm()}
+            disabled={!canConfirm}
+            aria-describedby={
+              unavailable ? mapUnavailableDescriptionId : undefined
+            }
+            className={cn(
+              "press-scale flex h-[52px] w-full items-center justify-center gap-2 rounded-full text-[16px] font-bold transition-colors disabled:cursor-not-allowed",
+              // Blue means "this will take you forward". While the pin is still
+              // settling or its address is still resolving it cannot, so it does
+              // not get to look like it can -- a dimmed blue button still reads
+              // as the live primary action and invites a dead tap.
+              canConfirm
+                ? "bg-[color:var(--app-accent,#087ff5)] text-[color:var(--app-accent-fg,#ffffff)] hover:bg-[color:var(--app-accent-hover,#0b62c4)]"
+                : "bg-[#e6e9ef] text-[#98a1ae] dark:bg-white/[0.08] dark:text-[#6d7787]",
+            )}
+          >
+            <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
+            {unavailable ? "Use captured point" : confirmLabel}
+          </button>
+          <button
+            type="button"
+            onClick={onCancel}
+            className="h-11 w-full rounded-full text-[15px] font-semibold text-[#6b7280] transition-colors hover:text-[#374151] dark:text-[#9aa6b6] dark:hover:text-[#c4cdda]"
+          >
+            {cancelLabel}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 }

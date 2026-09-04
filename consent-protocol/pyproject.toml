@@ -8,6 +8,8 @@ requires-python = ">=3.13"
 license = "Apache-2.0"
 readme = "README.md"
 dependencies = [
+    "ag-ui-adk==0.7.0",
+    "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
     "cryptography>=44.0.0",
     "defusedxml>=0.7.1",
@@ -32,7 +34,7 @@ dependencies = [
     "grpcio-status==1.76.0",
     "gunicorn==25.3.0",
     "httpx>=0.27.1,<0.29",
-    "mcp==1.26.0",
+    "mcp==1.28.1",
     "opentelemetry-api>=1.33.0",
     "opentelemetry-exporter-gcp-trace>=1.8.0",
     "opentelemetry-instrumentation-fastapi>=0.54b0",
@@ -189,6 +191,9 @@ follow_imports = "skip"
 module = [
     "hushh_mcp.services.one_location_agent_service",
     "hushh_mcp.services.connections_service",
+    # A pure table plus one classifier. Cheap to check, and its return types are
+    # what `google_maps_service` builds a response contract on.
+    "hushh_mcp.services.place_taxonomy",
 ]
 follow_imports = "normal"
 

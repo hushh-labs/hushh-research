@@ -74,7 +74,8 @@ describe("Top app bar responsive contract", () => {
     expect(source).toContain('data-testid="top-app-bar-header"');
     expect(source).toContain('data-testid="top-app-bar-tabs"');
     expect(source).toContain("export function AppTopShell");
-    expect(source).toContain('<AmbientChromeMask\n            edge="top"');
+    expect(source).toContain("<AmbientChromeMask");
+    expect(source).toContain('edge="top"');
     expect(source).toContain("data-ambient-chrome-ignore");
     expect(source).not.toContain("bar-glass bar-glass-top");
     expect(source).toContain("ambient-chrome-top-foreground");

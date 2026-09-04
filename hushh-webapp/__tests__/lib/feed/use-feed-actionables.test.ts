@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  buildDebateFeedAnalysisHref,
+  classifyDebateFeedState,
   isActiveSmsEmergencyGrant,
   isIncomingLocationRequestActionable,
   isSmsEmergencyGrant,
 } from "@/lib/feed/use-feed-actionables";
+import type { DebateRunTask } from "@/lib/services/debate-run-manager";
 import type {
   OneLocationAccessRequest,
   OneLocationGrant,
@@ -133,5 +136,90 @@ describe("isSmsEmergencyGrant", () => {
   it("does NOT surface a non-SOS share", () => {
     expect(isSmsEmergencyGrant(grant({ shareKind: "share" }))).toBe(false);
     expect(isSmsEmergencyGrant(grant({ shareKind: "check_in" }))).toBe(false);
+  });
+});
+
+function debateTask(
+  overrides: Partial<DebateRunTask> = {},
+): DebateRunTask {
+  return {
+    runId: "run-1",
+    userId: ME,
+    debateSessionId: "session-1",
+    ticker: "AAPL",
+    status: "running",
+    startedAt: "2026-08-31T00:00:00Z",
+    completedAt: null,
+    updatedAt: "2026-08-31T00:00:00Z",
+    latestCursor: 0,
+    streamState: "connected",
+    streamMessage: null,
+    persistenceState: "none",
+    persistenceError: null,
+    dismissedAt: null,
+    finalDecision: null,
+    ...overrides,
+  };
+}
+
+describe("classifyDebateFeedState", () => {
+  it("retains a completed analysis as ready until it is dismissed", () => {
+    expect(
+      classifyDebateFeedState(
+        debateTask({ status: "completed", persistenceState: "saved" }),
+      ),
+    ).toBe("ready");
+    expect(
+      classifyDebateFeedState(
+        debateTask({
+          status: "completed",
+          persistenceState: "saved",
+          dismissedAt: "2026-08-31T01:00:00Z",
+        }),
+      ),
+    ).toBeNull();
+  });
+
+  it("keeps running and failed-save states actionable", () => {
+    expect(classifyDebateFeedState(debateTask())).toBe("running");
+    expect(
+      classifyDebateFeedState(
+        debateTask({ status: "completed", persistenceState: "failed" }),
+      ),
+    ).toBe("failed_save");
+  });
+
+  it("keeps raw persistence diagnostics out of the retained task", () => {
+    const task = debateTask({
+      status: "completed",
+      persistenceState: "failed",
+      persistenceError: "Analysis is ready, but could not be saved to history.",
+    });
+
+    expect(task.persistenceError).toBe(
+      "Analysis is ready, but could not be saved to history.",
+    );
+    expect(task.persistenceError).not.toContain("422");
+    expect(task.persistenceError).not.toContain("json_paths");
+  });
+});
+
+describe("buildDebateFeedAnalysisHref", () => {
+  it("opens a settled run through its durable history identity", () => {
+    const href = buildDebateFeedAnalysisHref("run-1", true);
+    const url = new URL(href, "https://example.test");
+
+    expect(url.searchParams.get("tab")).toBe("analysis");
+    expect(url.searchParams.get("analysis_id")).toBe("run:run-1");
+    expect(url.searchParams.has("run_id")).toBe(false);
+    expect(url.searchParams.has("focus")).toBe(false);
+  });
+
+  it("keeps an active run on the resumable stream route", () => {
+    const href = buildDebateFeedAnalysisHref("run-2", false);
+    const url = new URL(href, "https://example.test");
+
+    expect(url.searchParams.get("focus")).toBe("active");
+    expect(url.searchParams.get("run_id")).toBe("run-2");
   });
 });

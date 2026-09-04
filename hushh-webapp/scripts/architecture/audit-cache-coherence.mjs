@@ -238,6 +238,7 @@ function routeCacheKeys(route) {
     return ["PKM_DOMAIN_RESOURCE", "KYC workflow client state"];
   if (route === "/one/profile")
     return ["KAI_PROFILE", "PKM_METADATA", "VAULT_STATUS"];
+  if (route === "/one/profile/security/devices") return ["TRUSTED_DEVICES"];
   if (route === "/pkm")
     return ["PKM_METADATA", "PKM_DOMAIN_RESOURCE", "PKM_UPGRADE_STATUS"];
   if (route === "/gmail")
@@ -437,7 +438,21 @@ function refreshTriggerFor(route, screenClass) {
   }
   if (screenClass === "realtime/SSE")
     return "SSE stream patch plus stale-aware background refresh";
+  if (isPkmEpochRoute(route)) {
+    return "pkm-domain-changed subscription seeded by the PKM invalidation epoch (forces a fresh read after a write on another route); explicit user refresh may force";
+  }
   return "stale-aware background refresh; explicit user refresh may force";
+}
+
+// Screens that read PKM metadata and must notice a domain written elsewhere
+// (Wallet, Kai import, chat) the moment they mount, not after the TTL.
+function isPkmEpochRoute(route) {
+  return (
+    route === "/one/pkm" ||
+    route === "/one/pkm/recent" ||
+    route === "/one/profile/my-data" ||
+    route === "/one/wallet"
+  );
 }
 
 function invalidatorFor(route, screenClass) {
@@ -454,6 +469,7 @@ function invalidatorFor(route, screenClass) {
   if (
     route.startsWith("/one/kai") ||
     route === "/pkm" ||
+    isPkmEpochRoute(route) ||
     route === "/gmail" ||
     route === "/one/profile/receipts" ||
     route === "/one/kyc"
@@ -683,6 +699,25 @@ function linkageInvariants() {
     const full = path.join(appRoot, relPath);
     return fs.existsSync(full) ? read(full) : "";
   };
+
+  // Invariant 0: a PKM write on one route must reach Memory, Profile, and Wallet
+  // when they mount later. The epoch is bumped by every domain emitter and
+  // read by the revision hook; losing either side re-opens the stale-Memory
+  // defect (write-through metadata patch that looks fresh for the TTL).
+  const epochLinks = [
+    ["lib/cache/cache-sync-service.ts", "bumpPkmInvalidationEpoch"],
+    ["lib/pkm/use-pkm-domain-change-revision.ts", "currentPkmInvalidationEpoch"],
+    ["components/profile/pkm-natural-panel.tsx", "usePkmDomainChangeRevision"],
+    ["app/profile/profile-workspace-page.tsx", "currentPkmInvalidationEpoch"],
+  ];
+  for (const [relPath, needle] of epochLinks) {
+    const source = readSource(relPath);
+    if (source && !source.includes(needle)) {
+      violations.push(
+        `${relPath} must reference ${needle} so a PKM write on another route forces a fresh read on mount`,
+      );
+    }
+  }
 
   // Invariant 1: the /consents read-path service must cache its read responses
   // at CACHE_TTL.MEDIUM (matching the manifest ttl_class). A CACHE_TTL.SHORT

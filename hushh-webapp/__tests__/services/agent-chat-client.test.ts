@@ -1,8 +1,55 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const mockTransport = vi.hoisted(() => ({
+  runAgent: vi.fn(),
+  outcome: "success" as "success" | "interrupt",
+}));
+
+vi.mock("@ag-ui/client", () => ({
+  HttpAgent: class {
+    constructor(public config: unknown) {}
+    abortRun() {}
+    async runAgent(parameters: unknown, subscriber: Record<string, (input: any) => void>) {
+      mockTransport.runAgent(parameters, this.config);
+      subscriber.onRunStartedEvent?.({ event: { type: "RUN_STARTED" } });
+      subscriber.onTextMessageContentEvent?.({
+        event: { type: "TEXT_MESSAGE_CONTENT", messageId: "m1", delta: "Hello" },
+      });
+      subscriber.onActivitySnapshotEvent?.({
+        event: {
+          type: "ACTIVITY_SNAPSHOT",
+          messageId: "activity-1",
+          activityType: "one.scope_discovery.v1",
+          content: {
+            status: "ok",
+            person: {
+              displayName: "Alex Morgan",
+              profilePath: "/people/1234567890abcdef",
+              relationship: "connected",
+            },
+            requestableScopes: [],
+          },
+        },
+      });
+      if (mockTransport.outcome === "interrupt") {
+        subscriber.onRunFinishedEvent?.({
+          event: { type: "RUN_FINISHED" },
+          outcome: "interrupt",
+          interrupts: [{ id: "interrupt-1", toolCallId: "tool-1" }],
+        });
+        return;
+      }
+      subscriber.onRunFinishedEvent?.({
+        event: { type: "RUN_FINISHED" },
+        outcome: "success",
+      });
+    }
+  },
+}));
+
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
-    streamAgentChat: vi.fn(),
+    apiFetchStream: vi.fn(),
     listAgentChatConversations: vi.fn(),
     getAgentChatHistory: vi.fn(),
     renameAgentChatConversation: vi.fn(),
@@ -11,413 +58,105 @@ vi.mock("@/lib/services/api-service", () => ({
 }));
 
 import {
-  deleteAgentChatConversation,
-  getAgentChatHistory,
-  listAgentChatConversations,
-  renameAgentChatConversation,
+  formatAgentChatErrorMessage,
   streamAgentChat,
+  streamAgentIntro,
 } from "@/lib/services/agent-chat-client";
-import { ApiService } from "@/lib/services/api-service";
 
-function sseResponse(chunks: string[], headers: Record<string, string> = {}): Response {
-  const encoder = new TextEncoder();
-  const stream = new ReadableStream({
-    start(controller) {
-      for (const chunk of chunks) {
-        controller.enqueue(encoder.encode(chunk));
-      }
-      controller.close();
-    },
-  });
-  return new Response(stream, {
-    status: 200,
-    headers: {
-      "content-type": "text/event-stream",
-      ...headers,
-    },
-  });
-}
-
-describe("agent chat client", () => {
+describe("AG-UI Agent One client", () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
+    mockTransport.runAgent.mockClear();
+    mockTransport.outcome = "success";
   });
 
-  it("streams simple token SSE frames", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse(
-        [
-          'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-          'event: token\ndata: {"token":"Hel"}\n\n',
-          'event: token\ndata: {"token":"lo"}\n\n',
-          'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        ],
-        {
-          "X-Agent-Conversation-Id": "conversation-1",
-          "X-Agent-Model": "gemini-3.5-flash",
-        }
-      )
-    );
+  it("uses the canonical endpoint and official run fields", async () => {
     const tokens: string[] = [];
-    const starts: string[] = [];
-    const completes: string[] = [];
-
+    const experiences: string[] = [];
     const result = await streamAgentChat({
       userId: "user-1",
       message: "Hello",
-      vaultOwnerToken: "vault-token",
+      conversationId: "thread-1",
+      vaultOwnerToken: "owner-token",
+      screenContext: { available_action_ids: [] },
       handlers: {
-        onStart: ({ conversationId }) => starts.push(conversationId),
         onToken: (token) => tokens.push(token),
-        onComplete: ({ conversationId }) => completes.push(conversationId),
+        onStructuredExperience: (experience) => experiences.push(experience.type),
       },
     });
 
-    expect(result).toEqual({
-      conversationId: "conversation-1",
-      model: "gemini-3.5-flash",
+    expect(result).toEqual({ conversationId: "thread-1", model: null, text: "Hello" });
+    expect(tokens).toEqual(["Hello"]);
+    expect(experiences).toEqual(["one.scope_discovery.v1"]);
+    expect(mockTransport.runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ tools: [], context: [], forwardedProps: expect.any(Object) }),
+      expect.objectContaining({ url: "/api/one/agent-chat", threadId: "thread-1" }),
+    );
+  });
+
+  it("uses the same AG-UI endpoint before vault unlock", async () => {
+    await expect(streamAgentIntro({ message: "What is Hussh?" })).resolves.toMatchObject({
       text: "Hello",
     });
-    expect(tokens).toEqual(["Hel", "lo"]);
-    expect(starts).toEqual(["conversation-1"]);
-    expect(completes).toEqual(["conversation-1"]);
-    expect(ApiService.streamAgentChat).toHaveBeenCalledWith({
-      userId: "user-1",
-      message: "Hello",
-      conversationId: undefined,
-      vaultOwnerToken: "vault-token",
-      pkmContext: undefined,
-      screenContext: undefined,
-      timezone: expect.any(String),
-      runtimeCredential: undefined,
-      runtimeCredentialMode: undefined,
-      runtimeCredentialTransport: undefined,
-      runtimeVertexProject: undefined,
-      runtimeVertexLocation: undefined,
-      delegateAgentId: undefined,
-      delegateResult: undefined,
-      signal: expect.any(AbortSignal),
-    });
+    expect(mockTransport.runAgent.mock.calls[0]?.[1]).toMatchObject({ url: "/api/one/agent-chat" });
   });
 
-  it("allows a cold Agent runtime to open before the bounded startup deadline", async () => {
-    vi.useFakeTimers();
-    try {
-      let resolveResponse: ((response: Response) => void) | undefined;
-      let streamSignal: AbortSignal | undefined;
-      vi.spyOn(ApiService, "streamAgentChat").mockImplementation(({ signal }) => {
-        streamSignal = signal;
-        return new Promise<Response>((resolve) => {
-          resolveResponse = resolve;
-        });
-      });
+  it("never exposes unknown AG-UI runtime errors to the transcript", () => {
+    const raw =
+      'DB operation failed [<raw_sql>.execute_raw]: INSERT INTO one_adk_sessions [parameters: {"user":"owner-1","ciphertext":"secret"}]';
 
-      const pending = streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-      });
+    const visible = formatAgentChatErrorMessage(raw);
 
-      await vi.advanceTimersByTimeAsync(20_000);
-      expect(streamSignal?.aborted).toBe(false);
-
-      resolveResponse?.(
-        sseResponse([
-          'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-          'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        ]),
-      );
-
-      await expect(pending).resolves.toMatchObject({
-        conversationId: "conversation-1",
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(visible).toBe("One couldn't complete that response. Please try again.");
+    expect(visible).not.toContain("one_adk_sessions");
+    expect(visible).not.toContain("owner-1");
+    expect(visible).not.toContain("ciphertext");
   });
 
-  it("passes runtime credential fields through to the backend stream request", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
-        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
-      ])
-    );
+  it("maps typed database failures to stable actionable copy", () => {
+    expect(
+      formatAgentChatErrorMessage("private database detail", "DATABASE_EXECUTION_ERROR"),
+    ).toBe("One's conversation history is temporarily unavailable. Please try again.");
+  });
+
+  it("keeps an interrupted HITL run open instead of reporting completion", async () => {
+    mockTransport.outcome = "interrupt";
+    const controller = new AbortController();
+    const onComplete = vi.fn();
+    const onInterrupt = vi.fn(() => controller.abort());
 
     await streamAgentChat({
       userId: "user-1",
-      message: "Hello",
-      vaultOwnerToken: "vault-token",
-      pkmContext: "Saved domains: Financial",
-      runtimeCredential: "USER_BYOK_KEY",
-      runtimeCredentialMode: "byok",
+      message: "Request access",
+      conversationId: "thread-hitl",
+      vaultOwnerToken: "owner-token",
+      signal: controller.signal,
+      handlers: { onComplete, onInterrupt },
     });
 
-    expect(ApiService.streamAgentChat).toHaveBeenCalledWith({
-      userId: "user-1",
-      message: "Hello",
-      conversationId: undefined,
-      vaultOwnerToken: "vault-token",
-      pkmContext: "Saved domains: Financial",
-      screenContext: undefined,
-      timezone: expect.any(String),
-      runtimeCredential: "USER_BYOK_KEY",
-      runtimeCredentialMode: "byok",
-      runtimeCredentialTransport: undefined,
-      runtimeVertexProject: undefined,
-      runtimeVertexLocation: undefined,
-      delegateAgentId: undefined,
-      delegateResult: undefined,
-      signal: expect.any(AbortSignal),
+    expect(onInterrupt).toHaveBeenCalledWith({ conversationId: "thread-hitl" });
+    expect(onComplete).not.toHaveBeenCalled();
+  });
+});
+
+describe("parsePendingConsentRequestIds", () => {
+  it("reads request ids only from the pending-requests tool and dedupes them", async () => {
+    const { parsePendingConsentRequestIds } = await import("@/lib/services/agent-chat-client");
+    const content = JSON.stringify({
+      status: "ok",
+      pendingRequestIds: ["req_1", "req_1", " req_2 ", ""],
+      pendingRequests: [{ requestId: "req_1", requesterLabel: "Alex" }],
     });
-  });
-
-  it("streams live tool events alongside token frames", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        'event: tool_start\ndata: {"call_id":"tool_1","action_id":"analysis.start","label":"Start analysis for NVDA","execution":"frontend","slots":{"symbol":"NVDA"},"message":"Starting Kai analysis for NVDA."}\n\n',
-        'event: tool_waiting\ndata: {"call_id":"tool_1","action_id":"analysis.start","label":"Start analysis for NVDA","execution":"frontend","slots":{"symbol":"NVDA"},"message":"Starting Kai analysis for NVDA.","status":"waiting_for_frontend"}\n\n',
-        'event: token\ndata: {"token":"Starting NVDA."}\n\n',
-        'event: complete\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-      ])
-    );
-    const starts: string[] = [];
-    const waits: string[] = [];
-
-    const result = await streamAgentChat({
-      userId: "user-1",
-      message: "Start analysis of Nvidia",
-      vaultOwnerToken: "vault-token",
-      handlers: {
-        onToolStart: (event) => {
-          starts.push(`${event.actionId}:${event.slots.symbol}`);
-        },
-        onToolWaiting: (event) => {
-          waits.push(event.status || "");
-        },
-      },
-    });
-
-    expect(result.text).toBe("Starting NVDA.");
-    expect(starts).toEqual(["analysis.start:NVDA"]);
-    expect(waits).toEqual(["waiting_for_frontend"]);
-  });
-
-  it("throws backend JSON errors before reading the stream", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      new Response(JSON.stringify({ detail: "Vault locked" }), {
-        status: 403,
-        headers: { "content-type": "application/json" },
-      })
-    );
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-      })
-    ).rejects.toThrow("Vault locked");
-  });
-
-  it("formats runtime credential errors from backend JSON detail", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          detail: {
-            code: "AGENT_RUNTIME_CREDENTIAL_MISSING",
-            message: "No runtime credential resolved for 'pkm:runtime_secrets.llm.gemini_api_key'.",
-          },
-        }),
-        {
-          status: 400,
-          headers: { "content-type": "application/json" },
-        }
-      )
-    );
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-        runtimeCredentialMode: "byok",
-      })
-    ).rejects.toThrow(
-      "One needs your Gemini key. Add it in Connections settings, or switch to Hussh managed Gemini."
-    );
-  });
-
-  it("throws streamed backend error events after notifying the handler", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        'event: token\ndata: {"token":"Partial"}\n\n',
-        'event: error\ndata: {"message":"Agent chat failed. Please try again."}\n\n',
-      ])
-    );
-    const errors: string[] = [];
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-        handlers: {
-          onError: (message) => errors.push(message),
-        },
-      })
-    ).rejects.toThrow("Agent chat failed. Please try again.");
-    expect(errors).toEqual(["Agent chat failed. Please try again."]);
-  });
-
-  it("surfaces a silent model completion as an explicit One runtime error", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        'event: error\ndata: {"code":"AGENT_RUNTIME_EMPTY_RESPONSE","message":"Provider detail should not leak."}\n\n',
-      ])
-    );
-    const errors: string[] = [];
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "list down a summary of my memory",
-        vaultOwnerToken: "vault-token",
-        handlers: {
-          onError: (message) => errors.push(message),
-        },
-      })
-    ).rejects.toThrow(
-      "One did not receive a response from the configured model. Please try again."
-    );
-    expect(errors).toEqual([
-      "One did not receive a response from the configured model. Please try again.",
+    expect(parsePendingConsentRequestIds("list_pending_information_requests", content)).toEqual([
+      "req_1",
+      "req_2",
     ]);
-  });
-
-  it("sanitizes malformed Agent SSE JSON frames", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.5-flash"}\n\n',
-        "event: token\ndata: {not-json}\n\n",
-      ])
-    );
-    const errors: string[] = [];
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-        handlers: {
-          onError: (message) => errors.push(message),
-        },
-      })
-    ).rejects.toThrow("Agent chat stream returned malformed information. Please retry.");
-    expect(errors).toEqual(["Agent chat stream returned malformed information. Please retry."]);
-  });
-
-  it("formats streamed runtime provider errors", async () => {
-    vi.spyOn(ApiService, "streamAgentChat").mockResolvedValue(
-      sseResponse([
-        'event: start\ndata: {"conversation_id":"conversation-1","model":"gemini-3.1-flash-lite"}\n\n',
-        'event: error\ndata: {"code":"AGENT_RUNTIME_CREDENTIAL_INVALID","message":"Provider detail should not leak."}\n\n',
-      ])
-    );
-    const errors: string[] = [];
-
-    await expect(
-      streamAgentChat({
-        userId: "user-1",
-        message: "Hello",
-        vaultOwnerToken: "vault-token",
-        handlers: {
-          onError: (message) => errors.push(message),
-        },
-      })
-    ).rejects.toThrow(
-      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini."
-    );
-    expect(errors).toEqual([
-      "Your saved Gemini key could not be used. Update it in Connections settings, or switch to Hussh managed Gemini.",
-    ]);
-  });
-
-  it("reads recent conversations and history", async () => {
-    vi.spyOn(ApiService, "listAgentChatConversations").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          conversations: [{ id: "conversation-1", title: "Hello", message_count: 2 }],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    );
-    vi.spyOn(ApiService, "getAgentChatHistory").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          messages: [
-            {
-              id: "message-1",
-              conversation_id: "conversation-1",
-              role: "user",
-              status: "complete",
-              content: "Hello",
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    );
-
-    await expect(
-      listAgentChatConversations({
-        userId: "user-1",
-        vaultOwnerToken: "vault-token",
-        limit: 1,
-      })
-    ).resolves.toMatchObject([{ id: "conversation-1", title: "Hello" }]);
-    await expect(
-      getAgentChatHistory({
-        conversationId: "conversation-1",
-        vaultOwnerToken: "vault-token",
-      })
-    ).resolves.toMatchObject([{ id: "message-1", content: "Hello" }]);
-  });
-
-  it("renames and deletes conversations", async () => {
-    vi.spyOn(ApiService, "renameAgentChatConversation").mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          id: "conversation-1",
-          title: "Renamed chat",
-          status: "active",
-          message_count: 2,
-        }),
-        { status: 200, headers: { "content-type": "application/json" } }
-      )
-    );
-    vi.spyOn(ApiService, "deleteAgentChatConversation").mockResolvedValue(
-      new Response(JSON.stringify({ conversation_id: "conversation-1", deleted: true }), {
-        status: 200,
-        headers: { "content-type": "application/json" },
-      })
-    );
-
-    await expect(
-      renameAgentChatConversation({
-        conversationId: "conversation-1",
-        title: "Renamed chat",
-        vaultOwnerToken: "vault-token",
-      })
-    ).resolves.toMatchObject({ id: "conversation-1", title: "Renamed chat" });
-    await expect(
-      deleteAgentChatConversation({
-        conversationId: "conversation-1",
-        vaultOwnerToken: "vault-token",
-      })
-    ).resolves.toEqual({ conversation_id: "conversation-1", deleted: true });
+    expect(parsePendingConsentRequestIds("discover_person_information", content)).toEqual([]);
+    expect(
+      parsePendingConsentRequestIds(
+        "list_pending_information_requests",
+        JSON.stringify({ status: "failed", pendingRequestIds: ["req_1"] }),
+      ),
+    ).toEqual([]);
+    expect(parsePendingConsentRequestIds("list_pending_information_requests", "not json")).toEqual([]);
   });
 });

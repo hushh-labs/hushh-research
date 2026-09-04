@@ -59,6 +59,35 @@ function runtimeState(
 }
 
 describe("executeAgentGatewayAction", () => {
+  it("never names a surface the action did not open", async () => {
+    // Regression: this runtime was Kai-only once, and every route action
+    // reported `${label} opened in Finance.` long after it became the shared
+    // path for every surface. Asking for Voice Settings answered "Open Voice
+    // Settings opened in Finance."
+    //
+    // The action's own surface_id is no better -- it names where the action is
+    // authored, not where it lands, so route.voice_settings would claim
+    // "Agents". The summary names no place at all now.
+    const router = { push: vi.fn() };
+
+    const result = await executeAgentGatewayAction({
+      actionId: "route.voice_settings",
+      allowedActionIds: [],
+      userId: "user_1",
+      router,
+      appRuntimeState: runtimeState(),
+      hasPortfolioData: true,
+      busyOperations: {},
+      setAnalysisParams: vi.fn(),
+    });
+
+    expect(result.status).toBe("started");
+    expect(result.resultSummary).not.toMatch(/Finance/i);
+    expect(result.resultSummary).not.toMatch(/Agents/i);
+    // The label alone is the honest description of what happened.
+    expect(result.resultSummary).toBe("Open Voice Settings.");
+  });
+
   it("admits generated direct route actions outside the current screen inventory", async () => {
     const router = { push: vi.fn() };
 

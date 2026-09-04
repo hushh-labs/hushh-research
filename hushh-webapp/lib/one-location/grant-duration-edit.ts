@@ -1,25 +1,21 @@
 import type { OneLocationGrant } from "@/lib/one-location/types";
 
 /**
- * The inline "New duration" editor on a live share: what it should open on,
- * and what Save is actually going to do.
+ * How much time a live share has left, and what changing it would mean.
  *
- * The editor opened on "1 hour" every time, whatever the share said one line
- * above it ("Sharing with you, 30 more min"). So the field was never the
- * current duration, and Save on the untouched default was almost always
- * LONGER than what was left -- which is not a change the recipient can make.
- * Every one of those saves spent a doomed shorten_grant call, took the 422
- * back, and turned into a fresh request the owner had to approve, while the
- * time on screen did not move. Two round trips to change nothing visible is
- * the "save is slow" and "time reset is not working" report.
+ * Its first home was the recipient-side "New duration" editor, which offered
+ * absolute lengths and decided from what you picked whether to shorten the
+ * share or ask its owner for more. That control is gone: a single field
+ * performing two opposite operations, with nothing on screen saying which side
+ * of the line you were on, is what got reported. The recipient asks for time
+ * additively now (`components/one-location/redesign/request-more-time`) and
+ * ends a share with Remove.
  *
- * Both facts needed to fix that are already on screen -- the grant's expiry
- * is what renders "30 more min". This decides from it, and nothing else: no
- * fetching, no formatting, no state.
+ * What survives is what was never about that control: reading the remaining
+ * time off a grant, and -- for the OWNER's own live-share editor, which really
+ * does set an absolute new length -- deciding whether a picked duration is
+ * shorter, longer, or the same. No fetching, no formatting, no state.
  */
-
-/** Hours offered by the editor's picker, ascending. Mirrors REDESIGN_DURATION_OPTIONS. */
-export const GRANT_EDIT_DURATION_HOURS: readonly number[] = [0.5, 1, 4, 24];
 
 /** The picker value used when a grant tells us nothing usable about its length. */
 export const GRANT_EDIT_DURATION_FALLBACK = "1";
@@ -56,31 +52,6 @@ export function grantRemainingHours(
   }
   const granted = grant?.durationHours;
   return typeof granted === "number" && granted > 0 ? granted : null;
-}
-
-/**
- * The picker option nearest what is left, so the editor opens on the share as
- * it stands rather than on a constant.
- *
- * Ties go to the shorter option: between two equally close answers, the one
- * that exposes the owner for less time is the safer thing to preselect.
- */
-export function defaultEditDurationHours(
-  grant: DurationGrantFields | null | undefined,
-  nowMs: number,
-): string {
-  const remaining = grantRemainingHours(grant, nowMs);
-  if (remaining === null) return GRANT_EDIT_DURATION_FALLBACK;
-  let best = GRANT_EDIT_DURATION_HOURS[0] ?? 1;
-  let bestGap = Math.abs(best - remaining);
-  for (const option of GRANT_EDIT_DURATION_HOURS) {
-    const gap = Math.abs(option - remaining);
-    if (gap < bestGap) {
-      best = option;
-      bestGap = gap;
-    }
-  }
-  return String(best);
 }
 
 /**

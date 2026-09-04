@@ -8,6 +8,7 @@ Provides:
 - List stocks by tier/sector
 """
 
+import asyncio
 import logging
 from dataclasses import dataclass
 from typing import Optional
@@ -130,7 +131,9 @@ class RenaissanceService:
 
         if normalized == "renaissance_avoid":
             try:
-                response = self.db.table("renaissance_avoid").select("*").order("ticker").execute()
+                response = await asyncio.to_thread(
+                    lambda: self.db.table("renaissance_avoid").select("*").order("ticker").execute()
+                )
                 rows = response.data or []
             except Exception as exc:  # noqa: BLE001
                 logger.error("Error listing Renaissance avoid members: %s", exc)
@@ -177,11 +180,13 @@ class RenaissanceService:
             Tuple of (is_investable, stock_info)
         """
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .eq("ticker", ticker.upper())
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .eq("ticker", ticker.upper())
+                    .execute()
+                )
             )
 
             if response.data and len(response.data) > 0:
@@ -220,8 +225,10 @@ class RenaissanceService:
     async def get_all_investable(self) -> list[RenaissanceStock]:
         """Get all stocks in the Renaissance investable universe."""
         try:
-            response = (
-                self.db.table("renaissance_universe").select("*").order("tier_rank").execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe").select("*").order("tier_rank").execute()
+                )
             )
 
             return [
@@ -245,12 +252,14 @@ class RenaissanceService:
     async def get_by_tier(self, tier: str) -> list[RenaissanceStock]:
         """Get all stocks in a specific tier."""
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .eq("tier", tier.upper())
-                .order("tier_rank")
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .eq("tier", tier.upper())
+                    .order("tier_rank")
+                    .execute()
+                )
             )
 
             return [
@@ -274,12 +283,14 @@ class RenaissanceService:
     async def get_by_sector(self, sector: str) -> list[RenaissanceStock]:
         """Get all stocks in a specific sector."""
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("*")
-                .ilike("sector", f"%{sector}%")
-                .order("tier_rank")
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("*")
+                    .ilike("sector", f"%{sector}%")
+                    .order("tier_rank")
+                    .execute()
+                )
             )
 
             return [
@@ -311,12 +322,14 @@ class RenaissanceService:
         - source: str | None
         """
         try:
-            response = (
-                self.db.table("renaissance_avoid")
-                .select("*")
-                .eq("ticker", ticker.upper())
-                .limit(1)
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_avoid")
+                    .select("*")
+                    .eq("ticker", ticker.upper())
+                    .limit(1)
+                    .execute()
+                )
             )
             rows = response.data or []
             if rows:
@@ -347,15 +360,16 @@ class RenaissanceService:
     async def get_screening_criteria(self) -> list[dict]:
         """Return all screening criteria rows (for UI and LLM prompting)."""
         try:
-            result = self.db.execute_raw(
+            result = await asyncio.to_thread(
+                self.db.execute_raw,
                 """
-                SELECT section, rule_index, title, detail, value_text
-                FROM renaissance_screening_criteria
-                ORDER BY
-                    section ASC,
-                    rule_index ASC NULLS LAST,
-                    id ASC
-                """
+                    SELECT section, rule_index, title, detail, value_text
+                    FROM renaissance_screening_criteria
+                    ORDER BY
+                        section ASC,
+                        rule_index ASC NULLS LAST,
+                        id ASC
+                """,
             )
             return result.data or []
         except Exception:
@@ -442,13 +456,15 @@ class RenaissanceService:
         # Get sector peers in same or higher tier
         sector_peers = []
         try:
-            response = (
-                self.db.table("renaissance_universe")
-                .select("ticker")
-                .eq("sector", stock.sector)
-                .neq("ticker", ticker.upper())
-                .limit(5)
-                .execute()
+            response = await asyncio.to_thread(
+                lambda: (
+                    self.db.table("renaissance_universe")
+                    .select("ticker")
+                    .eq("sector", stock.sector)
+                    .neq("ticker", ticker.upper())
+                    .limit(5)
+                    .execute()
+                )
             )
 
             sector_peers = [row["ticker"] for row in response.data]

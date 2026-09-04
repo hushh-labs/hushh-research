@@ -1,5 +1,3 @@
-"use client";
-
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import Link from "next/link";
 import { Loader2, Mail, Send, Sparkles, X } from "lucide-react";
@@ -16,6 +14,10 @@ import {
   EmailDeliveryService,
   type EmailDraft,
 } from "@/lib/services/email-delivery-service";
+import {
+  ConnectionsService,
+  type ConnectionSummaryEntry,
+} from "@/lib/services/connections-service";
 
 type EmailDraftCardProps = {
   initialInstruction: string;
@@ -74,10 +76,38 @@ export function EmailDraftCard({
   });
   const [showCcBcc, setShowCcBcc] = useState(() => Boolean(draft.cc || draft.bcc));
   const [missingDetails, setMissingDetails] = useState<string[]>([]);
+  const [connections, setConnections] = useState<ConnectionSummaryEntry[]>([]);
+  const [activeDropdownField, setActiveDropdownField] = useState<"to" | "cc" | "bcc" | null>(null);
+  const dropdownContainerRef = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState<"draft" | null>(null);
   const [error, setError] = useState<EmailDeliveryError | null>(null);
   const autoDraftStartedRef = useRef(false);
   const sendStartedRef = useRef(false);
+
+  useEffect(() => {
+    let active = true;
+    void (async () => {
+      try {
+        const auth = await getAuth();
+        if (!auth?.firebaseIdToken) return;
+        const list = await ConnectionsService.listConnections({ idToken: auth.firebaseIdToken });
+        if (active) setConnections(list);
+      } catch {
+        // Degrade silently if connections fetch fails
+      }
+    })();
+    return () => { active = false; };
+  }, [getAuth]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (dropdownContainerRef.current && !dropdownContainerRef.current.contains(event.target as Node)) {
+        setActiveDropdownField(null);
+      }
+    }
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, []);
 
   const updateDraft = (field: keyof EmailDraft, value: string) => {
     const isBody = field === "body";
@@ -91,6 +121,88 @@ export function EmailDraftCard({
     }));
     setMissingDetails([]);
     setError(null);
+  };
+
+  const selectConnection = (field: "to" | "cc" | "bcc", conn: ConnectionSummaryEntry) => {
+    const chosenEmail = conn.email?.trim() || "";
+    if (!chosenEmail) return;
+
+    const currentValue = (draft[field] || "").trim();
+    let nextValue = "";
+
+    if (!currentValue) {
+      nextValue = chosenEmail;
+    } else {
+      const tokens = currentValue.split(/,\s*/);
+      tokens.pop();
+      const base = tokens.filter(Boolean).join(", ");
+      nextValue = base ? `${base}, ${chosenEmail}` : chosenEmail;
+    }
+
+    updateDraft(field, nextValue);
+    setActiveDropdownField(null);
+  };
+
+  const currentFieldValue = activeDropdownField ? draft[activeDropdownField] || "" : "";
+  const lastQueryToken = currentFieldValue.split(/,\s*/).pop()?.trim().toLowerCase() || "";
+
+  const matchingConnections = connections
+    .filter((conn) => {
+      if (!lastQueryToken) return true;
+      const nameMatch = conn.displayName?.toLowerCase().includes(lastQueryToken);
+      const emailMatch = conn.email?.toLowerCase().includes(lastQueryToken);
+      return Boolean(nameMatch || emailMatch);
+    })
+    .slice(0, 6);
+
+  const renderConnectionsDropdown = (field: "to" | "cc" | "bcc") => {
+    if (activeDropdownField !== field || matchingConnections.length === 0) return null;
+    return (
+      <div className="absolute left-0 right-0 top-full z-50 mt-1 max-h-56 overflow-y-auto rounded-xl border border-border/60 bg-popover/95 p-1.5 shadow-lg backdrop-blur-md">
+        <div className="px-2.5 py-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+          Connections
+        </div>
+        {matchingConnections.map((conn) => {
+          const hasEmail = Boolean(conn.email?.trim());
+          return (
+            <button
+              key={conn.userId}
+              type="button"
+              disabled={!hasEmail}
+              onMouseDown={(e) => {
+                e.preventDefault();
+                selectConnection(field, conn);
+              }}
+              onClick={() => {
+                selectConnection(field, conn);
+              }}
+              className={`flex w-full items-center gap-2.5 rounded-lg px-2.5 py-2 text-left text-sm transition-colors ${
+                hasEmail
+                  ? "hover:bg-accent cursor-pointer"
+                  : "opacity-50 cursor-not-allowed"
+              }`}
+            >
+              {conn.photoUrl ? (
+                /* eslint-disable-next-line @next/next/no-img-element */
+                <img src={conn.photoUrl} alt="" className="h-7 w-7 rounded-full object-cover shrink-0" />
+              ) : (
+                <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary font-medium text-xs">
+                  {(conn.displayName || "C").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="flex-1 min-w-0">
+                <div className="truncate font-medium text-foreground text-xs">
+                  {conn.displayName || "Connected User"}
+                </div>
+                <div className="truncate text-[11px] text-muted-foreground">
+                  {hasEmail ? conn.email : "No email on file (non-selectable)"}
+                </div>
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    );
   };
 
   const withAuth = useCallback(async () => {
@@ -203,60 +315,55 @@ export function EmailDraftCard({
 
   const disabled = busy !== null;
   const isDrafting = busy === "draft";
+
   return (
     <section
       data-testid="one-email-draft-card"
       aria-label="Email draft"
+      ref={dropdownContainerRef}
       className="mb-5 overflow-hidden rounded-[calc(var(--app-card-radius-compact)+4px)] border border-border/80 bg-card shadow-[var(--app-card-shadow-standard)]"
     >
-      <div className="flex items-start justify-between gap-3 border-b border-border/60 bg-primary/[0.035] px-4 py-4 sm:px-5">
-        <div className="flex min-w-0 gap-3.5">
-          <div className="grid h-10 w-10 shrink-0 place-items-center rounded-[var(--app-radius-lg)] bg-primary text-primary-foreground shadow-sm">
-            <Mail className="h-4.5 w-4.5" />
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-border/60 bg-muted/40 px-4 py-3.5 sm:px-5">
+        <div className="flex items-center gap-2.5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+            <Mail className="h-4 w-4" />
           </div>
           <div>
-            <h2 className="text-lg font-semibold tracking-[-0.015em] text-foreground">
-              Email draft
+            <h2 className="text-sm font-semibold text-foreground">
+              Review Email Draft
             </h2>
-            <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-              {isDrafting
-                ? "One is preparing a draft from your request…"
-                : "Review the email exactly as it will be sent."}
+            <p className="text-xs text-muted-foreground">
+              Verify recipients and content before sending
             </p>
           </div>
         </div>
-        <Button
+        <button
           type="button"
-          variant="ghost"
-          size="icon"
-          className="h-8 w-8 shrink-0"
-          aria-label="Close email draft"
           onClick={onDismiss}
+          className="rounded-lg p-1.5 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none"
+          aria-label="Dismiss draft"
         >
           <X className="h-4 w-4" />
-        </Button>
+        </button>
       </div>
 
       {isDrafting ? (
         <div
           aria-busy="true"
-          className="space-y-4 px-4 py-5 sm:px-5"
+          className="space-y-4 p-6 sm:p-8"
           data-testid="one-email-draft-preparing"
         >
-          <div className="flex items-start gap-3 rounded-xl border border-primary/20 bg-primary/[0.055] px-3.5 py-3" role="status">
-            <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin text-primary" aria-hidden />
-            <div>
-              <p className="text-sm font-semibold text-foreground">Drafting your email</p>
-              <p className="mt-0.5 text-sm leading-5 text-muted-foreground">
-                One is turning your request into a reviewable email. This can take a few seconds.
-              </p>
-            </div>
+          <div
+            className="flex items-center gap-3 text-sm font-medium text-primary"
+            role="status"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            <span className="sr-only">Drafting your email. </span>
+            <span>One is preparing your email draft...</span>
           </div>
-          <div aria-hidden className="space-y-4 animate-pulse">
-            <div className="space-y-2">
-              <div className="h-3 w-8 rounded bg-muted" />
-              <div className="h-11 rounded-xl bg-muted/70" />
-            </div>
+          <div className="space-y-3 pt-2">
+            <div className="h-4 w-1/3 rounded bg-muted animate-pulse" />
             <div className="grid gap-3 sm:grid-cols-2">
               <div className="space-y-2">
                 <div className="h-3 w-8 rounded bg-muted" />
@@ -267,28 +374,24 @@ export function EmailDraftCard({
                 <div className="h-10 rounded-xl bg-muted/70" />
               </div>
             </div>
-            <div className="space-y-2">
-              <div className="h-3 w-14 rounded bg-muted" />
-              <div className="h-11 rounded-xl bg-muted/70" />
-            </div>
-            <div className="space-y-2">
-              <div className="h-3 w-16 rounded bg-muted" />
-              <div className="h-36 rounded-xl bg-muted/70" />
-            </div>
           </div>
         </div>
       ) : (
         <div className="space-y-3 px-4 py-4 sm:px-5">
-          <div className="flex items-center gap-2 border-b border-border/60 py-1.5">
+          <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5">
             <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">To</span>
             <Input
               id={`${idPrefix}-to`}
               data-testid="one-email-draft-to"
               type="text"
               value={draft.to}
-              onChange={(event) => updateDraft("to", event.target.value)}
+              onFocus={() => setActiveDropdownField("to")}
+              onChange={(event) => {
+                updateDraft("to", event.target.value);
+                setActiveDropdownField("to");
+              }}
               disabled={disabled}
-              placeholder="Recipients"
+              placeholder="Select connection or type email..."
               aria-label="To"
               className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
             />
@@ -301,12 +404,14 @@ export function EmailDraftCard({
                 + CC / BCC
               </button>
             ) : null}
+
+            {renderConnectionsDropdown("to")}
           </div>
 
           {showCcBcc ? (
             <div className="grid gap-2 sm:grid-cols-2">
               {(["cc", "bcc"] as const).map((field) => (
-                <div className="flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
+                <div className="relative flex items-center gap-2 border-b border-border/60 py-1.5" key={field}>
                   <span className="w-16 shrink-0 text-sm font-medium text-muted-foreground">
                     {field === "cc" ? "Cc" : "Bcc"}
                   </span>
@@ -315,12 +420,17 @@ export function EmailDraftCard({
                     data-testid={`one-email-draft-${field}`}
                     type="text"
                     value={draft[field]}
-                    onChange={(event) => updateDraft(field, event.target.value)}
+                    onFocus={() => setActiveDropdownField(field)}
+                    onChange={(event) => {
+                      updateDraft(field, event.target.value);
+                      setActiveDropdownField(field);
+                    }}
                     disabled={disabled}
-                    placeholder="Optional"
+                    placeholder="Optional connection or email..."
                     aria-label={field === "cc" ? "Cc" : "Bcc"}
                     className="h-9 rounded-none border-0 bg-transparent px-0 text-[15px] shadow-none focus-visible:ring-0"
                   />
+                  {renderConnectionsDropdown(field)}
                 </div>
               ))}
             </div>

@@ -74,6 +74,10 @@ steps:
   # A separate step gets its own budget; failure here stops the build the same way.
   - name: "gcr.io/google.com/cloudsdktool/cloud-sdk"
     entrypoint: "bash"
+    env:
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
     args:
       - "-c"
       - |
@@ -148,13 +152,9 @@ steps:
         add_secret() {
           local secret_name="$1"
           local env_name="$2"
-          if [[ -z "${secret_name}" ]]; then
-            return
-          fi
+          [[ -z "${secret_name}" ]] && return
           if gcloud secrets describe "${secret_name}" --project="$PROJECT_ID" >/dev/null 2>&1; then
             secrets="${secrets},${env_name}=${secret_name}:latest"
-          else
-            echo "Skipping optional secret ${secret_name}; not found in project ${PROJECT_ID}."
           fi
         }
 
@@ -232,7 +232,7 @@ steps:
           local name="$1"
           local value="$2"
           if ! [[ "${value}" =~ ^[0-9]+$ ]]; then
-            echo "${name} must be a non-negative integer, got '${value}'." >&2
+            echo "${name} must be non-negative." >&2
             exit 1
           fi
         }
@@ -241,7 +241,7 @@ steps:
           local value="$2"
           require_non_negative_int "${name}" "${value}"
           if [[ "${value}" -lt 1 ]]; then
-            echo "${name} must be at least 1, got '${value}'." >&2
+            echo "${name} must be positive." >&2
             exit 1
           fi
         }
@@ -252,11 +252,11 @@ steps:
         require_non_negative_int "_CLOUD_RUN_MIN_INSTANCES" "${_CLOUD_RUN_MIN_INSTANCES}"
         require_positive_int "_CLOUD_RUN_MAX_INSTANCES" "${_CLOUD_RUN_MAX_INSTANCES}"
         if [[ "${_DB_POOL_MAX_SIZE}" -lt "${_DB_POOL_MIN_SIZE}" ]]; then
-          echo "_DB_POOL_MAX_SIZE must be greater than or equal to _DB_POOL_MIN_SIZE." >&2
+          echo "_DB_POOL_MAX_SIZE must be at least _DB_POOL_MIN_SIZE." >&2
           exit 1
         fi
         if [[ "${_CLOUD_RUN_MAX_INSTANCES}" -lt "${_CLOUD_RUN_MIN_INSTANCES}" ]]; then
-          echo "_CLOUD_RUN_MAX_INSTANCES must be greater than or equal to _CLOUD_RUN_MIN_INSTANCES." >&2
+          echo "_CLOUD_RUN_MAX_INSTANCES must be at least _CLOUD_RUN_MIN_INSTANCES." >&2
           exit 1
         fi
 
@@ -287,20 +287,12 @@ steps:
             env_vars+=("${env_name}=${env_value}")
           fi
         }
-        add_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
-        add_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
-        add_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
-        add_env "ONE_EMAIL_WEBHOOK_AUDIENCE" "${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
-        add_env "ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL" "${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
-        add_env "ONE_EMAIL_WEBHOOK_AUTH_ENABLED" "${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
-        add_env "ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED" "${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
-        add_env "ONE_EMAIL_KYC_DEFAULT_SCOPE" "${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
-        add_env "ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED" "${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
-        add_env "ONE_WALLET_CARD_ENABLED" "${_ONE_WALLET_CARD_ENABLED}"
-        add_env "WALLET_PASS_PROVIDER" "${_WALLET_PASS_PROVIDER}"
-        add_env "APP_REVIEW_MODE" "${_APP_REVIEW_MODE}"
-        add_env "HUSHH_PROD_PHONE_TEST_ENABLED" "${_HUSHH_PROD_PHONE_TEST_ENABLED}"
+        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED; do
+          v="_${n}"
+          add_env "${n}" "${!v}"
+        done
         add_env "KAI_ANALYZE_DURABLE_RUN_STORE" "${_KAI_ANALYZE_DURABLE_RUN_STORE}"
+        add_env "AGENT_ONE_ADK_MODEL" "${_AGENT_ONE_ADK_MODEL}"
         add_env "CONSENT_WEB_FALLBACK_ENABLED" "${_CONSENT_WEB_FALLBACK_ENABLED}"
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
@@ -316,8 +308,9 @@ steps:
           "--allow-unauthenticated"
           "--port=8080"
           "--memory=1Gi"
-          "--cpu=1"
+          "--cpu=${_CLOUD_RUN_CPU}"
           "--timeout=3600"
+          "--concurrency=${_CLOUD_RUN_CONCURRENCY}"
           "--session-affinity"
           "--max=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"
@@ -340,6 +333,24 @@ steps:
         fi
 
         "${cmd[@]}"
+    env:
+      - "_ONE_EMAIL_ADDRESS=${_ONE_EMAIL_ADDRESS}"
+      - "_ONE_EMAIL_DELEGATED_USER=${_ONE_EMAIL_DELEGATED_USER}"
+      - "_ONE_EMAIL_PUBSUB_TOPIC=${_ONE_EMAIL_PUBSUB_TOPIC}"
+      - "_ONE_EMAIL_WEBHOOK_AUDIENCE=${_ONE_EMAIL_WEBHOOK_AUDIENCE}"
+      - "_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL=${_ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL}"
+      - "_ONE_EMAIL_WEBHOOK_AUTH_ENABLED=${_ONE_EMAIL_WEBHOOK_AUTH_ENABLED}"
+      - "_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED=${_ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
+      - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
+      - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
+      - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
+      - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
+      - "_WALLET_PASS_PROVIDER=${_WALLET_PASS_PROVIDER}"
+      - "_APP_REVIEW_MODE=${_APP_REVIEW_MODE}"
+      - "_HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}"
+      - "_HUSHH_PROD_PHONE_TEST_ENABLED=${_HUSHH_PROD_PHONE_TEST_ENABLED}"
     id: "deploy-backend"
 
   # Candidate-image GenAI probe under the exact runtime identity. This runs
@@ -383,9 +394,9 @@ steps:
           --region="${_REGION}" \
           --image="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
-          --command="python" \
+          --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
           ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \
@@ -441,7 +452,7 @@ steps:
         fi
         echo "Probe execution: ${execution_name:-unknown}"
         classification="$(
-          PROBE_LINE="${probe_line}" python - <<'PY'
+          PROBE_LINE="${probe_line}" python3 - <<'PY'
         import json
         import os
 
@@ -506,6 +517,10 @@ substitutions:
   # Defaulted to the canonical secret name so every lane picks it up without
   # workflow changes; add_secret skips gracefully where the secret is absent.
   _HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET: HUSHH_MANAGED_GEMINI_LIVE_API_KEY
+  _AGENT_ONE_ADK_MODEL: ""
+  # One switch for every text agent (constants.GEMINI_MODEL). Empty keeps the
+  # proven default; set only after the lane's Vertex allowed-models policy admits the id.
+  _HUSSH_GEMINI_TEXT_MODEL: ""
   _FINNHUB_API_KEY_SECRET: ""
   _PMP_API_KEY_SECRET: ""
   _NEWSAPI_KEY_SECRET: ""
@@ -567,9 +582,13 @@ substitutions:
   _ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL: ""
   _ONE_EMAIL_WEBHOOK_AUTH_ENABLED: "true"
   _ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED: "true"
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED: "true"
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE: ""
+  _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL: ""
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
+  # Wallet subagent (agent_wallet) roster flag. Empty/false keeps it out of the tree.
   _APP_REVIEW_MODE: ""
   _HUSHH_PROD_PHONE_TEST_ENABLED: ""
   # Durable Kai analyze-run terminal-checkpoint store (migration 125). Empty =>
@@ -593,6 +612,8 @@ substitutions:
   _DB_POOL_ACQUIRE_TIMEOUT_SECONDS: "60"
   _CLOUD_RUN_MIN_INSTANCES: "1"
   _CLOUD_RUN_MAX_INSTANCES: "5"
+  _CLOUD_RUN_CPU: "1"
+  _CLOUD_RUN_CONCURRENCY: "80"
   _RUNTIME_ENVIRONMENT: ""
   # Direct backend builds remain conservative. The UAT workflow explicitly
   # overrides this from its authoritative changed-SHA verification plan.
