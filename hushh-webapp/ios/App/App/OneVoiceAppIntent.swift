@@ -270,14 +270,8 @@ enum OneLocationStateIntentValue: String, AppEnum {
 
     static let typeDisplayRepresentation: TypeDisplayRepresentation = "Location State"
     static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
-        .on: DisplayRepresentation(
-            title: "On",
-            synonyms: ["Enable", "Enabled", "Resume", "Resumed", "Start"]
-        ),
-        .off: DisplayRepresentation(
-            title: "Off",
-            synonyms: ["Disable", "Disabled", "Pause", "Paused", "Stop"]
-        )
+        .on: "On",
+        .off: "Off"
     ]
 }
 
