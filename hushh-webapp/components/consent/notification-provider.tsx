@@ -808,6 +808,32 @@ export function ConsentNotificationProvider({
         dismissOneLocationShareNotification(grantId);
       }
 
+      // These three outcomes are a status flip on a request the recipient's
+      // cached state (if any) already has a row for. Patch it in place so the
+      // screen agrees with what just happened as soon as the push arrives,
+      // instead of waiting on the ~25-query full state reload every push
+      // otherwise triggers (see dispatchConsentStateChanged below) -- that
+      // reload still runs and reconciles anything this can't express, such as
+      // the new grant an approval creates.
+      if (
+        requestId &&
+        (msgType === "location_access_denied" ||
+          msgType === "location_access_request_withdrawn" ||
+          msgType === "location_access_approved")
+      ) {
+        OneLocationStateResource.mergeRequestStatus(user.uid, {
+          id: requestId,
+          status:
+            msgType === "location_access_denied"
+              ? "denied"
+              : msgType === "location_access_request_withdrawn"
+                ? "cancelled"
+                : "approved",
+          resolvedAt: new Date().toISOString(),
+          ...(grantId ? { approvedGrantId: grantId } : null),
+        });
+      }
+
       const generatedCopy = locationWorkflowNotificationCopy({
         type: msgType,
         ownerLabel: oneLocationOwnerLabel(data),
