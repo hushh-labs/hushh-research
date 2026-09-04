@@ -570,7 +570,7 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
             <Button
               type="button"
               variant="none"
-              effect="fill"
+              effect="fade"
               onClick={() => {
                 void navigator.clipboard.writeText(window.location.href);
                 toast.success("Profile link copied");
