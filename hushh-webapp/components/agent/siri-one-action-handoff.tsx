@@ -157,6 +157,12 @@ export function SiriOneActionHandoff(): null {
       if (waitingStateRef.current !== key) {
         waitingStateRef.current = key;
         logLifecycle(state, pending);
+        if (state === "waiting_for_vault") {
+          void OneSystemActionInvocationBridge.reportProgress({
+            id: pending.id,
+            state,
+          }).catch(() => undefined);
+        }
       }
       if (state === "waiting_for_auth" && pathname !== ROUTES.LOGIN) {
         const search = searchParams?.toString() ?? "";
@@ -205,7 +211,7 @@ export function SiriOneActionHandoff(): null {
             pending,
             "blocked",
             result.status === "succeeded" || result.status === "started"
-              ? "Unlock Agent One to pause your location. Location settings are open."
+              ? "Agent One's Vault is locked. I opened Location Settings for you. Unlock your Vault, then ask me again to pause location sharing."
               : result.resultSummary,
           );
           return;

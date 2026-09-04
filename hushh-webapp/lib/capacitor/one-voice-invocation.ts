@@ -41,6 +41,10 @@ export interface NativeOneVoiceInvocationPlugin {
     outcome: OneSystemActionOutcome;
     summary: string;
   }): Promise<void>;
+  reportActionInvocationProgress(options: {
+    id: string;
+    state: "waiting_for_vault";
+  }): Promise<{ reported: boolean }>;
   updateActionEntityIndex(options: {
     ownerId: string;
     contacts: OneSystemEntityIndexEntry[];
@@ -80,6 +84,10 @@ class OneVoiceInvocationWeb extends WebPlugin {
   }
 
   async completeActionInvocation(): Promise<void> {}
+
+  async reportActionInvocationProgress(): Promise<{ reported: boolean }> {
+    return { reported: false };
+  }
 
   async updateActionEntityIndex(): Promise<{ updated: boolean }> {
     return { updated: false };

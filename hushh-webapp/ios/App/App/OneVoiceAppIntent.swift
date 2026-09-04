@@ -374,12 +374,20 @@ private enum OneAppIntentActionExecutor {
         ) else {
             return "Agent One could not prepare that action."
         }
-        guard let completion = await OneSystemActionInvocationCoordinator.shared.waitForCompletion(
+        guard let result = await OneSystemActionInvocationCoordinator.shared.waitForCompletionOrProgress(
             id: invocation.id
         ) else {
             return "Continue in Agent One to finish. Your request is waiting."
         }
-        return completion.summary
+        switch result {
+        case .completion(let completion):
+            return completion.summary
+        case .progress(let progress):
+            switch progress.state {
+            case .waitingForVault:
+                return "Agent One's Vault is locked. I've opened the app for you. Unlock your Vault, and I'll continue your request."
+            }
+        }
     }
 }
 

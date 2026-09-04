@@ -111,6 +111,16 @@ export const OneSystemActionInvocationBridge = {
     await NativeOneVoiceInvocation.completeActionInvocation(options);
   },
 
+  async reportProgress(options: {
+    id: string;
+    state: "waiting_for_vault";
+  }): Promise<boolean> {
+    if (!this.isSupported()) return false;
+    const result =
+      await NativeOneVoiceInvocation.reportActionInvocationProgress(options);
+    return result.reported;
+  },
+
   async updateEntityIndex(options: {
     ownerId: string;
     contacts: OneSystemEntityIndexEntry[];

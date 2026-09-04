@@ -14,6 +14,7 @@ const mocks = vi.hoisted(() => ({
   getPendingInvocation: vi.fn(),
   claimInvocation: vi.fn(),
   completeInvocation: vi.fn(),
+  reportProgress: vi.fn(),
   addAvailabilityListener: vi.fn(),
   removeAvailabilityListener: vi.fn(),
 }));
@@ -44,6 +45,7 @@ vi.mock("@/lib/capacitor/one-system-action-invocation", async (importOriginal) =
       getPendingInvocation: mocks.getPendingInvocation,
       claimInvocation: mocks.claimInvocation,
       completeInvocation: mocks.completeInvocation,
+      reportProgress: mocks.reportProgress,
       addAvailabilityListener: mocks.addAvailabilityListener,
     },
   };
@@ -88,10 +90,12 @@ describe("SiriOneActionHandoff lifecycle", () => {
     mocks.getPendingInvocation.mockReset();
     mocks.claimInvocation.mockReset();
     mocks.completeInvocation.mockReset();
+    mocks.reportProgress.mockReset();
     mocks.addAvailabilityListener.mockReset();
     mocks.removeAvailabilityListener.mockReset();
     mocks.claimInvocation.mockResolvedValue({ claimed: true });
     mocks.completeInvocation.mockResolvedValue(undefined);
+    mocks.reportProgress.mockResolvedValue(true);
     mocks.addAvailabilityListener.mockResolvedValue({
       remove: mocks.removeAvailabilityListener,
     });
@@ -177,6 +181,12 @@ describe("SiriOneActionHandoff lifecycle", () => {
 
     const view = render(<SiriOneActionHandoff />);
     await waitFor(() => expect(mocks.getPendingInvocation).toHaveBeenCalled());
+    await waitFor(() =>
+      expect(mocks.reportProgress).toHaveBeenCalledWith({
+        id: mutation.id,
+        state: "waiting_for_vault",
+      }),
+    );
     expect(mocks.claimInvocation).not.toHaveBeenCalled();
 
     mocks.runtime.tier = "signed_unlocked";
@@ -228,7 +238,7 @@ describe("SiriOneActionHandoff lifecycle", () => {
         id: pending.id,
         outcome: "blocked",
         summary:
-          "Unlock Agent One to pause your location. Location settings are open.",
+          "Agent One's Vault is locked. I opened Location Settings for you. Unlock your Vault, then ask me again to pause location sharing.",
       }),
     );
     expect(mocks.claimInvocation).toHaveBeenCalledTimes(1);

@@ -71,12 +71,20 @@ information, and the sole Agent Bar executor. Native confirmation is required
 before every generated `confirm_required` mutation. The browser then applies
 the generated guard inventory and reports the browser-observed settlement.
 Signed-locked users may open read-only Location destinations. Protected
-mutations wait for normal vault restoration except `location.pause_updates`:
+mutations wait for normal vault restoration. When the browser observes this
+exact gate, it reports only the request id and `waiting_for_vault` state to the
+native coordinator. Siri then says, “Agent One's Vault is locked. I've opened
+the app for you. Unlock your Vault, and I'll continue your request.” Reporting
+that progress does not claim the action: it remains pending and runs once after
+unlock, subject to the original five-minute expiry.
+
+`location.pause_updates` is the deliberate exception:
 its canonical Siri metadata declares `location.open_settings` as a review-only
 fallback. The handoff claims the pending pause once, opens that review surface,
-completes the original request as blocked, and never replays the pause after
-unlock. A missing account routes through Login and returns to the preserved
-route without asking the person to repeat the Siri request.
+completes the original request as blocked, and tells the person to unlock and
+ask again. It never replays the pause after unlock. A missing account routes
+through Login and returns to the preserved route without asking the person to
+repeat the Siri request.
 
 All currently exposed Location intents foreground HUSSH. This is deliberate:
 the canonical executor, current vault authority, encrypted location publish,

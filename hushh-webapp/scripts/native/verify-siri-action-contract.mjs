@@ -170,6 +170,25 @@ function verifyEnvelopeSeparation(source) {
   }
 }
 
+function verifyVaultFeedback(intentsSource, coordinatorSource, handoffSource) {
+  const requiredIntentCopy =
+    "Agent One's Vault is locked. I've opened the app for you. Unlock your Vault, and I'll continue your request.";
+  const requiredPauseCopy =
+    "Agent One's Vault is locked. I opened Location Settings for you. Unlock your Vault, then ask me again to pause location sharing.";
+  if (!intentsSource.includes(requiredIntentCopy)) {
+    throw new Error("The App Intent must return the governed locked-vault dialog");
+  }
+  if (!coordinatorSource.includes('case waitingForVault = "waiting_for_vault"')) {
+    throw new Error("The native coordinator must recognize waiting_for_vault progress");
+  }
+  if (
+    !handoffSource.includes("OneSystemActionInvocationBridge.reportProgress") ||
+    !handoffSource.includes(requiredPauseCopy)
+  ) {
+    throw new Error("The browser handoff must report vault progress and retain pause safety copy");
+  }
+}
+
 const gateway = JSON.parse(read(gatewayPath));
 const actions = Array.isArray(gateway.actions) ? gateway.actions : [];
 const direct = actions.filter((action) => action.siri_mode === "direct");
@@ -245,6 +264,7 @@ verifyEnvelopeSeparation(read(swiftIntentsPath));
 const handoffSource = read(
   path.join(webappRoot, "components/agent/siri-one-action-handoff.tsx"),
 );
+verifyVaultFeedback(read(swiftIntentsPath), swiftSource, handoffSource);
 if (/\[SIRI_ONE_ACTION\][^\n]*source=/.test(handoffSource)) {
   throw new Error("Siri lifecycle logs must omit source and private payload fields");
 }

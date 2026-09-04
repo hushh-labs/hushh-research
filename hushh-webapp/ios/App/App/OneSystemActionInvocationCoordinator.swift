@@ -122,6 +122,21 @@ struct OneSystemActionCompletion: Codable, Equatable, Sendable {
     let finishedAt: Date
 }
 
+enum OneSystemActionProgressState: String, Codable, Sendable {
+    case waitingForVault = "waiting_for_vault"
+}
+
+struct OneSystemActionProgress: Codable, Equatable, Sendable {
+    let id: String
+    let state: OneSystemActionProgressState
+    let updatedAt: Date
+}
+
+enum OneSystemActionWaitResult: Equatable, Sendable {
+    case completion(OneSystemActionCompletion)
+    case progress(OneSystemActionProgress)
+}
+
 struct OneSystemEntityIndexEntry: Codable, Equatable, Sendable {
     let id: String
     let name: String
@@ -216,6 +231,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
     private let pendingKey: String
     private let claimedKey: String
     private let completionKey: String
+    private let progressKey: String
     private let entityIndexKey: String
     private let now: () -> Date
     private let currentUserID: () -> String?
@@ -231,6 +247,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         self.pendingKey = "\(keyPrefix).pending"
         self.claimedKey = "\(keyPrefix).claimed"
         self.completionKey = "\(keyPrefix).completion"
+        self.progressKey = "\(keyPrefix).progress"
         self.entityIndexKey = "\(keyPrefix).entities"
         self.now = now
         self.currentUserID = currentUserID
@@ -258,6 +275,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         let replaced = read(PendingOneSystemActionInvocation.self, key: pendingKey)
         store.remove(claimedKey)
         store.remove(completionKey)
+        store.remove(progressKey)
         let stored = write(invocation, key: pendingKey)
         lock.unlock()
         guard stored else { return nil }
@@ -277,6 +295,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         }
         if invocation.expiresAt <= now() {
             store.remove(pendingKey)
+            store.remove(progressKey)
             lock.unlock()
             Self.log(state: "expired", invocation: invocation, outcome: "expired")
             return nil
@@ -302,6 +321,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             return false
         }
         store.remove(pendingKey)
+        store.remove(progressKey)
         lock.unlock()
         Self.log(state: "dispatched", invocation: invocation, outcome: "claimed")
         return true
@@ -319,6 +339,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         }
         store.remove(pendingKey)
         store.remove(claimedKey)
+        store.remove(progressKey)
         _ = write(
             OneSystemActionCompletion(
                 id: id,
@@ -339,6 +360,36 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         return value?.id == id ? value : nil
     }
 
+    @discardableResult
+    func reportProgress(id: String, state: OneSystemActionProgressState) -> Bool {
+        lock.lock()
+        guard
+            let invocation = readValidatedPending(key: pendingKey),
+            invocation.id == id,
+            invocation.requiresVault,
+            invocation.expiresAt > now()
+        else {
+            lock.unlock()
+            return false
+        }
+        let reported = write(
+            OneSystemActionProgress(id: id, state: state, updatedAt: now()),
+            key: progressKey
+        )
+        lock.unlock()
+        if reported {
+            Self.log(state: state.rawValue, invocation: invocation)
+        }
+        return reported
+    }
+
+    func progress(id: String) -> OneSystemActionProgress? {
+        lock.lock()
+        let value = read(OneSystemActionProgress.self, key: progressKey)
+        lock.unlock()
+        return value?.id == id ? value : nil
+    }
+
     func waitForCompletion(id: String, timeout: TimeInterval = 25) async -> OneSystemActionCompletion? {
         let deadline = Date().addingTimeInterval(timeout)
         while Date() < deadline {
@@ -348,6 +399,21 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         return completion(id: id)
     }
 
+    func waitForCompletionOrProgress(
+        id: String,
+        timeout: TimeInterval = 25
+    ) async -> OneSystemActionWaitResult? {
+        let deadline = Date().addingTimeInterval(timeout)
+        while Date() < deadline {
+            if let completion = completion(id: id) { return .completion(completion) }
+            if let progress = progress(id: id) { return .progress(progress) }
+            try? await Task.sleep(nanoseconds: 200_000_000)
+        }
+        if let completion = completion(id: id) { return .completion(completion) }
+        if let progress = progress(id: id) { return .progress(progress) }
+        return nil
+    }
+
     func cancelAll(outcome: String = "cancelled", clearEntityIndex: Bool = false) {
         lock.lock()
         let pending = readValidatedPending(key: pendingKey)
@@ -355,6 +421,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         store.remove(pendingKey)
         store.remove(claimedKey)
         store.remove(completionKey)
+        store.remove(progressKey)
         if clearEntityIndex { store.remove(entityIndexKey) }
         lock.unlock()
         if let pending { Self.log(state: "cancelled", invocation: pending, outcome: outcome) }
