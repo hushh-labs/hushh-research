@@ -216,3 +216,33 @@ def test_the_image_is_built_with_its_tag_baked_in() -> None:
     assert "HUSSH_POD_IMAGE_TAG=${POD_IMAGE_TAG}" in dockerfile
     cloudbuild = (root.parent / "deploy" / "backend.cloudbuild.yaml").read_text()
     assert "--build-arg POD_IMAGE_TAG=${_IMAGE_TAG}" in cloudbuild
+
+
+def test_a_hushh_hosted_pod_gets_update_state_too() -> None:
+    """The hosted tier writes `image`, not `source_image`, and only one was read.
+
+    `running_image()` documents the two-key model -- `source_image` on a user-owned
+    pod, `image` on a hushh-hosted one -- and GcpBackend writes only `image`. So every
+    hosted pod resolved deployed_tag=None. With no `observed` either (a bodyless
+    heartbeat deletes it, per 1cd8d272a) the whole block returned early: no
+    runningImage, no updateAvailable, and no updateFailed even after the sweep burned
+    all three attempts. The person's login surface said nothing at all while their
+    agent silently failed to update. GcpBackend.upgrade is a live path; hosted pods
+    ARE swept.
+    """
+    hosted = {"backend_metadata": {"image": DEPLOYED_OLD}}
+    out = describe_pod_update(hosted, target_image=TARGET)
+    assert out["runningImage"] == "dev-aaaaaaaaa"
+    assert out["updateAvailable"] is True
+
+
+def test_a_user_owned_pod_still_prefers_its_own_key() -> None:
+    """`source_image` wins where both are present, which is the BYOC pod's shape.
+
+    UserGcpBackend writes both keys; `image` there is the copy in the person's own
+    registry and `source_image` is what the pod was built from. Reading `image` first
+    would report the wrong one for every BYOC pod, so the fallback must stay a
+    fallback.
+    """
+    both = {"backend_metadata": {"source_image": TARGET, "image": DEPLOYED_OLD}}
+    assert describe_pod_update(both, target_image=TARGET)["updateAvailable"] is False

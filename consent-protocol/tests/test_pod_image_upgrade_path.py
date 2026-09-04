@@ -983,3 +983,93 @@ async def test_the_cooldown_is_judged_on_the_row_as_it_is_after_the_lease(
     # is the one that proves the backend was genuinely never touched.
     assert backend.specs == []
     assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_pod_a_newer_hub_already_moved_is_not_rolled_back(monkeypatch, service_env) -> None:
+    """The other half of the race 0ba8c6b49 half-closed.
+
+    That commit re-read the row after the lease so the COOLDOWN saw a fresh marker.
+    Supersession was left judged against the row read before the claim, and the window
+    is the same one -- a resolve_user_cloud round trip plus the claim, measured at forty
+    seconds. A newer hub revision can finish its upgrade and release the lease inside
+    it; this draining revision then wins the free lease and rolls the pod BACK to its
+    own older target, a ~90s PUT and a restart, every sweep.
+    """
+    pas, _ = service_env
+    monkeypatch.setenv("K_REVISION", "consent-protocol-00060-abc")
+    registry = FakeRegistry({"uid-1": _row()})
+    backend = FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+
+    async def _claim(*, user_id, target_image):
+        # Revision 00061 finished while this one was between its read and its claim.
+        registry.rows[user_id]["backend_metadata"]["imageSetByRevision"] = (
+            "consent-protocol-00061-xyz"
+        )
+        return True
+
+    monkeypatch.setattr(registry, "claim_image_upgrade", _claim, raising=False)
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert result["skipped"] == "superseded"
+    assert backend.specs == [], "an older hub revision moved a pod a newer one had set"
+
+
+@pytest.mark.asyncio
+async def test_a_successful_upgrade_drops_the_replaced_pods_self_report(service_env) -> None:
+    """`observed` describes the pod that just stopped existing.
+
+    Kept, it leaves source_image=new beside observed.imageTag=old, and
+    describe_pod_update resolves running from `observed_tag or deployed_tag` -- so a pod
+    that just updated reports updateAvailable. An economy pod scales to zero and never
+    beats again, so nothing corrects it and the person sees a permanent update prompt
+    for an already-current agent.
+    """
+    pas, _ = service_env
+    row = _row()
+    row["backend_metadata"]["observed"] = {
+        "imageTag": "dev-395b8c959",
+        "at": "2026-09-03T00:00:00Z",
+    }
+    registry = FakeRegistry({"uid-1": row})
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=FakeUpgradingBackend()
+    )
+
+    await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+
+    assert "observed" not in registry.rows["uid-1"]["backend_metadata"], (
+        "the old pod's report outlived the pod"
+    )
+
+
+@pytest.mark.asyncio
+async def test_a_pod_that_failed_on_an_older_image_is_a_candidate_once_the_image_moves(
+    service_env,
+) -> None:
+    """The docstring's own promise, which the cooldown did not keep.
+
+    The attempts cap is scoped to `failedImage == target`; the cooldown beside it was
+    not, so a pod that failed on dev-aaa stayed skipped for the full ten minutes even
+    after an emergency dev-bbb shipped -- the marker's timestamp is recent regardless
+    of which image it refers to.
+    """
+    from datetime import datetime, timezone
+
+    pas, _ = service_env
+    stale_failure = {
+        "failedImage": SOURCE_OLD,  # NOT the target below
+        "attempts": 1,
+        "lastError": "temporary_issue",
+        "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+    }
+    registry = FakeRegistry({"uid-1": _row(marker=stale_failure)})
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=FakeUpgradingBackend()
+    )
+
+    candidates = await service.list_upgrade_candidates(current_image=SOURCE_NEW)
+    assert [r["user_id"] for r in candidates] == ["uid-1"], (
+        "a fix shipped for this pod and the cooldown for a different image hid it"
+    )

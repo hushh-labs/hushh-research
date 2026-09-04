@@ -1108,7 +1108,13 @@ class PersonalAgentProvisioningService:
                 # A newer hub already moved this pod; this process is the previous
                 # revision draining out, and its target is the past.
                 continue
-            if _attempted_recently(marker):
+            # Scoped to THIS image, like the attempts check above it. Unscoped, the
+            # docstring's promise -- "a pod that failed on an older image becomes a
+            # candidate again the moment the image moves" -- was not kept: a pod that
+            # failed on dev-aaa stayed skipped for the full cooldown even after an
+            # emergency dev-bbb shipped, because the marker's timestamp is recent
+            # regardless of which image it refers to.
+            if str(marker.get("failedImage") or "") == target and _attempted_recently(marker):
                 continue
             if _lease_is_fresh(((row or {}).get("backend_metadata") or {}).get("upgradeLease")):
                 continue
@@ -1200,6 +1206,25 @@ class PersonalAgentProvisioningService:
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
+        if set_by_newer_hub(row):
+            # Re-judged on the row AS IT IS AFTER THE CLAIM, for the same reason the
+            # cooldown is. `list_upgrade_candidates` checked this against a row read
+            # before `resolve_user_cloud` and before the lease; a newer hub revision
+            # can finish its own upgrade and release the lease inside that window,
+            # which is exactly what 0ba8c6b49 measured happening forty seconds apart.
+            # Winning the free lease then rolls the pod BACK to this draining
+            # revision's older target -- a ~90s PUT and a restart on a live person's
+            # agent, repeating every sweep.
+            await self._registry.record_image_upgrade(user_id=user_id, backend_metadata=old_meta)
+            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=superseded", hushh_id)
+            return {
+                "hushhId": hushh_id,
+                "status": "provisioned",
+                "upgraded": False,
+                "skipped": "superseded",
+                "image": previous,
+                "previousImage": previous,
+            }
         if _attempted_recently(old_meta.get("upgrade")):
             # Listed before another worker's attempt failed; do not stack a second
             # attempt on the same failure within the cooldown.
@@ -1267,6 +1292,16 @@ class PersonalAgentProvisioningService:
 
         new_meta = {**old_meta, **(handle.backend_metadata or {})}
         new_meta.pop("upgrade", None)
+        # `observed` is the OLD pod's report of what it was running, and that pod has
+        # just been replaced. Carrying it through leaves source_image=new beside
+        # observed.imageTag=old, and describe_pod_update resolves running from
+        # `observed_tag or deployed_tag` -- so a pod that just updated successfully
+        # reports updateAvailable forever. An economy pod scales to zero and its
+        # heartbeat loop never runs, so nothing corrects it: the person sees a
+        # permanent "update available" for an already-current agent. 1cd8d272a fixed
+        # the mirror case (a bodyless beat dropping a stale report); this is the same
+        # staleness arriving from the other side.
+        new_meta.pop("observed", None)
         changed = bool(new_meta.get("upgraded", True))
         # Who set it, so a draining older hub revision refuses to move it back.
         if hub_revision():

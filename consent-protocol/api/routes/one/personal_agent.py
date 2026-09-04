@@ -261,7 +261,14 @@ def describe_pod_update(row: Optional[dict], *, target_image: Optional[str] = No
         return {}
     observed = metadata.get("observed")
     observed_tag = _image_tag(observed.get("imageTag")) if isinstance(observed, dict) else None
-    deployed_tag = _image_tag(metadata.get("source_image"))
+    # Both keys, because the two tiers spell it differently and only one was read.
+    # `running_image()` documents the model: `source_image` on a user-owned pod, `image`
+    # on a hussh-hosted one -- GcpBackend writes only `image`. So every hosted pod
+    # resolved deployed_tag=None, and with no `observed` (a bodyless heartbeat deletes
+    # it) the whole block returned early: no runningImage, no updateAvailable, and no
+    # updateFailed even after the sweep burned all three attempts. The person's login
+    # surface said nothing at all while their agent silently failed to update.
+    deployed_tag = _image_tag(metadata.get("source_image") or metadata.get("image"))
     running = observed_tag or deployed_tag
     if observed_tag and deployed_tag and observed_tag != deployed_tag:
         logger.warning(
