@@ -134,12 +134,24 @@ export type VoiceDataSummaryField = {
   value: string;
 };
 
+/**
+ * A sub-group of figures within a summary card -- e.g. an asset allocation
+ * split. Kept separate from `VoiceDataSummaryField` rather than folded into
+ * one polymorphic row type, the same way `list`/`summary` are already two
+ * distinct card shapes instead of one.
+ */
+export type VoiceDataBreakdownItem = { label: string; value: string };
+export type VoiceDataBreakdown = { label: string; items: VoiceDataBreakdownItem[] };
+
 export type VoiceDataCard = {
   /** One short line above the card, naming what this illustrates. */
   heading: string;
 } & (
   | { shape: "list"; list: { items: VoiceDataListItem[] } }
-  | { shape: "summary"; summary: { fields: VoiceDataSummaryField[] } }
+  | {
+      shape: "summary";
+      summary: { fields: VoiceDataSummaryField[]; breakdowns: VoiceDataBreakdown[] };
+    }
 );
 
 export type VoiceCardRequest =
@@ -347,6 +359,61 @@ function summaryFieldsFrom(summary: Record<string, unknown>): VoiceDataSummaryFi
   return fields;
 }
 
+const MAX_BREAKDOWNS = 3;
+const MAX_BREAKDOWN_ITEMS = 8;
+
+function isFiniteNumberRecord(value: unknown): value is Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const entries = Object.entries(value as Record<string, unknown>);
+  if (entries.length === 0) return false;
+  return entries.every(([, item]) => typeof item === "number" && Number.isFinite(item));
+}
+
+/**
+ * Pull the figure sub-groups a summary carries alongside its scalar fields
+ * -- today exactly one shape exists server-side (a flat {name: number}
+ * breakdown, e.g. asset allocation). Detected generically by shape (every
+ * value in the object is a finite number) rather than by key name, so a
+ * future similarly-shaped field needs no frontend change here. Runs as its
+ * own full scan, independent of summaryFieldsFrom's early-exit cap, so a
+ * breakdown appearing after the 8th scalar key is never missed.
+ */
+function summaryBreakdownsFrom(summary: Record<string, unknown>): VoiceDataBreakdown[] {
+  const breakdowns: VoiceDataBreakdown[] = [];
+  for (const [key, raw] of Object.entries(summary)) {
+    if (breakdowns.length >= MAX_BREAKDOWNS) break;
+    if (!isFiniteNumberRecord(raw)) continue;
+    const entries = Object.entries(raw);
+    const isPercentKey = /_(pct|percent)$/i.test(key);
+    // The real producer of a `_pct`-suffixed field (asset_allocation_pct)
+    // stores fractions in [0, 1], not 0-100 -- decided once per breakdown,
+    // from every value in it, so a mix of scales within one object can't
+    // happen. A field already scaled 0-100 is left as-is.
+    const scale = isPercentKey && entries.every(([, item]) => item <= 1.5) ? 100 : 1;
+    const items = entries
+      .map(([itemKey, itemValue]) => {
+        const scaled = itemValue * scale;
+        const rounded = Math.round(scaled * 10) / 10;
+        return {
+          label: humanizeFieldLabel(itemKey),
+          value: isPercentKey ? `${rounded}%` : String(rounded),
+          sortValue: scaled,
+        };
+      })
+      .sort((a, b) => b.sortValue - a.sortValue)
+      .slice(0, MAX_BREAKDOWN_ITEMS)
+      .map(({ label, value }) => ({ label, value }));
+    if (items.length === 0) continue;
+    breakdowns.push({
+      // Redundant once every item already carries "%" -- "Asset Allocation"
+      // reads better than "Asset Allocation Pct" as a sub-heading.
+      label: humanizeFieldLabel(key).replace(/\s+(Pct|Percent)$/i, ""),
+      items,
+    });
+  }
+  return breakdowns;
+}
+
 /**
  * Turn a relay `toolTrace` envelope into a card, or nothing if there is
  * genuinely nothing worth showing. Validated the same way the disambiguation
@@ -401,13 +468,14 @@ export function parseToolTraceCard(
         ? (payload.summary as Record<string, unknown>)
         : {};
     const fields = summaryFieldsFrom(rawSummary);
-    if (fields.length === 0) return null;
+    const breakdowns = summaryBreakdownsFrom(rawSummary);
+    if (fields.length === 0 && breakdowns.length === 0) return null;
     const heading = String(payload.label ?? "").trim() || "Your info";
     return {
       kind: "data",
       heading,
       shape: "summary",
-      summary: { fields },
+      summary: { fields, breakdowns },
     };
   }
 
