@@ -41,6 +41,8 @@ final class AppUITests: XCTestCase {
         _ = try waitForSatisfiedStatus(app, route: route, timeout: 45)
         XCTAssertTrue(app.buttons["Continue with Apple"].waitForExistence(timeout: 15))
         XCTAssertFalse(app.staticTexts["Unable to verify setup progress. Please retry."].exists)
+        XCTAssertFalse(app.secureTextFields["Enter vault key"].exists)
+        XCTAssertFalse(app.secureTextFields["Enter your passphrase"].exists)
         XCUIDevice.shared.press(.home)
         app.activate()
         _ = try waitForSatisfiedStatus(app, route: route, timeout: 30)
@@ -1000,7 +1002,11 @@ final class AppUITests: XCTestCase {
         while Date() < deadline {
             if Date().timeIntervalSince(lastUnlockAttemptAt) >= 3 {
                 _ = dismissKnownModals(app: app)
-                _ = attemptVaultPassphraseUnlock(app: app)
+                // Anonymous route checks must not read reviewer credentials or
+                // attempt a Vault unlock, even if an unexpected gate appears.
+                if route.autoReviewerLogin {
+                    _ = attemptVaultPassphraseUnlock(app: app)
+                }
                 lastUnlockAttemptAt = Date()
             }
 

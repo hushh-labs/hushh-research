@@ -18,6 +18,26 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("native resumed-session privacy shield contract", () => {
+  it("never attempts a reviewer Vault unlock for anonymous native recovery", () => {
+    const uiTests = source("ios/App/AppUITests/AppUITests.swift");
+    const recovery = between(
+      uiTests,
+      "func testAccountNotFoundRecoveryReturnsToLogin",
+      "func testPublicAndAuthRoutes",
+    );
+    const statusWait = between(
+      uiTests,
+      "private func waitForSatisfiedStatus",
+      "private func waitForNativeRoute",
+    );
+    expect(recovery).toContain("autoReviewerLogin: false");
+    expect(recovery).toContain('expectedAuth: "anonymous"');
+    expect(recovery).toContain("XCTAssertFalse(app.secureTextFields");
+    expect(statusWait).toMatch(
+      /if route\.autoReviewerLogin\s*\{\s*_ = attemptVaultPassphraseUnlock\(app: app\)/,
+    );
+  });
+
   it("uses a non-secret Firebase fixture whose format permits native startup", () => {
     const workflow = source("../.github/workflows/ci.yml");
     const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
