@@ -640,6 +640,59 @@ def _resolve_named_circle(
     return resolved
 
 
+def _expand_unresolved_via_circles(
+    unresolved: list[UnresolvedPersonName[Any]],
+    candidates: list[dict[str, Any]],
+    circle_service: OneLocationCircleService,
+    user_id: str,
+) -> tuple[list[dict[str, Any]], list[UnresolvedPersonName[Any]]]:
+    """Let a share/request recipient name also be a Circle name.
+
+    ``location.share_selected`` and ``location.send_request`` resolve
+    recipients only against individual connections -- a spoken name that
+    matches no person falls through here to try the user's Circles instead.
+    A Circle match expands to its members, intersected with ``candidates``
+    (the already-eligibility-checked recipient pool ``list_verified_recipients``
+    returned) rather than the Circle's raw roster, so this can never grant
+    access to someone the existing connection/Circle-membership predicate
+    would not already have offered by name.
+
+    Only entries still unresolved after person-matching are tried here, and
+    only ``not_found`` ones -- an ``ambiguous`` person match is a real
+    person-name collision and saying the same word also names a Circle would
+    not resolve it.
+    """
+    circles: list[dict[str, Any]] | None = None
+    expanded: list[dict[str, Any]] = []
+    still_unresolved: list[UnresolvedPersonName[Any]] = []
+    seen_user_ids: set[str] = set()
+    for entry in unresolved:
+        if entry.kind != "not_found":
+            still_unresolved.append(entry)
+            continue
+        if circles is None:
+            circles = circle_service.list_circles(user_id=user_id)
+        match = match_circle_by_name(circles, entry.spoken_text, lambda c: str(c.get("name") or ""))
+        if match.match is None:
+            still_unresolved.append(entry)
+            continue
+        circle_id = str(match.match.get("id") or "")
+        detail = circle_service.get_circle(user_id=user_id, circle_id=circle_id)
+        member_ids = {str(m.get("userId") or "") for m in (detail.get("members") or [])}
+        for candidate in candidates:
+            candidate_id = str(candidate.get("userId") or "")
+            if candidate_id in member_ids and candidate_id not in seen_user_ids:
+                expanded.append(candidate)
+                seen_user_ids.add(candidate_id)
+        if not any(str(c.get("userId") or "") in member_ids for c in candidates):
+            # The Circle exists but nobody in it is an eligible recipient --
+            # same "not found" outcome a person search would have given, not
+            # a new error, since raising a Circle-specific message here would
+            # imply the Circle itself was the problem rather than who is in it.
+            still_unresolved.append(entry)
+    return expanded, still_unresolved
+
+
 def _unresolved_people_note(
     unresolved: list[UnresolvedPersonName[Any]], name_of: Callable[[Any], str], noun: str
 ) -> str:
@@ -929,6 +982,10 @@ async def _execute_backend_direct_mutation(
         candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
         name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
         resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        expanded, resolution.unresolved = _expand_unresolved_via_circles(
+            resolution.unresolved, candidates, OneLocationCircleService(), user_id
+        )
+        resolution.resolved.extend(expanded)
         if not resolution.resolved:
             ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
             if ambiguous is not None:
@@ -1016,6 +1073,10 @@ async def _execute_backend_direct_mutation(
         candidates = agent_service.list_verified_recipients(owner_user_id=user_id)
         name_of = lambda c: str(c.get("displayName") or "")  # noqa: E731
         resolution = resolve_spoken_names(candidates, raw_people, name_of)
+        expanded, resolution.unresolved = _expand_unresolved_via_circles(
+            resolution.unresolved, candidates, OneLocationCircleService(), user_id
+        )
+        resolution.resolved.extend(expanded)
         if not resolution.resolved:
             ambiguous = next((u for u in resolution.unresolved if u.kind == "ambiguous"), None)
             if ambiguous is not None:

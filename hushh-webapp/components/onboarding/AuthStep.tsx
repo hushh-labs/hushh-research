@@ -1083,7 +1083,7 @@ export function AuthStep({
               aria-hidden="true"
             >
               <span className="pointer-events-none absolute h-28 w-28 rounded-full bg-accent/20 blur-2xl" />
-              <span className="relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
+              <span className="hushh-brand-mark relative select-none text-[56px] leading-none drop-shadow-[0_6px_14px_rgba(0,0,0,0.25)]">
                 🤫
               </span>
             </div>

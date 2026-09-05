@@ -2721,7 +2721,7 @@ describe("OneLocationAgentPage", () => {
 
     fireEvent.click(
       screen.getByRole("button", {
-        name: "Select the Family Circle, 2 members",
+        name: "Select the Family Circle, 3 members",
       }),
     );
 
