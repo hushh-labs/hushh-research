@@ -24,12 +24,39 @@ IMAGE_TYPES = {
     "application/vnd.oci.image.manifest.v1+json",
     "application/vnd.docker.distribution.manifest.v2+json",
 }
+CONFIG_TYPES = {
+    "application/vnd.oci.image.config.v1+json",
+    "application/vnd.docker.container.image.v1+json",
+}
 
 
 def _digest(value: Any) -> str:
     if not isinstance(value, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", value):
         raise ValueError("Image digest must be an immutable sha256 digest")
     return value
+
+
+def _validate_descriptor(value: Any) -> None:
+    if not isinstance(value, dict):
+        raise ValueError("Image descriptor must be an object")
+    _digest(value.get("digest"))
+    size = value.get("size")
+    if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+        raise ValueError("Image descriptor size must be a nonnegative integer")
+    if not isinstance(value.get("mediaType"), str) or not value["mediaType"]:
+        raise ValueError("Image descriptor media type is missing")
+
+
+def _validate_direct_image(manifest: dict[str, Any]) -> None:
+    config = manifest.get("config")
+    _validate_descriptor(config)
+    if config["mediaType"] not in CONFIG_TYPES:
+        raise ValueError("Direct image requires an executable image config")
+    layers = manifest.get("layers")
+    if not isinstance(layers, list):
+        raise ValueError("Direct image layers must be a list")
+    for layer in layers:
+        _validate_descriptor(layer)
 
 
 def resolve_manifest(raw: bytes, expected_digest: str) -> dict[str, str]:
@@ -44,10 +71,19 @@ def resolve_manifest(raw: bytes, expected_digest: str) -> dict[str, str]:
     manifest = json.loads(raw)
     if not isinstance(manifest, dict) or manifest.get("schemaVersion") != 2:
         raise ValueError("Expected a schemaVersion 2 image manifest or index")
+    annotations = manifest.get("annotations", {})
+    if not isinstance(annotations, dict):
+        raise ValueError("Image annotations must be an object")
+    if (
+        "artifactType" in manifest
+        or annotations.get("vnd.docker.reference.type") == "attestation-manifest"
+    ):
+        raise ValueError("An artifact cannot be pinned as an executable image")
     media_type = manifest.get("mediaType")
     if not isinstance(media_type, str):
         raise ValueError("Image media type must be a string")
     if media_type in IMAGE_TYPES:
+        _validate_direct_image(manifest)
         return {"digest": expected_digest, "selection": "direct_manifest"}
     if media_type not in INDEX_TYPES:
         raise ValueError("Unsupported image media type")
@@ -58,20 +94,21 @@ def resolve_manifest(raw: bytes, expected_digest: str) -> dict[str, str]:
         raise ValueError("Image index must contain manifest descriptors")
     eligible = []
     for entry in entries:
-        platform = entry.get("platform") or {}
-        annotations = entry.get("annotations") or {}
+        platform = entry.get("platform", {})
+        annotations = entry.get("annotations", {})
         if not isinstance(platform, dict) or not isinstance(annotations, dict):
             raise ValueError("Malformed manifest platform or annotations")
         if (
             platform.get("os") == "linux"
             and platform.get("architecture") == "amd64"
             and annotations.get("vnd.docker.reference.type") != "attestation-manifest"
-            and not entry.get("artifactType")
+            and "artifactType" not in entry
         ):
             eligible.append(entry)
     if len(eligible) != 1:
         raise ValueError("Expected exactly one executable linux/amd64 manifest")
     selected = eligible[0]
+    _validate_descriptor(selected)
     if (
         not isinstance(selected.get("mediaType"), str)
         or selected["mediaType"] not in IMAGE_TYPES

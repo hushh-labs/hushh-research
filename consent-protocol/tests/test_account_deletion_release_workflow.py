@@ -106,12 +106,14 @@ def test_uat_pins_executable_manifest_instead_of_attested_index(
                 {
                     "mediaType": "application/vnd.oci.image.manifest.v1+json",
                     "digest": "sha256:" + "b" * 64,
+                    "size": 1234,
                     "platform": {"os": "unknown", "architecture": "unknown"},
                     "annotations": {"vnd.docker.reference.type": "attestation-manifest"},
                 },
                 {
                     "mediaType": "application/vnd.oci.image.manifest.v1+json",
                     "digest": child_digest,
+                    "size": 1234,
                     "platform": {"os": "linux", "architecture": architecture},
                 },
             ],

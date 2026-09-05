@@ -48,6 +48,21 @@ def _encoded(payload):
     return raw, "sha256:" + hashlib.sha256(raw).hexdigest()
 
 
+def _direct(media_type=OCI_IMAGE, **overrides):
+    config_type = (
+        "application/vnd.oci.image.config.v1+json"
+        if media_type == OCI_IMAGE
+        else "application/vnd.docker.container.image.v1+json"
+    )
+    return {
+        "schemaVersion": 2,
+        "mediaType": media_type,
+        "config": {"mediaType": config_type, "digest": CHILD_DIGEST, "size": 123},
+        "layers": [],
+        **overrides,
+    }
+
+
 @pytest.mark.parametrize("reverse", [False, True])
 @pytest.mark.parametrize(
     "index_type,image_type", [(OCI_INDEX, OCI_IMAGE), (DOCKER_INDEX, DOCKER_IMAGE)]
@@ -72,7 +87,7 @@ def test_selects_amd64_not_attestation_or_array_position(reverse, index_type, im
 
 @pytest.mark.parametrize("media_type", [OCI_IMAGE, DOCKER_IMAGE])
 def test_direct_manifest_keeps_original_digest(media_type):
-    raw, digest = _encoded({"schemaVersion": 2, "mediaType": media_type, "layers": []})
+    raw, digest = _encoded(_direct(media_type))
     assert _resolver().resolve_manifest(raw, digest) == {
         "digest": digest,
         "selection": "direct_manifest",
@@ -92,11 +107,23 @@ def test_direct_manifest_keeps_original_digest(media_type):
         _index([_descriptor(annotations={"vnd.docker.reference.type": "attestation-manifest"})]),
         _index([_descriptor(artifactType="application/vnd.in-toto+json")]),
         _index([_descriptor(platform="linux/amd64")]),
+        _index([_descriptor(annotations=[])]),
+        _index([_descriptor(platform=[])]),
         _index([None]),
         _index(None),
         {"schemaVersion": 1, "mediaType": OCI_INDEX},
         {"schemaVersion": 2, "mediaType": "unsupported"},
         {"schemaVersion": 2, "mediaType": {}},
+        {"schemaVersion": 2, "mediaType": OCI_IMAGE},
+        _direct(artifactType="application/vnd.in-toto+json"),
+        _direct(annotations={"vnd.docker.reference.type": "attestation-manifest"}),
+        _direct(annotations=[]),
+        _direct(config=None),
+        _direct(config={"mediaType": OCI_IMAGE, "digest": CHILD_DIGEST, "size": 123}),
+        _direct(layers=None),
+        _direct(layers=[None]),
+        _direct(layers=[{"mediaType": "layer", "digest": "latest", "size": 123}]),
+        _direct(layers=[{"mediaType": "layer", "digest": CHILD_DIGEST, "size": True}]),
         [],
     ],
 )
