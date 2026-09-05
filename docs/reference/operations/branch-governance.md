@@ -179,17 +179,37 @@ listed in `config/ci-governance.json` under `main.protected_pipeline_paths`:
 Privilege is deliberately nested. Each inner ring is a strict subset of the one
 outside it, and the boundaries are enforced, not informal:
 
-| Ring | Who | Authority | Source of truth |
+| Ring | Team | Authority | Source of truth |
 |---|---|---|---|
-| Merge cohort | `allowed-maintainers-to-approve` team | bypass review + queue, edit pipeline | `main.review_bypass_users` / `merge_queue_bypass_users` / `protected_pipeline_edit_users` |
-| UAT deploy cohort | same as merge cohort | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
-| Production deploy cohort | `kushaltrivedi5`, `ankitkumarsingh1702` | dispatch production deploy | `production.manual_dispatch_users` |
+| Merge cohort | `allowed-maintainers-to-approve` | bypass review + merge queue | `main` / `pr_train` `review_bypass_users` + `merge_queue_bypass_users` |
+| Pipeline editors | `pipeline-editors` | edit protected pipeline paths | `main.protected_pipeline_edit_users` |
+| Dev deploy cohort | `deploy-dev` | dispatch a dev deploy | `dev.manual_dispatch_users` |
+| UAT deploy cohort | `deploy-uat` | dispatch UAT deploy of a green `main` SHA | `uat.manual_dispatch_users` (held == merge cohort) |
+| Production deploy cohort | `deploy-production` | dispatch production deploy | `production.manual_dispatch_users` |
+
+Live membership is `config/ci-governance.json` only, never transcribed into this
+table — counts here would go stale the first time someone joined. Read the file.
+
+**Merging and deploying are separate capabilities.** Holding one has never implied
+the other, and this is the single most common source of confusion: GitHub reports
+a refused deploy as "maintainer but not admin", which points at GitHub's role
+model when what actually refused the actor was `assert-governed-actor.py` reading
+a list they were not on. When someone reports a permissions error, read the
+workflow log line — the refusal names the surface and the actor — not the role UI.
 
 Invariants enforced in CI by `verify-deployment-environment-governance.py`:
 
 - **UAT == merge cohort.** Anyone trusted to land code on `main` may validate it
   in the UAT sandbox — no more, no less. The two lists are held equal and any
   independent drift fails the check.
+- **The rings nest: production ⊆ uat ⊆ dev ⊆ merge cohort.** A more privileged
+  lane can never be held by more people than a less privileged one. Asserted by
+  `scripts/ci/test_apply_governance_teams.py`, which is pure config with no
+  network and therefore runs in the *blocking* governance lane. That placement is
+  the point: the UAT equality check above lives in the **advisory** lane, so when
+  UAT drifted to nine names against a fourteen-name merge cohort, the failure was
+  printed on every advisory run and blocked nothing for as long as it took
+  someone to read it.
 - **Production == approved dispatch cohort.** `production.manual_dispatch_users`
   must be exactly `["kushaltrivedi5", "ankitkumarsingh1702"]`; any independent
   widening or narrowing fails the check.
@@ -197,6 +217,53 @@ Invariants enforced in CI by `verify-deployment-environment-governance.py`:
   contain every name declared in its `required_environment_variables` policy.
   These are GitHub environment variables consumed through `vars.*`, not
   environment secrets. The verifier checks names only and never renders values.
+
+### Why GitHub teams mirror the config, and never the reverse
+
+Every ring above has a real GitHub team, created and kept in sync by
+`apply-governance.py` from `config/ci-governance.json`. The teams exist so people
+can be found, grouped and @-mentioned in one place. They are a **derived mirror**.
+The gate never reads them.
+
+The direction is a security property, not a preference:
+
+1. **`GITHUB_TOKEN` cannot read org membership.** The workflow `permissions:`
+   block has no `members` key — org reads are a GitHub App or PAT capability. A
+   gate that queried teams live would need a long-lived org-scoped credential
+   sitting in the production deploy path.
+2. **A live query has no safe failure mode.** It either fails closed, so a GitHub
+   org API blip blocks every production deploy, or fails open, so the gate waves
+   anyone through. Reading a committed file needs no network at all.
+3. **It would invert who can grant access.** Team membership is editable by any
+   org owner or team maintainer. `config/ci-governance.json` is editable only by
+   `protected_pipeline_edit_users`, enforced by `verify-protected-pipeline-edits.py`,
+   and only through a reviewed PR that leaves a diff in `git log`. If the gate
+   read teams live, adding someone to a team would silently grant production
+   deploy, routing straight around the control that exists to limit exactly that.
+
+So: **teams own nothing, the config owns everything, and widening access always
+costs a reviewed protected-path PR.**
+
+#### Team members are `member`, never `maintainer`
+
+`apply-governance.py` adds every managed-team member at `role=member`, and demotes
+anyone found at `maintainer` on each sync. This is load-bearing:
+`allowed-maintainers-to-approve` sits in `main`'s branch-protection `bypass_teams`,
+and a GitHub team *maintainer* can add members to their own team. At that role any
+member could hand a newcomer review bypass on `main` with no PR, no review and no
+trace in this repo — the same bypass the eight-person `protected_pipeline_edit_users`
+ring exists to prevent. The script previously created every member at
+`role=maintainer`, so this was live.
+
+Organization owners are the exception, and the sync skips them. GitHub reports an
+owner as a maintainer of every team they belong to and refuses to demote them
+there, so attempting it would make `apply-governance.py` report drift on every run
+and never converge — and a governance tool that always cries drift is one people
+learn to scroll past. It costs nothing in safety: an owner can edit branch
+protection and team membership directly, so the team role grants them nothing they
+did not already hold. The demotion therefore applies to exactly the population it
+matters for — org *members* who would otherwise gain a grant path they should not
+have.
 
 ## The bypass lane
 
@@ -263,8 +330,13 @@ cannot actually approve on `main`).
 # 1. Edit config/ci-governance.json. For a full maintainer, add the GitHub login to:
 #      main.review_bypass_users
 #      main.merge_queue_bypass_users
+#      dev.manual_dispatch_users        (held equal to the merge cohort)
 #      uat.manual_dispatch_users        (held equal to the merge cohort)
-#    Leave production.manual_dispatch_users unchanged unless the owner says otherwise.
+#    Leave production.manual_dispatch_users and protected_pipeline_edit_users
+#    unchanged unless the owner says otherwise — those are the narrow rings.
+#    Granting merge alone does NOT grant deploy: the lists are independent, and
+#    a name missing from a deploy list is refused at dispatch with no hint that
+#    the config is where to look.
 
 # 2. Push intent to GitHub (idempotent). Dry-run first, then apply:
 python3 scripts/ci/apply-governance.py

@@ -215,7 +215,7 @@ steps:
           "--min=${_CLOUD_RUN_MIN_INSTANCES}"
           "--max-instances=${_CLOUD_RUN_MAX_INSTANCES}"
           "--min-instances=0"
-          "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+          "--labels=managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
           "--set-env-vars=NEXT_PUBLIC_APP_ENV=${_APP_ENV},HUSHH_DEPLOY_ENV=${_DEPLOY_ENV},HUSHH_DEPLOY_SOURCE=${_DEPLOY_SOURCE},HUSHH_DEPLOY_SHA=${_DEPLOY_SHA},HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID},HUSSH_TECH_CLIENT_ENABLED=${_HUSHH_TECH_CLIENT_ENABLED},HUSSH_TECH_PROXY_AUDIENCE=${_HUSHH_TECH_PROXY_AUDIENCE},HUSSH_TECH_FRONTEND_TRUSTED_PROXY_HOPS=${_HUSHH_TECH_FRONTEND_TRUSTED_PROXY_HOPS},RIA_ONBOARDING_PROXY_TIMEOUT_MS=90000,MAIL_API_ENDPOINT=${_MAIL_API_ENDPOINT}"
           "--set-secrets=${secrets}"
         )

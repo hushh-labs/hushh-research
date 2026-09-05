@@ -50,6 +50,8 @@ What is in `.env` / GCP Secret Manager must match exactly what the code reads --
 | `ONE_EMAIL_WATCH_LABEL_IDS` | `hushh_mcp/services/one_email_kyc_service.py` | Optional | Comma-separated Gmail labels for watch registration. Default: `INBOX`. |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | `api/routes/one/email.py` | Yes (hosted watch renewal) | Shared maintenance token required by `POST /api/one/email/watch/renew` outside local/dev/test. Send as `X-Hushh-Maintenance-Token`. |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | `api/routes/one/email.py` | Yes (hosted renewal) | Must be `true` in UAT/production. Defaults on outside local/dev/test, including `HUSHH_DEPLOY_ENV=uat`, but hosted deploys set it explicitly. |
+| `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | `api/routes/account.py` | Yes (hosted account deletion) | Exact backend origin expected in the external cleanup scheduler's Google OIDC token. |
+| `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | `api/routes/account.py` | Yes (hosted account deletion) | Exact dedicated Cloud Scheduler service-account email allowed to drain durable Firebase cleanup intents. |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED` | `api/routes/one/gmail_information_requests.py` | Yes (hosted monitor) | Must be `true` in UAT/production. The endpoint is unauthenticated only in local/dev/test by default. |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE` | `api/routes/one/gmail_information_requests.py` | Yes (hosted monitor) | Expected Cloud Scheduler OIDC audience. Set to the backend origin used by the scheduler job. |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL` | `api/routes/one/gmail_information_requests.py` | Yes (hosted monitor) | Exact Cloud Scheduler OIDC service-account email allowed to invoke the background scan. |
@@ -344,6 +346,8 @@ Local runtime bootstrap:
 | `ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL` | No | Cloud Run env var |
 | `ONE_EMAIL_WEBHOOK_AUTH_ENABLED` | No | Cloud Run env var |
 | `ONE_EMAIL_WATCH_RENEW_TOKEN` | Yes | Secret Manager |
+| `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | No | Cloud Run env var |
+| `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | No | Cloud Run env var |
 | `ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED` | No | Cloud Run env var |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED` | No | Cloud Run env var |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE` | No | Cloud Run env var |

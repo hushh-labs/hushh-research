@@ -34,6 +34,20 @@ run_check() {
 
 ran=0
 
+# Account deletion is an auth/session boundary on every client. Keep the
+# production-code regressions and rendered recovery notice in the PR gate.
+if has_match '^(hushh-webapp/(lib/(auth/|firebase/auth-context|flows/delete-account|services/(account-service|api-service|auth-service|vault-service)|vault/vault-context)|components/(auth/|vault/|onboarding/)|app/(login/|page\.tsx)|e2e/account-session-recovery|__tests__/.*(account|session|vault))|consent-protocol/(api/(routes/account|utils/firebase_auth)|hushh_mcp/services/account|db/migrations/201_))'; then
+  run_check "account session recovery" npm run verify:account-session
+  NEXT_PUBLIC_APP_ENV="${NEXT_PUBLIC_APP_ENV:-development}" \
+  NEXT_PUBLIC_BACKEND_URL="${NEXT_PUBLIC_BACKEND_URL:-http://127.0.0.1:9}" \
+  NEXT_PUBLIC_FIREBASE_API_KEY="${NEXT_PUBLIC_FIREBASE_API_KEY:-test-api-key}" \
+  NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN="${NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:-dummy-project.firebaseapp.com}" \
+  NEXT_PUBLIC_FIREBASE_PROJECT_ID="${NEXT_PUBLIC_FIREBASE_PROJECT_ID:-dummy-project}" \
+  NEXT_PUBLIC_FIREBASE_APP_ID="${NEXT_PUBLIC_FIREBASE_APP_ID:-1:123456789:web:abcdef123456}" \
+  run_check "account session browser recovery" npm run test:account-session:browser
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
   ran=1
@@ -117,7 +131,7 @@ fi
 # People section. A change to the region resolver or the matcher is a change to
 # both screens, so both packs have to re-run -- and until this was added, a
 # change confined to `lib/contacts/` matched no pack in the repo at all.
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/services/api-service-fetch\.test\.ts|lib/services/(connections-service|api-service)\.ts|lib/capacitor/plugins/(contacts-web\.ts|__tests__/contacts-web\.test\.ts)|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
   ran=1
 fi

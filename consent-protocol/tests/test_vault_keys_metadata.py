@@ -1131,6 +1131,21 @@ def test_pre_vault_serialization_drops_retired_setup_capabilities():
     assert state["onboardingActiveCapability"] is None
 
 
+def test_pre_vault_serialization_preserves_integer_timestamps():
+    state = VaultKeysService._serialize_user_entry(
+        {
+            "user_id": "user-timestamps",
+            "first_login_at": "1710000000000",
+            "setup_state_updated_at": 1710000000001,
+            "onboarding_journey_updated_at": "not-a-timestamp",
+        }
+    )
+
+    assert state["firstLoginAt"] == 1710000000000
+    assert state["setupStateUpdatedAt"] == 1710000000001
+    assert state["onboardingJourneyUpdatedAt"] is None
+
+
 @pytest.mark.asyncio
 async def test_pre_vault_update_accepts_calendar_active_capability():
     fake = _FakeDb()

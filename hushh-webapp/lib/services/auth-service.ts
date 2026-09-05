@@ -38,6 +38,7 @@ import {
   ProviderId,
 } from "@capacitor-firebase/authentication";
 import { HushhAuth, type AuthUser } from "@/lib/capacitor";
+import { authSessionInvalidationCodeFromFirebaseError } from "@/lib/auth/session-invalidation";
 import { toast } from "sonner";
 
 export interface AuthResult {
@@ -322,6 +323,44 @@ export class AuthService {
     return expSeconds * 1000 - Date.now() > minRemainingMs;
   }
 
+  private static idTokenSubject(token: string): string | null {
+    const payload = this.decodeJwtPayload(token);
+    const subject =
+      typeof payload?.user_id === "string"
+        ? payload.user_id
+        : typeof payload?.sub === "string"
+          ? payload.sub
+          : "";
+    return subject.trim() || null;
+  }
+
+  private static idTokenBelongsToUser(
+    token: string,
+    expectedUserId: string,
+  ): boolean {
+    return this.idTokenSubject(token) === expectedUserId;
+  }
+
+  private static nativeIdentityMismatchError(expectedUserId: string): Error {
+    return Object.assign(
+      new Error("Native authentication token does not match the restored user."),
+      {
+        code: "auth/invalid-user-token",
+        userId: expectedUserId,
+      },
+    );
+  }
+
+  private static nativeRestoreTerminalError(
+    error: unknown,
+    userId: string,
+  ): Error {
+    return Object.assign(new Error("Native session is no longer valid."), {
+      cause: error,
+      userId,
+    });
+  }
+
   private static getNativeUserField(
     nativeUser: Record<string, unknown> | null | undefined,
     keys: string[],
@@ -339,25 +378,61 @@ export class AuthService {
   private static async resolveLiveNativeIdToken(
     initialToken: string,
     forceRefresh = false,
+    expectedUserId = "",
   ): Promise<string> {
+    const nativeTokenOptions = forceRefresh
+      ? { forceRefresh: true }
+      : undefined;
+    let forcedRefreshError: unknown = null;
+    let identityMismatch = Boolean(
+      expectedUserId &&
+        this.isUsableIdToken(initialToken) &&
+        !this.idTokenBelongsToUser(initialToken, expectedUserId),
+    );
     const firebaseUser = auth.currentUser;
-    if (firebaseUser) {
+    if (firebaseUser && (!expectedUserId || firebaseUser.uid === expectedUserId)) {
       try {
-        return await firebaseUser.getIdToken(forceRefresh);
+        const token = await firebaseUser.getIdToken(forceRefresh);
+        if (!expectedUserId || this.idTokenBelongsToUser(token, expectedUserId)) {
+          return token;
+        }
+        identityMismatch = true;
       } catch (error) {
+        if (
+          forceRefresh &&
+          authSessionInvalidationCodeFromFirebaseError(error) !== null
+        ) {
+          throw error;
+        }
+        if (forceRefresh) forcedRefreshError = error;
         this.debugError(
           "[AuthService] Failed to get Firebase JS token during native resolution",
           error,
         );
       }
+    } else if (firebaseUser && expectedUserId) {
+      identityMismatch = true;
     }
 
     try {
-      const result = await FirebaseAuthentication.getIdToken();
-      if (result.token && this.isUsableIdToken(result.token)) {
+      const result = await FirebaseAuthentication.getIdToken(nativeTokenOptions);
+      if (
+        result.token &&
+        this.isUsableIdToken(result.token) &&
+        (!expectedUserId ||
+          this.idTokenBelongsToUser(result.token, expectedUserId))
+      ) {
         return result.token;
       }
+      if (result.token && expectedUserId) identityMismatch = true;
     } catch (error) {
+      if (
+        forceRefresh &&
+        authSessionInvalidationCodeFromFirebaseError(error) !== null
+      ) {
+        throw error;
+      }
+      if (forceRefresh) forcedRefreshError = error;
       this.debugError(
         "[AuthService] FirebaseAuthentication token lookup failed",
         error,
@@ -365,15 +440,46 @@ export class AuthService {
     }
 
     try {
-      const result = await HushhAuth.getIdToken();
-      if (result.idToken && this.isUsableIdToken(result.idToken)) {
+      const result = await HushhAuth.getIdToken(nativeTokenOptions);
+      if (
+        result.idToken &&
+        this.isUsableIdToken(result.idToken) &&
+        (!expectedUserId ||
+          this.idTokenBelongsToUser(result.idToken, expectedUserId))
+      ) {
         return result.idToken;
       }
+      if (result.idToken && expectedUserId) identityMismatch = true;
     } catch (error) {
+      if (
+        forceRefresh &&
+        authSessionInvalidationCodeFromFirebaseError(error) !== null
+      ) {
+        throw error;
+      }
+      if (forceRefresh) forcedRefreshError = error;
       this.debugError("[AuthService] HushhAuth token lookup failed", error);
     }
 
-    return this.isUsableIdToken(initialToken) ? initialToken : "";
+    if (forceRefresh) {
+      if (identityMismatch && expectedUserId) {
+        throw this.nativeIdentityMismatchError(expectedUserId);
+      }
+      if (forcedRefreshError) throw forcedRefreshError;
+      return "";
+    }
+
+    if (
+      this.isUsableIdToken(initialToken) &&
+      (!expectedUserId ||
+        this.idTokenBelongsToUser(initialToken, expectedUserId))
+    ) {
+      return initialToken;
+    }
+    if (identityMismatch && expectedUserId) {
+      throw this.nativeIdentityMismatchError(expectedUserId);
+    }
+    return "";
   }
 
   /**
@@ -650,7 +756,7 @@ export class AuthService {
         ? nativeUser.emailVerified
         : true;
     const liveTokenProvider = async (forceRefresh = false) =>
-      this.resolveLiveNativeIdToken(idToken, forceRefresh);
+      this.resolveLiveNativeIdToken(idToken, forceRefresh, uid);
 
     return {
       uid,
@@ -1509,6 +1615,7 @@ export class AuthService {
    * Get ID token (for API calls)
    */
   static async getIdToken(forceRefresh = false): Promise<string | null> {
+    let forcedRefreshError: unknown = null;
     // Firebase token takes precedence (it's refreshed automatically)
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
@@ -1524,6 +1631,10 @@ export class AuthService {
         // path (a 401, a retry, a bounded screen) instead of hanging forever.
         return await withIdTokenTimeout(firebaseUser.getIdToken(forceRefresh));
       } catch (error) {
+        if (forceRefresh && authSessionInvalidationCodeFromFirebaseError(error) !== null) {
+          throw error;
+        }
+        if (forceRefresh) forcedRefreshError = error;
         this.debugError(
           error instanceof IdTokenTimeoutError
             ? "[AuthService] Firebase ID token refresh timed out"
@@ -1535,16 +1646,30 @@ export class AuthService {
     // Browser auth is owned exclusively by the Firebase JS SDK. Calling the
     // Capacitor plugin's web shim here turns a normal signed-out state into a
     // noisy runtime error and cannot recover a browser session.
-    if (!Capacitor.isNativePlatform()) return null;
+    if (!Capacitor.isNativePlatform()) {
+      if (forceRefresh && forcedRefreshError) throw forcedRefreshError;
+      return null;
+    }
+
+    const nativeTokenOptions = forceRefresh
+      ? { forceRefresh: true }
+      : undefined;
 
     // Prefer the shared Capacitor Firebase plugin when it owns the native
     // session. On iOS, Apple/Google sign-in may instead be restored by the
     // app-owned HushhAuth keychain plugin, so a FirebaseAuthentication runtime
     // error is not evidence that the authenticated session has no token.
     try {
-      const result = await FirebaseAuthentication.getIdToken();
+      const result = await FirebaseAuthentication.getIdToken(nativeTokenOptions);
       if (result.token) return result.token;
     } catch (error) {
+      if (
+        forceRefresh &&
+        authSessionInvalidationCodeFromFirebaseError(error) !== null
+      ) {
+        throw error;
+      }
+      if (forceRefresh) forcedRefreshError = error;
       this.debugError(
         "[AuthService] FirebaseAuthentication token lookup failed",
         error,
@@ -1552,11 +1677,20 @@ export class AuthService {
     }
 
     try {
-      const result = await HushhAuth.getIdToken();
-      return result.idToken || null;
+      const result = await HushhAuth.getIdToken(nativeTokenOptions);
+      if (result.idToken) return result.idToken;
     } catch (error) {
+      if (
+        forceRefresh &&
+        authSessionInvalidationCodeFromFirebaseError(error) !== null
+      ) {
+        throw error;
+      }
+      if (forceRefresh) forcedRefreshError = error;
       this.debugError("[AuthService] HushhAuth token lookup failed", error);
     }
+
+    if (forceRefresh && forcedRefreshError) throw forcedRefreshError;
 
     return null;
   }
@@ -1601,7 +1735,21 @@ export class AuthService {
           return null;
         }
 
-        const tokenResult = await FirebaseAuthentication.getIdToken();
+        const restoredUserId = this.getNativeUserField(
+          result.user as unknown as Record<string, unknown>,
+          ["uid", "id"],
+        );
+        let tokenResult: Awaited<
+          ReturnType<typeof FirebaseAuthentication.getIdToken>
+        >;
+        try {
+          tokenResult = await FirebaseAuthentication.getIdToken();
+        } catch (error) {
+          if (authSessionInvalidationCodeFromFirebaseError(error)) {
+            throw this.nativeRestoreTerminalError(error, restoredUserId);
+          }
+          throw error;
+        }
         const idToken = tokenResult.token || "";
         const providerId =
           (result.user as { providerId?: string | null }).providerId?.trim() ||
@@ -1612,12 +1760,22 @@ export class AuthService {
       };
 
     const restoreFromHushhAuth = async (): Promise<User | null> => {
-      const [{ user }, { idToken }] = await Promise.all([
-        HushhAuth.getCurrentUser(),
-        HushhAuth.getIdToken(),
-      ]);
+      const { user } = await HushhAuth.getCurrentUser();
       if (!user) {
         return null;
+      }
+      const restoredUserId = this.getNativeUserField(
+        user as unknown as Record<string, unknown>,
+        ["uid", "id"],
+      );
+      let idToken: string | null | undefined;
+      try {
+        ({ idToken } = await HushhAuth.getIdToken());
+      } catch (error) {
+        if (authSessionInvalidationCodeFromFirebaseError(error)) {
+          throw this.nativeRestoreTerminalError(error, restoredUserId);
+        }
+        throw error;
       }
       const restoredIdToken = this.isUsableIdToken(idToken)
         ? String(idToken)
@@ -1656,6 +1814,9 @@ export class AuthService {
 
         const restoredUser =
           (await restoreFromFirebaseAuthentication().catch((error) => {
+            if (authSessionInvalidationCodeFromFirebaseError(error)) {
+              throw error;
+            }
             this.debugError(
               "🍎 [AuthService] FirebaseAuthentication restore failed",
               error,
@@ -1663,6 +1824,9 @@ export class AuthService {
             return null;
           })) ||
           (await restoreFromHushhAuth().catch((error) => {
+            if (authSessionInvalidationCodeFromFirebaseError(error)) {
+              throw error;
+            }
             this.debugError("🍎 [AuthService] HushhAuth restore failed", error);
             return null;
           }));
@@ -1681,6 +1845,9 @@ export class AuthService {
       return null;
     } catch (error) {
       this.debugError("🍎 [AuthService] Failed to restore session", error);
+      if (authSessionInvalidationCodeFromFirebaseError(error)) {
+        throw error;
+      }
       return null;
     }
   }

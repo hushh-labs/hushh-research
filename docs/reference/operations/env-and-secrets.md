@@ -380,6 +380,8 @@ Used by:
 | `ONE_LOCATION_RETENTION_AUDIENCE` | `hushh_mcp/services/scheduler_identity.py` | Yes (hosted retention) | OIDC audience for the retention purge token. Must equal the job's `--oidc-token-audience` exactly. |
 | `ONE_LOCATION_RETENTION_TOKEN` | `api/routes/one/location.py` | Legacy, being retired | Pre-OIDC dedicated maintenance token. Accepted only while `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` is on. |
 | `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | `hushh_mcp/services/scheduler_identity.py` | Defaults on | Set to `0` once both scheduler jobs authenticate with OIDC. That is the step that actually retires the shared `X-Hushh-Maintenance-Token` header. |
+| `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | `api/routes/account.py` | Yes (hosted account deletion) | Exact backend origin expected in Google OIDC tokens for `POST /api/account/deletion-cleanup/drain`. |
+| `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | `api/routes/account.py` | Yes (hosted account deletion) | Exact dedicated Cloud Scheduler identity allowed to invoke the durable cleanup drain. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `api/routes/one/location.py` | Optional local/test override | One Location retention auth defaults on; `false` is honored only in local/test environments. |
 | `ONE_LOCATION_READ_ONLY_STATE_ENABLED` | `hushh_mcp/services/one_location_agent_service.py` | Hosted rollout gate | The service defaults to read-only state projection when this key is absent. Hosted secret generation defaults it to `false`; dev/production pin it off, and UAT may opt in only after the deploy privately verifies the canonical enabled scheduler, exact HTTPS purge URI, POST method, and a non-empty maintenance-auth header without printing its value. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `api/routes/one/location.py` | Optional non-production override | `disabled` or `uat_simulation`. Development/UAT/staging default to the simulation; production remains disabled even if misconfigured. |
@@ -495,6 +497,8 @@ Used by:
 | `ONE_LOCATION_RETENTION_AUDIENCE` | Yes (hosted retention) | No | Hosted Cloud Run env | Must match the scheduler job's `--oidc-token-audience`. |
 | `ONE_LOCATION_RETENTION_TOKEN` | Legacy, being retired | Yes | Secret Manager | Delete once `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED=0`. |
 | `HUSHH_MAINTENANCE_LEGACY_TOKEN_ENABLED` | Defaults on | No | Hosted Cloud Run env | Set `0` after both jobs are on OIDC. |
+| `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact backend-origin audience for the Google OIDC scheduler token. |
+| `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | Yes (hosted account deletion) | No | Hosted Cloud Run env | Exact dedicated scheduler service account; do not grant it project roles or reuse the runtime identity. |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | Optional local/test override | No | Local/test env only | Auth defaults on; hosted environments require `ONE_LOCATION_RETENTION_TOKEN` even if this flag is set false. |
 | `ONE_LOCATION_READ_ONLY_STATE_ENABLED` | Hosted rollout gate | No | `BACKEND_RUNTIME_CONFIG_JSON` | Service semantic default remains `true` when absent. Hosted deploys explicitly default to `false`; only UAT may opt in, and its deploy fails unless `one-location-retention-purge-uat` is enabled and targets the exact 12-hour purge endpoint. |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | Optional non-production override | No | Local/UAT Cloud Run env | Use `uat_simulation` or `disabled`; omit from production because production is hard-disabled in code. |
@@ -550,6 +554,10 @@ One mailbox production caveats:
   location job's is `ONE_LOCATION_RETENTION_TOKEN`). Until that last step the
   shared-header path is still open, which is why it is a variable rather than an
   assumption.
+- Account-deletion cleanup uses a dedicated Google OIDC scheduler identity and
+  exact backend-origin audience. Never copy a reusable token into Cloud
+  Scheduler headers or job metadata; the Scheduler service agent may mint only
+  short-lived tokens for the dedicated no-project-role service account.
 - One Email KYC connector private keys are client/vault-owned. Do not configure backend connector public, key-id, or private-key env vars for strict client-side ZK mode.
 - Strict client-side ZK KYC drafts are generated after vault unlock and must not persist server-side; production/public launch stays blocked until dev/UAT evidence proves that invariant.
 | `GOOGLE_GENAI_USE_VERTEXAI` | No | No | Local: `.env`; Prod: Cloud Run env | True for Vertex AI |

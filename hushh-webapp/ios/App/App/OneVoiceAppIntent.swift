@@ -241,6 +241,70 @@ struct OneCircleEntityQuery: EntityStringQuery {
     }
 }
 
+/// A person or a Circle -- whichever "share my location with Family" or
+/// "share my location with Sarah" turns out to name. Share/ask intents used
+/// to accept only `OneContactEntity`, so a Circle name had nowhere to
+/// resolve: Siri's own entity matching failed before the app ever ran,
+/// independent of anything the backend already knows how to do with a
+/// Circle name in the `person` slot. One merged query over both pools is
+/// what lets Siri's picker (and free-speech matching) offer either.
+@available(iOS 16.0, *)
+struct OneShareRecipientEntity: AppEntity, Identifiable, Hashable {
+    enum Kind: String, Hashable {
+        case contact
+        case circle
+    }
+
+    let id: String
+    let name: String
+    let kind: Kind
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Agent One Recipient"
+    static let defaultQuery = OneShareRecipientEntityQuery()
+
+    var displayRepresentation: DisplayRepresentation {
+        switch kind {
+        case .contact:
+            return DisplayRepresentation(title: "\(name)")
+        case .circle:
+            return DisplayRepresentation(title: "\(name)", subtitle: "Circle")
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+struct OneShareRecipientEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [OneShareRecipientEntity.ID]) async throws -> [OneShareRecipientEntity] {
+        let requested = Set(identifiers)
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts()
+            .filter { requested.contains($0.id) }
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles()
+            .filter { requested.contains($0.id) }
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+
+    func entities(matching string: String) async throws -> [OneShareRecipientEntity] {
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts(matching: string)
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles(matching: string)
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+
+    func suggestedEntities() async throws -> [OneShareRecipientEntity] {
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts()
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles()
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+}
+
 @available(iOS 16.0, *)
 enum OneLocationDuration: String, AppEnum {
     case fifteenMinutes = "0.25"
@@ -418,7 +482,7 @@ struct TalkToHusshOneIntent: AppIntent {
 struct ShareLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Share Location"
     static let description = IntentDescription(
-        "Share your live location with an existing Agent One connection."
+        "Share your live location with an existing Agent One connection or Circle."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -427,8 +491,8 @@ struct ShareLocationWithOneIntent: AppIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(title: "Person")
-    var recipient: OneContactEntity
+    @Parameter(title: "Person or Circle")
+    var recipient: OneShareRecipientEntity
 
     @Parameter(title: "Duration")
     var duration: OneLocationDuration
@@ -454,7 +518,7 @@ struct ShareLocationWithOneIntent: AppIntent {
 struct AskForLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask for Location"
     static let description = IntentDescription(
-        "Ask an existing Agent One connection to share their location."
+        "Ask an existing Agent One connection or Circle to share their location."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -463,8 +527,8 @@ struct AskForLocationWithOneIntent: AppIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(title: "Person")
-    var person: OneContactEntity
+    @Parameter(title: "Person or Circle")
+    var person: OneShareRecipientEntity
 
     @Parameter(title: "Duration")
     var duration: OneLocationDuration

@@ -35,7 +35,7 @@ export function BrandMark({
         className,
       )}
     >
-      <span className="leading-none">{label}</span>
+      <span className="hushh-brand-mark leading-none">{label}</span>
     </div>
   );
 }

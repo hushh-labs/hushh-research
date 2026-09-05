@@ -4298,17 +4298,42 @@ class OneLocationCircleService:
         try:
             result = self._db.execute_raw(
                 """
-                UPDATE one_location_circle_member_invites
+                UPDATE one_location_circle_member_invites invite
                 SET status = 'declined', responded_at = NOW(), updated_at = NOW()
-                WHERE id = CAST(:invite_id AS UUID)
-                  AND invitee_user_id = :user_id
-                  AND status = 'pending'
-                  AND expires_at > NOW()
-                RETURNING id
+                FROM one_location_circles circle
+                WHERE invite.id = CAST(:invite_id AS UUID)
+                  AND invite.invitee_user_id = :user_id
+                  AND invite.status = 'pending'
+                  AND invite.expires_at > NOW()
+                  AND circle.id = invite.circle_id
+                RETURNING invite.id, invite.circle_id, invite.inviter_user_id,
+                          circle.name AS circle_name
                 """,
                 {"invite_id": cleaned_invite_id, "user_id": user_id},
             )
-            if result.data or []:
+            declined_row = next(iter(result.data or []), None)
+            if declined_row:
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_member_invite_declined_push,
+                    )
+                    from hushh_mcp.services.requester_identity import (
+                        resolve_requester_label,
+                    )
+
+                    send_circle_member_invite_declined_push(
+                        inviter_user_id=str(declined_row.get("inviter_user_id") or ""),
+                        invitee_user_id=user_id,
+                        invitee_display_name=resolve_requester_label(user_id),
+                        circle_id=str(declined_row.get("circle_id") or ""),
+                        circle_name=str(declined_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_invite_declined_failed invite_id=%s",
+                        cleaned_invite_id,
+                    )
                 return self.get_member_invite(user_id=user_id, invite_id=cleaned_invite_id)
             existing = self._db.execute_raw(
                 """
@@ -4357,14 +4382,32 @@ class OneLocationCircleService:
                   )
                   AND circle.status = 'active'
                   AND invite.status = 'pending'
-                RETURNING invite.id
+                RETURNING invite.id, invite.circle_id, invite.invitee_user_id,
+                          circle.name AS circle_name
                 """,
                 {
                     "invite_id": cleaned_invite_id,
                     "actor_user_id": actor_user_id,
                 },
             )
-            if result.data or []:
+            cancelled_row = next(iter(result.data or []), None)
+            if cancelled_row:
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_member_invite_cancelled_push,
+                    )
+
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=str(cancelled_row.get("invitee_user_id") or ""),
+                        circle_id=str(cancelled_row.get("circle_id") or ""),
+                        circle_name=str(cancelled_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_invite_cancelled_failed invite_id=%s",
+                        cleaned_invite_id,
+                    )
                 return True
             existing = self._db.execute_raw(
                 """
@@ -4729,7 +4772,7 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT owner_user_id, system_kind
+                            SELECT owner_user_id, system_kind, name
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -4852,6 +4895,36 @@ class OneLocationCircleService:
                 self._cleanup_ineligible_sms_contacts(
                     conn,
                     user_id=target_user_id,
+                )
+            try:
+                circle_name = str(circle_row.get("name") or "")
+                from hushh_mcp.services.push_notifications import (
+                    send_circle_member_left_push,
+                    send_circle_member_removed_push,
+                )
+                from hushh_mcp.services.requester_identity import (
+                    resolve_requester_label,
+                )
+
+                if status == "removed":
+                    send_circle_member_removed_push(
+                        member_user_id=target_user_id,
+                        circle_id=cleaned_circle_id,
+                        circle_name=circle_name,
+                    )
+                elif status == "left":
+                    send_circle_member_left_push(
+                        owner_user_id=owner_user_id,
+                        member_user_id=target_user_id,
+                        member_display_name=resolve_requester_label(target_user_id),
+                        circle_id=cleaned_circle_id,
+                        circle_name=circle_name,
+                    )
+            except Exception:
+                logger.exception(
+                    "circle.notify_end_membership_failed circle_id=%s status=%s",
+                    cleaned_circle_id,
+                    status,
                 )
         except OneLocationCircleError:
             raise

@@ -1,7 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
 
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -18,16 +24,24 @@ const {
   getCachedBootstrapStateMock,
   isPersistentSetupResolvedMock,
   isOnboardingAdmissionExemptRouteMock,
-} = vi.hoisted(
-  () => ({
-    push: vi.fn(),
-    replace: vi.fn(),
-    bootstrapStateMock: vi.fn(),
-    getCachedBootstrapStateMock: vi.fn(),
-    isPersistentSetupResolvedMock: vi.fn(),
-    isOnboardingAdmissionExemptRouteMock: vi.fn(),
-  }),
-);
+  authState,
+  retrySessionVerification,
+  signOut,
+} = vi.hoisted(() => ({
+  push: vi.fn(),
+  replace: vi.fn(),
+  bootstrapStateMock: vi.fn(),
+  getCachedBootstrapStateMock: vi.fn(),
+  isPersistentSetupResolvedMock: vi.fn(),
+  isOnboardingAdmissionExemptRouteMock: vi.fn(),
+  authState: {
+    user: { uid: "journey-user" } as { uid: string } | null,
+    loading: false,
+    sessionVerificationRequired: false,
+  },
+  retrySessionVerification: vi.fn(),
+  signOut: vi.fn(),
+}));
 
 let pathnameValue = "/one/setup";
 
@@ -41,7 +55,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useAuth: () => ({ user: { uid: "journey-user" }, loading: false }),
+  useAuth: () => ({
+    ...authState,
+    retrySessionVerification,
+    signOut,
+  }),
 }));
 
 vi.mock("@/components/app-ui/hushh-loader", () => ({
@@ -139,6 +157,11 @@ describe("OnboardingJourneyGuard", () => {
     isPersistentSetupResolvedMock.mockReturnValue(false);
     isOnboardingAdmissionExemptRouteMock.mockReset();
     isOnboardingAdmissionExemptRouteMock.mockReturnValue(false);
+    authState.user = { uid: "journey-user" };
+    authState.loading = false;
+    authState.sessionVerificationRequired = false;
+    retrySessionVerification.mockReset();
+    signOut.mockReset();
     pathnameValue = "/one/setup";
     window.history.replaceState(null, "", "/one/setup");
     clearSetupIntent();
@@ -358,7 +381,6 @@ describe("OnboardingJourneyGuard", () => {
     expect(replace).not.toHaveBeenCalled();
   });
 
-
   it("admits the canonical setup hub even when setup is incomplete", async () => {
     pathnameValue = "/one/setup";
     bootstrapStateMock.mockResolvedValue(incompleteSetupState());
@@ -455,11 +477,11 @@ describe("OnboardingJourneyGuard", () => {
       await vi.advanceTimersByTimeAsync(300);
     });
 
-    expect(
-      screen.getByText("Unable to verify setup progress. Please retry."),
-    ).toBeTruthy();
-    fireEvent.click(screen.getByText("Open setup"));
-    expect(push).toHaveBeenCalledWith("/one/setup?return_to=%2Fone");
+    expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+    expect(screen.queryByText(/unable to verify setup progress/i)).toBeNull();
+    fireEvent.click(screen.getByText("Sign out"));
+    expect(signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
+    fireEvent.click(screen.getByText("Try again"));
     view.unmount();
     vi.useRealTimers();
   });
@@ -513,7 +535,9 @@ describe("OnboardingJourneyGuard", () => {
     });
 
     expect(screen.getByText("one home")).toBeTruthy();
-    expect(screen.queryByText("Unable to open setup. Please retry.")).toBeNull();
+    expect(
+      screen.queryByText("Unable to open setup. Please retry."),
+    ).toBeNull();
     view.unmount();
     vi.useRealTimers();
   });
@@ -537,10 +561,11 @@ describe("OnboardingJourneyGuard", () => {
     await act(async () => {
       vi.advanceTimersByTime(3600);
     });
-    expect(screen.getByText("Unable to open setup. Please retry.")).toBeTruthy();
+    expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+    expect(screen.queryByText(/unable to open setup/i)).toBeNull();
     expect(replace).toHaveBeenCalledTimes(2);
 
-    fireEvent.click(screen.getByText("Retry"));
+    fireEvent.click(screen.getByText("Try again"));
     await act(async () => {
       await Promise.resolve();
     });
@@ -548,6 +573,26 @@ describe("OnboardingJourneyGuard", () => {
 
     view.unmount();
     vi.useRealTimers();
+  });
+
+  it("holds private routes behind app-wide session verification recovery", () => {
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", pathnameValue);
+    authState.sessionVerificationRequired = true;
+
+    render(
+      <OnboardingJourneyGuard>
+        <div>private account information</div>
+      </OnboardingJourneyGuard>,
+    );
+
+    expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+    expect(screen.queryByText("private account information")).toBeNull();
+    expect(bootstrapStateMock).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText("Try again"));
+    expect(retrySessionVerification).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Sign out"));
+    expect(signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("keeps setup recovery inside the App Router", () => {

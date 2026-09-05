@@ -5,6 +5,10 @@ import { Check, Loader2, RefreshCw, Send, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
 
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
+import {
+  TAKEOVER_OVERLAY_Z_CLASSNAME,
+  TAKEOVER_SURFACE_Z_CLASSNAME,
+} from "@/components/one-location/onboarding/save-location-sheet-layout";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +20,7 @@ import {
 } from "@/components/ui/sheet";
 import type { OneLocationContactSignalResult } from "@/lib/one-location/contact-signals";
 import { CONTACT_SYNC_MAX_LOOKUPS } from "@/lib/marketplace/contact-matching";
+import { cn } from "@/lib/utils";
 
 const MATCH_PAGE_SIZE = 100;
 
@@ -46,6 +51,7 @@ export function ContactSyncResultsSheet({
   onSyncAgain,
   onInvite,
   onRequestConnection,
+  takeover = false,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -54,6 +60,8 @@ export function ContactSyncResultsSheet({
   onSyncAgain: () => void | Promise<void>;
   onInvite: () => void | Promise<void>;
   onRequestConnection: (userId: string) => Promise<void>;
+  /** Use the existing Location onboarding layer for its nested results. */
+  takeover?: boolean;
 }) {
   const [requestingUserId, setRequestingUserId] = useState<string | null>(null);
   const [requestedUserIds, setRequestedUserIds] = useState<Set<string>>(
@@ -84,11 +92,15 @@ export function ContactSyncResultsSheet({
     result.uncheckedContactCount === result.lookupLimitedContactCount;
 
   return (
-    <Sheet open={open} onOpenChange={onOpenChange}>
+    <Sheet modal={takeover} open={open} onOpenChange={onOpenChange}>
       <SheetContent
         side="bottom"
         dragDismiss={false}
-        className="mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6"
+        overlayClassName={takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : undefined}
+        className={cn(
+          "mx-auto flex max-h-[calc(88dvh-var(--kb-height,0px))] w-full max-w-2xl flex-col rounded-t-[24px] px-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:px-6",
+          takeover && TAKEOVER_SURFACE_Z_CLASSNAME,
+        )}
       >
         <SheetHeader className="text-left">
           <SheetTitle>Contact sync results</SheetTitle>
@@ -122,6 +134,13 @@ export function ContactSyncResultsSheet({
         result.unknownContactCount ||
         result.uncheckableContactCount ? (
           <div className="mt-3 rounded-2xl border border-border/70 bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
+            {result.partial &&
+            !result.partialFailureMessage &&
+            !result.unknownContactCount &&
+            !result.uncheckedContactCount &&
+            !result.lookupLimitExceeded ? (
+              <p>Only part of your contact list was checked.</p>
+            ) : null}
             {result.partialFailureMessage ? (
               <p className="flex items-start gap-2 text-foreground">
                 <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
@@ -234,9 +253,9 @@ export function ContactSyncResultsSheet({
             </ul>
           ) : (
             <div className="rounded-2xl bg-muted/35 px-4 py-6 text-center text-sm text-muted-foreground">
-              No eligible contacts matched. New matches require a verified
-              phone and contact matching enabled. Existing connections may
-              still appear.
+              No eligible contacts matched. ONE users need an exact verified
+              phone match and must remain visible in the Connect directory.
+              Explicit opt-outs and previous disconnects stay protected.
             </div>
           )}
           {hiddenMatchCount ? (

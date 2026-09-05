@@ -394,6 +394,7 @@ export function VaultFlow({
         vaultStatePromise.catch(() => undefined);
 
         const hasVault = await VaultService.checkVault(user.uid);
+        if (cancelled) return;
         if (!hasVault) {
           if (!allowVaultCreation) {
             setStep("setup_required");
@@ -413,6 +414,7 @@ export function VaultFlow({
         try {
           setUnlockHint(null);
           const vaultData = await vaultStatePromise;
+          if (cancelled) return;
           const preferPassphraseForAutomation =
             shouldSkipGeneratedVaultUnlockForAutomation();
           const primaryWrapper = VaultService.getPrimaryWrapper(vaultData);
@@ -460,14 +462,13 @@ export function VaultFlow({
             setUnlockWithPassphraseFallback(false);
           }
         } catch (metadataError) {
-          console.warn("Vault mode detection failed, defaulting to passphrase:", metadataError);
-          setVaultMode("passphrase");
-          setAvailableGeneratedMethod(null);
-          setUnlockWithPassphraseFallback(false);
-          setUnlockHint(null);
+          // A failed metadata read is not evidence of a passphrase Vault.
+          // In particular, terminal account errors must never select unlock.
+          throw metadataError;
         }
         setStep("unlock");
       } catch (err) {
+        if (cancelled) return;
         // A Firebase session still restoring is not a Vault failure -- it is
         // evidence we asked before a token existed. Show a transient
         // "restoring" state and retry a bounded number of times instead of
@@ -1047,6 +1048,7 @@ export function VaultFlow({
               >
                 Try again
               </Button>
+              {signOutEscape}
             </div>
           </div>
         </Card>

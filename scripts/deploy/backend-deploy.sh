@@ -29,6 +29,12 @@
 
 set -euo pipefail
 
+# Image selection travels together to remain within Cloud Build's env-entry cap.
+IFS='|' read -r _SKIP_IMAGE_BUILD _IMAGE_REFERENCE _CLOUD_RUN_TAG _image_extra <<< "${_IMAGE_SETTINGS:?missing image settings}"
+if [[ "${_SKIP_IMAGE_BUILD}" != "true" && "${_SKIP_IMAGE_BUILD}" != "false" ]] || [[ -n "${_image_extra}" ]]; then
+  echo "Invalid image settings." >&2; exit 1
+fi
+
 # The Cloud Run capacity knobs arrive packed in one env entry (Cloud Build caps a
 # step at 100 env entries; see deploy/backend.cloudbuild.yaml). Unpack them into
 # the _CLOUD_RUN_* names the rest of this script reads, and refuse a missing key
@@ -254,6 +260,8 @@ append_optional_env() {
     env_vars+=("${env_name}=${env_value}")
   fi
 }
+append_optional_env "ACCOUNT_DELETION_CLEANUP_AUDIENCE" "${_ACCOUNT_DELETION_CLEANUP_AUDIENCE}"
+append_optional_env "ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL" "${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
 append_optional_env "ONE_EMAIL_ADDRESS" "${_ONE_EMAIL_ADDRESS}"
 append_optional_env "ONE_EMAIL_DELEGATED_USER" "${_ONE_EMAIL_DELEGATED_USER}"
 append_optional_env "ONE_EMAIL_PUBSUB_TOPIC" "${_ONE_EMAIL_PUBSUB_TOPIC}"
@@ -686,7 +694,7 @@ append_optional_secret "${dev_pod_key_master_secret}" "HUSSH_POD_KEY_MASTER"
 # Join with '|' (not ',') so env VALUES may themselves contain commas.
 # Paired with gcloud's alternate-delimiter syntax on --set-env-vars below.
 env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
-deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
 
 # Timeout 3600s: WebSocket voice sessions (/api/one/adk/live) are
 # long-lived HTTP requests on Cloud Run; the previous 300s hard-killed
@@ -695,9 +703,18 @@ deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-
 # ticket, and cross-instance nonce single-use is Postgres-backed
 # (migration 084). Billing note: instances with open WebSockets stay
 # active for the connection's lifetime.
+image_reference="${_IMAGE_REFERENCE}"
+if [[ -z "${image_reference}" ]]; then
+  image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+fi
+if [[ "${_SKIP_IMAGE_BUILD}" == "true" && "${image_reference}" != *"@sha256:"* ]]; then
+  echo "Prebuilt backend deploy requires an immutable sha256 image digest." >&2
+  exit 1
+fi
+
 cmd=(
   gcloud run deploy "${_BACKEND_SERVICE}"
-  "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+  "--image=${image_reference}"
   "--region=${_REGION}"
   "--platform=managed"
   "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
@@ -767,6 +784,9 @@ fi
 
 if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
   cmd+=("--no-traffic")
+  if [[ -n "${_CLOUD_RUN_TAG}" ]]; then
+    cmd+=("--tag=${_CLOUD_RUN_TAG}")
+  fi
 fi
 
 if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then

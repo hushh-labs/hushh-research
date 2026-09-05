@@ -11,7 +11,7 @@ Routes:
     GET /api/account/email-aliases - List verified/pending account email aliases
     POST /api/account/email-aliases/verification/start - Start alias verification
     POST /api/account/email-aliases/verification/confirm - Confirm alias verification
-    DELETE /api/account/delete - Delete account and all data
+    DELETE /api/account/delete - Delete account and user-owned data
     GET /api/account/export - Export encrypted account data bundle
 
 Security:
@@ -19,6 +19,7 @@ Security:
     Email aliases, delete, and export require VAULT_OWNER token.
 """
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -27,15 +28,32 @@ import os
 import re
 import secrets
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
-from fastapi import APIRouter, Body, Depends, Header, HTTPException
+from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
+from google.auth.exceptions import TransportError
+from google.auth.transport.requests import Request as GoogleAuthRequest
+from google.oauth2 import id_token as google_id_token
 from pydantic import BaseModel, Field, ValidationInfo, field_validator
 
-from api.middleware import require_firebase_auth, require_vault_owner_token
+from api.middleware import (
+    require_firebase_auth,
+    require_vault_owner_token,
+)
 from api.utils.firebase_admin import get_firebase_auth_app
-from hushh_mcp.services.account_service import AccountService
+from api.utils.firebase_auth import verify_firebase_bearer
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionLifecycleService,
+    CleanupIntentKind,
+    account_deletion_phone_digest,
+    drain_account_deletion_cleanup_intents,
+)
+from hushh_mcp.services.account_service import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+    AccountService,
+)
 from hushh_mcp.services.actor_identity_service import (
     ActorIdentityAliasError,
     ActorIdentityService,
@@ -49,6 +67,164 @@ from hushh_mcp.services.trusted_device_service import (
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/account", tags=["Account"])
+
+_FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS = 3.0
+_CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS = 5.0
+_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS = 9.0
+_CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS = 4.0
+_CLEANUP_OIDC_VERIFY_TIMEOUT_SECONDS = 5.0
+
+
+def _verify_account_deletion_cleanup_oidc_token(token: str, audience: str) -> dict[str, Any]:
+    """Verify Google OIDC with a hard timeout on the certificate fetch."""
+    google_request = GoogleAuthRequest()
+
+    def _bounded_google_request(*args, **kwargs):
+        kwargs["timeout"] = _CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS
+        return google_request(*args, **kwargs)
+
+    return cast(
+        dict[str, Any],
+        google_id_token.verify_oauth2_token(token, _bounded_google_request, audience),
+    )
+
+
+async def _require_account_deletion_cleanup_auth(request: Request) -> None:
+    """Authenticate the external durable cleanup scheduler with Google OIDC."""
+    audience = str(os.getenv("ACCOUNT_DELETION_CLEANUP_AUDIENCE") or "").strip()
+    service_account = (
+        str(os.getenv("ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL") or "").strip().lower()
+    )
+    if not audience or not service_account:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_OIDC_MISSING",
+                "message": "Account deletion cleanup is not configured.",
+            },
+        )
+
+    authorization = str(request.headers.get("authorization") or "").strip()
+    token = authorization.removeprefix("Bearer ").strip()
+    if not authorization.startswith("Bearer ") or not token or len(token) > 8192:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_UNAUTHORIZED",
+                "message": "Account deletion cleanup is not authorized.",
+            },
+        )
+
+    try:
+        claims = await asyncio.wait_for(
+            run_in_threadpool(
+                _verify_account_deletion_cleanup_oidc_token,
+                token,
+                audience,
+            ),
+            timeout=_CLEANUP_OIDC_VERIFY_TIMEOUT_SECONDS,
+        )
+    except (TimeoutError, TransportError):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_OIDC_UNAVAILABLE",
+                "message": "Account deletion cleanup authentication is temporarily unavailable.",
+            },
+            headers={"Retry-After": "5"},
+        ) from None
+    except Exception:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_UNAUTHORIZED",
+                "message": "Account deletion cleanup is not authorized.",
+            },
+        ) from None
+
+    email = str(claims.get("email") or "").strip().lower()
+    if email != service_account or claims.get("email_verified") is not True:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_UNAUTHORIZED",
+                "message": "Account deletion cleanup is not authorized.",
+            },
+        )
+
+
+@router.post("/deletion-cleanup/drain")
+async def drain_account_deletion_cleanup(
+    response: Response,
+    limit: int = Query(default=25, ge=1, le=100),
+    _authorized: None = Depends(_require_account_deletion_cleanup_auth),
+):
+    """Bounded Cloud Scheduler drain for durable Firebase cleanup intents."""
+    response.headers["Cache-Control"] = "private, no-store"
+    try:
+        settled = await drain_account_deletion_cleanup_intents(limit=limit)
+    except Exception as exc:
+        logger.exception(
+            "account_deletion.cleanup_scheduler_failed error=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "ACCOUNT_DELETION_CLEANUP_UNAVAILABLE",
+                "message": "Account deletion cleanup is temporarily unavailable.",
+            },
+        ) from None
+    logger.info(
+        "account_deletion.cleanup_scheduler_completed settled=%s limit=%s",
+        settled,
+        limit,
+    )
+    return {"success": True, "settled": settled, "limit": limit}
+
+
+async def _require_session_status_auth(
+    authorization: str | None = Header(None, description="Bearer token with Firebase ID token"),
+) -> str:
+    try:
+        # This lifecycle probe keeps the global revoked/disabled-token
+        # guarantee explicit and adds an endpoint-level request budget. The
+        # shared verifier deduplicates and bounds the remote Firebase lookup.
+        return await asyncio.wait_for(
+            run_in_threadpool(
+                verify_firebase_bearer,
+                authorization,
+                check_revoked=True,
+            ),
+            timeout=_FIREBASE_REVOCATION_CHECK_TIMEOUT_SECONDS,
+        )
+    except HTTPException as exc:
+        headers = dict(exc.headers or {})
+        headers["Cache-Control"] = "private, no-store"
+        raise HTTPException(
+            status_code=exc.status_code,
+            detail=exc.detail,
+            headers=headers,
+        ) from None
+    except TimeoutError:
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
+                "message": "Unable to verify account status. Please retry.",
+            },
+            headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+        ) from None
+
+
+@router.get("/session-status")
+async def get_account_session_status(
+    response: Response,
+    _firebase_uid: str = Depends(_require_session_status_auth),
+):
+    """Read-only liveness probe after the auth dependency's lifecycle check."""
+    response.headers["Cache-Control"] = "private, no-store"
+    return {"active": True}
 
 
 class TrustedDeviceAuthorizationRequest(BaseModel):
@@ -944,7 +1120,11 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
 
         firebase_app = get_firebase_auth_app()
         decoded = await run_in_threadpool(
-            lambda: firebase_auth.verify_id_token(normalized_token, app=firebase_app)
+            lambda: firebase_auth.verify_id_token(
+                normalized_token,
+                app=firebase_app,
+                check_revoked=True,
+            )
         )
     except Exception as exc:
         logger.info("Phone claim token verification failed: %s", type(exc).__name__)
@@ -986,28 +1166,43 @@ async def _verify_phone_claim_id_token(raw_token: str) -> tuple[str, str | None]
     return phone_number, phone_session_uid
 
 
-async def _delete_firebase_auth_user(user_id: str) -> str:
+async def _delete_firebase_auth_user(
+    user_id: str,
+    *,
+    intent_kind: CleanupIntentKind = "full_account",
+    expected_phone_digest: str | None = None,
+) -> str:
     normalized_user_id = str(user_id or "").strip()
     if not normalized_user_id:
         return "skipped"
-
+    lifecycle = AccountDeletionLifecycleService()
+    cleanup_attempt = await lifecycle.delete_or_quarantine_firebase_identity(
+        normalized_user_id,
+        intent_kind=intent_kind,
+        expected_phone_digest=expected_phone_digest,
+    )
     try:
-        from firebase_admin import auth as firebase_auth
-
-        firebase_app = get_firebase_auth_app()
-        await run_in_threadpool(
-            lambda: firebase_auth.delete_user(normalized_user_id, app=firebase_app)
+        updated = await asyncio.wait_for(
+            run_in_threadpool(
+                lifecycle.record_cleanup_outcome,
+                user_id=normalized_user_id,
+                attempt=cleanup_attempt,
+                intent_kind=intent_kind,
+                expected_phone_digest=expected_phone_digest,
+            ),
+            timeout=_CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS,
         )
-        return "deleted"
+        if not updated:
+            logger.info("account_deletion.cleanup_intent_settlement_stale")
     except Exception as exc:
-        if exc.__class__.__name__ == "UserNotFoundError":
-            return "not_found"
-        logger.warning(
-            "Firebase Auth user deletion failed for deleted account user=%s error=%s",
-            normalized_user_id,
+        # The durable pending intent was committed atomically with erasure. If
+        # settlement fails, the worker will reclaim it; never turn a completed
+        # privacy deletion into a retryable client operation.
+        logger.exception(
+            "account_deletion.cleanup_intent_settlement_deferred error=%s",
             type(exc).__name__,
         )
-        return "failed"
+    return cast(str, cleanup_attempt.outcome)
 
 
 _SUBSTRATE_TOMBSTONE_STATUS = "substrate_torn_down"
@@ -1376,12 +1571,13 @@ def _is_safe_phone_only_firebase_user(user_record: Any, expected_phone: str) -> 
     return not provider_ids or provider_ids.issubset({"phone"})
 
 
-async def _delete_safe_phone_only_firebase_user(
+async def _prepare_safe_phone_session_cleanup_intent(
     *,
     uid: str | None,
     phone_number: str | None,
     protected_uid: str | None = None,
 ) -> str:
+    """Persist cleanup for the exact verified UID; never infer it by phone."""
     normalized_uid = str(uid or "").strip()
     normalized_phone = str(phone_number or "").strip()
     normalized_protected_uid = str(protected_uid or "").strip()
@@ -1394,57 +1590,30 @@ async def _delete_safe_phone_only_firebase_user(
         from firebase_admin import auth as firebase_auth
 
         firebase_app = get_firebase_auth_app()
-        user_record = await run_in_threadpool(
-            lambda: firebase_auth.get_user(normalized_uid, app=firebase_app)
+        user_record = await asyncio.wait_for(
+            run_in_threadpool(lambda: firebase_auth.get_user(normalized_uid, app=firebase_app)),
+            timeout=_FIREBASE_PHONE_LOOKUP_TIMEOUT_SECONDS,
         )
         if not _is_safe_phone_only_firebase_user(user_record, normalized_phone):
             return "not_phone_only"
-        await run_in_threadpool(lambda: firebase_auth.delete_user(normalized_uid, app=firebase_app))
-        return "deleted"
+        expected_phone_digest = account_deletion_phone_digest(normalized_phone)
+        cleanup_intent_persisted = await asyncio.wait_for(
+            run_in_threadpool(
+                AccountDeletionLifecycleService.record_pending_if_account_state_absent,
+                user_id=normalized_uid,
+                expected_phone_digest=expected_phone_digest,
+            ),
+            timeout=_CLEANUP_INTENT_SETTLEMENT_TIMEOUT_SECONDS,
+        )
+        return "pending" if cleanup_intent_persisted else "protected_existing_account"
     except Exception as exc:
         if exc.__class__.__name__ == "UserNotFoundError":
             return "not_found"
         logger.warning(
-            "Safe phone-only Firebase user cleanup failed uid=%s error=%s",
-            normalized_uid,
+            "Safe phone-session cleanup intent failed error=%s",
             type(exc).__name__,
         )
-        return "failed"
-
-
-async def _delete_safe_phone_only_firebase_user_by_phone(
-    *,
-    phone_number: str | None,
-    protected_uid: str | None = None,
-) -> str:
-    normalized_phone = str(phone_number or "").strip()
-    normalized_protected_uid = str(protected_uid or "").strip()
-    if not normalized_phone:
-        return "skipped"
-
-    try:
-        from firebase_admin import auth as firebase_auth
-
-        firebase_app = get_firebase_auth_app()
-        user_record = await run_in_threadpool(
-            lambda: firebase_auth.get_user_by_phone_number(normalized_phone, app=firebase_app)
-        )
-        uid = str(getattr(user_record, "uid", "") or "").strip()
-        if normalized_protected_uid and uid == normalized_protected_uid:
-            return "protected_primary_uid"
-        if not _is_safe_phone_only_firebase_user(user_record, normalized_phone):
-            return "not_phone_only"
-        await run_in_threadpool(lambda: firebase_auth.delete_user(uid, app=firebase_app))
-        return "deleted"
-    except Exception as exc:
-        if exc.__class__.__name__ == "UserNotFoundError":
-            return "not_found"
-        logger.warning(
-            "Safe phone-only Firebase user cleanup by phone failed phone_present=%s error=%s",
-            bool(normalized_phone),
-            type(exc).__name__,
-        )
-        return "failed"
+        return "unavailable"
 
 
 @router.get("/email-aliases")
@@ -1497,6 +1666,31 @@ async def claim_account_phone(
 ):
     """Persist a Firebase phone-auth session as the app-level verified phone claim."""
     phone_number, phone_session_uid = await _verify_phone_claim_id_token(payload.phone_id_token)
+    phone_session_cleanup = await _prepare_safe_phone_session_cleanup_intent(
+        uid=phone_session_uid,
+        phone_number=phone_number,
+        protected_uid=firebase_uid,
+    )
+    if phone_session_cleanup == "unavailable":
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "code": "PHONE_SESSION_CLEANUP_UNAVAILABLE",
+                "message": "Phone verification could not be finalized safely. Please retry.",
+            },
+        )
+    if phone_session_cleanup == "protected_existing_account":
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": "PHONE_SESSION_ACCOUNT_CONFLICT",
+                "message": (
+                    "This phone sign-in belongs to an existing account and cannot be "
+                    "merged automatically. Sign in to that account or contact support."
+                ),
+            },
+        )
+
     identity = await ActorIdentityService().claim_verified_phone(
         user_id=firebase_uid,
         phone_number=phone_number,
@@ -1515,11 +1709,12 @@ async def claim_account_phone(
         firebase_uid,
         bool(phone_session_uid),
     )
-    phone_session_cleanup = await _delete_safe_phone_only_firebase_user(
-        uid=phone_session_uid,
-        phone_number=phone_number,
-        protected_uid=firebase_uid,
-    )
+    if phone_session_cleanup == "pending" and phone_session_uid:
+        phone_session_cleanup = await _delete_firebase_auth_user(
+            phone_session_uid,
+            intent_kind="phone_orphan",
+            expected_phone_digest=account_deletion_phone_digest(phone_number),
+        )
     return {
         "success": True,
         "user_id": firebase_uid,
@@ -1626,7 +1821,11 @@ async def delete_account(
     token_data: dict = Depends(require_vault_owner_token),
 ):
     """
-    Delete logged-in user's account and ALL data.
+    Delete the logged-in user's account and user-owned data.
+
+    Regulated or append-only security evidence follows its separately approved
+    retention/redaction policy; the response must not imply that those records
+    were removed by an incidental cascade.
 
     Requires VAULT_OWNER token (Unlock to Delete).
     This action is irreversible.
@@ -1634,19 +1833,6 @@ async def delete_account(
     user_id = token_data["user_id"]
     target = payload.target if payload else "both"
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
-    verified_phone_number: str | None = None
-    if target == "both":
-        try:
-            identity = (await ActorIdentityService().get_many([user_id])).get(user_id)
-            if identity and identity.get("phone_verified") is True:
-                verified_phone_number = str(identity.get("phone_number") or "").strip() or None
-        except Exception as exc:
-            logger.warning(
-                "Could not prefetch verified phone before account deletion user=%s error=%s",
-                user_id,
-                type(exc).__name__,
-            )
-
     service = AccountService()
 
     # Delete-order V2 (directive: delete deprovisions the pod FIRST). Revoke the
@@ -1663,23 +1849,25 @@ async def delete_account(
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
+        if result.get("error_code") == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                    "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+                },
+            )
         # SECURITY: do not reflect the internal error string in the HTTP response.
         # The service-layer error may include persona names, DB state, or persona IDs.
         logger.error("account.delete_failed user=%s error=%s", user_id, result.get("error"))
         raise HTTPException(status_code=500, detail="Account deletion failed")
 
-    if target == "both" and result.get("account_deleted") is True:
+    if result.get("account_deleted") is True:
         details = result.get("details")
         if not isinstance(details, dict):
             details = {}
         firebase_auth_status = await _delete_firebase_auth_user(user_id)
         details["firebase_auth_user"] = firebase_auth_status
-        details[
-            "firebase_phone_orphan_user"
-        ] = await _delete_safe_phone_only_firebase_user_by_phone(
-            phone_number=verified_phone_number,
-            protected_uid=user_id,
-        )
         if pa_first is not None:
             # V2: the host was torn down FIRST; record it and finalize the recovery
             # row LAST (after the cascade). Surface an unreclaimed orphan loudly --
@@ -1701,14 +1889,23 @@ async def delete_account(
             legacy_pa = await _deprovision_personal_agent(user_id)
             details["personal_agent"] = legacy_pa.get("status")
             _surface_substrate_teardown(details, legacy_pa, user_id)
-        # Fail-loud on Firebase identity orphan: the encrypted account is already
-        # gone, so we keep the 200, but surface the incomplete cleanup so callers can
-        # alert/retry instead of silently treating the identity as removed.
-        if firebase_auth_status == "failed":
+        # Fail-loud on Firebase identity cleanup: the encrypted account is already
+        # gone, so we keep the 200, but expose whether the remaining identity was
+        # safely quarantined or still needs urgent operator cleanup.
+        if firebase_auth_status in {"quarantined", "quarantine_incomplete"}:
             details["firebase_auth_user_deletion_incomplete"] = True
+        if firebase_auth_status == "quarantined":
+            details["firebase_auth_user_quarantined"] = True
             logger.error(
                 "Account deletion completed in DB but Firebase Auth identity remains "
-                "orphaned for user=%s",
+                "quarantined for user=%s",
+                user_id,
+            )
+        elif firebase_auth_status == "quarantine_incomplete":
+            details["firebase_auth_user_quarantine_incomplete"] = True
+            logger.critical(
+                "Account deletion completed in DB but Firebase Auth identity quarantine "
+                "is incomplete for user=%s",
                 user_id,
             )
         result["details"] = details

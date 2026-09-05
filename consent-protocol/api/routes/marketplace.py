@@ -2,19 +2,25 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Literal
 
 from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
+from fastapi.concurrency import run_in_threadpool
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
+from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
     RIAIAMService,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/marketplace", tags=["Marketplace"])
 
@@ -182,6 +188,17 @@ async def match_marketplace_contacts(
     del request
     service = RIAIAMService()
     try:
+        if payload.scope == "one_network" and payload.phone_lookups:
+            # This compatibility read exposes the same verified-phone mapping
+            # as canonical contact sync. It must share the verified-requester
+            # gate and Postgres lookup allowance so changing routes cannot
+            # bypass the cross-instance enumeration budget.
+            await ActorIdentityService().sync_from_firebase(firebase_uid, force=False)
+            await run_in_threadpool(
+                ConnectionsService().reserve_contact_sync_lookup_budget,
+                firebase_uid,
+                len(payload.phone_lookups),
+            )
         items = await service.match_marketplace_contacts(
             firebase_uid,
             phone_lookups=[item.dict() for item in payload.phone_lookups],
@@ -189,10 +206,17 @@ async def match_marketplace_contacts(
             scope=payload.scope,
         )
         return {"items": items}
+    except ConnectionsError as exc:
+        raise HTTPException(
+            status_code=exc.status_code, detail={"code": exc.code, "message": exc.message}
+        ) from None
     except IAMSchemaNotReadyError as exc:
         return _iam_schema_not_ready_response(str(exc))
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001 - contact proofs must stay out of exception logs
+        logger.error("contact_match.failed error=%s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Contact matching failed.") from None
 
 
 @router.get("/ria/{ria_id}")

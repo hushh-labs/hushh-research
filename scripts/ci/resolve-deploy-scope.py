@@ -38,6 +38,23 @@ NEUTRAL_PREFIXES = (
 NEUTRAL_EXACT_PATHS = {
 }
 
+# These files together define one account-lifecycle compatibility boundary.
+# A narrow manual override is unsafe while any of them differs from either
+# deployed service: it can activate schema/runtime deletion semantics without
+# the web/native invalidation UX, or ship that UX against an older backend.
+ACCOUNT_LIFECYCLE_ATOMIC_PREFIXES = (
+    "deploy/account-deletion/",
+    "hushh-webapp/lib/auth/session-",
+    "hushh-webapp/lib/capacitor/session-privacy",
+    "hushh-webapp/android/app/src/main/java/com/hussh/app/plugins/HushhSessionPrivacy/",
+)
+ACCOUNT_LIFECYCLE_ATOMIC_EXACT_PATHS = {
+    "consent-protocol/db/migrations/201_account_deletion_tombstones.sql",
+    "consent-protocol/db/migrations/rollback/201_account_deletion_tombstones.rollback.sql",
+    "consent-protocol/hushh_mcp/services/account_deletion_lifecycle_service.py",
+    "hushh-webapp/ios/App/App/Plugins/HushhSessionPrivacyPlugin.swift",
+}
+
 
 @dataclass(frozen=True)
 class ScopeDecision:
@@ -98,6 +115,25 @@ def unique_sorted(values: Iterable[str]) -> tuple[str, ...]:
     return tuple(sorted(dict.fromkeys(value for value in values if value)))
 
 
+def account_lifecycle_atomic_files(paths: Iterable[str]) -> tuple[str, ...]:
+    matches = []
+    for raw_path in paths:
+        path = normalize_path(raw_path)
+        if path in ACCOUNT_LIFECYCLE_ATOMIC_EXACT_PATHS or path.startswith(
+            ACCOUNT_LIFECYCLE_ATOMIC_PREFIXES
+        ):
+            matches.append(path)
+    return unique_sorted(matches)
+
+
+def changed_files_between_service_bases(
+    *, target_sha: str, backend_base_sha: str, frontend_base_sha: str
+) -> tuple[str, ...]:
+    backend_diff = run_git_diff(backend_base_sha, target_sha)
+    frontend_diff = run_git_diff(frontend_base_sha, target_sha)
+    return unique_sorted([*backend_diff, *frontend_diff])
+
+
 def explicit_decision(scope: str) -> ScopeDecision:
     return ScopeDecision(
         scope=scope,
@@ -129,9 +165,11 @@ def auto_decision(
             reason="auto:fallback_missing_deployed_sha",
         )
 
-    backend_diff = run_git_diff(backend_base_sha, target_sha)
-    frontend_diff = run_git_diff(frontend_base_sha, target_sha)
-    candidate_files = unique_sorted([*backend_diff, *frontend_diff])
+    candidate_files = changed_files_between_service_bases(
+        target_sha=target_sha,
+        backend_base_sha=backend_base_sha,
+        frontend_base_sha=frontend_base_sha,
+    )
 
     backend_files: list[str] = []
     frontend_files: list[str] = []
@@ -149,8 +187,9 @@ def auto_decision(
         else:
             neutral_files.append(path)
 
-    deploy_backend = bool(backend_files or shared_files)
-    deploy_frontend = bool(frontend_files or shared_files)
+    lifecycle_files = account_lifecycle_atomic_files(candidate_files)
+    deploy_backend = bool(backend_files or shared_files or lifecycle_files)
+    deploy_frontend = bool(frontend_files or shared_files or lifecycle_files)
 
     if deploy_backend and deploy_frontend:
         scope = "all"
@@ -164,7 +203,9 @@ def auto_decision(
         deploy_frontend = True
 
     reason = "auto:changed_paths"
-    if shared_files:
+    if lifecycle_files:
+        reason = "auto:account_lifecycle_atomic"
+    elif shared_files:
         reason = "auto:shared_paths"
     elif not backend_files and not frontend_files:
         reason = "auto:fallback_no_service_paths"
@@ -179,6 +220,43 @@ def auto_decision(
         neutral_changed_files=unique_sorted(neutral_files),
         reason=reason,
     )
+
+
+def resolve_decision(
+    *,
+    requested_scope: str,
+    target_sha: str,
+    backend_base_sha: str,
+    frontend_base_sha: str,
+) -> ScopeDecision:
+    if requested_scope == AUTO_SCOPE:
+        return auto_decision(
+            target_sha=target_sha,
+            backend_base_sha=backend_base_sha,
+            frontend_base_sha=frontend_base_sha,
+        )
+    if requested_scope not in EXPLICIT_SCOPES:
+        raise ValueError(f"Unsupported deploy scope: {requested_scope}")
+    if requested_scope == "all":
+        return explicit_decision(requested_scope)
+
+    if not backend_base_sha or not frontend_base_sha:
+        raise ValueError(
+            "A narrow manual deploy cannot prove the account-lifecycle boundary "
+            "because a deployed service SHA is missing; choose scope=all"
+        )
+    candidate_files = changed_files_between_service_bases(
+        target_sha=target_sha,
+        backend_base_sha=backend_base_sha,
+        frontend_base_sha=frontend_base_sha,
+    )
+    lifecycle_files = account_lifecycle_atomic_files(candidate_files)
+    if lifecycle_files:
+        raise ValueError(
+            "A narrow manual deploy would split the account-lifecycle boundary; "
+            f"choose scope=all (changed: {','.join(lifecycle_files)})"
+        )
+    return explicit_decision(requested_scope)
 
 
 def write_github_outputs(path: str, decision: ScopeDecision) -> None:
@@ -211,16 +289,15 @@ def parse_args() -> argparse.Namespace:
 def main() -> int:
     args = parse_args()
     requested_scope = args.requested_scope.strip() or AUTO_SCOPE
-    if requested_scope in EXPLICIT_SCOPES:
-        decision = explicit_decision(requested_scope)
-    elif requested_scope == AUTO_SCOPE:
-        decision = auto_decision(
+    try:
+        decision = resolve_decision(
+            requested_scope=requested_scope,
             target_sha=args.target_sha.strip(),
             backend_base_sha=args.backend_base_sha.strip(),
             frontend_base_sha=args.frontend_base_sha.strip(),
         )
-    else:
-        print(f"Unsupported deploy scope: {requested_scope}", file=sys.stderr)
+    except (ValueError, subprocess.CalledProcessError) as exc:
+        print(str(exc), file=sys.stderr)
         return 2
 
     if args.github_output:

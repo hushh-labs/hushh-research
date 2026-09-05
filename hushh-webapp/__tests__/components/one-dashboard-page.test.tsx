@@ -13,6 +13,17 @@ import { buildOneSetupCapabilityRoute, ROUTES } from "@/lib/navigation/routes";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
 
+const platformHarness = vi.hoisted(() => ({ isAndroid: false }));
+
+vi.mock("@/lib/capacitor/platform", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@/lib/capacitor/platform")>();
+  return {
+    ...actual,
+    isAndroid: () => platformHarness.isAndroid,
+  };
+});
+
 function status(
   id: string,
   overrides: Partial<CapabilityStatus> = {},
@@ -53,6 +64,7 @@ function countRosterMetrics(
 
 describe("OneDashboardPage", () => {
   beforeEach(() => {
+    platformHarness.isAndroid = false;
     window.localStorage.clear();
   });
 
@@ -109,13 +121,14 @@ describe("OneDashboardPage", () => {
     );
     const expectedProfileFormatIcons = [
       "finance",
+      "wallet",
+      "location",
       "ria",
       "gmail",
       "calendar",
       "email",
       "pkm",
       "consent",
-      "location",
     ] as const;
     for (const id of expectedProfileFormatIcons) {
       const icon = screen.getAllByTestId(`one-agent-icon-${id}`)[0];
@@ -129,10 +142,8 @@ describe("OneDashboardPage", () => {
       "--agent-icon-profile-fg": "#5856D6",
     });
     // Palette slots are assigned by roster position, so this list must track
-    // ONE_CAPABILITIES order. Location moved from sixth to second, which shifts
-    // the five agents it passed by one slot each — a deliberate consequence of
-    // the reorder, not an incidental one: the palette exists to keep adjacent
-    // rows distinguishable, and that property is preserved.
+    // ONE_CAPABILITIES order: the palette exists to keep adjacent rows
+    // distinguishable, and that property is preserved.
     const rosterPaletteOrder = [
       "finance",
       // Wallet joined ONE_CAPABILITIES in second place during the 2026-09-02 main
@@ -173,6 +184,7 @@ describe("OneDashboardPage", () => {
       ]),
     );
     expect(iconBackgrounds.ria).toBe(iconBackgrounds.finance);
+    expect(iconBackgrounds.wallet).toBe(iconBackgrounds.location);
     expect(iconBackgrounds.gmail).toBe(iconBackgrounds.location);
     expect(iconBackgrounds.calendar).toBe(iconBackgrounds.location);
     expect(iconBackgrounds.email).toBe(iconBackgrounds.location);
@@ -197,6 +209,9 @@ describe("OneDashboardPage", () => {
     expect(financeLink.className).not.toContain("border-emerald-500");
     expect(financeLink.getAttribute("style") ?? "").not.toContain("background");
     expect(
+      screen.getByRole("link", { name: "Open Wallet" }).getAttribute("href"),
+    ).toBe(ROUTES.ONE_WALLET);
+    expect(
       screen.getByRole("link", { name: "Open Gmail" }).getAttribute("href"),
     ).toBe(buildOneSetupCapabilityRoute("gmail"));
     expect(
@@ -216,9 +231,8 @@ describe("OneDashboardPage", () => {
     expect(countRosterMetrics(container, "—", "checking")).toBeGreaterThan(0);
     expect(screen.queryByText("Ready")).toBeNull();
     expect(screen.queryByText("Explore")).toBeNull();
-    // Gmail and Calendar are first-class setup capabilities; Memory and
-    // Consent remain direct workspaces and do not inflate setup progress.
-    // Nine since Wallet joined the roster in the 2026-09-02 main sync.
+    // Gmail and Calendar are first-class setup capabilities; Wallet, Memory,
+    // and Consent remain direct workspaces and do not inflate setup progress.
     expect(container.querySelectorAll('a[aria-label^="Open "]').length).toBe(9);
     expect(
       screen.getByRole("link", { name: "Open Memory" }).getAttribute("href"),
@@ -301,6 +315,34 @@ describe("OneDashboardPage", () => {
     expect(screen.getByTestId("one-agents-view-content")).toHaveClass(
       "motion-step-enter",
     );
+  });
+
+  it("clips the roster view paint on Android without changing the controls", () => {
+    platformHarness.isAndroid = true;
+    window.localStorage.setItem("hushh:one-agent-roster-view", "grid");
+
+    render(<OneDashboardPage displayName="Kushal Trivedi" />);
+
+    const content = screen.getByTestId("one-agents-view-content");
+    expect(content.className).toContain("isolate");
+    expect(content.className).toContain("overflow-hidden");
+    expect(content.className).toContain("[clip-path:inset(0)]");
+    expect(content.className).toContain("[contain:layout_paint]");
+    expect(content).toHaveAttribute("data-no-auto-fade", "true");
+    expect(content).not.toHaveClass("motion-step-enter");
+    expect(screen.getByRole("heading", { name: "Agents (9)" })).toBeTruthy();
+    expect(screen.getByTestId("one-agents-search")).toBeTruthy();
+    expect(screen.getByTestId("one-agents-view-grid")).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+    expect(screen.getByTestId("one-agent-tile-finance")).toBeTruthy();
+
+    fireEvent.click(screen.getByLabelText("Show agent list view"));
+    const listContent = screen.getByTestId("one-agents-view-content");
+    expect(listContent).not.toHaveClass("motion-step-enter");
+    expect(listContent).toHaveAttribute("data-no-auto-fade", "true");
+    expect(screen.getByTestId("one-agents-list")).toBeTruthy();
   });
 
   it("filters the local agent roster without opening a second global search surface", () => {

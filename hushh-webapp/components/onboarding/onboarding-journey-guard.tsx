@@ -5,7 +5,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { Capacitor } from "@capacitor/core";
 
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
-import { Button } from "@/lib/morphy-ux/button";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { useAuth } from "@/hooks/use-auth";
 import {
   buildOneSetupRoute,
@@ -46,7 +46,9 @@ const SETUP_BOOTSTRAP_RETRY_MS = 300;
 const SETUP_ADMISSION_TIMEOUT_MS = 70_000;
 
 function waitForBootstrapRetry(): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS));
+  return new Promise((resolve) =>
+    setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS),
+  );
 }
 
 class SetupAdmissionTimeout extends Error {
@@ -122,12 +124,18 @@ export function OnboardingJourneyGuard({
 }) {
   const pathname = usePathname() || "/";
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const {
+    user,
+    loading: authLoading,
+    sessionVerificationRequired,
+    retrySessionVerification,
+    signOut,
+  } = useAuth();
   const userId = user?.uid ?? null;
   const exempt = isOnboardingAdmissionExemptRoute(pathname);
   const setupSurface = isOneSetupSurfaceRoute(pathname);
   const [checking, setChecking] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState(false);
   const [retryNonce, setRetryNonce] = useState(0);
   const [redirecting, setRedirecting] = useState(false);
   const redirectTargetRef = useRef<string | null>(null);
@@ -144,7 +152,7 @@ export function OnboardingJourneyGuard({
     return `${pathname}${window.location.search}${window.location.hash}`;
   }, [pathname]);
   const cachedState = userId
-    ? PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null
+    ? (PreVaultUserStateService.getCachedBootstrapState?.(userId) ?? null)
     : null;
   // Honor the durable positive latch even when a session cache exists. The
   // latch is positive-only and is cleared in lockstep with any authoritative
@@ -156,12 +164,12 @@ export function OnboardingJourneyGuard({
   );
   const cachedAdmissionAllowsCurrentRoute = Boolean(
     persistentSetupResolved ||
-      (cachedState &&
-        admissionAllowsCurrentRoute({
-          state: cachedState,
-          pathname,
-          setupSurface,
-        })),
+    (cachedState &&
+      admissionAllowsCurrentRoute({
+        state: cachedState,
+        pathname,
+        setupSurface,
+      })),
   );
   // "Dismissed" = the user finished/skipped onboarding at least once. The root
   // setup funnel is one-time, so every post-completion setup arrival is ejected
@@ -169,7 +177,7 @@ export function OnboardingJourneyGuard({
   // canonical setup route through the existing recovery flow.
   const setupDismissed = Boolean(
     persistentSetupResolved ||
-      (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
+    (cachedState && PreVaultUserStateService.isSetupResolved(cachedState)),
   );
   // Finance setup remains a valid, bounded capability entry after the one-time
   // root journey is dismissed. Root completion (including Skip) is not the
@@ -210,10 +218,10 @@ export function OnboardingJourneyGuard({
     setRedirecting(false);
 
     async function verifyAdmission() {
-      if (authLoading) return;
+      if (authLoading || sessionVerificationRequired) return;
       if (!userId || exempt) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -231,7 +239,7 @@ export function OnboardingJourneyGuard({
           return;
         }
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -243,7 +251,7 @@ export function OnboardingJourneyGuard({
       // clear this latch; vault keys and owner tokens remain memory-only.
       if (persistentSetupResolved) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -261,7 +269,7 @@ export function OnboardingJourneyGuard({
         })
       ) {
         redirectTargetRef.current = null;
-        setError(null);
+        setError(false);
         setChecking(false);
         return;
       }
@@ -278,14 +286,14 @@ export function OnboardingJourneyGuard({
         if (cancelled) return;
         if (restored) {
           redirectTargetRef.current = null;
-          setError(null);
+          setError(false);
           setChecking(false);
           return;
         }
       }
 
       setChecking(true);
-      setError(null);
+      setError(false);
       try {
         let state = cachedState;
         if (!state) {
@@ -309,9 +317,7 @@ export function OnboardingJourneyGuard({
         // A missing legacy mirror is not evidence that an established account
         // is incomplete. New journeys write setupCompleted=false and a versioned
         // phase, so only explicit durable state activates the hard gate.
-        if (
-          admissionAllowsCurrentRoute({ state, pathname, setupSurface })
-        ) {
+        if (admissionAllowsCurrentRoute({ state, pathname, setupSurface })) {
           redirectTargetRef.current = null;
           setChecking(false);
 
@@ -350,7 +356,7 @@ export function OnboardingJourneyGuard({
             redirectTargetRef.current = null;
             setRedirecting(false);
             setChecking(false);
-            setError("Unable to open setup. Please retry.");
+            setError(true);
           }, SETUP_REDIRECT_FAILURE_MS);
         }, SETUP_REDIRECT_RETRY_MS);
       } catch (cause) {
@@ -359,7 +365,7 @@ export function OnboardingJourneyGuard({
           cause,
         );
         if (!cancelled) {
-          setError("Unable to verify setup progress. Please retry.");
+          setError(true);
           setChecking(false);
         }
       }
@@ -379,11 +385,15 @@ export function OnboardingJourneyGuard({
     persistentSetupResolved,
     retryNonce,
     router,
+    sessionVerificationRequired,
     setupSurface,
     shouldEjectSetupSurface,
     userId,
   ]);
 
+  const sessionRecoveryActive = Boolean(
+    !exempt && userId && sessionVerificationRequired,
+  );
   const passThrough = exempt || (!authLoading && !userId);
   const loaderActive =
     !passThrough &&
@@ -393,8 +403,16 @@ export function OnboardingJourneyGuard({
       redirecting);
   // Suppress the persistent shell (top tabs/back + bottom nav) while the setup
   // admission check paints its loader, so the loader never leaks the page frame.
-  useSessionChromeSuppression(loaderActive);
+  useSessionChromeSuppression(loaderActive || sessionRecoveryActive);
 
+  if (sessionRecoveryActive) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => void retrySessionVerification()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
+    );
+  }
   if (passThrough) return <>{children}</>;
   if (loaderActive) {
     return (
@@ -411,32 +429,13 @@ export function OnboardingJourneyGuard({
   }
   if (error) {
     return (
-      <div className="flex min-h-[50vh] items-center justify-center px-4">
-        <div className="w-full max-w-sm rounded-xl border border-border bg-card/70 p-4 text-center">
-          <p className="text-sm text-foreground">{error}</p>
-          <Button
-            size="sm"
-            className="mt-3"
-            onClick={() => {
-              setChecking(true);
-              setRetryNonce((value) => value + 1);
-            }}
-          >
-            Retry
-          </Button>
-          <Button
-            size="sm"
-            variant="muted"
-            effect="fade"
-            className="mt-3"
-            onClick={() =>
-              router.push(buildOneSetupRoute({ returnTo: currentHref }))
-            }
-          >
-            Open setup
-          </Button>
-        </div>
-      </div>
+      <SessionVerificationRecovery
+        onRetry={() => {
+          setChecking(true);
+          setRetryNonce((value) => value + 1);
+        }}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
     );
   }
   return <>{children}</>;
