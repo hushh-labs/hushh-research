@@ -565,6 +565,10 @@ export class OneLocationService {
           params.enabled && params.scope?.kind === "circle"
             ? params.scope.circleId
             : undefined,
+        circleIds:
+          params.enabled && params.scope?.kind === "circles"
+            ? params.scope.circleIds
+            : undefined,
       }),
     });
     return response.preference;

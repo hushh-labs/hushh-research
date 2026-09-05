@@ -40,7 +40,7 @@ CIRCLE_CODE_TTL_HOURS = 72
 # invited. It stays because the invitations written before that change are
 # still readable, and accept/decline still refuse the ones that ran out.
 CIRCLE_MEMBER_INVITE_TTL_HOURS = 72
-CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 12
+CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS = 1
 # How many people may be on one SMS Circle.
 #
 # Deliberately far below an ordinary Circle's hundred, because this is not a
@@ -119,6 +119,26 @@ class OneLocationCircleError(RuntimeError):
         self.message = message
         self.status_code = status_code
         super().__init__(message)
+
+
+def _format_cooldown_remaining(remaining_seconds: int | float | None) -> str:
+    """ "in 47 minutes" / "in 2 hours 5 minutes" / "in under a minute".
+
+    Rounds UP to the minute so the toast never promises a shorter wait than
+    the database will actually honor -- the person re-tries at the stated
+    time and it works, rather than "in 1 minute" meaning "in 1-119 seconds".
+    """
+    total_seconds = max(0, int(remaining_seconds or 0))
+    if total_seconds < 60:
+        return "in under a minute"
+    total_minutes = -(-total_seconds // 60)  # ceil
+    hours, minutes = divmod(total_minutes, 60)
+    if hours <= 0:
+        return f"in {minutes} minute{'s' if minutes != 1 else ''}"
+    parts = [f"{hours} hour{'s' if hours != 1 else ''}"]
+    if minutes:
+        parts.append(f"{minutes} minute{'s' if minutes != 1 else ''}")
+    return "in " + " ".join(parts)
 
 
 def normalize_circle_code(value: str) -> str:
@@ -3403,7 +3423,12 @@ class OneLocationCircleService:
                                 AND ended_at > NOW() - make_interval(
                                   hours => :reinvite_cooldown_hours
                                 )
-                              ) AS left_recently
+                              ) AS left_recently,
+                              GREATEST(0, EXTRACT(EPOCH FROM (
+                                ended_at + make_interval(
+                                  hours => :reinvite_cooldown_hours
+                                ) - NOW()
+                              )))::int AS left_recently_remaining_seconds
                             FROM one_location_circle_memberships
                             WHERE circle_id = CAST(:circle_id AS UUID)
                               AND user_id = ANY(CAST(:invitee_user_ids AS TEXT[]))
@@ -3435,6 +3460,7 @@ class OneLocationCircleService:
                 # added, and an add naming only blocked people still fails
                 # loudly rather than silently succeeding with nobody.
                 blocked_reasons: dict[str, str] = {}
+                left_recently_remaining_seconds: list[int] = []
                 for row in target_membership_rows:
                     blocked_user_id = str(row.get("user_id") or "")
                     if not blocked_user_id:
@@ -3443,6 +3469,9 @@ class OneLocationCircleService:
                         blocked_reasons[blocked_user_id] = "already_member"
                     elif bool(row.get("left_recently")):
                         blocked_reasons[blocked_user_id] = "left_recently"
+                        left_recently_remaining_seconds.append(
+                            int(row.get("left_recently_remaining_seconds") or 0)
+                        )
                 if blocked_reasons:
                     cleaned_invitee_user_ids = [
                         user_id
@@ -3459,9 +3488,15 @@ class OneLocationCircleService:
                             "One or more selected connections are already in the Circle.",
                             status_code=409,
                         )
+                    # The longest wait among everyone blocked this way, so the
+                    # toast never understates how long the cooldown actually
+                    # runs when more than one person is affected at once.
+                    retry_in = _format_cooldown_remaining(
+                        max(left_recently_remaining_seconds, default=0)
+                    )
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY",
-                        "Someone you selected recently left this Circle. Try again later.",
+                        f"They recently left this Circle. You can add them again {retry_in}.",
                         status_code=429,
                     )
                 # Leaving is that person saying no to this Circle specifically,
@@ -3623,14 +3658,26 @@ class OneLocationCircleService:
                 # actor; the check above requires it. So everyone named here is
                 # added, and nobody is left waiting.
                 new_user_ids = list(cleaned_invitee_user_ids)
-                if any(
-                    str(row.get("invitee_user_id") or "") in new_user_ids
-                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                cooldown_invite_rows = [
+                    row
                     for row in existing_rows
-                ):
+                    if str(row.get("invitee_user_id") or "") in new_user_ids
+                    and str(row.get("status") or "") in {"declined", "cancelled", "expired"}
+                ]
+                if cooldown_invite_rows:
+                    now = datetime.now(timezone.utc)
+                    responded_at_values = [
+                        value.replace(tzinfo=timezone.utc) if value.tzinfo is None else value
+                        for row in cooldown_invite_rows
+                        if isinstance(value := row.get("updated_at"), datetime)
+                    ]
+                    cooldown_until = max(responded_at_values, default=now) + timedelta(
+                        hours=CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS
+                    )
+                    retry_in = _format_cooldown_remaining((cooldown_until - now).total_seconds())
                     raise OneLocationCircleError(
                         "LOCATION_CIRCLE_INVITE_COOLDOWN",
-                        "This person recently responded to a Circle invitation. Try again later.",
+                        f"This person recently responded to a Circle invitation. Try again {retry_in}.",
                         status_code=429,
                     )
                 capacity_row = _first(
@@ -4251,17 +4298,42 @@ class OneLocationCircleService:
         try:
             result = self._db.execute_raw(
                 """
-                UPDATE one_location_circle_member_invites
+                UPDATE one_location_circle_member_invites invite
                 SET status = 'declined', responded_at = NOW(), updated_at = NOW()
-                WHERE id = CAST(:invite_id AS UUID)
-                  AND invitee_user_id = :user_id
-                  AND status = 'pending'
-                  AND expires_at > NOW()
-                RETURNING id
+                FROM one_location_circles circle
+                WHERE invite.id = CAST(:invite_id AS UUID)
+                  AND invite.invitee_user_id = :user_id
+                  AND invite.status = 'pending'
+                  AND invite.expires_at > NOW()
+                  AND circle.id = invite.circle_id
+                RETURNING invite.id, invite.circle_id, invite.inviter_user_id,
+                          circle.name AS circle_name
                 """,
                 {"invite_id": cleaned_invite_id, "user_id": user_id},
             )
-            if result.data or []:
+            declined_row = next(iter(result.data or []), None)
+            if declined_row:
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_member_invite_declined_push,
+                    )
+                    from hushh_mcp.services.requester_identity import (
+                        resolve_requester_label,
+                    )
+
+                    send_circle_member_invite_declined_push(
+                        inviter_user_id=str(declined_row.get("inviter_user_id") or ""),
+                        invitee_user_id=user_id,
+                        invitee_display_name=resolve_requester_label(user_id),
+                        circle_id=str(declined_row.get("circle_id") or ""),
+                        circle_name=str(declined_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_invite_declined_failed invite_id=%s",
+                        cleaned_invite_id,
+                    )
                 return self.get_member_invite(user_id=user_id, invite_id=cleaned_invite_id)
             existing = self._db.execute_raw(
                 """
@@ -4310,14 +4382,32 @@ class OneLocationCircleService:
                   )
                   AND circle.status = 'active'
                   AND invite.status = 'pending'
-                RETURNING invite.id
+                RETURNING invite.id, invite.circle_id, invite.invitee_user_id,
+                          circle.name AS circle_name
                 """,
                 {
                     "invite_id": cleaned_invite_id,
                     "actor_user_id": actor_user_id,
                 },
             )
-            if result.data or []:
+            cancelled_row = next(iter(result.data or []), None)
+            if cancelled_row:
+                try:
+                    from hushh_mcp.services.push_notifications import (
+                        send_circle_member_invite_cancelled_push,
+                    )
+
+                    send_circle_member_invite_cancelled_push(
+                        invitee_user_id=str(cancelled_row.get("invitee_user_id") or ""),
+                        circle_id=str(cancelled_row.get("circle_id") or ""),
+                        circle_name=str(cancelled_row.get("circle_name") or ""),
+                        invite_id=cleaned_invite_id,
+                    )
+                except Exception:
+                    logger.exception(
+                        "circle.notify_invite_cancelled_failed invite_id=%s",
+                        cleaned_invite_id,
+                    )
                 return True
             existing = self._db.execute_raw(
                 """
@@ -4682,7 +4772,7 @@ class OneLocationCircleService:
                     conn.execute(
                         text(
                             """
-                            SELECT owner_user_id, system_kind
+                            SELECT owner_user_id, system_kind, name
                             FROM one_location_circles
                             WHERE id = CAST(:circle_id AS UUID)
                               AND status = 'active'
@@ -4805,6 +4895,36 @@ class OneLocationCircleService:
                 self._cleanup_ineligible_sms_contacts(
                     conn,
                     user_id=target_user_id,
+                )
+            try:
+                circle_name = str(circle_row.get("name") or "")
+                from hushh_mcp.services.push_notifications import (
+                    send_circle_member_left_push,
+                    send_circle_member_removed_push,
+                )
+                from hushh_mcp.services.requester_identity import (
+                    resolve_requester_label,
+                )
+
+                if status == "removed":
+                    send_circle_member_removed_push(
+                        member_user_id=target_user_id,
+                        circle_id=cleaned_circle_id,
+                        circle_name=circle_name,
+                    )
+                elif status == "left":
+                    send_circle_member_left_push(
+                        owner_user_id=owner_user_id,
+                        member_user_id=target_user_id,
+                        member_display_name=resolve_requester_label(target_user_id),
+                        circle_id=cleaned_circle_id,
+                        circle_name=circle_name,
+                    )
+            except Exception:
+                logger.exception(
+                    "circle.notify_end_membership_failed circle_id=%s status=%s",
+                    cleaned_circle_id,
+                    status,
                 )
         except OneLocationCircleError:
             raise

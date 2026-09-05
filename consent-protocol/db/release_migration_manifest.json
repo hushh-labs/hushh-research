@@ -170,7 +170,9 @@
     "195_gmail_personal_information_request_monitor_progress_guard.sql",
     "196_one_model_preferences.sql",
     "197_one_agent_message_feedback.sql",
-    "198_actor_identity_verified_phone_uniqueness.sql"
+    "198_actor_identity_verified_phone_uniqueness.sql",
+    "199_one_location_auto_approve_multi_circle_scope.sql",
+    "200_contact_sync_directory_policy_lock.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -292,7 +294,9 @@
       "193_gmail_personal_information_request_monitor_hardening.sql",
       "194_gmail_personal_information_request_monitor_history_cursor.sql",
       "195_gmail_personal_information_request_monitor_progress_guard.sql",
-      "198_actor_identity_verified_phone_uniqueness.sql"
+      "198_actor_identity_verified_phone_uniqueness.sql",
+      "199_one_location_auto_approve_multi_circle_scope.sql",
+      "200_contact_sync_directory_policy_lock.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",

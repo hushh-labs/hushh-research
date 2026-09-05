@@ -316,16 +316,17 @@ export function LiveShareStatusCard({
       role={cardManageEnabled ? "button" : undefined}
       tabIndex={cardManageEnabled ? 0 : undefined}
       onClick={cardManageEnabled ? onManage : undefined}
-      onKeyDown={handleCardKeyDown}      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
+      onKeyDown={handleCardKeyDown}
+      className={cn(CARD_SURFACE, LIVE_SHARE_CARD_CLASSNAME)}
     >
       <div className={LIVE_SHARE_HEADER_CLASSNAME}>
         <span className="inline-flex min-w-0 items-center gap-2">
           <span
             aria-hidden="true"
-            className="h-2 w-2 shrink-0 rounded-full bg-emerald-500 motion-safe:animate-pulse"
+            className="h-2 w-2 shrink-0 rounded-full bg-emerald-500"
           />
           <span className="text-[13px] font-semibold uppercase tracking-[0.06em] text-emerald-700 dark:text-emerald-300">
-            Live
+            Sharing
           </span>
         </span>
 
@@ -346,7 +347,7 @@ export function LiveShareStatusCard({
             {stopBusy ? (
               <Loader2 aria-hidden="true" className="h-4 w-4 animate-spin" />
             ) : null}
-            Stop
+            Stop sharing
           </Button>
         ) : (
           <Button
@@ -361,7 +362,7 @@ export function LiveShareStatusCard({
             data-ui-role="control"
             data-ui-id="location-live-share-manage"
           >
-            Manage
+            Manage sharing
           </Button>
         )}
       </div>
@@ -440,7 +441,7 @@ export function LiveShareStatusCard({
         <Button
           type="button"
           onClick={runChildAction(onShareMore)}
-          className="mt-4 min-h-[48px] w-full rounded-[16px] bg-[color:var(--app-accent)] px-5 font-[family-name:var(--font-app-body)] text-[17px] font-semibold leading-[22px] tracking-[-0.02em] text-white transition-[background-color,transform] hover:bg-[color:var(--app-accent)]/90 active:scale-[0.99]"
+          className="mt-4 min-h-[48px] w-full rounded-[14px] bg-[color:var(--app-secondary-surface)] px-5 font-[family-name:var(--font-app-body)] text-[16px] font-semibold leading-[22px] tracking-normal text-[color:var(--app-primary-label)] ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.99]"
           data-ui-contract="occlusion-sensitive"
           data-ui-role="control"
           data-ui-id="location-live-share-more"
@@ -468,7 +469,7 @@ export function LiveShareStatusCard({
             data-ui-id="location-live-share-duration"
             data-testid="one-location-live-share-change-time"
           >
-            {openEnded ? "Set an end time" : "Change end time"}
+            {openEnded ? "Set end time" : "Change time"}
           </Button>
         </div>
       ) : null}

@@ -82,7 +82,11 @@ export type OnboardingCircleInvite = {
 export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
-  connectionStatus: "connected" | "request_required" | "suppressed";
+  connectionStatus:
+    | "auto_connected"
+    | "already_connected"
+    | "request_required"
+    | "suppressed";
 };
 
 /**
@@ -101,10 +105,22 @@ export type OnboardingCirclePreview = {
 };
 
 export type OnboardingContactSyncResult =
-  | { status: "matched"; matches: OnboardingContactMatch[] }
-  | { status: "none"; partial: boolean }
+  | {
+      status: "matched";
+      matches: OnboardingContactMatch[];
+      partial?: boolean;
+      summary?: string;
+    }
+  | { status: "none"; partial: boolean; summary?: string }
   | { status: "cancelled" }
   | { status: "failed"; message: string; canOpenSettings: boolean };
+
+type OnboardingContactState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "none"; partial: boolean; summary?: string }
+  | { kind: "matched"; partial: boolean; summary?: string }
+  | { kind: "failed"; message: string; canOpenSettings: boolean };
 
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
@@ -147,10 +163,12 @@ type OneLocationOnboardingFlowProps = {
    * Called only after the person taps on the contacts screen, never on mount.
    */
   onSyncOnboardingContacts?: () => Promise<OnboardingContactSyncResult>;
+  /** Latest settled result, including retries started from the named sheet. */
+  contactSyncResult?: OnboardingContactSyncResult | null;
   /** Send a connection request to one matched contact. */
   onAddOnboardingContact?: (userId: string) => Promise<void>;
   /** Open the OS settings page so a declined permission can be changed. */
-  onOpenContactSettings?: () => void;
+  onOpenContactSettings?: (resume: () => void) => void;
   /** Look up a circle code so it can be previewed before joining. */
   onPreviewCircleCode?: (code: string) => Promise<OnboardingCirclePreview>;
   /**
@@ -1140,12 +1158,7 @@ function ContactsScreen({
   leaving,
   embedded = false,
 }: {
-  state:
-    | { kind: "idle" }
-    | { kind: "busy" }
-    | { kind: "none"; partial: boolean }
-    | { kind: "matched" }
-    | { kind: "failed"; message: string; canOpenSettings: boolean };
+  state: OnboardingContactState;
   source: "device" | "google";
   matches: OnboardingContactMatch[];
   addedUserIds: string[];
@@ -1214,9 +1227,9 @@ function ContactsScreen({
           ) : null}
           <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             {primed
-              ? "Find people from your contacts already on One. Nothing is added automatically."
+              ? "Find people from your contacts already on One. Exact matches connect automatically."
               : state.kind === "matched"
-                ? "Connected matches are ready. You can request the rest."
+                ? "Your matched ONE contacts and connection results are ready."
                 : "You can always find people later from the People tab."}
           </p>
 
@@ -1259,7 +1272,9 @@ function ContactsScreen({
               {visibleMatches.map((match) => {
                 const added = addedUserIds.includes(match.userId);
                 const adding = addingUserIds.includes(match.userId);
-                const connected = match.connectionStatus === "connected";
+                const connected =
+                  match.connectionStatus === "auto_connected" ||
+                  match.connectionStatus === "already_connected";
                 const requestRequired =
                   match.connectionStatus === "request_required";
                 return (
@@ -1292,7 +1307,11 @@ function ContactsScreen({
                         {connected ? (
                           <Check className="h-4 w-4 text-emerald-600" />
                         ) : null}
-                        {connected ? "Connected" : "Not connected"}
+                        {match.connectionStatus === "auto_connected"
+                          ? "Connected now"
+                          : match.connectionStatus === "already_connected"
+                            ? "Already connected"
+                            : "Kept disconnected"}
                       </span>
                     )}
                   </li>
@@ -1316,6 +1335,21 @@ function ContactsScreen({
                   </button>
                 </li>
               ) : null}
+              {state.summary || state.partial ? (
+                <li className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
+                  {state.summary || "Only part of your contact list was checked."}
+                </li>
+              ) : null}
+              <li className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale min-h-11 rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Sync again
+                </button>
+              </li>
             </ul>
           ) : null}
 
@@ -1326,10 +1360,18 @@ function ContactsScreen({
               </p>
               <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
                 {state.partial
-                  ? "Only part of your contact list was checked. "
-                  : "New matches require a verified phone and contact matching enabled. Existing connections may still appear. "}
+                  ? state.summary || "Only part of your contact list was checked. "
+                  : "ONE users with an exact verified phone match connect automatically unless they are hidden, opted out, or were previously disconnected. "}
                 Use the circle code above to invite anyone you want here.
               </p>
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={leaving}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+              >
+                Sync again
+              </button>
             </div>
           ) : null}
 
@@ -1347,7 +1389,7 @@ function ContactsScreen({
                   Open Settings
                 </button>
               ) : null}
-              {source === "google" ? (
+              {!state.canOpenSettings || source === "google" ? (
                 <button
                   type="button"
                   onClick={onSync}
@@ -1464,12 +1506,7 @@ function ReadyScreen({
   activeDisclosure: "join" | "contacts" | null;
   onToggleDisclosure: (disclosure: "join" | "contacts") => void;
   contactsAvailable: boolean;
-  contactState:
-    | { kind: "idle" }
-    | { kind: "busy" }
-    | { kind: "none"; partial: boolean }
-    | { kind: "matched" }
-    | { kind: "failed"; message: string; canOpenSettings: boolean };
+  contactState: OnboardingContactState;
   contactsSource: "device" | "google";
   contactMatches: OnboardingContactMatch[];
   addedContactIds: string[];
@@ -1900,6 +1937,7 @@ export function OneLocationOnboardingFlow({
   contactsStepAvailable = true,
   contactsSource = "device",
   onSyncOnboardingContacts,
+  contactSyncResult,
   onAddOnboardingContact,
   onOpenContactSettings,
   onPreviewCircleCode,
@@ -1981,13 +2019,9 @@ export function OneLocationOnboardingFlow({
   > | null>(null);
   // Contacts screen. Nothing runs until the person asks for it, so "idle" is
   // the resting state rather than a loading one.
-  const [contactState, setContactState] = useState<
-    | { kind: "idle" }
-    | { kind: "busy" }
-    | { kind: "none"; partial: boolean }
-    | { kind: "matched" }
-    | { kind: "failed"; message: string; canOpenSettings: boolean }
-  >({ kind: "idle" });
+  const [contactState, setContactState] = useState<OnboardingContactState>({
+    kind: "idle",
+  });
   const [contactMatches, setContactMatches] = useState<
     OnboardingContactMatch[]
   >([]);
@@ -2149,18 +2183,20 @@ export function OneLocationOnboardingFlow({
     );
   }, [circleInvite, onShareOnboardingCircleCode]);
 
-  const handleSyncContacts = useCallback(async () => {
-    if (!onSyncOnboardingContacts) return;
-    setContactState({ kind: "busy" });
-    try {
-      const result = await onSyncOnboardingContacts();
+  const canOpenContactSettings = Boolean(onOpenContactSettings);
+  const applyContactSyncResult = useCallback(
+    (result: OnboardingContactSyncResult) => {
       if (result.status === "cancelled") {
         setContactState({ kind: "idle" });
         return;
       }
       if (result.status === "matched" && result.matches.length > 0) {
         setContactMatches(result.matches);
-        setContactState({ kind: "matched" });
+        setContactState({
+          kind: "matched",
+          partial: Boolean(result.partial),
+          summary: result.summary,
+        });
         return;
       }
       // A declined permission resolves rather than throws, and must not be
@@ -2170,8 +2206,7 @@ export function OneLocationOnboardingFlow({
         setContactState({
           kind: "failed",
           message: result.message,
-          canOpenSettings:
-            result.canOpenSettings && Boolean(onOpenContactSettings),
+          canOpenSettings: result.canOpenSettings && canOpenContactSettings,
         });
         return;
       }
@@ -2180,7 +2215,23 @@ export function OneLocationOnboardingFlow({
       setContactState({
         kind: "none",
         partial: result.status === "none" ? result.partial : false,
+        summary: result.status === "none" ? result.summary : undefined,
       });
+    },
+    [canOpenContactSettings],
+  );
+
+  useEffect(() => {
+    if (contactSyncResult) applyContactSyncResult(contactSyncResult);
+  }, [applyContactSyncResult, contactSyncResult]);
+
+  const contactSyncInFlightRef = useRef(false);
+  const handleSyncContacts = useCallback(async () => {
+    if (!onSyncOnboardingContacts || contactSyncInFlightRef.current) return;
+    contactSyncInFlightRef.current = true;
+    setContactState({ kind: "busy" });
+    try {
+      applyContactSyncResult(await onSyncOnboardingContacts());
     } catch (error) {
       setContactState({
         kind: "failed",
@@ -2188,10 +2239,12 @@ export function OneLocationOnboardingFlow({
           error instanceof Error && error.message
             ? error.message
             : "We couldn't check your contacts. You can try again later.",
-        canOpenSettings: Boolean(onOpenContactSettings),
+        canOpenSettings: canOpenContactSettings,
       });
+    } finally {
+      contactSyncInFlightRef.current = false;
     }
-  }, [onOpenContactSettings, onSyncOnboardingContacts]);
+  }, [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts]);
 
   const handleAddContact = useCallback(
     (userId: string) => {
@@ -2519,7 +2572,9 @@ export function OneLocationOnboardingFlow({
             addingContactIds={addingContactIds}
             onSyncContacts={() => void handleSyncContacts()}
             onAddContact={handleAddContact}
-            onOpenContactSettings={() => onOpenContactSettings?.()}
+            onOpenContactSettings={() =>
+              onOpenContactSettings?.(() => void handleSyncContacts())
+            }
           />
         ) : null}
       </section>

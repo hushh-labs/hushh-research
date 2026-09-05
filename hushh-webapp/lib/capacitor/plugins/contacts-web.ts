@@ -97,7 +97,7 @@ export class HushhContactsWeb implements HushhContactsPlugin {
       );
     }
 
-    const limit = Math.max(1, Math.min(options?.limit ?? 500, 2000));
+    const limit = Math.max(1, Math.min(options?.limit ?? 500, 10_000));
     const contacts = selected
       .map((entry, index) => ({
         id: `web-contact:${index}`,

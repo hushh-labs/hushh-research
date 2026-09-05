@@ -267,6 +267,168 @@ def send_connection_request_push(
     )
 
 
+def send_connection_request_cancelled_push(
+    addressee_user_id: str,
+    requester_user_id: str,
+    *,
+    requester_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the addressee that a pending request was withdrawn.
+
+    Cancelling used to write the DB and tell nobody: the request just sat in
+    the addressee's pending list, indistinguishable from one still awaiting a
+    reply, until their next reconcile.
+    """
+
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    requester_name = resolve_requester_label(
+        requester_user_id,
+        display_name=requester_display_name,
+    )
+    label = requester_name or "Someone"
+    body = f"{label} withdrew their connection request."
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+
+    client_data = {
+        "message_id": f"connection-request-cancelled:{request_id}" if request_id else "",
+        "requester_label": requester_name,
+        "request_id": request_id,
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_request_cancelled",
+            "action": "CANCELLED",
+            "request_id": request_id or f"conn_req:{requester_user_id}",
+            "user_id": addressee_user_id,
+            "requester_user_id": requester_user_id,
+            "requester_label": requester_name,
+            "title": "Connection request withdrawn",
+            "body": body,
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(addressee_user_id, sse_payload))
+        except RuntimeError:
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(addressee_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        addressee_user_id,
+        notification_type="connection_request_cancelled",
+        title="Connection request withdrawn",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=(
+            f"connection-request-cancelled:{request_id}"
+            if request_id
+            else "connection-request-cancelled"
+        ),
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
+def send_connection_request_resolved_push(
+    requester_user_id: str,
+    resolver_user_id: str,
+    *,
+    accepted: bool,
+    resolver_display_name: str | None = None,
+    connection_request_id: str | None = None,
+) -> int:
+    """Tell the REQUESTER their sent connection request was accepted/declined.
+
+    `accept_request`/`reject_request` had no notifier call at all -- the only
+    signal toward the requester was a Feed row nobody pushed, so they learned
+    the outcome from the Feed's foreground poll (45s) or their next app open.
+    Mirrors `send_connection_request_push`'s shape, addressed the other way:
+    that one nudges the ADDRESSEE that a request arrived, this nudges the
+    REQUESTER that theirs was resolved.
+
+    `resolver_display_name` lets the caller pass a name it already holds, the
+    same reason `send_connection_request_push` accepts one.
+    """
+    from hushh_mcp.services.requester_identity import resolve_requester_label
+
+    resolver_name = resolve_requester_label(
+        resolver_user_id,
+        display_name=resolver_display_name,
+    )
+    title = "Connection accepted" if accepted else "Connection declined"
+    body = (
+        f"{resolver_name} accepted your connection request."
+        if accepted
+        else f"{resolver_name} declined your connection request."
+    )
+    # The request is resolved, not pending review any more -- send the
+    # requester to their connections list rather than a review sheet that no
+    # longer has anything to review.
+    deep_link = CONNECTION_REQUEST_LIST_LINK
+    request_id = str(connection_request_id or "").strip()
+    message_id = f"connection-request-resolved:{request_id}" if request_id else ""
+
+    client_data = {
+        "message_id": message_id,
+        "resolver_label": resolver_name,
+        "request_id": request_id,
+        "accepted": "true" if accepted else "false",
+    }
+
+    try:
+        import asyncio
+
+        from api.consent_listener import _push_to_consent_queue
+
+        sse_payload = {
+            "type": "connection_request_resolved",
+            "action": "ACCEPTED" if accepted else "DECLINED",
+            "request_id": request_id or f"conn_req_resolved:{resolver_user_id}",
+            "user_id": requester_user_id,
+            "resolver_user_id": resolver_user_id,
+            "resolver_label": resolver_name,
+            "title": title,
+            "body": body,
+            "deep_link": deep_link,
+            "request_url": deep_link,
+        }
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(_push_to_consent_queue(requester_user_id, sse_payload))
+        except RuntimeError:
+            # No running loop: both real callers (accept_request, reject_request)
+            # run on a FastAPI threadpool worker. See send_connection_request_push's
+            # identical fallback for why this cannot be `pass`.
+            from api.consent_listener import push_to_consent_queue_threadsafe
+
+            push_to_consent_queue_threadsafe(requester_user_id, sse_payload)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("push.sse_queue_failed error=%s", exc)
+
+    return send_user_data_push(
+        requester_user_id,
+        notification_type="connection_request_resolved",
+        title=title,
+        body=body,
+        deep_link=deep_link,
+        notification_tag=message_id or "connection-request-resolved",
+        notification_category="ONE_CONNECTIONS",
+        data=client_data,
+    )
+
+
 def send_circle_code_joined_push(
     *,
     inviter_user_id: str,
@@ -411,5 +573,136 @@ def send_circle_member_invite_accepted_push(
             "circle_name": circle_name,
             "invitee_user_id": invitee_user_id,
             "network_display_label": invitee_display_name or "",
+        },
+    )
+
+
+def send_circle_member_invite_declined_push(
+    *,
+    inviter_user_id: str,
+    invitee_user_id: str,
+    invitee_display_name: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell whoever sent a named Circle invite that it was declined.
+
+    Mirrors ``send_circle_member_invite_accepted_push`` for the opposite
+    outcome, which previously sent nothing at all -- the inviter only found
+    out the invite went nowhere on a manual reload of the Circle screen.
+    """
+
+    label = str(invitee_display_name or "").strip() or "Someone"
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        inviter_user_id,
+        notification_type="location_circle_member_invite_declined",
+        title=circle_name or "Circle invitation",
+        body=f"{label} declined your Circle invitation.",
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-declined:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle_name,
+            "invitee_user_id": invitee_user_id,
+            "network_display_label": label,
+        },
+    )
+
+
+def send_circle_member_invite_cancelled_push(
+    *,
+    invitee_user_id: str,
+    circle_id: str,
+    circle_name: str,
+    invite_id: str,
+) -> int:
+    """Tell an invitee that their pending Circle invitation was withdrawn.
+
+    Without this the invite simply vanishes from their list on the next
+    refresh -- indistinguishable from a client-side bug.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = (
+        f'Your invitation to "{circle}" was withdrawn.'
+        if circle
+        else "A Circle invitation was withdrawn."
+    )
+    deep_link = "/one/location?tab=people"
+    return send_user_data_push(
+        invitee_user_id,
+        notification_type="location_circle_member_invite_cancelled",
+        title=circle or "Circle invitation",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-invite-cancelled:{invite_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "invite_id": invite_id,
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
+
+
+def send_circle_member_removed_push(
+    *,
+    member_user_id: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a member the Circle owner removed them.
+
+    Otherwise the Circle just disappears from their list on the next reload,
+    with no way to tell that from a sync glitch.
+    """
+
+    circle = str(circle_name or "").strip()
+    body = f'You were removed from "{circle}".' if circle else "You were removed from a Circle."
+    deep_link = "/one/location?tab=people"
+    return send_user_data_push(
+        member_user_id,
+        notification_type="location_circle_member_removed",
+        title=circle or "Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-removed:{circle_id}:{member_user_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
+        },
+    )
+
+
+def send_circle_member_left_push(
+    *,
+    owner_user_id: str,
+    member_user_id: str,
+    member_display_name: str,
+    circle_id: str,
+    circle_name: str,
+) -> int:
+    """Tell a Circle's owner that a member left on their own."""
+
+    label = str(member_display_name or "").strip() or "Someone"
+    circle = str(circle_name or "").strip()
+    body = f'{label} left "{circle}".' if circle else f"{label} left your Circle."
+    deep_link = f"/one/location?tab=people&circleId={circle_id}"
+    return send_user_data_push(
+        owner_user_id,
+        notification_type="location_circle_member_left",
+        title=circle or "Your Circle",
+        body=body,
+        deep_link=deep_link,
+        notification_tag=f"location-circle-member-left:{circle_id}:{member_user_id}",
+        notification_category="ONE_LOCATION",
+        data={
+            "circle_id": circle_id,
+            "circle_name": circle,
         },
     )

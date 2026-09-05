@@ -68,7 +68,7 @@ if has_match '^hushh-webapp/(app/|components/app-ui/|lib/(navigation|routes|surf
   ran=1
 fi
 
-if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
+if has_match '^(hushh-webapp/(ios/|android/|capacitor\.config|lib/capacitor/one-system-action-invocation\.ts|scripts/native/|public/manifest|public/.*icon|app/manifest)|GoogleService-Info\.plist)'; then
   run_check "Capacitor static parity" npm run verify:capacitor:static
   # Signature parity across the three flows. Static parity checks the route
   # inventory; this checks that a plugin method declared in TypeScript is
@@ -103,7 +103,7 @@ fi
 # People section. A change to the region resolver or the matcher is a change to
 # both screens, so both packs have to re-run -- and until this was added, a
 # change confined to `lib/contacts/` matched no pack in the repo at all.
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/services/api-service-fetch\.test\.ts|lib/services/(connections-service|api-service)\.ts|lib/capacitor/plugins/(contacts-web\.ts|__tests__/contacts-web\.test\.ts)|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
   ran=1
 fi

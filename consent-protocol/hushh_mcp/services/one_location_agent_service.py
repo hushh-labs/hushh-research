@@ -2668,10 +2668,12 @@ class OneLocationAgentService:
         enabled = bool((row or {}).get("enabled"))
         scope_kind = str((row or {}).get("scope_kind") or "")
         circle_id = str((row or {}).get("circle_id") or "") or None
+        circle_ids = [str(value) for value in ((row or {}).get("circle_ids") or []) if value]
         if (
             not enabled
-            or scope_kind not in {"all_contacts", "circle"}
+            or scope_kind not in {"all_contacts", "circle", "circles"}
             or (scope_kind == "circle" and not circle_id)
+            or (scope_kind == "circles" and not circle_ids)
         ):
             return {
                 "enabled": False,
@@ -2680,11 +2682,13 @@ class OneLocationAgentService:
                 "ruleVersion": int((row or {}).get("rule_version") or 0),
                 "updatedAt": _iso((row or {}).get("updated_at")),
             }
-        scope = (
-            {"kind": "circle", "circleId": circle_id}
-            if scope_kind == "circle" and circle_id
-            else {"kind": "all_contacts"}
-        )
+        scope: dict[str, Any]
+        if scope_kind == "circle" and circle_id:
+            scope = {"kind": "circle", "circleId": circle_id}
+        elif scope_kind == "circles" and circle_ids:
+            scope = {"kind": "circles", "circleIds": circle_ids}
+        else:
+            scope = {"kind": "all_contacts"}
         return {
             "enabled": True,
             "scope": scope,
@@ -6578,7 +6582,8 @@ class OneLocationAgentService:
         """
         row = self._execute_one(
             """
-            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            SELECT enabled, scope_kind, circle_id, circle_ids, enabled_at,
+                   rule_version, updated_at
             FROM one_location_auto_approve_preferences
             WHERE user_id = :user_id
             LIMIT 1
@@ -6594,20 +6599,36 @@ class OneLocationAgentService:
         enabled: bool,
         scope_kind: str | None,
         circle_id: str | None,
+        circle_ids: list[str] | None = None,
     ) -> dict[str, Any]:
         """Write one revocable standing rule using the server clock."""
         normalized_scope = str(scope_kind or "").strip()
         normalized_circle_id = str(circle_id or "").strip() or None
+        # De-duplicated but NOT sorted -- order carries no meaning, so a
+        # stable dedupe (first occurrence wins) is enough and avoids
+        # rewriting the same set into a different row on every re-save.
+        normalized_circle_ids = list(
+            dict.fromkeys(
+                str(value or "").strip() for value in (circle_ids or []) if str(value or "").strip()
+            )
+        )
         if not enabled:
             normalized_scope = ""
             normalized_circle_id = None
-        elif normalized_scope not in {"all_contacts", "circle"}:
+            normalized_circle_ids = []
+        elif normalized_scope not in {"all_contacts", "circle", "circles"}:
             raise OneLocationAgentError(
                 "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
                 "Choose who can be auto-approved.",
                 status_code=422,
             )
         if enabled and (normalized_scope == "circle") != bool(normalized_circle_id):
+            raise OneLocationAgentError(
+                "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                "Choose who can be auto-approved.",
+                status_code=422,
+            )
+        if enabled and (normalized_scope == "circles") != bool(normalized_circle_ids):
             raise OneLocationAgentError(
                 "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
                 "Choose who can be auto-approved.",
@@ -6620,6 +6641,15 @@ class OneLocationAgentService:
                 raise OneLocationAgentError(
                     "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
                     "Choose a Circle you created.",
+                    status_code=422,
+                ) from exc
+        if normalized_circle_ids:
+            try:
+                normalized_circle_ids = [str(UUID(value)) for value in normalized_circle_ids]
+            except (TypeError, ValueError, AttributeError) as exc:
+                raise OneLocationAgentError(
+                    "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                    "Choose Circles you created.",
                     status_code=422,
                 ) from exc
 
@@ -6654,17 +6684,45 @@ class OneLocationAgentService:
                         "Choose a Circle you created.",
                         status_code=403,
                     )
+            elif normalized_scope == "circles":
+                owned_circles = (
+                    connection.execute(
+                        text(
+                            """
+                            SELECT id
+                            FROM one_location_circles
+                            WHERE id = ANY(CAST(:circle_ids AS UUID[]))
+                              AND owner_user_id = :user_id
+                              AND status = 'active'
+                              AND system_kind IS NULL
+                              AND NOT is_system
+                            FOR SHARE
+                            """
+                        ),
+                        {"circle_ids": normalized_circle_ids, "user_id": user_id},
+                    )
+                    .mappings()
+                    .all()
+                )
+                owned_circle_ids = {str(row["id"]) for row in owned_circles}
+                if owned_circle_ids != set(normalized_circle_ids):
+                    raise OneLocationAgentError(
+                        "LOCATION_AUTO_APPROVE_SCOPE_INVALID",
+                        "Choose Circles you created.",
+                        status_code=403,
+                    )
 
             row = (
                 connection.execute(
                     text(
                         """
                         INSERT INTO one_location_auto_approve_preferences (
-                          user_id, enabled, scope_kind, circle_id, enabled_at,
-                          rule_version, created_at, updated_at
+                          user_id, enabled, scope_kind, circle_id, circle_ids,
+                          enabled_at, rule_version, created_at, updated_at
                         ) VALUES (
                           :user_id, :enabled, :scope_kind,
                           CAST(:circle_id AS UUID),
+                          CAST(:circle_ids AS UUID[]),
                           CASE WHEN :enabled THEN NOW() ELSE NULL END,
                           1, NOW(), NOW()
                         )
@@ -6672,11 +6730,12 @@ class OneLocationAgentService:
                           enabled = EXCLUDED.enabled,
                           scope_kind = EXCLUDED.scope_kind,
                           circle_id = EXCLUDED.circle_id,
+                          circle_ids = EXCLUDED.circle_ids,
                           enabled_at = CASE WHEN EXCLUDED.enabled THEN NOW() ELSE NULL END,
                           rule_version = one_location_auto_approve_preferences.rule_version + 1,
                           updated_at = NOW()
-                        RETURNING enabled, scope_kind, circle_id, enabled_at,
-                                  rule_version, updated_at
+                        RETURNING enabled, scope_kind, circle_id, circle_ids,
+                                  enabled_at, rule_version, updated_at
                         """
                     ),
                     {
@@ -6684,6 +6743,7 @@ class OneLocationAgentService:
                         "enabled": enabled,
                         "scope_kind": normalized_scope or None,
                         "circle_id": normalized_circle_id,
+                        "circle_ids": normalized_circle_ids or None,
                     },
                 )
                 .mappings()
@@ -6714,6 +6774,8 @@ class OneLocationAgentService:
                             "enabled": bool(stored.get("enabled")),
                             "scope_kind": str(stored.get("scope_kind") or "") or None,
                             "circle_id": str(stored.get("circle_id") or "") or None,
+                            "circle_ids": [str(value) for value in (stored.get("circle_ids") or [])]
+                            or None,
                             "enabled_at": _iso(stored.get("enabled_at")),
                             "rule_version": int(stored.get("rule_version") or 0),
                         }
@@ -6861,7 +6923,8 @@ class OneLocationAgentService:
             )
         row = self._execute_one(
             """
-            SELECT enabled, scope_kind, circle_id, enabled_at, rule_version, updated_at
+            SELECT enabled, scope_kind, circle_id, circle_ids, enabled_at,
+                   rule_version, updated_at
             FROM one_location_auto_approve_preferences
             WHERE user_id = :user_id
             FOR UPDATE
@@ -6880,10 +6943,12 @@ class OneLocationAgentService:
             )
         scope_kind = str(row.get("scope_kind") or "")
         circle_id = str(row.get("circle_id") or "") or None
+        circle_ids = [str(value) for value in (row.get("circle_ids") or []) if value]
         if (
-            scope_kind not in {"all_contacts", "circle"}
+            scope_kind not in {"all_contacts", "circle", "circles"}
             or row.get("enabled_at") is None
             or (scope_kind == "circle") != bool(circle_id)
+            or (scope_kind == "circles") != bool(circle_ids)
         ):
             raise OneLocationAgentError(
                 "LOCATION_AUTO_APPROVE_RULE_INVALID",
@@ -6891,6 +6956,42 @@ class OneLocationAgentService:
                 status_code=409,
             )
         return dict(row)
+
+    def _first_owned_circle_membership(
+        self,
+        *,
+        other_user_id: str,
+        circle_ids: list[str],
+    ) -> str | None:
+        """Which of these Circles `other_user_id` currently belongs to, if any.
+
+        Used to resolve the "circles" auto-approve scope down to the single
+        `source_circle_id` the rest of the grant path (`create_grant`,
+        `_lock_circle_share_eligibility`) already knows how to enforce, so
+        that machinery needs no multi-Circle awareness of its own -- this is
+        a hint for which circle to cite, not the authority; the grant path
+        re-validates ownership and membership fresh, under lock, regardless
+        of what is picked here. Ownership itself is not re-checked here on
+        purpose: it was already required at write time
+        (`update_auto_approve_preference`), and a stale circle_id (e.g. one no
+        longer owned) simply fails the grant path's own ownership check
+        instead of matching here.
+        """
+        if not circle_ids:
+            return None
+        row = self._execute_one(
+            """
+            SELECT membership.circle_id::text AS circle_id
+            FROM one_location_circle_memberships membership
+            WHERE membership.user_id = :other_user_id
+              AND membership.status = 'active'
+              AND membership.circle_id = ANY(CAST(:circle_ids AS UUID[]))
+            ORDER BY membership.joined_at, membership.circle_id
+            LIMIT 1
+            """,
+            {"other_user_id": other_user_id, "circle_ids": circle_ids},
+        )
+        return str(row.get("circle_id")) if row and row.get("circle_id") else None
 
     def get_map_preferences(self, *, user_id: str) -> dict[str, Any]:
         """Return the caller's metadata-only Map visibility preference.
@@ -8973,8 +9074,7 @@ class OneLocationAgentService:
         with self._event_bound_writer():
             row = self._execute_one(
                 """
-                SELECT id, owner_user_id, recipient_user_id, expires_at, status,
-                       duration_mode, duration_hours, metadata
+                SELECT *
                 FROM one_location_share_grants
                 WHERE id = CAST(:grant_id AS UUID)
                   AND owner_user_id = :owner_user_id
@@ -9022,6 +9122,20 @@ class OneLocationAgentService:
                 share_kind=share_kind,
                 now=_utcnow(),
             )
+            updated_metadata = dict(metadata or {})
+            updated_metadata["duration_mode"] = resolved_mode
+            if duration is None:
+                # Until-stopped grants intentionally rely on the durable row
+                # rather than carrying a finite capability that will expire
+                # while the owner still expects the share to be live.
+                updated_metadata.pop("capability_token", None)
+            else:
+                capability = self._mint_grant_capability_token(
+                    owner_user_id=owner_user_id,
+                    recipient_user_id=str(row.get("recipient_user_id") or ""),
+                    duration_hours=duration,
+                )
+                updated_metadata["capability_token"] = capability["token"]
             previous_expires_at = row.get("expires_at")
             updated = self._execute_one(
                 """
@@ -9029,6 +9143,12 @@ class OneLocationAgentService:
                 SET duration_mode = :duration_mode,
                     duration_hours = :duration_hours,
                     expires_at = :new_expires_at,
+                    ceiling_expires_at = CASE
+                      WHEN :new_expires_at IS NULL THEN NULL
+                      WHEN ceiling_expires_at IS NULL THEN :new_expires_at
+                      ELSE GREATEST(ceiling_expires_at, :new_expires_at)
+                    END,
+                    metadata = CAST(:metadata_json AS JSONB),
                     updated_at = NOW()
                 WHERE id = CAST(:grant_id AS UUID)
                   AND owner_user_id = :owner_user_id
@@ -9041,6 +9161,7 @@ class OneLocationAgentService:
                     "duration_mode": resolved_mode,
                     "duration_hours": duration,
                     "new_expires_at": expires_at,
+                    "metadata_json": _json_param(updated_metadata),
                 },
             )
             if not updated:
@@ -9579,6 +9700,22 @@ class OneLocationAgentService:
                         "This request needs approval.",
                         status_code=403,
                     )
+                if automatic_scope == "circles":
+                    automatic_circle_ids = [
+                        str(value)
+                        for value in (automatic_preference.get("circle_ids") or [])
+                        if value
+                    ]
+                    automatic_circle_id = self._first_owned_circle_membership(
+                        other_user_id=requester_user_id,
+                        circle_ids=automatic_circle_ids,
+                    )
+                    if automatic_circle_id is None:
+                        raise OneLocationAgentError(
+                            "LOCATION_AUTO_APPROVE_REQUEST_OUT_OF_SCOPE",
+                            "This request needs approval.",
+                            status_code=403,
+                        )
             requested_hours, requested_mode = _normalized_requested_duration(
                 duration_hours=request_row.get("requested_duration_hours"),
                 duration_mode=request_row.get("requested_duration_mode"),
@@ -9726,13 +9863,15 @@ class OneLocationAgentService:
                 duration_hours=resolved_hours,
                 duration_mode=resolved_mode,
                 reason="request_approved",
-                source_circle_id=(automatic_circle_id if automatic_scope == "circle" else None),
+                source_circle_id=(
+                    automatic_circle_id if automatic_scope in {"circle", "circles"} else None
+                ),
                 require_recipient_phone_verified=False,
                 # Manual approval is explicit owner consent. A standing rule is
                 # narrower and must recheck its relationship under this same
                 # transaction before the grant is inserted.
                 enforce_connection=automatic_preference is not None,
-                require_owned_source_circle=automatic_scope == "circle",
+                require_owned_source_circle=automatic_scope in {"circle", "circles"},
                 _key_writer_guarded=True,
             )
             approved_recipient = self._recipient_payload(
@@ -9831,7 +9970,7 @@ class OneLocationAgentService:
                     ),
                     "auto_approve_scope_kind": automatic_scope or None,
                     "auto_approve_circle_id": (
-                        automatic_circle_id if automatic_scope == "circle" else None
+                        automatic_circle_id if automatic_scope in {"circle", "circles"} else None
                     ),
                 },
                 required=True,

@@ -5,7 +5,7 @@ import inspect
 import json
 from contextlib import contextmanager
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from pydantic import ValidationError
@@ -18,6 +18,9 @@ from hushh_mcp.services.connection_graph_service import ConnectionGraphService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+    contact_sync_preference_state,
 )
 from hushh_mcp.services.one_location_agent_service import OneLocationAgentService
 from hushh_mcp.services.one_location_circle_service import OneLocationCircleService
@@ -27,6 +30,12 @@ ROOT = Path(__file__).resolve().parents[1]
 MIGRATION = ROOT / "db" / "migrations" / "175_contact_sync_connection_provenance.sql"
 ROLLBACK = (
     ROOT / "db" / "migrations" / "rollback" / "175_contact_sync_connection_provenance.rollback.sql"
+)
+DIRECTORY_POLICY_MIGRATION = (
+    ROOT / "db" / "migrations" / "200_contact_sync_directory_policy_lock.sql"
+)
+DIRECTORY_POLICY_ROLLBACK = (
+    ROOT / "db" / "migrations" / "rollback" / "200_contact_sync_directory_policy_lock.rollback.sql"
 )
 
 
@@ -48,10 +57,15 @@ class _ContactSyncService(ConnectionsService):
         consent_contract_version: str = CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
         existing_status: str | None = None,
         existing_status_by_user: dict[str, str | None] | None = None,
+        contact_rule_version: int | None = None,
+        marketplace_visible: bool | None = None,
+        marketplace_visibility_by_user: dict[str, bool | None] | None = None,
+        marketplace_display_name_by_user: dict[str, str | None] | None = None,
+        identity_display_name_by_user: dict[str, str | None] | None = None,
+        missing_profile_users: set[str] | None = None,
         stale_proof: bool = False,
         requester_verified: bool = True,
         ambiguous_proof: bool = False,
-        profile_lock_skipped: bool = False,
     ) -> None:
         super().__init__(notifier=None)
         self.target_discoverable = target_discoverable
@@ -60,10 +74,15 @@ class _ContactSyncService(ConnectionsService):
         self.consent_contract_version = consent_contract_version
         self.existing_status = existing_status
         self.existing_status_by_user = existing_status_by_user or {}
+        self.contact_rule_version = contact_rule_version
+        self.marketplace_visible = marketplace_visible
+        self.marketplace_visibility_by_user = marketplace_visibility_by_user or {}
+        self.marketplace_display_name_by_user = marketplace_display_name_by_user or {}
+        self.identity_display_name_by_user = identity_display_name_by_user or {}
+        self.missing_profile_users = missing_profile_users or set()
         self.stale_proof = stale_proof
         self.requester_verified = requester_verified
         self.ambiguous_proof = ambiguous_proof
-        self.profile_lock_skipped = profile_lock_skipped
         self.writes: list[tuple] = []
         self.statement_count = 0
         self.transaction_depth = 0
@@ -116,10 +135,13 @@ class _ContactSyncService(ConnectionsService):
                         "user_id": target_user_id,
                         "phone_number": phone,
                         "phone_verified": True,
-                        "display_name": (
-                            "Target Person"
-                            if target_user_id == "target"
-                            else f"Target {target_user_id}"
+                        "display_name": self.identity_display_name_by_user.get(
+                            str(target_user_id),
+                            (
+                                "Target Person"
+                                if target_user_id == "target"
+                                else f"Target {target_user_id}"
+                            ),
                         ),
                         "photo_url": "https://example.test/photo.png",
                         "custom_photo_url": None,
@@ -148,9 +170,7 @@ class _ContactSyncService(ConnectionsService):
                         }
                     )
             return rows
-        if "FROM actor_profiles" in sql:
-            if self.profile_lock_skipped:
-                return []
+        if "FROM actor_profiles actor" in sql:
             return [
                 {
                     "user_id": target_user_id,
@@ -160,12 +180,23 @@ class _ContactSyncService(ConnectionsService):
                     "contact_sync_consent_enabled_at": (
                         "2026-08-25T10:00:00+00:00" if self.explicit_consent else None
                     ),
-                    "contact_sync_consent_rule_version": (3 if self.explicit_consent else 0),
+                    "contact_sync_consent_rule_version": (
+                        self.contact_rule_version
+                        if self.contact_rule_version is not None
+                        else (3 if self.explicit_consent else 0)
+                    ),
                     "contact_sync_consent_contract_version": (
                         self.consent_contract_version if self.explicit_consent else None
                     ),
+                    "marketplace_is_discoverable": self.marketplace_visibility_by_user.get(
+                        str(target_user_id), self.marketplace_visible
+                    ),
+                    "marketplace_display_name": self.marketplace_display_name_by_user.get(
+                        str(target_user_id)
+                    ),
                 }
                 for target_user_id in params.get("candidate_user_ids") or []
+                if str(target_user_id) not in self.missing_profile_users
             ]
         if "FROM connections connection" in sql:
             rows = []
@@ -287,6 +318,26 @@ def test_sync_service_rejects_noncanonical_last4_proofs() -> None:
     assert service.writes == []
 
 
+@pytest.mark.asyncio
+async def test_exact_matcher_never_silently_truncates_an_oversized_batch() -> None:
+    service = RIAIAMService()
+
+    with pytest.raises(RIAIAMPolicyError) as captured:
+        await service.match_one_network_contact_lookups_exact(
+            "requester",
+            phone_lookups=[
+                {
+                    "lookup_id": f"lookup_{index:04d}",
+                    "hash": f"{index:064x}"[-64:],
+                    "last4": f"{index:04d}"[-4:],
+                }
+                for index in range(1001)
+            ],
+        )
+
+    assert captured.value.status_code == 422
+
+
 def test_sync_route_keeps_both_outer_request_limits() -> None:
     route_limits = getattr(limiter, "_route_limits", {})
     limits = [str(item.limit) for item in route_limits["api.routes.one.connections.sync_contacts"]]
@@ -307,16 +358,19 @@ def test_exact_matcher_has_no_candidate_cap_and_returns_no_proof_material() -> N
     assert "UNNEST" in source
     assert "candidate_row_cap" not in source
     assert "LIMIT $" not in source
-    assert "actor.contact_discoverable = TRUE" in source
-    assert "actor.contact_sync_consent_enabled_at IS NOT NULL" in source
-    assert "actor.contact_sync_consent_rule_version > 0" in source
+    assert "profile.is_discoverable IS DISTINCT FROM FALSE" in source
+    assert "COALESCE(actor.contact_sync_consent_rule_version, 0) = 0" in source
+    assert "actor.contact_sync_consent_enabled_at IS NULL" in source
+    assert "actor.contact_sync_consent_contract_version IS NULL" in source
     assert "actor.contact_sync_consent_contract_version = $5" in source
     assert "EXISTS" in source
     assert "existing_connection.status = 'active'" in source
     assert "existing_connection.user_a_id = $1" in source
-    assert "COALESCE(actor.contact_discoverable, TRUE)" not in source
+    assert "actor.user_id IS NULL" in source
     assert source.index("COUNT(*) OVER") < source.index("LEFT JOIN actor_profiles")
-    assert source.index("COUNT(*) OVER") < source.index("OR EXISTS")
+    assert source.index("COUNT(*) OVER") < source.index(
+        "profile.is_discoverable IS DISTINCT FROM FALSE"
+    )
     response_projection = source.rsplit("return [", 1)[1]
     assert '"lookup_id"' in response_projection
     assert '"hash"' not in response_projection
@@ -327,10 +381,8 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     source = inspect.getsource(ConnectionsService.sync_contact_matches)
     assert "with self._transaction():" in source
     assert "phone_verified" in source
-    assert "contact_discoverable" in source
-    assert "contact_sync_consent_enabled_at" in source
-    assert "contact_sync_consent_rule_version" in source
-    assert "contact_sync_consent_contract_version" in source
+    assert "contact_sync_preference_state" in source
+    assert "marketplace.is_discoverable AS marketplace_is_discoverable" in source
     assert "if not proof_valid:" in source
     assert "continue" in source[source.index("if not proof_valid:") :]
     assert "identity_user_ids" in source
@@ -346,17 +398,13 @@ def test_sync_revalidates_every_match_and_writes_inside_one_transaction() -> Non
     )
     assert "COUNT(*) OVER" in source
     assert "unambiguous_target_by_lookup" in source
-    profile_lock_start = source.index("FROM actor_profiles")
-    assert (
-        "FOR UPDATE SKIP LOCKED"
-        in source[profile_lock_start : source.index("revalidated_rows_by_lookup")]
-    )
+    assert "FOR UPDATE SKIP LOCKED" not in source
     assert "ORDER BY user_id" in source
     assert "FOR UPDATE" in source
     assert "activate_contact_sync_connections_bulk" in source
     assert "_join_trusted_system_circles_bulk" in source
-    assert '"authorization": "verified_phone_contact_match"' in source
-    assert '"authorization": "existing_connection_match"' in source
+    assert '"authorization": "verified_phone_directory_match"' in source
+    assert "CONTACT_SYNC_MATCH_POLICY_VERSION" in source
     assert 'existing_status == "revoked"' in source
     assert 'existing_status == "active"' in source
     assert "activation_required_target_ids" in source
@@ -394,10 +442,9 @@ def test_behavior_auto_connect_materializes_only_canonical_projections() -> None
                 {
                     "target_user_id": "target",
                     "origin_metadata": {
-                        "authorization": "verified_phone_contact_match",
-                        "targetConsentEnabledAt": "2026-08-25T10:00:00+00:00",
-                        "targetConsentRuleVersion": 3,
-                        "targetConsentContractVersion": (CONTACT_SYNC_CONSENT_CONTRACT_VERSION),
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": "enabled",
                     },
                 },
             ),
@@ -420,15 +467,23 @@ def test_behavior_mutation_time_ambiguous_phone_proof_writes_nothing() -> None:
     assert service.writes == []
 
 
-def test_behavior_busy_profile_is_indeterminate_and_never_inviteable() -> None:
-    service = _ContactSyncService(profile_lock_skipped=True)
+def test_behavior_missing_profile_uses_verified_directory_default() -> None:
+    service = _ContactSyncService(
+        explicit_consent=False,
+        missing_profile_users={"target"},
+    )
 
     result = _behavior_sync(service)
 
-    assert result["matchedCount"] == 0
-    assert result["items"] == []
-    assert result["indeterminateLookupIds"] == ["lookup_0001"]
-    assert service.writes == []
+    assert result["matchedCount"] == 1
+    assert result["autoConnectedCount"] == 1
+    assert result["items"][0]["outcome"] == "auto_connected"
+    metadata = service.writes[0][2][0]["origin_metadata"]
+    assert metadata == {
+        "authorization": "verified_phone_directory_match",
+        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+        "targetPreferenceState": "default",
+    }
 
 
 def test_behavior_concurrent_disconnect_tombstone_suppresses_downstream_writes() -> None:
@@ -443,18 +498,22 @@ def test_behavior_concurrent_disconnect_tombstone_suppresses_downstream_writes()
     assert [write[0] for write in service.writes] == ["bulk_graph"]
 
 
-def test_behavior_legacy_discoverability_without_explicit_consent_writes_nothing() -> None:
+def test_behavior_directory_default_without_explicit_consent_auto_connects() -> None:
     service = _ContactSyncService(explicit_consent=False)
     result = _behavior_sync(service)
 
-    assert result["items"] == []
-    assert result["matchedCount"] == 0
-    assert result["indeterminateLookupIds"] == ["lookup_0001"]
-    assert service.writes == []
+    assert result["matchedCount"] == 1
+    assert result["autoConnectedCount"] == 1
+    assert result["items"][0]["outcome"] == "auto_connected"
+    assert service.writes[0][2][0]["origin_metadata"]["targetPreferenceState"] == "default"
 
 
 def test_behavior_explicitly_hidden_target_writes_nothing() -> None:
-    service = _ContactSyncService(target_discoverable=False)
+    service = _ContactSyncService(
+        target_discoverable=False,
+        explicit_consent=False,
+        contact_rule_version=1,
+    )
     result = _behavior_sync(service)
 
     assert result["items"] == []
@@ -466,6 +525,8 @@ def test_behavior_explicitly_hidden_target_writes_nothing() -> None:
 def test_behavior_hidden_active_connection_is_recognized_without_new_provenance() -> None:
     service = _ContactSyncService(
         target_discoverable=False,
+        explicit_consent=False,
+        contact_rule_version=1,
         existing_status="active",
     )
 
@@ -478,10 +539,11 @@ def test_behavior_hidden_active_connection_is_recognized_without_new_provenance(
     assert service.writes == []
 
 
-def test_behavior_busy_profile_does_not_hide_active_connection() -> None:
+def test_behavior_missing_profile_keeps_active_connection_and_adds_default_provenance() -> None:
     service = _ContactSyncService(
+        explicit_consent=False,
         existing_status="active",
-        profile_lock_skipped=True,
+        missing_profile_users={"target"},
     )
 
     result = _behavior_sync(service)
@@ -490,12 +552,18 @@ def test_behavior_busy_profile_does_not_hide_active_connection() -> None:
     assert result["alreadyConnectedCount"] == 1
     assert result["items"][0]["outcome"] == "already_connected"
     assert result["indeterminateLookupIds"] == []
-    assert service.writes == []
+    assert service.writes[0][2][0]["origin_metadata"] == {
+        "authorization": "verified_phone_directory_match",
+        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+        "targetPreferenceState": "default",
+    }
 
 
 def test_behavior_hidden_revoked_connection_remains_undisclosed() -> None:
     service = _ContactSyncService(
         target_discoverable=False,
+        explicit_consent=False,
+        contact_rule_version=1,
         existing_status="revoked",
     )
 
@@ -513,6 +581,8 @@ def test_behavior_hidden_active_connection_still_requires_unique_current_phone_p
 ) -> None:
     service = _ContactSyncService(
         target_discoverable=False,
+        explicit_consent=False,
+        contact_rule_version=1,
         existing_status="active",
         stale_proof=proof_failure == "stale",
         ambiguous_proof=proof_failure == "ambiguous",
@@ -549,16 +619,90 @@ def test_behavior_mixed_hidden_active_and_new_consented_match_preserves_both() -
                 {
                     "target_user_id": "target_0002",
                     "origin_metadata": {
-                        "authorization": "verified_phone_contact_match",
-                        "targetConsentEnabledAt": "2026-08-25T10:00:00+00:00",
-                        "targetConsentRuleVersion": 3,
-                        "targetConsentContractVersion": (CONTACT_SYNC_CONSENT_CONTRACT_VERSION),
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": "enabled",
                     },
                 },
             ),
         ),
         ("bulk_circle", (("requester", "target_0002"),)),
     ]
+
+
+def test_behavior_two_existing_connections_and_one_directory_default_match_all_three() -> None:
+    service = _ContactSyncService(
+        explicit_consent=False,
+        existing_status_by_user={
+            "target_0001": "active",
+            "target_0002": "active",
+        },
+    )
+
+    result = _behavior_sync(service, count=3)
+
+    assert [(item["userId"], item["outcome"]) for item in result["items"]] == [
+        ("target_0001", "already_connected"),
+        ("target_0002", "already_connected"),
+        ("target_0003", "auto_connected"),
+    ]
+    assert result["matchedCount"] == 3
+    assert result["alreadyConnectedCount"] == 2
+    assert result["autoConnectedCount"] == 1
+    assert {activation["target_user_id"] for activation in service.writes[0][2]} == {
+        "target_0001",
+        "target_0002",
+        "target_0003",
+    }
+    assert all(
+        activation["origin_metadata"]["targetPreferenceState"] == "default"
+        for activation in service.writes[0][2]
+    )
+
+
+def test_behavior_removed_directory_matches_remain_visible_but_suppressed() -> None:
+    service = _ContactSyncService(
+        explicit_consent=False,
+        existing_status_by_user={
+            "target_0001": "revoked",
+            "target_0002": "revoked",
+            "target_0003": "active",
+        },
+    )
+
+    result = _behavior_sync(service, count=3)
+
+    assert [(item["userId"], item["outcome"]) for item in result["items"]] == [
+        ("target_0001", "suppressed"),
+        ("target_0002", "suppressed"),
+        ("target_0003", "already_connected"),
+    ]
+    assert result["matchedCount"] == 3
+    assert result["suppressedCount"] == 2
+    assert result["alreadyConnectedCount"] == 1
+    assert [activation["target_user_id"] for activation in service.writes[0][2]] == ["target_0003"]
+
+
+def test_behavior_marketplace_hidden_directory_target_is_not_disclosed() -> None:
+    service = _ContactSyncService(marketplace_visible=False)
+
+    result = _behavior_sync(service)
+
+    assert result["matchedCount"] == 0
+    assert result["items"] == []
+    assert result["indeterminateLookupIds"] == ["lookup_0001"]
+    assert service.writes == []
+
+
+def test_behavior_marketplace_name_fallback_survives_transaction_revalidation() -> None:
+    service = _ContactSyncService(
+        identity_display_name_by_user={"target": None},
+        marketplace_display_name_by_user={"target": "Kushal"},
+    )
+
+    result = _behavior_sync(service)
+
+    assert result["items"][0]["displayName"] == "Kushal"
 
 
 def test_behavior_stale_consent_contract_writes_nothing() -> None:
@@ -600,7 +744,7 @@ def test_behavior_unverified_requester_is_rejected_before_any_write() -> None:
     assert service.writes == []
 
 
-def test_behavior_existing_connection_gets_idempotent_viewer_provenance() -> None:
+def test_behavior_existing_connection_gets_idempotent_directory_provenance() -> None:
     service = _ContactSyncService(existing_status="active")
     first = _behavior_sync(service)
     second = _behavior_sync(service)
@@ -615,7 +759,11 @@ def test_behavior_existing_connection_gets_idempotent_viewer_provenance() -> Non
             (
                 {
                     "target_user_id": "target",
-                    "origin_metadata": {"authorization": "existing_connection_match"},
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": "enabled",
+                    },
                 },
             ),
         ),
@@ -625,7 +773,11 @@ def test_behavior_existing_connection_gets_idempotent_viewer_provenance() -> Non
             (
                 {
                     "target_user_id": "target",
-                    "origin_metadata": {"authorization": "existing_connection_match"},
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": "enabled",
+                    },
                 },
             ),
         ),
@@ -680,8 +832,130 @@ def test_requester_phone_and_weighted_postgres_budget_are_fail_closed() -> None:
     assert "CONTACT_SYNC_LOOKUP_BUDGET_EXCEEDED" in source
 
 
+@pytest.mark.parametrize(
+    (
+        "stored_enabled",
+        "enabled_at",
+        "rule_version",
+        "contract_version",
+        "marketplace_visible",
+        "preference_state",
+        "effective_enabled",
+    ),
+    [
+        (None, None, None, None, None, "default", True),
+        (False, None, 0, None, True, "default", True),
+        (False, None, 0, None, False, "default", False),
+        (False, None, 1, None, True, "disabled", False),
+        (
+            True,
+            "2026-09-05T00:00:00Z",
+            1,
+            CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            True,
+            "enabled",
+            True,
+        ),
+        (
+            True,
+            "2026-09-05T00:00:00Z",
+            1,
+            CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+            False,
+            "enabled",
+            False,
+        ),
+        (True, None, 1, CONTACT_SYNC_CONSENT_CONTRACT_VERSION, True, "invalid", False),
+        (True, "2026-09-05T00:00:00Z", 1, "stale_contract", True, "invalid", False),
+    ],
+)
 @pytest.mark.asyncio
-async def test_combined_contact_sync_consent_is_default_off_and_versioned() -> None:
+async def test_contact_preference_response_combines_directory_and_explicit_choice(
+    stored_enabled,
+    enabled_at,
+    rule_version,
+    contract_version,
+    marketplace_visible,
+    preference_state,
+    effective_enabled,
+) -> None:
+    conn = AsyncMock()
+    conn.fetchrow.return_value = {
+        "contact_discoverable": stored_enabled,
+        "contact_sync_consent_enabled_at": enabled_at,
+        "contact_sync_consent_rule_version": rule_version,
+        "contact_sync_consent_contract_version": contract_version,
+        "marketplace_is_discoverable": marketplace_visible,
+    }
+    service = RIAIAMService()
+    with (
+        patch.object(service, "_conn", AsyncMock(return_value=conn)),
+        patch.object(service, "_ensure_iam_schema_ready", AsyncMock()),
+    ):
+        result = await service.get_contact_discoverability("target")
+
+    assert result["contact_discoverable"] is effective_enabled
+    assert result["stored_contact_discoverable"] is bool(stored_enabled)
+    assert result["contact_sync_preference_state"] == preference_state
+    assert result["contact_sync_consent_enabled_at"] == enabled_at
+    assert result["contact_sync_consent_contract_version"] == contract_version
+    assert result["directory_visible"] is (marketplace_visible is not False)
+    assert result["contact_sync_match_policy_version"] == CONTACT_SYNC_MATCH_POLICY_VERSION
+    assert result["iam_schema_ready"] is True
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("enabled", "marketplace_visible", "effective_enabled"),
+    [(False, None, False), (True, None, True), (True, False, False)],
+)
+@pytest.mark.asyncio
+async def test_contact_preference_write_reports_effective_directory_visibility(
+    enabled: bool,
+    marketplace_visible: bool | None,
+    effective_enabled: bool,
+) -> None:
+    conn = AsyncMock()
+    conn.transaction = MagicMock()
+    conn.fetchrow.side_effect = [
+        {
+            "user_id": "target",
+            "contact_discoverable": enabled,
+            "contact_sync_consent_enabled_at": "2026-09-05T00:00:00Z" if enabled else None,
+            "contact_sync_consent_rule_version": 1,
+            "contact_sync_consent_contract_version": (
+                CONTACT_SYNC_CONSENT_CONTRACT_VERSION if enabled else None
+            ),
+        },
+        None if marketplace_visible is None else {"is_discoverable": marketplace_visible},
+    ]
+    service = RIAIAMService()
+    with (
+        patch.object(service, "_conn", AsyncMock(return_value=conn)),
+        patch.object(service, "_ensure_vault_user_row", AsyncMock()),
+        patch.object(service, "_ensure_iam_schema_ready", AsyncMock()),
+    ):
+        result = await service.set_contact_discoverability(
+            "target",
+            enabled,
+            consent_version=CONTACT_SYNC_CONSENT_CONTRACT_VERSION if enabled else None,
+        )
+
+    assert result["contact_discoverable"] is effective_enabled
+    assert result["stored_contact_discoverable"] is enabled
+    assert result["contact_sync_preference_state"] == ("enabled" if enabled else "disabled")
+    assert result["directory_visible"] is (marketplace_visible is not False)
+    assert result["contact_sync_match_policy_version"] == CONTACT_SYNC_MATCH_POLICY_VERSION
+    conn.execute.assert_awaited_once_with(
+        "SELECT pg_advisory_xact_lock(hashtextextended($1, $2))",
+        "target",
+        CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+    )
+    conn.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_contact_sync_directory_default_and_explicit_choice_are_versioned() -> None:
     source = inspect.getsource(RIAIAMService.set_contact_discoverability)
     getter = inspect.getsource(RIAIAMService.get_contact_discoverability)
     assert "contact_discoverable = $2" in source
@@ -690,8 +964,55 @@ async def test_combined_contact_sync_consent_is_default_off_and_versioned() -> N
     assert "CASE WHEN $2 THEN NOW() ELSE NULL END" in source
     assert "CONTACT_SYNC_CONSENT_CONTRACT_VERSION" in source
     assert "contact_sync_consent_contract_version" in source
-    assert "enabled = bool(" in getter
-    assert "CONTACT_SYNC_CONSENT_CONTRACT_VERSION" in getter
+    assert "contact_sync_preference_state" in getter
+    assert "CONTACT_SYNC_MATCH_POLICY_VERSION" in getter
+    assert "marketplace_is_discoverable" in getter
+
+    assert (
+        contact_sync_preference_state(
+            discoverable=False,
+            enabled_at=None,
+            rule_version=0,
+            contract_version=None,
+        )
+        == "default"
+    )
+    assert (
+        contact_sync_preference_state(
+            discoverable=False,
+            enabled_at=None,
+            rule_version=2,
+            contract_version=None,
+        )
+        == "disabled"
+    )
+    assert (
+        contact_sync_preference_state(
+            discoverable=True,
+            enabled_at="2026-09-05T00:00:00Z",
+            rule_version=2,
+            contract_version="stale_contract",
+        )
+        == "invalid"
+    )
+    assert (
+        contact_sync_preference_state(
+            discoverable=False,
+            enabled_at=None,
+            rule_version=0,
+            contract_version="",
+        )
+        == "invalid"
+    )
+    assert (
+        contact_sync_preference_state(
+            discoverable=True,
+            enabled_at="2026-09-05T00:00:00Z",
+            rule_version=2,
+            contract_version=f" {CONTACT_SYNC_CONSENT_CONTRACT_VERSION} ",
+        )
+        == "invalid"
+    )
 
     # A cached findability-only client sends no marker. The service rejects it
     # before opening a DB connection, so old UI copy cannot broaden authority.
@@ -770,6 +1091,47 @@ def test_migration_registers_combined_consent_provenance_budget_and_safe_rollbac
             "lookup_count",
             "updated_at",
         ]
+
+
+def test_directory_policy_writers_share_the_graph_user_lock() -> None:
+    migration = DIRECTORY_POLICY_MIGRATION.read_text(encoding="utf-8")
+    rollback = DIRECTORY_POLICY_ROLLBACK.read_text(encoding="utf-8")
+    manifest = json.loads((ROOT / "db" / "release_migration_manifest.json").read_text())
+    graph_source = inspect.getsource(ConnectionGraphService.activate_contact_sync_pairs)
+    setter_source = inspect.getsource(RIAIAMService.set_contact_discoverability)
+
+    assert f"hashtextextended(affected_user_id, {CONTACT_SYNC_POLICY_LOCK_NAMESPACE})" in migration
+    assert "actor_profiles_contact_sync_policy_lock" in migration
+    assert "marketplace_profiles_contact_sync_policy_lock" in migration
+    assert "UPDATE OF\n  contact_discoverable" in migration
+    assert "UPDATE OF is_discoverable" in migration
+    assert "pg_advisory_xact_lock(hashtextextended($1, $2))" in setter_source
+    assert "CONTACT_SYNC_POLICY_LOCK_NAMESPACE" in setter_source
+    assert setter_source.index("CONTACT_SYNC_POLICY_LOCK_NAMESPACE,") < setter_source.index(
+        "await self._ensure_vault_user_row"
+    )
+    assert "WHERE connections.status = 'active'" in graph_source
+    assert "DROP FUNCTION IF EXISTS lock_contact_sync_directory_policy_user" in rollback
+    assert "200_contact_sync_directory_policy_lock.sql" in manifest["ordered_migrations"]
+    assert "200_contact_sync_directory_policy_lock.sql" in manifest["groups"]["iam"]
+
+
+def test_directory_policy_locks_explicit_inserts_without_locking_default_hydration() -> None:
+    migration = DIRECTORY_POLICY_MIGRATION.read_text(encoding="utf-8")
+    rollback = DIRECTORY_POLICY_ROLLBACK.read_text(encoding="utf-8")
+    insert_trigger = migration.split(
+        "CREATE TRIGGER actor_profiles_contact_sync_policy_insert_lock", 1
+    )[1].split("EXECUTE FUNCTION", 1)[0]
+
+    assert "BEFORE INSERT ON actor_profiles" in insert_trigger
+    assert "FOR EACH ROW\nWHEN (" in insert_trigger
+    assert "NEW.contact_sync_consent_rule_version IS DISTINCT FROM 0" in insert_trigger
+    assert "OR NEW.contact_sync_consent_enabled_at IS NOT NULL" in insert_trigger
+    assert "OR NEW.contact_sync_consent_contract_version IS NOT NULL" in insert_trigger
+    assert "actor_profiles_contact_sync_policy_insert_lock" in rollback
+    assert rollback.index("actor_profiles_contact_sync_policy_insert_lock") < rollback.index(
+        "DROP FUNCTION IF EXISTS lock_contact_sync_directory_policy_user"
+    )
 
 
 def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:

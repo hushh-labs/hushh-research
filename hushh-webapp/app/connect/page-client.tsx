@@ -103,7 +103,7 @@ import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layou
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
-  CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME,
+  CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
   CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
@@ -545,7 +545,6 @@ export default function ConnectPageClient() {
   const stickyPinSentinelRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuRef = useRef<HTMLDivElement | null>(null);
   const directoryMenuButtonRef = useRef<HTMLButtonElement | null>(null);
-  const loadMoreDirectoryRef = useRef<HTMLDivElement | null>(null);
   const [directoryMenuOpen, setDirectoryMenuOpen] = useState(false);
   const useWebDirectoryPopover = !isNative();  const searchQueryParam = (searchParams.get(CONNECT_SEARCH_QUERY_PARAM) ?? "")
     .trim()
@@ -1021,16 +1020,11 @@ export default function ConnectPageClient() {
           audience: directoryAudience,
         });
         if (!cancelled) {
-          setPeople((current) => {
-            if (page.page <= 1) return page.items;
-            const merged = new Map(
-              current.map((person) => [person.userId, person]),
-            );
-            for (const person of page.items) {
-              merged.set(person.userId, person);
-            }
-            return Array.from(merged.values());
-          });
+          // A page replaces the rows rather than merging into them. While this
+          // list appended, every page left its predecessors on screen, so the
+          // directory grew without limit and the sections below it moved
+          // further out of reach with each batch.
+          setPeople(page.items);
           setHasMore(page.hasMore);
           // Selections deliberately survive this. They used to be pruned to
           // whoever the new page happened to show, on the reasoning that a
@@ -1107,32 +1101,11 @@ export default function ConnectPageClient() {
     setCurrentPage((page) => page + 1);
   }, [hasMore, loading, surface, tab]);
 
-  useEffect(() => {
-    const sentinel = loadMoreDirectoryRef.current;
-    if (
-      !sentinel ||
-      surface === "circles" ||
-      tab === "nearby" ||
-      !hasMore ||
-      loading ||
-      typeof IntersectionObserver === "undefined"
-    ) {
-      return;
-    }
-    const scrollRoot = document.querySelector<HTMLElement>(
-      '[data-app-scroll-root="true"]',
-    );
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries.some((entry) => entry.isIntersecting)) {
-          loadNextDirectoryBatch();
-        }
-      },
-      { root: scrollRoot, rootMargin: "240px 0px" },
-    );
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [hasMore, loadNextDirectoryBatch, loading, surface, tab]);
+  const loadPreviousDirectoryBatch = useCallback(() => {
+    if (surface === "circles" || tab === "nearby" || loading) return;
+    setCurrentPage((page) => Math.max(1, page - 1));
+  }, [loading, surface, tab]);
+
 
   const sendConnectionRequest = useCallback(
     async (
@@ -2514,7 +2487,7 @@ export default function ConnectPageClient() {
                       separatorInset
                       contentClassName={
                         sortedConnections.length > 0
-                          ? CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME
+                          ? CONNECT_CONNECTION_LIST_CLASSNAME
                           : undefined
                       }
                       testId="connect-my-connections-group"
@@ -3086,35 +3059,55 @@ export default function ConnectPageClient() {
                             );
                           })
                         )}
-                        {people.length > 0 && hasMore ? (
+                        {people.length > 0 && (hasMore || currentPage > 1) ? (
                           <div
-                            ref={loadMoreDirectoryRef}
-                            className="flex min-h-14 items-center justify-center border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
-                            data-testid="connect-load-more-row"
+                            className="flex min-h-14 items-center justify-between gap-2 border-t border-[color:var(--app-card-border-standard)] px-4 py-2"
+                            data-testid="connect-pager-row"
                             aria-live="polite"
                           >
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fade"
+                              size="sm"
+                              showRipple={false}
+                              aria-label="Show the previous page of people"
+                              className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                              disabled={currentPage <= 1 || isDirectoryRefreshing}
+                              onClick={loadPreviousDirectoryBatch}
+                            >
+                              Previous
+                            </Button>
+                            {/* The directory endpoint reports `hasMore` but no
+                                total, so this names the page the reader is on
+                                and stops there. "Page 3 of 12" would be a
+                                count nothing here actually knows. */}
                             {isDirectoryRefreshing ? (
                               <span className="inline-flex items-center gap-2 text-[14px] font-medium leading-5 text-[color:var(--app-secondary-label)]">
                                 <Loader2
                                   className="h-3.5 w-3.5 animate-spin"
                                   aria-hidden="true"
                                 />
-                                Loading more…
+                                Loading…
                               </span>
                             ) : (
-                              <Button
-                                type="button"
-                                variant="none"
-                                effect="fade"
-                                size="sm"
-                                showRipple={false}
-                                aria-label={`Load ${DEFAULT_PAGE_SIZE} more people`}
-                                className={CONNECT_PAGER_BUTTON_CLASSNAME}
-                                onClick={loadNextDirectoryBatch}
-                              >
-                                Load {DEFAULT_PAGE_SIZE} more
-                              </Button>
+                              <span className="text-[14px] font-medium leading-5 tabular-nums text-[color:var(--app-secondary-label)]">
+                                Page {currentPage}
+                              </span>
                             )}
+                            <Button
+                              type="button"
+                              variant="none"
+                              effect="fade"
+                              size="sm"
+                              showRipple={false}
+                              aria-label="Show the next page of people"
+                              className={CONNECT_PAGER_BUTTON_CLASSNAME}
+                              disabled={!hasMore || isDirectoryRefreshing}
+                              onClick={loadNextDirectoryBatch}
+                            >
+                              Next
+                            </Button>
                           </div>
                         ) : people.length > 0 ? (
                           <span className="sr-only">All people loaded</span>

@@ -14,9 +14,8 @@ const {
   mockPlatform: { web: false },
 }));
 
-vi.mock("@/lib/marketplace/contact-matching", () => ({
-  CONTACT_SYNC_BATCH_SIZE: 1000,
-  CONTACT_SYNC_MAX_LOOKUPS: 5000,
+vi.mock("@/lib/marketplace/contact-matching", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/marketplace/contact-matching")>()),
   buildMarketplaceContactLookups: mockBuildMarketplaceContactLookups,
 }));
 
@@ -227,9 +226,9 @@ describe("one location contact signals", () => {
     });
   });
 
-  it("dispatches at most five batches and leaves lookup overflow unchecked", async () => {
-    const base = lookupResult(5001);
-    base.contacts[5000]!.coverageComplete = false;
+  it("dispatches at most ten batches and leaves lookup overflow unchecked", async () => {
+    const base = lookupResult(10_001);
+    base.contacts[10_000]!.coverageComplete = false;
     base.lookupLimitExceeded = true;
     base.lookupLimitedContactCount = 1;
     mockBuildMarketplaceContactLookups.mockResolvedValue(base);
@@ -237,14 +236,18 @@ describe("one location contact signals", () => {
 
     const result = await syncOneLocationContactSignals({ idToken: "token" });
 
-    expect(mockSyncContacts).toHaveBeenCalledTimes(5);
+    expect(mockBuildMarketplaceContactLookups).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 10_000 }),
+    );
+    expect(mockSyncContacts).toHaveBeenCalledTimes(10);
+    expect(mockSyncContacts.mock.calls.every(([arg]) => arg.lookups.length === 1000)).toBe(true);
     expect(result).toMatchObject({
-      checkedContactCount: 5000,
-      unmatchedContactCount: 5000,
+      checkedContactCount: 10_000,
+      unmatchedContactCount: 10_000,
       uncheckedContactCount: 1,
       lookupLimitedContactCount: 1,
       lookupLimitExceeded: true,
-      inviteCandidateCount: 5000,
+      inviteCandidateCount: 10_000,
     });
   });
 
@@ -621,6 +624,60 @@ describe("one location contact signals", () => {
     expect(error).toBeInstanceOf(OneLocationContactSyncError);
     expect((error as OneLocationContactSyncError).failure).toBe("restricted");
   });
+
+  it.each(["denied", "restricted"] as const)(
+    "reports %s immediately when the first native permission prompt is refused",
+    async (state) => {
+      mockGetPermissionState
+        .mockResolvedValueOnce({ state: "prompt" })
+        .mockResolvedValueOnce({ state });
+      mockBuildMarketplaceContactLookups.mockRejectedValueOnce(
+        new Error("Native contact permission rejected"),
+      );
+      const resolveIdToken = vi.fn(async () => "token");
+
+      const error = await syncOneLocationContactSignals({ resolveIdToken }).catch(
+        (caught: unknown) => caught,
+      );
+
+      expect(error).toBeInstanceOf(OneLocationContactSyncError);
+      expect(error).toMatchObject({ failure: state });
+      if (state === "denied") expect((error as Error).message).toContain("Settings");
+      expect(mockGetPermissionState).toHaveBeenCalledTimes(2);
+      expect(mockBuildMarketplaceContactLookups).toHaveBeenCalledTimes(1);
+      expect(resolveIdToken).not.toHaveBeenCalled();
+      expect(mockSyncContacts).not.toHaveBeenCalled();
+    },
+  );
+
+  it("preserves the original read failure if the follow-up permission probe fails", async () => {
+    mockGetPermissionState
+      .mockResolvedValueOnce({ state: "prompt" })
+      .mockRejectedValueOnce(new Error("Permission bridge unavailable"));
+    const readError = new Error("Native read failed");
+    mockBuildMarketplaceContactLookups.mockRejectedValueOnce(readError);
+
+    await expect(syncOneLocationContactSignals({ idToken: "token" })).rejects.toBe(readError);
+    expect(mockGetPermissionState).toHaveBeenCalledTimes(2);
+    expect(mockSyncContacts).not.toHaveBeenCalled();
+  });
+
+  it.each(["web", "google"] as const)(
+    "does not translate a %s read failure using native permission state",
+    async (platform) => {
+      mockPlatform.web = platform === "web";
+      const readError = new Error("Contact source unavailable");
+      mockBuildMarketplaceContactLookups.mockRejectedValueOnce(readError);
+
+      await expect(syncOneLocationContactSignals({
+        idToken: "token",
+        ...(platform === "google" ? { source: vi.fn() } : {}),
+      })).rejects.toBe(readError);
+
+      expect(mockGetPermissionState).not.toHaveBeenCalled();
+      expect(mockSyncContacts).not.toHaveBeenCalled();
+    },
+  );
 
   it("skips the device pre-flight for an injected Google source", async () => {
     mockGetPermissionState.mockResolvedValue({ state: "unavailable" });

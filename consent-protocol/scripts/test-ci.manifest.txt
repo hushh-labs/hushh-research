@@ -93,11 +93,15 @@ tests/test_verify_uat_release.py
 tests/test_contact_match_correctness.py
 
 # Identity cache warmup must run on an asyncio loop, and the match/mutation
-# contract must keep verified-phone, uniqueness, explicit target-consent, and
-# tombstone checks fail-closed. These are one end-to-end contact-sync boundary.
+# contract must keep verified-phone uniqueness, verified-directory eligibility,
+# explicit opt-outs, safe provenance, and tombstones fail-closed. These are one
+# end-to-end contact-sync boundary.
 tests/test_api_middleware.py
 tests/test_contact_sync_connection_contract.py
+tests/test_contact_discovery_security.py
+tests/test_contact_sync_postgres_integration.py
 tests/services/test_actor_identity_service.py
+tests/services/test_connection_graph_service.py
 
 # One Location Circles, and the migration guards that protect them.
 #

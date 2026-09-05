@@ -11,6 +11,7 @@ import { toast } from "sonner";
 
 import {
   CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+  CONTACT_SYNC_MATCH_POLICY_VERSION,
   RiaService,
 } from "@/lib/services/ria-service";
 
@@ -60,21 +61,40 @@ function isCurrentConsentDecision(result: {
   contact_sync_consent_enabled_at?: string | null;
   contact_sync_consent_contract_version?: string | null;
   contact_sync_consent_rule_version?: number;
+  contact_sync_preference_state?: "default" | "enabled" | "disabled" | "invalid";
+  contact_sync_match_policy_version?: string | null;
+  iam_schema_ready?: boolean;
 }): boolean {
-  if (consentRuleVersion(result.contact_sync_consent_rule_version) === 0) {
+  if (
+    result.iam_schema_ready === false ||
+    result.contact_sync_match_policy_version !==
+      CONTACT_SYNC_MATCH_POLICY_VERSION
+  ) {
     return false;
   }
-  if (result.contact_discoverable) {
+  if (result.contact_sync_preference_state === "default") {
     return (
+      consentRuleVersion(result.contact_sync_consent_rule_version) === 0 &&
+      !result.contact_sync_consent_enabled_at &&
+      !result.contact_sync_consent_contract_version
+    );
+  }
+  if (result.contact_sync_preference_state === "enabled") {
+    return (
+      consentRuleVersion(result.contact_sync_consent_rule_version) > 0 &&
       Boolean(result.contact_sync_consent_enabled_at) &&
       result.contact_sync_consent_contract_version ===
         CONTACT_SYNC_CONSENT_CONTRACT_VERSION
     );
   }
-  return (
-    !result.contact_sync_consent_enabled_at &&
-    !result.contact_sync_consent_contract_version
-  );
+  if (result.contact_sync_preference_state === "disabled") {
+    return (
+      consentRuleVersion(result.contact_sync_consent_rule_version) > 0 &&
+      !result.contact_sync_consent_enabled_at &&
+      !result.contact_sync_consent_contract_version
+    );
+  }
+  return false;
 }
 
 /**
@@ -270,8 +290,7 @@ export function useContactDiscoverabilityConsent({
 
     if (
       currentPreference.ownerUserId === currentIdentity.userId &&
-      currentPreference.status === "decided" &&
-      currentPreference.ruleVersion > 0
+      currentPreference.status === "decided"
     ) {
       // Enabled and disabled are both explicit decisions. Keeping private does
       // not prevent this person from checking their own address book.
@@ -336,7 +355,10 @@ export function useContactDiscoverabilityConsent({
           throw new Error("Contact privacy choice was not recorded.");
         }
         const savedEnabled = Boolean(result.contact_discoverable);
-        if (savedEnabled !== enabled || !isCurrentConsentDecision(result)) {
+        const storedEnabled = Boolean(
+          result.stored_contact_discoverable ?? result.contact_discoverable,
+        );
+        if (storedEnabled !== enabled || !isCurrentConsentDecision(result)) {
           throw new Error("Contact privacy choice was not recorded.");
         }
 

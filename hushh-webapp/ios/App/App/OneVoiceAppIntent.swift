@@ -241,6 +241,70 @@ struct OneCircleEntityQuery: EntityStringQuery {
     }
 }
 
+/// A person or a Circle -- whichever "share my location with Family" or
+/// "share my location with Sarah" turns out to name. Share/ask intents used
+/// to accept only `OneContactEntity`, so a Circle name had nowhere to
+/// resolve: Siri's own entity matching failed before the app ever ran,
+/// independent of anything the backend already knows how to do with a
+/// Circle name in the `person` slot. One merged query over both pools is
+/// what lets Siri's picker (and free-speech matching) offer either.
+@available(iOS 16.0, *)
+struct OneShareRecipientEntity: AppEntity, Identifiable, Hashable {
+    enum Kind: String, Hashable {
+        case contact
+        case circle
+    }
+
+    let id: String
+    let name: String
+    let kind: Kind
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation = "Agent One Recipient"
+    static let defaultQuery = OneShareRecipientEntityQuery()
+
+    var displayRepresentation: DisplayRepresentation {
+        switch kind {
+        case .contact:
+            return DisplayRepresentation(title: "\(name)")
+        case .circle:
+            return DisplayRepresentation(title: "\(name)", subtitle: "Circle")
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+struct OneShareRecipientEntityQuery: EntityStringQuery {
+    func entities(for identifiers: [OneShareRecipientEntity.ID]) async throws -> [OneShareRecipientEntity] {
+        let requested = Set(identifiers)
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts()
+            .filter { requested.contains($0.id) }
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles()
+            .filter { requested.contains($0.id) }
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+
+    func entities(matching string: String) async throws -> [OneShareRecipientEntity] {
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts(matching: string)
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles(matching: string)
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+
+    func suggestedEntities() async throws -> [OneShareRecipientEntity] {
+        let coordinator = OneSystemActionInvocationCoordinator.shared
+        let contacts = coordinator.contacts()
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .contact) }
+        let circles = coordinator.circles()
+            .map { OneShareRecipientEntity(id: $0.id, name: $0.name, kind: .circle) }
+        return contacts + circles
+    }
+}
+
 @available(iOS 16.0, *)
 enum OneLocationDuration: String, AppEnum {
     case fifteenMinutes = "0.25"
@@ -298,7 +362,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": recipientID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.shareLocation.requiresSystemConfirmation
         )
     }
 
@@ -314,7 +378,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedRecipientId": personID,
                 "duration_hours": duration.rawValue
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.askForLocation.requiresSystemConfirmation
         )
     }
 
@@ -322,7 +386,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .stopShare,
             slots: ["person": personName, "resolvedRecipientId": personID],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.stopShare.requiresSystemConfirmation
         )
     }
 
@@ -330,7 +394,8 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: state == .on ? .resumeLocation : .pauseLocation,
             slots: [:],
-            confirmedBySystem: state == .on
+            confirmedBySystem: (state == .on ? OneSystemActionID.resumeLocation : .pauseLocation)
+                .requiresSystemConfirmation
         )
     }
 
@@ -338,7 +403,7 @@ enum OneAppIntentActionRequestFactory {
         .init(
             actionID: .createCircle,
             slots: ["name": name],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.createCircle.requiresSystemConfirmation
         )
     }
 
@@ -354,7 +419,7 @@ enum OneAppIntentActionRequestFactory {
                 "resolvedCircleId": circleID,
                 "name": newName
             ],
-            confirmedBySystem: true
+            confirmedBySystem: OneSystemActionID.renameCircle.requiresSystemConfirmation
         )
     }
 
@@ -373,12 +438,20 @@ private enum OneAppIntentActionExecutor {
         ) else {
             return "Agent One could not prepare that action."
         }
-        guard let completion = await OneSystemActionInvocationCoordinator.shared.waitForCompletion(
+        guard let result = await OneSystemActionInvocationCoordinator.shared.waitForCompletionOrProgress(
             id: invocation.id
         ) else {
             return "Continue in Agent One to finish. Your request is waiting."
         }
-        return completion.summary
+        switch result {
+        case .completion(let completion):
+            return completion.summary
+        case .progress(let progress):
+            switch progress.state {
+            case .waitingForVault:
+                return "Agent One's Vault is locked. I've opened the app for you. Unlock your Vault, and I'll continue your request."
+            }
+        }
     }
 }
 
@@ -409,7 +482,7 @@ struct TalkToHusshOneIntent: AppIntent {
 struct ShareLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Share Location"
     static let description = IntentDescription(
-        "Share your live location with an existing Agent One connection."
+        "Share your live location with an existing Agent One connection or Circle."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -418,8 +491,8 @@ struct ShareLocationWithOneIntent: AppIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(title: "Person")
-    var recipient: OneContactEntity
+    @Parameter(title: "Person or Circle")
+    var recipient: OneShareRecipientEntity
 
     @Parameter(title: "Duration")
     var duration: OneLocationDuration
@@ -445,7 +518,7 @@ struct ShareLocationWithOneIntent: AppIntent {
 struct AskForLocationWithOneIntent: AppIntent {
     static let title: LocalizedStringResource = "Ask for Location"
     static let description = IntentDescription(
-        "Ask an existing Agent One connection to share their location."
+        "Ask an existing Agent One connection or Circle to share their location."
     )
     static let authenticationPolicy: IntentAuthenticationPolicy =
         .requiresLocalDeviceAuthentication
@@ -454,8 +527,8 @@ struct AskForLocationWithOneIntent: AppIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(title: "Person")
-    var person: OneContactEntity
+    @Parameter(title: "Person or Circle")
+    var person: OneShareRecipientEntity
 
     @Parameter(title: "Duration")
     var duration: OneLocationDuration
@@ -785,7 +858,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: ShareLocationWithOneIntent(),
             phrases: [
                 "Share my location with \(\.$recipient) in \(.applicationName) Location Agent",
-                "Let \(\.$recipient) see my location with \(.applicationName)"
+                "Let \(\.$recipient) see my location with \(.applicationName)",
+                "Ask \(.applicationName) to share my location with \(\.$recipient)",
+                "Tell \(.applicationName) to share my location with \(\.$recipient)",
+                "Talk to \(.applicationName) and share my location with \(\.$recipient)"
             ],
             shortTitle: "Share Location",
             systemImageName: "location.fill"
@@ -794,7 +870,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: AskForLocationWithOneIntent(),
             phrases: [
                 "Ask \(\.$person) for location in \(.applicationName) Location Agent",
-                "Request \(\.$person)'s location with \(.applicationName)"
+                "Request \(\.$person)'s location with \(.applicationName)",
+                "Ask \(.applicationName) to ask \(\.$person) for location",
+                "Tell \(.applicationName) to request \(\.$person)'s location",
+                "Talk to \(.applicationName) and ask \(\.$person) for location"
             ],
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
@@ -803,7 +882,13 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: StopLocationSharingWithOneIntent(),
             phrases: [
                 "Stop sharing location with \(\.$person) in \(.applicationName) Location Agent",
-                "Stop my location in \(.applicationName) Location Agent"
+                "Stop my location in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to stop sharing location with \(\.$person)",
+                "Tell \(.applicationName) to stop sharing location with \(\.$person)",
+                "Talk to \(.applicationName) and stop sharing location with \(\.$person)",
+                "Ask \(.applicationName) to pause my location",
+                "Tell \(.applicationName) to pause my location",
+                "Talk to \(.applicationName) and pause my location"
             ],
             shortTitle: "Stop Sharing",
             systemImageName: "location.slash.fill"
@@ -811,7 +896,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         AppShortcut(
             intent: SetOneLocationStateIntent(),
             phrases: [
-                "Turn \(.applicationName) Location \(\.$state)"
+                "Turn \(.applicationName) Location \(\.$state)",
+                "Ask \(.applicationName) to turn Location \(\.$state)",
+                "Tell \(.applicationName) to turn Location \(\.$state)",
+                "Talk to \(.applicationName) and turn Location \(\.$state)"
             ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
@@ -820,16 +908,33 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: CreateOneCircleIntent(),
             phrases: [
                 "Create a Circle in \(.applicationName) Location Agent",
-                "Make a new Circle in \(.applicationName) Location Agent"
+                "Make a new Circle in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to create a Circle",
+                "Tell \(.applicationName) to create a Circle",
+                "Talk to \(.applicationName) and create a Circle"
             ],
             shortTitle: "Create Circle",
             systemImageName: "person.3.fill"
         )
         AppShortcut(
+            intent: RenameOneCircleIntent(),
+            phrases: [
+                "Rename \(\.$circle) in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to rename \(\.$circle)",
+                "Tell \(.applicationName) to rename \(\.$circle)",
+                "Talk to \(.applicationName) and rename \(\.$circle)"
+            ],
+            shortTitle: "Rename Circle",
+            systemImageName: "pencil.circle.fill"
+        )
+        AppShortcut(
             intent: CheckInWithOneIntent(),
             phrases: [
                 "Check in with \(.applicationName) Location Agent",
-                "Open \(.applicationName) Location Check In"
+                "Open \(.applicationName) Location Check In",
+                "Ask \(.applicationName) to check in",
+                "Tell \(.applicationName) to open Check In",
+                "Talk to \(.applicationName) and check in"
             ],
             shortTitle: "Check In",
             systemImageName: "checkmark.circle.fill"
@@ -839,7 +944,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             phrases: [
                 "Open \(.applicationName) \(\.$target)",
                 "Show \(\.$target) in \(.applicationName)",
-                "Call \(.applicationName) \(\.$target)"
+                "Ask \(.applicationName) to open \(\.$target)",
+                "Tell \(.applicationName) to show \(\.$target)",
+                "Talk to \(.applicationName) and open \(\.$target)"
             ],
             shortTitle: "Open Agent One Location",
             systemImageName: "location.circle.fill"
@@ -848,7 +955,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: TalkToHusshOneIntent(),
             phrases: [
                 "Talk to \(.applicationName)",
-                "Ask \(.applicationName)"
+                "Start a conversation with \(.applicationName)"
             ],
             shortTitle: "Talk to Agent One",
             systemImageName: "waveform.circle.fill"

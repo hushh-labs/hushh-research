@@ -118,21 +118,20 @@ function systemKindOf(circle: OneLocationCircleSummary): string | null {
  * person was never asked, so the row opened by naming a category they had not
  * picked ahead of the only number on the line that was true.
  *
- * The viewer is excluded from the count for the same reason the Location list
- * excludes them: "3 people" reading as two others and yourself is the answer
- * to a question nobody asked.
+ * The count includes the owner, matching Circle Detail -- excluding them made
+ * this row disagree with the screen one tap away over the same Circle.
  */
 export function circleRowDescription(circle: OneLocationCircleSummary): string {
-  const others = Math.max(0, Number(circle.memberCount || 0) - 1);
+  const count = Math.max(0, Number(circle.memberCount || 0));
   const kind = systemKindOf(circle);
   const owns = circle.role === "owner";
-  const people = others === 1 ? "1 person" : `${others} people`;
+  const people = count === 1 ? "1 person" : `${count} people`;
 
   // Trusted is owner-scoped by the server, so the only viewer who can reach
   // this line is its owner. Guarded anyway: "Everyone you're connected to" on
   // somebody else's roster would be a false statement about the reader.
   if (kind === "trusted" && owns) {
-    return others === 0
+    return count <= 1
       ? SYSTEM_CIRCLE_COPY.trusted.description
       : `${SYSTEM_CIRCLE_COPY.trusted.description} · ${people}`;
   }
@@ -144,9 +143,9 @@ export function circleRowDescription(circle: OneLocationCircleSummary): string {
       ? SYSTEM_CIRCLE_COPY.sms.description
       : "You'll get their SMS";
     if (!owns) return lead;
-    return others === 0 ? `${lead} · no one yet` : `${lead} · ${people}`;
+    return count <= 1 ? `${lead} · no one yet` : `${lead} · ${people}`;
   }
-  return others === 0 ? "No members yet" : people;
+  return count <= 1 ? "No members yet" : people;
 }
 
 /** Circles you own first, with product-managed circles pinned above named ones. */

@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
@@ -16,6 +17,7 @@ from hushh_mcp.services.connection_graph_service import (
     lock_connection_graph_users,
     revoke_circle_origins,
 )
+from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_MATCH_POLICY_VERSION
 
 
 class _Result:
@@ -219,6 +221,81 @@ def test_contact_sync_origin_rejects_missing_consent_evidence():
                     "target_user_id": "user-b",
                     "origin_metadata": {
                         "authorization": "verified_phone_contact_match",
+                    },
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize("preference_state", ["default", "enabled"])
+def test_contact_sync_origin_persists_directory_policy_without_fabricated_consent(preference_state):
+    conn = _Connection([[{"target_user_id": "user-b"}], [], [], []])
+
+    activated = ConnectionGraphService.activate_contact_sync_pairs(
+        conn,
+        requester_user_id="user-a",
+        activations=[
+            {
+                "target_user_id": "user-b",
+                "origin_metadata": {
+                    "authorization": "verified_phone_directory_match",
+                    "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                    "targetPreferenceState": preference_state,
+                    "targetConsentEnabledAt": "fabricated",
+                    "hash": "must-not-survive",
+                    "phoneNumber": "+14155550100",
+                },
+            }
+        ],
+    )
+
+    assert activated == ["user-b"]
+    origin_call = next(
+        (sql, params) for sql, params in conn.calls if "INSERT INTO connection_origins" in sql
+    )
+    metadata = origin_call[1]["origin_metadata_values"][0]
+    decoded = json.loads(metadata)
+    assert '"authorization":"verified_phone_directory_match"' in metadata
+    assert f'"matchPolicyVersion":"{CONTACT_SYNC_MATCH_POLICY_VERSION}"' in metadata
+    assert decoded["targetPreferenceState"] == preference_state
+    for forbidden in ("targetConsentEnabledAt", "hash", "phoneNumber"):
+        assert forbidden not in decoded
+
+
+@pytest.mark.parametrize("policy_version", ["", "contact_directory_auto_connect_v1"])
+def test_contact_sync_origin_rejects_stale_directory_policy(policy_version):
+    conn = _Connection([])
+    with pytest.raises(ValueError, match="directory policy evidence"):
+        ConnectionGraphService.activate_contact_sync_pairs(
+            conn,
+            requester_user_id="user-a",
+            activations=[
+                {
+                    "target_user_id": "user-b",
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": policy_version,
+                        "targetPreferenceState": "default",
+                    },
+                }
+            ],
+        )
+
+
+@pytest.mark.parametrize("preference_state", ["disabled", "invalid", ""])
+def test_contact_sync_origin_rejects_ineligible_directory_preference(preference_state):
+    conn = _Connection([])
+    with pytest.raises(ValueError, match="directory policy evidence"):
+        ConnectionGraphService.activate_contact_sync_pairs(
+            conn,
+            requester_user_id="user-a",
+            activations=[
+                {
+                    "target_user_id": "user-b",
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": preference_state,
                     },
                 }
             ],

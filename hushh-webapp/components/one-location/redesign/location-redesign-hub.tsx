@@ -41,6 +41,7 @@ import {
   Share2,
   Check,
   ShieldCheck,
+  Settings,
   UserRoundPlus,
   UsersRound,
   ChevronRight,
@@ -86,11 +87,9 @@ import { LocationPermissionRecoveryCard } from "@/components/one-location/locati
 import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   ButtonLabel,
-  CardTitle,
   FormLabel,
   MediumRowLabel,
   PageTitle,
-  PageSubtitle,
   RowDescription,
   RowLabel,
   SectionLabel,
@@ -122,6 +121,7 @@ import {
   type CircleRecipientSelection,
 } from "@/lib/one-location/circle-recipient-selection";
 import type { AutoApproveScope } from "@/lib/one-location/location-control-state";
+import { resolveOwnSmsSystemCircleId } from "@/lib/one-location/system-circles";
 
 import {
   Avatar,
@@ -1079,6 +1079,22 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     key: flow,
     enabled: flow !== "none",
   });
+  const liveShareDurationTriggerRef = useRef<HTMLElement | null>(null);
+  const openLiveShareDuration = (
+    grantId: string | undefined,
+    trigger: HTMLElement,
+  ) => {
+    liveShareDurationTriggerRef.current = trigger;
+    vm.onEditLiveShareDurationStart(grantId);
+  };
+  const renderLocationSurface = (children: ReactNode) => (
+    <LocationFeatureRoot
+      vm={vm}
+      liveShareDurationTriggerRef={liveShareDurationTriggerRef}
+    >
+      {children}
+    </LocationFeatureRoot>
+  );
   const focusedCircleMemberInviteId =
     String(searchParams.get("circleInviteId") || "").trim() || null;
   // Router state can settle one paint after a tap. Keep the local focused
@@ -1241,9 +1257,11 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
    * and redirecting again. And it waits for the Circle to exist -- provisioning
    * is a network call, and until it answers the old screen is still a working
    * answer to the same question rather than a dead end.
+   *
+   * Must be YOUR OWN system Circle -- see resolveOwnSmsSystemCircleId.
    */
   const smsSystemCircleId = useMemo(
-    () => vm.circles.find((circle) => circle.isSystem)?.id ?? null,
+    () => resolveOwnSmsSystemCircleId(vm.circles),
     [vm.circles],
   );
   // Trusted can grow to thousands of auto-synced connections. It is a useful
@@ -1473,7 +1491,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   /* Task flows (full-screen, no local tabs)                           */
   /* ----------------------------------------------------------------- */
   if (flow !== "none") {
-    return (
+    return renderLocationSurface(
       <div
         ref={flowContainerRef}
         className="space-y-6 pb-6"
@@ -1597,6 +1615,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
               vm.clearNamedCircleShareContext();
               openShareFlow();
             }}
+            onEditLiveShareDurationStart={openLiveShareDuration}
             onCollapseGrant={(grantId) =>
               setCollapsedGrantIds((current) => new Set(current).add(grantId))
             }
@@ -1622,14 +1641,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         // flow slug nobody had wired up quietly rendered "Share outside your
         // Circle" instead of failing visibly.
         null}
-      </div>
+      </div>,
     );
   }
 
   /* ----------------------------------------------------------------- */
   /* Hub (Now | People | Links)                                        */
   /* ----------------------------------------------------------------- */
-  return (
+  return renderLocationSurface(
     <div className="space-y-4 sm:space-y-5">
       <PageHeader
         title={<PageTitle as="span">Location</PageTitle>}
@@ -1639,20 +1658,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         actionsInlineMobile
         actions={<LocationHeaderActions vm={vm} />}
         className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
-      />
-
-      {/*
-        Directly under the header, above the tabs, because a blocked permission
-        is not a detail of one tab — it is the reason every Location feature
-        below is inert. It used to be announced only by the word "blocked" in
-        the header status and a toast that had already gone, which is how
-        someone ended up on this screen with nothing to act on.
-      */}
-      <LocationPermissionRecoveryCard
-        blocked={vm.locationBlocked}
-        busy={vm.locationAcquiring}
-        onRetry={vm.onShowMyLocation}
-        onOpenSettings={vm.onOpenLocationSettings}
       />
 
       <TopShellTabs
@@ -1674,6 +1679,7 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationHubPanel>
             <NowHub
               vm={vm}
+              onEditLiveShareDurationStart={openLiveShareDuration}
               onStartShare={() => {
                 vm.clearNamedCircleShareContext();
                 openShareFlow();
@@ -1721,7 +1727,95 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           </LocationHubPanel>
         </SwipeViews>
       </div>
-    </div>
+    </div>,
+  );
+}
+
+function LocationFeatureRoot({
+  vm,
+  liveShareDurationTriggerRef,
+  children,
+}: {
+  vm: LocationHubViewModel;
+  liveShareDurationTriggerRef: { current: HTMLElement | null };
+  children: ReactNode;
+}) {
+  return (
+    <>
+      {children}
+      <LiveShareDurationDialog
+        vm={vm}
+        triggerRef={liveShareDurationTriggerRef}
+      />
+    </>
+  );
+}
+
+function LiveShareDurationDialog({
+  vm,
+  triggerRef,
+}: {
+  vm: LocationHubViewModel;
+  triggerRef: { current: HTMLElement | null };
+}) {
+  const grant = vm.liveShareDurationGrantId
+    ? vm.activeOwnerGrants.find(
+        (candidate) => candidate.id === vm.liveShareDurationGrantId,
+      )
+    : vm.liveShare?.stoppableGrantId
+      ? vm.activeOwnerGrants.find(
+          (candidate) => candidate.id === vm.liveShare?.stoppableGrantId,
+        )
+      : null;
+  const title =
+    grant?.durationMode === "until_stopped"
+      ? "Set an end time"
+      : "Change end time";
+
+  return (
+    <Dialog
+      modal
+      open={Boolean(grant && vm.liveShareDurationEditing)}
+      onOpenChange={(open) => {
+        if (!open && !vm.liveShareDurationSaving) {
+          vm.onEditLiveShareDurationCancel();
+        }
+      }}
+    >
+      <DialogContent
+        className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
+        showCloseButton={!vm.liveShareDurationSaving}
+        srDescription="Choose how long this live location share should continue."
+        aria-modal="true"
+        aria-busy={vm.liveShareDurationSaving}
+        onCloseAutoFocus={(event) => {
+          event.preventDefault();
+          const trigger = triggerRef.current;
+          triggerRef.current = null;
+          if (trigger?.isConnected) trigger.focus();
+        }}
+        onEscapeKeyDown={(event) => {
+          if (vm.liveShareDurationSaving) event.preventDefault();
+        }}
+        onPointerDownOutside={(event) => {
+          if (vm.liveShareDurationSaving) event.preventDefault();
+        }}
+      >
+        <DialogHeader className="gap-1 text-left">
+          <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
+            {title}
+          </DialogTitle>
+        </DialogHeader>
+        <LiveShareDurationEditor
+          value={vm.liveShareDurationHours}
+          onChange={vm.setLiveShareDurationHours}
+          onCancel={vm.onEditLiveShareDurationCancel}
+          onSave={vm.onSaveLiveShareDuration}
+          saving={vm.liveShareDurationSaving}
+          surface={false}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -1748,6 +1842,7 @@ function LocationHubPanel({ children }: { children: ReactNode }) {
 
 function NowHub({
   vm,
+  onEditLiveShareDurationStart,
   onStartShare,
   onCheckIn,
   onSos,
@@ -1759,6 +1854,10 @@ function NowHub({
   onRequestLocation,
 }: {
   vm: LocationHubViewModel;
+  onEditLiveShareDurationStart: (
+    grantId: string | undefined,
+    trigger: HTMLElement,
+  ) => void;
   onStartShare: () => void;
   onCheckIn: () => void;
   onSos: () => void;
@@ -1789,38 +1888,6 @@ function NowHub({
       voiceActionId: "location.open_needs_review",
     },
   ].filter((row) => row.value > 0);
-  const moreRows = [
-    {
-      leading: <LocationMenuListIcon name="map" />,
-      title: "Map",
-      ariaLabel: "Map",
-      onClick: onOpenMap,
-      voiceControlId: "one-location-action-map",
-      voiceActionId: "location.open_map",
-    },
-    {
-      leading: <LocationMenuListIcon name="settings" />,
-      title: "Settings",
-      ariaLabel: "Settings",
-      onClick: onOpenSettings,
-      voiceControlId: "one-location-action-settings",
-      voiceActionId: "location.open_settings",
-    },
-  ];
-  const liveShareDurationGrant = vm.liveShareDurationGrantId
-    ? vm.activeOwnerGrants.find(
-        (grant) => grant.id === vm.liveShareDurationGrantId,
-      )
-    : vm.liveShare?.stoppableGrantId
-      ? vm.activeOwnerGrants.find(
-          (grant) => grant.id === vm.liveShare?.stoppableGrantId,
-        )
-      : null;
-  const liveShareDurationTitle =
-    liveShareDurationGrant?.durationMode === "until_stopped"
-      ? "Set an end time"
-      : "Change end time";
-
   return (
     <div className="space-y-3" data-testid="one-location-now-hub">
       {/* Sharing is the one thing on this screen that keeps running after you
@@ -1845,83 +1912,31 @@ function NowHub({
             vm.liveShare.grantCount === 1 &&
             vm.liveShare.stoppableGrantId &&
             !vm.liveShare.singleGrantIsSms
-              ? () =>
-                  vm.onEditLiveShareDurationStart(
+              ? (trigger) =>
+                  onEditLiveShareDurationStart(
                     vm.liveShare?.stoppableGrantId ?? undefined,
-                  )              : undefined
+                    trigger,
+                  )
+              : undefined
           }
           onShareMore={onStartShare}
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
-      <Dialog
-        open={Boolean(vm.liveShare && vm.liveShareDurationEditing)}
-        onOpenChange={(open) => {
-          if (!open) vm.onEditLiveShareDurationCancel();
-        }}
-      >
-        <DialogContent
-          className="max-w-[min(420px,calc(100%-2rem))] gap-4 rounded-[24px] p-4 sm:max-w-[420px]"
-          showCloseButton={!vm.liveShareDurationSaving}
-        >
-          <DialogHeader className="gap-1 text-left">
-            <DialogTitle className="text-[20px] font-semibold leading-[25px] text-[color:var(--app-primary-label)]">
-              {liveShareDurationTitle}
-            </DialogTitle>
-            <DialogDescription className="text-[15px] leading-5 text-[color:var(--app-secondary-label)]">
-              Set a new end time for this share.
-            </DialogDescription>
-          </DialogHeader>
-          <LiveShareDurationEditor
-            value={vm.liveShareDurationHours}
-            onChange={vm.setLiveShareDurationHours}
-            onCancel={vm.onEditLiveShareDurationCancel}
-            onSave={vm.onSaveLiveShareDuration}
-            saving={vm.liveShareDurationSaving}
-            surface={false}
-          />
-        </DialogContent>
-      </Dialog>
-      {/* Every row and cell below carries the `control_ids` / `action_id` pair
-          it was authored with in the Location voice action contract, so One and
-          the search bar can name the individual control a person is asking for
-          rather than only the screen it lives on. */}
       {!vm.liveShare ? (
-        <LocationPrimaryShareCard onClick={onStartShare} />
+        <LocationNowStatePanel
+          blocked={vm.locationBlocked}
+          busy={vm.locationAcquiring}
+          onPrimaryAction={
+            vm.locationBlocked ? vm.onOpenLocationSettings : onStartShare
+          }
+          onRequestLocation={onRequestLocation}
+          onCheckIn={onCheckIn}
+          onSos={onSos}
+          onOpenMap={onOpenMap}
+          onOpenSettings={onOpenSettings}
+        />
       ) : null}
-      <LocationActionGrid
-        items={[
-          {
-            title: "Ask for location",
-            ariaLabel: "Ask for location",
-            icon: <LocationMenuGlyph name="ask" size={34} />,
-            tone: "blue",
-            onClick: onRequestLocation,
-            controlId: "one-location-action-ask",
-            actionId: "location.open_ask",
-            testId: "one-location-request-row",
-          },
-          {
-            title: "Check in",
-            ariaLabel: "Check in",
-            icon: <LocationMenuGlyph name="checkIn" size={34} />,
-            tone: "blue",
-            onClick: onCheckIn,
-            controlId: "one-location-action-check-in",
-            actionId: "location.open_check_in",
-          },
-          {
-            title: "Save My Soul",
-            subtitle: "Emergency alert",
-            ariaLabel: "Save My Soul emergency alert",
-            icon: <SmsTextIcon />,
-            tone: "red",
-            onClick: onSos,
-            controlId: "one-location-action-sos",
-            actionId: "location.open_sos",
-          },
-        ]}
-      />
 
       {activityRows.length ? (
         <div className="pt-1">
@@ -1941,21 +1956,6 @@ function NowHub({
           </LocationMenuListGroup>
         </div>
       ) : null}
-      <div className="pt-1">
-        <LocationMenuListGroup testId="one-location-now-more">
-          {moreRows.map((row) => (
-            <LocationMenuListRow
-              key={row.voiceControlId}
-              leading={row.leading}
-              title={row.title}
-              ariaLabel={row.ariaLabel}
-              onClick={row.onClick}
-              voiceControlId={row.voiceControlId}
-              voiceActionId={row.voiceActionId}
-            />
-          ))}
-        </LocationMenuListGroup>
-      </div>
     </div>
   );
 }
@@ -2029,40 +2029,190 @@ function LocationMenuListRow({
   );
 }
 
-function LocationPrimaryShareCard({ onClick }: { onClick: () => void }) {
+function LocationNowStatePanel({
+  blocked,
+  busy,
+  onPrimaryAction,
+  onRequestLocation,
+  onCheckIn,
+  onSos,
+  onOpenMap,
+  onOpenSettings,
+}: {
+  blocked: boolean;
+  busy: boolean;
+  onPrimaryAction: () => void;
+  onRequestLocation: () => void;
+  onCheckIn: () => void;
+  onSos: () => void;
+  onOpenMap: () => void;
+  onOpenSettings: () => void;
+}) {
+  const stateLabel = blocked ? "Location unavailable" : "Private";
+  const headline = blocked
+    ? "Location access is off"
+    : "No one can see your location";
+  const support = blocked
+    ? "Turn it on to share your location."
+    : "Share only when you choose.";
+  const primaryLabel = blocked ? "Turn on Location" : "Share my location";
+  const primaryVoiceControlId = blocked
+    ? "one-location-action-location-settings"
+    : "one-location-action-share";
+  const primaryVoiceActionId = blocked
+    ? "location.open_settings"
+    : "location.open_share";
+
   return (
-    <section aria-label="Share location" data-testid="one-location-now-primary">
-      <div
-        data-testid="one-location-share-row"
-        className={cn(
-          LOCATION_INTERACTIVE_SURFACE,
-          "grid w-full gap-4 rounded-[20px] px-5 py-5 text-left sm:grid-cols-[auto_minmax(0,1fr)_194px] sm:items-center sm:gap-5 sm:px-6 sm:py-5",
-        )}
+    <section
+      aria-label={blocked ? "Location access" : "Location sharing status"}
+      data-testid="one-location-now-primary"
+      data-now-state={blocked ? "unavailable" : "private"}
+      className={cn(
+        LOCATION_INTERACTIVE_SURFACE,
+        "mx-auto w-full max-w-[720px] rounded-[20px] px-5 py-7 text-center sm:px-8 sm:py-8",
+      )}
+    >
+      <p
+        data-ui-contract="required-copy"
+        data-ui-id="location-now-state"
+        className="text-[13px] font-semibold uppercase leading-4 tracking-[0.06em] text-[color:var(--app-secondary-label)]"
       >
-        <div className="flex min-w-0 items-center gap-4">
-          <LocationSharePulseIcon />
-          <span className="min-w-0 space-y-1">
-            <CardTitle as="span" className="block">
-              You&apos;re not sharing
-            </CardTitle>
-            <PageSubtitle as="span" className="block">
-              Choose a Circle or contact.
-            </PageSubtitle>
-          </span>
-        </div>
+        {stateLabel}
+      </p>
+      <h2
+        data-ui-contract="required-copy"
+        data-ui-id="location-now-headline"
+        data-ui-truncation="forbid"
+        className="mx-auto mt-2 max-w-[440px] text-[28px] font-semibold leading-[34px] tracking-normal text-[color:var(--app-primary-label)]"
+      >
+        {headline}
+      </h2>
+      <p
+        data-ui-contract="required-copy"
+        data-ui-id="location-now-support"
+        className="mx-auto mt-2 max-w-[360px] text-[16px] font-normal leading-[22px] text-[color:var(--app-secondary-label)]"
+      >
+        {support}
+      </p>
+
+      <div className="mx-auto mt-6 grid w-full max-w-[440px] gap-2.5 sm:grid-cols-2">
         <button
           type="button"
-          data-voice-control-id="one-location-action-share"
-          data-voice-action-id="location.open_share"
-          data-voice-label="Share location"
-          aria-label="Share location"
-          onClick={onClick}
-          className="inline-flex min-h-[47px] w-full items-center justify-center rounded-[15px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:col-start-3"
+          data-voice-control-id={primaryVoiceControlId}
+          data-voice-action-id={primaryVoiceActionId}
+          data-voice-label={primaryLabel}
+          aria-label={primaryLabel}
+          onClick={onPrimaryAction}
+          disabled={busy}
+          className="inline-flex min-h-[50px] w-full items-center justify-center rounded-[14px] bg-[color:var(--app-accent)] px-5 text-[color:var(--app-accent-fg)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-accent-hover)] active:scale-[0.99] disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
         >
-          <ButtonLabel as="span">Share location</ButtonLabel>
+          {busy ? (
+            <Loader2 aria-hidden="true" className="mr-2 h-4 w-4 animate-spin" />
+          ) : null}
+          <ButtonLabel as="span">{primaryLabel}</ButtonLabel>
+        </button>
+        <button
+          type="button"
+          data-testid="one-location-request-row"
+          data-voice-control-id="one-location-action-ask"
+          data-voice-action-id="location.open_ask"
+          data-voice-label="Ask for location"
+          aria-label="Ask for location"
+          onClick={onRequestLocation}
+          className="inline-flex min-h-[48px] w-full items-center justify-center rounded-[14px] bg-[color:var(--app-secondary-surface)] px-5 text-[color:var(--app-primary-label)] ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+        >
+          <ButtonLabel as="span">Ask for location</ButtonLabel>
         </button>
       </div>
+
+      <div className="mx-auto mt-5 w-full max-w-[440px]">
+        <LocationNowMoreActions
+          onCheckIn={onCheckIn}
+          onSos={onSos}
+          onOpenMap={onOpenMap}
+          onOpenSettings={onOpenSettings}
+        />
+      </div>
     </section>
+  );
+}
+
+function LocationNowMoreActions({
+  onCheckIn,
+  onSos,
+  onOpenMap,
+  onOpenSettings,
+}: {
+  onCheckIn: () => void;
+  onSos: () => void;
+  onOpenMap: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <ActionMenu
+      label="More actions"
+      title="More actions"
+      testId="one-location-now-more"
+      trigger={
+        <button
+          type="button"
+          data-testid="one-location-now-more"
+          aria-label="More actions"
+          className="flex min-h-[50px] w-full items-center justify-between rounded-[14px] bg-transparent px-1 text-left text-[color:var(--app-primary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+        >
+          <span className="flex min-w-0 items-center gap-3">
+            <span
+              aria-hidden="true"
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]"
+            >
+              <Plus className="h-4 w-4" />
+            </span>
+            <RowLabel as="span" className="min-w-0">
+              More actions
+            </RowLabel>
+          </span>
+          <ChevronRight
+            aria-hidden="true"
+            className="h-5 w-5 shrink-0 text-[color:var(--app-tertiary-label)]"
+          />
+        </button>
+      }
+      items={[
+        {
+          id: "arrival-confirm",
+          label: "Arrival confirm",
+          icon: Check,
+          onSelect: onCheckIn,
+          voiceControlId: "one-location-action-check-in",
+          voiceActionId: "location.open_check_in",
+        },
+        {
+          id: "save-my-soul",
+          label: "Save My Soul",
+          icon: ShieldCheck,
+          onSelect: onSos,
+          voiceControlId: "one-location-action-sos",
+          voiceActionId: "location.open_sos",
+        },
+        {
+          id: "map",
+          label: "Map",
+          icon: MapPin,
+          onSelect: onOpenMap,
+          voiceControlId: "one-location-action-map",
+          voiceActionId: "location.open_map",
+        },
+        {
+          id: "settings",
+          label: "Settings",
+          icon: Settings,
+          onSelect: onOpenSettings,
+          voiceControlId: "one-location-action-settings",
+          voiceActionId: "location.open_settings",
+        },
+      ]}
+    />
   );
 }
 
@@ -2075,121 +2225,6 @@ function LocationHeaderIconTile() {
     >
       <MapPin className="h-6 w-6" strokeWidth={2} />
     </span>
-  );
-}
-
-function LocationSharePulseIcon() {
-  return (
-    <span
-      aria-hidden="true"
-      data-location-share-pulse-icon=""
-      className="relative inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-accent-tint)] shadow-[inset_0_0_0_1px_rgba(0,122,255,0.025)] dark:shadow-none sm:h-16 sm:w-16"
-    >
-      <span className="absolute inset-[13%] rounded-full bg-[color:var(--app-accent-surface)]" />
-      <span className="absolute inset-[28%] rounded-full bg-[color:var(--app-accent)]/20" />
-      <span className="relative h-[25%] w-[25%] rounded-full bg-[color:var(--app-accent)] shadow-[0_0_0_4px_var(--app-primary-surface),0_8px_16px_rgba(0,122,255,0.18)] dark:shadow-[0_0_0_4px_var(--app-primary-surface)]" />
-    </span>
-  );
-}
-
-type LocationActionGridItem = {
-  title: string;
-  subtitle?: string;
-  ariaLabel: string;
-  icon: ReactNode;
-  tone: "blue" | "red";
-  onClick: () => void;
-  controlId: string;
-  actionId: string;
-  testId?: string;
-};
-
-function LocationActionGrid({ items }: { items: LocationActionGridItem[] }) {
-  const regularItems = items.filter((item) => item.tone !== "red");
-  const emergencyItem = items.find((item) => item.tone === "red");
-
-  return (
-    <section
-      aria-label="Actions"
-      className="pt-1"
-      data-testid="one-location-now-actions"
-    >
-      <div
-        data-one-location-action-grid=""
-        className="grid w-full grid-cols-1 gap-3 min-[360px]:grid-cols-2 sm:gap-4"
-      >
-        {regularItems.map((item) => (
-          <button
-            key={item.controlId}
-            type="button"
-            data-testid={item.testId}
-            data-one-location-action-cell=""
-            data-voice-control-id={item.controlId}
-            data-voice-action-id={item.actionId}
-            data-voice-label={item.ariaLabel}
-            aria-label={item.ariaLabel}
-            onClick={item.onClick}
-            className={cn(
-              LOCATION_INTERACTIVE_SURFACE,
-              "group flex min-h-[96px] min-w-0 flex-col items-center justify-center gap-2.5 rounded-[16px] px-5 py-4 text-center transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-secondary-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-accent-ring)]",
-            )}
-          >
-            <span
-              aria-hidden
-              data-one-location-action-icon=""
-              className="inline-flex h-8 w-8 shrink-0 items-center justify-center text-[color:var(--app-accent)] transition-transform group-active:scale-95 [&>svg]:h-8 [&>svg]:w-8"
-            >
-              {item.icon}
-            </span>
-            <span className="min-w-0">
-              <ButtonLabel as="span" className="block min-w-0">
-                {item.title}
-              </ButtonLabel>
-            </span>
-          </button>
-        ))}
-      </div>
-      {emergencyItem ? (
-        <button
-          key={emergencyItem.controlId}
-          type="button"
-          data-testid={emergencyItem.testId}
-          data-one-location-sms-row=""
-          data-one-location-emergency-cell=""
-          data-voice-control-id={emergencyItem.controlId}
-          data-voice-action-id={emergencyItem.actionId}
-          data-voice-label={emergencyItem.ariaLabel}
-          aria-label={emergencyItem.ariaLabel}
-          onClick={emergencyItem.onClick}
-          className="group mt-3 flex min-h-[68px] w-full items-center justify-between gap-4 rounded-[16px] bg-[color:var(--app-destructive-tint)] px-5 py-3 text-left ring-1 ring-inset ring-[color:var(--app-destructive-border)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-destructive-surface)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[color:var(--app-destructive-border)]"
-        >
-          <span className="flex min-w-0 items-center gap-4">
-            <span
-              aria-hidden
-              data-one-location-action-icon=""
-              className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-destructive)] text-[color:var(--app-destructive-fg)] transition-transform group-active:scale-95"
-            >
-              {emergencyItem.icon}
-            </span>
-            <span className="min-w-0">
-              <RowLabel as="span" className="block min-w-0 font-semibold">
-                {emergencyItem.title}
-              </RowLabel>
-              <RowDescription
-                as="span"
-                className="mt-0.5 block min-w-0 !text-[color:var(--app-destructive)]"
-              >
-                {emergencyItem.subtitle}
-              </RowDescription>
-            </span>
-          </span>
-          <ChevronRight
-            aria-hidden="true"
-            className="h-5 w-5 shrink-0 text-[color:var(--app-destructive)]/45"
-          />
-        </button>
-      ) : null}
-    </section>
   );
 }
 
@@ -2325,6 +2360,7 @@ function LocationDetailFlow({
   collapsedGrantIds,
   onRequestLocation,
   onStartShare,
+  onEditLiveShareDurationStart,
   onCollapseGrant,
   onExpandGrant,
 }: {
@@ -2338,6 +2374,7 @@ function LocationDetailFlow({
   /** Opens the share composer AND its flow. Seeding the composer alone
    *  leaves the person on the same screen with nothing visibly changed. */
   onStartShare?: () => void;
+  onEditLiveShareDurationStart: (grantId: string, trigger: HTMLElement) => void;
   onCollapseGrant: (grantId: string) => void;
   onExpandGrant: (grant: OneLocationGrant) => void;
 }) {
@@ -2501,15 +2538,7 @@ function LocationDetailFlow({
 
   return (
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
-      <TaskFlowHeader
-        eyebrow={
-          kind === "active-shares" || kind === "needs-review"
-            ? undefined
-            : "Location"
-        }
-        title={copy.title}
-        description={copy.description}
-      />
+      <TaskFlowHeader title={copy.title} description={copy.description} />
       {kind === "active-shares" ? (
         ownerGrantGroups.length ? (
           <SettingsGroup separatorInset>
@@ -2535,8 +2564,11 @@ function LocationDetailFlow({
                           <button
                             type="button"
                             className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
-                            onClick={() =>
-                              vm.onEditLiveShareDurationStart(single.id)
+                            onClick={(event) =>
+                              onEditLiveShareDurationStart(
+                                single.id,
+                                event.currentTarget,
+                              )
                             }
                           >
                             {single.durationMode === "until_stopped"
@@ -2553,7 +2585,7 @@ function LocationDetailFlow({
                             group={group}
                             counterpartName={name}
                             onStopGrant={vm.onStopGrant}
-                            onChangeEndTime={vm.onEditLiveShareDurationStart}
+                            onChangeEndTime={onEditLiveShareDurationStart}
                             revokingGrantId={vm.revokingGrantId}
                           />
                         </div>
@@ -2884,7 +2916,13 @@ function ownedUserCircleScopeOptions(
 
 function autoApproveScopeKey(scope: AutoApproveScope | null): string {
   if (!scope) return "";
-  return scope.kind === "circle" ? `circle:${scope.circleId}` : "all_contacts";
+  if (scope.kind === "circle") return `circle:${scope.circleId}`;
+  if (scope.kind === "circles") {
+    // Sorted: two picks of the same Circles in a different tap order are the
+    // same scope, not two different ones the equality check would miss.
+    return `circles:${[...scope.circleIds].sort().join(",")}`;
+  }
+  return "all_contacts";
 }
 
 function autoApproveScopeEqual(
@@ -2892,6 +2930,27 @@ function autoApproveScopeEqual(
   right: AutoApproveScope | null,
 ): boolean {
   return autoApproveScopeKey(left) === autoApproveScopeKey(right);
+}
+
+/** The Circle ids a scope covers, regardless of whether it is the original
+ * single-Circle shape or the multi-Circle one -- one read path for both. */
+function autoApproveScopeCircleIds(scope: AutoApproveScope | null): string[] {
+  if (scope?.kind === "circle") return [scope.circleId];
+  if (scope?.kind === "circles") return scope.circleIds;
+  return [];
+}
+
+/** Toggle one Circle in/out of a scope's selection, collapsing to `null`
+ * (no scope) rather than an empty "circles" scope when the last one clears. */
+function toggleAutoApproveCircle(
+  scope: AutoApproveScope | null,
+  circleId: string,
+): AutoApproveScope | null {
+  const current = autoApproveScopeCircleIds(scope);
+  const next = current.includes(circleId)
+    ? current.filter((id) => id !== circleId)
+    : [...current, circleId];
+  return next.length ? { kind: "circles", circleIds: next } : null;
 }
 
 function scopeMemberCountLabel(count: number): string {
@@ -2914,28 +2973,53 @@ function LocationSettingsFlow({
     [vm.circles],
   );
   const autoApproveScope = vm.autoApproveScope;
-  const selectedCircle =
-    autoApproveScope?.kind === "circle"
-      ? ownedCircles.find((circle) => circle.id === autoApproveScope.circleId)
-      : null;
+  // Only Circles the person still owns count -- one may have been deleted
+  // since the rule was saved, and a stale id must not draw a blank row.
+  const activeCircles = useMemo(() => {
+    const ids = new Set(autoApproveScopeCircleIds(autoApproveScope));
+    return ownedCircles.filter((circle) => ids.has(circle.id));
+  }, [autoApproveScope, ownedCircles]);
   const activeScope =
     autoApproveScope?.kind === "all_contacts"
       ? autoApproveScope
-      : selectedCircle && autoApproveScope?.kind === "circle"
+      : activeCircles.length
         ? autoApproveScope
         : null;
   const activeScopeLabel = !vm.autoApproveRequestsEnabled
     ? "Choose a Circle or all contacts."
     : activeScope?.kind === "all_contacts"
       ? "All contacts"
-      : selectedCircle
-        ? selectedCircle.name
-        : "Choose another scope.";
+      : activeCircles.length === 1
+        ? (activeCircles[0]?.name ?? "Choose another scope.")
+        : activeCircles.length > 1
+          ? `${activeCircles.length} Circles`
+          : "Choose another scope.";
   const primaryScopeAction = vm.autoApproveRequestsEnabled ? "Save" : "Turn on";
   const allContactsScope = useMemo<AutoApproveScope>(
     () => ({ kind: "all_contacts" }),
     [],
   );
+  const draftCircleIds = useMemo(
+    () => autoApproveScopeCircleIds(draftScope),
+    [draftScope],
+  );
+  const draftCircles = useMemo(
+    () => ownedCircles.filter((circle) => draftCircleIds.includes(circle.id)),
+    [ownedCircles, draftCircleIds],
+  );
+  const allDraftCirclesSelected =
+    ownedCircles.length > 0 &&
+    draftCircleIds.length === ownedCircles.length &&
+    ownedCircles.every((circle) => draftCircleIds.includes(circle.id));
+  const toggleAllDraftCircles = useCallback(() => {
+    setDraftScope(
+      allDraftCirclesSelected
+        ? null
+        : ownedCircles.length
+          ? { kind: "circles", circleIds: ownedCircles.map((circle) => circle.id) }
+          : null,
+    );
+  }, [allDraftCirclesSelected, ownedCircles]);
 
   const openScopeSheet = useCallback(() => {
     setDraftScope(vm.autoApproveRequestsEnabled ? activeScope : null);
@@ -3029,7 +3113,7 @@ function LocationSettingsFlow({
               Auto-approve for
             </DialogTitle>
             <DialogDescription className="ui-text-page-subtitle">
-              Choose one.
+              All contacts, or any combination of your Circles.
             </DialogDescription>
           </DialogHeader>
 
@@ -3042,26 +3126,32 @@ function LocationSettingsFlow({
 
             {ownedCircles.length ? (
               <div className="space-y-2">
-                <SectionLabel as="p" className="px-1">
-                  Circles
-                </SectionLabel>
+                <div className="flex items-center justify-between gap-3 px-1">
+                  <SectionLabel as="p">Circles</SectionLabel>
+                  <button
+                    type="button"
+                    onClick={toggleAllDraftCircles}
+                    className="press-scale text-[13px] font-semibold text-[color:var(--app-accent)]"
+                  >
+                    {allDraftCirclesSelected ? "Clear all" : "Select all"}
+                  </button>
+                </div>
                 <div className="overflow-hidden rounded-[18px] bg-[color:var(--app-card-surface-default-solid)] ring-1 ring-[color:var(--app-separator)]">
-                  {ownedCircles.map((circle) => {
-                    const scope: AutoApproveScope = {
-                      kind: "circle",
-                      circleId: circle.id,
-                    };
-                    return (
-                      <AutoApproveScopeOption
-                        key={circle.id}
-                        title={circle.name}
-                        description={scopeMemberCountLabel(circle.memberCount)}
-                        selected={autoApproveScopeEqual(draftScope, scope)}
-                        onSelect={() => setDraftScope(scope)}
-                        inset
-                      />
-                    );
-                  })}
+                  {ownedCircles.map((circle) => (
+                    <AutoApproveScopeOption
+                      key={circle.id}
+                      title={circle.name}
+                      description={scopeMemberCountLabel(circle.memberCount)}
+                      selected={draftCircleIds.includes(circle.id)}
+                      onSelect={() =>
+                        setDraftScope((current) =>
+                          toggleAutoApproveCircle(current, circle.id),
+                        )
+                      }
+                      multi
+                      inset
+                    />
+                  ))}
                 </div>
               </div>
             ) : null}
@@ -3071,11 +3161,9 @@ function LocationSettingsFlow({
             <p className="ui-text-helper-text">
               {draftScope.kind === "all_contacts"
                 ? "New requests from current and future contacts will be approved automatically."
-                : `New requests from current and future members of ${
-                    ownedCircles.find(
-                      (circle) => circle.id === draftScope.circleId,
-                    )?.name ?? "this Circle"
-                  } will be approved automatically.`}{" "}
+                : draftCircles.length === 1
+                  ? `New requests from current and future members of ${draftCircles[0]?.name ?? "this Circle"} will be approved automatically.`
+                  : `New requests from current and future members of these ${draftCircles.length} Circles will be approved automatically.`}{" "}
               Requests already waiting still need your answer.
             </p>
           ) : (
@@ -3131,17 +3219,21 @@ function AutoApproveScopeOption({
   selected,
   onSelect,
   inset = false,
+  multi = false,
 }: {
   title: string;
   description?: string;
   selected: boolean;
   onSelect: () => void;
   inset?: boolean;
+  /** Checkbox semantics (independently toggled, several may be selected)
+   * instead of the default radio semantics (picking one clears the rest). */
+  multi?: boolean;
 }) {
   return (
     <button
       type="button"
-      role="radio"
+      role={multi ? "checkbox" : "radio"}
       aria-checked={selected}
       onClick={onSelect}
       className={cn(
@@ -3164,7 +3256,8 @@ function AutoApproveScopeOption({
       </span>
       <span
         className={cn(
-          "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border transition-colors",
+          "flex h-6 w-6 shrink-0 items-center justify-center border transition-colors",
+          multi ? "rounded-[7px]" : "rounded-full",
           selected
             ? "border-[color:var(--app-accent)] bg-[color:var(--app-accent)] text-white"
             : "border-[color:var(--app-separator)] bg-transparent text-transparent",
@@ -5261,6 +5354,14 @@ function ShareFlow({
           ) : null}
           {notSharing.length ? (
             <SettingsGroup
+              title={
+                <span className="flex w-full items-center justify-between gap-4">
+                  <span>Not sharing</span>
+                  <span className="font-normal text-muted-foreground">
+                    {notSharing.length}
+                  </span>
+                </span>
+              }
               testId="one-location-share-people"
               separatorInset
               className="[&>div:first-child]:mt-0"
@@ -5364,7 +5465,9 @@ function LiveShareDurationEditor({
       */}
       <DurationSelector
         value={value}
-        onChange={onChange}
+        onChange={(next) => {
+          if (!saving) onChange(next);
+        }}
         presentation="ladder"
         rungs={CHANGE_TIME_DURATION_LADDER}
         untilStopValue="until_stopped"
@@ -5382,6 +5485,7 @@ function LiveShareDurationEditor({
           variant="ghost"
           className="h-11 rounded-full"
           onClick={onCancel}
+          disabled={saving}
           data-testid="one-location-live-share-duration-cancel"
         >
           Cancel

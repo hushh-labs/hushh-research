@@ -454,6 +454,7 @@ async function apiFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<Response> {
+  const initiatingAuthUser = AuthService.getCurrentUser();
   const apiBase = getApiBaseUrl();
   // An absolute path is already fully resolved. Native builds use this to reach
   // a Next.js-only route on the web origin, which `apiBase` (the Python
@@ -546,13 +547,41 @@ async function apiFetch(
       return null;
     }
 
+    const initiatingBearer = getAuthorizationBearer();
+    const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
+    const initiatingSessionIsCurrent = () =>
+      Boolean(initiatingAuthUser?.uid) &&
+      initiatingSubject === initiatingAuthUser?.uid &&
+      AuthService.getCurrentUser() === initiatingAuthUser;
+    // A previous account's request can receive its 401 after a replacement
+    // session signs in. Do not refresh or invalidate that replacement session.
+    if (!initiatingSessionIsCurrent()) return null;
+
     try {
       const freshToken = await AuthService.getIdToken(true);
-      const currentBearer = getAuthorizationBearer();
-      if (!freshToken || freshToken === currentBearer) {
-        if (!currentBearer || !isTokenForCurrentAuthUser(currentBearer)) {
+      if (!freshToken || freshToken === initiatingBearer) {
+        if (
+          initiatingSessionIsCurrent() &&
+          (!initiatingBearer || !isTokenForCurrentAuthUser(initiatingBearer))
+        ) {
           dispatchAuthSessionInvalidated("Firebase session is no longer valid");
         }
+        return null;
+      }
+
+      const refreshedSubject = decodeFirebaseTokenSubject(freshToken);
+      if (
+        !initiatingSessionIsCurrent() ||
+        !initiatingSubject ||
+        !refreshedSubject ||
+        initiatingSubject !== refreshedSubject ||
+        !isTokenForCurrentAuthUser(freshToken)
+      ) {
+        // A 401 refresh may finish after an account switch. Replaying the
+        // original body with the replacement account's token would turn an
+        // A-owned mutation (including contact proofs) into a B-owned write.
+        // Return the original 401; the new session remains valid and must not
+        // be invalidated because an old request completed late.
         return null;
       }
 
@@ -567,7 +596,9 @@ async function apiFetch(
       });
     } catch (error) {
       console.warn("[ApiService] Firebase auth refresh failed:", error);
-      dispatchAuthSessionInvalidated("Firebase session refresh failed");
+      if (initiatingSessionIsCurrent()) {
+        dispatchAuthSessionInvalidated("Firebase session refresh failed");
+      }
       return null;
     }
   };

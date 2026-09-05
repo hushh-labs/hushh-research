@@ -5,7 +5,13 @@ from hushh_mcp.services import push_notifications as push_module
 from hushh_mcp.services.push_notifications import (
     _GENERIC_CONNECTION_REQUEST_BODY,
     _connection_request_body,
+    send_circle_member_invite_cancelled_push,
+    send_circle_member_invite_declined_push,
+    send_circle_member_left_push,
+    send_circle_member_removed_push,
+    send_connection_request_cancelled_push,
     send_connection_request_push,
+    send_connection_request_resolved_push,
 )
 from hushh_mcp.services.requester_identity import (
     label_from_identity_row,
@@ -234,6 +240,134 @@ def test_connection_request_push_reaches_sse_from_a_sync_handler(monkeypatch):
     assert payload["deep_link"] == "/one/consent?tab=pending&requestId=req-42"
 
 
+# ---------------------------------------------------------------------------
+# #6507: the requester learning their OWN request was accepted/declined --
+# previously not pushed at all. Mirrors the connection_request push tests
+# above, addressed the other way (requester, not addressee).
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_accepted(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "requester-1"
+    assert captured["title"] == "Connection accepted"
+    assert captured["body"] == "Ankit Sharma accepted your connection request."
+    assert captured["data"]["resolver_label"] == "Ankit Sharma"
+    assert captured["data"]["accepted"] == "true"
+    assert captured["data"]["request_id"] == "req-42"
+
+
+def test_connection_request_resolved_push_names_the_resolver_when_declined(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["title"] == "Connection declined"
+    assert captured["body"] == "Ankit Sharma declined your connection request."
+    assert captured["data"]["accepted"] == "false"
+
+
+def test_connection_request_resolved_push_deep_links_to_the_connections_list(monkeypatch):
+    """The request is resolved, not pending review -- a review-sheet deep
+    link with nothing left to review would be a dead end."""
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_resolved_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured: list[dict] = []
+
+    def _fake_send(user_id, **kwargs):
+        captured.append({"user_id": user_id, **kwargs})
+        return 1
+
+    monkeypatch.setattr(push_module, "send_user_data_push", _fake_send)
+    for request_id in ("req-1", "req-2", "req-1"):
+        send_connection_request_resolved_push(
+            "requester-1",
+            "resolver-1",
+            accepted=True,
+            resolver_display_name="Ankit",
+            connection_request_id=request_id,
+        )
+
+    assert [item["notification_tag"] for item in captured] == [
+        "connection-request-resolved:req-1",
+        "connection-request-resolved:req-2",
+        "connection-request-resolved:req-1",
+    ]
+
+
+def test_connection_request_resolved_push_prefers_the_caller_supplied_name(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    def _explode():
+        raise AssertionError("must not query when the caller already has the name")
+
+    monkeypatch.setattr("db.db_client.get_db", _explode)
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=True,
+        resolver_display_name="Ankit",
+        connection_request_id="r1",
+    )
+
+    assert captured["data"]["resolver_label"] == "Ankit"
+
+
+def test_connection_request_resolved_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Same sync-handler SSE requirement as send_connection_request_push --
+    both real callers (accept_request, reject_request) are sync."""
+    _capture_push(monkeypatch)
+    scheduled: list = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, data: scheduled.append((user_id, data)) or True,
+    )
+
+    send_connection_request_resolved_push(
+        "requester-1",
+        "resolver-1",
+        accepted=False,
+        resolver_display_name="John Smith",
+        connection_request_id="req-42",
+    )
+
+    assert len(scheduled) == 1, "the SSE payload was dropped instead of scheduled"
+    user_id, payload = scheduled[0]
+    assert user_id == "requester-1"
+    assert payload["type"] == "connection_request_resolved"
+    assert payload["action"] == "DECLINED"
+    assert payload["resolver_label"] == "John Smith"
+    assert payload["request_id"] == "req-42"
+
+
 def test_threadsafe_enqueue_delivers_to_a_waiting_sse_consumer():
     """End-to-end across the thread boundary, with no mocks in between."""
     import asyncio
@@ -420,3 +554,214 @@ def test_the_email_handle_rung_is_a_privacy_switch_not_a_default():
     # the person.
     named = {"user_id": "u1", "display_name": "Neelesh", "email": "n@example.com"}
     assert label_from_identity_row(named, allow_email_handle=False) == "Neelesh"
+
+
+# ---------------------------------------------------------------------------
+# Circle invite/membership resolution pushes -- the same "creation notifies,
+# resolution goes silent" gap the Connect fix (#6507/#6509) closed, found to
+# repeat across every other request/invite surface in the app.
+# ---------------------------------------------------------------------------
+
+
+def test_circle_member_invite_declined_push_names_the_invitee_and_targets_the_inviter(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "inviter-1"
+    assert captured["body"] == "Ankit Sharma declined your Circle invitation."
+    assert captured["data"]["invitee_user_id"] == "invitee-1"
+    assert captured["data"]["network_display_label"] == "Ankit Sharma"
+
+
+def test_circle_member_invite_declined_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["body"] == "Someone declined your Circle invitation."
+
+
+def test_circle_member_invite_cancelled_push_targets_the_invitee(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+
+    assert captured["user_id"] == "invitee-1"
+    assert captured["body"] == 'Your invitation to "Family" was withdrawn.'
+    assert captured["data"]["circle_id"] == "circle-1"
+
+
+def test_circle_member_removed_push_targets_the_removed_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_removed_push(
+        member_user_id="member-1",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "member-1"
+    assert captured["body"] == 'You were removed from "Family".'
+
+
+def test_circle_member_left_push_names_the_member_and_targets_the_owner(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_circle_member_left_push(
+        owner_user_id="owner-1",
+        member_user_id="member-1",
+        member_display_name="Ankit Sharma",
+        circle_id="circle-1",
+        circle_name="Family",
+    )
+
+    assert captured["user_id"] == "owner-1"
+    assert captured["body"] == 'Ankit Sharma left "Family".'
+
+
+def test_circle_member_invite_declined_and_cancelled_pushes_use_distinct_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_declined_push(
+        inviter_user_id="inviter-1",
+        invitee_user_id="invitee-1",
+        invitee_display_name="Ankit",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    declined_tag = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_invite_cancelled_push(
+        invitee_user_id="invitee-1",
+        circle_id="circle-1",
+        circle_name="Family",
+        invite_id="invite-1",
+    )
+    cancelled_tag = captured["notification_tag"]
+
+    assert declined_tag != cancelled_tag
+
+
+def test_circle_member_removed_and_left_pushes_use_distinct_tags_per_member(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-1", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_circle_member_removed_push(
+        member_user_id="member-2", circle_id="circle-1", circle_name="Family"
+    )
+    removed_tag_2 = captured["notification_tag"]
+
+    assert removed_tag_1 != removed_tag_2
+
+
+# ---------------------------------------------------------------------------
+# Connect: the requester withdrawing their own request -- same gap, the
+# addressee previously heard nothing until their next reconcile.
+# ---------------------------------------------------------------------------
+
+
+def test_connection_request_cancelled_push_names_the_requester_and_targets_the_addressee(
+    monkeypatch,
+):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit Sharma",
+        connection_request_id="req-42",
+    )
+
+    assert captured["user_id"] == "addressee-1"
+    assert captured["body"] == "Ankit Sharma withdrew their connection request."
+    assert captured["data"]["requester_label"] == "Ankit Sharma"
+
+
+def test_connection_request_cancelled_push_falls_back_when_name_is_missing(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="", connection_request_id="req-42"
+    )
+
+    assert captured["body"] == "Someone withdrew their connection request."
+
+
+def test_connection_request_cancelled_push_deep_links_to_the_connections_list(monkeypatch):
+    captured = _capture_push(monkeypatch)
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert captured["deep_link"] == "/one/consent?tab=connections"
+
+
+def test_connection_request_cancelled_push_uses_distinct_request_scoped_tags(monkeypatch):
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r1"
+    )
+    tag_1 = captured["notification_tag"]
+
+    captured = _capture_push(monkeypatch)
+    send_connection_request_cancelled_push(
+        "addressee-1", "requester-1", requester_display_name="Ankit", connection_request_id="r2"
+    )
+    tag_2 = captured["notification_tag"]
+
+    assert tag_1 != tag_2
+
+
+def test_connection_request_cancelled_push_reaches_sse_from_a_sync_handler(monkeypatch):
+    """Both production callers run on a sync FastAPI handler, off the event loop."""
+    _capture_push(monkeypatch)
+    sse_calls: list[tuple] = []
+    monkeypatch.setattr(
+        "api.consent_listener.push_to_consent_queue_threadsafe",
+        lambda user_id, payload: sse_calls.append((user_id, payload)),
+    )
+
+    send_connection_request_cancelled_push(
+        "addressee-1",
+        "requester-1",
+        requester_display_name="Ankit",
+        connection_request_id="req-42",
+    )
+
+    assert len(sse_calls) == 1
+    user_id, payload = sse_calls[0]
+    assert user_id == "addressee-1"
+    assert payload["type"] == "connection_request_cancelled"
+    assert payload["action"] == "CANCELLED"
+    assert payload["request_id"] == "req-42"

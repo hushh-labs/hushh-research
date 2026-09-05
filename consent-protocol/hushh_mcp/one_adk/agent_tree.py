@@ -56,6 +56,7 @@ from hushh_mcp.hushh_adk.manifest import AgentManifestV2, ManifestLoader
 from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
     discover_person_information,
+    get_current_time,
     get_location_circle_members,
     journey_for_specialist_request,
     list_app_actions,
@@ -1661,6 +1662,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         propose_information_request,
         set_preferred_model,
         list_pending_connection_requests,
+        get_current_time,
         calendar_summary,
         calendar_events,
         calendar_availability,

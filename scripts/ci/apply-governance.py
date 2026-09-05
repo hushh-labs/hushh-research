@@ -17,12 +17,20 @@ WHAT IT SYNCS (all idempotent — safe to re-run):
        <- main.review_bypass_users / pr_train.review_bypass_users
      (the list that was silently drifting: editing the JSON never reached GitHub,
       so a maintainer added to the JSON still couldn't approve/merge to main.)
-  3. The `allowed-maintainers-to-approve` org team membership
-       <- union(main/pr_train review and merge-queue bypass users)
-     (this team is the merge-queue bypass actor list; membership IS the allowlist.)
-  4. UAT / production deploy allowlists need NO GitHub action — assert-governed-actor.py
-     reads uat.manual_dispatch_users / production.manual_dispatch_users from this
-     same JSON at workflow runtime. This script just reports them for transparency.
+  3. Org team membership for every capability in MANAGED_TEAMS
+       <- the matching list in config/ci-governance.json
+     One team per capability: maintainers, pipeline editors, and one per deploy
+     lane. The teams are a DERIVED MIRROR, so people can be found and @-mentioned
+     in one place. They are never what the gate reads: assert-governed-actor.py
+     reads this JSON at workflow runtime, so the gate stays offline, deterministic,
+     and needs no org-scoped credential.
+
+     The direction matters. Config -> team means widening access costs a reviewed
+     PR touching a protected path, editable by protected_pipeline_edit_users only,
+     and leaves a diff in git log. Reading teams live would invert that: any org
+     owner or team maintainer could grant production deploy with no PR at all.
+
+     Members are added at role=member for the same reason — see TEAM_MEMBER_ROLE.
 
 USAGE:
   python3 scripts/ci/apply-governance.py            # dry-run: show the plan, change nothing
@@ -44,7 +52,57 @@ from pathlib import Path
 
 REPO = "hushh-labs/hushh-research"
 ORG = "hushh-labs"
-TEAM_SLUG = "allowed-maintainers-to-approve"
+# Every capability in config/ci-governance.json that is also materialised as a
+# real GitHub team. The config file stays the source of truth and the only thing
+# the runtime gate reads; a team is a derived mirror, so people can be managed
+# and @-mentioned in one place without the gate ever depending on a network call
+# or an org-scoped credential.
+#
+# role=member is deliberate and load-bearing. A GitHub team *maintainer* can add
+# members to their own team, and `allowed-maintainers-to-approve` sits in main's
+# branch-protection bypass_teams — so granting that role to members would let any
+# of them hand a 15th person review bypass on main with no PR, no review and no
+# trace in this repo, routing straight around protected_pipeline_edit_users.
+# Membership changes must cost a reviewed edit to the config file.
+TEAM_MEMBER_ROLE = "member"
+
+MANAGED_TEAMS: tuple[dict, ...] = (
+    {
+        "slug": "allowed-maintainers-to-approve",
+        "purpose": "merge-queue and review bypass actors",
+        # The union so a maintainer declared on either governed branch is
+        # fully represented.
+        "select": lambda p: sorted(
+            set().union(*(
+                set(p[k]["review_bypass_users"]) | set(p[k]["merge_queue_bypass_users"])
+                for k in ("main", "pr_train")
+            ))
+        ),
+        "is_maintainer_set": True,
+    },
+    {
+        "slug": "pipeline-editors",
+        "purpose": "may edit protected pipeline paths",
+        "select": lambda p: sorted(p["main"]["protected_pipeline_edit_users"]),
+    },
+    {
+        "slug": "deploy-dev",
+        "purpose": "may dispatch a dev deploy",
+        "select": lambda p: sorted(p["dev"]["manual_dispatch_users"]),
+    },
+    {
+        "slug": "deploy-uat",
+        "purpose": "may dispatch a UAT deploy",
+        "select": lambda p: sorted(p["uat"]["manual_dispatch_users"]),
+    },
+    {
+        "slug": "deploy-production",
+        "purpose": "may dispatch a production deploy",
+        "select": lambda p: sorted(p["production"]["manual_dispatch_users"]),
+    },
+)
+
+TEAM_SLUG = MANAGED_TEAMS[0]["slug"]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 POLICY_PATH = REPO_ROOT / "config" / "ci-governance.json"
 
@@ -109,17 +167,6 @@ def apply_repository_settings(policy: dict, *, apply: bool) -> bool:
     return True
 
 
-def desired_team_members(policy: dict) -> list[str]:
-    # The team backs merge-queue bypass on both governed branches. Keep it the
-    # union so a maintainer declared on either branch is fully represented.
-    users: set[str] = set()
-    for policy_key in ("main", "pr_train"):
-        branch_policy = policy[policy_key]
-        users.update(branch_policy["review_bypass_users"])
-        users.update(branch_policy["merge_queue_bypass_users"])
-    return sorted(users)
-
-
 def current_review_bypass(branch: str) -> list[str]:
     data = gh_json(["api", f"repos/{REPO}/branches/{branch}/protection"])
     users = (
@@ -131,8 +178,27 @@ def current_review_bypass(branch: str) -> list[str]:
     return sorted(u["login"] for u in users if u.get("login"))
 
 
-def current_team_members() -> list[str]:
-    members = gh_json(["api", f"orgs/{ORG}/teams/{TEAM_SLUG}/members", "--paginate"]) or []
+_OWNERS_CACHE: set[str] | None = None
+
+
+def organization_owners() -> set[str]:
+    """Logins with org-owner (admin) rights, lowercased. Queried once per run."""
+    global _OWNERS_CACHE
+    if _OWNERS_CACHE is None:
+        members = gh_json(
+            ["api", f"orgs/{ORG}/members?role=admin", "--paginate"]
+        ) or []
+        _OWNERS_CACHE = {str(m.get("login", "")).lower() for m in members if m.get("login")}
+    return _OWNERS_CACHE
+
+
+def team_exists(slug: str) -> bool:
+    code, _, _ = gh(["api", f"orgs/{ORG}/teams/{slug}"], check=False)
+    return code == 0
+
+
+def current_team_members(slug: str = TEAM_SLUG) -> list[str]:
+    members = gh_json(["api", f"orgs/{ORG}/teams/{slug}/members", "--paginate"]) or []
     return sorted(m["login"] for m in members if m.get("login"))
 
 
@@ -180,39 +246,97 @@ def apply_review_bypass(branch: str, desired: list[str], *, apply: bool) -> bool
     return True
 
 
-def apply_team_membership(desired: list[str], *, apply: bool) -> bool:
-    cur = set(current_team_members())
+def apply_team_membership(slug: str, desired: list[str], *, apply: bool) -> bool:
+    """Make one managed team's membership match the config exactly."""
+    if not team_exists(slug):
+        print(f"  Δ team '{slug}' does not exist yet -> create with {sorted(desired)}")
+        if not apply:
+            return True
+        gh(["api", "--method", "POST", f"orgs/{ORG}/teams",
+            "-f", f"name={slug}", "-f", "privacy=closed"])
+        print(f"  ✅ created team {slug}")
+
+    cur = set(current_team_members(slug))
     want = set(desired)
     to_add = sorted(want - cur)
     to_remove = sorted(cur - want)
-    if not to_add and not to_remove:
-        print(f"  ✓ team '{TEAM_SLUG}' membership already in sync: {sorted(want)}")
+
+    # A member sitting at role=maintainer can add people to the team, which is a
+    # grant path that never touches this repo. Demote as part of every sync, not
+    # only when the membership set itself changed.
+    #
+    # Org owners are excluded because GitHub reports them as a maintainer of every
+    # team they belong to and refuses to demote them there. Trying anyway would
+    # make this sync claim drift on every single run and never converge, and a
+    # governance tool that always cries drift is one people learn to scroll past
+    # -- which is how the UAT cohort sat wrong in the advisory lane for as long as
+    # it did. It costs nothing in safety either: an org owner can edit branch
+    # protection and team membership directly, so their team role grants them no
+    # authority they did not already hold.
+    owners = organization_owners()
+    over_privileged = sorted(
+        login for login in (want & cur)
+        if login.lower() not in owners
+        and (gh_json(["api", f"orgs/{ORG}/teams/{slug}/memberships/{login}"]) or {})
+        .get("role") != TEAM_MEMBER_ROLE
+    )
+
+    if not to_add and not to_remove and not over_privileged:
+        print(f"  ✓ team '{slug}' already in sync: {sorted(want)}")
         return False
     if to_add:
         print(f"  Δ team add: {to_add}")
     if to_remove:
         print(f"  Δ team remove: {to_remove}")
+    if over_privileged:
+        print(f"  Δ demote to '{TEAM_MEMBER_ROLE}': {over_privileged}")
     if not apply:
         return True
-    for login in to_add:
+    for login in sorted(set(to_add) | set(over_privileged)):
         gh(["api", "--method", "PUT",
-            f"orgs/{ORG}/teams/{TEAM_SLUG}/memberships/{login}",
-            "-f", "role=maintainer"])
-        print(f"  ✅ added {login} to {TEAM_SLUG}")
+            f"orgs/{ORG}/teams/{slug}/memberships/{login}",
+            "-f", f"role={TEAM_MEMBER_ROLE}"])
+        print(f"  ✅ {login} is a '{TEAM_MEMBER_ROLE}' of {slug}")
     for login in to_remove:
         gh(["api", "--method", "DELETE",
-            f"orgs/{ORG}/teams/{TEAM_SLUG}/memberships/{login}"])
-        print(f"  ✅ removed {login} from {TEAM_SLUG}")
+            f"orgs/{ORG}/teams/{slug}/memberships/{login}"])
+        print(f"  ✅ removed {login} from {slug}")
     return True
 
 
-def report_deploy_allowlists(policy: dict) -> None:
-    uat = policy.get("uat", {}).get("manual_dispatch_users", [])
-    prod = policy.get("production", {}).get("manual_dispatch_users", [])
-    print("\nDeploy allowlists (config-driven — no GitHub sync needed; "
-          "assert-governed-actor.py reads these at workflow runtime):")
-    print(f"  UAT  manual_dispatch_users:        {sorted(uat)}")
-    print(f"  PROD manual_dispatch_users:        {sorted(prod)}")
+def assert_teams_are_subsets_of_maintainers(policy: dict) -> None:
+    """No capability may be held by someone who cannot merge.
+
+    Every deploy lane and the pipeline-editor set are meant to be narrower than
+    the maintainer cohort. A name that appears in one of them and not in the
+    maintainer list is a grant nobody intended, so refuse to mirror it to GitHub
+    rather than quietly creating a team that encodes the mistake.
+    """
+    maintainers = set(MANAGED_TEAMS[0]["select"](policy))
+    problems = []
+    for team in MANAGED_TEAMS:
+        if team.get("is_maintainer_set"):
+            continue
+        extra = sorted(set(team["select"](policy)) - maintainers)
+        if extra:
+            problems.append(f"  {team['slug']}: {extra}")
+    if problems:
+        raise SystemExit(
+            "Refusing to sync: these actors hold a capability without being "
+            "maintainers.\n" + "\n".join(problems)
+        )
+
+
+def sync_managed_teams(policy: dict, *, apply: bool) -> bool:
+    """Mirror every capability list in the config onto its GitHub team."""
+    assert_teams_are_subsets_of_maintainers(policy)
+    changed = False
+    for team in MANAGED_TEAMS:
+        print(f"\n  team '{team['slug']}' — {team['purpose']}")
+        changed |= apply_team_membership(
+            team["slug"], team["select"](policy), apply=apply
+        )
+    return changed
 
 
 def main() -> int:
@@ -241,10 +365,8 @@ def main() -> int:
         train_branch, desired_review_bypass(policy, "pr_train"), apply=args.apply
     )
 
-    print(f"\n3. org team '{TEAM_SLUG}' membership (merge-queue bypass actors)")
-    changed_b = apply_team_membership(desired_team_members(policy), apply=args.apply)
-
-    report_deploy_allowlists(policy)
+    print("\n3. org team membership, mirrored from config/ci-governance.json")
+    changed_b = sync_managed_teams(policy, apply=args.apply)
 
     print()
     if not args.apply and (changed_repo or changed_main or changed_train or changed_b):

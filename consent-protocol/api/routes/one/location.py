@@ -150,11 +150,12 @@ class UpdateAutoApprovePreferenceRequest(_CamelModel):
     model_config = ConfigDict(populate_by_name=True, extra="forbid")
 
     enabled: bool
-    scope_kind: Literal["all_contacts", "circle"] | None = Field(
+    scope_kind: Literal["all_contacts", "circle", "circles"] | None = Field(
         default=None,
         alias="scopeKind",
     )
     circle_id: UUID | None = Field(default=None, alias="circleId")
+    circle_ids: list[UUID] | None = Field(default=None, alias="circleIds", max_length=30)
 
 
 class UpdateNearbyCheckInPreferencesRequest(_CamelModel):
@@ -738,6 +739,11 @@ def update_location_auto_approve_preference(
                 enabled=payload.enabled,
                 scope_kind=payload.scope_kind,
                 circle_id=(str(payload.circle_id) if payload.circle_id is not None else None),
+                circle_ids=(
+                    [str(value) for value in payload.circle_ids]
+                    if payload.circle_ids is not None
+                    else None
+                ),
             )
         }
     except Exception as exc:
