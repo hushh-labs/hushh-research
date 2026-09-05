@@ -178,6 +178,20 @@ def current_review_bypass(branch: str) -> list[str]:
     return sorted(u["login"] for u in users if u.get("login"))
 
 
+_OWNERS_CACHE: set[str] | None = None
+
+
+def organization_owners() -> set[str]:
+    """Logins with org-owner (admin) rights, lowercased. Queried once per run."""
+    global _OWNERS_CACHE
+    if _OWNERS_CACHE is None:
+        members = gh_json(
+            ["api", f"orgs/{ORG}/members?role=admin", "--paginate"]
+        ) or []
+        _OWNERS_CACHE = {str(m.get("login", "")).lower() for m in members if m.get("login")}
+    return _OWNERS_CACHE
+
+
 def team_exists(slug: str) -> bool:
     code, _, _ = gh(["api", f"orgs/{ORG}/teams/{slug}"], check=False)
     return code == 0
@@ -250,9 +264,20 @@ def apply_team_membership(slug: str, desired: list[str], *, apply: bool) -> bool
     # A member sitting at role=maintainer can add people to the team, which is a
     # grant path that never touches this repo. Demote as part of every sync, not
     # only when the membership set itself changed.
+    #
+    # Org owners are excluded because GitHub reports them as a maintainer of every
+    # team they belong to and refuses to demote them there. Trying anyway would
+    # make this sync claim drift on every single run and never converge, and a
+    # governance tool that always cries drift is one people learn to scroll past
+    # -- which is how the UAT cohort sat wrong in the advisory lane for as long as
+    # it did. It costs nothing in safety either: an org owner can edit branch
+    # protection and team membership directly, so their team role grants them no
+    # authority they did not already hold.
+    owners = organization_owners()
     over_privileged = sorted(
         login for login in (want & cur)
-        if (gh_json(["api", f"orgs/{ORG}/teams/{slug}/memberships/{login}"]) or {})
+        if login.lower() not in owners
+        and (gh_json(["api", f"orgs/{ORG}/teams/{slug}/memberships/{login}"]) or {})
         .get("role") != TEAM_MEMBER_ROLE
     )
 

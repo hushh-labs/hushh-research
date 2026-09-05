@@ -255,6 +255,16 @@ trace in this repo — the same bypass the eight-person `protected_pipeline_edit
 ring exists to prevent. The script previously created every member at
 `role=maintainer`, so this was live.
 
+Organization owners are the exception, and the sync skips them. GitHub reports an
+owner as a maintainer of every team they belong to and refuses to demote them
+there, so attempting it would make `apply-governance.py` report drift on every run
+and never converge — and a governance tool that always cries drift is one people
+learn to scroll past. It costs nothing in safety: an owner can edit branch
+protection and team membership directly, so the team role grants them nothing they
+did not already hold. The demotion therefore applies to exactly the population it
+matters for — org *members* who would otherwise gain a grant path they should not
+have.
+
 ### Rule: deploy-actor lists are governance, not routine config
 
 Changes to `manual_dispatch_users` (UAT or production) and to the maintainer
