@@ -358,3 +358,21 @@ def test_the_shipped_ledger_can_still_reach_yes():
         if i.get("check", {}).get("kind") == "manual" and not i.get("blocked_by")
     ]
     assert not permanent, f"these items can never pass, so the judge can never say YES: {permanent}"
+
+
+def test_future_dated_receipt_cannot_pass():
+    future = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    report = judge_mod.judge([_receipt(verified_on=future)])
+    assert not report.finished
+    assert "future-dated" in report.failing[0].detail
+
+
+def test_untracked_existing_reproduction_cannot_pass(tmp_path, monkeypatch):
+    import subprocess
+
+    subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)  # noqa: S603 - isolated test fixture
+    (tmp_path / "proof.py").write_text("print('unearned')")
+    monkeypatch.setattr(judge_mod, "REPO_ROOT", tmp_path)
+    report = judge_mod.judge([_receipt(reproduce="proof.py")])
+    assert not report.finished
+    assert report.failing

@@ -250,7 +250,8 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     reproduce = str(item.get("reproduce") or "").strip()
     if not reproduce:
         return FAIL, "receipt names no reproduction path"
-    if not (REPO_ROOT / reproduce).exists():
+    tracked, _ = _run(["git", "ls-files", "--error-unmatch", "--", reproduce], REPO_ROOT, 10)
+    if not (REPO_ROOT / reproduce).is_file() or tracked != 0:
         return (
             FAIL,
             f"reproduction path {reproduce} is not in the tree, so nobody else can re-run it",
@@ -259,6 +260,8 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     window = int(item.get("expires_after_days") or 30)
     expires = verified + timedelta(days=window)
     today = date.today()
+    if verified > today:
+        return FAIL, "receipt is future-dated; proof cannot precede its execution"
     if today > expires:
         age = (today - verified).days
         return FAIL, f"receipt is {age}d old (window {window}d); re-run {reproduce}"

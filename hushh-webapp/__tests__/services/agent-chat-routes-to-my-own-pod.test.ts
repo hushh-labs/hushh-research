@@ -8,18 +8,18 @@
  * is the "own your compute" claim quietly not holding.
  *
  * These tests pin the resolution: hold the turn until the status endpoint has
- * answered, then route on the answer. Bounded, because a person with genuinely no
- * agent must still be able to talk, and the hub is the correct destination for them.
+ * answered, then route on the answer. Missing or unavailable pods require
+ * setup or recovery; they never authorize shared-runtime execution.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const runPodTurn = vi.fn();
-const streamAgentChat = vi.fn();
+const getFirebaseToken = vi.fn();
 
 vi.mock("@/lib/services/api-service", () => ({
   ApiService: {
     runPodTurn,
-    getFirebaseToken: vi.fn(),
+    getFirebaseToken,
   },
 }));
 
@@ -37,7 +37,7 @@ const POD_ANSWER = {
 describe("agent chat routes to the person's own pod", () => {
   beforeEach(() => {
     runPodTurn.mockReset().mockResolvedValue(POD_ANSWER);
-    streamAgentChat.mockReset();
+    getFirebaseToken.mockReset();
   });
   afterEach(() => {
     vi.useRealTimers();
@@ -68,45 +68,36 @@ describe("agent chat routes to the person's own pod", () => {
     expect(result.cell).toBe("pod");
   });
 
-  it("still lets a person with no agent talk, once the verdict says so", async () => {
-    const { runAgentChatTurn, POD_VERDICT_WAIT_MS } = await import(
-      "@/lib/services/agent-chat-client"
-    );
-    // Resolved, and the answer is genuinely "no pod" -- the hub is correct here.
-    const readPodAddress = () => ({ hushhId: null, state: null, resolved: true });
-
-    const started = Date.now();
-    await runAgentChatTurn({
-      message: "hello",
-      podHushhId: null,
-      podState: null,
-      podResolved: true,
-      readPodAddress,
-    } as never).catch(() => undefined);
-
+  it.each([
+    [null, null, true, "AGENT_SETUP_REQUIRED"],
+    ["ha1_theirs", "provisioning", true, "AGENT_UNAVAILABLE"],
+    ["ha1_theirs", "suspended", true, "AGENT_UNAVAILABLE"],
+    ["ha1_theirs", "connecting", true, "AGENT_UNAVAILABLE"],
+    ["ha1_theirs", "provisioning_failed", true, "AGENT_UNAVAILABLE"],
+    [null, null, undefined, "AGENT_STATUS_UNKNOWN"],
+  ])("refuses unavailable pod %s/%s without entering shared chat", async (podHushhId, podState, podResolved, code) => {
+    const { runAgentChatTurn } = await import("@/lib/services/agent-chat-client");
+    const onError = vi.fn();
+    await expect(runAgentChatTurn({
+      message: "hello", podHushhId, podState, podResolved, handlers: { onError },
+    } as never)).rejects.toThrow(String(code));
+    expect(onError).toHaveBeenCalledWith(code);
     expect(runPodTurn).not.toHaveBeenCalled();
-    // It must not have burned the wait: a resolved verdict is acted on at once.
-    expect(Date.now() - started).toBeLessThan(POD_VERDICT_WAIT_MS);
+    expect(getFirebaseToken).not.toHaveBeenCalled();
   });
 
-  it("does not hang forever when the verdict never arrives", async () => {
-    const { runAgentChatTurn, POD_VERDICT_WAIT_MS } = await import(
-      "@/lib/services/agent-chat-client"
-    );
-    const readPodAddress = () => ({ hushhId: null, state: null, resolved: false });
-
-    const started = Date.now();
-    await runAgentChatTurn({
-      message: "hello",
-      podHushhId: null,
-      podState: null,
-      podResolved: false,
-      readPodAddress,
-    } as never).catch(() => undefined);
-
-    const waited = Date.now() - started;
-    expect(waited).toBeGreaterThanOrEqual(POD_VERDICT_WAIT_MS - 200);
+  it("bounds unknown status without sending the message to shared chat", async () => {
+    vi.useFakeTimers();
+    const { runAgentChatTurn, POD_VERDICT_WAIT_MS } = await import("@/lib/services/agent-chat-client");
+    const turn = runAgentChatTurn({
+      message: "hello", podResolved: false,
+      readPodAddress: () => ({ hushhId: null, state: null, resolved: false }),
+    } as never);
+    const rejected = expect(turn).rejects.toThrow("AGENT_STATUS_UNKNOWN");
+    await vi.advanceTimersByTimeAsync(POD_VERDICT_WAIT_MS);
+    await rejected;
     expect(runPodTurn).not.toHaveBeenCalled();
+    expect(getFirebaseToken).not.toHaveBeenCalled();
   });
 
   it("routes straight to the pod when the address is already known", async () => {
@@ -121,7 +112,7 @@ describe("agent chat routes to the person's own pod", () => {
     expect(result.cell).toBe("pod");
   });
 
-  it("seeds the pod with the visible transcript, because a pod holds no session", async () => {
+  it("supplies visible transcript alongside durable pod memory", async () => {
     // The relay, the route and the runner all accepted `history`; this client was the
     // only caller and never sent it, so every pod turn started from nothing.
     const { runAgentChatTurn } = await import("@/lib/services/agent-chat-client");

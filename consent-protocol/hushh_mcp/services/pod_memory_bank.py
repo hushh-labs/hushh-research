@@ -118,13 +118,8 @@ def _adc_token() -> str:
 
 
 def _api_error(response: Any) -> str:
-    """The API's own error message, bounded; the raw body when there is none."""
-    try:
-        body = response.json() or {}
-    except Exception:  # noqa: BLE001
-        body = {}
-    message = str((body.get("error") or {}).get("message") or "")
-    return " ".join((message or str(getattr(response, "text", "") or "")).split())[:300]
+    """Provider bodies can contain owner information; expose only HTTP status."""
+    return f"provider request refused (HTTP {int(response.status_code)})"
 
 
 def _engine_body(cfg: MemoryBankConfig, *, explicit_models: bool = True) -> dict[str, Any]:
@@ -207,7 +202,7 @@ def find_or_create_engine(
     )
     if operation.get("done"):
         if operation.get("error"):
-            raise MemoryBankUnavailable(f"create failed: {str(operation['error'])[:200]}")
+            raise MemoryBankUnavailable("create operation failed")
         if engine_id:
             return engine_id
         # Done, no error, and no name to read. Polling a completed operation cannot
@@ -229,7 +224,7 @@ def find_or_create_engine(
         if not body.get("done"):
             continue
         if body.get("error"):
-            raise MemoryBankUnavailable(f"create failed: {str(body['error'])[:200]}")
+            raise MemoryBankUnavailable("create operation failed")
         return (
             _engine_id_from_name((body.get("response") or {}).get("name", "")) or engine_id or ""
         ) or _raise(MemoryBankUnavailable("create finished without an engine name"))
@@ -341,7 +336,7 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         )
         return engine_id
     except Exception as exc:  # noqa: BLE001 - memory must never take the pod down
-        _STATE["error"] = f"{type(exc).__name__}: {str(exc)[:360]}"
+        _STATE["error"] = type(exc).__name__
         logger.warning("pod_memory_bank.unavailable reason=%s", _STATE["error"])
         return None
 
@@ -479,7 +474,7 @@ def resolve_memory_bank_service() -> Optional[Any]:
     try:
         service = build_rest_memory_bank_service(cfg, str(engine_id))
     except Exception as exc:  # noqa: BLE001
-        _STATE["error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+        _STATE["error"] = type(exc).__name__
         logger.warning("pod_memory_bank.service_failed reason=%s", _STATE["error"])
         return None
     _SERVICE["service"] = service

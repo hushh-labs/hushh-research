@@ -8,14 +8,13 @@ cross-tenant leakage, while a **per-user pod** is an intelligent private agent t
 its own memory. In a pod, isolation comes from topology and cryptography — one pod, one
 owner, its own X25519 key, its own encrypted store — not from amnesia.
 
-WHY NOT AN OFF-THE-SHELF ADK MEMORY SERVICE
--------------------------------------------
-ADK 2.4.0 ships three: ``InMemoryMemoryService`` (keyword match, explicitly
-prototyping-only), ``VertexAiMemoryBankService`` and ``VertexAiRagMemoryService``. Both
-persistent options are Vertex-backed, which would place an owner's memory somewhere hussh
-can read — breaking the exact guarantee a private agent depends on. There is no
-Postgres-native or file-backed persistent memory service in 2.4.0. So the pod brings its
-own, over the encrypted-blob seam that already exists in ``pod_storage``.
+RETRIEVAL AND CUSTODY
+---------------------
+The sealed commit log is the durable agent-memory record. BYOC pods can also use
+Vertex Memory Bank in the owner's project through the existing retrieval adapter.
+That provider processes the information sent to it; owner-project isolation does
+not mean the provider cannot process it. Hussh's control plane holds neither the
+pod's decryption key nor its Memory Bank invocation authority.
 
 WHAT THIS IS AND IS NOT
 -----------------------
@@ -45,6 +44,7 @@ Ship-dark: default OFF. Nothing here runs until the flag is set in a pod.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import hmac
@@ -526,6 +526,7 @@ def build_pod_memory_service(
             self.log = log
             self.bank = bank
             self._hydrated = log is None
+            self._hydration_lock = asyncio.Lock()
 
         async def _ensure_hydrated(self) -> None:
             """Replay this owner's memory once, on first use after a boot.
@@ -536,24 +537,25 @@ def build_pod_memory_service(
             yesterday and call that a fresh start. ``PodMemoryError`` from a foreign or
             tampered record is exactly the signal that something is wrong with custody.
             """
-            if self._hydrated:
-                return
-            # Set before awaiting: a second concurrent turn must not replay in parallel.
-            self._hydrated = True
-            try:
+            async with self._hydration_lock:
+                if self._hydrated:
+                    return
                 replayed = [
                     SealedMemory.from_payload(pod_key, record["payload"])
                     for record in await self.log.replay()
                     if record.get("kind") == _MEMORY_RECORD_KIND
                     and (record.get("payload") or {}).get("hushh_id") == hushh_id
                 ]
-            except Exception:
-                self._hydrated = False  # a transient read failure must stay retryable
-                raise
-            loaded = store.hydrate(replayed)
-            logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
+                loaded = store.hydrate(replayed)
+                self._hydrated = True
+                logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
+
+        def _require_owner(self, user_id: str) -> None:
+            if user_id not in ("", self.hushh_id):
+                raise PodMemoryError("Memory owner does not match this pod")
 
         async def add_session_to_memory(self, session: Any) -> None:
+            self._require_owner(str(getattr(session, "user_id", "") or ""))
             await self._ensure_hydrated()
             for event in getattr(session, "events", None) or []:
                 # Browser-carried history turns are seeded into the session with an
@@ -578,10 +580,11 @@ def build_pod_memory_service(
                     logger.warning(
                         "pod_memory_bank.add_failed hushh_id=%s reason=%s",
                         self.hushh_id,
-                        f"{type(exc).__name__}: {str(exc)[:120]}",
+                        type(exc).__name__,
                     )
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
+            self._require_owner(user_id)
             await self._ensure_hydrated()
             if self.bank is not None:
                 try:
@@ -601,7 +604,7 @@ def build_pod_memory_service(
                     logger.warning(
                         "pod_memory_bank.search_failed hushh_id=%s reason=%s",
                         self.hushh_id,
-                        f"{type(exc).__name__}: {str(exc)[:120]}",
+                        type(exc).__name__,
                     )
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
             hits = store.search(

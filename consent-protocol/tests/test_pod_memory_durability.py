@@ -363,3 +363,40 @@ def test_the_hub_never_receives_a_memory_service(monkeypatch) -> None:
         "the hub resolved a memory service — a multi-tenant process would then hold one "
         "person's memory and serve it to everyone"
     )
+
+
+def test_concurrent_readers_wait_for_one_complete_replay(tmp_path: Path) -> None:
+    async def run() -> None:
+        seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        await seed.add_session_to_memory(_Session("the guest room radiator leaks"))
+        log = _log(tmp_path)
+        replay = log.replay
+        started, release = asyncio.Event(), asyncio.Event()
+        calls = 0
+
+        async def blocked_replay():
+            nonlocal calls
+            calls += 1
+            started.set()
+            await release.wait()
+            return await replay()
+
+        log.replay = blocked_replay
+        service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+        first = asyncio.create_task(
+            service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        )
+        await started.wait()
+        second = asyncio.create_task(
+            service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+        )
+        await asyncio.sleep(0)
+        assert not first.done() and not second.done()
+        release.set()
+        for result in await asyncio.gather(first, second):
+            assert [m.content.parts[0].text for m in result.memories] == [
+                "the guest room radiator leaks"
+            ]
+        assert calls == 1
+
+    asyncio.run(run())

@@ -231,7 +231,7 @@ def test_hushh_impersonation_grant_is_revoked_last():
     assert actions[-1]["resource"] == _BOOTSTRAP
 
 
-def test_the_revocation_is_omitted_when_either_identity_is_unknown():
+def test_the_revocation_is_omitted_when_either_identity_is_unknown(monkeypatch):
     """A binding with an empty member matches nothing and deletes nothing.
 
     Emitting one anyway would let execute_teardown count it deleted and mint a
@@ -239,6 +239,7 @@ def test_the_revocation_is_omitted_when_either_identity_is_unknown():
     """
     from hushh_mcp.services.byoc_substrate_teardown import substrate_resources
 
+    monkeypatch.delenv("HUSSH_CONSENT_PLANE_SA", raising=False)
     kinds = lambda rs: {r["type"] for r in rs}  # noqa: E731
     assert "service_account_iam_binding" not in kinds(
         substrate_resources("ha1_abc", "proj-x", bootstrap_sa="", hushh_caller="who@hushh")

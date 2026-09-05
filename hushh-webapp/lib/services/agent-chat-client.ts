@@ -609,7 +609,7 @@ export async function deleteAgentChatConversation(input: {
  */
 export type TurnCell = "hub" | "pod";
 
-/** How long a turn waits for the pod address before the hub answers instead.
+/** How long a turn waits for the pod address before reporting unavailable status.
  *
  * Short enough that a person with no agent never notices, long enough to cover a
  * status read that is merely in flight (measured on dev: ~330ms). */
@@ -627,12 +627,26 @@ async function waitForPodVerdict(input: {
   while (Date.now() < deadline) {
     const latest = read();
     if (latest.resolved) {
+      input.podResolved = true;
       input.podHushhId = latest.hushhId;
       input.podState = latest.state;
       return;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
+}
+
+export function agentTurnAvailabilityMessage(code: string): string | null {
+  if (code === "AGENT_SETUP_REQUIRED") {
+    return "Set up your private agent before sending a message.";
+  }
+  if (code === "AGENT_STATUS_UNKNOWN") {
+    return "Your private agent's status could not be confirmed. Check its setup and try again.";
+  }
+  if (code === "AGENT_UNAVAILABLE") {
+    return "Your private agent is not available yet. Check its setup before trying again.";
+  }
+  return null;
 }
 
 export type AgentTurnResult = {
@@ -677,13 +691,13 @@ export async function runAgentChatTurn(input: {
   runtimeCredentialTransport?: "developer_api" | "vertex_api_key" | null;
   runtimeVertexProject?: string | null;
   runtimeVertexLocation?: string | null;
-  /** The visible transcript, oldest first; a pod turn is stateless without it. */
+  /** The visible transcript, oldest first, supplements durable pod memory. */
   history?: Array<{ role: "user" | "assistant"; content: string }>;
   delegateAgentId?: string | null;
   delegateResult?: Record<string, unknown>;
   signal?: AbortSignal;
   handlers?: AgentChatStreamHandlers;
-  /** The person's pod address, when they have one. Absent means "no pod": use the hub. */
+  /** The owner's pod address; absence requires setup, never shared execution. */
   podHushhId?: string | null;
   /** Whether the pod status has been read at least once. `false` means unknown. */
   podResolved?: boolean;
@@ -692,20 +706,21 @@ export async function runAgentChatTurn(input: {
   /** Their pod's lifecycle state. Only `active` is answerable. */
   podState?: string | null;
 }): Promise<AgentTurnResult> {
-  // WAIT rather than assume. `podState === null` is "we have not looked yet" AND
-  // "this person has no agent"; treating it as the second sent a fast typer's
-  // opening message to the shared hub while their own pod sat idle, and nothing on
-  // screen said so. `podResolved` distinguishes them: until the status endpoint has
-  // answered once, hold the turn briefly instead of routing it away from the pod.
-  // Bounded, because a person with no agent must still be able to talk: past the
-  // ceiling the hub answers, which is the correct destination for them.
+  // An unresolved or inactive private agent never grants shared-runtime authority.
   if (input.podResolved === false) {
     await waitForPodVerdict(input);
   }
-  const podIsAnswerable = Boolean(input.podHushhId) && input.podState === "active";
-  if (!podIsAnswerable) {
-    const streamed = await streamAgentChat(input);
-    return { ...streamed, cell: "hub" };
+  let unavailable: string | null = null;
+  if (input.podResolved === false || (!input.podHushhId && input.podResolved !== true)) {
+    unavailable = "AGENT_STATUS_UNKNOWN";
+  } else if (!input.podHushhId) {
+    unavailable = "AGENT_SETUP_REQUIRED";
+  } else if (input.podState !== "active") {
+    unavailable = "AGENT_UNAVAILABLE";
+  }
+  if (unavailable) {
+    input.handlers?.onError?.(unavailable);
+    throw new Error(unavailable);
   }
 
   const handlers = input.handlers ?? {};

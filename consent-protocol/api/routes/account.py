@@ -1835,17 +1835,11 @@ async def delete_account(
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     service = AccountService()
 
-    # Delete-order V2 (directive: delete deprovisions the pod FIRST). Revoke the
-    # standing read and tear the host down while the row still names WHERE the pod
-    # lives -- BEFORE the data cascade -- and keep the recovery-anchor row through
-    # the cascade, finalizing its delete afterwards. Flag-gated; legacy order is the
-    # fallback. A missing pod is a safe no-op, so this never blocks deletion.
-    from hushh_mcp.runtime_settings import personal_agent_delete_order_v2  # noqa: PLC0415
-
-    pa_first: dict[str, Any] | None = None
-    if target == "both" and personal_agent_delete_order_v2():
-        pa_first = await _deprovision_personal_agent(user_id, revoke=True, defer_row_delete=True)
-
+    # The service's transactional external-resource guard must run before any
+    # destructive operation. Pod teardown is not proof of Memory Bank erasure;
+    # destroying it first can strand the only credentials able to finish deletion.
+    # Until incarnation-bound external erasure receipts exist, retained resources
+    # return the existing recoverable 409 and keep their recovery authority intact.
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
@@ -1868,27 +1862,8 @@ async def delete_account(
             details = {}
         firebase_auth_status = await _delete_firebase_auth_user(user_id)
         details["firebase_auth_user"] = firebase_auth_status
-        if pa_first is not None:
-            # V2: the host was torn down FIRST; record it and finalize the recovery
-            # row LAST (after the cascade). Surface an unreclaimed orphan loudly --
-            # the account still completes, but the billing host stays nameable via
-            # the retained tombstone rather than silently swallowed.
-            details["personal_agent"] = pa_first.get("status")
-            if pa_first.get("unreclaimed") is True:
-                details["personal_agent_teardown_incomplete"] = True
-                logger.error(
-                    "Account deletion completed but the personal-agent host could not be "
-                    "torn down; a billing orphan may remain for user=%s (retained in the "
-                    "deletion tombstone, nameable for reclaim)",
-                    user_id,
-                )
-            _surface_substrate_teardown(details, pa_first, user_id)
-            await _finalize_personal_agent_row_delete(user_id)
-        else:
-            # Legacy order: deprovision LAST, revoke=False (cascade already wiped audit).
-            legacy_pa = await _deprovision_personal_agent(user_id)
-            details["personal_agent"] = legacy_pa.get("status")
-            _surface_substrate_teardown(details, legacy_pa, user_id)
+        # The service proved external resources absent before committing deletion.
+        # Do not attempt cloud teardown after discarding account authority.
         # Fail-loud on Firebase identity cleanup: the encrypted account is already
         # gone, so we keep the 200, but expose whether the remaining identity was
         # safely quarantined or still needs urgent operator cleanup.

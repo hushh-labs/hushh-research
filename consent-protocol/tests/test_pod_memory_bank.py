@@ -202,7 +202,7 @@ async def test_ensure_never_raises_and_reports_why_it_fell_back(monkeypatch) -> 
     assert await mb.ensure_memory_bank(store=_Store()) is None
     status = mb.memory_bank_status()
     assert "memoryBankEngine" not in status
-    assert "create 403" in status["memoryBankError"]
+    assert status["memoryBankError"] == "MemoryBankUnavailable"
     assert mb.resolve_memory_bank_service() is None, "no engine, no service: the log answers"
 
 
@@ -337,7 +337,7 @@ def test_a_refused_model_choice_retries_with_the_service_defaults() -> None:
     )
 
 
-def test_a_double_refusal_names_both_reasons() -> None:
+def test_a_double_refusal_keeps_status_without_provider_bodies() -> None:
     http = _HttpSeq(
         [
             _Resp(400, {"error": {"message": "generationConfig.model is not supported"}}),
@@ -347,7 +347,9 @@ def test_a_double_refusal_names_both_reasons() -> None:
     with pytest.raises(mb.MemoryBankUnavailable) as exc:
         mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
     text = str(exc.value)
-    assert "not available in this region" in text and "not supported" in text
+    assert "HTTP 400" in text
+    assert "not available in this region" not in text
+    assert "not supported" not in text
 
 
 # ---- the REST service: generate after a turn, retrieve on recall ---------------------
@@ -512,3 +514,43 @@ def test_done_with_no_engine_name_fails_without_polling_a_finished_operation() -
         mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, sleep=lambda _s: None)
     assert "without an engine name" in str(caught.value)
     assert [g for g in http.gets if "/operations/" in g] == []
+
+
+@pytest.mark.asyncio
+async def test_foreign_owner_cannot_hydrate_or_call_memory_provider() -> None:
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, build_pod_memory_service
+
+    bank = _Bank(hits=[SimpleNamespace(content="owner-only memory")])
+    log = SimpleNamespace(replay=AsyncMock(return_value=[]), append=AsyncMock())
+    service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank, log=log)
+    with pytest.raises(PodMemoryError):
+        await service.search_memory(app_name="one", user_id="ha1_other", query="private")
+    session = _session("foreign information")
+    session.user_id = "ha1_other"
+    with pytest.raises(PodMemoryError):
+        await service.add_session_to_memory(session)
+    log.replay.assert_not_awaited()
+    log.append.assert_not_awaited()
+    assert bank.searched == []
+    assert bank.added == 0
+
+
+@pytest.mark.asyncio
+async def test_provider_error_content_is_not_logged(caplog) -> None:
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    marker = "synthetic-private-provider-payload"
+    bank = SimpleNamespace(
+        search_memory=AsyncMock(side_effect=RuntimeError(marker)),
+        add_session_to_memory=AsyncMock(side_effect=RuntimeError(marker)),
+    )
+    service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank)
+    await service.add_session_to_memory(_session("a remembered preference"))
+    found = await service.search_memory(app_name="one", user_id="ha1_owner", query="preference")
+    assert found.memories
+    assert marker not in caplog.text
+    assert "RuntimeError" in caplog.text

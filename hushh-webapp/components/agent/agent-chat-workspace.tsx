@@ -154,6 +154,7 @@ import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
   runAgentChatTurn,
+  agentTurnAvailabilityMessage,
   streamAgentIntro,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
@@ -1431,6 +1432,12 @@ export function AgentChatWorkspace({
   // a fault. Collapsing it into "unreachable" told people their agent was broken when it
   // was simply waking. Kept separate so the copy and the affordance can be honest.
   const [agentStarting, setAgentStarting] = useState(false);
+  const [agentAvailabilityMessage, setAgentAvailabilityMessage] = useState<string | null>(null);
+  useEffect(() => {
+    setAgentAvailabilityMessage(null);
+    setAgentStarting(false);
+    setAgentUnreachable(false);
+  }, [user?.uid, podHushhId, podState, podResolved]);
   const [rebuildingAgent, setRebuildingAgent] = useState(false);
   const handleRebuildAgent = useCallback(async () => {
     setRebuildingAgent(true);
@@ -3856,6 +3863,8 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
             if (/AGENT_NOT_READY/.test(message)) {
               // Provisioned but not serving yet (connecting, or cold). That is a
               // warming state, not a fault: warm the pod and say "starting up", never
@@ -3868,7 +3877,7 @@ export function AgentChatWorkspace({
             }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
               streamEvents: settleVisibleStreamEvents(
                 current.streamEvents,
@@ -3913,7 +3922,7 @@ export function AgentChatWorkspace({
           : "Agent chat request failed.";
       updateMessage(assistantMessageId, (current) => ({
         ...current,
-        text: current.text || message,
+        text: current.text || agentTurnAvailabilityMessage(message) || message,
         status: "error",
         streamEvents: settleVisibleStreamEvents(
           current.streamEvents,
@@ -4071,6 +4080,8 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
             if (/AGENT_NOT_READY/.test(message)) {
               // Provisioned but not serving yet (connecting, or cold). That is a
               // warming state, not a fault: warm the pod and say "starting up", never
@@ -4083,7 +4094,7 @@ export function AgentChatWorkspace({
             }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
             }));
             setIsChatLoading(false);
@@ -4133,7 +4144,7 @@ export function AgentChatWorkspace({
             : "Agent chat request failed.";
         updateMessage(assistantMessageId, (current) => ({
           ...current,
-          text: current.text || message,
+          text: current.text || agentTurnAvailabilityMessage(message) || message,
           status: "error",
         }));
       }
@@ -4308,6 +4319,8 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
             if (/AGENT_NOT_READY/.test(message)) {
               // Provisioned but not serving yet (connecting, or cold). That is a
               // warming state, not a fault: warm the pod and say "starting up", never
@@ -4320,7 +4333,7 @@ export function AgentChatWorkspace({
             }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
             }));
             setIsChatLoading(false);
@@ -4343,7 +4356,7 @@ export function AgentChatWorkspace({
             : "Agent chat request failed.";
         updateMessage(assistantMessageId, (current) => ({
           ...current,
-          text: current.text || message,
+          text: current.text || agentTurnAvailabilityMessage(message) || message,
           status: "error",
         }));
       }
@@ -4964,14 +4977,22 @@ export function AgentChatWorkspace({
       )}
       data-agent-chat-workspace={variant}
     >
-      {agentStarting && !agentUnreachable ? (
+      {agentAvailabilityMessage ? (
+        <div role="status" className="flex items-center justify-between gap-3 border-b border-border/40 px-4 py-2 text-sm">
+          <span>{agentAvailabilityMessage}</span>
+          <button type="button" className="shrink-0 underline" onClick={() => router.push(ROUTES.ONE_SETUP_CLOUD)}>
+            Private agent setup
+          </button>
+        </div>
+      ) : null}
+      {agentStarting && !agentUnreachable && !agentAvailabilityMessage ? (
         <div className="flex items-center gap-2 border-b border-border/40 bg-foreground/[0.03] px-4 py-2 text-sm text-muted-foreground">
           <span>
             Your agent is starting up. This takes a few seconds; send again in a moment.
           </span>
         </div>
       ) : null}
-      {agentUnreachable ? (
+      {agentUnreachable && !agentAvailabilityMessage ? (
         <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
           <span className="text-amber-700 dark:text-amber-300">
             Your private agent is unreachable right now.
