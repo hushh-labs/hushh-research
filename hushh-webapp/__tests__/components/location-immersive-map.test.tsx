@@ -2652,6 +2652,47 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(markerPayload).not.toContain("avatars.test");
   });
 
+  it("tints a fresh circle-member pin distinctly instead of leaving it untinted (#5420)", async () => {
+    // Before this fix, a real (non-demo) person marker carried no `tint` at
+    // all, so `tintColor` reached the native bridge as `undefined` -- the
+    // marker fell back to whatever the platform SDK's default pin color
+    // happens to be, with no guaranteed contrast against map tiles.
+    //
+    // `capturedAt` is set to "now" (rather than reusing the fixed fixture
+    // timestamp `incomingMarker` uses elsewhere) so this marker reads as
+    // fresh regardless of when the suite runs -- a stale pin intentionally
+    // repaints to STALE_TINT, which would otherwise mask this assertion.
+    stubPhoneGeometry();
+    const freshMarker = incomingMarker(ANKIT, 25.4358, 81.8463);
+    const freshCapturedAt = new Date().toISOString();
+    freshMarker.envelope.capturedAt = freshCapturedAt;
+    freshMarker.envelope.plainPointForTest.capturedAt = freshCapturedAt;
+    serviceHarness.getMapState.mockResolvedValue({
+      markers: [freshMarker],
+      preferences: { presenceMode: "ghost" },
+    });
+
+    await renderReadyMap();
+    await waitFor(() => {
+      expect(screen.getByTestId("one-location-map")).toHaveAttribute(
+        "data-map-marker-count",
+        "1",
+      );
+    });
+
+    await waitFor(() => {
+      const drawn = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as Array<{
+        tintColor?: { r: number; g: number; b: number; a: number };
+      }>;
+      // The batch may also include the self pin (its own, different tint);
+      // find the incoming circle-member pin specifically.
+      const personMarker = drawn?.find(
+        (marker) => marker.tintColor && marker.tintColor.r !== 0,
+      );
+      expect(personMarker?.tintColor).toEqual({ r: 88, g: 86, b: 214, a: 255 });
+    });
+  });
+
   it("falls back to the app's own initials when there is no profile photo", async () => {
     identityHarness.avatarUrl = null;
     stubPhoneGeometry();
