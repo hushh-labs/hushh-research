@@ -1,5 +1,16 @@
 # Account deletion rollout and rollback
 
+## Visual Map
+
+```mermaid
+flowchart LR
+  build[Build immutable backend] --> fence[Pause account deletion]
+  fence --> schema[Apply and verify schema]
+  schema --> candidate[Verify candidate and frontend]
+  candidate --> drain[Prove cleanup worker and retire legacy revisions]
+  drain --> enable[Re-enable account deletion]
+```
+
 Migration `201_account_deletion_tombstones.sql` and the tombstone-aware runtime
 form one compatibility boundary. Applying the migration before the runtime is
 necessary, but it is not sufficient on its own: a full deletion that was
