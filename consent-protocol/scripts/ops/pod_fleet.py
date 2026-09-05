@@ -8,8 +8,8 @@ Usage::
 
     python scripts/ops/pod_fleet.py [--project hushh-pda-dev] [--region us-central1]
 
-Credentials come from ``GCP_DEPLOY_SA_KEY_B64``, the same operator key
-``GcpRunClient`` uses -- this reuses that loader rather than reimplementing it.
+Credentials use the same explicit-key or Application Default Credentials loader
+as ``GcpRunClient``. No separate credential backend is introduced.
 
 On "serving" vs "Ready": Cloud Run's default startup probe is a TCP connect, and
 gunicorn binds its port before its workers boot. A pod whose workers crash on import
@@ -70,21 +70,35 @@ def main() -> int:
     ap.add_argument("--project", default="hushh-pda-dev")
     ap.add_argument("--region", default="us-central1")
     ap.add_argument("--json", action="store_true", help="emit JSON instead of a table")
+    ap.add_argument(
+        "--assert-empty",
+        action="store_true",
+        help="exit 1 if labelled pods exist; 77 if access is unavailable",
+    )
     args = ap.parse_args()
 
-    creds = load_operator_credentials()
-    s = _session(creds)
-    base = (
-        f"https://{args.region}-run.googleapis.com/apis/serving.knative.dev/v1"
-        f"/namespaces/{args.project}"
-    )
-    r = s.get(f"{base}/services", params={"labelSelector": POD_LABEL}, timeout=120)
-    if not r.ok:
-        print(f"FAILED to list services: http {r.status_code}: {r.text[:400]}")
-        return 1
+    try:
+        creds = load_operator_credentials()
+        s = _session(creds)
+        base = (
+            f"https://{args.region}-run.googleapis.com/apis/serving.knative.dev/v1"
+            f"/namespaces/{args.project}"
+        )
+        r = s.get(f"{base}/services", params={"labelSelector": POD_LABEL}, timeout=120)
+        if not r.ok:
+            print(f"Fleet unavailable: HTTP {r.status_code}")
+            return 77
+        services = r.json().get("items") or []
+    except Exception as exc:
+        print(f"Fleet unavailable: {type(exc).__name__}")
+        return 77
+
+    if args.assert_empty:
+        print(f"Labelled pod count: {len(services)}")
+        return 1 if services else 0
 
     rows = []
-    for svc in r.json().get("items") or []:
+    for svc in services:
         md = svc.get("metadata") or {}
         labels = md.get("labels") or {}
         annotations = md.get("annotations") or {}

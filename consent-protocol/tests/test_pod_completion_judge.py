@@ -134,9 +134,8 @@ def test_the_fleet_sweep_declares_the_credential_and_not_a_cli_it_never_runs():
     ledger = yaml.safe_load(_LEDGER.read_text(encoding="utf-8"))
     item = next(a for a in ledger["assertions"] if a["id"] == "no-pod-is-billing-right-now")
     check = item["check"]
-    assert "GCP_DEPLOY_SA_KEY_B64" in (check.get("requires_env") or []), (
-        "the fleet sweep needs the operator credential; say so where the judge can act on it"
-    )
+    assert not check.get("requires_env"), "ADC must remain a supported authority path"
+    assert "--assert-empty" in check["command"]
     assert "gcloud" not in (check.get("requires") or []), (
         "pod_fleet.py reaches Cloud Run over REST and never invokes gcloud"
     )
@@ -376,3 +375,20 @@ def test_untracked_existing_reproduction_cannot_pass(tmp_path, monkeypatch):
     report = judge_mod.judge([_receipt(reproduce="proof.py")])
     assert not report.finished
     assert report.failing
+
+
+def test_unavailable_command_exit_cannot_pass():
+    report = judge_mod.judge(
+        [_item("unavailable", check={"kind": "command", "command": "exit 77"})]
+    )
+    assert not report.finished
+    assert report.unknown
+    assert not report.failing
+
+
+def test_a_filtered_pass_is_not_whole_ledger_completion():
+    report = judge_mod.judge([_item("selected"), _item("excluded")], only="selected")
+    assert report.passing
+    assert not report.finished
+    assert not report.to_dict()["scope_complete"]
+    assert "FILTERED RUN" in judge_mod.render(report)

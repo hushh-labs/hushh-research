@@ -330,15 +330,10 @@ assertions:
       kind: command
       command: >-
         cd consent-protocol && uv run python scripts/ops/pod_fleet.py
-        --project hushh-pda-dev --region us-central1 | grep -q "no pods labelled"
-      # NOT gcloud: the sweep reaches Cloud Run over the REST API and there is no
-      # gcloud CLI in this environment at all. Naming it here guarded on a tool the
-      # command never runs, so on a runner that happens to ship gcloud the guard
-      # passed and a missing credential was reported as a FAILURE rather than as
-      # "could not look". The credential is the real prerequisite, so it is the one
-      # declared.
+        --project hushh-pda-dev --region us-central1 --assert-empty
+      # Reuse explicit-key or ADC authority. Exit 77 means access unavailable;
+      # neither a missing env variable nor a string grep establishes fleet state.
       requires: [uv]
-      requires_env: [GCP_DEPLOY_SA_KEY_B64]
 
   - id: the-drill-runs-on-a-schedule
     requirement: Learning loop

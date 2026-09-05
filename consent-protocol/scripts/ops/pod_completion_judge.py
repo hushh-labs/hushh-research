@@ -59,6 +59,7 @@ class Verdict:
 
 @dataclass
 class JudgeReport:
+    scope_complete: bool = True
     verdicts: list[Verdict] = field(default_factory=list)
 
     @property
@@ -85,12 +86,17 @@ class JudgeReport:
         AND every check could have failed. Two of those three are the ways a
         completion report has lied to us before."""
         return (
-            bool(self.verdicts) and not self.failing and not self.unknown and not self.unfalsifiable
+            self.scope_complete
+            and bool(self.verdicts)
+            and not self.failing
+            and not self.unknown
+            and not self.unfalsifiable
         )
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "finished": self.finished,
+            "scope_complete": self.scope_complete,
             "counts": {
                 "total": len(self.verdicts),
                 "pass": len(self.passing),
@@ -138,7 +144,7 @@ def check_pytest(item: dict[str, Any], timeout: int) -> tuple[str, str]:
     code, out = _run(cmd, protocol, timeout)
     if code == 0:
         return PASS, out.splitlines()[-1] if out else "ok"
-    if code in (124, 127):
+    if code in (77, 124, 127):
         return UNKNOWN, out
     return FAIL, out
 
@@ -169,7 +175,7 @@ def check_command(item: dict[str, Any], timeout: int) -> tuple[str, str]:
     code, out = _run(["bash", "-lc", str(cmd)], REPO_ROOT, timeout)
     if code == 0:
         return PASS, out
-    if code in (124, 127):
+    if code in (77, 124, 127):
         return UNKNOWN, out
     return FAIL, out
 
@@ -347,7 +353,7 @@ def judge(
     # controls themselves, so they cannot recurse.
     if _controlled:
         run_controls()
-    report = JudgeReport()
+    report = JudgeReport(scope_complete=not bool(only))
     for item in items:
         ident = str(item.get("id") or "?")
         if only and only not in ident:
@@ -388,6 +394,8 @@ def render(report: JudgeReport) -> str:
         f"   {c['unfalsifiable']} not falsifiable   of {c['total']}",
         "",
     ]
+    if not report.scope_complete:
+        lines += ["  FILTERED RUN: this is not a whole-ledger completion verdict.", ""]
     if report.finished:
         lines += ["  YES. Every item passes, every check ran, every check could have failed.", ""]
     else:
