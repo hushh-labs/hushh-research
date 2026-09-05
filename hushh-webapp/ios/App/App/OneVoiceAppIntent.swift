@@ -861,7 +861,11 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Let \(\.$recipient) see my location with \(.applicationName)",
                 "Ask \(.applicationName) to share my location with \(\.$recipient)",
                 "Tell \(.applicationName) to share my location with \(\.$recipient)",
-                "Talk to \(.applicationName) and share my location with \(\.$recipient)"
+                "Talk to \(.applicationName) and share my location with \(\.$recipient)",
+                "Use \(.applicationName) to share my location with \(\.$recipient)",
+                "Share my location to \(\.$recipient) using \(.applicationName)",
+                "Start sharing my location in \(.applicationName) with \(\.$recipient)",
+                "Give \(\.$recipient) access to my location through \(.applicationName)"
             ],
             shortTitle: "Share Location",
             systemImageName: "location.fill"
@@ -873,7 +877,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Request \(\.$person)'s location with \(.applicationName)",
                 "Ask \(.applicationName) to ask \(\.$person) for location",
                 "Tell \(.applicationName) to request \(\.$person)'s location",
-                "Talk to \(.applicationName) and ask \(\.$person) for location"
+                "Talk to \(.applicationName) and ask \(\.$person) for location",
+                "Use \(.applicationName) to request \(\.$person)'s location",
+                "Have \(.applicationName) ask \(\.$person) where they are"
             ],
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
@@ -888,7 +894,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Talk to \(.applicationName) and stop sharing location with \(\.$person)",
                 "Ask \(.applicationName) to pause my location",
                 "Tell \(.applicationName) to pause my location",
-                "Talk to \(.applicationName) and pause my location"
+                "Talk to \(.applicationName) and pause my location",
+                "Cancel my location share with \(\.$person) in \(.applicationName)",
+                "Stop sharing my location to \(\.$person) using \(.applicationName)"
             ],
             shortTitle: "Stop Sharing",
             systemImageName: "location.slash.fill"
@@ -899,7 +907,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Turn \(.applicationName) Location \(\.$state)",
                 "Ask \(.applicationName) to turn Location \(\.$state)",
                 "Tell \(.applicationName) to turn Location \(\.$state)",
-                "Talk to \(.applicationName) and turn Location \(\.$state)"
+                "Talk to \(.applicationName) and turn Location \(\.$state)",
+                "Turn location updates \(\.$state) in \(.applicationName)",
+                "Set \(.applicationName) Location to \(\.$state)"
             ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
@@ -911,7 +921,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Make a new Circle in \(.applicationName) Location Agent",
                 "Ask \(.applicationName) to create a Circle",
                 "Tell \(.applicationName) to create a Circle",
-                "Talk to \(.applicationName) and create a Circle"
+                "Talk to \(.applicationName) and create a Circle",
+                "Start a Circle in \(.applicationName)",
+                "Add a Circle in \(.applicationName)"
             ],
             shortTitle: "Create Circle",
             systemImageName: "person.3.fill"
@@ -934,7 +946,9 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Open \(.applicationName) Location Check In",
                 "Ask \(.applicationName) to check in",
                 "Tell \(.applicationName) to open Check In",
-                "Talk to \(.applicationName) and check in"
+                "Talk to \(.applicationName) and check in",
+                "Do an \(.applicationName) Check In",
+                "Start an \(.applicationName) Check In"
             ],
             shortTitle: "Check In",
             systemImageName: "checkmark.circle.fill"
@@ -955,6 +969,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             intent: TalkToHusshOneIntent(),
             phrases: [
                 "Talk to \(.applicationName)",
+                "Speak to \(.applicationName)",
                 "Start a conversation with \(.applicationName)"
             ],
             shortTitle: "Talk to Agent One",
