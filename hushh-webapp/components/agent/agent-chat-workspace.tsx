@@ -13,7 +13,6 @@ import {
   type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import Image from "next/image";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
@@ -4863,15 +4862,20 @@ export function AgentChatWorkspace({
                     aria-hidden
                   />
                 ) : (
-                  <Image
-                    src="/one-quiet-emoji.png"
-                    alt="One"
-                    width={762}
-                    height={766}
-                    unoptimized
-                    draggable={false}
-                    className="h-6 w-6 object-contain max-sm:h-8 max-sm:w-8"
-                  />
+                  /* The mark, as text, exactly like the top bar / sidebar /
+                     intro gate. This slot used to render a raster of Noto
+                     (Android) artwork — so it stayed Android on a Mac no matter
+                     what the font stack said, and it was the one brand mark in
+                     the app that could not follow the platform.
+                     .hushh-brand-mark pins the emoji font the same way every
+                     other mark does. */
+                  <span
+                    aria-label="One"
+                    role="img"
+                    className="hushh-brand-mark select-none text-[24px] leading-none max-sm:text-[30px]"
+                  >
+                    🤫
+                  </span>
                 )}
               </div>
               {/* The name in the header is the reader's only guarantee about
