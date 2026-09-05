@@ -46,7 +46,19 @@ final class AppUITests: XCTestCase {
         XCUIDevice.shared.press(.home)
         app.activate()
         _ = try waitForSatisfiedStatus(app, route: route, timeout: 30)
-        XCTAssertTrue(app.buttons["Continue with Apple"].exists)
+        // The route marker can survive while the native privacy cover and
+        // asynchronous auth restoration are still settling after activation.
+        // Require the actual login control to become usable within a bound.
+        let loginButton = app.buttons["Continue with Apple"]
+        let resumeDeadline = Date().addingTimeInterval(15)
+        while Date() < resumeDeadline, !(loginButton.exists && loginButton.isHittable) {
+            RunLoop.current.run(until: Date().addingTimeInterval(0.25))
+        }
+        XCTAssertTrue(
+            loginButton.exists && loginButton.isHittable,
+            "Login must become usable after bounded native resume validation"
+        )
+        XCTAssertFalse(app.staticTexts["Checking your session\u{2026}"].exists)
     }
 
     func testPublicAndAuthRoutes() throws {
