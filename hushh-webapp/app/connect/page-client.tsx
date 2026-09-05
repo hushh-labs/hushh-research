@@ -99,7 +99,10 @@ import {
   CONNECT_SEARCH_INPUT_PLAIN_CLASSNAME,
   CONNECT_SEARCH_PLACEHOLDER,
 } from "./connect-search-layout";
-import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layout";
+import {
+  CONNECT_DIRECTORY_MENU_CLASSNAME,
+  CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME,
+} from "./connect-surface-layout";
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
@@ -2420,7 +2423,7 @@ export default function ConnectPageClient() {
                             <div
                               role="menu"
                               data-testid="connect-directory-menu"
-                              className="absolute left-0 top-full z-30 mt-1 w-[184px] overflow-hidden rounded-[14px] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-standard)] p-1 shadow-[0_10px_30px_rgba(0,0,0,0.10)] dark:shadow-[0_10px_30px_rgba(0,0,0,0.35)]"
+                              className={CONNECT_DIRECTORY_MENU_CLASSNAME}
                             >
                               {directoryMenuItems}
                             </div>
