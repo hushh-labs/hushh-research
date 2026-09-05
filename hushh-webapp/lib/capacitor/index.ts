@@ -622,91 +622,6 @@ export const HushhSettingsNative = registerPlugin<HushhSettingsPlugin>(
   },
 );
 
-// ==================== HushhDatabasePlugin ====================
-// Local SQLite/IndexedDB storage
-
-export interface HushhDatabasePlugin {
-  initialize(): Promise<{ success: boolean }>;
-  hasVault(options: { userId: string }): Promise<{ exists: boolean }>;
-  storeVaultKey(options: {
-    userId: string;
-    authMethod: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
-    recoveryEncryptedVaultKey: string;
-    recoverySalt: string;
-    recoveryIv: string;
-  }): Promise<{ success: boolean }>;
-  getVaultKey(options: { userId: string }): Promise<{
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
-    recoveryEncryptedVaultKey: string;
-    recoverySalt: string;
-    recoveryIv: string;
-  }>;
-  close(): Promise<{ success: boolean }>;
-}
-
-export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
-  "HushhDatabase",
-  {
-    web: () =>
-      import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  },
-);
-
-// ==================== HushhAgentPlugin ====================
-// Local agent runtime
-
-export interface AgentResponse {
-  response: string;
-  sessionState?: Record<string, unknown>;
-  collectedData?: Record<string, unknown>;
-  isComplete: boolean;
-  needsConsent: boolean;
-  consentScope?: string;
-  uiType?: "buttons" | "checkbox" | "text";
-  options?: string[];
-  allowCustom?: boolean;
-  allowNone?: boolean;
-  consentToken?: string;
-  consentIssuedAt?: number;
-  consentExpiresAt?: number;
-}
-
-export interface AgentInfo {
-  id: string;
-  name: string;
-  port: number;
-  available: boolean;
-}
-
-export interface HushhAgentPlugin {
-  handleMessage(options: {
-    message: string;
-    userId: string;
-    agentId?: string;
-    sessionState?: Record<string, unknown>;
-  }): Promise<AgentResponse>;
-  classifyIntent(options: { message: string }): Promise<{
-    hasDelegate: boolean;
-    targetAgent: string;
-    targetPort?: number;
-    domain: string;
-  }>;
-  getAgentInfo(): Promise<{
-    agents: AgentInfo[];
-    version: string;
-    protocolVersion: string;
-  }>;
-}
-
-export const HushhAgent = registerPlugin<HushhAgentPlugin>("HushhAgent", {
-  web: () => import("./plugins/agent-web").then((m) => new m.HushhAgentWeb()),
-});
-
 // ==================== HushhSyncPlugin ====================
 // Handles local-cloud data synchronization
 
@@ -813,6 +728,7 @@ export type HushhLocationPermissionState = {
 };
 
 export type BackgroundShareGrant = {
+  expiresAtMs?: number;
   grantId: string;
   recipientKeyId: string;
   recipientPublicKeyJwk: JsonWebKey;

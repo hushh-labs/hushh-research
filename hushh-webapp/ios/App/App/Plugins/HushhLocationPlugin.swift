@@ -4,7 +4,7 @@ import CoreLocation
 import UIKit
 
 /**
- * HushhLocationPlugin - foreground-only one-shot location capture.
+ * HushhLocationPlugin - foreground capture and permission-gated background sharing.
  *
  * One Location Agent v1 does not request background location. Coordinates are
  * returned only to the local web layer so it can encrypt before persistence.
@@ -36,7 +36,9 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     // fans out to every saved callback call below. Foreground-only.
     private var watchCalls: [String: CAPPluginCall] = [:]
     private var pendingWatchStartCall: CAPPluginCall?
-    private let backgroundPublisher = BackgroundLocationPublisher()
+    private lazy var backgroundPublisher = BackgroundLocationPublisher(onStop: { [weak self] in
+        self?.stopUpdatingIfIdle()
+    })
 
     public override func load() {
         manager.delegate = self
@@ -246,55 +248,59 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         if let watchCall = watchCalls.removeValue(forKey: id) {
             bridge?.releaseCall(watchCall)
         }
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
-        }
+        stopUpdatingIfIdle()
         call.resolve()
     }
 
     @objc func startBackgroundShare(_ call: CAPPluginCall) {
-        guard manager.authorizationStatus == .authorizedAlways else {
-            call.resolve(["started": false, "reason": "always-permission-required"])
-            return
-        }
-        guard
-            let token = call.getString("vaultOwnerToken"),
-            let base = call.getString("backendBaseUrl"),
-            let rawGrants = call.getArray("grants") as? [[String: Any]]
-        else {
-            call.resolve(["started": false, "reason": "invalid-session"])
-            return
-        }
-        let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
+        DispatchQueue.main.async {
+            guard self.manager.authorizationStatus == .authorizedAlways else {
+                call.resolve(["started": false, "reason": "always-permission-required"])
+                return
+            }
             guard
-                let grantId = g["grantId"] as? String,
-                let keyId = g["recipientKeyId"] as? String,
-                let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
-            else { return nil }
-            return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk)
+                let token = call.getString("vaultOwnerToken"),
+                let base = call.getString("backendBaseUrl"),
+                let rawGrants = call.getArray("grants") as? [[String: Any]]
+            else {
+                call.resolve(["started": false, "reason": "invalid-session"])
+                return
+            }
+            let grants: [BackgroundShareGrantNative] = rawGrants.compactMap { g in
+                guard
+                    let grantId = g["grantId"] as? String,
+                    let keyId = g["recipientKeyId"] as? String,
+                    let jwk = g["recipientPublicKeyJwk"] as? [String: Any]
+                else { return nil }
+                if let rawExpiry = g["expiresAtMs"] {
+                    guard let expiry = rawExpiry as? Double, expiry.isFinite,
+                          expiry > Date().timeIntervalSince1970 * 1000 else { return nil }
+                }
+                return BackgroundShareGrantNative(grantId: grantId, recipientKeyId: keyId, recipientPublicKeyJwk: jwk, expiresAtMs: g["expiresAtMs"] as? Double)
+            }
+            guard !grants.isEmpty else {
+                call.resolve(["started": false, "reason": "no-grants"])
+                return
+            }
+            let session = BackgroundShareSessionNative(
+                vaultOwnerToken: token,
+                backendBaseUrl: base,
+                grants: grants,
+                minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
+                minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
+            )
+            self.backgroundPublisher.start(session: session)
+            self.manager.startUpdatingLocation()
+            call.resolve(["started": true])
         }
-        guard !grants.isEmpty else {
-            call.resolve(["started": false, "reason": "no-grants"])
-            return
-        }
-        let session = BackgroundShareSessionNative(
-            vaultOwnerToken: token,
-            backendBaseUrl: base,
-            grants: grants,
-            minMoveMeters: call.getDouble("minMoveMeters") ?? 25,
-            minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
-        )
-        backgroundPublisher.start(session: session)
-        DispatchQueue.main.async { self.manager.startUpdatingLocation() }
-        call.resolve(["started": true])
     }
 
     @objc func stopBackgroundShare(_ call: CAPPluginCall) {
-        backgroundPublisher.stop()
-        if watchCalls.isEmpty {
-            DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        DispatchQueue.main.async {
+            self.backgroundPublisher.stop()
+            self.stopUpdatingIfIdle()
+            call.resolve()
         }
-        call.resolve()
     }
 
     private func startWatch(_ call: CAPPluginCall) {
@@ -313,6 +319,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         }
     }
 
+    private func stopUpdatingIfIdle() {
+        DispatchQueue.main.async {
+            if self.watchCalls.isEmpty && self.pendingLocationCall == nil && !self.backgroundPublisher.isActive {
+                self.manager.stopUpdatingLocation()
+            }
+        }
+    }
+
     private func failWatches(_ message: String) {
         guard !watchCalls.isEmpty else { return }
         // A fatal location error ends every active watch; JS receives it as the
@@ -322,7 +336,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
             bridge?.releaseCall(watchCall)
             watchCalls.removeValue(forKey: id)
         }
-        DispatchQueue.main.async { self.manager.stopUpdatingLocation() }
+        stopUpdatingIfIdle()
     }
 
     private func permissionPayload() -> [String: Any] {
@@ -370,6 +384,9 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     }
 
     public func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
+        if manager.authorizationStatus != .authorizedAlways {
+            backgroundPublisher.stop()
+        }
         if let permissionCall = pendingPermissionCall {
             pendingPermissionCall = nil
             permissionCall.resolve(permissionPayload())

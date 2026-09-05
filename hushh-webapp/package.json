@@ -82,7 +82,8 @@
     "ios:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && npm run ios:prepare:uat && ./scripts/native/ios-test.sh",
     "ios:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:test",
     "android:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && node ./scripts/native/android-route-audit.mjs",
-    "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test"
+    "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test",
+    "ios:background-share:test": "bash ./scripts/native/test-background-location-publisher.sh"
   },
   "dependencies": {
     "@ag-ui/client": "0.0.59",
