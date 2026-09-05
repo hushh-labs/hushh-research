@@ -1826,6 +1826,44 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Check-In")).toBeNull();
   });
 
+  it("keeps the core Now actions visible while sharing is live", async () => {
+    const base = locationState();
+    mockGetState.mockResolvedValue({
+      ...base,
+      ownerGrants: [
+        {
+          ...base.ownerGrants[0],
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+      receivedGrants: [],
+      requests: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    expect(await screen.findByTestId("one-location-live-share")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Share with more" }),
+    ).toBeTruthy();
+
+    const actions = screen.getByTestId("one-location-now-actions");
+    expect(
+      within(actions).getByRole("button", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Check in" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Save My Soul" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "More actions" }),
+    ).toBeTruthy();
+  });
+
   it("keeps the heading and location toggle inline as the only header action", async () => {
     mockGetState.mockResolvedValue({
       ...locationState(),

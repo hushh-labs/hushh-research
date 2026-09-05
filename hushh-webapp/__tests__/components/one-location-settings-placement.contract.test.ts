@@ -33,6 +33,7 @@ describe("One Location settings placement", () => {
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).toContain("LocationNowStatePanel");
+    expect(nowSource).toContain("LocationNowActionSuite");
     expect(nowSource).toContain('"Private"');
     expect(nowSource).toContain('"No one can see your location"');
     expect(nowSource).toContain('"Share only when you choose."');
@@ -46,9 +47,16 @@ describe("One Location settings placement", () => {
     expect(nowSource).not.toContain('id: "save-my-soul"');
 
     const primaryIndex = nowSource.indexOf("LocationNowStatePanel");
-    const requestIndex = nowSource.indexOf("onRequestLocation={onRequestLocation}");
+    const requestIndex = nowSource.indexOf(
+      "onRequestLocation={onRequestLocation}",
+      primaryIndex,
+    );
     const visibleActionsIndex = nowSource.indexOf("one-location-now-actions");
+    const liveShareIndex = nowSource.indexOf("LiveShareStatusCard");
+    const activeActionsIndex = nowSource.indexOf("LocationNowActionSuite");
     expect(primaryIndex).toBeGreaterThan(-1);
+    expect(liveShareIndex).toBeGreaterThan(-1);
+    expect(activeActionsIndex).toBeGreaterThan(liveShareIndex);
     expect(requestIndex).toBeGreaterThan(primaryIndex);
     expect(visibleActionsIndex).toBeGreaterThan(requestIndex);
     expect(nowSource).not.toContain('title: "Active shares"');

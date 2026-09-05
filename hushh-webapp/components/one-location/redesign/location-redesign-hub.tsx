@@ -1923,6 +1923,15 @@ function NowHub({
           onEnded={vm.onLiveShareEnded}
         />
       ) : null}
+      {vm.liveShare ? (
+        <LocationNowActionSuite
+          onRequestLocation={onRequestLocation}
+          onCheckIn={onCheckIn}
+          onSos={onSos}
+          onOpenMap={onOpenMap}
+          onOpenSettings={onOpenSettings}
+        />
+      ) : null}
       {!vm.liveShare ? (
         <LocationNowStatePanel
           blocked={vm.locationBlocked}
@@ -2191,6 +2200,53 @@ function LocationNowSecondaryAction({
       </span>
       <ButtonLabel as="span">{label}</ButtonLabel>
     </button>
+  );
+}
+
+function LocationNowActionSuite({
+  onRequestLocation,
+  onCheckIn,
+  onSos,
+  onOpenMap,
+  onOpenSettings,
+}: {
+  onRequestLocation: () => void;
+  onCheckIn: () => void;
+  onSos: () => void;
+  onOpenMap: () => void;
+  onOpenSettings: () => void;
+}) {
+  return (
+    <div
+      data-testid="one-location-now-actions"
+      className="mx-auto grid w-full max-w-[720px] gap-2.5 sm:grid-cols-2"
+    >
+      <LocationNowSecondaryAction
+        icon="ask"
+        label="Ask for location"
+        voiceControlId="one-location-action-ask"
+        voiceActionId="location.open_ask"
+        onClick={onRequestLocation}
+      />
+      <LocationNowSecondaryAction
+        icon="checkIn"
+        label="Check in"
+        voiceControlId="one-location-action-check-in"
+        voiceActionId="location.open_check_in"
+        onClick={onCheckIn}
+      />
+      <LocationNowSecondaryAction
+        icon="active"
+        label="Save My Soul"
+        voiceControlId="one-location-action-sos"
+        voiceActionId="location.open_sos"
+        onClick={onSos}
+      />
+      <LocationNowMoreActions
+        onOpenMap={onOpenMap}
+        onOpenSettings={onOpenSettings}
+      />
+    </div>
   );
 }
 
