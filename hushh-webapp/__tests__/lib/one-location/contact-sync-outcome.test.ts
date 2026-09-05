@@ -47,7 +47,7 @@ describe("describeContactSyncOutcome", () => {
 
     expect(outcome.title).toBe("No eligible contacts matched");
     expect(outcome.description).toContain(
-      "New matches require a verified phone and contact matching enabled. Existing connections may still appear.",
+      "ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected.",
     );
     expect(outcome.description).toContain(
       "20 contacts were checked and can be invited.",
@@ -71,6 +71,23 @@ describe("describeContactSyncOutcome", () => {
     expect(outcome.description).toBe("501 contacts were not checked yet.");
     expect(outcome.remedy).toBe("sync_again");
   });
+
+  it.each(["google", "ios", "android"] as const)(
+    "does not offer an identical reread for a truncated %s address book",
+    (sourcePlatform) => {
+      const outcome = describeContactSyncOutcome({
+        ...base,
+        sourcePlatform,
+        totalContacts: 10_001,
+        uncheckedContactCount: 1,
+        truncated: true,
+        partial: true,
+      });
+
+      expect(outcome.description).toBe("1 contact was not checked yet.");
+      expect(outcome.remedy).toBeNull();
+    },
+  );
 
   it("does not describe a response-lost batch as unmatched or inviteable", () => {
     const outcome = describeContactSyncOutcome({

@@ -43,9 +43,22 @@ import java.util.Locale
 )
 class HushhContactsPlugin : Plugin() {
 
-    private companion object {
-        const val DEFAULT_LIMIT = 5000
+    internal companion object {
+        const val DEFAULT_LIMIT = 10000
         const val MAX_LIMIT = 10000
+        private val E164_NUMBER = Regex("^\\+[1-9]\\d{6,14}$")
+
+        /**
+         * Android's canonical number and display number are alternatives for
+         * one provider row, not two separate identities. Emitting both can
+         * reinterpret the raw national digits in the SIM's country and hash a
+         * second, valid person in another numbering plan.
+         */
+        fun preferredProviderPhone(normalized: String?, raw: String?): String? {
+            val canonical = normalized?.trim().orEmpty()
+            if (E164_NUMBER.matches(canonical)) return canonical
+            return raw?.trim()?.takeIf { it.isNotEmpty() }
+        }
     }
 
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -190,7 +203,7 @@ class HushhContactsPlugin : Plugin() {
                 } else {
                     ""
                 }
-                if (number.isEmpty() && normalized.isEmpty()) continue
+                val selectedNumber = preferredProviderPhone(normalized, number) ?: continue
 
                 seenContactIds.add(id)
                 if (!contactsById.containsKey(id) && contactsById.size >= limit) {
@@ -199,14 +212,11 @@ class HushhContactsPlugin : Plugin() {
 
                 val name = cursor.getString(nameIndex)?.trim().orEmpty()
                 val entry = contactsById.getOrPut(id) { ContactAccumulator(id, name) }
-                // Android keeps its own E.164 rendering of each number when it
-                // can derive one. It is strictly better than re-deriving from
-                // the display string, so it goes first.
-                if (normalized.isNotEmpty() && !entry.phoneNumbers.contains(normalized)) {
-                    entry.phoneNumbers.add(0, normalized)
-                }
-                if (number.isNotEmpty() && !entry.phoneNumbers.contains(number)) {
-                    entry.phoneNumbers.add(number)
+                // Prefer Android's valid E.164 rendering. The raw display
+                // string is used only when the provider has no valid canonical
+                // value, matching Google People's canonical-or-raw contract.
+                if (!entry.phoneNumbers.contains(selectedNumber)) {
+                    entry.phoneNumbers.add(selectedNumber)
                 }
             }
         }

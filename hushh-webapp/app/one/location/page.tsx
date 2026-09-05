@@ -2745,6 +2745,8 @@ export function OneLocationAgentPageContent({
     useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
   const [contactSyncResult, setContactSyncResult] =
     useState<OneLocationContactSignalResult | null>(null);
+  const [onboardingContactResult, setOnboardingContactResult] =
+    useState<OnboardingContactSyncResult | null>(null);
   const [contactSyncResultsOpen, setContactSyncResultsOpen] = useState(false);
   const contactResultOwnerUserIdRef = useRef(contactSyncUserId);
   useLayoutEffect(() => {
@@ -2753,6 +2755,7 @@ export function OneLocationAgentPageContent({
     // Results include local address-book names and must never survive an
     // in-place auth account replacement.
     setContactSyncResult(null);
+    setOnboardingContactResult(null);
     setContactSyncResultsOpen(false);
     setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
   }, [contactSyncUserId]);
@@ -6746,6 +6749,7 @@ export function OneLocationAgentPageContent({
    */
   const [awaitingContactSettings, setAwaitingContactSettings] = useState(false);
   const awaitingContactSettingsRef = useRef(false);
+  const contactSettingsResumeRef = useRef<(() => void) | null>(null);
   const markAwaitingContactSettings = useCallback((next: boolean) => {
     awaitingContactSettingsRef.current = next;
     setAwaitingContactSettings(next);
@@ -6756,18 +6760,19 @@ export function OneLocationAgentPageContent({
    * launched -- a browser, or an OS that refused -- and watching for a return
    * from a place nobody went to would leave the watcher armed for the session.
    */
-  const openContactSettingsAndWatch = useCallback(async () => {
-    const opened = await openContactPermissionSettings();
-    if (!opened) return;
-    markAwaitingContactSettings(true);
-    // Said before they leave, because after they leave there is no surface of
-    // ours to say it on -- the part the report singled out as what other apps
-    // do: "settings mein desired operation enable/disable karne ke baad entry
-    // ka path bhi dete hain".
-    toast.info(
-      "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
-    );
-  }, [markAwaitingContactSettings]);
+  const openContactSettingsAndWatch = useCallback(
+    async (resume?: () => void) => {
+      const opened = await openContactPermissionSettings();
+      if (!opened) return;
+      contactSettingsResumeRef.current = resume ?? null;
+      markAwaitingContactSettings(true);
+      // Name the switch and the way back before handing off to the OS.
+      toast.info(
+        "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
+      );
+    },
+    [markAwaitingContactSettings],
+  );
 
   /**
    * `limited` counts. iOS limited access is a real grant over a hand-picked
@@ -6788,7 +6793,10 @@ export function OneLocationAgentPageContent({
     // Resume the work, not just the permission. The trip was never about the
     // switch -- it was about syncing contacts.
     toast.success("Contact access is on. Syncing…");
-    void handleSyncContactSignalRef.current?.();
+    const resume = contactSettingsResumeRef.current;
+    contactSettingsResumeRef.current = null;
+    if (resume) resume();
+    else void handleSyncContactSignalRef.current?.();
   }, [markAwaitingContactSettings]);
 
   useSettingsReturn({
@@ -6845,6 +6853,7 @@ export function OneLocationAgentPageContent({
 
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
+      if (contactSyncInFlightRef.current) return { status: "cancelled" };
       if (!auth.user?.getIdToken) {
         return {
           status: "failed",
@@ -6859,12 +6868,22 @@ export function OneLocationAgentPageContent({
         return { status: "cancelled" };
       }
       const initiatingUserId = contactSyncUserId;
+      const publishResult = (result: OnboardingContactSyncResult) => {
+        if (contactSyncIdentityRef.current.userId === initiatingUserId) {
+          setOnboardingContactResult(result);
+        }
+        return result;
+      };
       const resolveLatestAccountPhoneNumber =
         createContactSyncAccountPhoneResolver({
           initiatingUserId,
           getCurrentIdentity: () => contactSyncIdentityRef.current,
           hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
         });
+      // The inline action, named sheet, Settings return, and hub share one
+      // mutation guard even when Finish unmounts the onboarding component.
+      contactSyncInFlightRef.current = true;
+      setBusy("contactSync");
       try {
         let googleSource: MarketplaceContactSource | undefined;
         if (googleContactsFallback) {
@@ -6892,17 +6911,17 @@ export function OneLocationAgentPageContent({
           resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
         });
         await resolveLatestAccountPhoneNumber();
+        // The canonical result survives onboarding navigation (including a
+        // Finish tap while the scan is pending) and renders the same named
+        // report used by Connect and the Location hub.
+        setContactSyncResult(result);
+        setContactSyncResultsOpen(true);
+        const outcome = describeContactSyncOutcome(result);
         const matches = result.matches
           .map((match) => ({
             userId: match.userId,
             displayName: match.displayName || "Hushh user",
-            connectionStatus:
-              match.outcome === "auto_connected" ||
-              match.outcome === "already_connected"
-                ? ("connected" as const)
-                : match.outcome === "request_required"
-                  ? ("request_required" as const)
-                  : ("suppressed" as const),
+            connectionStatus: match.outcome,
           }))
           .filter((match) => match.userId && match.userId !== auth.userId);
         if (
@@ -6927,18 +6946,31 @@ export function OneLocationAgentPageContent({
           partial_access: result.limited,
           truncated: result.truncated,
         });
-        if (matches.length > 0) return { status: "matched", matches };
+        if (matches.length > 0) {
+          return publishResult({
+            status: "matched",
+            matches,
+            partial: result.partial,
+            ...(result.partial || result.mutationOutcomeUnknown
+              ? { summary: outcome.description }
+              : {}),
+          });
+        }
         if (result.mutationOutcomeUnknown) {
-          return {
+          return publishResult({
             status: "failed",
             message:
               "Some contact results need confirmation. Your connections were refreshed; try contact sync again.",
             canOpenSettings: false,
-          };
+          });
         }
         // A partial read is not proof that nobody matched -- the web picker and
         // iOS limited access only ever return a hand-picked subset.
-        return { status: "none", partial: result.partial };
+        return publishResult({
+          status: "none",
+          partial: result.partial,
+          ...(result.partial ? { summary: outcome.description } : {}),
+        });
       } catch (error) {
         const failure =
           error instanceof OneLocationContactSyncError
@@ -6953,7 +6985,7 @@ export function OneLocationAgentPageContent({
                 "We couldn't check your contacts. You can try again later.",
               )
             : null;
-        return {
+        return publishResult({
           status: "failed",
           message:
             directMessage ??
@@ -6965,7 +6997,10 @@ export function OneLocationAgentPageContent({
                   ? "Reading contacts is not available here. You can add people later from the People tab."
                   : "We couldn't check your contacts. You can try again later."),
           canOpenSettings,
-        };
+        });
+      } finally {
+        contactSyncInFlightRef.current = false;
+        setBusy((current) => (current === "contactSync" ? null : current));
       }
     }, [
       accountPhoneNumber,
@@ -13381,14 +13416,30 @@ export function OneLocationAgentPageContent({
           onPreviewCircleCode={handlePreviewCircleCode}
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
+          contactSyncResult={onboardingContactResult}
           onAddOnboardingContact={handleAddOnboardingContact}
-          onOpenContactSettings={() => void openContactSettingsAndWatch()}
+          onOpenContactSettings={(resume) =>
+            void openContactSettingsAndWatch(resume)
+          }
           onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
         />
         <ContactDiscoverabilityConsentDialog
           {...contactDiscoverabilityConsentDialogProps}
+        />
+        <ContactSyncResultsSheet
+          takeover
+          open={contactSyncResultsOpen}
+          onOpenChange={setContactSyncResultsOpen}
+          result={contactSyncResult}
+          syncing={busy === "contactSync"}
+          onSyncAgain={async () => {
+            const result = await handleSyncOnboardingContacts();
+            if (result.status === "failed") toast.error(result.message);
+          }}
+          onInvite={handleInviteContactCandidates}
+          onRequestConnection={handleRequestContactMatch}
         />
 
         <SaveLocationModal
