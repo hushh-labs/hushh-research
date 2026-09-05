@@ -1,7 +1,7 @@
 # CLAUDE.md — hushh-research (🤫 One / consent-protocol)
 
-Durable context for **Claude Code** sessions in this repo. Read this first, then
-`AGENTS.md` (the full operating contract), and route deeper work through the
+Host context for **Claude Code** sessions in this repo. Read `AGENTS.md` first
+(the shared operating contract), then this adapter, and route deeper work through the
 **codex-bridge** skill (it reads `.codex/` at call time).
 
 ## What this repo is
@@ -13,13 +13,14 @@ separate repo, `hushh-search-console`.)
 - **Backend** — `consent-protocol/` — FastAPI + `uv` (Python **3.13**): the consent
   protocol / PCHP, Operons, HCT, Kai, IAM / PKM / vault, and the One APIs.
 - **Frontend** — `hushh-webapp/` — Next.js (the One app).
-- **Mobile** — native iOS shell; work happens on the `mobile` branch (see the
-  `run-ios-sim` and `mobile-bug-log` skills).
+- **Mobile** — Capacitor iOS and Android shells; route through the mobile owner skill
+  and preserve the developer's active branch under `AGENTS.md`.
 - **Ops / CI** — `scripts/ci/` (governance + deploy gates), `scripts/ops/`
   (provisioning, secret sync, verifiers), `deploy/` (Cloud Build configs),
   `.github/workflows/` (deploy lanes).
 - **Docs** — `docs/reference/**` (architecture + operations runbooks), `docs/future/**`.
-- **Agent brain** — `.codex/` (skills / workflows / agents), surfaced via **codex-bridge**.
+- **Agent guidance** — `skills/` portable practices, `.codex/` governed skills/workflows,
+  and `agents/` authored engineering lanes, surfaced via **codex-bridge**.
 
 ## Operating contract
 
@@ -45,37 +46,19 @@ telemetry:
 Health: `./bin/hushh doctor --mode local`, web origin `200`, backend `/docs`. Full
 playbook: `.codex/skills/repo-operations/references/branch-runtime-ops.md`.
 
-## GCP access IS present in-session — never re-derive this (founder directive, 2026-08-05)
+## Operational access
 
-**An operator service-account key with full access is already in the environment.** It is
-`GCP_DEPLOY_SA_KEY_B64` (base64 SA JSON), alongside `GCP_DEPLOY_REF` and
-`GCP_DEPLOY_REGION`. Assume it is there and use it. Do **not** conclude "no GCP access"
-and do not ask the founder to supply it again — that question has been answered more than
-once and re-asking it is the failure this section exists to stop.
+Discover the current host's available MCP tools, CLI binaries, and authenticated access
+before claiming an operational capability or access gap. Do not infer admin access from
+an old session's environment. Never print credentials or secret values.
 
-- **`which gcloud` returns nothing, and that is irrelevant.** There is no `gcloud` CLI;
-  access is via the **Cloud Run Admin v1 (knative) REST API** using this key. Concluding
-  "no access" from a missing CLI is the exact wrong inference — it was made in this repo
-  and cost a false "cannot deploy from here".
-- **Never hand-roll the credential.** Use the repo's own loader,
-  `hushh_mcp/services/gcp_run_client.py` → `load_operator_credentials()`; `GcpRunClient`
-  creates / gets / deletes per-user Cloud Run services on top of it. Decoding the env var
-  by hand is both unnecessary and (correctly) treated as credential extraction.
-- **Read-only fleet check, the first thing to run:**
-  `uv run python scripts/ops/pod_fleet.py --project hushh-pda-dev --region us-central1`
-  from `consent-protocol/`. It lists every service labelled `app=hussh-one-pod` with
-  whether it is genuinely serving.
-- **Live dev project:** `hushh-pda-dev` / `us-central1`; pods run as
-  `hussh-one-pod@hushh-pda-dev.iam.gserviceaccount.com`.
-- **`Ready=True` is not proof a pod serves.** Cloud Run's default startup probe is a TCP
-  connect and gunicorn binds its port before its workers boot, so a pod whose workers die
-  on import reports Ready **and** ContainerHealthy while returning 503 to everything
-  (observed in `hushh-pda-dev`, 2026-08-04). Check `probe=http /health`.
-- **Dev is a shared, costed environment.** Live pods left running cost money — check the
-  fleet before creating more, and tear down what a session created.
-
-Searching for this key by the names you *expect* (`GOOGLE_*`, `GCLOUD_*`) misses it; the
-name is `GCP_*`. Search the space of plausible names, not the guess.
+Use the existing operator credential loader in
+`consent-protocol/hushh_mcp/services/gcp_run_client.py` when the pod workflow calls for it;
+otherwise follow `.codex/skills/repo-operations/SKILL.md` and its owning runbook.
+A Cloud Run readiness condition alone does not prove a serving pod: the existing
+`consent-protocol/scripts/ops/pod_fleet.py` checks distinguish configured health probes
+from actual serving evidence. Shared dev infrastructure remains costed; do not create
+or delete resources as a side effect of a read-only audit.
 
 ## Deploy lanes (GitHub Actions, `workflow_dispatch`)
 

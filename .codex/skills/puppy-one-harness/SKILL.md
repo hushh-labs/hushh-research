@@ -24,7 +24,7 @@ a perfectly shaped `save_to_pkm` call that files a dietary restriction under
 
 Owned repo surfaces:
 
-1. `.codex/agents/local_model_judge.toml`
+1. `agents/local_model_judge.toml`
 2. `.codex/skills/puppy-one-harness/references/judging-contract.md`
 
 Non-owned surfaces:
@@ -50,7 +50,7 @@ Non-owned surfaces:
 ## Read First
 
 1. `.codex/skills/puppy-one-harness/references/judging-contract.md`
-2. `.codex/agents/local_model_judge.toml`
+2. `agents/local_model_judge.toml`
 
 ## Workflow
 

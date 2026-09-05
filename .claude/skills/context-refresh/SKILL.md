@@ -4,16 +4,4 @@ description: Rebuild an accurate 0-to-1 picture of a workstream after time away 
 allowed-tools: Read Grep Glob Bash
 ---
 
-# Bridge → canonical skill
-
-**Read `skills/context-refresh/SKILL.md` now and follow it. That file is authoritative;
-this one is only how Claude Code discovers it.**
-
-Do not act on this file's summary — read the canonical file. The frontmatter above is
-duplicated here solely so Claude Code can index and trigger the skill; the behaviour lives
-in one place so it cannot drift between platforms.
-
-If you edit the practice, edit the canonical file. Editing this bridge changes nothing for
-any other platform and creates exactly the divergence the skill center exists to prevent.
-
-See `AGENTS.md` § *Canonical skill center* for the bridge contract.
+Read `skills/context-refresh/SKILL.md` and follow it.

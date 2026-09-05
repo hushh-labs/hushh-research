@@ -6,12 +6,12 @@
   "default_spoke": "puppy-one-harness",
   "task_type": "puppy-one-harness",
   "affected_surfaces": [
-    ".codex/agents/local_model_judge.toml",
+    "agents/local_model_judge.toml",
     ".codex/skills/puppy-one-harness"
   ],
   "required_reads": [
     ".codex/skills/puppy-one-harness/references/judging-contract.md",
-    ".codex/agents/local_model_judge.toml",
+    "agents/local_model_judge.toml",
     "docs/reference/ai/puppy-one-on-device.md"
   ],
   "required_commands": [

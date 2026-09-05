@@ -82,3 +82,39 @@ change dispatch, A2A, tool admission, consent, or action authority. Runtime
 agent creation follows [One Agent Hierarchy](../one/one-agent-hierarchy.md) and
 the `product-agent-development` workflow; engineering maintenance follows
 `runtime-topology-maintenance`.
+
+## Recurring audit cadence
+
+Run the existing `runtime-topology-maintenance` workflow manually when adopting
+a new model or agent host. Its playbook composes shared-rule alignment, database,
+environment, native and wiki evidence. This cadence does not install a scheduler
+or grant deployment, publishing, database mutation or account-reset authority.
+
+`python3 scripts/ops/audit_agents_md_alignment.py --json` exposes drift candidates;
+`--strict` returns nonzero for findings and `--self-test` exercises the portable
+bridge checks. Existing skill lint verifies canonical bridge metadata and targets
+on both supported hosts. Platform-specific procedures and imported bundles still
+need explicit classification before migration; an inventory is not proof they
+are unused.
+
+Persist a sanitized revision-bound report and compare it with the prior run.
+Preserve failed and unverified results, then correct one independently reversible
+boundary at a time. New model evaluations use the same contract fixtures and
+negative controls as the prior baseline.
+
+### Platform-source ratchet
+
+`skill_lint.py` reuses the alignment audit's bridge and classification checks.
+Canonical twins are discovered from `skills/`; governed owners from `skill.json`.
+Remaining host aliases, adapters and imported resources are explicitly inventoried in
+`.codex/skills/agent-orchestration-governance/references/platform-source-inventory.json`.
+Unclassified additions (including short files), changed classified behavior, broken
+canonical pointers and stale inventory entries fail lint. Updating a digest requires
+reviewing the actual behavior; a pending import or migration classification is recorded
+debt, not proof that the source meets the canonical contract. Impeccable's import license
+and provenance remain unresolved; its bundle must stay intact pending that review.
+
+Existing pod receipt checks prove only the declared date window and a tracked reproduction
+path. They do not establish that the current revision passed a live drill. A release audit
+must re-earn runtime evidence against its exact candidate and record image and environment;
+source tests, dated receipts and simulator results must remain distinguishable.

@@ -23,10 +23,12 @@ SKILLS_DIR = Path(".codex/skills")
 WORKFLOWS_DIR = Path(".codex/workflows")
 MIN_AGENT_COUNT = 8
 # Wave 1 was 12. Wave 2 added the six per-domain principal lanes for the Private
-# Agent platform, so the curated fleet is 18. The cap exists to stop the fleet
+# Agent platform, before canonicalizing the existing independent model judge. The cap exists to stop the fleet
 # growing by accident, not to freeze it -- raise it deliberately, alongside the
 # matching EXPECTED_AGENTS entries in agent_orchestration_check.py, or not at all.
-MAX_AGENT_COUNT = 18
+# The existing blinded local-model judge is a separate evidence authority.
+# Canonicalizing it adds one authored lane, not another runtime thread.
+MAX_AGENT_COUNT = 19
 EXPECTED_MAX_THREADS = 6
 EXPECTED_MAX_DEPTH = 1
 DEFAULT_RECOVERY_SLOT = 1

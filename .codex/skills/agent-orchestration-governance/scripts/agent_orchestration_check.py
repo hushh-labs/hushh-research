@@ -41,6 +41,7 @@ SKILL_CONTRACT_RELATIVE_PATH = Path(
 )
 
 EXPECTED_AGENTS = {
+    "local_model_judge",
     "analytics_observability_architect",
     "governor",
     "reviewer",
@@ -342,7 +343,14 @@ def validate_agent_file(path: Path, skill_ids: set[str], seen_names: set[str], e
                     errors.append(f"{path}: invalid nickname '{nickname}'")
 
 
+def validate_platform_agent_sources(root: Path, errors: list[str]) -> None:
+    for host in (".codex", ".claude"):
+        for path in sorted((root / host / "agents").glob("*.toml")):
+            errors.append(f"{path}: authored agents belong in agents/; host mirrors must be generated")
+
+
 def validate_agents(root: Path, errors: list[str]) -> None:
+    validate_platform_agent_sources(root, errors)
     agents_dir = root / AGENTS_RELATIVE_PATH
     if not agents_dir.exists():
         errors.append(f"missing agents directory: {agents_dir}")
@@ -435,6 +443,17 @@ def validate_bacterial_architecture_contract(root: Path, errors: list[str]) -> N
 
 def run_self_test() -> list[str]:
     failures: list[str] = []
+    import tempfile
+    with tempfile.TemporaryDirectory() as temporary:
+        root = Path(temporary)
+        for host in (".codex", ".claude"):
+            directory = root / host / "agents"
+            directory.mkdir(parents=True)
+            (directory / "duplicate.toml").write_text('name = "duplicate"\n')
+        errors: list[str] = []
+        validate_platform_agent_sources(root, errors)
+        if len(errors) != 2:
+            failures.append("authored host-agent duplicates must be rejected")
     agent_markers = [PRINCIPAL_CRAFT_RULE, BACTERIAL_ARCHITECTURE_RULE]
     complete_agent = "; ".join(agent_markers)
     if missing_markers(complete_agent, agent_markers):

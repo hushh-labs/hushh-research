@@ -4,10 +4,4 @@ description: Use when creating or polishing any portable Markdown, HTML, or PDF 
 allowed-tools: Read Grep Glob Bash
 ---
 
-# Bridge → canonical skill
-
-**Read `skills/pdf-artifact-generation/SKILL.md` completely and follow it.** That file is
-authoritative; this bridge exists only so Claude Code can discover the shared practice.
-
-Do not add procedure, CSS, fonts, or a renderer here. Update the canonical skill so every
-host receives the same artifact contract. See `AGENTS.md` § *Canonical skill center*.
+Read `skills/pdf-artifact-generation/SKILL.md` and follow it.

@@ -294,8 +294,10 @@ was not one when the target was a stateless fleet, which is exactly how it went 
 ## What this changes about the work
 
 1. **Pod-native persistent memory is on the critical path**, not deferred. An agent that
-   forgets is not the product. `PodPkmStore` / `PodCommitLog` exist; agent memory does not
-   use them.
+   forgets is not the product. Agent memory already appends to and hydrates from
+   `PodCommitLog` through `pod_memory_service.py`; `PodPkmStore` owns the separate PKM
+   working copy. Keep restart/replay and owner-isolation evidence current when either
+   storage path changes.
 2. **Specialists must be re-homed into the pod**, not proxied to the hub indefinitely. A
    pod that forwards every specialist call to a central database is a thin client with a
    local model — an acceptable *transitional* step, never the destination, and it must be

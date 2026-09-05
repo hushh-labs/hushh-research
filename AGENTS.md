@@ -1,6 +1,6 @@
-# Hussh Codex Operating Rules
+# Hussh Coding Agent Operating Rules
 
-These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
+These repo-level instructions apply to every coding agent and supplement the active host's system/developer instructions. Higher-priority host instructions and the user's current authorization take precedence; within repository guidance, follow the more specific applicable contract.
 
 ## Read this first — how the pieces map together
 
@@ -17,6 +17,7 @@ pointer or refines it; nothing overrides it except a rule that is genuinely more
 | `docs/future/personal-agent/` | The live **architecture of record** for Private Agent One, including the parity matrix and divergence register |
 | `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
 | `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
+| `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
 
 **Anti-drift rule.** When this kernel and an architecture document disagree, that is a
 **defect**, not a tolerable difference — and it must be closed in the same change that
@@ -115,7 +116,7 @@ These are the durable architecture principles for every Hussh product agent (One
    - **Invariants pod memory must not break** (each already enforced in code; cite by pointer, never restate): Hushh never holds the pod private key (`consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py`, public keys only); no plaintext private data at rest (migration `069_drop_kai_location_plaintext.sql`); exports carry no legacy key material (migration `062_consent_exports_export_key_guard.sql`, DB `CHECK`); the backend stores only ciphertext it cannot read (`api/routes/pkm_routes_shared.py`); no plaintext PII in logs (`hushh_mcp/consent/pii_sanitizer.py`); every pod read is owner-gated and receipted (`hushh_mcp/services/pod_access_audit.py`).
    - **Memory-specific rules.** Memory never crosses a pod boundary — one pod, one owner, one key. Memory is encrypted under the pod's own key, so the control plane can neither read nor reconstruct it. Memory is inspectable and exportable by its owner and is destroyed with the account through the existing teardown and tombstone path. Recall is an explicit, receipted tool call, never ambient context.
 2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
-3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
+3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) reconcile affected articles as part of the authorized change. Read-only audits do not grant publishing authority. When wiki maintenance is authorized in the current session, update the smallest verified section and read it back; otherwise record the exact drift and proposed correction. Never publish private evidence or promote a future proposal to current truth.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
 5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
 6. Product agents and engineering agents are separate namespaces. `agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
@@ -127,7 +128,7 @@ These are the durable architecture principles for every Hussh product agent (One
 
 Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
 
-This applies to every non-trivial Codex task in this repo. The goal is to prevent drift where Codex agrees with a user or contributor claim that the repo already contradicts.
+This applies to every non-trivial coding-agent task in this repo. The goal is to prevent drift where an agent agrees with a user or contributor claim that the repo already contradicts.
 
 The canonical shared contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
 
@@ -162,7 +163,7 @@ Default response shape for repo-backed Q&A:
 4. `What not to build`
 5. `Smallest acceptable next PR`
 
-For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts a coding agent can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
 
 ### Natural Planning Questions
 
@@ -176,7 +177,7 @@ ask only when a user-owned decision or new authority is genuinely required.
 Never manufacture checkpoints or ask the user to rediscover facts the repo can
 prove.
 
-Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
+Do not write as if the project is blank. Hussh already has many shipped contracts. Coding agents must actively find and reuse them.
 
 ## Canonical skill center
 
@@ -219,7 +220,7 @@ must hold is only this — **discovery may be platform-specific; behaviour must 
 ### Canonical subagent center
 
 `agents/` at the repository root is the **single source of truth for subagent definitions**.
-Twelve authored `*.toml` lanes live there and nowhere else.
+Authored `*.toml` lanes live there. Derive the fleet inventory from those files rather than maintaining a count in prose.
 
 Subagents use a **stronger** guarantee than the skill bridge: platform copies are
 **generated, not pointed at**. `.claude/agents/*.md` is a mirror produced by
@@ -297,7 +298,7 @@ Routing accuracy rules:
 
 At the start of every non-trivial request, run a quick delegation suitability checkpoint as the second half of the routing pass above, before choosing a local-only path. Routing picks the lane; this checkpoint decides whether that lane runs in the parent session or in a read-only subagent.
 
-This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
+This applies to every non-trivial coding-agent task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 
 Detection uses the same delegation-router command as step 5 of the Routing Gate above; do not run it twice.
 
@@ -353,7 +354,7 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
-This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
 
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.

@@ -11,7 +11,7 @@ Reads `.codex/` at invocation time and composes a briefing the way `./bin/hushh 
 
 ## Response rules
 
-Codex is the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing when the turn is a **community reply** — the route lands on `comms-community` / `community-response`, or the prompt names the channel outright (see `scripts/route.py`). They are deliberately *not* injected into engineering questions: they are a 180-line Discord tone contract, and a question mark in a bug report is not a request for Discord voice. Follow that file literally when it does load. If it conflicts with anything written here, it wins.
+The repository routing contracts are the source of truth. The enforceable rules live in `.codex/skills/comms-community/references/reply-rules.md` and are injected into the routed briefing when the turn is a **community reply** — the route lands on `comms-community` / `community-response`, or the prompt names the channel outright (see `scripts/route.py`). They are deliberately *not* injected into engineering questions: they are a 180-line Discord tone contract, and a question mark in a bug report is not a request for Discord voice. Follow that file literally when it does load. If it conflicts with anything written here, it wins.
 
 Baseline that the bridge adds on top of codex's reply rules (because codex runs in a different harness):
 
@@ -58,7 +58,7 @@ No strong match. Pick by description, re-invoke `/codex-bridge <name>`.
 The matched entry is a repo-scoped custom agent (under `agents/`), not a skill or workflow. Treat it as a delegation lane, not instructions to execute directly:
 
 1. Decide whether the current turn actually benefits from delegation. Most single-lane requests do not.
-2. If delegation fits, confirm with the user before invoking the corresponding `/agent <name>`. Subagent use is explicit only per [.codex/skills/agent-orchestration-governance/references/delegation-contract.md](../../../.codex/skills/agent-orchestration-governance/references/delegation-contract.md).
+2. Follow the standing read-only delegation authorization and parent-only authority boundaries in `AGENTS.md` and `.codex/skills/agent-orchestration-governance/references/delegation-contract.md`. Do not ask again for authority the user or repository already provides. Use the host-supported agent invocation for the selected lane.
 3. When the briefing appears as a `Suggested delegation lanes` footer on a skill or workflow briefing, treat it as context only. Execute the primary briefing normally.
 
 ### A `--check` report

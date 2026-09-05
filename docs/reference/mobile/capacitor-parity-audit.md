@@ -66,8 +66,8 @@ that cannot complete.
 
 Current inventory policy:
 
-- 103 routes are native-required and must pass on iOS and Android: 98
-  functional routes and 5 callback routes.
+- Native-required routes must pass on iOS and Android. Derive coverage and counts
+  from `hushh-webapp/native-route-inventory.json`.
 - 17 routes are explicit exclusions: `/blog`, `/blog/[slug]`, `/circle/join`,
   `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
   `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
@@ -232,12 +232,13 @@ Native parity for authenticated flows now includes the verified phone mandate af
   `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
   handoff methods on iOS; Android and web return unsupported/no pending
   invocation and do not create a parallel assistant integration.
-- One Location Agent requires foreground-only location parity:
+- One Location Agent requires foreground location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
   Android, and the `HushhLocation` plugin on web, iOS, and Android.
-- One Location Agent v1 must not add iOS background location mode or Android
-  background location permission.
+- Background sharing is implemented on iOS with explicit permission and background
+  location mode. Android currently returns `android_background_share_unavailable`;
+  method-name parity does not prove equivalent background behavior.
 - `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
