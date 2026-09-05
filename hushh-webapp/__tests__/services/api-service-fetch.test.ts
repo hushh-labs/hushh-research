@@ -336,7 +336,7 @@ describe("ApiService.apiFetch", () => {
     dispatchSpy.mockRestore();
   });
 
-  it("dispatches auth-session-invalidated when same bearer token belongs to a different account", async () => {
+  it("does not refresh or invalidate the current account for another account's bearer", async () => {
     const staleToken = makeUnsignedToken({ user_id: "user-2" });
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);
     (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
@@ -357,10 +357,36 @@ describe("ApiService.apiFetch", () => {
     const invalidatedEvents = dispatchSpy.mock.calls.filter(
       ([event]) => event instanceof CustomEvent && event.type === "auth-session-invalidated"
     );
-    expect(invalidatedEvents.length).toBeGreaterThanOrEqual(1);
+    expect(invalidatedEvents).toHaveLength(0);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
     expect(response.status).toBe(401);
 
     dispatchSpy.mockRestore();
+  });
+
+  it("does not refresh or invalidate a replacement session when the original 401 arrives after switching accounts", async () => {
+    const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-a" } as never);
+    let finishRequest!: (response: Response) => void;
+    mockFetch.mockImplementationOnce(
+      () => new Promise<Response>((resolve) => { finishRequest = resolve; }),
+    );
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    const pending = ApiService.apiFetch("/api/one/connections/contact-sync", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${accountAToken}` },
+      body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+    });
+    await vi.waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(1));
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-b" } as never);
+    finishRequest(jsonResponse({ error: "Unauthorized" }, 401));
+
+    expect((await pending).status).toBe(401);
+    expect(AuthService.getIdToken).not.toHaveBeenCalled();
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(dispatchSpy.mock.calls.filter(([event]) =>
+      event instanceof CustomEvent && event.type === "auth-session-invalidated",
+    )).toHaveLength(0);
   });
 
   // 5 – Successful response returns Response object

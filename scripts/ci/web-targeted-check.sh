@@ -103,7 +103,7 @@ fi
 # People section. A change to the region resolver or the matcher is a change to
 # both screens, so both packs have to re-run -- and until this was added, a
 # change confined to `lib/contacts/` matched no pack in the repo at all.
-if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|lib/services/connections-service\.ts|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
+if has_match '^(hushh-webapp/(app/connect/|__tests__/app/connect/|__tests__/services/api-service-fetch\.test\.ts|lib/services/(connections-service|api-service)\.ts|lib/capacitor/plugins/(contacts-web\.ts|__tests__/contacts-web\.test\.ts)|lib/contacts/|lib/marketplace/contact-matching\.ts)|consent-protocol/(hushh_mcp/services/(connections_service|one_location_agent_service)\.py|api/routes/one/connections\.py))'; then
   run_check "Connect people search" npm run verify:connect-search
   ran=1
 fi

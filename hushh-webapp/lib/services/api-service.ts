@@ -454,6 +454,7 @@ async function apiFetch(
   path: string,
   options: RequestInit = {},
 ): Promise<Response> {
+  const initiatingAuthUser = AuthService.getCurrentUser();
   const apiBase = getApiBaseUrl();
   // An absolute path is already fully resolved. Native builds use this to reach
   // a Next.js-only route on the web origin, which `apiBase` (the Python
@@ -547,10 +548,14 @@ async function apiFetch(
     }
 
     const initiatingBearer = getAuthorizationBearer();
-    const initiatingAuthUser = AuthService.getCurrentUser();
+    const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
     const initiatingSessionIsCurrent = () =>
-      initiatingAuthUser !== null &&
+      Boolean(initiatingAuthUser?.uid) &&
+      initiatingSubject === initiatingAuthUser?.uid &&
       AuthService.getCurrentUser() === initiatingAuthUser;
+    // A previous account's request can receive its 401 after a replacement
+    // session signs in. Do not refresh or invalidate that replacement session.
+    if (!initiatingSessionIsCurrent()) return null;
 
     try {
       const freshToken = await AuthService.getIdToken(true);
@@ -564,7 +569,6 @@ async function apiFetch(
         return null;
       }
 
-      const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
       const refreshedSubject = decodeFirebaseTokenSubject(freshToken);
       if (
         !initiatingSessionIsCurrent() ||
