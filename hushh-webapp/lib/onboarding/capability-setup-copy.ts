@@ -146,8 +146,8 @@ const SETUP_COPY_BY_ID: Record<
     setupBlurb: "Build your advisor workspace.",
     actionLabel: "Verify RIA",
     resumeActionLabel: "Finish RIA",
-    introPremise: "A workspace built for your practice.",
-    introPromise: "You review every detail first.",
+    introPremise: "A custom workspace built for you",
+    introPromise: "You review every detail.",
     setupBullets: [
       "Verify your advisor or firm credentials.",
       "Choose the services you offer.",
