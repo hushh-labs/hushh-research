@@ -25,7 +25,7 @@ steps:
             echo "_SKIP_IMAGE_BUILD=true requires an immutable _IMAGE_REFERENCE digest." >&2
             exit 1
           fi
-          echo "Using prebuilt immutable backend image ${_IMAGE_REFERENCE%%@*}@sha256:<pinned>."
+          echo "Using prebuilt immutable backend image (digest verified)."
           exit 0
         fi
         if [[ "${_SKIP_IMAGE_BUILD}" != "false" ]]; then
