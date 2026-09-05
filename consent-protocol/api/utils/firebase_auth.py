@@ -13,6 +13,7 @@ import time
 from collections import OrderedDict
 from concurrent.futures import Future, ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from functools import partial
 from typing import Optional
 
 from fastapi import HTTPException
@@ -137,9 +138,7 @@ def _verify_revocation_with_cache(
                 _revocation_remote_capacity.release()
                 raise
             _revocation_flights[token_key] = future
-            future.add_done_callback(
-                lambda completed, key=token_key: _finish_revocation_flight(key, completed)
-            )
+            future.add_done_callback(partial(_finish_revocation_flight, token_key))
 
     try:
         verified_uid = future.result(timeout=_REVOCATION_REMOTE_DEADLINE_SECONDS)

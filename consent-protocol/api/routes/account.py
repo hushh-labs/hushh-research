@@ -28,7 +28,7 @@ import os
 import re
 import secrets
 import time
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from fastapi import APIRouter, Body, Depends, Header, HTTPException, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
@@ -83,7 +83,10 @@ def _verify_account_deletion_cleanup_oidc_token(token: str, audience: str) -> di
         kwargs["timeout"] = _CLEANUP_OIDC_HTTP_TIMEOUT_SECONDS
         return google_request(*args, **kwargs)
 
-    return google_id_token.verify_oauth2_token(token, _bounded_google_request, audience)
+    return cast(
+        dict[str, Any],
+        google_id_token.verify_oauth2_token(token, _bounded_google_request, audience),
+    )
 
 
 async def _require_account_deletion_cleanup_auth(request: Request) -> None:
@@ -1091,7 +1094,7 @@ async def _delete_firebase_auth_user(
             "account_deletion.cleanup_intent_settlement_deferred error=%s",
             type(exc).__name__,
         )
-    return cleanup_attempt.outcome
+    return cast(str, cleanup_attempt.outcome)
 
 
 def _firebase_user_provider_ids(user_record: Any) -> set[str]:
