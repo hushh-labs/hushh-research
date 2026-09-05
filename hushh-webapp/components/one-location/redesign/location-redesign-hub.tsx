@@ -2126,10 +2126,28 @@ function LocationNowStatePanel({
         </button>
       </div>
 
-      <div className="mx-auto mt-5 w-full max-w-[440px]">
+      <div
+        data-testid="one-location-now-actions"
+        className="mx-auto mt-3 grid w-full max-w-[440px] gap-2.5 sm:grid-cols-2"
+      >
+        <LocationNowSecondaryAction
+          icon="checkIn"
+          label="Check in"
+          voiceControlId="one-location-action-check-in"
+          voiceActionId="location.open_check_in"
+          onClick={onCheckIn}
+        />
+        <LocationNowSecondaryAction
+          icon="active"
+          label="Save My Soul"
+          voiceControlId="one-location-action-sos"
+          voiceActionId="location.open_sos"
+          onClick={onSos}
+        />
+      </div>
+
+      <div className="mx-auto mt-4 w-full max-w-[440px]">
         <LocationNowMoreActions
-          onCheckIn={onCheckIn}
-          onSos={onSos}
           onOpenMap={onOpenMap}
           onOpenSettings={onOpenSettings}
         />
@@ -2138,14 +2156,48 @@ function LocationNowStatePanel({
   );
 }
 
+function LocationNowSecondaryAction({
+  icon,
+  label,
+  voiceControlId,
+  voiceActionId,
+  onClick,
+}: {
+  icon: LocationMenuGlyphName;
+  label: string;
+  voiceControlId: string;
+  voiceActionId: string;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      data-testid={`one-location-now-action-${voiceActionId.replace(
+        "location.open_",
+        "",
+      )}`}
+      data-voice-control-id={voiceControlId}
+      data-voice-action-id={voiceActionId}
+      data-voice-label={label}
+      aria-label={label}
+      onClick={onClick}
+      className="inline-flex min-h-[48px] w-full items-center justify-center gap-2.5 rounded-[14px] bg-[color:var(--app-secondary-surface)] px-4 text-[color:var(--app-primary-label)] ring-1 ring-inset ring-[color:var(--app-separator)] transition-[background-color,transform] [-webkit-tap-highlight-color:transparent] hover:bg-[color:var(--app-neutral-fill)] active:scale-[0.99] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]"
+    >
+      <span
+        aria-hidden="true"
+        className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]"
+      >
+        <LocationMenuGlyph name={icon} size={17} />
+      </span>
+      <ButtonLabel as="span">{label}</ButtonLabel>
+    </button>
+  );
+}
+
 function LocationNowMoreActions({
-  onCheckIn,
-  onSos,
   onOpenMap,
   onOpenSettings,
 }: {
-  onCheckIn: () => void;
-  onSos: () => void;
   onOpenMap: () => void;
   onOpenSettings: () => void;
 }) {
@@ -2179,22 +2231,6 @@ function LocationNowMoreActions({
         </button>
       }
       items={[
-        {
-          id: "arrival-confirm",
-          label: "Arrival confirm",
-          icon: Check,
-          onSelect: onCheckIn,
-          voiceControlId: "one-location-action-check-in",
-          voiceActionId: "location.open_check_in",
-        },
-        {
-          id: "save-my-soul",
-          label: "Save My Soul",
-          icon: ShieldCheck,
-          onSelect: onSos,
-          voiceControlId: "one-location-action-sos",
-          voiceActionId: "location.open_sos",
-        },
         {
           id: "map",
           label: "Map",
