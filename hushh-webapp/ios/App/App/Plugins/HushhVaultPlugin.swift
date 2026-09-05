@@ -1140,8 +1140,8 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
             if !(200...299).contains(status) {
                 if status == 401 {
-                    var remainingNodes = maxLifecyclePayloadNodes
-                    if let code = accountNotFoundCode(
+                    var remainingNodes = self.maxLifecyclePayloadNodes
+                    if let code = self.accountNotFoundCode(
                         in: parsedJson,
                         remainingNodes: &remainingNodes
                     ) {
