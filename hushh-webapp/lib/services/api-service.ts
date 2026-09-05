@@ -533,6 +533,12 @@ async function apiFetch(
   options: RequestInit = {},
 ): Promise<Response> {
   const initiatingAuthUser = AuthService.getCurrentUser();
+  // Native auth may intentionally live only in the Capacitor SDK. Bind its
+  // refresh to the central validated owner generation, not an absent JS user.
+  const initiatingNativeOwner =
+    !initiatingAuthUser && Capacitor.isNativePlatform()
+      ? snapshotValidatedAuthSessionOwner()
+      : null;
   const apiBase = getApiBaseUrl();
   // An absolute path is already fully resolved. Native builds use this to reach
   // a Next.js-only route on the web origin, which `apiBase` (the Python
@@ -654,10 +660,27 @@ async function apiFetch(
 
     const initiatingBearer = getAuthorizationBearer();
     const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
-    const initiatingSessionIsCurrent = () =>
-      Boolean(initiatingAuthUser?.uid) &&
-      initiatingSubject === initiatingAuthUser?.uid &&
-      AuthService.getCurrentUser() === initiatingAuthUser;
+    const initiatingSessionIsCurrent = () => {
+      if (initiatingAuthUser?.uid) {
+        return (
+          initiatingSubject === initiatingAuthUser.uid &&
+          AuthService.getCurrentUser() === initiatingAuthUser
+        );
+      }
+      return Boolean(
+        initiatingNativeOwner &&
+        initiatingSubject === initiatingNativeOwner.userId &&
+        !AuthService.getCurrentUser() &&
+        isValidatedAuthSessionOwnerCurrent(initiatingNativeOwner),
+      );
+    };
+    const tokenBelongsToInitiatingSession = (token: string) =>
+      isTokenForCurrentAuthUser(token) ||
+      Boolean(
+        initiatingNativeOwner &&
+        initiatingSessionIsCurrent() &&
+        decodeFirebaseTokenSubject(token) === initiatingNativeOwner.userId,
+      );
     // A previous account's request can receive its 401 after a replacement
     // session signs in. Do not refresh or invalidate that replacement session.
     if (!initiatingSessionIsCurrent()) return null;
@@ -667,7 +690,8 @@ async function apiFetch(
       if (!freshToken || freshToken === initiatingBearer) {
         if (
           initiatingSessionIsCurrent() &&
-          (!initiatingBearer || !isTokenForCurrentAuthUser(initiatingBearer))
+          (!initiatingBearer ||
+            !tokenBelongsToInitiatingSession(initiatingBearer))
         ) {
           if (requestAuthUserId) {
             dispatchAuthSessionInvalidated({
@@ -686,7 +710,7 @@ async function apiFetch(
         !initiatingSubject ||
         !refreshedSubject ||
         initiatingSubject !== refreshedSubject ||
-        !isTokenForCurrentAuthUser(freshToken)
+        !tokenBelongsToInitiatingSession(freshToken)
       ) {
         // A 401 refresh may finish after an account switch. Replaying the
         // original body with the replacement account's token would turn an

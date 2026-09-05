@@ -300,6 +300,48 @@ describe("ApiService.apiFetch", () => {
       ).toHaveLength(0);
     },
   );
+  it.each(["account-a", "account-b"])(
+    "does not replay a native refresh after the owner generation changes to %s",
+    async (nextUserId) => {
+      capacitorMocks.isNativePlatform.mockReturnValue(true);
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+      publishValidatedAuthSessionOwner("account-a");
+      let finishRefresh!: (token: string) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRefresh = resolve;
+          }),
+      );
+      capacitorMocks.request.mockResolvedValueOnce({
+        status: 401,
+        headers: {},
+        data: { error: "Unauthorized" },
+      });
+      const dispatch = vi.spyOn(window, "dispatchEvent");
+      const pending = ApiService.apiFetch("https://uat.example/api/protected", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${makeUnsignedToken({ user_id: "account-a" })}`,
+        },
+        body: "owner-a-body",
+      });
+      await vi.waitFor(() =>
+        expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
+      );
+      publishValidatedAuthSessionOwner(null);
+      publishValidatedAuthSessionOwner(nextUserId);
+      finishRefresh(makeUnsignedToken({ user_id: nextUserId, version: 2 }));
+      expect((await pending).status).toBe(401);
+      expect(capacitorMocks.request).toHaveBeenCalledTimes(1);
+      expect(
+        dispatch.mock.calls.filter(
+          ([event]) => event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
   it("retries native Firebase requests with a forced fresh token on 401", async () => {
     capacitorMocks.isNativePlatform.mockReturnValue(true);
     capacitorMocks.getPlatform.mockReturnValue("ios");
@@ -307,6 +349,8 @@ describe("ApiService.apiFetch", () => {
     process.env.NEXT_PUBLIC_BACKEND_URL = "https://uat.example";
     const staleToken = makeUnsignedToken({ user_id: "native-user", iat: 1 });
     const freshToken = makeUnsignedToken({ user_id: "native-user", iat: 2 });
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    publishValidatedAuthSessionOwner("native-user");
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(
       freshToken,
     );
@@ -701,33 +745,40 @@ describe("ApiService.apiFetch", () => {
     },
   );
 
-  it("still invalidates the initiating session when its token refresh rejects", async () => {
-    const accountAToken = makeUnsignedToken({ user_id: "account-a" });
-    const accountA = { uid: "account-a" };
-    vi.mocked(AuthService.getIdToken).mockRejectedValueOnce(
-      new Error("refresh failed"),
-    );
-    vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
-    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
-    mockFetch.mockResolvedValueOnce(
-      jsonResponse({ error: "Unauthorized" }, 401),
-    );
+  it.each([
+    ["auth/user-token-expired", 1],
+    ["auth/network-request-failed", 0],
+    ["unknown", 0],
+  ])(
+    "only invalidates an initiating session for a terminal refresh error: %s",
+    async (code, invalidations) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      const accountA = { uid: "account-a" };
+      vi.mocked(AuthService.getIdToken).mockRejectedValueOnce(
+        Object.assign(new Error("refresh failed"), { code }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(
+        jsonResponse({ error: "Unauthorized" }, 401),
+      );
 
-    const response = await ApiService.apiFetch("/api/protected", {
-      method: "GET",
-      headers: { Authorization: `Bearer ${accountAToken}` },
-    });
+      const response = await ApiService.apiFetch("/api/protected", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${accountAToken}` },
+      });
 
-    expect(response.status).toBe(401);
-    expect(mockFetch).toHaveBeenCalledTimes(1);
-    expect(
-      dispatchSpy.mock.calls.filter(
-        ([event]) =>
-          event instanceof CustomEvent &&
-          event.type === "auth-session-invalidated",
-      ),
-    ).toHaveLength(1);
-  });
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        dispatchSpy.mock.calls.filter(
+          ([event]) =>
+            event instanceof CustomEvent &&
+            event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(invalidations);
+    },
+  );
 
   it("does not dispatch auth-session-invalidated when refresh yields same token for active account", async () => {
     const staleToken = makeUnsignedToken({ user_id: "user-1" });
