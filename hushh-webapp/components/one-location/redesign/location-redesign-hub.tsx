@@ -21,6 +21,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -4520,6 +4521,51 @@ function LinkIdentityMark({
   );
 }
 
+function PublicLinkDurationOptions({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  const labelId = useId();
+
+  return (
+    <div className="space-y-2.5">
+      <FormLabel as="p" id={labelId}>
+        Duration
+      </FormLabel>
+      <div
+        className="grid w-[min(100%,14rem)] grid-cols-2 gap-2"
+        role="radiogroup"
+        aria-labelledby={labelId}
+      >
+        {PUBLIC_LINK_DURATION_OPTIONS.map((option) => {
+          const active = option.value === value;
+          return (
+            <button
+              key={option.value}
+              type="button"
+              role="radio"
+              aria-checked={active}
+              data-selected={active ? "true" : "false"}
+              onClick={() => onChange(option.value)}
+              className={cn(
+                "box-border inline-flex min-h-11 min-w-0 items-center justify-center gap-2 rounded-[10px] border border-[color:var(--app-secondary-label)] bg-transparent px-3 py-2.5 text-[15px] font-medium leading-5 text-inherit transition-colors touch-manipulation whitespace-normal [overflow-wrap:anywhere]",
+                "after:inline-block after:h-2 after:w-1 after:shrink-0 after:rotate-45 after:border-b-2 after:border-r-2 after:border-current after:opacity-0 after:content-['']",
+                "focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[color:var(--app-accent)]",
+                "data-[selected=true]:border-current data-[selected=true]:[background:color-mix(in_srgb,currentColor_6%,transparent)] data-[selected=true]:after:opacity-100",
+              )}
+            >
+              {option.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function PublicLinkActionRows({
   onCopy,
   onShare,
@@ -4741,13 +4787,9 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
               description="Anyone with this link can see your location until it expires."
             />
             <div className="space-y-4 px-4 pb-4 pt-2">
-              <DurationSelector
+              <PublicLinkDurationOptions
                 value={vm.publicLinkDurationHours}
                 onChange={vm.setPublicLinkDurationHours}
-                options={PUBLIC_LINK_DURATION_OPTIONS.map((option) => option)}
-                label="Duration"
-                presentation="buttons"
-                maxWidthClassName={null}
               />
               {/* The label changes while it works. This press waits on a device fix
                   before it can post anything, so on a cold start it can sit for
@@ -4757,9 +4799,10 @@ function LinksHub({ vm }: { vm: LocationHubViewModel }) {
                   the fix available here; the wait itself is a GPS acquisition. */}
               <Button
                 onClick={vm.onCreatePublicInvite}
-                isLoading={vm.busy === "publicInvite"}
+                disabled={vm.busy === "publicInvite"}
+                aria-busy={vm.busy === "publicInvite" || undefined}
                 data-voice-control-id="one-location-action-temp-link"
-                className="h-12 min-h-12 w-full rounded-[15px] bg-[color:var(--app-accent)] text-[17px] font-semibold leading-[22px] text-[color:var(--app-accent-fg)] hover:bg-[color:var(--app-accent)]/90"
+                className="mt-4 box-border inline-flex min-h-11 w-fit min-w-[min(100%,9rem)] max-w-full justify-self-start rounded-xl border border-transparent bg-[color:var(--app-accent)] px-4 py-2.5 text-[15px] font-semibold leading-5 text-[color:var(--app-accent-fg)] whitespace-normal hover:bg-[color:var(--app-accent-hover)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-[3px] focus-visible:outline-[color:var(--app-accent)] focus-visible:ring-0 disabled:cursor-not-allowed disabled:bg-[color:var(--app-neutral-fill-strong)] disabled:text-[color:var(--app-secondary-label)] disabled:opacity-100"
               >
                 {vm.busy === "publicInvite" ? "Creating link…" : "Create link"}
               </Button>
