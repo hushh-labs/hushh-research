@@ -12,6 +12,7 @@
 		2FAD9763203C412B000D30F8 /* config.xml in Resources */ = {isa = PBXBuildFile; fileRef = 2FAD9762203C412B000D30F8 /* config.xml */; };
 		39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */; };
 		3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */; };
+		5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */; };
 		43C3E950631CD5C3BB54A1B6 /* GoogleService-Info.plist in Resources */ = {isa = PBXBuildFile; fileRef = 56ED1CF703740D03086A7499 /* GoogleService-Info.plist */; };
 		AC01D0C5FEED0000C0FFEE02 /* PrivacyInfo.xcprivacy in Resources */ = {isa = PBXBuildFile; fileRef = AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */; };
 		4D22ABE92AF431CB00220026 /* CapApp-SPM in Frameworks */ = {isa = PBXBuildFile; productRef = 4D22ABE82AF431CB00220026 /* CapApp-SPM */; };
@@ -84,6 +85,7 @@
 		504EC30E1FED79650016851F /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		504EC3111FED79650016851F /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		504EC3131FED79650016851F /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhSessionPrivacyPlugin.swift; path = Plugins/HushhSessionPrivacyPlugin.swift; sourceTree = "<group>"; };
 		50B271D01FEDC1A000F3C39B /* public */ = {isa = PBXFileReference; lastKnownFileType = folder; path = public; sourceTree = "<group>"; };
 		56ED1CF703740D03086A7499 /* GoogleService-Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "GoogleService-Info.plist"; sourceTree = "<group>"; };
 		AC01D0C5FEED0000C0FFEE01 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = "PrivacyInfo.xcprivacy"; sourceTree = "<group>"; };
@@ -231,6 +233,7 @@
 				EE27DFB8DCD94B9C5C0516DD /* HushhSyncPlugin.swift */,
 				99D0CE383269D3D6B23A9A02 /* HushhConsentPlugin.swift */,
 				2A7FDF5F68507FD8EE707E81 /* HushhAuthPlugin.swift */,
+				5E5510A10000000000000001 /* HushhSessionPrivacyPlugin.swift */,
 				EB0840347A0D3490156D1D16 /* HushhVaultPlugin.swift */,
 				695EAEF496545F6564EEC117 /* HushhSettingsPlugin.swift */,
 				9ECA7AA8B6B21BD4F7D2F44F /* HushhKeystorePlugin.swift */,
@@ -445,6 +448,7 @@
 				F368A19E68607FCBA9D2DD32 /* HushhSyncPlugin.swift in Sources */,
 				A2774DC0614D2A490F85042E /* HushhConsentPlugin.swift in Sources */,
 				3DEFC858950C7B5B885C6D21 /* HushhAuthPlugin.swift in Sources */,
+				5E5510A10000000000000002 /* HushhSessionPrivacyPlugin.swift in Sources */,
 				FC968756EFA54153BC098D3D /* HushhVaultPlugin.swift in Sources */,
 				E8B31D0870530F4CFA77B50B /* HushhSettingsPlugin.swift in Sources */,
 				39FF675A1CDE37244E8EAEF2 /* HushhKeystorePlugin.swift in Sources */,

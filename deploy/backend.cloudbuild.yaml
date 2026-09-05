@@ -20,6 +20,18 @@ steps:
       - "-c"
       - |
         set -euo pipefail
+        if [[ "${_SKIP_IMAGE_BUILD}" == "true" ]]; then
+          if [[ -z "${_IMAGE_REFERENCE}" || "${_IMAGE_REFERENCE}" != *"@sha256:"* ]]; then
+            echo "_SKIP_IMAGE_BUILD=true requires an immutable _IMAGE_REFERENCE digest." >&2
+            exit 1
+          fi
+          echo "Using prebuilt immutable backend image ${_IMAGE_REFERENCE%%@*}@sha256:<pinned>."
+          exit 0
+        fi
+        if [[ "${_SKIP_IMAGE_BUILD}" != "false" ]]; then
+          echo "_SKIP_IMAGE_BUILD must be true or false." >&2
+          exit 1
+        fi
         gcloud auth configure-docker gcr.io --quiet || true
         docker buildx create --use --name hushh-builder --driver docker-container \
           >/dev/null 2>&1 || docker buildx use hushh-builder
@@ -287,7 +299,7 @@ steps:
             env_vars+=("${env_name}=${env_value}")
           fi
         }
-        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED; do
+        for n in ONE_EMAIL_ADDRESS ONE_EMAIL_DELEGATED_USER ONE_EMAIL_PUBSUB_TOPIC ONE_EMAIL_WEBHOOK_AUDIENCE ONE_EMAIL_WEBHOOK_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_WEBHOOK_AUTH_ENABLED ONE_EMAIL_WATCH_RENEW_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL ACCOUNT_DELETION_CLEANUP_AUDIENCE ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL ONE_EMAIL_KYC_DEFAULT_SCOPE ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED ONE_WALLET_CARD_ENABLED WALLET_PASS_PROVIDER APP_REVIEW_MODE HUSSH_GEMINI_TEXT_MODEL HUSHH_PROD_PHONE_TEST_ENABLED; do
           v="_${n}"
           add_env "${n}" "${!v}"
         done
@@ -297,11 +309,20 @@ steps:
         add_env "CONSENT_SSE_ENABLED" "${_CONSENT_SSE_ENABLED}"
 
         env_var_string="$(IFS='|'; echo "${env_vars[*]}")"
-        deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID}"
+        deploy_labels="managed-by=hushh-github-actions,deploy-env=${_DEPLOY_ENV},deploy-source=${_DEPLOY_SOURCE},deploy-sha=${_DEPLOY_SHA},github-run-id=${_GITHUB_RUN_ID},account-deletion-contract=v201"
+
+        image_reference="${_IMAGE_REFERENCE}"
+        if [[ -z "${image_reference}" ]]; then
+          image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+        fi
+        if [[ "${_SKIP_IMAGE_BUILD}" == "true" && "${image_reference}" != *"@sha256:"* ]]; then
+          echo "Prebuilt backend deploy requires an immutable sha256 image digest." >&2
+          exit 1
+        fi
 
         cmd=(
           gcloud run deploy "${_BACKEND_SERVICE}"
-          "--image=gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+          "--image=${image_reference}"
           "--region=${_REGION}"
           "--platform=managed"
           "--service-account=${_RUNTIME_SERVICE_ACCOUNT}"
@@ -323,6 +344,9 @@ steps:
 
         if [[ "${_CLOUD_RUN_NO_TRAFFIC}" == "true" ]]; then
           cmd+=("--no-traffic")
+          if [[ -n "${_CLOUD_RUN_TAG}" ]]; then
+            cmd+=("--tag=${_CLOUD_RUN_TAG}")
+          fi
         fi
 
         if [[ -n "${_CLOUDSQL_INSTANCES}" ]]; then
@@ -344,6 +368,8 @@ steps:
       - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED}"
       - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE}"
       - "_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL=${_GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL}"
+      - "_ACCOUNT_DELETION_CLEANUP_AUDIENCE=${_ACCOUNT_DELETION_CLEANUP_AUDIENCE}"
+      - "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL=${_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL}"
       - "_ONE_EMAIL_KYC_DEFAULT_SCOPE=${_ONE_EMAIL_KYC_DEFAULT_SCOPE}"
       - "_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED=${_ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED}"
       - "_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED}"
@@ -388,11 +414,15 @@ steps:
         if gcloud secrets describe "${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}" --project="$PROJECT_ID" >/dev/null 2>&1; then
           live_key_secret_flag="--set-secrets=HUSHH_MANAGED_GEMINI_LIVE_API_KEY=${_HUSHH_MANAGED_GEMINI_LIVE_API_KEY_SECRET}:latest"
         fi
+        image_reference="${_IMAGE_REFERENCE}"
+        if [[ -z "${image_reference}" ]]; then
+          image_reference="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}"
+        fi
         job_name="${_BACKEND_SERVICE}-genai-readiness"
         gcloud run jobs deploy "${job_name}" \
           --project="$PROJECT_ID" \
           --region="${_REGION}" \
-          --image="gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG}" \
+          --image="${image_reference}" \
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
@@ -585,6 +615,10 @@ substitutions:
   _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUTH_ENABLED: "true"
   _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE: ""
   _GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL: ""
+  # Dedicated Google OIDC identity for the durable post-erasure cleanup job.
+  # No reusable credential is stored in Cloud Scheduler metadata.
+  _ACCOUNT_DELETION_CLEANUP_AUDIENCE: ""
+  _ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL: ""
   _ONE_EMAIL_KYC_DEFAULT_SCOPE: ""
   _ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED: "true"
   _ONE_WALLET_CARD_ENABLED: ""
@@ -600,6 +634,11 @@ substitutions:
   _CONSENT_WEB_FALLBACK_ENABLED: ""
   _CONSENT_SSE_ENABLED: ""
   _CLOUD_RUN_NO_TRAFFIC: "false"
+  _CLOUD_RUN_TAG: ""
+  # UAT lifecycle-boundary releases build first, then deploy this immutable
+  # digest after migration. Other callers retain the normal build+deploy path.
+  _SKIP_IMAGE_BUILD: "false"
+  _IMAGE_REFERENCE: ""
   _CONSENT_API_PUBLIC_ORIGIN: ""
   _DB_POOL_MIN_SIZE: "1"
   _DB_POOL_MAX_SIZE: "4"

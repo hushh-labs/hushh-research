@@ -54,6 +54,31 @@ export interface AuthUser {
   phoneNumber?: string | null;
 }
 
+export interface HushhAuthGetIdTokenOptions {
+  /**
+   * Require Firebase to validate and mint the token again. A forced refresh
+   * must never fall back to a token cached in memory or secure storage.
+   */
+  forceRefresh?: boolean;
+}
+
+/**
+ * Stable rejection codes emitted by HushhAuth token validation on every
+ * platform. Human-readable SDK error details stay in native logs; callers
+ * make session decisions from these machine-readable values only.
+ */
+export const HUSHH_AUTH_TOKEN_ERROR_CODE = {
+  userNotFound: "auth/user-not-found",
+  userDisabled: "auth/user-disabled",
+  invalidUserToken: "auth/invalid-user-token",
+  userTokenExpired: "auth/user-token-expired",
+  networkRequestFailed: "auth/network-request-failed",
+  internalError: "auth/internal-error",
+} as const;
+
+export type HushhAuthTokenErrorCode =
+  (typeof HUSHH_AUTH_TOKEN_ERROR_CODE)[keyof typeof HUSHH_AUTH_TOKEN_ERROR_CODE];
+
 export interface HushhAuthPlugin {
   /**
    * Sign in with Google using native iOS/Android UI
@@ -97,9 +122,12 @@ export interface HushhAuthPlugin {
   signOut(): Promise<void>;
 
   /**
-   * Get cached ID token (from memory or Keychain/Keystore)
+   * Get the current ID token. Normal reads may use memory or secure storage;
+   * forced reads require an authoritative Firebase refresh.
    */
-  getIdToken(): Promise<{ idToken: string | null }>;
+  getIdToken(
+    options?: HushhAuthGetIdTokenOptions,
+  ): Promise<{ idToken: string | null }>;
 
   /**
    * Get currently signed-in user

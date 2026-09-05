@@ -13,7 +13,7 @@ from fastapi import BackgroundTasks, Header, HTTPException, Request, status
 from fastapi.concurrency import run_in_threadpool
 
 from api.utils.firebase_auth import verify_firebase_bearer
-from hushh_mcp.consent.token import validate_token_with_db
+from hushh_mcp.consent.token import validate_token, validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 
@@ -30,6 +30,82 @@ def _auth_error(detail: str) -> HTTPException:
         detail=detail,
         headers={"WWW-Authenticate": "Bearer"},
     )
+
+
+def _account_not_found_error() -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail={"code": "AUTH_ACCOUNT_NOT_FOUND", "message": "Account not found"},
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+
+
+def _account_deletion_in_progress_error() -> HTTPException:
+    return HTTPException(
+        status_code=423,
+        detail={
+            "code": "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
+            "message": "Account deletion is in progress.",
+        },
+        headers={"Cache-Control": "private, no-store", "Retry-After": "2"},
+    )
+
+
+async def _raise_if_account_is_tombstoned(user_id: str) -> None:
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionInProgressError,
+        AccountDeletionLifecycleService,
+    )
+
+    try:
+        is_tombstoned = await run_in_threadpool(
+            AccountDeletionLifecycleService.is_tombstoned,
+            user_id,
+        )
+    except AccountDeletionInProgressError:
+        raise _account_deletion_in_progress_error() from None
+    if is_tombstoned:
+        raise _account_not_found_error()
+
+
+async def _raise_if_signed_owner_token_is_tombstoned(token: str) -> None:
+    """Recover only a terminal deletion result; never authorize the token.
+
+    Account deletion revokes/removes the VAULT_OWNER ledger row atomically. A
+    client retry after losing the successful response therefore reaches this
+    dependency with a correctly signed but DB-revoked token. Re-verifying its
+    signature, expiry and owner scope without the process-local revocation
+    cache lets us obtain the UID solely to query the irreversible tombstone.
+    """
+    valid, _reason, signed_token = validate_token(
+        token,
+        ConsentScope.VAULT_OWNER,
+        _skip_revocation_cache=True,
+    )
+    if not valid or signed_token is None:
+        return
+    await _raise_if_account_is_tombstoned(str(signed_token.user_id))
+
+
+async def _enforce_account_lifecycle_status(user_id: str) -> None:
+    """Fail closed unless this authenticated UID is not terminally deleted."""
+    try:
+        await _raise_if_account_is_tombstoned(user_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error(
+            "Account lifecycle status could not be confirmed; failing closed error=%s",
+            type(exc).__name__,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
+                "message": "Unable to verify account status. Please retry.",
+            },
+            headers={"Cache-Control": "private, no-store", "Retry-After": "3"},
+        ) from None
 
 
 # Reasons that are themselves machine codes the trusted-device native runtime
@@ -113,13 +189,32 @@ async def _validate_token_with_scope_cache(
     cache = _request_scope_cache(request)
     cache_key = _scope_cache_key(token, required_scope)
     if cache is not None and cache_key in cache:
-        return cache[cache_key]
-
-    result = await validate_token_with_db(token, required_scope)
+        result = cache[cache_key]
+    else:
+        result = await validate_token_with_db(token, required_scope)
     valid, _reason, token_obj = result
-    if cache is not None and valid and token_obj:
+    if cache is not None and cache_key not in cache and valid and token_obj:
         cache[cache_key] = result
+    if valid and token_obj:
+        # This applies to every HCT entry point, including a VAULT_OWNER token
+        # accepted as a super-scope by require_consent_scope(). Re-check even on
+        # a request-local token-cache hit so a concurrent deletion commit wins.
+        await _enforce_account_lifecycle_status(str(token_obj.user_id))
     return result
+
+
+async def require_firebase_auth_read_only(
+    authorization: Optional[str] = Header(None, description="Bearer token with Firebase ID token"),
+) -> str:
+    """Validate Firebase auth without scheduling identity bootstrap or writes."""
+    _extract_token(authorization, allow_raw=False)
+    try:
+        return await run_in_threadpool(verify_firebase_bearer, authorization)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.warning("Firebase auth failed: %s", type(exc).__name__)
+        raise _auth_error("Invalid Firebase ID token") from None
 
 
 async def require_firebase_auth(
@@ -143,13 +238,8 @@ async def require_firebase_auth(
     Raises:
         HTTPException 401 if token is missing or invalid
     """
-    # Fail fast on bad formatting (Strict Mode)
-    _extract_token(authorization, allow_raw=False)
-
     try:
-        # Pass the original authorization string to avoid breaking downstream parsers.
-        # Run in threadpool to protect the asyncio event loop from synchronous I/O.
-        firebase_uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+        firebase_uid = await require_firebase_auth_read_only(authorization)
 
         # Starlette runs synchronous background callbacks in a worker thread.
         # Identity sync is async and must stay on the request event loop; the
@@ -244,6 +334,18 @@ async def require_vault_owner_token(
         logger.warning("Token validation failed: %s", reason)
         if reason in _TRUSTED_DEVICE_AUTH_CODES:
             raise _auth_error(reason)
+        try:
+            await _raise_if_signed_owner_token_is_tombstoned(token)
+        except HTTPException:
+            raise
+        except Exception as exc:
+            # The normal token failure remains authoritative. A recovery-only
+            # tombstone lookup must never turn an invalid credential into a 5xx
+            # or authorize it during a database outage.
+            logger.warning(
+                "Deleted-account terminal recovery unavailable error=%s",
+                type(exc).__name__,
+            )
         raise _auth_error("Token validation failed.")
 
     return _token_data_dict(token, token_obj)
@@ -271,6 +373,15 @@ def require_consent_scope(required_scope: str | ConsentScope):
             logger.warning("Scoped token validation failed for %s: %s", required_scope, reason)
             if reason in _TRUSTED_DEVICE_AUTH_CODES:
                 raise _auth_error(reason)
+            try:
+                await _raise_if_signed_owner_token_is_tombstoned(token)
+            except HTTPException:
+                raise
+            except Exception as exc:
+                logger.warning(
+                    "Deleted-account terminal recovery unavailable error=%s",
+                    type(exc).__name__,
+                )
             raise _auth_error("Token validation failed.")
 
         return _token_data_dict(token, token_obj)

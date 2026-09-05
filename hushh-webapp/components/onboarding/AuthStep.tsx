@@ -7,6 +7,7 @@ import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
 import { OnboardingHeroBackground } from "@/components/onboarding/OnboardingHeroBackground";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
@@ -124,11 +125,19 @@ export function AuthStep({
   redirectPath: string;
   compact?: boolean;
 }) {
+  // Firebase/native persistence may settle before this Suspense subtree is
+  // hydrated. Keep the server and first client paint identical so Login never
+  // throws away its tree (and a one-shot account-recovery toast) during a
+  // hydration mismatch.
+  const [hydrated, setHydrated] = useState(false);
   const nativeTestConfig = useNativeTestConfig();
   const router = useRouter();
   const {
     user,
     loading: authLoading,
+    sessionVerificationRequired,
+    retrySessionVerification,
+    signOut,
     beginPostAuthSettlement,
     completePostAuthSettlement,
   } = useAuth();
@@ -181,6 +190,10 @@ export function AuthStep({
     useState<KaiLegalDocumentType | null>(null);
   const legalReturnControlIdRef = useRef<string | null>(null);
   const legalCloseResolversRef = useRef<Array<() => void>>([]);
+
+  useEffect(() => {
+    setHydrated(true);
+  }, []);
 
   const publishProviderAttempt = useCallback(
     (attempt: ProviderAttempt | null) => {
@@ -443,7 +456,7 @@ export function AuthStep({
   }, [authLoading, growthEntrySurface, growthJourney, user]);
 
   useEffect(() => {
-    if (authLoading) return;
+    if (authLoading || sessionVerificationRequired) return;
     completeStep();
     // Provider popup attempts own token verification and navigation while
     // active. The ordinary auth observer handles only restored sessions.
@@ -465,6 +478,7 @@ export function AuthStep({
     redirectPath,
     user,
     authLoading,
+    sessionVerificationRequired,
     completeStep,
     growthEntrySurface,
     growthJourney,
@@ -963,7 +977,16 @@ export function AuthStep({
     { role: "interaction_layer", routeKey: ROUTES.LOGIN },
   );
 
-  if (authLoading || user) {
+  if (hydrated && !authLoading && sessionVerificationRequired) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => void retrySessionVerification()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
+      />
+    );
+  }
+
+  if (!hydrated || authLoading || user) {
     return <HushhLoader label="Checking session..." variant="fullscreen" />;
   }
 
@@ -1141,7 +1164,6 @@ export function AuthStep({
                 />
               ) : null}
             </div>
-
           </div>
         </div>
       </div>

@@ -1,0 +1,246 @@
+from __future__ import annotations
+
+import importlib.util
+import json
+import sys
+from pathlib import Path
+
+import pytest
+import yaml
+
+ROOT = Path(__file__).resolve().parents[2]
+WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
+SERVING_STATE_SCRIPT = ROOT / "scripts" / "ci" / "resolve-cloud-run-serving-state.py"
+SCHEDULER_ATTEMPT_SCRIPT = ROOT / "scripts" / "ci" / "verify-cloud-scheduler-attempt.py"
+CLOUD_RUN_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_run"
+CLOUD_SCHEDULER_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_scheduler"
+
+
+def _workflow_steps() -> list[dict]:
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    return workflow["jobs"]["deploy"]["steps"]
+
+
+def _step(name: str) -> dict:
+    for step in _workflow_steps():
+        if step.get("name") == name:
+            return step
+    raise AssertionError(f"Missing workflow step: {name}")
+
+
+def _serving_state_module():
+    spec = importlib.util.spec_from_file_location(
+        "resolve_cloud_run_serving_state", SERVING_STATE_SCRIPT
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _scheduler_attempt_module():
+    spec = importlib.util.spec_from_file_location(
+        "verify_cloud_scheduler_attempt", SCHEDULER_ATTEMPT_SCRIPT
+    )
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_uat_release_orders_image_fence_schema_runtime_and_activation() -> None:
+    names = [str(step.get("name") or "") for step in _workflow_steps()]
+    expected_order = [
+        "Build and pin backend image before lifecycle migration",
+        "Install fail-closed account deletion release fence",
+        "Apply UAT DB migrations behind account deletion fence",
+        "Deploy backend using Cloud Build",
+        "Verify backend candidate readiness and exact-SHA provenance",
+        "Promote deployed revisions to UAT traffic",
+        "Classify UAT release outcome",
+        "Activate tombstone-aware account deletion",
+    ]
+    positions = [names.index(name) for name in expected_order]
+    assert positions == sorted(positions)
+
+
+def test_uat_backend_deploy_consumes_the_pinned_digest_without_rebuilding() -> None:
+    build_run = str(
+        _step("Build and pin backend image before lifecycle migration").get("run") or ""
+    )
+    deploy_run = str(_step("Deploy backend using Cloud Build").get("run") or "")
+    readiness_run = str(
+        _step("Verify backend candidate readiness and exact-SHA provenance").get("run") or ""
+    )
+
+    assert "deploy/backend-image.cloudbuild.yaml" in build_run
+    assert "image_summary.digest" in build_run
+    assert "^sha256:[0-9a-f]{64}$" in build_run
+    assert "_SKIP_IMAGE_BUILD=true" in deploy_run
+    assert "_IMAGE_REFERENCE=${{ steps.build-backend-image.outputs.image_reference }}" in deploy_run
+    assert 'containers[0].get("image") == expected_image_reference' in readiness_run
+    assert "account-deletion-contract" in readiness_run
+
+    image_build = yaml.safe_load(
+        (ROOT / "deploy" / "backend-image.cloudbuild.yaml").read_text(encoding="utf-8")
+    )
+    assert image_build["timeout"] == "1800s"
+
+
+def test_uat_activation_retires_legacy_revisions_before_removing_fence() -> None:
+    activation = _step("Activate tombstone-aware account deletion")
+    activation_run = str(activation.get("run") or "")
+
+    assert activation.get("if") == (
+        "steps.classify-uat-release.outputs.release_failed == 'false' && "
+        "steps.scope.outputs.deploy_backend == 'true'"
+    )
+    assert "setup_cleanup_scheduler.sh" in activation_run
+    assert "gcloud scheduler jobs run" in activation_run
+    assert "gcloud logging read" in activation_run
+    assert "type.googleapis.com/google.cloud.scheduler.logging.AttemptFinished" in activation_run
+    assert "verify-cloud-scheduler-attempt.py" in activation_run
+    assert "job.get('lastAttemptTime')" not in activation_run
+    assert "--format='value(lastAttemptTime)'" not in activation_run
+    assert "status.get('code') or '0'" not in activation_run
+    scheduler_verifier = SCHEDULER_ATTEMPT_SCRIPT.read_text(encoding="utf-8")
+    assert 'raw_http_status = http_request.get("status")' in scheduler_verifier
+    assert "not 200 <= http_status < 300" in scheduler_verifier
+    assert 'http_request.get("status") or' not in scheduler_verifier
+    assert "gcloud run revisions delete" in activation_run
+    assert "remaining_pre_v201_count" in activation_run
+    assert activation_run.index("gcloud run revisions delete") < activation_run.index(
+        "remove_release_fence.sql"
+    )
+
+
+def test_pre_v201_backend_rollback_requires_fence_and_empty_tombstones() -> None:
+    rollback_run = str(_step("Roll back backend revision").get("run") or "")
+
+    assert "install_release_fence.sql" in rollback_run
+    assert "SELECT count(*) FROM public.account_deletion_tombstones" in rollback_run
+    assert '"${rollback_contract}" != "v201"' in rollback_run
+    assert '"${tombstone_count}" != "0"' in rollback_run
+    assert "Refusing rollback to a pre-v201 backend" in rollback_run
+
+
+def test_release_fence_is_statement_level_bounded_and_verified() -> None:
+    install_sql = (ROOT / "deploy" / "account-deletion" / "install_release_fence.sql").read_text(
+        encoding="utf-8"
+    )
+    remove_sql = (ROOT / "deploy" / "account-deletion" / "remove_release_fence.sql").read_text(
+        encoding="utf-8"
+    )
+    verify_sql = (ROOT / "deploy" / "account-deletion" / "verify_release_boundary.sql").read_text(
+        encoding="utf-8"
+    )
+
+    assert "LOCK TABLE public.actor_profiles, public.vault_keys" in install_sql
+    assert "IN SHARE ROW EXCLUSIVE MODE" in install_sql
+    assert install_sql.count("FOR EACH STATEMENT") == 2
+    assert "ERRCODE = '55000'" in install_sql
+    assert "DELETE FROM public.actor_profiles WHERE false" in install_sql
+    assert "DELETE FROM public.vault_keys WHERE false" in install_sql
+    assert remove_sql.index("DROP TRIGGER") < remove_sql.index("DROP FUNCTION")
+    assert "trg_reject_deleted_account_insert" in verify_sql
+    assert "trg_reject_deleted_account_reference_update" in verify_sql
+    assert "hushh.account-deletion-guard/v3/insert-presence:" in verify_sql
+    assert "hushh.account-deletion-guard/v3/update-bind-immutable:" in verify_sql
+    assert "account_identity_presence_pkey" in verify_sql
+    assert "missing_presence_count" in verify_sql
+
+
+def test_uat_serving_state_ignores_zero_percent_candidate_tag() -> None:
+    resolver = _serving_state_module()
+    service = json.loads(
+        (CLOUD_RUN_FIXTURES / "tagged_zero_before_serving.json").read_text(encoding="utf-8")
+    )
+
+    state = resolver.resolve_serving_state(service)
+
+    assert state.revision == "consent-protocol-serving"
+    assert state.url == "https://consent-protocol.example.run.app"
+
+
+def test_uat_serving_state_rejects_ambiguous_split_traffic() -> None:
+    resolver = _serving_state_module()
+    service = json.loads(
+        (CLOUD_RUN_FIXTURES / "ambiguous_split_traffic.json").read_text(encoding="utf-8")
+    )
+
+    with pytest.raises(ValueError, match="exactly one"):
+        resolver.resolve_serving_state(service)
+
+
+def test_uat_predeploy_and_final_state_use_order_safe_resolver() -> None:
+    for name in ("Capture predeploy Cloud Run state", "Resolve final Cloud Run state"):
+        run = str(_step(name).get("run") or "")
+        assert "resolve-cloud-run-serving-state.py" in run
+        assert "status.traffic[0]" not in run
+
+
+def test_scheduler_attempt_requires_fresh_concrete_http_success() -> None:
+    verifier = _scheduler_attempt_module()
+    expected_job = "projects/hushh-pda-uat/locations/us-central1/jobs/account-deletion-cleanup-uat"
+    expected_uri = "https://api.uat.hushh.ai/api/account/deletion-cleanup/drain?limit=10"
+    triggered_at = verifier.parse_instant("2026-09-04T15:30:00Z")
+    success = json.loads(
+        (CLOUD_SCHEDULER_FIXTURES / "fresh_success.json").read_text(encoding="utf-8")
+    )
+    missing_status = json.loads(
+        (CLOUD_SCHEDULER_FIXTURES / "fresh_missing_http_status.json").read_text(encoding="utf-8")
+    )
+
+    selected = verifier.successful_completion(
+        success,
+        triggered_at=triggered_at,
+        expected_job=expected_job,
+        expected_uri=expected_uri,
+    )
+    assert selected is not None
+    assert selected["http_status"] == 200
+    assert (
+        verifier.successful_completion(
+            missing_status,
+            triggered_at=triggered_at,
+            expected_job=expected_job,
+            expected_uri=expected_uri,
+        )
+        is None
+    )
+    assert (
+        verifier.successful_completion(
+            [missing_status[0], success[0]],
+            triggered_at=triggered_at,
+            expected_job=expected_job,
+            expected_uri=expected_uri,
+        )
+        is None
+    )
+    assert (
+        verifier.successful_completion(
+            success,
+            triggered_at=verifier.parse_instant("2026-09-04T15:31:00Z"),
+            expected_job=expected_job,
+            expected_uri=expected_uri,
+        )
+        is None
+    )
+
+
+def test_production_backend_is_blocked_before_migration_201() -> None:
+    workflow_path = ROOT / ".github" / "workflows" / "deploy-production.yml"
+    workflow = yaml.safe_load(workflow_path.read_text(encoding="utf-8"))
+    steps = workflow["jobs"]["deploy"]["steps"]
+    names = [str(step.get("name") or "") for step in steps]
+    block_name = "Block production migration 201 until lifecycle rollout controls exist"
+    migration_name = "Apply production release migrations"
+
+    assert names.index(block_name) < names.index(migration_name)
+    block = next(step for step in steps if step.get("name") == block_name)
+    assert block.get("if") == "steps.scope.outputs.deploy_backend == 'true'"
+    block_run = str(block.get("run") or "")
+    assert "201_account_deletion_tombstones.sql" in block_run
+    assert "exit 1" in block_run

@@ -1,6 +1,6 @@
 {
   "contract_name": "prod_core_schema",
-  "expected_migration_version": 200,
+  "expected_migration_version": 201,
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
@@ -24,9 +24,34 @@
     "prune_expired_pkm_domain_revisions_v1",
     "prune_expired_pkm_recovery_for_user_v1",
     "commit_pkm_scope_exposure_v1",
-    "repair_pkm_scope_exposure_revision_v1"
+    "repair_pkm_scope_exposure_revision_v1",
+    "install_account_deletion_write_guards",
+    "reject_deleted_account_identity_write",
+    "record_account_deletion_tombstone",
+    "refresh_account_deletion_guards_after_identity_ddl"
   ],
   "required_tables": {
+    "account_identity_presence": [
+      "user_id_hash",
+      "first_observed_at"
+    ],
+    "account_deletion_tombstones": [
+      "user_id_hash",
+      "firebase_uid",
+      "cleanup_intent_kind",
+      "expected_phone_digest",
+      "cleanup_status",
+      "cleanup_attempt_count",
+      "cleanup_next_attempt_at",
+      "cleanup_claimed_at",
+      "cleanup_claim_token",
+      "cleanup_last_attempt_at",
+      "cleanup_last_outcome",
+      "cleanup_last_failure_class",
+      "cleanup_last_classification",
+      "deleted_at",
+      "updated_at"
+    ],
     "actor_identity_cache": [
       "user_id",
       "display_name",

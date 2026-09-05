@@ -163,7 +163,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
   # ============================================================================
-  # Path filters: run frontend/backend jobs only when their paths change (or manual scope)
+  # Path filters: run frontend/backend/iOS jobs only when their paths change (or manual scope)
   # ============================================================================
   paths:
     name: "Path filters"
@@ -172,6 +172,7 @@ jobs:
     outputs:
       frontend: ${{ steps.resolve.outputs.frontend }}
       backend: ${{ steps.resolve.outputs.backend }}
+      ios: ${{ steps.resolve.outputs.ios }}
     steps:
       - uses: actions/checkout@v6
 
@@ -195,15 +196,23 @@ jobs:
               - '.github/workflows/queue-validation.yml'
               - '.github/workflows/main-post-merge-smoke.yml'
               - 'scripts/ci/**'
+            ios:
+              - 'hushh-webapp/ios/**'
+              - 'hushh-webapp/lib/capacitor/**'
+              - 'hushh-webapp/scripts/native/**'
+              - 'hushh-webapp/capacitor.config.ts'
+              - 'hushh-webapp/package.json'
+              - 'hushh-webapp/package-lock.json'
+              - '.github/workflows/ci.yml'
 
       - id: override
         if: github.event_name == 'workflow_dispatch'
         run: |
           scope="${{ github.event.inputs.scope }}"
           case "$scope" in
-            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT" ;;
-            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
-            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT" ;;
+            frontend) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=false" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT" ;;
+            backend) echo "frontend=false" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=false" >> "$GITHUB_OUTPUT" ;;
+            *) echo "frontend=true" >> "$GITHUB_OUTPUT"; echo "backend=true" >> "$GITHUB_OUTPUT"; echo "ios=true" >> "$GITHUB_OUTPUT" ;;
           esac
 
       - id: resolve
@@ -211,9 +220,11 @@ jobs:
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "frontend=${{ steps.override.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.override.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "ios=${{ steps.override.outputs.ios }}" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=${{ steps.filter.outputs.frontend }}" >> "$GITHUB_OUTPUT"
             echo "backend=${{ steps.filter.outputs.backend }}" >> "$GITHUB_OUTPUT"
+            echo "ios=${{ steps.filter.outputs.ios }}" >> "$GITHUB_OUTPUT"
           fi
         if: always()
 
@@ -232,6 +243,7 @@ jobs:
     outputs:
       frontend: ${{ needs.paths.outputs.frontend }}
       backend: ${{ needs.paths.outputs.backend }}
+      ios: ${{ needs.paths.outputs.ios }}
     steps:
       - name: Validate cheap authority checks before expensive lanes
         shell: bash
@@ -376,6 +388,150 @@ jobs:
           name: web-targeted-npm-audit-report
           path: hushh-webapp/npm-audit-report.json
           if-no-files-found: ignore
+
+  ios-native-check:
+    name: "iOS Native (Xcode)"
+    needs: [preflight-gate]
+    if: needs.preflight-gate.outputs.ios == 'true'
+    runs-on: macos-15
+    timeout-minutes: 45
+    env:
+      XCODE_PROJECT: hushh-webapp/ios/App/App.xcodeproj
+      XCODE_SCHEME: App
+      NODE_OPTIONS: --max-old-space-size=8192
+      NEXT_DIST_DIR: .next-native-ci
+      APP_RUNTIME_PROFILE: development
+      NEXT_PUBLIC_APP_ENV: development
+      NEXT_PUBLIC_APP_URL: https://example.com
+      NEXT_PUBLIC_BACKEND_URL: https://api.example.com
+      NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
+      NEXT_PUBLIC_PASSKEY_RP_ID: example.com
+      # Synthetic, non-authorizing key with Firebase Installations' required
+      # shape. An invalid shape aborts native startup before XCTest can attach.
+      NEXT_PUBLIC_FIREBASE_API_KEY: A00000000000000000000000000000000000000
+      NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: dummy-project.firebaseapp.com
+      NEXT_PUBLIC_FIREBASE_PROJECT_ID: dummy-project
+      NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: dummy-project.appspot.com
+      NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID: "123456789"
+      NEXT_PUBLIC_FIREBASE_APP_ID: "1:123456789:web:abcdef123456"
+      NEXT_PUBLIC_FIREBASE_VAPID_KEY: test-vapid-key
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Select release-parity Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - uses: actions/setup-node@v6
+        with:
+          # Keep native preparation on the same Node major as TestFlight.
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web and local Swift-package dependencies
+        run: npm ci --prefix hushh-webapp
+
+      - name: Materialize non-secret iOS CI Firebase configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          PLIST="${GITHUB_WORKSPACE}/GoogleService-Info.plist"
+          plutil -create xml1 "$PLIST"
+          plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY" "$PLIST"
+          plutil -insert GCM_SENDER_ID -string "123456789" "$PLIST"
+          plutil -insert PLIST_VERSION -string "1" "$PLIST"
+          plutil -insert BUNDLE_ID -string "com.hushh.app" "$PLIST"
+          plutil -insert PROJECT_ID -string "dummy-project" "$PLIST"
+          plutil -insert STORAGE_BUCKET -string "dummy-project.appspot.com" "$PLIST"
+          plutil -insert IS_ADS_ENABLED -bool NO "$PLIST"
+          plutil -insert IS_ANALYTICS_ENABLED -bool NO "$PLIST"
+          plutil -insert IS_APPINVITE_ENABLED -bool NO "$PLIST"
+          plutil -insert IS_GCM_ENABLED -bool YES "$PLIST"
+          plutil -insert IS_SIGNIN_ENABLED -bool YES "$PLIST"
+          plutil -insert GOOGLE_APP_ID -string "1:123456789:ios:abcdef1234567890abcdef" "$PLIST"
+          plutil -lint "$PLIST"
+
+      - name: Prepare generated Capacitor iOS project
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run --prefix hushh-webapp cap:build
+          npm run --prefix hushh-webapp cap:sync:ios
+
+      - name: Cache Swift packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ runner.temp }}/spm
+            ~/Library/Caches/org.swift.swiftpm
+          key: spm-ci-${{ runner.os }}-${{ hashFiles('hushh-webapp/ios/App/CapApp-SPM/Package.swift', 'hushh-webapp/ios/**/Package.resolved') }}
+          restore-keys: |
+            spm-ci-${{ runner.os }}-
+            spm-${{ runner.os }}-
+
+      - name: Resolve Swift package dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm"
+
+      - name: Compile app and run native iOS unit tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          set -o pipefail
+          SIMULATOR_ID="$(python3 - <<'PY'
+          import json
+          import subprocess
+
+          payload = json.loads(
+              subprocess.check_output(
+                  ["xcrun", "simctl", "list", "devices", "available", "--json"],
+                  text=True,
+              )
+          )
+          for runtime, devices in payload.get("devices", {}).items():
+              if "iOS" not in runtime:
+                  continue
+              for device in devices:
+                  if device.get("isAvailable") and device.get("name", "").startswith("iPhone"):
+                      print(device["udid"])
+                      raise SystemExit(0)
+          raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
+          PY
+          )"
+          xcodebuild test \
+            -project "${XCODE_PROJECT}" \
+            -scheme "${XCODE_SCHEME}" \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=${SIMULATOR_ID}" \
+            -derivedDataPath "${RUNNER_TEMP}/derived-data" \
+            -clonedSourcePackagesDirPath "${RUNNER_TEMP}/spm" \
+            -resultBundlePath "${RUNNER_TEMP}/AppTests.xcresult" \
+            -skipMacroValidation \
+            -skipPackagePluginValidation \
+            -parallel-testing-enabled NO \
+            -maximum-parallel-testing-workers 1 \
+            -only-testing:AppTests \
+            -only-testing:AppUITests/AppUITests/testAccountNotFoundRecoveryReturnsToLogin \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "${RUNNER_TEMP}/xcodebuild-ios-tests.log"
+
+      - name: Upload native iOS test diagnostics
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: ios-native-xcode-tests
+          path: |
+            ${{ runner.temp }}/AppTests.xcresult
+            ${{ runner.temp }}/xcodebuild-ios-tests.log
+          if-no-files-found: ignore
+          retention-days: 7
 
   # ============================================================================
   # Backend (Python FastAPI) -- same shared script as upstream consent-protocol CI
@@ -572,6 +728,7 @@ jobs:
       - preflight-gate
       - web-core-check
       - web-targeted-check
+      - ios-native-check
       - protocol-check
       - mcp-package-check
       - integration-check
@@ -591,6 +748,7 @@ jobs:
           PREFLIGHT="${{ needs['preflight-gate'].result }}"
           WEB_CORE="${{ needs['web-core-check'].result }}"
           WEB_TARGETED="${{ needs['web-targeted-check'].result }}"
+          IOS_NATIVE="${{ needs['ios-native-check'].result }}"
           PROTOCOL="${{ needs['protocol-check'].result }}"
           MCP_PACKAGE="${{ needs['mcp-package-check'].result }}"
           INTEGRATION="${{ needs['integration-check'].result }}"
@@ -604,13 +762,18 @@ jobs:
           printf 'preflight-gate=%s\n' "$PREFLIGHT"
           printf 'web-core-check=%s\n' "$WEB_CORE"
           printf 'web-targeted-check=%s\n' "$WEB_TARGETED"
+          printf 'ios-native-check=%s\n' "$IOS_NATIVE"
           printf 'protocol-check=%s\n' "$PROTOCOL"
           printf 'mcp-package-check=%s\n' "$MCP_PACKAGE"
           printf 'integration-check=%s\n' "$INTEGRATION"
           printf 'main-freshness-gate=%s\n' "$MAIN_FRESHNESS"
 
           fail=0
-          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
+          if [ "${{ needs.paths.outputs.ios }}" = "true" ] && [ "$IOS_NATIVE" != "success" ]; then
+            echo "Changed iOS sources require a successful native build and XCTest run."
+            fail=1
+          fi
+          for result in "$SECRET_SCAN" "$DCO" "$PR_BASE_POLICY" "$REPO_GOVERNANCE" "$PATHS" "$PREFLIGHT" "$WEB_CORE" "$WEB_TARGETED" "$IOS_NATIVE" "$PROTOCOL" "$MCP_PACKAGE" "$INTEGRATION" "$MAIN_FRESHNESS"; do
             if [ "$result" = "failure" ] || [ "$result" = "cancelled" ] || [ "$result" = "timed_out" ]; then
               fail=1
             fi

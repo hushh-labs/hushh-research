@@ -135,6 +135,15 @@ tests/test_migrations_are_replay_safe.py
 tests/services/test_account_service_cleanup_tables.py
 tests/test_pool_acquire_is_bounded.py
 
+# Deleted-account session invalidation is a cross-client privacy boundary.
+# Keep the route machine code, Firebase classification, durable cleanup intent,
+# and migration-level resurrection guard in every backend and merge-queue run.
+tests/test_account_routes.py
+tests/test_firebase_auth_split.py
+tests/services/test_account_deletion_lifecycle_service.py
+tests/test_account_deletion_tombstone_migration.py
+tests/test_account_deletion_release_workflow.py
+
 # Contact discovery.
 #
 # `POST /api/marketplace/contacts/match` answers "is the person behind this

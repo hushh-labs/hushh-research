@@ -211,6 +211,19 @@ run a cold audit merely to inspect a normally unlocked session.
 
 Native parity for authenticated flows now includes the verified phone mandate after login.
 
+- `HushhSessionPrivacy` is the native resume boundary on both iOS and Android.
+  The host must cover the WebView before inactivity, expose the current
+  process-local generation through `getState`, and accept
+  `completeSessionValidation` only for the same generation while active.
+  Neither platform may auto-release its cover from a resume callback.
+- The shield must block more than taps. iOS keeps the cover accessibility-modal;
+  Android applies `FLAG_SECURE`, hides the underlying WebView descendants from
+  TalkBack, and restores the exact prior accessibility mode only after an
+  accepted release or activity destruction.
+- The TypeScript bridge remains a web-safe no-op. `AuthProvider` is the sole
+  caller that may acknowledge a native generation after bounded session
+  validation; route and vault components do not release the native cover.
+
 - `FirebaseAuthentication.providers` must include `"phone"` alongside the existing provider list.
 - `/register-phone` is a contract route even though it bypasses the standard shell.
 - One Voice/Kai compatibility surfaces require native microphone permission metadata:

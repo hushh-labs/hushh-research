@@ -1,9 +1,17 @@
+import json
 from contextlib import contextmanager
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hushh_mcp.services.account_service import AccountService
+from hushh_mcp.services.account_service import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+    TRANSACTIONAL_ACCOUNT_ERASURE_TABLES,
+    AccountService,
+)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
 
 
 @contextmanager
@@ -52,6 +60,70 @@ def test_delete_user_rows_if_table_exists_rejects_unsupported_table(monkeypatch)
 
 
 @pytest.mark.asyncio
+async def test_full_account_delete_forwards_only_authenticated_uid(monkeypatch):
+    service = AccountService()
+    captured = {}
+
+    monkeypatch.setattr(
+        service,
+        "_load_actor_profile",
+        lambda _user_id: {"personas": ["investor"], "investor_marketplace_opt_in": False},
+    )
+
+    async def _full_delete(
+        user_id,
+        *,
+        requested_target,
+    ):
+        captured["user_id"] = user_id
+        captured["target"] = requested_target
+        return {"success": True, "account_deleted": True}
+
+    monkeypatch.setattr(service, "_delete_full_account", _full_delete)
+
+    result = await service.delete_account(
+        "user_123",
+        target="both",
+    )
+
+    assert result["account_deleted"] is True
+    assert captured == {
+        "user_id": "user_123",
+        "target": "both",
+    }
+
+
+@pytest.mark.asyncio
+async def test_persona_only_delete_does_not_run_full_account_delete(monkeypatch):
+    service = AccountService()
+
+    monkeypatch.setattr(
+        service,
+        "_load_actor_profile",
+        lambda _user_id: {
+            "personas": ["investor", "ria"],
+            "investor_marketplace_opt_in": False,
+        },
+    )
+
+    async def _delete_investor(**_kwargs):
+        return {"success": True, "account_deleted": False}
+
+    async def _unexpected_full_delete(*_args, **_kwargs):
+        pytest.fail("persona-only cleanup must not invoke full-account deletion")
+
+    monkeypatch.setattr(service, "_delete_investor_persona", _delete_investor)
+    monkeypatch.setattr(service, "_delete_full_account", _unexpected_full_delete)
+
+    result = await service.delete_account(
+        "user_123",
+        target="investor",
+    )
+
+    assert result["account_deleted"] is False
+
+
+@pytest.mark.asyncio
 async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     service = AccountService()
     conn = MagicMock()
@@ -59,20 +131,71 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
 
+    def _delete_personal_agent_state(_conn, *, params, results):
+        for table_name in (
+            "byoc_setup_jobs",
+            "pod_lifecycle_events",
+            "personal_agent_registry",
+        ):
+            _conn.execute(service._delete_by_user_queries[table_name], params)
+            results[table_name] = True
+        results["personal_agent_external_resources_absent"] = True
+
+    monkeypatch.setattr(service, "_delete_personal_agent_state", _delete_personal_agent_state)
+
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account(user_id, requested_target="both")
+        result = await service._delete_full_account(
+            user_id,
+            requested_target="both",
+        )
 
     assert result["success"] is True
     assert result["account_deleted"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["contact_sync_lookup_budgets"] is True
+    assert result["details"]["kai_analyze_runs"] is True
+    assert result["details"]["one_location_map_preferences"] is True
+    assert result["details"]["one_location_network_connections"] is True
+    assert result["details"]["one_location_visibility_preferences"] is True
+    assert result["details"]["one_location_visibility_exclusions"] is True
+    assert result["details"]["kai_location_referrals"] is True
+    assert result["details"]["byoc_setup_jobs"] is True
+    assert result["details"]["pod_lifecycle_events"] is True
+    assert result["details"]["personal_agent_registry"] is True
+    assert result["details"]["personal_agent_external_resources_absent"] is True
+    assert result["details"]["ria_pick_legacy_retirements"] is True
+    assert result["details"]["developer_apps"] is True
+    assert result["details"]["pwm_documents"] is True
+    assert result["details"]["fabric_subscription_grants"] is True
+    assert result["details"]["fabric_consent_requests"] is True
+    assert result["details"]["marketplace_delivery_envelopes"] is True
+    assert result["details"]["marketplace_access_requests"] is True
+    assert result["details"]["marketplace_recipient_keys"] is True
+    assert result["details"]["marketplace_opportunity_signals"] is True
+    assert result["details"]["one_referral_relationships"] is True
+    assert result["details"]["one_referral_attributions"] is True
+    assert result["details"]["one_referral_codes"] is True
     assert result["details"]["feed_events"] is True
-
-    first_sql = str(conn.execute.call_args_list[0].args[0])
-    assert "pg_advisory_xact_lock" in first_sql
+    assert result["details"]["account_deletion_tombstone"] is True
+    assert result["details"]["firebase_cleanup_intent_count"] == 1
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "INSERT INTO account_deletion_tombstones" in executed_sql
+    assert executed_sql.count("INSERT INTO account_deletion_tombstones") == 1
+    first_insert_offset = next(
+        index
+        for index, call in enumerate(conn.execute.call_args_list)
+        if "INSERT INTO account_deletion_tombstones" in str(call.args[0])
+    )
+    pre_insert_sql = "\n".join(
+        str(call.args[0]) for call in conn.execute.call_args_list[:first_insert_offset]
+    )
+    assert first_insert_offset == 3
+    assert pre_insert_sql.count("pg_advisory_xact_lock") == 3
+    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_delete_123"}
+    first_delete_offset = executed_sql.index("DELETE FROM")
+    assert executed_sql.index("INSERT INTO account_deletion_tombstones") < first_delete_offset
     expected_fragments = [
         "DELETE FROM contact_sync_lookup_budgets",
         "DELETE FROM kai_funding_trade_events",
@@ -87,11 +210,27 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM kai_gmail_receipts",
         "DELETE FROM kai_gmail_sync_runs",
         "DELETE FROM kai_gmail_connections",
+        "DELETE FROM kai_analyze_runs",
         "DELETE FROM consent_export_refresh_jobs",
         "DELETE FROM consent_exports",
         "DELETE FROM connected_system_audit_events",
         "DELETE FROM connected_system_record_bindings",
         "DELETE FROM connected_system_intents",
+        "DELETE FROM connected_system_owner_signing_keys",
+        "DELETE FROM connected_system_zk_contexts",
+        "DELETE FROM fabric_consent_requests",
+        "DELETE FROM fabric_subscription_grants",
+        "DELETE FROM pwm_documents",
+        "DELETE FROM marketplace_delivery_envelopes",
+        "DELETE FROM marketplace_access_requests",
+        "DELETE FROM marketplace_recipient_keys",
+        "DELETE FROM marketplace_opportunity_signals",
+        "DELETE FROM one_referral_risk_reviews",
+        "DELETE FROM one_referral_events",
+        "DELETE FROM one_referral_relationships",
+        "DELETE FROM one_referral_attributions",
+        "DELETE FROM one_referral_codes",
+        "DELETE FROM one_agent_engagement_sessions",
         "DELETE FROM trusted_device_challenges",
         "DELETE FROM trusted_device_authorizations",
         "DELETE FROM trusted_device_audit_events",
@@ -111,10 +250,15 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM marketplace_public_profiles",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_auto_approve_preferences",
+        "DELETE FROM one_location_visibility_exclusions",
+        "DELETE FROM one_location_visibility_preferences",
+        "DELETE FROM one_location_map_preferences",
+        "DELETE FROM one_location_network_connections",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
         "DELETE FROM one_location_referrals",
+        "DELETE FROM kai_location_referrals",
         "DELETE FROM one_location_public_invite_submissions",
         "DELETE FROM one_location_public_invites",
         "DELETE FROM one_location_circle_invites",
@@ -132,6 +276,15 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
         "DELETE FROM one_location_recipient_keys",
         "DELETE FROM one_wallet_cards",
         "DELETE FROM feed_events",
+        "DELETE FROM ria_pick_legacy_retirements",
+        "DELETE FROM developer_oauth_tokens",
+        "DELETE FROM developer_oauth_authorizations",
+        "DELETE FROM developer_oauth_audit_events",
+        "DELETE FROM developer_applications",
+        "DELETE FROM developer_apps",
+        "DELETE FROM byoc_setup_jobs",
+        "DELETE FROM pod_lifecycle_events",
+        "DELETE FROM personal_agent_registry",
         "DELETE FROM actor_verified_email_aliases",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM runtime_persona_state",
@@ -141,6 +294,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     ]
     for fragment in expected_fragments:
         assert fragment in executed_sql
+    assert "DELETE FROM fabric_receipts" not in executed_sql
 
     assert executed_sql.index("DELETE FROM actor_profiles") < executed_sql.index(
         "DELETE FROM vault_key_wrappers"
@@ -196,6 +350,425 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
     assert executed_sql.index("DELETE FROM feed_events") < executed_sql.index(
         "DELETE FROM actor_profiles"
     )
+    assert executed_sql.index("DELETE FROM ria_pick_legacy_retirements") < executed_sql.index(
+        "DELETE FROM actor_profiles"
+    )
+    assert executed_sql.index("DELETE FROM developer_oauth_tokens") < executed_sql.index(
+        "DELETE FROM developer_oauth_authorizations"
+    )
+    assert executed_sql.index("DELETE FROM developer_applications") < executed_sql.index(
+        "DELETE FROM developer_apps"
+    )
+    assert executed_sql.index("DELETE FROM fabric_consent_requests") < executed_sql.index(
+        "DELETE FROM fabric_subscription_grants"
+    )
+    assert executed_sql.index("DELETE FROM fabric_subscription_grants") < executed_sql.index(
+        "DELETE FROM pwm_documents"
+    )
+    assert executed_sql.index("DELETE FROM marketplace_delivery_envelopes") < (
+        executed_sql.index("DELETE FROM marketplace_access_requests")
+    )
+    assert executed_sql.index("DELETE FROM marketplace_access_requests") < (
+        executed_sql.index("DELETE FROM marketplace_recipient_keys")
+    )
+    assert executed_sql.index("DELETE FROM one_referral_risk_reviews") < (
+        executed_sql.index("DELETE FROM one_referral_events")
+    )
+    assert executed_sql.index("DELETE FROM one_referral_events") < (
+        executed_sql.index("DELETE FROM one_referral_relationships")
+    )
+    assert executed_sql.index("DELETE FROM one_referral_relationships") < (
+        executed_sql.index("DELETE FROM one_referral_attributions")
+    )
+    assert executed_sql.index("DELETE FROM one_referral_attributions") < (
+        executed_sql.index("DELETE FROM one_referral_codes")
+    )
+    assert executed_sql.index("DELETE FROM one_referral_codes") < (
+        executed_sql.index("DELETE FROM actor_profiles")
+    )
+    assert executed_sql.index("DELETE FROM byoc_setup_jobs") < executed_sql.index(
+        "DELETE FROM pod_lifecycle_events"
+    )
+    assert executed_sql.index("DELETE FROM pod_lifecycle_events") < executed_sql.index(
+        "DELETE FROM personal_agent_registry"
+    )
+    assert executed_sql.index("DELETE FROM one_location_visibility_exclusions") < (
+        executed_sql.index("DELETE FROM one_location_visibility_preferences")
+    )
+
+
+def _mapped_result(row):
+    result = MagicMock()
+    result.mappings.return_value.first.return_value = row
+    return result
+
+
+def test_personal_agent_cleanup_blocks_provisioned_registry_and_byoc_without_partial_delete(
+    monkeypatch,
+):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    conn.execute.side_effect = [
+        _mapped_result(
+            {
+                "registry": {
+                    "hushh_id": "hussh_opaque_123",
+                    "backend": "gcp",
+                    "external_agent_id": "agent-123",
+                    "deployment_target": "user_gcp",
+                    "region": "us-central1",
+                    "space_id": "space-123",
+                    "user_cloud_project": "customer-project-123",
+                    "user_cloud_region": "us-central1",
+                    "user_cloud_bootstrap_sa": "bootstrap@example.iam.gserviceaccount.com",
+                    "phone_e164_hash": "must-not-be-retained",
+                    "pod_pubkey": "must-not-be-retained",
+                }
+            }
+        ),
+        _mapped_result(
+            {
+                "job": {
+                    "job_id": "job-123",
+                    "project_id": "customer-project-123",
+                    "status": "running",
+                    "error_message": "must-not-be-retained",
+                }
+            }
+        ),
+        _mapped_result({"present": True}),
+        _mapped_result(None),
+    ]
+
+    with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+        service._delete_personal_agent_state(
+            conn,
+            params={"user_id": "user-123"},
+            results={},
+        )
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    assert not any("INSERT INTO personal_agent_deletion_tombstones" in sql for sql in executed_sql)
+    assert not any("DELETE FROM" in sql for sql in executed_sql)
+
+
+def test_personal_agent_cleanup_erases_only_demonstrably_unprovisioned_state(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    present = {"personal_agent_registry", "pod_lifecycle_events"}
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda _conn, table_name: table_name in present,
+    )
+    conn.execute.side_effect = [
+        _mapped_result(
+            {
+                "registry": {
+                    "hushh_id": "hussh_opaque_123",
+                    "status": "unprovisioned",
+                }
+            }
+        ),
+        _mapped_result(None),
+        MagicMock(),
+        MagicMock(),
+    ]
+    results: dict[str, bool] = {}
+
+    service._delete_personal_agent_state(
+        conn,
+        params={"user_id": "user-123"},
+        results=results,
+    )
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    lifecycle_delete_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM pod_lifecycle_events" in sql
+    )
+    registry_delete_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "DELETE FROM personal_agent_registry" in sql
+    )
+    assert lifecycle_delete_index < registry_delete_index
+    assert not any("personal_agent_deletion_tombstones" in sql for sql in executed_sql)
+    assert all(results.values())
+
+
+def test_personal_agent_cleanup_fails_closed_for_stale_external_coordinates(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    present = {"personal_agent_registry"}
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda _conn, table_name: table_name in present,
+    )
+    conn.execute.return_value = _mapped_result(
+        {
+            "registry": {
+                "hushh_id": "hussh_opaque_123",
+                "status": "unprovisioned",
+                "space_id": "stale-external-space-123",
+            }
+        }
+    )
+
+    with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+        service._delete_personal_agent_state(
+            conn,
+            params={"user_id": "user-123"},
+            results={},
+        )
+
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM" not in executed_sql
+
+
+def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: False)
+    results: dict[str, bool] = {}
+
+    service._delete_personal_agent_state(
+        conn,
+        params={"user_id": "user-123"},
+        results=results,
+    )
+
+    conn.execute.assert_not_called()
+    assert results == {
+        "byoc_setup_jobs": True,
+        "pod_lifecycle_events": True,
+        "personal_agent_registry": True,
+        "personal_agent_external_resources_absent": True,
+    }
+
+
+def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    conn.execute.side_effect = [
+        _mapped_result(None),
+        _mapped_result({"job": {"job_id": "job-123", "project_id": "project-123"}}),
+        _mapped_result(None),
+    ]
+
+    with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+        service._delete_personal_agent_state(
+            conn,
+            params={"user_id": "user-123"},
+            results={},
+        )
+
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM" not in executed_sql
+
+
+def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    present = {"personal_agent_registry", "pod_lifecycle_events"}
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda _conn, table_name: table_name in present,
+    )
+    conn.execute.side_effect = [
+        _mapped_result(None),
+        _mapped_result({"present": True}),
+    ]
+
+    with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+        service._delete_personal_agent_state(
+            conn,
+            params={"user_id": "user-123"},
+            results={},
+        )
+
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM" not in executed_sql
+
+
+def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending(
+    monkeypatch,
+):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    conn.execute.side_effect = [
+        _mapped_result(
+            {
+                "registry": {
+                    "hushh_id": "hussh_opaque_123",
+                    "status": "unprovisioned",
+                }
+            }
+        ),
+        _mapped_result(None),
+        _mapped_result(None),
+        _mapped_result((True,)),
+    ]
+
+    with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+        service._delete_personal_agent_state(
+            conn,
+            params={"user_id": "user-123"},
+            results={},
+        )
+
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "INSERT INTO personal_agent_deletion_tombstones" not in executed_sql
+    assert "DELETE FROM" not in executed_sql
+
+
+@pytest.mark.asyncio
+async def test_full_account_delete_returns_stable_external_resource_block_without_deletes(
+    monkeypatch,
+):
+    service = AccountService()
+    conn = MagicMock()
+    present = {"personal_agent_registry"}
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda _conn, table_name: table_name in present,
+    )
+    conn.execute.return_value = _mapped_result(
+        {
+            "registry": {
+                "hushh_id": "hussh_opaque_123",
+                "status": "provisioned",
+                "external_agent_id": "agent-123",
+            }
+        }
+    )
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service."
+        "AccountDeletionLifecycleService.record_pending_many_in_transaction",
+        lambda _conn, *, user_ids: tuple(user_ids),
+    )
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service._delete_full_account("user-123", requested_target="both")
+
+    assert result["success"] is False
+    assert result["account_deleted"] is False
+    assert result["error_code"] == PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
+    assert "private agent or cloud setup" in result["message"]
+    executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
+    assert "DELETE FROM" not in executed_sql
+
+
+def test_live_erasure_catalog_is_documented_and_has_explicit_predicates():
+    service = AccountService()
+    contract = json.loads(
+        (REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    documented_tables = {
+        table_name
+        for family in contract["table_families"]
+        for table_name in family.get("exact_tables", [])
+    }
+
+    assert TRANSACTIONAL_ACCOUNT_ERASURE_TABLES <= documented_tables
+    assert TRANSACTIONAL_ACCOUNT_ERASURE_TABLES <= service._delete_by_user_queries.keys()
+    visibility_exclusions_sql = str(
+        service._delete_by_user_queries["one_location_visibility_exclusions"]
+    )
+    kai_referrals_sql = str(service._delete_by_user_queries["kai_location_referrals"])
+    assert "owner_user_id = :user_id" in visibility_exclusions_sql
+    assert "excluded_user_id = :user_id" in visibility_exclusions_sql
+    assert "owner_user_id = :user_id" in kai_referrals_sql
+    assert "referrer_user_id = :user_id" in kai_referrals_sql
+    assert "candidate_user_id = :user_id" in kai_referrals_sql
+    assert "hushh_tech_link_events" not in service._delete_by_user_queries
+
+
+def test_one_referral_cleanup_fails_closed_on_partial_migration_shape(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    present = {
+        "one_referral_relationships",
+        "one_referral_attributions",
+        "one_referral_codes",
+    }
+    monkeypatch.setattr(
+        service,
+        "_table_exists",
+        lambda _conn, table_name: table_name in present,
+    )
+
+    with pytest.raises(RuntimeError, match="incomplete migration-165 referral schema"):
+        service._delete_one_referral_graph(
+            conn,
+            params={"user_id": "referral-user"},
+            results={},
+        )
+
+    conn.execute.assert_not_called()
+
+
+def test_one_referral_cleanup_removes_cross_account_links_before_attribution(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+    results: dict[str, bool] = {}
+
+    service._delete_one_referral_graph(
+        conn,
+        params={"user_id": "referred-user"},
+        results=results,
+    )
+
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    relationships_sql = next(
+        sql for sql in executed_sql if "DELETE FROM one_referral_relationships" in sql
+    )
+    attributions_sql = next(
+        sql for sql in executed_sql if "DELETE FROM one_referral_attributions" in sql
+    )
+    assert "relationship.referrer_user_id = :user_id" in relationships_sql
+    assert "relationship.referred_user_id = :user_id" in relationships_sql
+    assert "attribution.bound_user_id = :user_id" in relationships_sql
+    assert "referral_code.owner_user_id = :user_id" in relationships_sql
+    assert "attribution.bound_user_id = :user_id" in attributions_sql
+    assert executed_sql.index(relationships_sql) < executed_sql.index(attributions_sql)
+    assert all(results.values())
+
+
+@pytest.mark.asyncio
+async def test_ria_persona_delete_removes_restricting_legacy_retirement_first(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
+
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        result = await service._delete_ria_persona(
+            user_id="ria_user",
+            remaining_personas=["investor"],
+            investor_marketplace_opt_in=False,
+            requested_target="ria",
+        )
+
+    assert result["success"] is True
+    assert result["details"]["ria_pick_legacy_retirements"] is True
+    executed_sql = [str(call.args[0]) for call in conn.execute.call_args_list]
+    retirement_index = next(
+        index
+        for index, sql in enumerate(executed_sql)
+        if "DELETE FROM ria_pick_legacy_retirements" in sql
+    )
+    profile_index = next(
+        index for index, sql in enumerate(executed_sql) if "DELETE FROM ria_profiles" in sql
+    )
+    assert retirement_index < profile_index
 
 
 def test_fetch_optional_many_rows_returns_empty_when_table_missing(monkeypatch):
@@ -248,11 +821,17 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     assert result["account_reset"] is True
     assert result["details"]["one_location_circle_member_invites"] is True
     assert result["details"]["one_location_auto_approve_preferences"] is True
+    assert result["details"]["one_location_map_preferences"] is True
+    assert result["details"]["one_location_network_connections"] is True
     assert result["details"]["connection_origins"] is True
     assert result["details"]["feed_events"] is True
+    assert result["details"]["pwm_documents"] is True
+    assert result["details"]["fabric_subscription_grants"] is True
+    assert result["details"]["marketplace_access_requests"] is True
 
     first_sql = str(conn.execute.call_args_list[0].args[0])
     assert "pg_advisory_xact_lock" in first_sql
+    assert conn.execute.call_args_list[0].args[1] == {"lock_key": "fabric_receipts:user_reset_123"}
 
     executed_sql = "\n".join(str(call.args[0]) for call in conn.execute.call_args_list)
 
@@ -263,6 +842,15 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM pkm_events",
         "DELETE FROM pkm_blobs",
         "DELETE FROM connected_system_intents",
+        "DELETE FROM connected_system_owner_signing_keys",
+        "DELETE FROM connected_system_zk_contexts",
+        "DELETE FROM fabric_consent_requests",
+        "DELETE FROM fabric_subscription_grants",
+        "DELETE FROM pwm_documents",
+        "DELETE FROM marketplace_delivery_envelopes",
+        "DELETE FROM marketplace_access_requests",
+        "DELETE FROM marketplace_recipient_keys",
+        "DELETE FROM marketplace_opportunity_signals",
         "DELETE FROM trusted_device_challenges",
         "DELETE FROM trusted_device_authorizations",
         "DELETE FROM trusted_device_audit_events",
@@ -270,6 +858,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
         "DELETE FROM consent_audit",
         "DELETE FROM one_kyc_workflows",
         "DELETE FROM one_location_auto_approve_preferences",
+        "DELETE FROM one_location_map_preferences",
+        "DELETE FROM one_location_network_connections",
         "DELETE FROM one_location_events",
         "DELETE FROM one_location_nearby_presences",
         "DELETE FROM one_location_sms_contacts",
@@ -285,6 +875,7 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
     ]
     for fragment in cleared_fragments:
         assert fragment in executed_sql
+    assert "DELETE FROM fabric_receipts" not in executed_sql
 
     assert executed_sql.index("DELETE FROM one_location_recipient_keys") < (
         executed_sql.index("DELETE FROM feed_events")
@@ -622,6 +1213,19 @@ async def test_full_account_deletion_demotes_system_circle_before_deleting_it(mo
     service = AccountService()
     monkeypatch.setattr(service, "_table_exists", lambda _conn, _table: True)
     monkeypatch.setattr(service, "_column_exists", lambda _conn, _table, _column: True)
+
+    def _skip_personal_agent_state(_conn, *, params, results):
+        del _conn, params
+        results.update(
+            {
+                "byoc_setup_jobs": True,
+                "pod_lifecycle_events": True,
+                "personal_agent_registry": True,
+                "personal_agent_external_resources_absent": True,
+            }
+        )
+
+    monkeypatch.setattr(service, "_delete_personal_agent_state", _skip_personal_agent_state)
 
     conn = _owned_circle_conn(
         monkeypatch,

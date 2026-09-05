@@ -202,6 +202,10 @@ class VaultKeysService:
     def _normalize_int_ms_or_none(value: Any) -> Optional[int]:
         if value is None:
             return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @staticmethod
     def _normalize_one_runtime_setup_choice(value: Any) -> Optional[str]:
@@ -209,10 +213,6 @@ class VaultKeysService:
             return None
         normalized = str(value).strip()
         return normalized if normalized in ONE_RUNTIME_SETUP_CHOICES else None
-        try:
-            return int(value)
-        except (TypeError, ValueError):
-            return None
 
     @staticmethod
     def _now_ms() -> int:

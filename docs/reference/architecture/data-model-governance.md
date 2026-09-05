@@ -56,6 +56,64 @@ Before a migration is production-ready:
 
 New tables should reference `actor_profiles` unless the table is specifically about vault status, vault wrappers, or encrypted key-boundary state. Do not expand `vault_keys` into a generic user model.
 
+### Deleted-account write guard
+
+Migration 201 keeps a non-reversible SHA-256 UID tombstone and installs database guards on every current public table with a persisted scalar identity column named `user_id`, `*_user_id`, `user_<role>_id`, `firebase_uid`, or `*_firebase_uid`. This includes both ownership columns and counterpart references in relationship rows. The live parked `consent_audit_receipts.subject_id` column is an explicit audited override because migration 904 defines it as the raw Firebase/account consent subject; the generic `subject_id` name is not inferred for any other table because it may be polymorphic. `account_deletion_tombstones` itself, opaque JSON/arrays, and the separate synthetic `legacy_user_uuid` namespace are intentionally excluded.
+
+The same versioned guard transactionally backfills and maintains
+`account_identity_presence`, a monotonic hash-only registry with no raw UID or
+payload. Exact phone-session cleanup validates the complete live guard catalog,
+then uses this table's primary key for one negative lookup. It must not probe
+every user table at request time: several high-growth identity columns are not
+individually indexed, and a catalog-wide absent-UID scan would turn a safety
+check into an availability failure. A UID ever seen in guarded state remains
+ineligible for automatic phone-orphan deletion even if that state is later
+removed.
+
+The guard rejects every insert that references a tombstoned UID. On update it
+allows an unchanged identity and a guarded `NULL`-to-identity binding, but a
+non-NULL identity reference cannot be re-parented. Identity-to-`NULL` is allowed
+only when the old UID's tombstone is already visible, which preserves
+PostgreSQL `ON DELETE SET NULL` cleanup inside account erasure without letting
+an ordinary writer detach private payload out from under a concurrent delete.
+Account-deletion cleanup can still revoke or demote non-identity fields before
+deleting a row. Guarded runtime writes must use PostgreSQL `READ COMMITTED`;
+higher transaction isolation is rejected because its old transaction snapshot
+could miss a tombstone that committed while the writer waited for the deletion
+lock.
+
+The reviewed identity `ON DELETE SET NULL` inventory is intentionally small:
+`ria_client_invites.target_investor_user_id`,
+`ria_client_invites.accepted_by_user_id`,
+`kai_funding_reconciliation_runs.user_id`, `one_kyc_workflows.user_id`, and
+`one_referral_attributions.bound_user_id`. Full deletion removes these rows
+before either account root; the trigger's tombstone-visible `SET NULL` branch
+also preserves legacy/root-driven cascades. Reviewed runtime assignments bind
+previously-null referral/OAuth subjects, while Plaid conflict updates repeat
+the same owning UID. A new ownership-transfer or identity-detach workflow must
+not ship by relying on the generic trigger: update this inventory and design an
+explicit deletion-safe transfer protocol first.
+
+Migration 201 also installs a DDL event trigger that reruns
+`install_account_deletion_write_guards()` after relevant `CREATE TABLE` and
+`ALTER TABLE` commands, including legacy runtime table bootstraps. Later
+migrations should still call the installer explicitly after adding or renaming
+a matching identity column so intent is visible in review. The installer is
+catalog-driven and idempotent: it updates only tables whose audited trigger
+signature changed, so ordinary migration replay does not lock every account
+table. Do not add a runtime bypass, attach the guard to the tombstone table, or
+hide an account UID in JSON to avoid this contract. Schema rollback is
+forbidden once a tombstone exists and otherwise requires a write freeze.
+
+Each inserted row pays one configured-field extraction, shared advisory lock,
+indexed tombstone lookup, and indexed presence check per distinct UID. Only the
+first sighting inserts a presence marker, avoiding repeated unique-index writes
+for high-volume per-user streams. Ordinary status/content updates pay no
+trigger cost unless they set an identity column. Same-UID writers share the
+advisory lock; only deletion takes the conflicting exclusive lock. Benchmark
+bulk-ingest changes to high-growth chat, PKM, and audit/event tables, but do not
+trade away the database guard for throughput.
+
 ## PKM, Cache, Workflow, And Analytics Boundaries
 
 - Durable personal memory belongs in encrypted PKM.

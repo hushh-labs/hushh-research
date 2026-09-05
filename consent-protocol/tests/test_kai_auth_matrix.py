@@ -30,6 +30,9 @@ def client() -> TestClient:
 @pytest.fixture(autouse=True)
 def active_fixture_vault_owner_grants(monkeypatch):
     """Route-matrix tokens are issued locally; model their DB grant as active."""
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
     from hushh_mcp.services.consent_db import ConsentDBService
 
     async def _active(
@@ -43,6 +46,9 @@ def active_fixture_vault_owner_grants(monkeypatch):
         return True
 
     monkeypatch.setattr(ConsentDBService, "is_token_active", _active)
+    # These locally issued capabilities belong to live fixture accounts. Keep
+    # real signature/scope/owner enforcement and stub only the DB lifecycle read.
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", lambda _uid: False)
 
 
 def _auth(token: str) -> dict[str, str]:
