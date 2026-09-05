@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import os
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
@@ -87,6 +90,52 @@ def test_uat_backend_deploy_consumes_the_pinned_digest_without_rebuilding() -> N
         (ROOT / "deploy" / "backend-image.cloudbuild.yaml").read_text(encoding="utf-8")
     )
     assert image_build["timeout"] == "1800s"
+
+
+@pytest.mark.parametrize(
+    ("skip_build", "image_reference", "expected_code", "expected_message"),
+    [
+        ("true", "example.invalid/backend@sha256:" + "a" * 64, 0, "Using prebuilt"),
+        ("true", "", 1, "requires an immutable _IMAGE_REFERENCE digest"),
+        ("true", "example.invalid/backend:latest", 1, "requires an immutable"),
+        ("invalid", "example.invalid/backend@sha256:" + "a" * 64, 1, "must be true or false"),
+    ],
+)
+def test_prebuilt_backend_step_runs_without_substitution_environment(
+    skip_build: str, image_reference: str, expected_code: int, expected_message: str
+) -> None:
+    cloudbuild = yaml.safe_load(
+        (ROOT / "deploy" / "backend.cloudbuild.yaml").read_text(encoding="utf-8")
+    )
+    step = next(step for step in cloudbuild["steps"] if step["id"] == "build-backend-image")
+    assert step["entrypoint"] == "bash"
+    assert step["args"][0] == "-c"
+    # Cloud Build replaces simple substitutions; it does not export them as shell
+    # variables. Leave Bash parameter operators untouched to exercise strict mode.
+    script = step["args"][1].replace("${_SKIP_IMAGE_BUILD}", skip_build)
+    script = script.replace("${_IMAGE_REFERENCE}", image_reference)
+    environment = os.environ.copy()
+    environment.pop("_SKIP_IMAGE_BUILD", None)
+    environment.pop("_IMAGE_REFERENCE", None)
+    # Never build or touch cloud resources if the production step regresses.
+    guards = (
+        "docker() { echo UNEXPECTED_BUILD_COMMAND >&2; return 95; }; "
+        "gcloud() { echo UNEXPECTED_CLOUD_COMMAND >&2; return 96; };\n"
+    )
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required to verify the Cloud Build runtime contract"
+    result = subprocess.run(  # noqa: S603 - trusted repo script, fixed inputs, guarded commands
+        [bash, "-c", guards + script],
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+    output = result.stdout + result.stderr
+    assert result.returncode == expected_code, output
+    assert expected_message in output
+    assert "UNEXPECTED_" not in output
 
 
 def test_uat_activation_retires_legacy_revisions_before_removing_fence() -> None:
