@@ -25,51 +25,52 @@ describe("One Location settings placement", () => {
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
-  it("offers Ask for location inside the compact Now actions", () => {
-    // Request location is an action, not status or utility. The compact Now
-    // tab shows Ask, Check in, SMS, count-backed Activity rows, and the quiet
-    // More rows without dashboard section labels or the old active-shares row.
+  it("keeps Now private-first with More actions behind the shared action menu", () => {
+    // Now answers who can see the user first. Extra actions still exist, but
+    // they sit behind one quiet More actions row instead of a dashboard grid.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
-    expect(nowSource).toContain('data-testid="one-location-now-actions"');
-    expect(nowSource).toContain('testId: "one-location-request-row"');
-    expect(nowSource).toContain('title: "Ask for location"');
-    expect(nowSource).toContain('title: "Save My Soul"');
+    expect(nowSource).toContain("LocationNowStatePanel");
+    expect(nowSource).toContain('"Private"');
+    expect(nowSource).toContain('"No one can see your location"');
+    expect(nowSource).toContain('"Share only when you choose."');
+    expect(nowSource).toContain('"Share my location"');
+    expect(nowSource).toContain('data-testid="one-location-request-row"');
+    expect(nowSource).toContain('label="More actions"');
+    expect(nowSource).toContain('id: "arrival-confirm"');
+    expect(nowSource).toContain('label: "Save My Soul"');
 
-    const actionsIndex = nowSource.indexOf("LocationActionGrid");
-    const requestIndex = nowSource.indexOf('title: "Ask for location"');
+    const primaryIndex = nowSource.indexOf("LocationNowStatePanel");
+    const requestIndex = nowSource.indexOf("onRequestLocation={onRequestLocation}");
     const activityIndex = nowSource.indexOf("one-location-now-activity");
-    const moreIndex = nowSource.indexOf("one-location-now-more");
-    expect(actionsIndex).toBeGreaterThan(-1);
-    expect(requestIndex).toBeGreaterThan(actionsIndex);
+    expect(primaryIndex).toBeGreaterThan(-1);
+    expect(requestIndex).toBeGreaterThan(primaryIndex);
     expect(activityIndex).toBeGreaterThan(requestIndex);
-    expect(moreIndex).toBeGreaterThan(activityIndex);
-    expect(nowSource).toContain('title: "Map"');
-    expect(nowSource).toContain('title: "Settings"');
     expect(nowSource).not.toContain('title: "Active shares"');
+    expect(nowSource).not.toContain("LocationActionGrid");
     expect(nowSource).not.toContain("LocationNowGroupLabel");
 
     // Reuses the existing ask flow rather than introducing a second one, so
     // voice and the search bar keep naming a single control.
-    expect(nowSource).toContain('controlId: "one-location-action-ask"');
+    expect(nowSource).toContain('data-voice-control-id="one-location-action-ask"');
     expect(HUB_SOURCE).toContain('onRequestLocation={() => openFlow("ask")}');
   });
 
-  it("gives Ask for location an icon distinct from Share location", () => {
-    // These two actions are opposites -- give a location out, ask for one in.
-    // They sit in one grid now, so the glyphs must be distinct at a glance.
+  it("keeps Location unavailable as a dominant Now state, not a global tab warning", () => {
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
+    const hubStart = HUB_SOURCE.indexOf("/* Hub (Now | People | Links)");
+    const hubEnd = HUB_SOURCE.indexOf("<TopShellTabs", hubStart);
+    const headerSource = HUB_SOURCE.slice(hubStart, hubEnd);
 
-    const requestIndex = nowSource.indexOf('title: "Ask for location"');
-    const requestItem = nowSource.slice(requestIndex, requestIndex + 240);
-
-    expect(requestIndex).toBeGreaterThan(-1);
-    expect(requestItem).toContain('<LocationMenuGlyph name="ask"');
-    expect(nowSource).toContain('data-location-share-pulse-icon=""');
+    expect(nowSource).toContain('"Location unavailable"');
+    expect(nowSource).toContain('"Location access is off"');
+    expect(nowSource).toContain('"Turn it on to share your location."');
+    expect(nowSource).toContain('"Turn on Location"');
+    expect(headerSource).not.toContain("LocationPermissionRecoveryCard");
   });
 
   it("owns Saved Locations and does not duplicate it in Profile preferences", () => {

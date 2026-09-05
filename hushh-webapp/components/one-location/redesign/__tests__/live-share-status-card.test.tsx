@@ -163,7 +163,7 @@ describe("LiveShareStatusCard", () => {
     expect(screen.getByText("Different end times")).toBeTruthy();
   });
 
-  it("offers Stop for a single share and Manage for several", () => {
+  it("offers Stop sharing for a single share and Manage sharing for several", () => {
     const onStop = vi.fn();
     const onManage = vi.fn();
     const { rerender } = render(
@@ -174,7 +174,7 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
-    screen.getByRole("button", { name: "Stop" }).click();
+    screen.getByRole("button", { name: "Stop sharing" }).click();
     expect(onStop).toHaveBeenCalledTimes(1);
 
     rerender(
@@ -188,7 +188,7 @@ describe("LiveShareStatusCard", () => {
         onManage={onManage}
       />,
     );
-    screen.getByRole("button", { name: "Manage" }).click();
+    screen.getByRole("button", { name: "Manage sharing" }).click();
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 
@@ -209,12 +209,12 @@ describe("LiveShareStatusCard", () => {
 
     expect(screen.getByText("Sharing with Rohan Mehta")).toBeTruthy();
     expect(screen.getByText("2 active shares")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Stop" })).toBeNull();
-    screen.getByRole("button", { name: "Manage" }).click();
+    expect(screen.queryByRole("button", { name: "Stop sharing" })).toBeNull();
+    screen.getByRole("button", { name: "Manage sharing" }).click();
     expect(onManage).toHaveBeenCalledTimes(1);
   });
 
-  it("offers Change end time on a single share after the primary share action", () => {
+  it("offers Change time on a single share after the share-more action", () => {
     // The reported bug: a 30-minute share could be stopped and nothing else.
     // The control has to be there, but the compact Now card keeps it below the
     // primary "Share with more" CTA instead of exposing the duration editor on
@@ -230,7 +230,7 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
-    const change = screen.getByRole("button", { name: "Change end time" });
+    const change = screen.getByRole("button", { name: "Change time" });
     change.click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
     expect(onChangeDuration).toHaveBeenCalledWith(change);
@@ -274,11 +274,11 @@ describe("LiveShareStatusCard", () => {
     expect(
       screen.queryByRole("button", { name: "Your live location share" }),
     ).toBeNull();
-    fireEvent.keyDown(screen.getByRole("button", { name: "Stop" }), {
+    fireEvent.keyDown(screen.getByRole("button", { name: "Stop sharing" }), {
       key: "Enter",
     });
     fireEvent.keyDown(
-      screen.getByRole("button", { name: "Change end time" }),
+      screen.getByRole("button", { name: "Change time" }),
       {
         key: " ",
       },
@@ -290,7 +290,7 @@ describe("LiveShareStatusCard", () => {
     expect(onManage).not.toHaveBeenCalled();
   });
 
-  it("hides Change end time when there is no single share to change", () => {
+  it("hides Change time when there is no single share to change", () => {
     // Same gate as Stop. With three shares running "change the time" has no
     // referent, and the card must not offer to act on an unnamed one.
     render(
@@ -306,7 +306,7 @@ describe("LiveShareStatusCard", () => {
     );
 
     expect(
-      screen.queryByRole("button", { name: "Change end time" }),
+      screen.queryByRole("button", { name: "Change time" }),
     ).toBeNull();
     expect(screen.getByText("Different end times")).toBeTruthy();
   });
@@ -342,7 +342,7 @@ describe("LiveShareStatusCard", () => {
     expect(screen.getByText(/^All end at /)).toBeTruthy();
   });
 
-  it("offers Set an end time on an open-ended ordinary share", () => {
+  it("offers Set end time on an open-ended ordinary share", () => {
     // "Until you stop" is the footer here, not an end time. The action still
     // belongs: giving an open share a finite end is exactly a time change.
     const onChangeDuration = vi.fn();
@@ -355,7 +355,7 @@ describe("LiveShareStatusCard", () => {
       />,
     );
 
-    screen.getByRole("button", { name: "Set an end time" }).click();
+    screen.getByRole("button", { name: "Set end time" }).click();
     expect(onChangeDuration).toHaveBeenCalledTimes(1);
     expect(screen.getByText("Until you stop")).toBeTruthy();
   });
