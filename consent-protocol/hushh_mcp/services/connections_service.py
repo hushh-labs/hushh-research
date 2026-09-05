@@ -196,6 +196,44 @@ def _default_notifier(
     )
 
 
+def _default_cancel_notifier(
+    *,
+    addressee_user_id: str,
+    requester_user_id: str,
+    connection_request_id: str | None = None,
+) -> None:
+    from hushh_mcp.services.push_notifications import send_connection_request_cancelled_push
+
+    send_connection_request_cancelled_push(
+        addressee_user_id,
+        requester_user_id,
+        connection_request_id=connection_request_id,
+    )
+
+
+def _default_resolution_notifier(
+    *,
+    requester_user_id: str,
+    resolver_user_id: str,
+    accepted: bool,
+    connection_request_id: str | None = None,
+) -> None:
+    """Best-effort push telling the requester their request was resolved.
+
+    `accept_request`/`reject_request` had no notifier call at all before this
+    -- the requester's only signal was an unpushed Feed row, so they learned
+    the outcome from the Feed's foreground poll (45s) or their next app open.
+    """
+    from hushh_mcp.services.push_notifications import send_connection_request_resolved_push
+
+    send_connection_request_resolved_push(
+        requester_user_id,
+        resolver_user_id,
+        accepted=accepted,
+        connection_request_id=connection_request_id,
+    )
+
+
 def _default_scope_entries_lookup(owner_user_id: str) -> list[dict[str, Any]]:
     """Read discoverable scope metadata only; never materialized information."""
     from hushh_mcp.consent.scope_generator import DynamicScopeGenerator
@@ -212,12 +250,20 @@ class ConnectionsService:
         directory_visible: Callable[[str, str], bool] | None = None,
         scope_entries_lookup: Callable[[str], list[dict[str, Any]]] | None = None,
         notifier: Callable[..., Any] | None = None,
+        cancel_notifier: Callable[..., Any] | None = None,
+        resolution_notifier: Callable[..., Any] | None = None,
     ) -> None:
         self._directory_lookup = directory_lookup or _default_directory_lookup
         self._directory_search = directory_search or _default_directory_search
         self._directory_visible = directory_visible or _default_directory_visible
         self._scope_entries_lookup = scope_entries_lookup or _default_scope_entries_lookup
         self._notifier = notifier if notifier is not None else _default_notifier
+        self._cancel_notifier = (
+            cancel_notifier if cancel_notifier is not None else _default_cancel_notifier
+        )
+        self._resolution_notifier = (
+            resolution_notifier if resolution_notifier is not None else _default_resolution_notifier
+        )
 
     # ---- DB seam ----
     def _execute_one(self, sql: str, params: dict[str, Any] | None = None) -> dict[str, Any] | None:
@@ -1459,6 +1505,58 @@ class ConnectionsService:
         except Exception as exc:  # noqa: BLE001
             logger.warning("connections.notify_failed error=%s", exc)
 
+    def _notify_request_cancelled(
+        self,
+        addressee_user_id: str,
+        requester_user_id: str,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) addressee nudge when a request is withdrawn.
+
+        Never raises, and always called after the transaction commits -- a
+        broken notifier must never unwind the cancellation itself.
+        """
+        notifier = getattr(self, "_cancel_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                addressee_user_id=addressee_user_id,
+                requester_user_id=requester_user_id,
+                connection_request_id=str(connection_request_id or "").strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_cancelled_failed error=%s", exc)
+
+    def _notify_request_resolved(
+        self,
+        requester_user_id: str,
+        resolver_user_id: str,
+        *,
+        accepted: bool,
+        connection_request_id: str | None = None,
+    ) -> None:
+        """Fire the (best-effort) requester nudge once accept/reject commits.
+
+        Same shape as `_notify_new_request`: called AFTER the transaction
+        commits (never inside it -- push is best-effort and must not become a
+        reason the mutation itself can fail or roll back), never raises, and
+        resolves the resolver's display name lazily inside the notifier so
+        this stays a cheap call on the response path.
+        """
+        notifier = getattr(self, "_resolution_notifier", None)
+        if notifier is None:
+            return
+        try:
+            notifier(
+                requester_user_id=requester_user_id,
+                resolver_user_id=resolver_user_id,
+                accepted=accepted,
+                connection_request_id=str(connection_request_id or "").strip() or None,
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("connections.notify_resolved_failed error=%s", exc)
+
     def _load_request(self, request_id: str, *, for_update: bool = False) -> dict[str, Any]:
         lock_clause = " FOR UPDATE" if for_update else ""
         row = self._execute_one(
@@ -2310,6 +2408,17 @@ class ConnectionsService:
                     source_row_id=source_request_id,
                 )
 
+        # After commit, not inside the transaction: push is best-effort and
+        # must never be why an accept can fail or roll back. The requester
+        # (not `user_id`, who is the addressee doing the accepting) is who
+        # gets nudged -- this was missing entirely; see _notify_request_resolved.
+        self._notify_request_resolved(
+            requester,
+            user_id,
+            accepted=True,
+            connection_request_id=source_request_id,
+        )
+
         # Accepting a connection grants nothing on its own. Location sharing is
         # opt-in and one-directional: it starts only when a person explicitly
         # requests the other's location and that request is approved (see
@@ -2424,6 +2533,14 @@ class ConnectionsService:
                     event_type="connection_rejected",
                     source_row_id=source_request_id,
                 )
+        # After commit, not inside the transaction -- see accept_request's
+        # identical placement and rationale.
+        self._notify_request_resolved(
+            requester,
+            user_id,
+            accepted=False,
+            connection_request_id=source_request_id,
+        )
         return {"status": "rejected", "requestId": req.get("id")}
 
     def cancel_request(self, user_id: str, request_id: str) -> dict[str, Any]:
@@ -2478,7 +2595,7 @@ class ConnectionsService:
                 raise ConnectionsError(
                     "CONNECTION_NOT_REQUESTER", "Only the requester can cancel.", status_code=403
                 )
-            self._execute_one(
+            cancelled_row = self._execute_one(
                 """
                 UPDATE connection_requests
                 SET status = 'cancelled', responded_at = NOW(), updated_at = NOW()
@@ -2492,6 +2609,12 @@ class ConnectionsService:
                 status="declined",
                 actor_user_id=user_id,
                 reason="connection_cancelled",
+            )
+        if cancelled_row:
+            self._notify_request_cancelled(
+                str(req.get("addressee_user_id") or ""),
+                user_id,
+                connection_request_id=str(req.get("id") or ""),
             )
         return {"status": "cancelled", "requestId": req.get("id")}
 

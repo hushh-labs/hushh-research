@@ -102,7 +102,6 @@ import { ContactSourceBadge } from "@/components/connections/contact-source-badg
 import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { LOCATION_SEARCH_INPUT_CLASSNAME } from "@/components/one-location/redesign/selectors";
 import { relationshipCta } from "@/lib/connections/relationship-label";
-import { othersCountLabel } from "@/lib/one-location/circle-member-count";
 import { ActionMenu } from "@/components/app-ui/action-menu";
 import { cn } from "@/lib/utils";
 import {
@@ -156,13 +155,11 @@ function circleInitials(value: string): string {
 }
 
 /**
- * Subtitle for the "Your circles" list row, e.g. "2 members".
+ * Subtitle for the "Your circles" list row, e.g. "3 people".
  *
- * Counts OTHER members (everyone except the viewer) so it matches the Circle
- * Detail subtitle, which filters out the current user. The backend
- * `memberCount` includes the viewer — always a member of a circle shown in
- * their own list — so subtracting one yields the same number both places.
- * `Math.max(0, ...)` guards a transient zero.
+ * Counts everyone in the Circle, owner included — matching the Circle Detail
+ * subtitle, which does the same. The backend `memberCount` already includes
+ * the owner (they always hold a membership row), so this is the raw count.
  *
  * The kind used to lead this line — "Family · 0 members". Reported from QA:
  * the circle created during onboarding is filed under Family by default and
@@ -171,15 +168,10 @@ function circleInitials(value: string): string {
  * There are three kinds and nothing on this screen acts on any of them, so
  * the word was decoration in front of the fact. The count stands alone.
  */
-/** Re-exported so existing importers keep working; the rule itself now lives
- *  in `lib/one-location/circle-member-count`, because four other screens were
- *  rendering the raw server count and disagreeing with this one. */
-export { othersCountLabel };
-
 function circleListPeopleLabel(memberCount: number | null | undefined): string {
-  const others = Math.max(0, Number(memberCount || 0) - 1);
-  if (others <= 0) return "Only you";
-  return `${others} ${others === 1 ? "person" : "people"}`;
+  const count = Math.max(0, Number(memberCount || 0));
+  if (count <= 1) return "Only you";
+  return `${count} people`;
 }
 
 type CircleListGroupKey = "owned" | "joined";

@@ -2577,15 +2577,7 @@ function LocationDetailFlow({
 
   return (
     <div className="space-y-5" data-testid={`one-location-${kind}`}>
-      <TaskFlowHeader
-        eyebrow={
-          kind === "active-shares" || kind === "needs-review"
-            ? undefined
-            : "Location"
-        }
-        title={copy.title}
-        description={copy.description}
-      />
+      <TaskFlowHeader title={copy.title} description={copy.description} />
       {kind === "active-shares" ? (
         ownerGrantGroups.length ? (
           <SettingsGroup separatorInset>
@@ -5401,6 +5393,14 @@ function ShareFlow({
           ) : null}
           {notSharing.length ? (
             <SettingsGroup
+              title={
+                <span className="flex w-full items-center justify-between gap-4">
+                  <span>Not sharing</span>
+                  <span className="font-normal text-muted-foreground">
+                    {notSharing.length}
+                  </span>
+                </span>
+              }
               testId="one-location-share-people"
               separatorInset
               className="[&>div:first-child]:mt-0"

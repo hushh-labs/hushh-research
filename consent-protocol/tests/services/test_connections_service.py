@@ -910,6 +910,100 @@ def test_accept_creates_connection_and_two_trusted_edges():
     assert all("counterpart_user_id" not in params for _, params in feed_inserts)
 
 
+def test_accept_notifies_the_requester_not_the_acceptor():
+    """#6507: accept_request had no notifier call at all before this.
+
+    The nudge must go to the ORIGINAL requester (user-a), not the person who
+    just acted (user-b, the addressee) -- they already know what they did.
+    """
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [],  # no expired scope proposals
+            [],  # proposal review -> no scopes
+            [{"id": "conn-1"}],
+            [{"id": "tc-1"}],
+            [{"id": "tc-2"}],
+            [{"id": "req-1"}],
+        ]
+    )
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    calls = []
+    svc._resolution_notifier = lambda **kw: calls.append(kw)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.accept_request("user-b", "req-1")
+
+    assert calls == [
+        {
+            "requester_user_id": "user-a",
+            "resolver_user_id": "user-b",
+            "accepted": True,
+            "connection_request_id": "req-1",
+        }
+    ]
+
+
+def test_accept_does_not_notify_on_idempotent_replay():
+    """Re-accepting an already-accepted request must not fire a second push."""
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "accepted",
+    }
+    svc._proposal_items = lambda _request_id: []
+    calls = []
+    svc._resolution_notifier = lambda **kw: calls.append(kw)
+
+    svc.accept_request("user-b", "req-1")
+
+    assert calls == []
+
+
+def test_accept_resolution_notify_failure_does_not_break_the_write():
+    """A failing resolution notifier is swallowed; acceptance still succeeds."""
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [],
+            [],
+            [{"id": "conn-1"}],
+            [{"id": "tc-1"}],
+            [{"id": "tc-2"}],
+            [{"id": "req-1"}],
+        ]
+    )
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+
+    def _boom(**_kw):
+        raise RuntimeError("fcm down")
+
+    svc._resolution_notifier = _boom
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.accept_request("user-b", "req-1")
+
+    assert out["status"] == "accepted"
+    assert out["connectionId"] == "conn-1"
+
+
 def test_accept_request_never_imports_or_calls_location_service():
     """Structural guard against re-wiring auto-share into accept_request.
 
@@ -1095,6 +1189,96 @@ def test_cancel_marks_request_and_pending_scope_proposals_declined():
     }
 
 
+def test_cancel_notifies_the_addressee_not_the_requester():
+    # Cancelling used to write the DB and tell nobody -- the addressee's
+    # pending request just sat there, indistinguishable from one still
+    # awaiting a reply, until their next reconcile.
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [],
+            [],
+        ]
+    )
+    notify_calls: list[dict] = []
+    svc._cancel_notifier = lambda **kwargs: notify_calls.append(kwargs)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+    assert notify_calls == [
+        {
+            "addressee_user_id": "user-b",
+            "requester_user_id": "user-a",
+            "connection_request_id": "req-1",
+        }
+    ]
+
+
+def test_cancel_does_not_notify_when_the_request_was_already_resolved():
+    # A race: the addressee accepted/declined right before the cancel
+    # arrived, so the guarded UPDATE affects no row. Nothing to tell them.
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [],
+            [],
+            [],
+        ]
+    )
+    notify_calls: list[dict] = []
+    svc._cancel_notifier = lambda **kwargs: notify_calls.append(kwargs)
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        svc.cancel_request("user-a", "req-1")
+
+    assert notify_calls == []
+
+
+def test_cancel_notify_failure_does_not_break_the_write():
+    svc = _svc()
+    db = _RecordingDB(
+        [
+            [
+                {
+                    "id": "req-1",
+                    "requester_user_id": "user-a",
+                    "addressee_user_id": "user-b",
+                    "status": "pending",
+                }
+            ],
+            [{"id": "req-1"}],
+            [],
+            [],
+        ]
+    )
+
+    def _boom(**_kwargs):
+        raise RuntimeError("fcm is down")
+
+    svc._cancel_notifier = _boom
+    with patch("hushh_mcp.services.connections_service.get_db", lambda: db):
+        out = svc.cancel_request("user-a", "req-1")
+
+    assert out == {"status": "cancelled", "requestId": "req-1"}
+
+
 def test_reject_rejected_when_not_addressee():
     svc = _svc()
     db = _RecordingDB(
@@ -1206,6 +1390,79 @@ def test_reject_feed_projection_is_idempotent_and_omits_user_ids() -> None:
     assert len(feed_inserts) == 2
     assert {params["source_row_id"] for _, params in feed_inserts} == {"req-1"}
     assert all("counterpart_user_id" not in params for _, params in feed_inserts)
+
+
+def test_reject_notifies_the_requester_not_the_rejecter():
+    """#6507: reject_request had no notifier call at all before this."""
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    svc._execute_one = lambda _sql, _params=None: {"id": "req-1"}
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+    calls = []
+    svc._resolution_notifier = lambda **kw: calls.append(kw)
+
+    svc.reject_request("user-b", "req-1")
+
+    assert calls == [
+        {
+            "requester_user_id": "user-a",
+            "resolver_user_id": "user-b",
+            "accepted": False,
+            "connection_request_id": "req-1",
+        }
+    ]
+
+
+def test_reject_does_not_notify_on_idempotent_replay():
+    """Re-rejecting an already-rejected request must not fire a second push."""
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "rejected",
+    }
+    svc._execute_one = lambda *_args, **_kwargs: pytest.fail(
+        "an already-rejected request must not be mutated or projected"
+    )
+    calls = []
+    svc._resolution_notifier = lambda **kw: calls.append(kw)
+
+    svc.reject_request("user-b", "req-1")
+
+    assert calls == []
+
+
+def test_reject_resolution_notify_failure_does_not_break_the_write():
+    """A failing resolution notifier is swallowed; rejection still succeeds."""
+    svc = _svc()
+    svc._transaction = nullcontext
+    svc._load_request = lambda _request_id, *, for_update=False: {
+        "id": "req-1",
+        "requester_user_id": "user-a",
+        "addressee_user_id": "user-b",
+        "status": "pending",
+    }
+    svc._execute_one = lambda _sql, _params=None: {"id": "req-1"}
+    svc._resolve_pending_scope_proposals = lambda *_args, **_kwargs: None
+    svc._display_name_for = lambda user_id: {"user-a": "Alice", "user-b": "Bob"}[user_id]
+
+    def _boom(**_kw):
+        raise RuntimeError("fcm down")
+
+    svc._resolution_notifier = _boom
+
+    out = svc.reject_request("user-b", "req-1")
+
+    assert out == {"status": "rejected", "requestId": "req-1"}
 
 
 def test_reject_feed_failure_rolls_back_the_relationship_transition() -> None:

@@ -77,13 +77,13 @@ describe("the circle row's second line", () => {
     }
   });
 
-  it("still counts everyone but the viewer, and says person once", () => {
+  it("counts everyone in the Circle, owner included", () => {
     renderCircles([
       circle({ id: "c_two", name: "Two", memberCount: 2 }),
       circle({ id: "c_four", name: "Four", memberCount: 4 }),
     ]);
-    expect(screen.getByText("1 person")).toBeTruthy();
-    expect(screen.getByText("3 people")).toBeTruthy();
+    expect(screen.getByText("2 people")).toBeTruthy();
+    expect(screen.getByText("4 people")).toBeTruthy();
   });
 
   it("uses the red SMS identity for the Save My Soul system Circle", () => {
@@ -98,7 +98,7 @@ describe("the circle row's second line", () => {
     ]);
 
     expect(screen.getByText("SMS")).toBeTruthy();
-    expect(screen.getByText("Save My Soul · 1 person")).toBeTruthy();
+    expect(screen.getByText("Save My Soul · 2 people")).toBeTruthy();
     expect(screen.queryByTestId("siren")).toBeNull();
 
     // 36px here, because these rows are 60px tall with their own padding
