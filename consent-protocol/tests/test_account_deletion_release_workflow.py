@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import importlib.util
 import json
 import os
@@ -90,6 +91,81 @@ def test_uat_backend_deploy_consumes_the_pinned_digest_without_rebuilding() -> N
         (ROOT / "deploy" / "backend-image.cloudbuild.yaml").read_text(encoding="utf-8")
     )
     assert image_build["timeout"] == "1800s"
+
+
+@pytest.mark.parametrize("architecture", ["amd64", "arm64"])
+def test_uat_pins_executable_manifest_instead_of_attested_index(
+    tmp_path: Path, architecture: str
+) -> None:
+    child_digest = "sha256:" + "a" * 64
+    manifest = json.dumps(
+        {
+            "schemaVersion": 2,
+            "mediaType": "application/vnd.oci.image.index.v1+json",
+            "manifests": [
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": "sha256:" + "b" * 64,
+                    "size": 1234,
+                    "platform": {"os": "unknown", "architecture": "unknown"},
+                    "annotations": {"vnd.docker.reference.type": "attestation-manifest"},
+                },
+                {
+                    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+                    "digest": child_digest,
+                    "size": 1234,
+                    "platform": {"os": "linux", "architecture": architecture},
+                },
+            ],
+        }
+    )
+    index_digest = "sha256:" + hashlib.sha256(manifest.encode()).hexdigest()
+    repository = "gcr.io/hushh-pda-uat/consent-protocol"
+    script = _step("Build and pin backend image before lifecycle migration")["run"]
+    script = script.replace("${{ env.GCP_PROJECT_ID }}", "hushh-pda-uat")
+    script = script.replace("${{ steps.resolve-sha.outputs.sha }}", "c" * 40)
+    for name in ("uat-backend-image.json", "uat-backend-image-manifest.json"):
+        script = script.replace(
+            f"/tmp/{name}",  # noqa: S108 - replace workflow paths with pytest isolation
+            (tmp_path / name).as_posix(),
+        )
+    assert "${{" not in script
+    # Execute the real workflow body but intercept every external build/registry
+    # command. Only the production digest resolver runs, with fixed public inputs.
+    guards = (
+        'gcloud() { case "$1 $2" in '
+        "'builds submit'|'auth configure-docker') return 0 ;; "
+        f"'container images') printf '%s' '{index_digest}' ;; "
+        "*) echo UNEXPECTED_CLOUD_COMMAND >&2; return 95 ;; esac; };\n"
+        "docker() { "
+        f"if [[ \"$*\" != *'{repository}@{index_digest}'* ]]; then "
+        "echo UNEXPECTED_MUTABLE_LOOKUP >&2; return 96; fi; "
+        f"printf '%s' '{manifest}'; }};\n"
+        f"python3() {{ '{Path(sys.executable).as_posix()}' \"$@\"; }};\n"
+    )
+    output_path = tmp_path / "github-output"
+    environment = os.environ.copy()
+    environment.pop("BASH_ENV", None)
+    environment["GITHUB_OUTPUT"] = output_path.as_posix()
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the workflow behavior test"
+    result = subprocess.run(  # noqa: S603 - trusted workflow, fixed inputs, guarded cloud commands
+        [bash, "-c", guards + script],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=15,
+        check=False,
+    )
+    assert "UNEXPECTED_" not in result.stdout + result.stderr
+    if architecture != "amd64":
+        assert result.returncode != 0
+        assert "exactly one executable linux/amd64" in result.stderr
+        assert not output_path.exists()
+        return
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert output_path.read_text().strip() == f"image_reference={repository}@{child_digest}"
 
 
 @pytest.mark.parametrize(
