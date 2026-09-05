@@ -2105,6 +2105,10 @@ describe("Connect — Circles", () => {
     expect(anchor.contains(menu)).toBe(true);
     expect(menu).not.toHaveAttribute("data-slot", "popover-content");
     expect(menu.className).toContain("absolute left-0 top-full");
+    expect(menu.className).toContain(
+      "bg-[color:var(--app-card-surface-default-solid)]",
+    );
+    expect(menu.className).not.toContain("app-card-surface-standard");
   });
 
   it("opens on People when the URL says nothing", async () => {
