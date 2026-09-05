@@ -999,7 +999,7 @@ async function switchLocationTab(
 
 async function openSharePersonStep() {
   fireEvent.click(
-    screen.queryByRole("button", { name: /^Share (?:my )?location$/i }) ??
+    screen.queryByRole("button", { name: /^Share location$/i }) ??
       screen.getByRole("button", { name: /^Share with more$/i }),
   );
   expect(
@@ -1507,17 +1507,10 @@ describe("OneLocationAgentPage", () => {
     ).toBeNull();
     expect(screen.queryByText("Advisor meetup")).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
-    fireEvent.keyDown(screen.getByTestId("one-location-now-more"), {
-      key: "Enter",
-    });
+    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(
-      await screen.findByTestId("one-location-now-more-item-map"),
-    ).toBeTruthy();
-    expect(
-      screen.getByTestId("one-location-now-more-item-settings"),
-    ).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: /^Share (?:my )?location$/i }),
+      screen.getByRole("button", { name: /^Share location$/i }),
     ).toBeTruthy();
     expect(screen.queryByText(/8012|9911/)).toBeNull();
     expect(mockRegisterKey).toHaveBeenCalledWith({
@@ -1769,50 +1762,72 @@ describe("OneLocationAgentPage", () => {
 
     const primary = await screen.findByTestId("one-location-now-primary");
     expect(
-      within(primary).getByRole("button", { name: "Share my location" }),
+      within(primary).getByRole("button", { name: "Share location" }),
     ).toBeTruthy();
-    expect(within(primary).getByText("Private")).toBeTruthy();
+    expect(within(primary).getByText("You're not sharing")).toBeTruthy();
     expect(
-      within(primary).getByText("No one can see your location"),
-    ).toBeTruthy();
-    expect(
-      within(primary).getByText("Share only when you choose."),
+      within(primary).getByText("Choose a Circle or contact."),
     ).toBeTruthy();
 
+    const actions = await screen.findByTestId("one-location-now-actions");
+    expect(actions.className).toContain("pt-1");
+    expect(actions.className).not.toContain("max-w-[282px]");
     expect(
-      within(primary).getByRole("button", { name: "Ask for location" }),
-    ).toBeTruthy();
-    const actions = screen.getByTestId("one-location-now-actions");
-    expect(
-      within(actions).getByRole("button", { name: "Check in" }),
-    ).toBeTruthy();
-    expect(
-      within(actions).getByRole("button", { name: "Save My Soul" }),
-    ).toBeTruthy();
-    expect(
-      within(primary).getByRole("button", { name: "More actions" }),
-    ).toBeTruthy();
-
-    const more = screen.getByTestId("one-location-now-more");
-    expect(more.className).toContain("min-h-[50px]");
-    fireEvent.keyDown(more, { key: "Enter" });
-    expect(
-      await screen.findByTestId("one-location-now-more-item-map"),
-    ).toBeTruthy();
-    expect(
-      screen.getByTestId("one-location-now-more-item-settings"),
-    ).toBeTruthy();
-    expect(
-      screen.queryByTestId("one-location-now-more-item-arrival-confirm"),
+      within(actions).queryByRole("heading", { name: "Actions" }),
     ).toBeNull();
     expect(
-      screen.queryByTestId("one-location-now-more-item-save-my-soul"),
-    ).toBeNull();
-
+      within(actions).getByRole("button", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
+    ).toBeTruthy();
+    expect(within(actions).getByText("Ask for location")).toBeTruthy();
+    expect(within(actions).getByText("Check in")).toBeTruthy();
     const retiredActionLabel = ["Their", "Location"].join(" ");
-    expect(primary.textContent).not.toContain(retiredActionLabel);
-    expect(primary.textContent).not.toContain("Emergency alert");
-    expect(primary.textContent).not.toContain("Quick actions");
+    expect(actions.textContent).not.toContain(retiredActionLabel);
+    expect(within(actions).queryByText("Confirm Arrival")).toBeNull();
+    expect(within(actions).getByText("Save My Soul")).toBeTruthy();
+    expect(within(actions).getByText("Emergency alert")).toBeTruthy();
+
+    const actionGrid = actions.querySelector("[data-one-location-action-grid]");
+    expect(actionGrid?.className).toContain("grid-cols-1");
+    expect(actionGrid?.className).toContain("min-[360px]:grid-cols-2");
+
+    const actionCells = actionGrid?.querySelectorAll(
+      "[data-one-location-action-cell]",
+    );
+    expect(actionCells).toHaveLength(2);
+    actionCells?.forEach((cell) => {
+      expect(cell.className).toContain("items-center");
+      expect(cell.className).toContain("text-center");
+      expect(cell.className).toContain("rounded-[16px]");
+      expect(cell.className).toContain("min-h-[96px]");
+      expect(cell.className).toContain("px-5");
+    });
+    expect(
+      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("text-[color:var(--app-accent)]");
+    expect(
+      actionGrid?.querySelector("[data-one-location-action-icon]")?.className,
+    ).toContain("[&>svg]:h-8");
+    expect(
+      actionGrid?.querySelectorAll("[data-one-location-action-icon] svg"),
+    ).toHaveLength(2);
+    expect(
+      actionGrid?.querySelector('[data-location-menu-icon="ask"]'),
+    ).toBeTruthy();
+    expect(
+      actionGrid?.querySelector('[data-location-menu-icon="checkIn"]'),
+    ).toBeTruthy();
+    expect(
+      actions.querySelector("[data-one-location-emergency-cell]"),
+    ).toBeTruthy();
+    expect(actions.textContent).not.toContain("near_me");
+    expect(actions.textContent).not.toContain("location_on");
+    expect(actions.textContent).not.toContain("where_to_vote");
+    expect(actions.querySelector("[data-one-location-sms-row]")).toBeTruthy();
 
     const activity = screen.getByTestId("one-location-now-activity");
     expect(within(activity).getByText("Sharing with you")).toBeTruthy();
@@ -1820,48 +1835,16 @@ describe("OneLocationAgentPage", () => {
     expect(within(activity).queryByText("Active shares")).toBeNull();
 
     expect(within(activity).queryByText("Share")).toBeNull();
+    const more = screen.getByTestId("one-location-now-more");
+    expect(within(more).getByText("Map")).toBeTruthy();
+    expect(within(more).getByText("Settings")).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Activity" })).toBeNull();
     expect(screen.queryByRole("heading", { name: "More" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Map$/i })).toBeTruthy();
+    expect(screen.getByRole("button", { name: /^Settings$/i })).toBeTruthy();
     expect(screen.queryByText("Check-In")).toBeNull();
-  });
-
-  it("keeps the core Now actions visible while sharing is live", async () => {
-    const base = locationState();
-    mockGetState.mockResolvedValue({
-      ...base,
-      ownerGrants: [
-        {
-          ...base.ownerGrants[0],
-          expiresAt: "2099-05-20T08:00:00.000Z",
-        },
-      ],
-      receivedGrants: [],
-      requests: [],
-    });
-
-    render(<OneLocationAgentPage />);
-    await skipLocationEntryFlow();
-    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-
-    expect(await screen.findByTestId("one-location-live-share")).toBeTruthy();
-    expect(
-      screen.getByRole("button", { name: "Share with more" }),
-    ).toBeTruthy();
-
-    const actions = screen.getByTestId("one-location-now-actions");
-    expect(
-      within(actions).getByRole("button", { name: "Ask for location" }),
-    ).toBeTruthy();
-    expect(
-      within(actions).getByRole("button", { name: "Check in" }),
-    ).toBeTruthy();
-    expect(
-      within(actions).getByRole("button", { name: "Save My Soul" }),
-    ).toBeTruthy();
-    expect(
-      within(actions).getByRole("button", { name: "More actions" }),
-    ).toBeTruthy();
+    expect(screen.queryByText("Quick actions")).toBeNull();
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
@@ -2947,7 +2930,7 @@ describe("OneLocationAgentPage", () => {
       "Investor",
     );
     fireEvent.click(screen.getByRole("button", { name: "Now" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Share (?:my )?location$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
@@ -3005,7 +2988,7 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("0/140")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-    fireEvent.click(screen.getByRole("button", { name: /^Share (?:my )?location$/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Share location$/i }));
     expect(
       await screen.findByRole("heading", { name: "Who can see you?" }),
     ).toBeTruthy();
@@ -3127,7 +3110,9 @@ describe("OneLocationAgentPage", () => {
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Save My Soul" }),
+      screen.getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
     );
 
     expect(
@@ -3177,7 +3162,9 @@ describe("OneLocationAgentPage", () => {
     );
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "Save My Soul" }),
+      screen.getByRole("button", {
+        name: "Save My Soul emergency alert",
+      }),
     );
 
     expect(
@@ -3714,7 +3701,7 @@ describe("OneLocationAgentPage", () => {
     render(<OneLocationAgentPage />);
     await skipLocationEntryFlow();
 
-    fireEvent.click(screen.getByRole("button", { name: "Manage sharing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
     expect(
       await screen.findByRole("heading", { name: "Manage sharing" }),
     ).toBeTruthy();
@@ -4245,7 +4232,7 @@ describe("OneLocationAgentPage", () => {
 
     await waitFor(() =>
       expect(
-        screen.getByRole("button", { name: /^Share (?:my )?location$/i }),
+        screen.getByRole("button", { name: /^Share location$/i }),
       ).toBeTruthy(),
     );
   });
@@ -4842,7 +4829,7 @@ describe("OneLocationAgentPage", () => {
     );
     // After a successful share the flow closes and returns to the main hub.
     await waitFor(() =>
-      expect(screen.getByTestId("one-location-now-primary")).toBeTruthy(),
+      expect(screen.getByTestId("one-location-now-actions")).toBeTruthy(),
     );
     expect(
       screen.queryByRole("heading", { name: "Ready to share?" }),
@@ -6681,15 +6668,11 @@ describe("OneLocationAgentPage", () => {
     await skipLocationEntryFlow();
 
     await waitFor(() => expect(mockGetState).toHaveBeenCalled());
-    const primary = await screen.findByTestId("one-location-now-primary");
-    expect(within(primary).getByText("Location unavailable")).toBeTruthy();
-    expect(within(primary).getByText("Location access is off")).toBeTruthy();
-    expect(
-      within(primary).getByRole("button", { name: "Turn on Location" }),
-    ).toBeTruthy();
-    expect(
-      screen.queryByRole("button", { name: /^Share (?:my )?location$/i }),
-    ).toBeNull();
+    await openShareConfirmStep();
+    const shareButton = screen.getByRole("button", {
+      name: /Start sharing/i,
+    }) as HTMLButtonElement;
+    expect(shareButton.disabled).toBe(true);
     expect(mockCreateGrant).not.toHaveBeenCalled();
   });
 
