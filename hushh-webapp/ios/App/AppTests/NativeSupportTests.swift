@@ -148,4 +148,145 @@ final class NativeSupportTests: XCTestCase {
         XCTAssertEqual(nested["email"] as? String, "<redacted>")
         XCTAssertEqual(nested["errorClass"] as? String, "timeout")
     }
+
+    func testSessionPrivacyStateKeepsOneGenerationPerInactiveCycle() {
+        var state = HushhSessionPrivacyState()
+
+        state.protectForAppInactive()
+        let firstGeneration = state.generation
+        state.protectForAppInactive()
+
+        XCTAssertTrue(state.shielded)
+        XCTAssertEqual(firstGeneration, 1)
+        XCTAssertEqual(state.generation, firstGeneration)
+
+        state.markAppActive()
+        state.protectForAppInactive()
+
+        XCTAssertEqual(state.generation, firstGeneration + 1)
+    }
+
+    func testSessionPrivacyStateRejectsInactiveStaleAndRepeatedCompletion() {
+        var state = HushhSessionPrivacyState()
+
+        state.protectForAppInactive()
+        let staleGeneration = state.generation
+        XCTAssertFalse(
+            state.completeSessionValidation(
+                generation: staleGeneration,
+                appIsActive: false
+            )
+        )
+        XCTAssertTrue(state.shielded)
+
+        state.markAppActive()
+        state.protectForAppInactive()
+        let currentGeneration = state.generation
+        state.markAppActive()
+
+        XCTAssertFalse(
+            state.completeSessionValidation(
+                generation: staleGeneration,
+                appIsActive: true
+            )
+        )
+        XCTAssertTrue(
+            state.completeSessionValidation(
+                generation: currentGeneration,
+                appIsActive: true
+            )
+        )
+        XCTAssertFalse(state.shielded)
+        XCTAssertFalse(
+            state.completeSessionValidation(
+                generation: currentGeneration,
+                appIsActive: true
+            )
+        )
+    }
+
+    func testKaiStreamLifecycleClassifierAcceptsOnlyMatchingTypedStatuses() {
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 401,
+                body: #"{"detail":{"code":"AUTH_ACCOUNT_NOT_FOUND"}}"#
+            ),
+            "AUTH_ACCOUNT_NOT_FOUND"
+        )
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 423,
+                body: #"{"error":{"code":"AUTH_ACCOUNT_DELETION_IN_PROGRESS"}}"#
+            ),
+            "AUTH_ACCOUNT_DELETION_IN_PROGRESS"
+        )
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 503,
+                body: #"{"code":"AUTH_ACCOUNT_STATUS_UNAVAILABLE"}"#
+            ),
+            "AUTH_ACCOUNT_STATUS_UNAVAILABLE"
+        )
+    }
+
+    func testKaiStreamLifecycleClassifierFailsClosedForMismatchAndMalformedBodies() {
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 401,
+                body: #"{"code":"AUTH_ACCOUNT_DELETION_IN_PROGRESS"}"#
+            ),
+            "AUTH_VAULT_OWNER_INVALID"
+        )
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 423,
+                body: #"{"code":"AUTH_ACCOUNT_NOT_FOUND"}"#
+            ),
+            "HUSHH_HTTP_423"
+        )
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 403,
+                body: "not-json"
+            ),
+            "AUTH_VAULT_OWNER_INVALID"
+        )
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 500,
+                body: ""
+            ),
+            "HUSHH_HTTP_500"
+        )
+    }
+
+    func testKaiStreamLifecycleClassifierBoundsUntrustedErrorBodies() throws {
+        let oversizedBody = #"{"code":"AUTH_ACCOUNT_STATUS_UNAVAILABLE","padding":""#
+            + String(
+                repeating: "x",
+                count: KaiStreamLifecycleErrorClassifier.maxStreamErrorBodyBytes
+            )
+            + #""}"#
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 503,
+                body: oversizedBody
+            ),
+            "HUSHH_HTTP_503"
+        )
+
+        var deeplyNested: Any = "AUTH_ACCOUNT_STATUS_UNAVAILABLE"
+        for _ in 0..<8 {
+            deeplyNested = ["nested": deeplyNested]
+        }
+        let nestedData = try JSONSerialization.data(withJSONObject: deeplyNested)
+        let nestedBody = try XCTUnwrap(String(data: nestedData, encoding: .utf8))
+        XCTAssertEqual(
+            KaiStreamLifecycleErrorClassifier.bridgeCode(
+                statusCode: 503,
+                body: nestedBody
+            ),
+            "HUSHH_HTTP_503"
+        )
+    }
 }

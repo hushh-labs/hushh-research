@@ -9,7 +9,12 @@
  * - Apple Sign-In via OAuthProvider('apple.com')
  */
 
-import type { HushhAuthPlugin, AuthUser } from "../index";
+import type {
+  AuthUser,
+  HushhAuthGetIdTokenOptions,
+  HushhAuthPlugin,
+} from "../index";
+import { HUSHH_AUTH_TOKEN_ERROR_CODE } from "../index";
 import { GoogleAuthProvider, OAuthProvider, signInWithPopup, signOut, User } from "firebase/auth";
 import { auth } from "@/lib/firebase/config";
 
@@ -116,19 +121,34 @@ export class HushhAuthWeb implements HushhAuthPlugin {
     }
   }
 
-  async getIdToken(): Promise<{ idToken: string | null }> {
+  async getIdToken(
+    options?: HushhAuthGetIdTokenOptions,
+  ): Promise<{ idToken: string | null }> {
+    const forceRefresh = options?.forceRefresh === true;
     // Try to get fresh token from current Firebase user
     const firebaseUser = auth.currentUser;
     if (firebaseUser) {
       try {
-        const token = await firebaseUser.getIdToken();
+        const token = await firebaseUser.getIdToken(forceRefresh);
         this.currentIdToken = token;
         return { idToken: token };
-      } catch {
+      } catch (error) {
+        if (forceRefresh) {
+          throw error;
+        }
         console.warn("[HushhAuthWeb] Failed to get fresh token");
       }
     }
-    
+
+    if (forceRefresh) {
+      const error = new Error("The current Firebase session is no longer available.");
+      error.name = "HushhAuthError";
+      Object.assign(error, {
+        code: HUSHH_AUTH_TOKEN_ERROR_CODE.invalidUserToken,
+      });
+      throw error;
+    }
+
     return { idToken: this.currentIdToken };
   }
 

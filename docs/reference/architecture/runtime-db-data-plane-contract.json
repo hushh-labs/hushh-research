@@ -130,18 +130,53 @@
       "expected_row_growth": "low_per_user"
     },
     {
+      "id": "account_deletion_lifecycle",
+      "owner": "iam-consent-governance",
+      "data_class": "audit_regulated",
+      "lifecycle_status": "current",
+      "exact_tables": [
+        "account_deletion_tombstones",
+        "account_identity_presence"
+      ],
+      "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight",
+      "retention_policy": "Retain one tombstone SHA-256 UID digest per deleted primary or validated phone-only cleanup UID to suppress resurrection, plus one monotonic SHA-256 presence marker per UID ever observed in a guarded account-state column so a legacy or rootless account is never later classified as a disposable phone session. Retain each raw Firebase UID and, for phone-orphan intents only, a domain-separated HMAC-SHA256 proof of the expected verified phone only while external identity cleanup is pending; scrub both on every terminal deleted, missing, or protected-identity outcome. Never persist the raw phone number or an unkeyed phone digest.",
+      "deletion_behavior": "Tombstones are created by account deletion and deliberately survive it. The hash-only presence registry is backfilled transactionally when a versioned guard is installed and records the first later sighting of each UID; the phone-session preflight validates the complete live guard inventory and performs one indexed presence lookup rather than scanning user tables. READ COMMITTED writers take shared namespace-171 then namespace-198 UID advisory locks, reject writes after a matching tombstone, allow only unchanged or NULL-to-identity references, and reject non-NULL identity reassignment; deletion takes the corresponding exclusive locks. Remove lifecycle rows or database guards only through an audited, write-frozen operator procedure after proving that the external UID cannot authenticate or be restored.",
+      "trust_boundary": "Deletion-suppression hash, short-lived keyed phone proof, intent kind, and bounded machine-safe cleanup metadata only; never email, raw phone number, unkeyed phone digest, token, provider profile, vault material, decrypted PKM, or exception messages.",
+      "plaintext_posture": "metadata_and_hashes_only",
+      "expected_row_growth": "one presence row per UID ever observed in guarded state, plus one tombstone row per deleted primary UID and at most one validated phone-only cleanup UID"
+    },
+    {
+      "id": "personal_agent_provisioning",
+      "owner": "backend-runtime-governance",
+      "data_class": "workflow_state",
+      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "exact_tables": [
+        "personal_agent_registry",
+        "byoc_setup_jobs",
+        "pod_lifecycle_events",
+        "personal_agent_deletion_tombstones"
+      ],
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
+      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
+      "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
+      "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
+      "plaintext_posture": "provider_teardown_metadata_only",
+      "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
+    },
+    {
       "id": "consent_authority_audit",
       "owner": "iam-consent-governance",
       "data_class": "audit_regulated",
       "lifecycle_status": "current",
       "exact_tables": [
         "consent_audit",
+        "consent_audit_receipts",
         "internal_access_events",
         "consent_scope_templates"
       ],
       "primary_access_path": "consent issuance, revocation, notification, and internal access review",
-      "retention_policy": "Long-retention metadata audit; redact payload detail rather than deleting audit authority rows.",
-      "deletion_behavior": "Account export may include safe audit metadata; deletion redacts user linkage only if legally required.",
+      "retention_policy": "Long-retention metadata audit; redact payload detail rather than deleting audit authority rows. The parked tamper-evident consent_audit_receipts chain needs explicit privacy/compliance approval for its raw subject_id retention or a chain-safe subject-redaction design before production activation.",
+      "deletion_behavior": "Account export may include safe audit metadata; deletion redacts user linkage only if legally required. Migration 201 explicitly treats consent_audit_receipts.subject_id as a raw Firebase/account UID, backfills it into the monotonic presence registry, and rejects post-tombstone receipt writes even while the retained chain awaits an approved redaction policy.",
       "trust_boundary": "Audit metadata only; signed-in is not consent and audit rows do not grant authority by themselves.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
@@ -463,6 +498,8 @@
       "exact_tables": [
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
+        "one_location_visibility_preferences",
+        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -475,13 +512,14 @@
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
+        "kai_location_referrals",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
       ],
       "primary_access_path": "One Location Agent verified-recipient directory, server-owned and revocable automatic-approval preferences, owner-selected Save My Soul contacts, named-Circle join-code workflows, recipient public key registration, owner-approved grants, encrypted envelope writes, authenticated recipient ciphertext reads, UAT-only short-lived nearby check-in with alias-based Connect requests, public request invites, Invite to One network onboarding, referrals, revocation, expiry, and metadata-only audit",
       "retention_policy": "One mutable standing-rule metadata row is retained while the account exists, including the latest disabled state and version needed to invalidate stale clients. Active grants and ciphertext envelopes are short-lived by scoped duration; expired or terminal workflow rows are retained only for bounded operational review before compaction.",
-      "deletion_behavior": "Delete standing automatic-approval preferences and rows where the deleting account is owner, nearby attendee, SMS contact, recipient, requester, referrer, referred user, join-code creator, or key owner; revoke active grants, nearby presence, and join codes before deletion where possible.",
+      "deletion_behavior": "Delete standing automatic-approval and visibility preferences plus rows where the deleting account is owner, excluded party, nearby attendee, SMS contact, recipient, requester, referrer, referred or candidate user, join-code creator, or key owner; remove visibility exclusions before their owner preference, and revoke active grants, nearby presence, and join codes before deletion where possible.",
       "trust_boundary": "Raw live-share coordinates remain on owner and recipient devices. Standing automatic-approval preferences contain only enabled state, scope, Circle identifier, server activation time, and rule version; every automatic grant locks and revalidates that rule and the current relationship. UAT nearby presence captures a fresh point at confirmation and stores that point only as short-lived AES-256-GCM ciphertext plus a six-hour server-keyed spatial candidate token; accuracy is request-memory-only. Checkout clears point material synchronously. Expiry synchronously blocks roster and Connect access; the next feature operation or required hosted hourly retention job scrubs the due envelope and token. Backend also stores recipient public keys, grant metadata, ciphertext envelopes, keyed join-code digests, rotating nearby participant aliases, public invite token hashes, Invite to One token hashes, One Network connection metadata, request metadata, hashed public-intake throttling metadata, and audit metadata. It must not persist nearby point plaintext, exact distance, plaintext venue labels or addresses, map previews, movement trails, raw public tokens, or raw Circle codes. Nearby rosters require mutual active opt-in, expose no stable user id or peer location, and remain disabled in production. Circle code resolution reveals only a safe name, owner label, member count, and expiry.",
       "plaintext_posture": "ciphertext_coordinates_and_metadata_only",
       "expected_row_growth": "medium_per_user_share"
@@ -533,7 +571,7 @@
       ],
       "primary_access_path": "One referral program: server-minted public attribution slugs, pre-authentication attribution records bound to a canonical user only after sign-in, one referrer-to-referred relationship per referred user, server-calculated agent engagement sessions, an append-only idempotent event ledger, versioned qualification policy, and the human risk-review queue. Read by the Profile Referrals tab as aggregate counts and status words only.",
       "retention_policy": "Pending attributions expire with the policy attribution window and are swept. Relationships and their event ledger are retained for the life of the referrer's account as the audit trail behind a public count. Engagement sessions are closed or abandoned once their heartbeat gap passes and are retained only long enough to reconcile a qualification decision.",
-      "deletion_behavior": "Every table cascades from actor_profiles, so deleting either account removes its codes, attributions, engagement sessions, events and risk reviews. A relationship is deleted with either side; the referrer's public count is derived from live rows, so it falls accordingly.",
+      "deletion_behavior": "AccountService handles the migration-165 graph explicitly before deleting actor_profiles: risk reviews and events, then every relationship involving the referrer, referred user, or their owned/bound attribution, then those attributions, owned codes, and engagement sessions. This order is mandatory because relationship.attribution_id is ON DELETE RESTRICT while bound_user_id is ON DELETE SET NULL; relying on the actor cascade can roll back deletion or retain a departed user's attribution. The referrer's public count is derived from surviving relationships, so it falls accordingly. A partial migration-165 table set fails closed instead of deleting the account spine.",
       "trust_boundary": "The slug is public and is never a credential: resolving one proves nothing about who holds it, and the referred user still signs in through the existing identity flow. Installation and network signals are stored only as salted hashes for abuse velocity, never raw and never returned to any client. Internal risk reason codes never reach a user-facing surface.",
       "plaintext_posture": "metadata_only_no_referred_user_identifiers_exposed",
       "expected_row_growth": "low_per_user_referral"

@@ -23,6 +23,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/lib/services/vault-service", () => ({
+  VaultAuthSessionNotReadyError: class extends Error {},
   VaultService: {
     checkVault: (...args: unknown[]) => checkVaultMock(...args),
     getVaultState: (...args: unknown[]) => getVaultStateMock(...args),
@@ -105,7 +106,10 @@ const nativePasskeyWrapper: TestVaultWrapper = {
   passkeyPrfSalt: "native-passkey-salt",
 };
 
-function vaultState(primaryMethod: string, wrappers: TestVaultWrapper[]): TestVaultState {
+function vaultState(
+  primaryMethod: string,
+  wrappers: TestVaultWrapper[],
+): TestVaultState {
   return {
     primaryMethod,
     primaryWrapperId: primaryMethod,
@@ -116,6 +120,34 @@ function vaultState(primaryMethod: string, wrappers: TestVaultWrapper[]): TestVa
 describe("VaultFlow create validation", () => {
   const user = { uid: "user-1" } as Parameters<typeof VaultFlow>[0]["user"];
 
+  it("offers a sign-out escape when the initial account/Vault check fails", async () => {
+    checkVaultMock.mockRejectedValue(new Error("offline"));
+    const onSignOut = vi.fn().mockResolvedValue(undefined);
+    render(<VaultFlow user={user} onSuccess={vi.fn()} onSignOut={onSignOut} />);
+    expect(
+      await screen.findByRole("button", { name: "Try again" }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Passphrase")).toBeNull();
+    fireEvent.click(
+      screen.getByRole("button", { name: /can't get in\? sign out/i }),
+    );
+    await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
+  });
+
+  it("does not turn failed metadata into a passphrase prompt", async () => {
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockRejectedValue(
+      Object.assign(new Error("account missing"), {
+        code: "AUTH_ACCOUNT_NOT_FOUND",
+      }),
+    );
+    render(<VaultFlow user={user} onSuccess={vi.fn()} onSignOut={vi.fn()} />);
+    expect(
+      await screen.findByRole("button", { name: "Try again" }),
+    ).toBeTruthy();
+    expect(screen.queryByLabelText("Passphrase")).toBeNull();
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     isNativePlatformMock = false;
@@ -123,13 +155,18 @@ describe("VaultFlow create validation", () => {
     getVaultStateMock.mockResolvedValue(
       vaultState("passphrase", [passphraseWrapper, passkeyWrapper]),
     );
-    getWrapperByMethodMock.mockImplementation((state: TestVaultState, method: string) => {
-      return state.wrappers.find((wrapper) => wrapper.method === method) ?? null;
-    });
+    getWrapperByMethodMock.mockImplementation(
+      (state: TestVaultState, method: string) => {
+        return (
+          state.wrappers.find((wrapper) => wrapper.method === method) ?? null
+        );
+      },
+    );
     getPrimaryWrapperMock.mockImplementation((state: TestVaultState) => {
       return (
-        state.wrappers.find((wrapper) => wrapper.method === state.primaryMethod) ??
-        state.wrappers[0]
+        state.wrappers.find(
+          (wrapper) => wrapper.method === state.primaryMethod,
+        ) ?? state.wrappers[0]
       );
     });
     unlockGeneratedDefaultVaultMock.mockRejectedValue(
@@ -155,14 +192,18 @@ describe("VaultFlow create validation", () => {
 
     const passphraseInput = await screen.findByLabelText("Passphrase");
     const confirmInput = screen.getByLabelText("Confirm passphrase");
-    const createButton = screen.getByRole("button", { name: "Create passphrase" }) as HTMLButtonElement;
+    const createButton = screen.getByRole("button", {
+      name: "Create passphrase",
+    }) as HTMLButtonElement;
 
     // iOS renders `enterKeyHint="done"` as a checkmark on the keyboard.
     // Vault confirmation uses normal submit behavior without adding that glyph.
     expect(confirmInput.getAttribute("enterkeyhint")).toBeNull();
 
     fireEvent.change(passphraseInput, { target: { value: "short" } });
-    expect(await screen.findByText("Minimum 8 characters required.")).toBeTruthy();
+    expect(
+      await screen.findByText("Minimum 8 characters required."),
+    ).toBeTruthy();
     expect(createButton.disabled).toBe(true);
 
     fireEvent.change(passphraseInput, { target: { value: "long-enough" } });
@@ -196,7 +237,9 @@ describe("VaultFlow create validation", () => {
     expect(document.querySelector('[data-slot="dialog-overlay"]')).toBeNull();
     expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(true);
     expect(createVaultMock).toHaveBeenCalledTimes(1);
-    expect(createVaultMock).toHaveBeenCalledWith("correct horse battery staple");
+    expect(createVaultMock).toHaveBeenCalledWith(
+      "correct horse battery staple",
+    );
 
     view.unmount();
     expect(onRecoveryKeyDisclosureChange).toHaveBeenLastCalledWith(false);
@@ -209,12 +252,18 @@ describe("VaultFlow create validation", () => {
     // not the mechanism, and it is the same phrase one-setup-hub already passes
     // as this dialog's accessible title — the screen used to announce one name
     // and show another. "Passphrase" still labels the fields, where it belongs.
-    expect(await screen.findByRole("heading", { name: "Set a lock" })).toBeTruthy();
+    expect(
+      await screen.findByRole("heading", { name: "Set a lock" }),
+    ).toBeTruthy();
     expect(screen.getByLabelText("Passphrase")).toBeTruthy();
     expect(screen.getByLabelText("Confirm passphrase")).toBeTruthy();
     expect(screen.queryByText("Secure Your Digital Vault")).toBeNull();
-    expect(screen.queryByRole("button", { name: /continue to vault setup/i })).toBeNull();
-    expect(document.querySelector('[data-vault-flow-step="create"]')).toBeTruthy();
+    expect(
+      screen.queryByRole("button", { name: /continue to vault setup/i }),
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-vault-flow-step="create"]'),
+    ).toBeTruthy();
     expect(document.querySelector("[data-vault-flow-icon]")).toHaveClass(
       "bg-[color:var(--app-accent-tint)]",
     );
@@ -222,17 +271,15 @@ describe("VaultFlow create validation", () => {
 
   it("defers new vault creation until the root setup completion boundary", async () => {
     render(
-      <VaultFlow
-        user={user}
-        onSuccess={vi.fn()}
-        allowVaultCreation={false}
-      />,
+      <VaultFlow user={user} onSuccess={vi.fn()} allowVaultCreation={false} />,
     );
 
     expect(
       await screen.findByRole("heading", { name: "Finish setup first" }),
     ).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Create passphrase" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: "Create passphrase" }),
+    ).toBeNull();
     expect(createVaultMock).not.toHaveBeenCalled();
   });
 
@@ -245,7 +292,9 @@ describe("VaultFlow create validation", () => {
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
     expect(await screen.findByLabelText("Vault passphrase")).toBeTruthy();
-    const unlockButton = screen.getByRole("button", { name: "Unlock" }) as HTMLButtonElement;
+    const unlockButton = screen.getByRole("button", {
+      name: "Unlock",
+    }) as HTMLButtonElement;
 
     expect(unlockButton.disabled).toBe(true);
     expect(screen.getByText("Use another method")).toBeTruthy();
@@ -259,7 +308,10 @@ describe("VaultFlow create validation", () => {
   it("uses passphrase and recovery alternatives when passkey is primary", async () => {
     checkVaultMock.mockResolvedValue(true);
     getVaultStateMock.mockResolvedValue(
-      vaultState("generated_default_web_prf", [passphraseWrapper, passkeyWrapper]),
+      vaultState("generated_default_web_prf", [
+        passphraseWrapper,
+        passkeyWrapper,
+      ]),
     );
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
@@ -278,7 +330,9 @@ describe("VaultFlow create validation", () => {
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Recovery key" }));
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Recovery key" }),
+    );
 
     expect(await screen.findByLabelText("Recovery Key")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
@@ -292,7 +346,9 @@ describe("VaultFlow create validation", () => {
 
   it("omits Passkey when no generated unlock method exists", async () => {
     checkVaultMock.mockResolvedValue(true);
-    getVaultStateMock.mockResolvedValue(vaultState("passphrase", [passphraseWrapper]));
+    getVaultStateMock.mockResolvedValue(
+      vaultState("passphrase", [passphraseWrapper]),
+    );
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} />);
 
@@ -311,7 +367,9 @@ describe("VaultFlow create validation", () => {
         nativePasskeyWrapper,
       ]),
     );
-    unlockGeneratedDefaultVaultMock.mockImplementation(() => new Promise(() => {}));
+    unlockGeneratedDefaultVaultMock.mockImplementation(
+      () => new Promise(() => {}),
+    );
     const onSignOut = vi.fn().mockResolvedValue(undefined);
 
     render(<VaultFlow user={user} onSuccess={vi.fn()} onSignOut={onSignOut} />);

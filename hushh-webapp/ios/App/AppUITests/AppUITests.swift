@@ -21,6 +21,32 @@ final class AppUITests: XCTestCase {
         vaultUnlockSubmitted = false
     }
 
+    func testAccountNotFoundRecoveryReturnsToLogin() throws {
+        // Public recovery smoke: no reviewer fixture, credentials, or account
+        // mutation. Unit/integration tests own the trusted deletion signal.
+        let route = RouteCase(
+            name: "account-not-found-recovery",
+            initialRoute: "/login?auth_notice=account_not_found",
+            expectedMarker: "native-route-login",
+            expectedRoute: "/login",
+            expectedRoutePrefix: nil,
+            autoReviewerLogin: false,
+            expectedAuth: "anonymous",
+            allowedDataStates: ["loaded"]
+        )
+        let app = launchApp(route)
+        defer { app.terminate() }
+        let notice = app.staticTexts["Account not found. Redirecting you to login screen."]
+        XCTAssertTrue(notice.waitForExistence(timeout: 45))
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 45)
+        XCTAssertTrue(app.buttons["Continue with Apple"].waitForExistence(timeout: 15))
+        XCTAssertFalse(app.staticTexts["Unable to verify setup progress. Please retry."].exists)
+        XCUIDevice.shared.press(.home)
+        app.activate()
+        _ = try waitForSatisfiedStatus(app, route: route, timeout: 30)
+        XCTAssertTrue(app.buttons["Continue with Apple"].exists)
+    }
+
     func testPublicAndAuthRoutes() throws {
         try assertRoutes([
             RouteCase(

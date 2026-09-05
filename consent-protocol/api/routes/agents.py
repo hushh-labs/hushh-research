@@ -17,6 +17,7 @@ from fastapi import APIRouter, HTTPException
 
 from api.models import ChatRequest, ChatResponse, ValidateTokenRequest
 from hushh_mcp.agents.kai.agent import get_kai_agent
+from hushh_mcp.consent.token import validate_token_with_db
 
 logger = logging.getLogger(__name__)
 
@@ -34,11 +35,11 @@ async def validate_token_endpoint(request: ValidateTokenRequest):
     Validate a consent token.
     Used by frontend to verify tokens before performing privileged actions.
     """
-    from hushh_mcp.consent.token import validate_token
-
     try:
-        # Validate signature and expiration
-        valid, reason, token_obj = validate_token(request.token)
+        # Validation is DB-backed so a token revoked by account deletion or on
+        # another Cloud Run instance cannot pass this public introspection
+        # route on signature/expiry alone.
+        valid, reason, token_obj = await validate_token_with_db(request.token)
 
         if not valid:
             # SECURITY: Return generic message, log detailed reason server-side

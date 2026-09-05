@@ -7,6 +7,10 @@ import pytest
 from fastapi import BackgroundTasks, HTTPException
 
 import api.middleware as middleware
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionInProgressError,
+    AccountDeletionLifecycleService,
+)
 
 
 @pytest.mark.asyncio
@@ -125,6 +129,19 @@ async def test_identity_warmup_failure_never_logs_user_or_phone_details(
 
 
 @pytest.mark.asyncio
+async def test_require_firebase_auth_read_only_does_not_schedule_identity_warmup(monkeypatch):
+    async def _fake_run_in_threadpool(func, authorization):
+        assert authorization == "Bearer firebase-token"
+        return "firebase-user-123456789012"
+
+    monkeypatch.setattr(middleware, "run_in_threadpool", _fake_run_in_threadpool)
+
+    firebase_uid = await middleware.require_firebase_auth_read_only("Bearer firebase-token")
+
+    assert firebase_uid == "firebase-user-123456789012"
+
+
+@pytest.mark.asyncio
 async def test_require_vault_owner_token_accepts_explicit_consent_header(monkeypatch):
     example_consent_value = "consent-example"
 
@@ -140,7 +157,11 @@ async def test_require_vault_owner_token_accepts_explicit_consent_header(monkeyp
             ),
         )
 
+    async def _not_tombstoned(_user_id: str):
+        return None
+
     monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _not_tombstoned)
 
     token_data = await middleware.require_vault_owner_token(
         authorization="Bearer firebase-token",
@@ -149,6 +170,137 @@ async def test_require_vault_owner_token_accepts_explicit_consent_header(monkeyp
 
     assert token_data["user_id"] == "user-123"
     assert token_data["token"] == example_consent_value
+
+
+@pytest.mark.asyncio
+async def test_valid_owner_token_is_rejected_when_account_is_tombstoned(monkeypatch):
+    async def _fake_validate(_token: str, scope):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="deleted-user",
+                agent_id="kai",
+                scope=scope,
+                scope_str=None,
+            ),
+        )
+
+    async def _tombstone_check(user_id: str):
+        assert user_id == "deleted-user"
+        raise middleware._account_not_found_error()
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _tombstone_check)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_vault_owner_token(authorization="Bearer still-signed-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_ACCOUNT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_valid_owner_token_fails_closed_when_account_status_is_unavailable(monkeypatch):
+    async def _fake_validate(_token: str, scope):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="user-123",
+                agent_id="kai",
+                scope=scope,
+                scope_str=None,
+            ),
+        )
+
+    async def _unavailable(_user_id: str):
+        raise ConnectionError("database unavailable")
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _unavailable)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_vault_owner_token(authorization="Bearer owner-token")
+
+    assert exc_info.value.status_code == 503
+    assert exc_info.value.detail["code"] == "AUTH_ACCOUNT_STATUS_UNAVAILABLE"
+    assert exc_info.value.headers == {
+        "Cache-Control": "private, no-store",
+        "Retry-After": "3",
+    }
+
+
+@pytest.mark.asyncio
+async def test_account_lifecycle_lock_contention_is_not_generic_unavailable(monkeypatch):
+    def _deleting(_user_id: str):
+        raise AccountDeletionInProgressError("busy")
+
+    monkeypatch.setattr(AccountDeletionLifecycleService, "is_tombstoned", _deleting)
+
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware._enforce_account_lifecycle_status("user-123")
+
+    assert exc_info.value.status_code == 423
+    assert exc_info.value.detail["code"] == "AUTH_ACCOUNT_DELETION_IN_PROGRESS"
+    assert exc_info.value.headers == {
+        "Cache-Control": "private, no-store",
+        "Retry-After": "2",
+    }
+
+
+@pytest.mark.asyncio
+async def test_require_vault_owner_token_recovers_terminal_deleted_account(monkeypatch):
+    from hushh_mcp.services.account_deletion_lifecycle_service import (
+        AccountDeletionLifecycleService,
+    )
+
+    async def _db_rejected(_token: str, _scope):
+        return False, "Token has been revoked (DB check)", None
+
+    def _signature_only(token: str, scope, *, _skip_revocation_cache: bool = False):
+        assert token == "deleted-owner-token"
+        assert scope == middleware.ConsentScope.VAULT_OWNER
+        assert _skip_revocation_cache is True
+        return True, None, SimpleNamespace(user_id="deleted-user")
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _db_rejected)
+    monkeypatch.setattr(middleware, "validate_token", _signature_only)
+    monkeypatch.setattr(
+        AccountDeletionLifecycleService,
+        "is_tombstoned",
+        lambda user_id: user_id == "deleted-user",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_vault_owner_token(
+            authorization="Bearer deleted-owner-token",
+        )
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == {
+        "code": "AUTH_ACCOUNT_NOT_FOUND",
+        "message": "Account not found",
+    }
+
+
+@pytest.mark.asyncio
+async def test_require_vault_owner_token_never_authorizes_recovery_only_parse(monkeypatch):
+    async def _db_rejected(_token: str, _scope):
+        return False, "Token has been revoked (DB check)", None
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _db_rejected)
+    monkeypatch.setattr(
+        middleware,
+        "validate_token",
+        lambda *_args, **_kwargs: (False, "Invalid signature", None),
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        await middleware.require_vault_owner_token(authorization="Bearer forged-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail == "Token validation failed."
 
 
 @pytest.mark.asyncio
@@ -169,7 +321,11 @@ async def test_require_vault_owner_token_reuses_validated_scope_within_request(m
             ),
         )
 
+    async def _not_tombstoned(_user_id: str):
+        return None
+
     monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _not_tombstoned)
 
     first = await middleware.require_vault_owner_token(
         request=request,
@@ -203,7 +359,11 @@ async def test_require_consent_scope_cache_is_scope_specific(monkeypatch):
             ),
         )
 
+    async def _not_tombstoned(_user_id: str):
+        return None
+
     monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _not_tombstoned)
 
     read_financial = middleware.require_consent_scope("attr.financial.*")
     read_health = middleware.require_consent_scope("attr.health.*")
@@ -216,3 +376,56 @@ async def test_require_consent_scope_cache_is_scope_specific(monkeypatch):
         ("consent-token", "attr.financial.*"),
         ("consent-token", "attr.health.*"),
     ]
+
+
+@pytest.mark.asyncio
+async def test_scoped_dependency_rejects_tombstoned_owner_super_scope(monkeypatch):
+    async def _fake_validate(_token: str, _scope):
+        return (
+            True,
+            None,
+            SimpleNamespace(
+                user_id="deleted-user",
+                agent_id="kai",
+                scope=middleware.ConsentScope.VAULT_OWNER,
+                scope_str=middleware.ConsentScope.VAULT_OWNER.value,
+            ),
+        )
+
+    async def _tombstoned(user_id: str):
+        assert user_id == "deleted-user"
+        raise middleware._account_not_found_error()
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _fake_validate)
+    monkeypatch.setattr(middleware, "_raise_if_account_is_tombstoned", _tombstoned)
+    dependency = middleware.require_consent_scope("attr.financial.*")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(authorization="Bearer still-signed-owner-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_ACCOUNT_NOT_FOUND"
+
+
+@pytest.mark.asyncio
+async def test_scoped_dependency_recovers_terminal_deleted_owner_after_db_rejection(monkeypatch):
+    async def _db_rejected(_token: str, _scope):
+        return False, "Token has been revoked (DB check)", None
+
+    async def _terminal_recovery(token: str):
+        assert token == "deleted-owner-token"
+        raise middleware._account_not_found_error()
+
+    monkeypatch.setattr(middleware, "validate_token_with_db", _db_rejected)
+    monkeypatch.setattr(
+        middleware,
+        "_raise_if_signed_owner_token_is_tombstoned",
+        _terminal_recovery,
+    )
+    dependency = middleware.require_consent_scope("attr.financial.*")
+
+    with pytest.raises(HTTPException) as exc_info:
+        await dependency(authorization="Bearer deleted-owner-token")
+
+    assert exc_info.value.status_code == 401
+    assert exc_info.value.detail["code"] == "AUTH_ACCOUNT_NOT_FOUND"

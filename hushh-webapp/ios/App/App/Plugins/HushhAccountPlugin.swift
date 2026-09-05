@@ -19,6 +19,80 @@ public class HushhAccountPlugin: CAPPlugin, CAPBridgedPlugin {
         config.timeoutIntervalForRequest = 45 // Longer timeout for deletion
         return URLSession(configuration: config)
     }()
+
+    private let maxErrorPayloadBytes = 16_384
+    private let maxErrorPayloadDepth = 6
+    private let maxErrorPayloadNodes = 64
+    private let maxErrorPayloadEntries = 32
+    private let maxErrorCodeLength = 128
+    private let maxErrorMessageLength = 512
+
+    private func normalizedMachineCode(_ value: Any?) -> String? {
+        guard let raw = value as? String else { return nil }
+        let code = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !code.isEmpty, code.count <= maxErrorCodeLength else { return nil }
+        let allowed = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_")
+        return code.unicodeScalars.allSatisfy(allowed.contains) ? code : nil
+    }
+
+    private func machineCode(
+        in value: Any?,
+        depth: Int = 0,
+        remainingNodes: inout Int
+    ) -> String? {
+        guard depth <= maxErrorPayloadDepth, remainingNodes > 0 else {
+            return nil
+        }
+        remainingNodes -= 1
+
+        if let dictionary = value as? [String: Any] {
+            for key in ["code", "error_code"] {
+                if let code = normalizedMachineCode(dictionary[key]) {
+                    return code
+                }
+            }
+            for (_, child) in dictionary.prefix(maxErrorPayloadEntries) {
+                if let code = machineCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array.prefix(maxErrorPayloadEntries) {
+                if let code = machineCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        }
+        return nil
+    }
+
+    private func errorMessage(from payload: [String: Any]?, fallback: String) -> String {
+        let detail = payload?["detail"]
+        let detailObject = detail as? [String: Any]
+        let candidates: [Any?] = [
+            detailObject?["message"],
+            detailObject?["error"],
+            payload?["message"],
+            payload?["error"],
+            detail,
+        ]
+        for candidate in candidates {
+            guard let raw = candidate as? String else { continue }
+            let message = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !message.isEmpty {
+                return String(message.prefix(maxErrorMessageLength))
+            }
+        }
+        return fallback
+    }
     
     @objc func deleteAccount(_ call: CAPPluginCall) {
         // Get auth token passed from JS layer
@@ -64,14 +138,28 @@ public class HushhAccountPlugin: CAPPlugin, CAPBridgedPlugin {
                         call.resolve(["success": true])
                     }
                 } else {
-                    // Try to parse error message
-                    if let data = data, 
-                       let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any], 
-                       let detail = json["detail"] as? String {
-                        call.reject(detail)
-                    } else {
-                         call.reject("Server returned \(httpResponse.statusCode)")
+                    let boundedData = data.flatMap {
+                        $0.count <= self.maxErrorPayloadBytes ? $0 : nil
                     }
+                    let payload = boundedData.flatMap {
+                        try? JSONSerialization.jsonObject(with: $0) as? [String: Any]
+                    }
+                    var remainingNodes = self.maxErrorPayloadNodes
+                    let code = self.machineCode(
+                        in: payload,
+                        remainingNodes: &remainingNodes
+                    )
+                    let message = self.errorMessage(
+                        from: payload,
+                        fallback: "Server returned \(httpResponse.statusCode)"
+                    )
+                    var rejectionData: [String: Any] = [
+                        "status": httpResponse.statusCode
+                    ]
+                    if let payload {
+                        rejectionData["payload"] = payload
+                    }
+                    call.reject(message, code, nil, rejectionData)
                 }
             } else {
                 call.reject("Invalid response")

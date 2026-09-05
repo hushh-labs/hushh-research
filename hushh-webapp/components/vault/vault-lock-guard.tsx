@@ -16,7 +16,7 @@
  * - The vault key is stored ONLY in React state (memory).
  * - On page refresh, React state resets, so the vault key is lost.
  * - We ONLY trust `isVaultUnlocked` from VaultContext (which checks memory state).
- * - We render children immediately if vault is unlocked (no intermediate states).
+ * - We render children only when auth is settled and the vault is unlocked.
  * - Route continuity comes from the mounted VaultProvider's in-memory state.
  * - Cached vault presence selects the gate UI; it never authorizes access.
  */
@@ -34,6 +34,7 @@ import { VaultUnlockDialog } from "./vault-unlock-dialog";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { useSessionChromeSuppression } from "@/lib/auth/use-session-chrome-suppression";
+import { SessionVerificationRecovery } from "@/components/auth/session-verification-recovery";
 import {
   hasIncompleteNativeUiFlowSession,
   isNativeTestVaultBootstrapManaged,
@@ -66,14 +67,22 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   const skipGeneratedDefaultUnlock =
     preferPassphraseUnlockForAutomation(nativeTestConfig);
 
-  const { user, loading: authLoading, signOut } = useAuth();
-  useSessionChromeSuppression(authLoading);
+  const {
+    user,
+    loading: authLoading,
+    retrySessionVerification,
+    sessionVerificationRequired,
+    signOut,
+  } = useAuth();
   const userId = user?.uid ?? null;
   const { beginTask, completeTaskStep, endTask } = useStepProgress();
   const [hasVault, setHasVault] = useState<boolean | null>(null);
-  const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] = useState(
-    !isNativePlatform,
+  const [vaultCheckFailed, setVaultCheckFailed] = useState(false);
+  useSessionChromeSuppression(
+    authLoading || sessionVerificationRequired || vaultCheckFailed,
   );
+  const [nativeAuthGraceElapsed, setNativeAuthGraceElapsed] =
+    useState(!isNativePlatform);
   const [nativeVaultCheckAttempt, setNativeVaultCheckAttempt] = useState(0);
   const authStepDoneRef = useRef(false);
   const vaultStepDoneRef = useRef(false);
@@ -90,11 +99,15 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     if (nativeAuthGraceElapsed) {
       return undefined;
     }
-    const timer = window.setTimeout(() => setNativeAuthGraceElapsed(true), 2_000);
+    const timer = window.setTimeout(
+      () => setNativeAuthGraceElapsed(true),
+      2_000,
+    );
     return () => window.clearTimeout(timer);
   }, [authLoading, isNativePlatform, nativeAuthGraceElapsed, userId]);
 
   useEffect(() => {
+    setVaultCheckFailed(false);
     if (!userId) {
       setHasVault(null);
       setNativeVaultCheckAttempt(0);
@@ -122,7 +135,9 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
     if (typeof window !== "undefined") {
       const currentPath =
-        window.location.pathname + window.location.search + window.location.hash;
+        window.location.pathname +
+        window.location.search +
+        window.location.hash;
       router.replace(`/login?redirect=${encodeURIComponent(currentPath)}`);
     }
   }, [
@@ -151,7 +166,11 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   }, [beginTask, endTask, isVaultUnlocked]);
 
   useEffect(() => {
-    if (!nativeTestBootstrapManaged || isVaultUnlocked || nativeReplayAttemptedRef.current) {
+    if (
+      !nativeTestBootstrapManaged ||
+      isVaultUnlocked ||
+      nativeReplayAttemptedRef.current
+    ) {
       return;
     }
     const bridge =
@@ -179,7 +198,14 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     let retryTimer: number | undefined;
 
     async function checkVaultPresence() {
-      if (authLoading || !userId || isVaultUnlocked) return;
+      if (
+        authLoading ||
+        sessionVerificationRequired ||
+        !userId ||
+        isVaultUnlocked
+      ) {
+        return;
+      }
       const cachedPresence = VaultService.peekVaultPresence(userId);
       // Positive presence is sufficient to show the unlock challenge. A
       // negative value must be revalidated before treating the account as a
@@ -188,6 +214,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
 
       vaultStepDoneRef.current = false;
       setHasVault(null);
+      setVaultCheckFailed(false);
       try {
         const exists =
           cachedPresence === false
@@ -208,10 +235,15 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
           }, 400);
           return;
         }
-        console.warn("[VaultLockGuard] Failed to check vault existence:", error);
+        console.warn(
+          "[VaultLockGuard] Failed to check vault existence:",
+          error,
+        );
         if (!cancelled) {
-          // Fail closed on transient check failures to preserve existing secure behavior.
-          setHasVault(true);
+          // A failed read proves neither a deleted account nor an existing
+          // Vault. Keep the route hidden without presenting an irrelevant
+          // unlock challenge, and give the user a way to recover or leave.
+          setVaultCheckFailed(true);
         }
       }
     }
@@ -229,17 +261,31 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     isNativePlatform,
     isVaultUnlocked,
     nativeVaultCheckAttempt,
+    sessionVerificationRequired,
     userId,
   ]);
 
   useEffect(() => {
-    if (isVaultUnlocked || authLoading || !userId || hasVault === null || vaultStepDoneRef.current) {
+    if (
+      isVaultUnlocked ||
+      authLoading ||
+      !userId ||
+      hasVault === null ||
+      vaultStepDoneRef.current
+    ) {
       return;
     }
     completeTaskStep(PROGRESS_SCOPE);
     vaultStepDoneRef.current = true;
     endTask(PROGRESS_SCOPE);
-  }, [authLoading, completeTaskStep, endTask, hasVault, isVaultUnlocked, userId]);
+  }, [
+    authLoading,
+    completeTaskStep,
+    endTask,
+    hasVault,
+    isVaultUnlocked,
+    userId,
+  ]);
 
   // ============================================================================
   // FAST PATH: only the current VaultProvider's in-memory key + owner token
@@ -248,7 +294,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // ============================================================================
   const bootstrapState =
     typeof window !== "undefined"
-      ? window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? ""
+      ? (window.__HUSHH_NATIVE_TEST__?.bootstrapState ?? "")
       : "";
 
   if (nativeTestBootstrapManaged && bootstrapState === "uid_mismatch") {
@@ -257,8 +303,28 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
         role="alert"
         className="flex min-h-[50vh] items-center justify-center px-6 text-center text-sm text-muted-foreground"
       >
-        Reviewer session unavailable. Verify the UAT reviewer account configuration.
+        Reviewer session unavailable. Verify the UAT reviewer account
+        configuration.
       </div>
+    );
+  }
+
+  // Auth validation is the outer security boundary. A cached in-memory vault
+  // must never bypass it while a foreground/deletion check is in progress.
+  if (authLoading) {
+    return <HushhLoader label="Checking session..." />;
+  }
+
+  // An ordinary network/backend outage cannot prove that a remotely deleted
+  // account is still live. Keep every decrypted/cached Vault surface hidden,
+  // but retain the identity so the user can recover without a destructive
+  // automatic logout when connectivity returns.
+  if (sessionVerificationRequired) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => void retrySessionVerification()}
+        onSignOut={() => void signOut()}
+      />
     );
   }
 
@@ -270,11 +336,6 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
   // SLOW PATH: Vault not unlocked, need to check auth and show appropriate UI
   // ============================================================================
 
-  // Auth still loading - show loader
-  if (authLoading) {
-    return <HushhLoader label="Checking session..." />;
-  }
-
   // No user - redirect to login
   if (!user) {
     if (
@@ -284,6 +345,18 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
       return <HushhLoader label="Restoring reviewer session..." />;
     }
     return <HushhLoader label="Redirecting to login..." />;
+  }
+
+  if (vaultCheckFailed) {
+    return (
+      <SessionVerificationRecovery
+        onRetry={() => {
+          setVaultCheckFailed(false);
+          setNativeVaultCheckAttempt((attempt) => attempt + 1);
+        }}
+        onSignOut={() => void signOut()}
+      />
+    );
   }
 
   if (hasVault === null) {

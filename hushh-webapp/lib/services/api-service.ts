@@ -61,15 +61,92 @@ import {
   resolveRuntimeFrontendUrl,
 } from "@/lib/runtime/settings";
 import { sanitizeErrorMessage } from "@/lib/services/error-sanitizer";
+import {
+  AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
+  authSessionInvalidationCodeFromBackendPayload,
+  authSessionInvalidationCodeFromFirebaseError,
+  dispatchAuthSessionInvalidated,
+  isAccountDeletionInProgressBackendPayload,
+} from "@/lib/auth/session-invalidation";
+import {
+  type AuthSessionOwnerSnapshot,
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
-const AUTH_SESSION_INVALIDATED_EVENT = "auth-session-invalidated";
 const VAULT_LOCK_REQUESTED_EVENT = "vault-lock-requested";
+const ACCOUNT_SESSION_STATUS_TIMEOUT_MS = 8_000;
 
 type VaultOwnerAuthFailure = {
   shouldLockVault: boolean;
   reason: string | null;
 };
+
+const NATIVE_STREAM_VAULT_LOCK_CODES = new Set([
+  "AUTH_VAULT_OWNER_INVALID",
+  "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
+  "AUTH_ACCOUNT_STATUS_UNAVAILABLE",
+]);
+
+function nativeStreamBridgeErrorCode(error: unknown): string | null {
+  if (typeof error === "string") return error;
+  if (!error || typeof error !== "object") return null;
+  try {
+    const code = (error as { code?: unknown }).code;
+    return typeof code === "string" && code.length <= 128 ? code : null;
+  } catch {
+    return null;
+  }
+}
+
+function dispatchVaultLockRequestedForPath(path: string, reason: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(VAULT_LOCK_REQUESTED_EVENT, {
+      detail: { reason, path },
+    }),
+  );
+}
+
+/**
+ * Settle auth failures raised by a native SSE bridge. The owner snapshot binds
+ * every side effect to the identity that started the stream, so a delayed
+ * Account A failure cannot sign out or lock Account B after an auth switch.
+ */
+function handleNativeVaultOwnerStreamError(
+  error: unknown,
+  path: string,
+  requestOwner: AuthSessionOwnerSnapshot | null,
+): void {
+  if (!requestOwner || !isValidatedAuthSessionOwnerCurrent(requestOwner)) {
+    return;
+  }
+
+  const bridgeCode = nativeStreamBridgeErrorCode(error);
+  const terminalCode =
+    bridgeCode === AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE
+      ? "account_not_found"
+      : authSessionInvalidationCodeFromBackendPayload(error);
+  if (terminalCode) {
+    dispatchAuthSessionInvalidated({
+      code: terminalCode,
+      path,
+      userId: requestOwner.userId,
+    });
+    return;
+  }
+
+  if (
+    (bridgeCode && NATIVE_STREAM_VAULT_LOCK_CODES.has(bridgeCode)) ||
+    isAccountDeletionInProgressBackendPayload(error)
+  ) {
+    dispatchVaultLockRequestedForPath(
+      path,
+      bridgeCode || "AUTH_ACCOUNT_DELETION_IN_PROGRESS",
+    );
+  }
+}
 
 const getEnvBackendUrl = (): string => {
   return resolveRuntimeBackendUrl();
@@ -430,7 +507,8 @@ export async function fetchWithWebTimeout(
   const abortFromCaller = () => controller.abort(callerSignal?.reason);
   if (callerSignal) {
     if (callerSignal.aborted) controller.abort(callerSignal.reason);
-    else callerSignal.addEventListener("abort", abortFromCaller, { once: true });
+    else
+      callerSignal.addEventListener("abort", abortFromCaller, { once: true });
   }
 
   const timer = setTimeout(() => {
@@ -501,35 +579,62 @@ async function apiFetch(
       : "";
   };
 
+  // Bind every auth side effect to the principal that actually authorized
+  // this request. A delayed response from account A must never invalidate or
+  // replay its request under a newly authenticated account B.
+  const requestAuthorizationBearer = getAuthorizationBearer();
+  const isVaultOwnerRequest = requestAuthorizationBearer.startsWith("HCT:");
+  const requestSessionOwner = isVaultOwnerRequest
+    ? snapshotValidatedAuthSessionOwner()
+    : null;
+  const requestAuthUserId =
+    decodeFirebaseTokenSubject(requestAuthorizationBearer) ??
+    requestSessionOwner?.userId ??
+    null;
+
+  const vaultOwnerRequestStillBelongsToSession = () =>
+    !requestSessionOwner ||
+    isValidatedAuthSessionOwnerCurrent(requestSessionOwner);
+
   const shouldAttemptFirebaseAuthRecovery = () => {
     const bearer = getAuthorizationBearer();
     if (!bearer) return false;
     if (bearer.startsWith("HCT:")) return false;
+    if (!requestAuthUserId) return false;
     return mergedHeaders[AUTH_REFRESH_RETRY_HEADER] !== "1";
   };
 
-  const dispatchAuthSessionInvalidated = (reason: string) => {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
-        detail: { reason, path },
-      }),
-    );
+  const terminalAuthCodeFromResponse = async (response: Response) => {
+    if (response.status !== 401) return null;
+    const body = await response
+      .clone()
+      .text()
+      .catch(() => "");
+    return authSessionInvalidationCodeFromBackendPayload(body);
+  };
+
+  const dispatchTerminalAuthCodeFromResponse = async (response: Response) => {
+    const code = await terminalAuthCodeFromResponse(response);
+    if (!code || !requestAuthUserId) return false;
+    if (
+      isVaultOwnerRequest &&
+      (!requestSessionOwner || !vaultOwnerRequestStillBelongsToSession())
+    ) {
+      return false;
+    }
+    dispatchAuthSessionInvalidated({ code, path, userId: requestAuthUserId });
+    return true;
   };
 
   const dispatchVaultLockRequested = (reason: string) => {
-    if (typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent(VAULT_LOCK_REQUESTED_EVENT, {
-        detail: { reason, path },
-      }),
-    );
+    dispatchVaultLockRequestedForPath(path, reason);
   };
 
   const handleVaultOwnerAuthFailure = async (response: Response) => {
     if (
       (response.status !== 401 && response.status !== 403) ||
-      !getAuthorizationBearer().startsWith("HCT:")
+      !isVaultOwnerRequest ||
+      !vaultOwnerRequestStillBelongsToSession()
     ) {
       return;
     }
@@ -564,7 +669,13 @@ async function apiFetch(
           initiatingSessionIsCurrent() &&
           (!initiatingBearer || !isTokenForCurrentAuthUser(initiatingBearer))
         ) {
-          dispatchAuthSessionInvalidated("Firebase session is no longer valid");
+          if (requestAuthUserId) {
+            dispatchAuthSessionInvalidated({
+              code: "session_invalid",
+              path,
+              userId: requestAuthUserId,
+            });
+          }
         }
         return null;
       }
@@ -596,8 +707,13 @@ async function apiFetch(
       });
     } catch (error) {
       console.warn("[ApiService] Firebase auth refresh failed:", error);
-      if (initiatingSessionIsCurrent()) {
-        dispatchAuthSessionInvalidated("Firebase session refresh failed");
+      const code = authSessionInvalidationCodeFromFirebaseError(error);
+      if (code && requestAuthUserId && initiatingSessionIsCurrent()) {
+        dispatchAuthSessionInvalidated({
+          code,
+          path,
+          userId: requestAuthUserId,
+        });
       }
       return null;
     }
@@ -639,6 +755,25 @@ async function apiFetch(
       durationMs: Math.max(0, Date.now() - requestStartedAt),
       routeId,
     });
+  };
+
+  const settleAuthenticatedResponse = async (
+    response: Response,
+  ): Promise<Response> => {
+    await handleVaultOwnerAuthFailure(response);
+    if (await dispatchTerminalAuthCodeFromResponse(response)) {
+      recordApiRequestMetric(response.status);
+      return response;
+    }
+    if (
+      response.status === 401 &&
+      !(await responseLooksLikeAuthServiceUnavailable(response))
+    ) {
+      const retryResponse = await retryWithFreshFirebaseToken();
+      if (retryResponse) return retryResponse;
+    }
+    recordApiRequestMetric(response.status);
+    return response;
   };
 
   // Dynamically import tracker to avoid creating a hard dependency for environments
@@ -708,8 +843,7 @@ async function apiFetch(
             credentials: "include",
             headers: mergedHeaders,
           });
-          recordApiRequestMetric(formResponse.status);
-          return formResponse;
+          return await settleAuthenticatedResponse(formResponse);
         }
         if (typeof options.body === "string") {
           const contentType =
@@ -787,9 +921,7 @@ async function apiFetch(
         nativeResponse = await CapacitorHttp.request(request);
       }
       const response = toResponse(nativeResponse);
-      await handleVaultOwnerAuthFailure(response);
-      recordApiRequestMetric(response.status);
-      return response;
+      return await settleAuthenticatedResponse(response);
     }
 
     const response = await fetchWithWebTimeout(url, {
@@ -797,18 +929,7 @@ async function apiFetch(
       credentials: "include",
       headers: mergedHeaders,
     });
-    await handleVaultOwnerAuthFailure(response);
-    if (
-      response.status === 401 &&
-      !(await responseLooksLikeAuthServiceUnavailable(response))
-    ) {
-      const retryResponse = await retryWithFreshFirebaseToken();
-      if (retryResponse) {
-        return retryResponse;
-      }
-    }
-    recordApiRequestMetric(response.status);
-    return response;
+    return await settleAuthenticatedResponse(response);
   } catch (error) {
     recordApiRequestMetric(null);
     throw error;
@@ -1884,7 +2005,8 @@ export class ApiService {
    * resolves against the Python backend — targets the web origin explicitly.
    */
   static async notifyAuthMail(
-    event: "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
+    event:
+      "signed_in" | "signed_out" | "phone_conflict" | "capabilities_linked",
     options?: {
       phoneNumber?: string;
       /** Currently connected capability ids; the server diffs these. */
@@ -1898,14 +2020,18 @@ export class ApiService {
       const idToken = options?.idToken || (await this.getFirebaseToken());
       if (!idToken) return false;
 
-      const origin = Capacitor.isNativePlatform() ? resolveRuntimeFrontendUrl() : "";
+      const origin = Capacitor.isNativePlatform()
+        ? resolveRuntimeFrontendUrl()
+        : "";
       const response = await apiFetch(`${origin}/api/auth/mail`, {
         method: "POST",
         headers: { Authorization: `Bearer ${idToken}` },
         body: JSON.stringify({
           event,
           ...(options?.phoneNumber ? { phoneNumber: options.phoneNumber } : {}),
-          ...(options?.capabilities ? { capabilities: options.capabilities } : {}),
+          ...(options?.capabilities
+            ? { capabilities: options.capabilities }
+            : {}),
           ...(options?.observed ? { observed: options.observed } : {}),
         }),
       });
@@ -2153,6 +2279,41 @@ export class ApiService {
     return apiFetch("/api/auth/session", {
       method: "DELETE",
     });
+  }
+
+  /**
+   * Confirm that a cached Firebase identity still represents a live account.
+   * Run this before a forced refresh because Firebase collapses remote account
+   * deletion into a generic `user-token-expired` client error, while the
+   * backend can return the explicit `AUTH_ACCOUNT_NOT_FOUND` lifecycle code.
+   */
+  static async getAccountSessionStatus(idToken: string): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = globalThis.setTimeout(() => {
+      controller.abort(
+        new DOMException(
+          "Account session validation timed out.",
+          "TimeoutError",
+        ),
+      );
+    }, ACCOUNT_SESSION_STATUS_TIMEOUT_MS);
+
+    try {
+      return await apiFetch("/api/account/session-status", {
+        method: "GET",
+        cache: "no-store",
+        signal: controller.signal,
+        headers: {
+          Authorization: `Bearer ${idToken}`,
+          "Cache-Control": "no-store",
+          // Session validation owns its refresh/re-probe sequence so a generic
+          // cached-token 401 cannot be collapsed into a terminal result here.
+          [AUTH_REFRESH_RETRY_HEADER]: "1",
+        },
+      });
+    } finally {
+      globalThis.clearTimeout(timeout);
+    }
   }
 
   // ==================== Consent ====================
@@ -2548,7 +2709,9 @@ export class ApiService {
           // must not share a bucket, or the two platforms are not comparable.
           ...(Array.isArray(consents)
             ? {
-                pending_count_bucket: consentPendingCountBucket(consents.length),
+                pending_count_bucket: consentPendingCountBucket(
+                  consents.length,
+                ),
               }
             : {}),
           load_surface: loadSurface,
@@ -3242,10 +3405,14 @@ export class ApiService {
         );
       }
       if (status === "permission_denied") {
-        throw new Error("This Google account needs Vertex AI User access for that project.");
+        throw new Error(
+          "This Google account needs Vertex AI User access for that project.",
+        );
       }
       if (status === "api_not_enabled") {
-        throw new Error("Enable the Vertex AI API in this Google Cloud project, then try again.");
+        throw new Error(
+          "Enable the Vertex AI API in this Google Cloud project, then try again.",
+        );
       }
       if (status === "unsupported_model") {
         throw new Error("This Gemini key cannot access the model One uses.");
@@ -3379,6 +3546,8 @@ export class ApiService {
 
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
     if (Capacitor.isNativePlatform()) {
+      const nativeStreamPath = "/api/kai/portfolio/import/stream";
+      const requestOwner = snapshotValidatedAuthSessionOwner();
       try {
         const file = params.formData.get("file") as File;
         const userId = params.formData.get("user_id") as string;
@@ -3512,6 +3681,11 @@ export class ApiService {
               }
               close();
             } catch (error) {
+              handleNativeVaultOwnerStreamError(
+                error,
+                nativeStreamPath,
+                requestOwner,
+              );
               const nativeBridge =
                 typeof window !== "undefined"
                   ? window.__HUSHH_NATIVE_TEST__
@@ -3643,6 +3817,8 @@ export class ApiService {
       portfolioStreamLastError: "",
     });
     if (Capacitor.isNativePlatform()) {
+      const nativeStreamPath = `/api/kai/portfolio/import/run/${encodeURIComponent(params.runId)}/stream`;
+      const requestOwner = snapshotValidatedAuthSessionOwner();
       try {
         const vaultOwnerToken = params.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -3774,6 +3950,11 @@ export class ApiService {
               });
               close();
             } catch (error) {
+              handleNativeVaultOwnerStreamError(
+                error,
+                nativeStreamPath,
+                requestOwner,
+              );
               updateNativePortfolioImportDebug({
                 portfolioStreamState: "error",
                 portfolioStreamLastError:
@@ -4374,6 +4555,8 @@ export class ApiService {
 
     // Native: use Kai plugin for real-time SSE (WKWebView buffers fetch() response body)
     if (Capacitor.isNativePlatform()) {
+      const nativeStreamPath = "/api/kai/portfolio/analyze-losers/stream";
+      const requestOwner = snapshotValidatedAuthSessionOwner();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -4463,6 +4646,11 @@ export class ApiService {
               }
               close();
             } catch (error) {
+              handleNativeVaultOwnerStreamError(
+                error,
+                nativeStreamPath,
+                requestOwner,
+              );
               fail(error);
             } finally {
               data.signal?.removeEventListener("abort", handleAbort);
@@ -4598,6 +4786,8 @@ export class ApiService {
 
     // Native: use Kai plugin and expose a ReadableStream of SSE text
     if (Capacitor.isNativePlatform()) {
+      const nativeStreamPath = "/api/kai/analyze/stream";
+      const requestOwner = snapshotValidatedAuthSessionOwner();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -4690,6 +4880,11 @@ export class ApiService {
               }
               close();
             } catch (error) {
+              handleNativeVaultOwnerStreamError(
+                error,
+                nativeStreamPath,
+                requestOwner,
+              );
               fail(error);
             } finally {
               data.signal?.removeEventListener("abort", handleAbort);
@@ -4827,6 +5022,8 @@ export class ApiService {
     };
 
     if (Capacitor.isNativePlatform()) {
+      const nativeStreamPath = `/api/kai/analyze/run/${encodeURIComponent(data.runId)}/stream`;
+      const requestOwner = snapshotValidatedAuthSessionOwner();
       try {
         const vaultOwnerToken = data.vaultOwnerToken;
         if (!vaultOwnerToken) {
@@ -4919,6 +5116,11 @@ export class ApiService {
               }
               close();
             } catch (error) {
+              handleNativeVaultOwnerStreamError(
+                error,
+                nativeStreamPath,
+                requestOwner,
+              );
               fail(error);
             } finally {
               data.signal?.removeEventListener("abort", handleAbort);

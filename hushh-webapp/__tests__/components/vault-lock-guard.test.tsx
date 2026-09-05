@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
@@ -11,11 +11,13 @@ const mocks = vi.hoisted(() => ({
   peekVaultPresence: vi.fn(),
   refreshVaultPresence: vi.fn(),
   replace: vi.fn(),
+  retrySessionVerification: vi.fn(),
   signOut: vi.fn(),
   vaultUnlocked: false,
   authState: {
     user: { uid: "user_1" } as { uid: string } | null,
     loading: false,
+    sessionVerificationRequired: false,
   },
   VaultAuthSessionNotReadyError: class VaultAuthSessionNotReadyError extends Error {
     readonly code = "VAULT_AUTH_SESSION_NOT_READY";
@@ -34,6 +36,8 @@ vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => ({
     user: mocks.authState.user,
     loading: mocks.authState.loading,
+    sessionVerificationRequired: mocks.authState.sessionVerificationRequired,
+    retrySessionVerification: mocks.retrySessionVerification,
     signOut: mocks.signOut,
   }),
 }));
@@ -90,10 +94,41 @@ vi.mock("@/components/vault/vault-unlock-dialog", () => ({
 }));
 
 describe("VaultLockGuard", () => {
+  it("recovers from a failed Vault read without guessing that an unlock is required", async () => {
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValueOnce(new Error("offline"));
+    mocks.checkVault.mockResolvedValueOnce(false);
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "Reconnect to continue securely",
+    );
+    expect(screen.queryByTestId("vault-unlock-dialog")).toBeNull();
+    expect(screen.queryByText("Protected route")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+    expect(await screen.findByText("Protected route")).toBeTruthy();
+  });
+
+  it("offers sign out when a Vault read cannot recover", async () => {
+    mocks.peekVaultPresence.mockReturnValue(null);
+    mocks.checkVault.mockRejectedValue(new Error("offline"));
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+  });
+
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.authState.user = { uid: "user_1" };
     mocks.authState.loading = false;
+    mocks.authState.sessionVerificationRequired = false;
     mocks.hasIncompleteNativeUiFlowSession.mockReturnValue(false);
     mocks.isNativePlatform.mockReturnValue(false);
     mocks.isNativeTestVaultBootstrapManaged.mockReturnValue(false);
@@ -222,5 +257,42 @@ describe("VaultLockGuard", () => {
 
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("Protected route")).toBeNull();
+  });
+
+  it("hides unlocked vault content while auth session validation is pending", () => {
+    mocks.vaultUnlocked = true;
+    mocks.authState.loading = true;
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByText("Checking session...")).toBeTruthy();
+    expect(screen.queryByText("Protected route")).toBeNull();
+  });
+
+  it("keeps an unlocked Vault hidden behind an actionable recovery surface when verification is unavailable", async () => {
+    mocks.vaultUnlocked = true;
+    mocks.authState.sessionVerificationRequired = true;
+
+    render(
+      <VaultLockGuard>
+        <div>Protected route</div>
+      </VaultLockGuard>,
+    );
+
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "Reconnect to continue securely",
+    );
+    expect(screen.queryByText("Protected route")).toBeNull();
+
+    screen.getByRole("button", { name: "Try again" }).click();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    await waitFor(() => {
+      expect(mocks.retrySessionVerification).toHaveBeenCalledTimes(1);
+      expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    });
   });
 });

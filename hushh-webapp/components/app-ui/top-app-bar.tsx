@@ -73,9 +73,11 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
+  accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
+import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
 import {
@@ -692,7 +694,10 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         // Recompute on any identity change, including present -> null, so
         // `primaryHeaderOutOfView` cannot keep asserting a header that a flow
         // switch just unmounted.
-        if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS) {
+        if (
+          header === previous &&
+          now - lastMutationCheckAt < MUTATION_RECHECK_MS
+        ) {
           return;
         }
         lastMutationCheckAt = now;
@@ -1388,18 +1393,22 @@ function OnboardingRouteActions() {
           executeVerifiedAccountDeletion({
             userId: user.uid,
             vaultOwnerToken: resolution.token,
+            sessionUser: user,
           }),
           {
             loading: "Deleting your account...",
             success: "Account deleted.",
-            error: "Failed to delete account. Please try again.",
+            error: accountDeletionErrorMessage,
             variant: "destructive",
           },
         )
         .unwrap();
 
-      await signOut({ skipFcmCleanup: true });
-      router.replace(ROUTES.HOME);
+      await signOut({
+        redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
+        expectedUserId: user.uid,
+        skipFcmCleanup: true,
+      });
     } catch (error) {
       console.error("[TopAppBar] Failed to delete account:", error);
     } finally {
@@ -1444,7 +1453,7 @@ function OnboardingRouteActions() {
           open={vaultUnlockOpen}
           onOpenChange={setVaultUnlockOpen}
           title="Unlock Vault to Delete Account"
-          description="Unlock your vault to confirm deletion. This is permanent and removes all encrypted records."
+          description="Unlock your Vault to confirm account deletion. This permanent action removes your saved Vault information."
           onSuccess={() => {
             setVaultUnlockOpen(false);
             window.setTimeout(() => void requestDeleteAccount(), 300);
