@@ -7,7 +7,10 @@
   ],
   "defaults": {
     "reachability": {
-      "active_personas": ["investor", "ria"]
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
     },
     "speaker_persona": "one"
   },
@@ -16,11 +19,24 @@
       "action_id": "auth.sign_in_google",
       "label": "Continue with Google",
       "meaning": "Uses the mounted Google provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
-      "aliases": ["sign in with google", "continue with google", "google sign in"],
-      "search_keywords": ["google", "sign in", "login", "authenticate"],
+      "aliases": [
+        "sign in with google",
+        "continue with google",
+        "google sign in"
+      ],
+      "search_keywords": [
+        "google",
+        "sign in",
+        "login",
+        "authenticate"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -33,7 +49,9 @@
         "path": "local_handler",
         "target": "auth.sign_in_google"
       },
-      "control_ids": ["auth_google"],
+      "control_ids": [
+        "auth_google"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -41,11 +59,24 @@
       "action_id": "auth.sign_in_apple",
       "label": "Continue with Apple",
       "meaning": "Uses the mounted Apple provider popup handler. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; Firebase settles only after it returns a verified user session.",
-      "aliases": ["sign in with apple", "continue with apple", "apple sign in"],
-      "search_keywords": ["apple", "sign in", "login", "authenticate"],
+      "aliases": [
+        "sign in with apple",
+        "continue with apple",
+        "apple sign in"
+      ],
+      "search_keywords": [
+        "apple",
+        "sign in",
+        "login",
+        "authenticate"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -58,7 +89,419 @@
         "path": "local_handler",
         "target": "auth.sign_in_apple"
       },
-      "control_ids": ["auth_apple"],
+      "control_ids": [
+        "auth_apple"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_microsoft",
+      "label": "Continue with Microsoft Entra",
+      "meaning": "Uses the mounted Microsoft Entra enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with microsoft entra",
+        "continue with microsoft entra",
+        "microsoft entra sign in"
+      ],
+      "search_keywords": [
+        "microsoft entra",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_microsoft"
+      },
+      "control_ids": [
+        "auth_sso_microsoft"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_okta",
+      "label": "Continue with Okta",
+      "meaning": "Uses the mounted Okta enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with okta",
+        "continue with okta",
+        "okta sign in"
+      ],
+      "search_keywords": [
+        "okta",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_okta"
+      },
+      "control_ids": [
+        "auth_sso_okta"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_google_workspace",
+      "label": "Continue with Google Workspace",
+      "meaning": "Uses the mounted Google Workspace enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with google workspace",
+        "continue with google workspace",
+        "google workspace sign in"
+      ],
+      "search_keywords": [
+        "google workspace",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_google_workspace"
+      },
+      "control_ids": [
+        "auth_sso_google_workspace"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_ping",
+      "label": "Continue with Ping Identity",
+      "meaning": "Uses the mounted Ping Identity enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with ping identity",
+        "continue with ping identity",
+        "ping identity sign in"
+      ],
+      "search_keywords": [
+        "ping identity",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_ping"
+      },
+      "control_ids": [
+        "auth_sso_ping"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_onelogin",
+      "label": "Continue with OneLogin",
+      "meaning": "Uses the mounted OneLogin enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with onelogin",
+        "continue with onelogin",
+        "onelogin sign in"
+      ],
+      "search_keywords": [
+        "onelogin",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_onelogin"
+      },
+      "control_ids": [
+        "auth_sso_onelogin"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_duo",
+      "label": "Continue with Cisco Duo",
+      "meaning": "Uses the mounted Cisco Duo enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with cisco duo",
+        "continue with cisco duo",
+        "cisco duo sign in"
+      ],
+      "search_keywords": [
+        "cisco duo",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_duo"
+      },
+      "control_ids": [
+        "auth_sso_duo"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_salesforce",
+      "label": "Continue with Salesforce",
+      "meaning": "Uses the mounted Salesforce enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with salesforce",
+        "continue with salesforce",
+        "salesforce sign in"
+      ],
+      "search_keywords": [
+        "salesforce",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_salesforce"
+      },
+      "control_ids": [
+        "auth_sso_salesforce"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_amazon",
+      "label": "Continue with Amazon",
+      "meaning": "Uses the mounted Amazon enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with amazon",
+        "continue with amazon",
+        "amazon sign in"
+      ],
+      "search_keywords": [
+        "amazon",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_amazon"
+      },
+      "control_ids": [
+        "auth_sso_amazon"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_login_gov",
+      "label": "Continue with Login.gov",
+      "meaning": "Uses the mounted Login.gov enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with login.gov",
+        "continue with login.gov",
+        "login.gov sign in"
+      ],
+      "search_keywords": [
+        "login.gov",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_login_gov"
+      },
+      "control_ids": [
+        "auth_sso_login_gov"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
+    {
+      "action_id": "auth.sign_in_sso_idme",
+      "label": "Continue with ID.me",
+      "meaning": "Uses the mounted ID.me enterprise sign-in handler so a person can claim their Agent One with the identity they already carry. A spoken request presents this exact provider action in the Agent Bar so the confirming tap supplies browser activation; the provider is only shown when it is enabled for this environment.",
+      "aliases": [
+        "sign in with id.me",
+        "continue with id.me",
+        "id.me sign in"
+      ],
+      "search_keywords": [
+        "id.me",
+        "sign in",
+        "login",
+        "sso",
+        "enterprise"
+      ],
+      "reachability": {
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "trusted_activation_required",
+      "execution_target": {
+        "status": "wired",
+        "path": "local_handler",
+        "target": "auth.sign_in_sso_idme"
+      },
+      "control_ids": [
+        "auth_sso_idme"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -66,11 +509,23 @@
       "action_id": "auth.open_terms",
       "label": "Terms",
       "meaning": "Opens the inline Terms document on the Login screen without leaving sign-in.",
-      "aliases": ["open terms", "show terms", "terms and conditions"],
-      "search_keywords": ["terms", "legal", "conditions"],
+      "aliases": [
+        "open terms",
+        "show terms",
+        "terms and conditions"
+      ],
+      "search_keywords": [
+        "terms",
+        "legal",
+        "conditions"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -82,7 +537,9 @@
         "path": "local_handler",
         "target": "auth.open_terms"
       },
-      "control_ids": ["auth_terms"],
+      "control_ids": [
+        "auth_terms"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -90,11 +547,23 @@
       "action_id": "auth.open_privacy",
       "label": "Privacy Policy",
       "meaning": "Opens the inline Privacy Policy document on the Login screen without leaving sign-in.",
-      "aliases": ["open privacy policy", "show privacy policy", "open privacy"],
-      "search_keywords": ["privacy", "policy", "legal"],
+      "aliases": [
+        "open privacy policy",
+        "show privacy policy",
+        "open privacy"
+      ],
+      "search_keywords": [
+        "privacy",
+        "policy",
+        "legal"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -106,7 +575,9 @@
         "path": "local_handler",
         "target": "auth.open_privacy"
       },
-      "control_ids": ["auth_privacy"],
+      "control_ids": [
+        "auth_privacy"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -114,11 +585,24 @@
       "action_id": "auth.close_legal",
       "label": "Close legal document",
       "meaning": "Closes the inline legal document and returns to the Login screen.",
-      "aliases": ["close terms", "close privacy policy", "close legal document"],
-      "search_keywords": ["close", "terms", "privacy", "legal"],
+      "aliases": [
+        "close terms",
+        "close privacy policy",
+        "close legal document"
+      ],
+      "search_keywords": [
+        "close",
+        "terms",
+        "privacy",
+        "legal"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -130,7 +614,9 @@
         "path": "local_handler",
         "target": "auth.close_legal"
       },
-      "control_ids": ["auth_close_legal"],
+      "control_ids": [
+        "auth_close_legal"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -138,11 +624,26 @@
       "action_id": "onboarding.back_to_intro",
       "label": "Back to welcome",
       "meaning": "Returns from Login to One's public welcome screen through the canonical onboarding hierarchy, preserving only a valid pending destination.",
-      "aliases": ["go back", "back", "back to welcome", "return to welcome", "go to welcome"],
-      "search_keywords": ["back", "welcome", "return", "onboarding"],
+      "aliases": [
+        "go back",
+        "back",
+        "back to welcome",
+        "return to welcome",
+        "go to welcome"
+      ],
+      "search_keywords": [
+        "back",
+        "welcome",
+        "return",
+        "onboarding"
+      ],
       "reachability": {
-        "routes": ["/login"],
-        "screens": ["login"],
+        "routes": [
+          "/login"
+        ],
+        "screens": [
+          "login"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
@@ -154,7 +655,9 @@
         "path": "local_handler",
         "target": "onboarding.back_to_intro"
       },
-      "control_ids": ["auth_back"],
+      "control_ids": [
+        "auth_back"
+      ],
       "state_exposure": [],
       "docs_references": []
     }

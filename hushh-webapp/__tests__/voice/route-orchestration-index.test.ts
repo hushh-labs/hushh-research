@@ -24,12 +24,26 @@ describe("One route orchestration index", () => {
     const login = index.routes.find(
       (entry) => entry.route_pattern === "/login",
     );
+    // Every sign-in action is an explicit provider action — including the
+    // enterprise/government IdPs, which are declared statically (the registry
+    // is static) and only mounted when enabled for the environment. There is
+    // still no generic "sign in" action on this route.
     expect(login?.action_ids).toEqual([
       "auth.close_legal",
       "auth.open_privacy",
       "auth.open_terms",
       "auth.sign_in_apple",
       "auth.sign_in_google",
+      "auth.sign_in_sso_amazon",
+      "auth.sign_in_sso_duo",
+      "auth.sign_in_sso_google_workspace",
+      "auth.sign_in_sso_idme",
+      "auth.sign_in_sso_login_gov",
+      "auth.sign_in_sso_microsoft",
+      "auth.sign_in_sso_okta",
+      "auth.sign_in_sso_onelogin",
+      "auth.sign_in_sso_ping",
+      "auth.sign_in_sso_salesforce",
       "onboarding.back_to_intro",
     ]);
   });
