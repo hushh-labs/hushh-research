@@ -24,7 +24,9 @@ import json
 import logging
 import re
 import uuid
+from datetime import datetime
 from typing import Any, Callable, Literal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from google.adk.tools.tool_context import ToolContext
 
@@ -109,6 +111,7 @@ _STATE_VOICE_CONTEXT = "hussh:voice_context"
 _STATE_GOAL_RUN = "hussh:goal_run"
 _STATE_USER_ID = "hussh:user_id"
 _STATE_CONSENT_TOKEN = "hussh:consent_token"  # noqa: S105
+_STATE_TIMEZONE = "hussh:timezone"
 
 # Manifest delegate ids -> One's specialist tool names. Only these redirect;
 # other delegate markers (e.g. "agent_kyc", which has no conversational
@@ -3771,4 +3774,42 @@ async def set_preferred_model(model_id: str, tool_context: ToolContext) -> dict[
         "running_now": preference["effective_model"],
         "following_default": preference["selected_model"] is None,
         "takes_effect": "next_message",
+    }
+
+
+def _resolve_timezone(tool_context: ToolContext) -> str:
+    """Read the person's declared IANA timezone, defaulting to UTC.
+
+    Mirrors ``hushh_mcp.agents.calendar.tools._timezone`` (module-private
+    there, so duplicated rather than imported across module boundaries).
+    """
+    value = str(tool_context.state.get(_STATE_TIMEZONE) or "UTC").strip() or "UTC"
+    try:
+        ZoneInfo(value)
+    except (ValueError, ZoneInfoNotFoundError):
+        return "UTC"
+    return value
+
+
+async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
+    """Get the current date and time in the owner's declared timezone.
+
+    Use this whenever the person asks what day, date, or time it is -- the
+    model has no other grounding for "now" and must not guess from training data.
+    """
+    zone_name = _resolve_timezone(tool_context)
+    now = datetime.now(ZoneInfo(zone_name))
+    # %-I / %-d (no leading zero) are glibc/BSD-only strftime extensions that
+    # raise ValueError on Windows -- computed by hand instead so this tool
+    # behaves the same on every platform this repo is developed or run on.
+    hour_12 = now.hour % 12 or 12
+    clock_time = f"{hour_12}:{now.strftime('%M %p')}"
+    zone_label = now.strftime("%Z") or zone_name
+    return {
+        "status": "ok",
+        "date": now.strftime("%Y-%m-%d"),
+        "time": clock_time,
+        "weekday": now.strftime("%A"),
+        "time_zone": zone_name,
+        "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
