@@ -9,27 +9,8 @@ import {
 } from "@/lib/navigation/top-shell-breadcrumbs";
 import { isFocusedConnectCircleTask } from "@/lib/navigation/connect-routes";
 import { ROUTES } from "@/lib/navigation/routes";
-import { readPreviousTabHref } from "@/lib/navigation/tab-switch-history";
 
 type SearchParamsLike = { get(name: string): string | null } | null | undefined;
-
-/**
- * The recorded sibling Location tab to retrace to, or null when there is
- * none recorded, or the recorded one IS the tab already on screen (a stale
- * or self-referential record must not turn Back into a no-op).
- */
-function resolveLocationTabSwitchTarget(
-  searchParams: SearchParamsLike,
-): string | null {
-  const previousTabHref = readPreviousTabHref("location");
-  if (!previousTabHref) return null;
-  const currentView = (searchParams?.get("view") || "now").trim() || "now";
-  const currentHref =
-    currentView === "now"
-      ? ROUTES.ONE_LOCATION
-      : `${ROUTES.ONE_LOCATION}?view=${currentView}`;
-  return previousTabHref !== currentHref ? previousTabHref : null;
-}
 
 export type TopShellBackAction = {
   href: string;
@@ -112,18 +93,6 @@ export function resolveTopShellBackAction(params: {
       params.searchParams?.get("circleId") ?? null,
     );
 
-  // Now/People/Links are one screen with a `?view=` query, not a hierarchy --
-  // so `isDestinationRoot` reads every one of them as the section root and
-  // back always tries to LEAVE Location, never to undo a tab switch (same
-  // gap as RIA's Picks/Clients/Profile, see resolveTabSiblingBackHref).
-  // Only applies with no `?action=` flow open; that already closes in place
-  // above and owns returning to the tab it was opened from.
-  const locationTabSwitchTarget =
-    params.pathname === ROUTES.ONE_LOCATION &&
-    !params.searchParams?.get("action")?.trim()
-      ? resolveLocationTabSwitchTarget(params.searchParams)
-      : null;
-
   const action = (
     href: string,
     mode: TopShellBackAction["mode"],
@@ -138,10 +107,6 @@ export function resolveTopShellBackAction(params: {
   // the same screen, never a step in the trail, so it must not retrace.
   if (profilePanelOpen || locationActionOpen || connectCircleFlowOpen) {
     return action(breadcrumb.backHref, "replace");
-  }
-
-  if (locationTabSwitchTarget) {
-    return action(locationTabSwitchTarget, "replace");
   }
 
   // Only the section root leaves the section. Everywhere else the declared
