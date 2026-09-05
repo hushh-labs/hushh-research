@@ -18,6 +18,14 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("native resumed-session privacy shield contract", () => {
+  it("uses a non-secret Firebase fixture whose format permits native startup", () => {
+    const workflow = source("../.github/workflows/ci.yml");
+    const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
+    const fixtureKey = nativeJob.match(/NEXT_PUBLIC_FIREBASE_API_KEY: (\S+)/)?.[1];
+    expect(fixtureKey).toMatch(/^A0{38}$/);
+    expect(nativeJob).toContain('plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY"');
+  });
+
   it("requires iOS success only after the native job can run", () => {
     const workflow = source("../.github/workflows/ci.yml");
     const preflight = between(workflow, "  preflight-gate:", "  web-core-check:");

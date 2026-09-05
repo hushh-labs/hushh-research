@@ -406,7 +406,9 @@ jobs:
       NEXT_PUBLIC_BACKEND_URL: https://api.example.com
       NEXT_PUBLIC_DEVELOPER_API_URL: https://api.example.com
       NEXT_PUBLIC_PASSKEY_RP_ID: example.com
-      NEXT_PUBLIC_FIREBASE_API_KEY: test-api-key
+      # Synthetic, non-authorizing key with Firebase Installations' required
+      # shape. An invalid shape aborts native startup before XCTest can attach.
+      NEXT_PUBLIC_FIREBASE_API_KEY: A00000000000000000000000000000000000000
       NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: dummy-project.firebaseapp.com
       NEXT_PUBLIC_FIREBASE_PROJECT_ID: dummy-project
       NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: dummy-project.appspot.com
@@ -437,7 +439,7 @@ jobs:
           set -euo pipefail
           PLIST="${GITHUB_WORKSPACE}/GoogleService-Info.plist"
           plutil -create xml1 "$PLIST"
-          plutil -insert API_KEY -string "test-api-key" "$PLIST"
+          plutil -insert API_KEY -string "$NEXT_PUBLIC_FIREBASE_API_KEY" "$PLIST"
           plutil -insert GCM_SENDER_ID -string "123456789" "$PLIST"
           plutil -insert PLIST_VERSION -string "1" "$PLIST"
           plutil -insert BUNDLE_ID -string "com.hushh.app" "$PLIST"
