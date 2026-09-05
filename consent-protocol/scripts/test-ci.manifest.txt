@@ -143,6 +143,7 @@ tests/test_firebase_auth_split.py
 tests/services/test_account_deletion_lifecycle_service.py
 tests/test_account_deletion_tombstone_migration.py
 tests/test_account_deletion_release_workflow.py
+tests/test_cloud_run_image_resolution.py
 
 # Contact discovery.
 #

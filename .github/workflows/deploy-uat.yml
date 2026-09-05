@@ -486,26 +486,17 @@ jobs:
             exit 1
           fi
           image_reference="${image_repository}@${image_digest}"
+          # Buildx attestations live in a parent index. Pin its executable child
+          # before the fence; Cloud Run must later report this exact digest.
+          gcloud auth configure-docker gcr.io --quiet
+          docker buildx imagetools inspect --raw "${image_reference}" \
+            > /tmp/uat-backend-image-manifest.json
+          image_reference="$(python3 scripts/ci/resolve-cloud-run-image.py \
+            --image-reference "${image_reference}" \
+            --manifest-json /tmp/uat-backend-image-manifest.json \
+            --sha "${{ steps.resolve-sha.outputs.sha }}" \
+            --json-output /tmp/uat-backend-image.json)"
           echo "image_reference=${image_reference}" >> "$GITHUB_OUTPUT"
-          python3 - <<'PY'
-          import json
-          import os
-          from pathlib import Path
-
-          Path("/tmp/uat-backend-image.json").write_text(
-              json.dumps(
-                  {
-                      "status": "pinned",
-                      "repository": "gcr.io/hushh-pda-uat/consent-protocol",
-                      "digest_algorithm": "sha256",
-                      "sha": "${{ steps.resolve-sha.outputs.sha }}",
-                  },
-                  indent=2,
-                  sort_keys=True,
-              ),
-              encoding="utf-8",
-          )
-          PY
 
       - name: Install Cloud SQL Auth Proxy
         if: steps.scope.outputs.deploy_backend == 'true'
@@ -1957,6 +1948,7 @@ jobs:
             /tmp/uat-db-migration-guard-predeploy.json
             /tmp/uat-db-migration-guard-postdeploy.json
             /tmp/uat-backend-image.json
+            /tmp/uat-backend-image-manifest.json
             /tmp/uat-backend-candidate.json
             /tmp/uat-backend-candidate-readiness.json
             /tmp/uat-backend-candidate-health.json
