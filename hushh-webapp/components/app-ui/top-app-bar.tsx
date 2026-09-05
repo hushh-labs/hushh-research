@@ -694,10 +694,7 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
         // Recompute on any identity change, including present -> null, so
         // `primaryHeaderOutOfView` cannot keep asserting a header that a flow
         // switch just unmounted.
-        if (
-          header === previous &&
-          now - lastMutationCheckAt < MUTATION_RECHECK_MS
-        ) {
+        if (header === previous && now - lastMutationCheckAt < MUTATION_RECHECK_MS) {
           return;
         }
         lastMutationCheckAt = now;

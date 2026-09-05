@@ -70,6 +70,7 @@ const IS_NATIVE = typeof window !== "undefined" && Capacitor.isNativePlatform();
 const ACTIVE_SESSION_VALIDATION_DEBOUNCE_MS = 1_500;
 const WEB_AUTH_OBSERVER_WATCHDOG_MS = 10_000;
 const ACCOUNT_SESSION_VALIDATION_BUDGET_MS = 8_000;
+const NATIVE_SESSION_PRIVACY_READ_BUDGET_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_DEFAULT_DELAY_MS = 2_000;
 const ACCOUNT_DELETION_REPROBE_MAX_DELAY_MS = 2_000;
 const ACCOUNT_SESSION_STATUS_MAX_BODY_BYTES = 4_096;
@@ -754,7 +755,12 @@ export function AuthProvider({ children }: AuthProviderProps) {
       nativeRestoreSettledRef.current = false;
       let terminalInvalidationDispatched = false;
       try {
-        const nativeUser = await AuthService.restoreNativeSession();
+        // Native bridges can lose a callback during restoration. Bound the
+        // complete read; a late result must never publish into this attempt.
+        const nativeUser = await withinAccountSessionValidationBudget(
+          AuthService.restoreNativeSession(),
+          Date.now() + ACCOUNT_SESSION_VALIDATION_BUDGET_MS,
+        );
 
         if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
           return;
@@ -786,6 +792,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           applyAuthUser(nativeUser);
         } else {
           console.log("🍎 [AuthProvider] No native session found");
+          setSessionVerificationRequired(false);
           applyAuthUser(null);
         }
       } catch (_error) {
@@ -804,8 +811,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
           return;
         }
         console.warn("🍎 [AuthProvider] Native restore error");
-        applyAuthUser(null);
-        // User will need to log in again
+        // A failed read is not proof of sign-out. Keep any known owner hidden
+        // behind recovery, including when cold launch has not read a UID yet.
+        setSessionVerificationRequired(true);
       } finally {
         if (!nativeRestoreEpochRef.current.isCurrent(restoreEpoch)) {
           return;
@@ -1254,10 +1262,10 @@ export function AuthProvider({ children }: AuthProviderProps) {
     };
 
     const settleNativePrivacyProtectedSession = async () => {
-      const privacyState = await getNativeSessionPrivacyState().catch(() => ({
-        shielded: false,
-        generation: 0,
-      }));
+      const privacyState = await withinAccountSessionValidationBudget(
+        getNativeSessionPrivacyState(),
+        Date.now() + NATIVE_SESSION_PRIVACY_READ_BUDGET_MS,
+      ).catch(() => ({ shielded: false, generation: 0 }));
       try {
         if (userRef.current) {
           await validateActiveSession({ force: privacyState.shielded });
@@ -1682,7 +1690,14 @@ export function AuthProvider({ children }: AuthProviderProps) {
     signOut,
     checkAuth,
     refreshUser,
-    retrySessionVerification: () => validateActiveSession({ force: true }),
+    retrySessionVerification: async () => {
+      if (IS_NATIVE && !userRef.current) {
+        setLoading(true);
+        await checkAuth();
+        return;
+      }
+      await validateActiveSession({ force: true });
+    },
     beginPostAuthSettlement: (nextUser: User) => {
       // This entrypoint is reached only after a new interactive credential has
       // succeeded, so it may intentionally establish even the same UID again.

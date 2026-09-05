@@ -121,11 +121,11 @@ function HomeContent() {
     user?.uid,
   ]);
 
-  if (loading || (!user && step === null)) {
+  if (loading || (!user && step === null && !sessionVerificationRequired)) {
     return <HushhLoader variant="fullscreen" label="Preparing welcome…" />;
   }
 
-  if (user && sessionVerificationRequired) {
+  if (sessionVerificationRequired) {
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}

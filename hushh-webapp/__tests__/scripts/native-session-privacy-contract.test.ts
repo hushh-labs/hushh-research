@@ -18,6 +18,15 @@ function between(value: string, start: string, end: string): string {
 }
 
 describe("native resumed-session privacy shield contract", () => {
+  it("requires iOS success only after the native job can run", () => {
+    const workflow = source("../.github/workflows/ci.yml");
+    const preflight = between(workflow, "  preflight-gate:", "  web-core-check:");
+    const finalGate = workflow.slice(workflow.indexOf('name: "CI Status Gate"'));
+    expect(preflight).not.toContain("$IOS_NATIVE");
+    expect(finalGate).toContain('IOS_NATIVE="${{ needs[\'ios-native-check\'].result }}"');
+    expect(finalGate).toContain('[ "$IOS_NATIVE" != "success" ]');
+  });
+
   it("exposes a web-safe, generation-scoped Capacitor acknowledgement API", () => {
     const bridge = source("lib/capacitor/session-privacy.ts");
 

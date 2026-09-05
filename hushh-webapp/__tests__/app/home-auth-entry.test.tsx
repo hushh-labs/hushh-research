@@ -147,4 +147,15 @@ describe("authenticated root entry", () => {
     screen.getByRole("button", { name: "Try again" }).click();
     expect(mocks.retrySessionVerification).toHaveBeenCalledTimes(1);
   });
+
+  it("offers recovery when a native cold read cannot identify the account", async () => {
+    mocks.user = null;
+    mocks.sessionVerificationRequired = true;
+    render(<Home />);
+    expect(await screen.findByText(/reconnect to continue securely/i)).toBeTruthy();
+    expect(screen.queryByText("Welcome")).toBeNull();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
+  });
 });

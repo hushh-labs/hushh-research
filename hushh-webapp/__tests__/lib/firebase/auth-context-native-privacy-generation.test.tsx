@@ -1,7 +1,7 @@
 import { act, render, screen, waitFor } from "@testing-library/react";
 import type { User } from "firebase/auth";
 import { useRef } from "react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   authStateListener: null as ((user: unknown) => void) | null,
@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   authServiceSignOut: vi.fn(),
   apiGetAccountSessionStatus: vi.fn(),
   completePrivacyValidation: vi.fn(),
+  getPrivacyState: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -37,9 +38,7 @@ vi.mock("@capacitor/core", () => ({
 }));
 
 vi.mock("@/lib/capacitor/session-privacy", () => ({
-  getNativeSessionPrivacyState: vi.fn(() =>
-    Promise.resolve({ ...mocks.privacyState }),
-  ),
+  getNativeSessionPrivacyState: mocks.getPrivacyState,
   completeNativeSessionPrivacyValidation: mocks.completePrivacyValidation,
 }));
 
@@ -143,6 +142,7 @@ function SessionProbe() {
     completePostAuthSettlement,
     loading,
     sessionVerificationRequired,
+    retrySessionVerification,
     user,
   } = useAuth();
   const settlementIdRef = useRef<number | null>(null);
@@ -150,6 +150,7 @@ function SessionProbe() {
   return (
     <>
       <p data-testid="published-user">{user?.uid ?? "anonymous"}</p>
+      <button onClick={() => void retrySessionVerification()}>Retry session</button>
       {loading ? (
         <p>Checking session</p>
       ) : sessionVerificationRequired ? (
@@ -196,11 +197,42 @@ describe("AuthProvider native privacy generations", () => {
     mocks.lifecycleListeners.clear();
     mocks.lifecycleState = "active";
     mocks.privacyState = { shielded: false, generation: 0 };
+    mocks.getPrivacyState.mockImplementation(() => Promise.resolve({ ...mocks.privacyState }));
     mocks.completePrivacyValidation.mockResolvedValue({
       released: true,
       shielded: false,
       generation: 0,
     });
+  });
+
+  afterEach(() => vi.useRealTimers());
+
+  it("exits a stalled native restore and retries without publishing its late result", async () => {
+    vi.useFakeTimers();
+    const stalledRestore = deferred<User | null>();
+    mocks.restoreNativeSession.mockReturnValueOnce(stalledRestore.promise);
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(8_001); });
+    expect(screen.getByText("Verification required")).toBeInTheDocument();
+    expect(screen.queryByText("Checking session")).not.toBeInTheDocument();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
+    await act(async () => { stalledRestore.resolve(makeUser("late-account")); });
+    expect(screen.getByTestId("published-user")).toHaveTextContent("anonymous");
+    mocks.restoreNativeSession.mockResolvedValueOnce(null);
+    await act(async () => { screen.getByRole("button", { name: "Retry session" }).click(); });
+    expect(screen.getByText("Signed out")).toBeInTheDocument();
+    expect(mocks.restoreNativeSession).toHaveBeenCalledTimes(2);
+  });
+
+  it("continues cold account restoration when the native privacy read never settles", async () => {
+    vi.useFakeTimers();
+    mocks.getPrivacyState.mockReturnValue(new Promise(() => {}));
+    mocks.restoreNativeSession.mockResolvedValue(null);
+    render(<AuthProvider><SessionProbe /></AuthProvider>);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2_001); });
+    expect(screen.getByText("Signed out")).toBeInTheDocument();
+    expect(mocks.completePrivacyValidation).not.toHaveBeenCalled();
+    expect(mocks.authServiceSignOut).not.toHaveBeenCalled();
   });
 
   it("keeps private native content hidden after an unavailable resume check", async () => {
