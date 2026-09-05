@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const capacitorMocks = vi.hoisted(() => ({
   isNativePlatform: vi.fn(() => false),
@@ -93,6 +93,12 @@ describe("ApiService.apiFetch", () => {
     capacitorMocks.isNativePlatform.mockReturnValue(false);
     capacitorMocks.getPlatform.mockReturnValue("web");
     capacitorMocks.request.mockReset();
+    vi.mocked(AuthService.getIdToken).mockReset();
+    vi.mocked(AuthService.getCurrentUser).mockReset();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   // 1 – Web platform: calls fetch with relative path (no base URL)
@@ -146,18 +152,24 @@ describe("ApiService.apiFetch", () => {
     nowSpy.mockRestore();
   });
 
-  it("retries with a fresh Firebase token on 401 and adds X-Hushh-Auth-Refresh-Retry header", async () => {
-    const freshToken = "fresh-firebase-token-xyz";
+  it.each(["user_id", "sub"])("replays the same body when refreshed %s still identifies the same account", async (claim) => {
+    const originalToken = makeUnsignedToken({ [claim]: "user-1", version: 1 });
+    const freshToken = makeUnsignedToken({ [claim]: "user-1", version: 2 });
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValueOnce(freshToken);
+    (AuthService.getCurrentUser as ReturnType<typeof vi.fn>).mockReturnValue({
+      uid: "user-1",
+    } as never);
 
     // First call → 401, second call (retry) → 200
     mockFetch
       .mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401))
       .mockResolvedValueOnce(jsonResponse({ ok: true }, 200));
 
-    const response = await ApiService.apiFetch("/api/protected", {
-      method: "GET",
-      headers: { Authorization: "Bearer original-firebase-token" },
+    const body = JSON.stringify({ lookups: [{ lookup_id: "opaque" }] });
+    const response = await ApiService.apiFetch("/api/one/connections/contact-sync", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${originalToken}` },
+      body,
     });
 
     // Should have called getIdToken with force=true
@@ -171,12 +183,132 @@ describe("ApiService.apiFetch", () => {
     const retryHeaders = retryOptions.headers as Record<string, string>;
     expect(retryHeaders["Authorization"]).toBe(`Bearer ${freshToken}`);
     expect(retryHeaders["X-Hushh-Auth-Refresh-Retry"]).toBe("1");
+    expect(retryOptions.method).toBe("POST");
+    expect(retryOptions.body).toBe(body);
 
     // Final response should be the 200
     expect(response.status).toBe(200);
   });
 
+  it.each(["account-a", "account-b"])(
+    "does not replay or invalidate the replacement session when refresh resolves for %s after an account switch",
+    async (refreshedAccount) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      let finishRefresh!: (token: string) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () => new Promise((resolve) => { finishRefresh = resolve; }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue({
+        uid: "account-a",
+      } as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+
+      const pendingResponse = ApiService.apiFetch(
+        "/api/one/connections/contact-sync",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accountAToken}` },
+          body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+        },
+      );
+
+      await vi.waitFor(() => expect(AuthService.getIdToken).toHaveBeenCalledWith(true));
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "account-b" } as never);
+      finishRefresh(makeUnsignedToken({ user_id: refreshedAccount, version: 2 }));
+      const response = await pendingResponse;
+
+      expect(response.status).toBe(401);
+      expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(dispatchSpy.mock.calls.filter(([event]) =>
+        event instanceof CustomEvent && event.type === "auth-session-invalidated",
+      )).toHaveLength(0);
+    },
+  );
+
   // 4 – Handle unchanged token safely and keep session when user is same
+  it.each([
+    ["the unchanged initiating token", "unchanged"],
+    ["no token", "missing"],
+    ["a rejection", "rejected"],
+  ])(
+    "does not invalidate the replacement session when a stale refresh returns %s",
+    async (_label, refreshOutcome) => {
+      const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+      const accountA = { uid: "account-a" };
+      const accountB = { uid: "account-b" };
+      let finishRefresh!: (value: string | null) => void;
+      let rejectRefresh!: (reason: Error) => void;
+      vi.mocked(AuthService.getIdToken).mockImplementationOnce(
+        () =>
+          new Promise((resolve, reject) => {
+            finishRefresh = resolve;
+            rejectRefresh = reject;
+          }),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
+      const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+      mockFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+
+      const pendingResponse = ApiService.apiFetch(
+        "/api/one/connections/contact-sync",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${accountAToken}` },
+          body: JSON.stringify({ lookups: [{ lookup_id: "opaque" }] }),
+        },
+      );
+
+      await vi.waitFor(() =>
+        expect(AuthService.getIdToken).toHaveBeenCalledWith(true),
+      );
+      vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountB as never);
+      if (refreshOutcome === "rejected") {
+        rejectRefresh(new Error("stale refresh failed"));
+      } else {
+        finishRefresh(refreshOutcome === "unchanged" ? accountAToken : null);
+      }
+      const response = await pendingResponse;
+
+      expect(response.status).toBe(401);
+      expect(mockFetch).toHaveBeenCalledTimes(1);
+      expect(
+        dispatchSpy.mock.calls.filter(
+          ([event]) =>
+            event instanceof CustomEvent &&
+            event.type === "auth-session-invalidated",
+        ),
+      ).toHaveLength(0);
+    },
+  );
+
+  it("still invalidates the initiating session when its token refresh rejects", async () => {
+    const accountAToken = makeUnsignedToken({ user_id: "account-a" });
+    const accountA = { uid: "account-a" };
+    vi.mocked(AuthService.getIdToken).mockRejectedValueOnce(
+      new Error("refresh failed"),
+    );
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(accountA as never);
+    const dispatchSpy = vi.spyOn(window, "dispatchEvent");
+    mockFetch.mockResolvedValueOnce(jsonResponse({ error: "Unauthorized" }, 401));
+
+    const response = await ApiService.apiFetch("/api/protected", {
+      method: "GET",
+      headers: { Authorization: `Bearer ${accountAToken}` },
+    });
+
+    expect(response.status).toBe(401);
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+    expect(
+      dispatchSpy.mock.calls.filter(
+        ([event]) =>
+          event instanceof CustomEvent &&
+          event.type === "auth-session-invalidated",
+      ),
+    ).toHaveLength(1);
+  });
+
   it("does not dispatch auth-session-invalidated when refresh yields same token for active account", async () => {
     const staleToken = makeUnsignedToken({ user_id: "user-1" });
     (AuthService.getIdToken as ReturnType<typeof vi.fn>).mockResolvedValue(staleToken);

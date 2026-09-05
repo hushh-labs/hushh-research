@@ -2278,6 +2278,71 @@ describe("Connect — contact sync", () => {
     ).toBeTruthy();
   });
 
+  it("preserves connection outcomes and partial warnings through the shared results retry", async () => {
+    const matches = [
+      {
+        lookupId: "new",
+        userId: "new",
+        displayName: "Asha Rao",
+        photoUrl: null,
+        outcome: "auto_connected" as const,
+      },
+      {
+        lookupId: "existing",
+        userId: "existing",
+        displayName: "Meena Shah",
+        photoUrl: null,
+        outcome: "already_connected" as const,
+      },
+      {
+        lookupId: "removed",
+        userId: "removed",
+        displayName: "Ravi Kumar",
+        photoUrl: null,
+        outcome: "suppressed" as const,
+      },
+    ];
+    mocks.syncContactSignals.mockResolvedValueOnce({
+      ...emptyContactSyncResult(),
+      matches,
+      matchedUserIds: matches.map((match) => match.userId),
+      totalContacts: 3,
+      readContactCount: 3,
+      checkedContactCount: 3,
+      matchedContactCount: 3,
+      autoConnectedCount: 1,
+      alreadyConnectedCount: 1,
+      suppressedCount: 1,
+      partial: true,
+      limited: true,
+    });
+    render(<ConnectPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sync contacts" }));
+    const sheet = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      expect(
+        within(within(sheet).getByText(name).closest("li")!).getByText(status),
+      ).toBeInTheDocument();
+    }
+    expect(
+      within(sheet).getByText("Only part of your contact list was checked."),
+    ).toBeInTheDocument();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+
+    mocks.syncContactSignals.mockResolvedValueOnce(emptyContactSyncResult());
+    fireEvent.click(within(sheet).getByRole("button", { name: "Sync again" }));
+    await within(sheet).findByText(/No eligible contacts matched/);
+    expect(within(sheet).queryByText("Asha Rao")).toBeNull();
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(2);
+  });
+
   it("uses the verified auth-context phone when Firebase has no phone", async () => {
     // UAT/native phone verification writes the authoritative phone to the
     // backend identity and AuthContext, while Firebase's User can remain

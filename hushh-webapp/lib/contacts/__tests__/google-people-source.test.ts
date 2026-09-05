@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS,
   googleContactsAvailability,
   googlePeopleContactSource,
 } from "../google-people-source";
@@ -43,6 +44,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   globalThis.fetch = ORIGINAL_FETCH;
   if (ORIGINAL_CLIENT_ID === undefined) {
     delete process.env.NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID;
@@ -245,6 +247,117 @@ describe("googlePeopleContactSource", () => {
     const result = await googlePeopleContactSource("tok")({ limit: 500 });
     expect(result.contacts).toHaveLength(2);
     expect(result.truncated).toBe(false);
+  });
+
+  it("stops after ten pages even when sparse pages keep returning a cursor", async () => {
+    const { calls } = respondWith(
+      ...Array.from({ length: 11 }, (_, page) => ({
+        connections: [{ resourceName: `people/${page + 1}` }],
+        nextPageToken: `page-${page + 2}`,
+        totalPeople: 11,
+      })),
+    );
+
+    const result = await googlePeopleContactSource("tok")({ limit: 10_000 });
+
+    expect(calls).toHaveLength(10);
+    expect(new URL(calls[9]).searchParams.get("pageToken")).toBe("page-10");
+    expect(result.contacts).toHaveLength(10);
+    expect(result.contacts.at(-1)?.id).toBe("people/10");
+    expect(result).toMatchObject({ totalAvailable: 11, truncated: true });
+  });
+
+  it.each([false, true])(
+    "reads 10,000 people and reports whether another page exists (%s)",
+    async (hasMore) => {
+      const { calls } = respondWith(
+        ...Array.from({ length: 10 }, (_, page) => ({
+          connections: Array.from({ length: 1000 }, (_, index) => ({
+            resourceName: `people/${page * 1000 + index + 1}`,
+            phoneNumbers: [{ value: "+14155550101" }],
+          })),
+          nextPageToken: page < 9 || hasMore ? `page-${page + 2}` : null,
+          totalPeople: hasMore ? 10_001 : 10_000,
+        })),
+      );
+
+      const result = await googlePeopleContactSource("tok")({ limit: 10_000 });
+
+      expect(calls).toHaveLength(10);
+      expect(calls.every((url) => new URL(url).searchParams.get("pageSize") === "1000")).toBe(true);
+      expect(result.contacts).toHaveLength(10_000);
+      expect(result.contacts.at(-1)?.id).toBe("people/10000");
+      expect(result.truncated).toBe(hasMore);
+      expect(result.totalAvailable).toBe(hasMore ? 10_001 : 10_000);
+    },
+  );
+
+  it("aborts and rejects a stalled fetch at the request deadline", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | null | undefined;
+    globalThis.fetch = vi.fn((_url: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal;
+      return new Promise<Response>(() => {});
+    });
+    const reading = googlePeopleContactSource("tok")({ limit: 500 });
+    const rejected = expect(reading).rejects.toThrow(/took too long.*try again/i);
+
+    await vi.advanceTimersByTimeAsync(GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS - 1);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("keeps the deadline active while a successful response body is stalled", async () => {
+    vi.useFakeTimers();
+    let requestSignal: AbortSignal | null | undefined;
+    const json = vi.fn(() => new Promise<unknown>(() => {}));
+    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      requestSignal = init?.signal;
+      return { ok: true, status: 200, json } as unknown as Response;
+    });
+    const reading = googlePeopleContactSource("tok")({ limit: 500 });
+    const rejected = expect(reading).rejects.toThrow(/took too long.*try again/i);
+
+    await vi.advanceTimersByTimeAsync(GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS - 1);
+    expect(json).toHaveBeenCalledTimes(1);
+    expect(requestSignal?.aborted).toBe(false);
+    await vi.advanceTimersByTimeAsync(1);
+    await rejected;
+
+    expect(requestSignal?.aborted).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("clears a completed page's deadline before advancing to the next page", async () => {
+    vi.useFakeTimers();
+    const signals: Array<AbortSignal | null | undefined> = [];
+    globalThis.fetch = vi.fn(async (_url: RequestInfo | URL, init?: RequestInit) => {
+      signals.push(init?.signal);
+      await new Promise((resolve) => setTimeout(resolve, 20_000));
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          connections: [{ resourceName: `people/${signals.length}` }],
+          nextPageToken: signals.length === 1 ? "page-2" : null,
+          totalPeople: 2,
+        }),
+      } as Response;
+    });
+    const reading = googlePeopleContactSource("tok")({ limit: 500 });
+
+    await vi.advanceTimersByTimeAsync(40_000);
+    const result = await reading;
+
+    expect(result.contacts).toHaveLength(2);
+    expect(signals).toHaveLength(2);
+    expect(signals.every((signal) => signal?.aborted === false)).toBe(true);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it("says so when the token has expired rather than reporting an empty book", async () => {

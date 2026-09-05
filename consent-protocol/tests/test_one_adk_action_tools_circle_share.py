@@ -17,7 +17,9 @@ from hushh_mcp.services.spoken_name_resolver import UnresolvedPersonName
 
 
 class _FakeCircleService:
-    def __init__(self, circles: list[dict[str, Any]], members_by_circle: dict[str, list[dict[str, Any]]]):
+    def __init__(
+        self, circles: list[dict[str, Any]], members_by_circle: dict[str, list[dict[str, Any]]]
+    ):
         self._circles = circles
         self._members_by_circle = members_by_circle
 

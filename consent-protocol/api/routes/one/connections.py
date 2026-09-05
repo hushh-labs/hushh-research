@@ -228,8 +228,14 @@ async def sync_contacts(
         ) from exc
     except RIAIAMPolicyError as exc:
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
-    except Exception as exc:  # noqa: BLE001
-        raise _handle(exc) from exc
+    except ConnectionsError as exc:
+        raise _handle(exc) from None
+    except Exception as exc:  # noqa: BLE001 - SQL exceptions can contain submitted phone proofs
+        # SQLAlchemy includes bound parameters in exception text/tracebacks.
+        # Even a failed proof query must not persist lookup ids, hashes, or
+        # phone digits through the generic connections exception logger.
+        logger.error("contact_sync.failed error=%s", type(exc).__name__)
+        raise HTTPException(status_code=500, detail="Contact sync failed.") from None
 
 
 @router.get("/connections/{counterpart_user_id}/scope-catalog")

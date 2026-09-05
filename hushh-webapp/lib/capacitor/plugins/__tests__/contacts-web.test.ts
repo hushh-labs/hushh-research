@@ -155,6 +155,24 @@ describe("contacts-web", () => {
       expect(capped.contacts).toHaveLength(1);
       expect(capped.truncated).toBe(true);
     });
+
+    it.each([10_000, 10_001])(
+      "reads up to 10,000 selected contacts from a %i-contact pick",
+      async (selectedCount) => {
+        installPicker(async () => Array.from({ length: selectedCount }, (_, index) => ({
+          name: [`Contact ${index + 1}`],
+          tel: [`+1212${String(index).padStart(7, "0")}`],
+        })));
+
+        const result = await new HushhContactsWeb().readContacts({ limit: 20_000 });
+
+        expect(result.contacts).toHaveLength(10_000);
+        expect(result.contacts.at(-1)?.displayName).toBe("Contact 10000");
+        expect(result.totalAvailable).toBe(selectedCount);
+        expect(result.truncated).toBe(selectedCount > 10_000);
+        expect(result.limited).toBe(true);
+      },
+    );
   });
 
   describe("openAppSettings", () => {

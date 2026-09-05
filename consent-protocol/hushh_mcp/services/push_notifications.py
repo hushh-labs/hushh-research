@@ -627,7 +627,11 @@ def send_circle_member_invite_cancelled_push(
     """
 
     circle = str(circle_name or "").strip()
-    body = f'Your invitation to "{circle}" was withdrawn.' if circle else "A Circle invitation was withdrawn."
+    body = (
+        f'Your invitation to "{circle}" was withdrawn.'
+        if circle
+        else "A Circle invitation was withdrawn."
+    )
     deep_link = "/one/location?tab=people"
     return send_user_data_push(
         invitee_user_id,

@@ -546,13 +546,38 @@ async function apiFetch(
       return null;
     }
 
+    const initiatingBearer = getAuthorizationBearer();
+    const initiatingAuthUser = AuthService.getCurrentUser();
+    const initiatingSessionIsCurrent = () =>
+      initiatingAuthUser !== null &&
+      AuthService.getCurrentUser() === initiatingAuthUser;
+
     try {
       const freshToken = await AuthService.getIdToken(true);
-      const currentBearer = getAuthorizationBearer();
-      if (!freshToken || freshToken === currentBearer) {
-        if (!currentBearer || !isTokenForCurrentAuthUser(currentBearer)) {
+      if (!freshToken || freshToken === initiatingBearer) {
+        if (
+          initiatingSessionIsCurrent() &&
+          (!initiatingBearer || !isTokenForCurrentAuthUser(initiatingBearer))
+        ) {
           dispatchAuthSessionInvalidated("Firebase session is no longer valid");
         }
+        return null;
+      }
+
+      const initiatingSubject = decodeFirebaseTokenSubject(initiatingBearer);
+      const refreshedSubject = decodeFirebaseTokenSubject(freshToken);
+      if (
+        !initiatingSessionIsCurrent() ||
+        !initiatingSubject ||
+        !refreshedSubject ||
+        initiatingSubject !== refreshedSubject ||
+        !isTokenForCurrentAuthUser(freshToken)
+      ) {
+        // A 401 refresh may finish after an account switch. Replaying the
+        // original body with the replacement account's token would turn an
+        // A-owned mutation (including contact proofs) into a B-owned write.
+        // Return the original 401; the new session remains valid and must not
+        // be invalidated because an old request completed late.
         return null;
       }
 
@@ -567,7 +592,9 @@ async function apiFetch(
       });
     } catch (error) {
       console.warn("[ApiService] Firebase auth refresh failed:", error);
-      dispatchAuthSessionInvalidated("Firebase session refresh failed");
+      if (initiatingSessionIsCurrent()) {
+        dispatchAuthSessionInvalidated("Firebase session refresh failed");
+      }
       return null;
     }
   };

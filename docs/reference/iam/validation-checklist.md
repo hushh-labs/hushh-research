@@ -41,16 +41,18 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
 8. One Location approval requires explicit `manual` or `automatic` intent;
    omitted intent and mismatched rule/duration context fail before mutation.
 9. New-person contact discovery and automatic relationship creation require
-   current verified phones plus explicit versioned combined find-and-auto-connect
-   consent. Legacy/default discoverability, cached clients without
-   `contact_find_auto_connect_v1`, missing schema, missing enablement evidence,
-   and version zero fail closed. An exact, unique verified-phone proof may map
+   current exact verified-phone proofs and Connect-directory eligibility under
+   `contact_directory_auto_connect_v2`. An untouched version-zero preference is
+   eligible by default without invented consent timestamps. Explicit contact
+   opt-out, marketplace hide, malformed positive-version evidence, and missing
+   schema fail closed. Explicit re-enabling still requires
+   `contact_find_auto_connect_v1`. An exact, unique verified-phone proof may map
    to an already-active canonical relationship without target discoverability;
    that path adds no new relationship origin or Trusted/Circle projection.
 10. Every eligible non-suppressed contact match becomes connected without a
     request/accept step; a revoked pair remains suppressed until a separate,
     explicit reconnect action occurs. A hidden revoked pair is not disclosed;
-    only a currently consented revoked target may be reported as suppressed.
+    only a currently directory-eligible revoked target may be reported as suppressed.
 11. Country parity covers national, `+` country-code, and confidently
     disambiguated digit-only country-code formats for India, the United States,
     and representative supported numbering plans. Valid local fixed-line
@@ -62,6 +64,15 @@ Provide the canonical verification gate for Investor + RIA IAM changes.
     boundary. Any historical ambiguous group is cleared in full and refreshed
     from the identity authority; no timestamp or user-id heuristic chooses an
     owner.
+13. Opt-out and marketplace-hide writers serialize with contact-sync activation,
+    including inserts when no actor or marketplace profile existed. Provenance
+    records the directory policy and actual preference state, never fabricated
+    v1 consent evidence or phone proofs.
+14. Connect, the Location hub, and Location onboarding preserve `auto_connected`,
+    `already_connected`, and `suppressed` labels. Partial/unknown results stay
+    visibly incomplete and retryable; unknown contacts are not invite candidates.
+    Settings return resumes the initiating flow once, and finishing onboarding
+    during a pending scan still exposes the named results in the Location hub.
 
 ## Security and Privacy Checks
 

@@ -19,6 +19,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  OneLocationContactSyncError,
+  type OneLocationContactSignalResult,
+} from "@/lib/one-location/contact-signals";
 import { INTERNAL_APP_NAVIGATION_REQUEST_EVENT } from "@/lib/utils/browser-navigation";
 import {
   clearTabSwitchHistory,
@@ -88,6 +92,8 @@ const {
   mockSearchParams,
   mockCopyToClipboard,
   mockRequestContactCheck,
+  mockOpenContactPermissionSettings,
+  mockContactsPermissionState,
 } = vi.hoisted(() => ({
   mockUseRequireAuth: vi.fn(),
   mockUseVault: vi.fn(),
@@ -150,9 +156,16 @@ const {
   },
   mockCopyToClipboard: vi.fn(),
   mockRequestContactCheck: vi.fn(() => true),
+  mockOpenContactPermissionSettings: vi.fn(),
+  mockContactsPermissionState: vi.fn(),
 }));
 
 mockSearchParams.get = mockSearchParamsGet;
+
+vi.mock("@/lib/capacitor", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/capacitor")>()),
+  HushhContacts: { getPermissionState: mockContactsPermissionState },
+}));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => "/one/location",
@@ -475,16 +488,10 @@ vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
   },
 }));
 
-vi.mock("@/lib/one-location/contact-signals", () => ({
-  OneLocationContactSyncError: class OneLocationContactSyncError extends Error {
-    failure: unknown;
-
-    constructor(failure: unknown) {
-      super("Contact sync failed");
-      this.failure = failure;
-    }
-  },
+vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/one-location/contact-signals")>()),
   syncOneLocationContactSignals: mockSyncOneLocationContactSignals,
+  openContactPermissionSettings: mockOpenContactPermissionSettings,
 }));
 
 vi.mock("@/lib/utils/clipboard", () => ({
@@ -799,6 +806,63 @@ async function openReadyContactsPanel() {
   return screen.findByTestId("one-location-onboarding-contacts-surface");
 }
 
+function contactSyncOutcomeFixture(
+  overrides: Partial<OneLocationContactSignalResult> = {},
+): OneLocationContactSignalResult {
+  const matches: OneLocationContactSignalResult["matches"] = [
+    {
+      lookupId: "new",
+      userId: "new",
+      displayName: "Asha Rao",
+      photoUrl: null,
+      outcome: "auto_connected",
+    },
+    {
+      lookupId: "existing",
+      userId: "existing",
+      displayName: "Meena Shah",
+      photoUrl: null,
+      outcome: "already_connected",
+    },
+    {
+      lookupId: "removed",
+      userId: "removed",
+      displayName: "Ravi Kumar",
+      photoUrl: null,
+      outcome: "suppressed",
+    },
+  ];
+  return {
+    matches,
+    matchedUserIds: matches.map((match) => match.userId),
+    totalContacts: 3,
+    readContactCount: 3,
+    checkedContactCount: 3,
+    matchedContactCount: 3,
+    unmatchedContactCount: 0,
+    uncheckableContactCount: 0,
+    excludedSelfContactCount: 0,
+    lookupLimitedContactCount: 0,
+    lookupLimitExceeded: false,
+    unknownContactCount: 0,
+    mutationOutcomeUnknown: false,
+    uncheckedContactCount: 0,
+    inviteCandidateCount: 0,
+    autoConnectedCount: 1,
+    alreadyConnectedCount: 1,
+    requestRequiredCount: 0,
+    suppressedCount: 1,
+    completedBatchCount: 1,
+    totalBatchCount: 1,
+    partial: false,
+    sourcePlatform: "ios",
+    region: "IN",
+    limited: false,
+    truncated: false,
+    ...overrides,
+  };
+}
+
 /** Reach the last screen and press the CTA that settles onboarding. */
 async function finishLocationOnboarding() {
   await reachLocationOnboardingFinalStep();
@@ -1022,6 +1086,10 @@ describe("OneLocationAgentPage", () => {
 
   beforeEach(async () => {
     mockRequestContactCheck.mockReturnValue(true);
+    mockOpenContactPermissionSettings.mockResolvedValue(true);
+    mockContactsPermissionState.mockImplementation(async () => ({
+      state: "contacts" in navigator ? "prompt" : "unavailable",
+    }));
     vi.clearAllMocks();
     // Module-level state written by TopShellTabs -- a "People"/"Links" click
     // in an earlier test otherwise leaks into this one and changes what Back
@@ -1277,7 +1345,7 @@ describe("OneLocationAgentPage", () => {
       user_id: "user_a",
       phone_verified: true,
     });
-    mockSyncOneLocationContactSignals.mockResolvedValue({
+    mockSyncOneLocationContactSignals.mockReset().mockResolvedValue({
       matches: [],
       matchedUserIds: [],
       totalContacts: 0,
@@ -6081,6 +6149,65 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it("keeps all Location hub outcomes named and retryable after a partial scan", async () => {
+    let finishScan!: (result: OneLocationContactSignalResult) => void;
+    mockSyncOneLocationContactSignals.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishScan = resolve;
+        }),
+    );
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "People" }));
+    openDropdownMenu(
+      await screen.findByRole("button", { name: /Add or manage people/i }),
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByRole("menuitem", { name: /Find contacts/i }));
+    });
+    // A real source read completes after the launching menu has dismissed.
+    // Keep that boundary so its focus restoration cannot race mock results.
+    await act(async () => {
+      finishScan(contactSyncOutcomeFixture({ partial: true, limited: true }));
+    });
+
+    const sheet = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      expect(
+        within(within(sheet).getByText(name).closest("li")!).getByText(status),
+      ).toBeInTheDocument();
+    }
+    expect(
+      within(sheet).getByText("Only part of your contact list was checked."),
+    ).toBeInTheDocument();
+    expect(mockSendConnectionRequest).not.toHaveBeenCalled();
+
+    mockSyncOneLocationContactSignals.mockResolvedValueOnce(
+      contactSyncOutcomeFixture(),
+    );
+    const retry = within(sheet).getByRole("button", { name: "Sync again" });
+    await waitFor(() => expect(retry).toBeEnabled());
+    expect(sheet).toBeInTheDocument();
+    fireEvent.click(retry);
+    await waitFor(() =>
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(
+        within(sheet).queryByText("Only part of your contact list was checked."),
+      ).toBeNull(),
+    );
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
+  });
+
   it("reconciles the connection graph when a contact-sync mutation outcome is unknown", async () => {
     const graphMutation = vi.spyOn(
       CacheSyncService,
@@ -6806,39 +6933,14 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
-  it("keeps Ready completion available while optional contact processing is busy", async () => {
+  it("keeps named contact results available when Finish is pressed during the scan", async () => {
     mockGoogleAvailability = () => "connectable";
     let finishSync: (() => void) | null = null;
     mockSyncOneLocationContactSignals.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           finishSync = () =>
-            resolve({
-              matches: [],
-              matchedUserIds: [],
-              totalContacts: 0,
-              inviteCandidateCount: 0,
-              readContactCount: 0,
-              checkedContactCount: 0,
-              matchedContactCount: 0,
-              unmatchedContactCount: 0,
-              uncheckableContactCount: 0,
-              excludedSelfContactCount: 0,
-              unknownContactCount: 0,
-              mutationOutcomeUnknown: false,
-              uncheckedContactCount: 0,
-              autoConnectedCount: 0,
-              alreadyConnectedCount: 0,
-              requestRequiredCount: 0,
-              suppressedCount: 0,
-              completedBatchCount: 0,
-              totalBatchCount: 0,
-              partial: false,
-              region: null,
-              limited: false,
-              truncated: false,
-              sourcePlatform: "google",
-            });
+            resolve(contactSyncOutcomeFixture({ sourcePlatform: "google" }));
         }),
     );
 
@@ -6851,11 +6953,130 @@ describe("OneLocationAgentPage", () => {
 
     expect(await screen.findByText(/Checking your contacts/i)).toBeTruthy();
     expect(await locationFinishButton()).toBeEnabled();
+    fireEvent.click(await locationFinishButton());
+    await waitFor(() =>
+      expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+    );
 
     await act(async () => {
       finishSync?.();
     });
+    const sheet = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+    expect(within(sheet).getByText("Asha Rao")).toBeInTheDocument();
+    expect(within(sheet).getByText("Connected now")).toBeInTheDocument();
+    expect(within(sheet).getByText("Already connected")).toBeInTheDocument();
+    expect(within(sheet).getByText("Kept disconnected")).toBeInTheDocument();
+    expect(mockSendConnectionRequest).not.toHaveBeenCalled();
   });
+
+  it("keeps onboarding results and partial warnings while sheet retries run once", async () => {
+    mockGoogleAvailability = () => "connectable";
+    mockSyncOneLocationContactSignals.mockResolvedValueOnce(
+      contactSyncOutcomeFixture({
+        sourcePlatform: "google",
+        limited: true,
+        partial: true,
+      }),
+    );
+    render(<OneLocationAgentPage />);
+    await leaveLocationFeatureStep();
+    const contactsPanel = await openReadyContactsPanel();
+    fireEvent.click(
+      within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
+    );
+
+    const sheet = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+    expect(
+      within(sheet).getByText("Only part of your contact list was checked."),
+    ).toBeInTheDocument();
+    expect(within(sheet).getByText("Connected now")).toBeInTheDocument();
+    expect(within(sheet).getByText("Already connected")).toBeInTheDocument();
+    expect(within(sheet).getByText("Kept disconnected")).toBeInTheDocument();
+    await within(contactsPanel).findByText(
+      "The contact source reported that this was not the full address book.",
+    );
+
+    let finishRetry!: (result: OneLocationContactSignalResult) => void;
+    mockSyncOneLocationContactSignals.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finishRetry = resolve;
+        }),
+    );
+    const retry = within(sheet).getByRole("button", { name: "Sync again" });
+    await act(async () => {
+      fireEvent.click(retry);
+      fireEvent.click(retry);
+    });
+    expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
+    expect(retry).toBeDisabled();
+    await act(async () => finishRetry(contactSyncOutcomeFixture()));
+    expect(retry).toBeEnabled();
+    expect(
+      within(sheet).queryByText("Only part of your contact list was checked."),
+    ).toBeNull();
+    await waitFor(() =>
+      expect(
+        within(contactsPanel).queryByText(
+          "The contact source reported that this was not the full address book.",
+        ),
+      ).toBeNull(),
+    );
+  });
+
+  it.each(["granted", "limited"] as const)(
+    "resumes onboarding after Settings grants %s access and clears inline denial",
+    async (state) => {
+      const visibility = vi
+        .spyOn(document, "visibilityState", "get")
+        .mockReturnValue("visible");
+      mockContactsPermissionState.mockResolvedValue({ state: "denied" });
+      mockSyncOneLocationContactSignals
+        .mockRejectedValueOnce(
+          new OneLocationContactSyncError("denied", "Contacts access is off."),
+        )
+        .mockResolvedValueOnce(
+          contactSyncOutcomeFixture({
+            limited: state === "limited",
+            partial: state === "limited",
+          }),
+        );
+      try {
+        render(<OneLocationAgentPage />);
+        await leaveLocationFeatureStep();
+        const contactsPanel = await openReadyContactsPanel();
+        fireEvent.click(
+          within(contactsPanel).getByRole("button", { name: "Check my contacts" }),
+        );
+        const settings = await within(contactsPanel).findByRole("button", {
+          name: "Open Settings",
+        });
+        await act(async () => fireEvent.click(settings));
+        await waitFor(() =>
+          expect(mockOpenContactPermissionSettings).toHaveBeenCalledTimes(1),
+        );
+
+        mockContactsPermissionState.mockResolvedValue({ state });
+        await act(async () => {
+          window.dispatchEvent(new Event("focus"));
+          window.dispatchEvent(new Event("focus"));
+        });
+        const sheet = await screen.findByRole("dialog", {
+          name: "Contact sync results",
+        });
+        expect(within(sheet).getByText("Asha Rao")).toBeInTheDocument();
+        await within(contactsPanel).findByText("Connected now");
+        expect(within(contactsPanel).queryByText(/does not have access/)).toBeNull();
+        expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(2);
+      } finally {
+        visibility.mockRestore();
+      }
+    },
+  );
 
   /* ------------------------------------------------------------------ *
    * Live share continuity
