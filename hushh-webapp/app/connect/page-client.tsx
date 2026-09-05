@@ -103,7 +103,7 @@ import { CONNECT_WEB_DIRECTORY_POPOVER_CLASSNAME } from "./connect-surface-layou
 import { cn } from "@/lib/utils";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import {
-  CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME,
+  CONNECT_CONNECTION_LIST_CLASSNAME,
   CONNECT_PAGE_CONTENT_CLASSNAME,
   CONNECT_WRAPPING_TEXT_CLASSNAME,
   CONNECT_WRAPPING_TITLE_ROW_CLASSNAME,
@@ -2514,7 +2514,7 @@ export default function ConnectPageClient() {
                       separatorInset
                       contentClassName={
                         sortedConnections.length > 0
-                          ? CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME
+                          ? CONNECT_CONNECTION_LIST_CLASSNAME
                           : undefined
                       }
                       testId="connect-my-connections-group"

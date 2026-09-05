@@ -1707,10 +1707,15 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
-  it("keeps one page scroll on phones and caps My connections on larger screens", async () => {
-    // A nested roster scroller traps touch gestures on phones and lets the
-    // fixed bottom chrome obscure whichever row owns the gesture. Phones use
-    // the app scroll root; larger screens can keep the bounded roster.
+  it("caps My connections on every viewport, phones included", async () => {
+    // Phones were once left uncapped because an earlier bound trapped touch
+    // gestures in the inner scroller and let the fixed bottom chrome cover the
+    // row owning the gesture. Uncapped is its own bug though: a long roster
+    // pushes the directory section below it out of reach. The bound is back,
+    // and `overscroll-contain` is what keeps it safe -- it stops a scroll that
+    // reaches the roster's end from chaining into the page behind it. The cap
+    // is measured in `dvh` so it tracks the visible viewport rather than
+    // measuring a phone as though its browser chrome were absent.
     mocks.listConnections.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
         connectionId: `c-${index}`,
@@ -1727,12 +1732,18 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
     expect(list).toBeTruthy();
-    expect(list!.className).toContain("sm:max-h-[320px]");
-    expect(list!.className).toContain("sm:overflow-y-auto");
-    expect(list!.className).toContain("sm:overscroll-contain");
-    expect(list!.className).not.toMatch(/(?:^|\s)max-h-\[232px\](?:\s|$)/);
-    expect(list!.className).not.toMatch(/(?:^|\s)overflow-y-auto(?:\s|$)/);
-    expect(list!.className).not.toMatch(/(?:^|\s)overscroll-contain(?:\s|$)/);
+    // Unprefixed, so the bound applies on phones too.
+    expect(list!.className).toContain("max-h-[min(42dvh,18rem)]");
+    expect(list!.className).toContain("overflow-y-auto");
+    // The mitigation the phone bound depends on. Without it the roster chains
+    // its scroll into the page and the old gesture trap comes back.
+    expect(list!.className).toContain("overscroll-contain");
+    // Not re-introduced behind a breakpoint: the cap is unconditional now.
+    expect(list!.className).not.toMatch(/(?:^|\s)sm:max-h-\[320px\](?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)sm:overflow-y-auto(?:\s|$)/);
+    // A viewport unit that ignores browser chrome would let the list run under
+    // the fixed bottom bars on a phone.
+    expect(list!.className).not.toMatch(/max-h-\[[^\]]*\bvh\b/);
   });
 
   it("asks for the search field in two words", async () => {
