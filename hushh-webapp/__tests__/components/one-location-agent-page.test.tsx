@@ -1782,24 +1782,32 @@ describe("OneLocationAgentPage", () => {
     expect(
       within(primary).getByRole("button", { name: "Ask for location" }),
     ).toBeTruthy();
+    const actions = screen.getByTestId("one-location-now-actions");
+    expect(
+      within(actions).getByRole("button", { name: "Check in" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Save My Soul" }),
+    ).toBeTruthy();
     expect(
       within(primary).getByRole("button", { name: "More actions" }),
     ).toBeTruthy();
-    expect(screen.queryByTestId("one-location-now-actions")).toBeNull();
 
     const more = screen.getByTestId("one-location-now-more");
     expect(more.className).toContain("min-h-[50px]");
     fireEvent.keyDown(more, { key: "Enter" });
     expect(
-      await screen.findByTestId("one-location-now-more-item-arrival-confirm"),
+      await screen.findByTestId("one-location-now-more-item-map"),
     ).toBeTruthy();
-    expect(
-      screen.getByTestId("one-location-now-more-item-save-my-soul"),
-    ).toBeTruthy();
-    expect(screen.getByTestId("one-location-now-more-item-map")).toBeTruthy();
     expect(
       screen.getByTestId("one-location-now-more-item-settings"),
     ).toBeTruthy();
+    expect(
+      screen.queryByTestId("one-location-now-more-item-arrival-confirm"),
+    ).toBeNull();
+    expect(
+      screen.queryByTestId("one-location-now-more-item-save-my-soul"),
+    ).toBeNull();
 
     const retiredActionLabel = ["Their", "Location"].join(" ");
     expect(primary.textContent).not.toContain(retiredActionLabel);
@@ -1816,6 +1824,44 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByRole("heading", { name: "More" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Your Map" })).toBeNull();
     expect(screen.queryByText("Check-In")).toBeNull();
+  });
+
+  it("keeps the core Now actions visible while sharing is live", async () => {
+    const base = locationState();
+    mockGetState.mockResolvedValue({
+      ...base,
+      ownerGrants: [
+        {
+          ...base.ownerGrants[0],
+          expiresAt: "2099-05-20T08:00:00.000Z",
+        },
+      ],
+      receivedGrants: [],
+      requests: [],
+    });
+
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+
+    expect(await screen.findByTestId("one-location-live-share")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Share with more" }),
+    ).toBeTruthy();
+
+    const actions = screen.getByTestId("one-location-now-actions");
+    expect(
+      within(actions).getByRole("button", { name: "Ask for location" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Check in" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "Save My Soul" }),
+    ).toBeTruthy();
+    expect(
+      within(actions).getByRole("button", { name: "More actions" }),
+    ).toBeTruthy();
   });
 
   it("keeps the heading and location toggle inline as the only header action", async () => {
@@ -3080,11 +3126,8 @@ describe("OneLocationAgentPage", () => {
     mockCaptureCurrentPosition.mockClear();
     const envelopeWritesBeforeOpen = mockStoreEnvelope.mock.calls.length;
 
-    fireEvent.keyDown(screen.getByTestId("one-location-now-more"), {
-      key: "Enter",
-    });
     fireEvent.click(
-      await screen.findByTestId("one-location-now-more-item-save-my-soul"),
+      await screen.findByRole("button", { name: "Save My Soul" }),
     );
 
     expect(
@@ -3133,11 +3176,8 @@ describe("OneLocationAgentPage", () => {
         }),
     );
 
-    fireEvent.keyDown(screen.getByTestId("one-location-now-more"), {
-      key: "Enter",
-    });
     fireEvent.click(
-      await screen.findByTestId("one-location-now-more-item-save-my-soul"),
+      await screen.findByRole("button", { name: "Save My Soul" }),
     );
 
     expect(

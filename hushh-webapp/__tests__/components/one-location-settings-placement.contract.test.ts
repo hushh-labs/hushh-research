@@ -25,29 +25,40 @@ describe("One Location settings placement", () => {
     expect(nowSource).not.toContain('title="Privacy"');
   });
 
-  it("keeps Now private-first with More actions behind the shared action menu", () => {
-    // Now answers who can see the user first. Extra actions still exist, but
-    // they sit behind one quiet More actions row instead of a dashboard grid.
+  it("keeps Now private-first while core actions stay directly visible", () => {
+    // Now answers who can see the user first, but the daily actions must not be
+    // hidden behind overflow because that makes the page look empty on UAT.
     const nowStart = HUB_SOURCE.indexOf("function NowHub");
     const nowEnd = HUB_SOURCE.indexOf("function LocationDetailFlow", nowStart);
     const nowSource = HUB_SOURCE.slice(nowStart, nowEnd);
 
     expect(nowSource).toContain("LocationNowStatePanel");
+    expect(nowSource).toContain("LocationNowActionSuite");
     expect(nowSource).toContain('"Private"');
     expect(nowSource).toContain('"No one can see your location"');
     expect(nowSource).toContain('"Share only when you choose."');
     expect(nowSource).toContain('"Share my location"');
     expect(nowSource).toContain('data-testid="one-location-request-row"');
+    expect(nowSource).toContain('data-testid="one-location-now-actions"');
+    expect(nowSource).toContain('label="Check in"');
+    expect(nowSource).toContain('label="Save My Soul"');
     expect(nowSource).toContain('label="More actions"');
-    expect(nowSource).toContain('id: "arrival-confirm"');
-    expect(nowSource).toContain('label: "Save My Soul"');
+    expect(nowSource).not.toContain('id: "arrival-confirm"');
+    expect(nowSource).not.toContain('id: "save-my-soul"');
 
     const primaryIndex = nowSource.indexOf("LocationNowStatePanel");
-    const requestIndex = nowSource.indexOf("onRequestLocation={onRequestLocation}");
-    const activityIndex = nowSource.indexOf("one-location-now-activity");
+    const requestIndex = nowSource.indexOf(
+      "onRequestLocation={onRequestLocation}",
+      primaryIndex,
+    );
+    const visibleActionsIndex = nowSource.indexOf("one-location-now-actions");
+    const liveShareIndex = nowSource.indexOf("LiveShareStatusCard");
+    const activeActionsIndex = nowSource.indexOf("LocationNowActionSuite");
     expect(primaryIndex).toBeGreaterThan(-1);
+    expect(liveShareIndex).toBeGreaterThan(-1);
+    expect(activeActionsIndex).toBeGreaterThan(liveShareIndex);
     expect(requestIndex).toBeGreaterThan(primaryIndex);
-    expect(activityIndex).toBeGreaterThan(requestIndex);
+    expect(visibleActionsIndex).toBeGreaterThan(requestIndex);
     expect(nowSource).not.toContain('title: "Active shares"');
     expect(nowSource).not.toContain("LocationActionGrid");
     expect(nowSource).not.toContain("LocationNowGroupLabel");
