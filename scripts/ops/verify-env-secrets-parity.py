@@ -211,6 +211,10 @@ LEGACY_VOICE_RUNTIME_COMPONENTS = (
 )
 
 
+class CloudReadUnavailable(RuntimeError):
+    """Cloud access failed; absence cannot be inferred from this observation."""
+
+
 def _has_secret(project: str, name: str) -> bool:
     cmd = [
         "gcloud",
@@ -221,8 +225,17 @@ def _has_secret(project: str, name: str) -> bool:
         project,
         "--format=value(name)",
     ]
-    result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
-    return result.returncode == 0 and bool(result.stdout.strip())
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        raise CloudReadUnavailable("secret_inventory_unverifiable") from exc
+    if result.returncode == 0 and result.stdout.strip():
+        return True
+    if result.returncode != 0 and "NOT_FOUND" in result.stderr:
+        return False
+    # Authentication, permission, transport and malformed-success responses are
+    # unknown, not missing secrets. Never render provider stderr or credentials.
+    raise CloudReadUnavailable("secret_inventory_unverifiable")
 
 
 def _read_secret_value(project: str, name: str) -> str | None:
@@ -827,7 +840,21 @@ def main() -> int:
     if args.require_native_artifacts:
         required.extend(NATIVE_RELEASE_REQUIRED)
     required = tuple(dict.fromkeys(required))
-    missing = [name for name in required if not _has_secret(args.project, name)]
+    try:
+        missing = [name for name in required if not _has_secret(args.project, name)]
+    except CloudReadUnavailable:
+        unavailable_report = {
+            "project": args.project,
+            "status": "blocked",
+            "classifications": ["secret_inventory_unverifiable"],
+            "missing_secrets": None,
+        }
+        if args.report_path:
+            report_path = Path(args.report_path)
+            report_path.parent.mkdir(parents=True, exist_ok=True)
+            report_path.write_text(json.dumps(unavailable_report, indent=2), encoding="utf-8")
+        print("Secret inventory unverifiable: cloud access failed; no missing-secret conclusion is available.")
+        return 1
 
     report: dict[str, Any] = {
         "project": args.project,
