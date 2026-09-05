@@ -323,7 +323,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }
@@ -354,7 +354,7 @@ export function VaultLockGuard({ children }: VaultLockGuardProps) {
           setVaultCheckFailed(false);
           setNativeVaultCheckAttempt((attempt) => attempt + 1);
         }}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }

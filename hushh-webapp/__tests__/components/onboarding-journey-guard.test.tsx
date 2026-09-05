@@ -408,6 +408,8 @@ describe("OnboardingJourneyGuard", () => {
 
     expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
     expect(screen.queryByText(/unable to verify setup progress/i)).toBeNull();
+    fireEvent.click(screen.getByText("Sign out"));
+    expect(signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
     fireEvent.click(screen.getByText("Try again"));
     view.unmount();
     vi.useRealTimers();
@@ -518,6 +520,8 @@ describe("OnboardingJourneyGuard", () => {
     expect(bootstrapStateMock).not.toHaveBeenCalled();
     fireEvent.click(screen.getByText("Try again"));
     expect(retrySessionVerification).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByText("Sign out"));
+    expect(signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("keeps setup recovery inside the App Router", () => {

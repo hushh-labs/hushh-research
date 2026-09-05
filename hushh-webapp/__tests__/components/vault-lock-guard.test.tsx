@@ -122,6 +122,7 @@ describe("VaultLockGuard", () => {
     );
     fireEvent.click(await screen.findByRole("button", { name: "Sign out" }));
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   beforeEach(() => {

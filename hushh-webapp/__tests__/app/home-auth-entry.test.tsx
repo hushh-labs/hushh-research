@@ -133,6 +133,8 @@ describe("authenticated root entry", () => {
     ).toBeTruthy();
     expect(screen.queryByText(/unable to verify setup progress/i)).toBeNull();
     expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("holds signed-in routing behind the app-wide session recovery gate", async () => {
@@ -146,6 +148,8 @@ describe("authenticated root entry", () => {
     expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
     screen.getByRole("button", { name: "Try again" }).click();
     expect(mocks.retrySessionVerification).toHaveBeenCalledTimes(1);
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("offers recovery when a native cold read cannot identify the account", async () => {
@@ -156,6 +160,7 @@ describe("authenticated root entry", () => {
     expect(screen.queryByText("Welcome")).toBeNull();
     screen.getByRole("button", { name: "Sign out" }).click();
     expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
     expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
   });
 });

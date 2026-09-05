@@ -306,7 +306,7 @@ export function PhoneMandateGuard({
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }

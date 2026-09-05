@@ -277,6 +277,25 @@ describe("AuthProvider terminal session invalidation", () => {
     vi.useRealTimers();
   });
 
+  it("can leave recovery without waiting on token-dependent notification cleanup", async () => {
+    renderProvider();
+    await screen.findByText("Vault content for account-owner");
+    const currentUser = mocks.firebaseUser as User;
+    const stalledToken = deferred<string>();
+    vi.mocked(currentUser.getIdToken)
+      .mockClear()
+      .mockReturnValue(stalledToken.promise);
+
+    fireEvent.click(screen.getByRole("button", { name: "Finish account-A deletion" }));
+
+    expect(await screen.findByText("Signed out")).toBeInTheDocument();
+    expect(currentUser.getIdToken).not.toHaveBeenCalled();
+    expect(mocks.authServiceSignOut).toHaveBeenCalledTimes(1);
+    expect(mocks.apiDeleteSession).toHaveBeenCalledTimes(1);
+    expect(mocks.clearForUser).toHaveBeenCalledWith("account-owner");
+    expect(mocks.routerReplace).toHaveBeenCalledWith("/");
+  });
+
   it("force-refreshes an existing session on foreground and gates stale children while checking", async () => {
     const refresh = deferred<string | null>();
     renderProvider();

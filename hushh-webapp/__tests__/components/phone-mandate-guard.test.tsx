@@ -246,6 +246,7 @@ describe("PhoneMandateGuard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sign out" }));
     expect(retrySessionVerificationMock).toHaveBeenCalledTimes(1);
     expect(signOutMock).toHaveBeenCalledTimes(1);
+    expect(signOutMock).toHaveBeenCalledWith({ skipFcmCleanup: true });
   });
 
   it("uses a late shared-bootstrap cache write without waiting for duplicate checks", async () => {

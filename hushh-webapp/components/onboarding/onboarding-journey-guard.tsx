@@ -349,7 +349,7 @@ export function OnboardingJourneyGuard({
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }
@@ -374,7 +374,7 @@ export function OnboardingJourneyGuard({
           setChecking(true);
           setRetryNonce((value) => value + 1);
         }}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }

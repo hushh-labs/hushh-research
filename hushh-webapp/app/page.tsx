@@ -129,7 +129,7 @@ function HomeContent() {
     return (
       <SessionVerificationRecovery
         onRetry={() => void retrySessionVerification()}
-        onSignOut={() => void signOut()}
+        onSignOut={() => void signOut({ skipFcmCleanup: true })}
       />
     );
   }
@@ -142,7 +142,7 @@ function HomeContent() {
             activeResolutionRef.current = null;
             setRoutingAttempt((attempt) => attempt + 1);
           }}
-          onSignOut={() => void signOut()}
+          onSignOut={() => void signOut({ skipFcmCleanup: true })}
         />
       );
     }
