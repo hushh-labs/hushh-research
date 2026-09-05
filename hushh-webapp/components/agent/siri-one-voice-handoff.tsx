@@ -25,6 +25,11 @@ import {
   resolveSiriOneVoiceHandoffState,
 } from "@/lib/agent/siri-one-voice-handoff-policy";
 
+// Force re-evaluation when vault unlocks so a waiting/blocked invocation
+// can transition to dispatch without waiting for AgentRuntimeStateProvider's
+// tier recomputation.
+const VAULT_UNLOCK_EVENT = "vault-unlocked";
+
 const ACCEPTANCE_TIMEOUT_MS = 30_000;
 
 function logLifecycle(
@@ -112,6 +117,17 @@ export function SiriOneVoiceHandoff(): null {
     document.addEventListener("visibilitychange", onVisibilityChange);
     return () =>
       document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, []);
+
+  // Vault unlock may resolve a waiting_for_runtime invocation when the
+  // oneVoiceContextSnapshot (derived from vaultOwnerToken) becomes available.
+  useEffect(() => {
+    if (!OneVoiceInvocationBridge.isSupported()) return undefined;
+    const onVaultUnlock = () =>
+      setVisibilityRevision((current) => current + 1);
+    window.addEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
+    return () =>
+      window.removeEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
   }, []);
 
   useEffect(() => {

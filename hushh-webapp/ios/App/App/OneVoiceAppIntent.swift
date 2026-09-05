@@ -53,9 +53,57 @@ struct OneCircleEntity: AppEntity, Identifiable, Hashable {
     }
 }
 
-/// A bounded, non-sensitive description of a destination inside One Location.
-/// The entity teaches Siri that "Location Agent" is content owned by One,
-/// rather than the name of another installed app.
+/// A fixed set of destinations inside Agent One Location, exposed to Siri
+/// as an AppEnum so one intent handles all navigation. Apple limits apps to
+/// ten App Shortcuts — using an enum means one slot covers all ten screens.
+@available(iOS 16.0, *)
+enum AgentOneDestination: String, AppEnum {
+    case location = "location"
+    case map = "map"
+    case activeShares = "active_shares"
+    case sharedWithMe = "shared_with_me"
+    case requestsToReview = "requests_to_review"
+    case settings = "settings"
+    case temporaryLink = "temporary_link"
+    case checkIn = "check_in"
+    case emergencySOS = "emergency_sos"
+    case emergencySMSContacts = "emergency_sms"
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation =
+        "Agent One Location Destination"
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .location: "Location Agent",
+        .map: "Location Map",
+        .activeShares: "Active Location Shares",
+        .sharedWithMe: "Locations Shared With Me",
+        .requestsToReview: "Location Requests",
+        .settings: "Location Settings",
+        .temporaryLink: "Temporary Location Link",
+        .checkIn: "Location Check In",
+        .emergencySOS: "Emergency SOS Review",
+        .emergencySMSContacts: "Emergency SMS Contacts",
+    ]
+
+    var actionID: OneSystemActionID {
+        switch self {
+        case .location: return .openLocation
+        case .map: return .openLocationMap
+        case .activeShares: return .openActiveShares
+        case .sharedWithMe: return .openSharedWithMe
+        case .requestsToReview: return .openRequestsToReview
+        case .settings: return .openLocationSettings
+        case .temporaryLink: return .openTemporaryLink
+        case .checkIn: return .openCheckIn
+        case .emergencySOS: return .openEmergencySOS
+        case .emergencySMSContacts: return .openSMSContacts
+        }
+    }
+}
+
+/// Thin query target backed by AgentOneDestination. The entity teaches Siri
+/// that "Location Agent" is content owned by One, rather than the name of
+/// another installed app. Display names come from the enum; this struct
+/// exists solely for EntityStringQuery resolution.
 @available(iOS 16.0, *)
 struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
     let id: String
@@ -64,123 +112,31 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
         "Agent One Location Destination"
     static let defaultQuery = OneLocationDestinationEntityQuery()
 
-    static let supportedActionIDs: [OneSystemActionID] = [
-        .openLocation,
-        .openLocationMap,
-        .openActiveShares,
-        .openSharedWithMe,
-        .openRequestsToReview,
-        .openLocationSettings,
-        .openTemporaryLink,
-        .openCheckIn,
-        .openEmergencySOS,
-        .openSMSContacts
-    ]
-
-    static let all: [Self] = supportedActionIDs.map {
+    static let all: [Self] = AgentOneDestination.allCases.map {
         Self(id: $0.rawValue)
     }
 
     var actionID: OneSystemActionID? {
-        guard
-            let candidate = OneSystemActionID(rawValue: id),
-            Self.supportedActionIDs.contains(candidate)
-        else { return nil }
-        return candidate
+        guard let destination = AgentOneDestination(rawValue: id) else { return nil }
+        return destination.actionID
     }
 
     var displayRepresentation: DisplayRepresentation {
-        switch actionID {
-        case .openLocation:
-            return makeDisplay(
-                title: "Location Agent",
-                synonyms: ["Agent One Location Agent", "One Location Agent", "Location Overview"]
-            )
-        case .openLocationMap:
-            return makeDisplay(
-                title: "Location Map",
-                synonyms: ["Agent One Location Map", "One Location Map", "Map"]
-            )
-        case .openActiveShares:
-            return makeDisplay(
-                title: "Active Location Shares",
-                synonyms: ["Active Shares", "Who Can See Me"]
-            )
-        case .openSharedWithMe:
-            return makeDisplay(
-                title: "Locations Shared With Me",
-                synonyms: ["Shared With Me", "People Sharing With Me"]
-            )
-        case .openRequestsToReview:
-            return makeDisplay(
-                title: "Location Requests",
-                synonyms: ["Pending Location Requests", "Requests to Review"]
-            )
-        case .openLocationSettings:
-            return makeDisplay(
-                title: "Location Settings",
-                synonyms: ["Location Privacy", "Location Privacy Settings"]
-            )
-        case .openTemporaryLink:
-            return makeDisplay(
-                title: "Temporary Location Link",
-                synonyms: ["Location Link", "Temporary Link"]
-            )
-        case .openCheckIn:
-            return makeDisplay(
-                title: "Location Check In",
-                synonyms: ["Check In", "Agent One Check In", "One Check In"]
-            )
-        case .openEmergencySOS:
-            return makeDisplay(
-                title: "Emergency SOS Review",
-                synonyms: ["SOS Review", "Emergency Screen"]
-            )
-        case .openSMSContacts:
-            return makeDisplay(
-                title: "Emergency SMS Contacts",
-                synonyms: ["SMS Contacts", "Emergency Contacts"]
-            )
-        default:
+        guard let destination = AgentOneDestination(rawValue: id) else {
             return "Agent One Location"
         }
-    }
-
-    private func makeDisplay(
-        title: LocalizedStringResource,
-        synonyms: [LocalizedStringResource]
-    ) -> DisplayRepresentation {
-        if #available(iOS 17.0, *) {
-            return .init(title: title, synonyms: synonyms)
-        }
-        return .init(title: title)
+        return DisplayRepresentation(title: destination.caseDisplayRepresentations[destination]?.title ?? "Agent One Location")
     }
 
     var searchableNames: [String] {
-        switch actionID {
-        case .openLocation:
-            return ["location agent", "one location agent", "location overview"]
-        case .openLocationMap:
-            return ["location map", "one location map", "map"]
-        case .openActiveShares:
-            return ["active location shares", "active shares", "who can see me"]
-        case .openSharedWithMe:
-            return ["locations shared with me", "shared with me", "people sharing with me"]
-        case .openRequestsToReview:
-            return ["location requests", "pending location requests", "requests to review"]
-        case .openLocationSettings:
-            return ["location settings", "location privacy", "privacy settings"]
-        case .openTemporaryLink:
-            return ["temporary location link", "location link", "temporary link"]
-        case .openCheckIn:
-            return ["location check in", "check in", "check-in"]
-        case .openEmergencySOS:
-            return ["emergency sos review", "sos review", "emergency screen"]
-        case .openSMSContacts:
-            return ["emergency sms contacts", "sms contacts", "emergency contacts"]
-        default:
-            return []
-        }
+        guard let destination = AgentOneDestination(rawValue: id) else { return [] }
+        // Derive searchable tokens from the display title.
+        let title = destination.caseDisplayRepresentations[destination]?.title ?? ""
+        let normalized = title
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
+        return [normalized]
     }
 }
 
@@ -643,32 +599,6 @@ struct OpenOneLocationDestinationIntent: OpenIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(
-        title: "Destination",
-        requestValueDialog: "Which Agent One Location destination?"
-    )
-    var target: OneLocationDestinationEntity
-
-    static var parameterSummary: some ParameterSummary {
-        Summary("Open \(\.$target) in Agent One")
-    }
-
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        guard let actionID = target.actionID else {
-            return .result(dialog: "That Agent One Location destination is unavailable.")
-        }
-        let summary = await OneAppIntentActionExecutor.run(
-            OneAppIntentActionRequestFactory.open(actionID)
-        )
-        return .result(dialog: "\(summary)")
-    }
-}
-
-@available(iOS 16.0, *)
-struct OpenOneLocationIntent: OneLocationOpenIntent {
-    static let title: LocalizedStringResource = "Open Location Agent"
-    static let description = IntentDescription("Open the existing Agent One Location experience.")
-
     func perform() async throws -> some IntentResult & ProvidesDialog {
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.open(.openLocation)
@@ -785,6 +715,28 @@ struct OpenOneEmergencySOSIntent: OneLocationOpenIntent {
     }
 }
 
+@available(iOS 16.0, *)
+struct OpenOneDestinationIntent: OneLocationOpenIntent {
+    static let title: LocalizedStringResource = "Open Agent One Location"
+    static let description = IntentDescription(
+        "Open a specific screen inside Agent One Location — for example, the map, active shares, settings, or emergency SOS."
+    )
+
+    @Parameter(title: "Destination")
+    var destination: AgentOneDestination
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$destination) in Agent One Location")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let summary = await OneAppIntentActionExecutor.run(
+            OneAppIntentActionRequestFactory.open(destination.actionID)
+        )
+        return .result(dialog: "\(summary)")
+    }
+}
+
 // MARK: - Zero-setup Siri phrases (Apple limits an app to ten App Shortcuts)
 
 @available(iOS 16.0, *)
@@ -841,51 +793,14 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
             systemImageName: "location.circle"
         )
         AppShortcut(
-            intent: CreateOneCircleIntent(),
+            intent: OpenOneDestinationIntent(),
             phrases: [
-                "Create a Circle in \(.applicationName) Location Agent",
-                "Make a new Circle in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to create a Circle",
-                "Tell \(.applicationName) to create a Circle",
-                "Talk to \(.applicationName) and create a Circle"
+                "Open \(\.$destination) in \(.applicationName) Location Agent",
+                "Show \(\.$destination) in \(.applicationName) Location",
+                "View \(\.$destination) in \(.applicationName) Location Agent"
             ],
-            shortTitle: "Create Circle",
-            systemImageName: "person.3.fill"
-        )
-        AppShortcut(
-            intent: RenameOneCircleIntent(),
-            phrases: [
-                "Rename \(\.$circle) in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to rename \(\.$circle)",
-                "Tell \(.applicationName) to rename \(\.$circle)",
-                "Talk to \(.applicationName) and rename \(\.$circle)"
-            ],
-            shortTitle: "Rename Circle",
-            systemImageName: "pencil.circle.fill"
-        )
-        AppShortcut(
-            intent: CheckInWithOneIntent(),
-            phrases: [
-                "Check in with \(.applicationName) Location Agent",
-                "Open \(.applicationName) Location Check In",
-                "Ask \(.applicationName) to check in",
-                "Tell \(.applicationName) to open Check In",
-                "Talk to \(.applicationName) and check in"
-            ],
-            shortTitle: "Check In",
-            systemImageName: "checkmark.circle.fill"
-        )
-        AppShortcut(
-            intent: OpenOneLocationDestinationIntent(),
-            phrases: [
-                "Open \(.applicationName) \(\.$target)",
-                "Show \(\.$target) in \(.applicationName)",
-                "Ask \(.applicationName) to open \(\.$target)",
-                "Tell \(.applicationName) to show \(\.$target)",
-                "Talk to \(.applicationName) and open \(\.$target)"
-            ],
-            shortTitle: "Open Agent One Location",
-            systemImageName: "location.circle.fill"
+            shortTitle: "Open Destination",
+            systemImageName: "arrow.forward"
         )
         AppShortcut(
             intent: TalkToHusshOneIntent(),
