@@ -29,6 +29,7 @@ import {
   GmailWorkspaceNavigation,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
@@ -1930,14 +1931,9 @@ export default function GmailReceiptsPage({
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                onClick={handleOpenOneChat}
-                className="w-full sm:w-auto"
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
+              <AskOneButton onClick={handleOpenOneChat}>
                 Open One Chat
-              </Button>
+              </AskOneButton>
             </SurfaceInset>
           ) : null}
 
