@@ -279,23 +279,21 @@ export async function createReviewerSessionHarness({
     while (Date.now() < deadline) {
       readOnlyGuard.assertNoBlockedMutation();
       const bootstrap = await safeBootstrapState();
+      if (terminalFailures.has(bootstrap.state)) {
+        throw new Error("Reviewer bootstrap failed its authentication or vault boundary.");
+      }
       if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       // First-run: signed in as the right person, off the login screen, and the
       // vault dialog is the caller's to drive.
       if (
         !requireVaultUnlocked &&
         bootstrap.userMatches &&
-        bootstrap.state &&
-        bootstrap.state !== "waiting_vault_user" &&
+        bootstrap.state === "authenticated" &&
         !bootstrap.path.startsWith("/login")
       ) {
         return;
       }
-      if (terminalFailures.has(bootstrap.state)) {
-        throw new Error(
-          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
-        );
-      }
+
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
         await reviewerButton.click({ noWaitAfter: true });
@@ -305,6 +303,7 @@ export async function createReviewerSessionHarness({
       // If the vault is offering passkey/biometric, the passphrase field is not on
       // screen yet. Reveal it first, or the block below never sees its input.
       if (
+        requireVaultUnlocked &&
         !manualUnlockSubmitted &&
         !(await unlockInput.isVisible().catch(() => false)) &&
         (await passphraseFallback.isVisible().catch(() => false))
@@ -312,7 +311,7 @@ export async function createReviewerSessionHarness({
         await passphraseFallback.click({ noWaitAfter: true }).catch(() => undefined);
       }
 
-      if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
+      if (requireVaultUnlocked && !manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
         if (!manualPassphraseFilled) {
           await unlockInput.fill(reviewerPassphrase);
           manualPassphraseFilled = true;
@@ -338,19 +337,20 @@ export async function createReviewerSessionHarness({
   // never given". Without this the navigation helper reported a failure on every
   // first-run hop -- an oracle raising a false alarm, which is as damaging as one
   // that cannot fail, because it teaches the reader to discount real findings.
-  let firstRunSession = false;
+  const firstRunPages = new WeakSet();
 
   async function assertVaultContinuity(page, label) {
     const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
     if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
-    const state = await page.evaluate(
-      () => window.__HUSHH_NATIVE_TEST__?.bootstrapState || ""
-    );
-    const acceptable = firstRunSession
+    const { state, userMatches } = await page.evaluate((expectedUserId) => ({
+      state: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
+      userMatches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUserId,
+    }), reviewerUid);
+    const acceptable = firstRunPages.has(page)
       ? new Set(["vault_unlocked", "authenticated"])
       : new Set(["vault_unlocked"]);
-    if (state && !acceptable.has(state)) {
-      throw new Error(`${label} changed vault bootstrap state to ${state}.`);
+    if (!userMatches || !acceptable.has(state)) {
+      throw new Error(`${label} lost the expected reviewer session.`);
     }
   }
 
@@ -370,8 +370,7 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect, { requireVaultUnlocked = true } = {}) {
-    firstRunSession = !requireVaultUnlocked;
+  async function openSession(browser, redirect, { requireVaultUnlocked = true, onPageCreated = null } = {}) {
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
@@ -379,6 +378,7 @@ export async function createReviewerSessionHarness({
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const page = await context.newPage();
+      if (!requireVaultUnlocked) firstRunPages.add(page);
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
       const readOnlyGuard = installReadOnlyMutationGuard(context);
@@ -389,6 +389,7 @@ export async function createReviewerSessionHarness({
       // the real "Set a lock" dialog, which is the first-run experience itself.
       await installBridge(page, { includePassphrase: requireVaultUnlocked });
       try {
+        if (onPageCreated) await onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
