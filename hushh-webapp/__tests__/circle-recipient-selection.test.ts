@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -220,5 +222,22 @@ describe("mergeRecipientsByUserId", () => {
         recommendationTier: "trusted_circle",
       }),
     ]);
+  });
+});
+
+
+describe("Share uses the current Circle selection contract", () => {
+  it("keeps a flat Circle list with trusted Circles excluded", () => {
+    const hub = readFileSync(join(process.cwd(), "components/one-location/redesign/location-redesign-hub.tsx"), "utf8");
+    const start = hub.indexOf("function ShareFlow(");
+    const end = hub.indexOf("function AskFlow(", start);
+    expect(start).toBeGreaterThanOrEqual(0);
+    expect(end).toBeGreaterThan(start);
+    const share = hub.slice(start, end);
+    expect(share).toContain('vm.circles.filter((circle) => circle.systemKind !== "trusted")');
+    expect(share).toContain("vm.onSelectShareCircle(circle.id)");
+    expect(share).not.toContain("shareCircleSections");
+    expect(share).toContain("isCircleSelectionFullySelected(");
+    expect(share).toContain("countSelectedCircleRecipients(");
   });
 });

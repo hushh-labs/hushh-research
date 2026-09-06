@@ -260,4 +260,25 @@ describe("PeopleHub requests sent manage surface", () => {
     fireEvent.click(screen.getByRole("button", { name: "Cancel request" }));
     expect(onWithdrawRequest).toHaveBeenCalledWith("request_pending");
   });
+
+  it("does not offer cancellation for a cached request at its expiry deadline", () => {
+    const expiresAt = "2026-08-25T01:00:00.000Z";
+    const onWithdrawRequest = vi.fn();
+    renderPeopleHub({
+      viewModel: vm({
+        nowMs: Date.parse(expiresAt),
+        requestedByMe: [{ ...approvedRequest, status: "pending", expiresAt }],
+        receivedGrants: [],
+        editingGrantId: null,
+        onWithdrawRequest,
+      }),
+    });
+    expect(screen.queryByText("Waiting for response")).toBeNull();
+    expect(screen.queryByRole("button", {
+      name: /Open Location actions for Roopmann V/i,
+    })).toBeNull();
+    expect(screen.getByRole("button", { name: "Share with Roopmann V" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cancel request" })).toBeNull();
+    expect(onWithdrawRequest).not.toHaveBeenCalled();
+  });
 });
