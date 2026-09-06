@@ -253,7 +253,11 @@ def test_every_substitution_the_deploy_script_reads_is_fed_through_the_step_env(
     assert config is not None
     step = next(s for s in config["steps"] if s.get("id") == "deploy-backend")
     provided = {entry.split("=", 1)[0] for entry in step.get("env") or []}
-    packed = " ".join(entry for entry in step.get("env") or [] if "," in entry)
+    packed = " ".join(
+        entry
+        for entry in step.get("env") or []
+        if "," in entry or entry.startswith("_IMAGE_SETTINGS=")
+    )
     # Comments explain the mechanism using placeholder names (`${_FOO}`), so read only
     # the executable lines -- a doc example is not a substitution the deploy consumes.
     executable = "\n".join(
