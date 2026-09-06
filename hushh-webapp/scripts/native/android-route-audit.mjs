@@ -36,7 +36,7 @@ const adb = process.env.ADB || (fs.existsSync(defaultAdb) ? defaultAdb : "adb");
 const emulatorBinary =
   process.env.ANDROID_EMULATOR ||
   (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
-const bundleId = "com.hushh.app";
+const bundleId = "com.hussh.app";
 const activityName = "com.hushh.app/.MainActivity";
 const apkPath =
   process.env.ANDROID_APK_PATH ||
@@ -201,7 +201,8 @@ function bootEmulatorIfNeeded() {
     .split(/\s+/)
     .filter(Boolean);
   console.log(`==> booting Android emulator: ${avdName}`);
-  const child = spawn(emulatorBinary, ["-avd", avdName, ...extraArgs], {
+  const displayArgs = process.env.NATIVE_AUDIT_VISIBLE === "true" ? [] : ["-no-window", "-no-audio"];
+  const child = spawn(emulatorBinary, ["-avd", avdName, ...extraArgs, ...displayArgs], {
     detached: true,
     stdio: "ignore",
   });
