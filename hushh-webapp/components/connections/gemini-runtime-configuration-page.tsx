@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -16,6 +16,10 @@ import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-cat
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -30,11 +34,31 @@ type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;
 };
 
-export function GeminiRuntimeConfigurationPage({
+export function GeminiRuntimeConfigurationPage(props: GeminiRuntimeConfigurationPageProps) {
+  const auth = useAuth();
+  const owner = snapshotValidatedAuthSessionOwner();
+  return (
+    <OwnerRuntimeConfigurationPage
+      key={`${auth.user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      {...props}
+      auth={auth}
+    />
+  );
+}
+
+function OwnerRuntimeConfigurationPage({
   setupMode = false,
-}: GeminiRuntimeConfigurationPageProps) {
+  auth,
+}: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = auth;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(
     setupMode ? true : null,
@@ -259,11 +283,14 @@ export function GeminiRuntimeConfigurationPage({
           onSelectionReadyChange={
             setupMode && user?.uid
               ? async (choice) => {
+                  const owner = snapshotValidatedAuthSessionOwner();
+                  if (!mountedRef.current || !owner || owner.userId !== user.uid) return;
                   const state =
                     await PreVaultUserStateService.markOneRuntimeChoice(
                       user.uid,
                       choice,
                     );
+                  if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
                   // Taking the recommended option IS the whole decision —
@@ -272,6 +299,9 @@ export function GeminiRuntimeConfigurationPage({
                   // they have to find. Bringing your own key still continues
                   // below, because that path has a form left to fill.
                   if (choice === "hushh_managed_vertex") {
+                    // Navigation can unmount the card before its callback resumes.
+                    // Retire BYOK only after the managed choice was persisted.
+                    PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
                     returnToSetupHub();
                   }
                 }

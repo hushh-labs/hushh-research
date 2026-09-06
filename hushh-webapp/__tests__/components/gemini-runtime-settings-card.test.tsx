@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
+import { publishValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
 
 const {
   selectManagedGeminiRuntimeMock,
@@ -11,6 +12,8 @@ const {
   storeRuntimeSecretMock,
   toastErrorMock,
   toastSuccessMock,
+  getByocSetupStatusMock,
+  routerPushMock,
 } = vi.hoisted(() => ({
   selectManagedGeminiRuntimeMock: vi.fn(),
   validateGeminiRuntimeCredentialMock: vi.fn(),
@@ -19,6 +22,8 @@ const {
   storeRuntimeSecretMock: vi.fn(),
   toastErrorMock: vi.fn(),
   toastSuccessMock: vi.fn(),
+  getByocSetupStatusMock: vi.fn(),
+  routerPushMock: vi.fn(),
 }));
 
 vi.mock("@/lib/morphy-ux/morphy", () => ({
@@ -28,7 +33,7 @@ vi.mock("@/lib/morphy-ux/morphy", () => ({
 // The card calls useRouter() to route to the cloud/authorization step on a revoked
 // grant; the test harness mounts no Next.js App Router, so provide a stub push.
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: routerPushMock }),
 }));
 
 vi.mock("@/lib/services/api-service", () => ({
@@ -39,8 +44,7 @@ vi.mock("@/lib/services/api-service", () => ({
       selectManagedGeminiRuntimeMock(...args),
     // Mounted-effect poll for a previously-recorded BYOC project; a neutral
     // (non-"recorded") status keeps the card in its default managed-first state.
-    getByocSetupStatus: () =>
-      Promise.resolve({ status: "not_started", projectId: null }),
+    getByocSetupStatus: (...args: unknown[]) => getByocSetupStatusMock(...args),
   },
 }));
 
@@ -61,6 +65,9 @@ vi.mock("@/lib/services/personal-knowledge-model-service", () => ({
 describe("GeminiRuntimeSettingsCard setup choice", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    publishValidatedAuthSessionOwner(null);
+    publishValidatedAuthSessionOwner("fresh-user");
+    getByocSetupStatusMock.mockResolvedValue({ status: "not_started", projectId: null });
     loadRuntimeSecretMock.mockResolvedValue(null);
     storeRuntimeSecretMock.mockResolvedValue({ success: true });
     removeRuntimeSecretMock.mockResolvedValue({ success: true });
@@ -362,6 +369,7 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       conflict: true,
     });
 
+    publishValidatedAuthSessionOwner("existing-user");
     render(
       <GeminiRuntimeSettingsCard
         userId="existing-user"
@@ -465,5 +473,161 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
       screen.queryByRole("button", { name: "Confirm and save" }),
     ).toBeNull();
     expect(screen.getByRole("button", { name: "Validate key" })).toBeTruthy();
+  });
+
+  function deferred<T>() {
+    let resolve!: (value: T) => void;
+    let reject!: (reason: Error) => void;
+    const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+    return { promise, resolve, reject };
+  }
+
+  const ownerProps = (userId: string, onSelectionReadyChange = vi.fn()) => ({
+    userId,
+    vaultKey: null,
+    vaultOwnerToken: null,
+    needsVaultCreation: true,
+    needsUnlock: false,
+    onRequestVaultUnlock: vi.fn(),
+    onRequestVaultCreation: vi.fn(),
+    requiresExplicitSelection: true,
+    initiallyConfigured: false,
+    onSelectionReadyChange,
+  });
+  const selectionResult = {
+    status: "ready", model: "synthetic-model", location: "global",
+    agentScheduled: false, agentReason: "synthetic prior-owner outcome",
+  };
+
+  it.each([false, true])("discards a pending prior-owner selection, including return to A=%s", async (returnToA) => {
+    const pending = deferred<typeof selectionResult>();
+    selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
+    const committed = vi.fn();
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />);
+    clickManaged();
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    if (returnToA) {
+      publishValidatedAuthSessionOwner("fresh-user");
+      view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    }
+    await act(async () => { pending.resolve(selectionResult); });
+    expect(committed).not.toHaveBeenCalled();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(/synthetic prior-owner outcome/)).toBeNull();
+    expect(screen.queryByText("Selected")).toBeNull();
+  });
+
+  it("does not start an old-owner vault write after the managed provider response", async () => {
+    const pending = deferred<typeof selectionResult>();
+    selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
+      requiresExplicitSelection={false} vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
+    clickManaged();
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    await act(async () => { pending.resolve(selectionResult); });
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("does not route or toast a stale cloud-recovery failure", async () => {
+    const pending = deferred<typeof selectionResult>();
+    selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    clickManaged();
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    await act(async () => { pending.reject(new Error("CLOUD_GRANT_REVOKED")); });
+    expect(toastErrorMock).not.toHaveBeenCalled();
+    expect(routerPushMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let A's finally release B's pending selection", async () => {
+    const first = deferred<typeof selectionResult>();
+    const second = deferred<typeof selectionResult>();
+    selectManagedGeminiRuntimeMock.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const completedB = vi.fn();
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    clickManaged();
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b", completedB)} />);
+    clickManaged();
+    await act(async () => { first.resolve(selectionResult); });
+    clickManaged();
+    expect(selectManagedGeminiRuntimeMock).toHaveBeenCalledTimes(2);
+    await act(async () => { second.resolve(selectionResult); });
+    expect(completedB).toHaveBeenCalledOnce();
+  });
+
+  it("never publishes an old owner's delayed project lookup", async () => {
+    const pending = deferred<{ status: string; projectId: string }>();
+    getByocSetupStatusMock.mockReturnValueOnce(pending.promise).mockResolvedValueOnce({ status: "recorded", projectId: "synthetic-project-b" });
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    await screen.findByText(/synthetic-project-b/);
+    await act(async () => { pending.resolve({ status: "recorded", projectId: "synthetic-project-a" }); });
+    expect(screen.queryByText(/synthetic-project-a/)).toBeNull();
+    expect(screen.getByText(/synthetic-project-b/)).toBeTruthy();
+  });
+
+  it("refuses reads and provider requests when the validated owner differs", () => {
+    publishValidatedAuthSessionOwner("owner-b");
+    render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
+      vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
+    clickManaged();
+    expect(getByocSetupStatusMock).not.toHaveBeenCalled();
+    expect(loadRuntimeSecretMock).not.toHaveBeenCalled();
+    expect(selectManagedGeminiRuntimeMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects the old session generation even without an intermediate React render", async () => {
+    const pending = deferred<typeof selectionResult>();
+    selectManagedGeminiRuntimeMock.mockReturnValueOnce(pending.promise);
+    const committed = vi.fn();
+    render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user", committed)} />);
+    clickManaged();
+    publishValidatedAuthSessionOwner("owner-b");
+    publishValidatedAuthSessionOwner("fresh-user");
+    await act(async () => { pending.resolve(selectionResult); });
+    expect(committed).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
+    expect(screen.queryByText(/synthetic prior-owner outcome/)).toBeNull();
+    clickManaged();
+    await waitFor(() => expect(committed).toHaveBeenCalledOnce());
+  });
+
+  it("clears a prior owner's draft and ignores delayed BYOK validation", async () => {
+    const pending = deferred<{ status: string }>();
+    validateGeminiRuntimeCredentialMock.mockReturnValueOnce(pending.promise);
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")} />);
+    fireEvent.click(screen.getByRole("button", { name: /Use your own key/i }));
+    fireEvent.change(screen.getByLabelText("Gemini API key"), { target: { value: "synthetic-owner-a-key" } });
+    fireEvent.click(screen.getByRole("button", { name: "Validate key" }));
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    await act(async () => { pending.resolve({ status: "ready" }); });
+    fireEvent.click(screen.getByRole("button", { name: /Use your own key/i }));
+    expect(screen.getByLabelText("Gemini API key")).toHaveValue("");
+    expect(screen.queryByRole("button", { name: "Confirm and save" })).toBeNull();
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+  });
+
+  it("stops the remaining credential removals after an account switch", async () => {
+    const pending = deferred<{ success: boolean }>();
+    loadRuntimeSecretMock.mockImplementation(({ credentialRef }: { credentialRef: string }) =>
+      Promise.resolve(credentialRef.includes("credential_mode") ? "byok" : "synthetic-saved-value"));
+    removeRuntimeSecretMock.mockReturnValueOnce(pending.promise);
+    const view = render(<GeminiRuntimeSettingsCard {...ownerProps("fresh-user")}
+      requiresExplicitSelection={false} vaultKey="synthetic-key-a" vaultOwnerToken="synthetic-token-a" />);
+    fireEvent.click(await screen.findByRole("button", { name: "Remove key" }));
+    expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1);
+    publishValidatedAuthSessionOwner("owner-b");
+    view.rerender(<GeminiRuntimeSettingsCard {...ownerProps("owner-b")} />);
+    await act(async () => { pending.resolve({ success: true }); });
+    expect(removeRuntimeSecretMock).toHaveBeenCalledTimes(1);
+    expect(storeRuntimeSecretMock).not.toHaveBeenCalled();
+    expect(toastSuccessMock).not.toHaveBeenCalled();
   });
 });

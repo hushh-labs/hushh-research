@@ -5,6 +5,10 @@ import { useRouter } from "next/navigation";
 import { CheckCircle2, Loader2, Trash2 } from "lucide-react";
 
 import { ROUTES } from "@/lib/navigation/routes";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 
 import { SettingsGroup, SettingsRow } from "@/components/app-ui/settings-ui";
 import {
@@ -78,7 +82,18 @@ function assertRuntimeSecretStored(result: {
   }
 }
 
-export function GeminiRuntimeSettingsCard({
+export function GeminiRuntimeSettingsCard(props: GeminiRuntimeSettingsCardProps) {
+  // Credentials and owner-specific results must not survive an account switch.
+  const owner = snapshotValidatedAuthSessionOwner();
+  return (
+    <OwnerRuntimeSettingsCard
+      key={`${props.userId ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      {...props}
+    />
+  );
+}
+
+function OwnerRuntimeSettingsCard({
   userId,
   vaultKey,
   vaultOwnerToken,
@@ -94,6 +109,20 @@ export function GeminiRuntimeSettingsCard({
   onPreVaultDraftCleared,
 }: GeminiRuntimeSettingsCardProps) {
   const router = useRouter();
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+  const captureOwnerGuard = useCallback(() => {
+    const owner = snapshotValidatedAuthSessionOwner();
+    return () => Boolean(
+      mountedRef.current && owner && owner.userId === userId &&
+      isValidatedAuthSessionOwnerCurrent(owner),
+    );
+  }, [userId]);
   const [mode, setMode] = useState<RuntimeCredentialMode>(
     "hushh_managed_vertex",
   );
@@ -104,9 +133,11 @@ export function GeminiRuntimeSettingsCard({
   const [ownCloudProject, setOwnCloudProject] = useState<string | null>(null);
   useEffect(() => {
     let cancelled = false;
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     void ApiService.getByocSetupStatus()
       .then((status) => {
-        if (!cancelled && status.status === "recorded" && status.projectId) {
+        if (!cancelled && ownerIsCurrent() && status.status === "recorded" && status.projectId) {
           setOwnCloudProject(status.projectId);
         }
       })
@@ -114,7 +145,7 @@ export function GeminiRuntimeSettingsCard({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [captureOwnerGuard]);
   const [hasSavedKey, setHasSavedKey] = useState<boolean | null>(null);
   const [draftKey, setDraftKey] = useState("");
   const [transport, setTransport] =
@@ -157,6 +188,8 @@ export function GeminiRuntimeSettingsCard({
   }, [initialSetupChoice, requiresExplicitSelection]);
 
   const refresh = useCallback(async () => {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       setMode("hushh_managed_vertex");
       setHasSavedKey(null);
@@ -197,7 +230,7 @@ export function GeminiRuntimeSettingsCard({
             credentialRef: GEMINI_VERTEX_LOCATION_REF,
           }),
         ]);
-      if (selectionRevisionRef.current !== selectionRevision) return;
+      if (!ownerIsCurrent() || selectionRevisionRef.current !== selectionRevision) return;
       setMode(savedMode === "byok" ? "byok" : "hushh_managed_vertex");
       setHasSavedKey(Boolean(savedKey));
       setTransport(
@@ -208,14 +241,14 @@ export function GeminiRuntimeSettingsCard({
       setVertexProject(savedProject || "");
       setVertexLocation(savedLocation || "global");
     } catch {
-      if (selectionRevisionRef.current !== selectionRevision) return;
+      if (!ownerIsCurrent() || selectionRevisionRef.current !== selectionRevision) return;
       setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       setTransport("developer_api");
       setVertexProject("");
       setVertexLocation("global");
     }
-  }, [userId, vaultKey, vaultOwnerToken, vaultReady]);
+  }, [captureOwnerGuard, userId, vaultKey, vaultOwnerToken, vaultReady]);
 
   useEffect(() => {
     void refresh();
@@ -246,6 +279,8 @@ export function GeminiRuntimeSettingsCard({
   };
 
   const selectManaged = async () => {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     if (selectionPendingRef.current) return;
     setAgentOutcome("");
     selectionPendingRef.current = true;
@@ -262,12 +297,15 @@ export function GeminiRuntimeSettingsCard({
       //      a managed user. Provisioning their private agent hangs off this call;
       //      before it, choosing managed contacted no server route at all.
       const selection = await ApiService.selectManagedGeminiRuntime();
+      if (!ownerIsCurrent()) return;
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("hushh_managed_vertex");
+        if (!ownerIsCurrent()) return;
         onPreVaultDraftCleared?.();
       } else {
         await persistMode("hushh_managed_vertex");
       }
+      if (!ownerIsCurrent()) return;
       setMode("hushh_managed_vertex");
       setHasExplicitSelection(true);
       notifyGeminiRuntimeConfigurationChanged();
@@ -293,6 +331,7 @@ export function GeminiRuntimeSettingsCard({
         ownCloudProject ? "Using your pod's AI." : "Using Hussh's AI.",
       );
     } catch (error) {
+      if (!ownerIsCurrent()) return;
       setMode(previousMode);
       setHasExplicitSelection(previousSelection);
       // The schedule-time cloud verdicts route to the exact recovery, not a generic
@@ -321,6 +360,7 @@ export function GeminiRuntimeSettingsCard({
               : "Open your private vault again, then try this setting.",
       );
     } finally {
+      // The lock belongs to this keyed instance, never a subsequent owner.
       selectionPendingRef.current = false;
     }
   };
@@ -343,6 +383,8 @@ export function GeminiRuntimeSettingsCard({
   };
 
   const validateByok = async () => {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     const credential = draftKey.trim();
     if (!credential) {
       toast.error("Enter your Gemini API key.");
@@ -373,14 +415,14 @@ export function GeminiRuntimeSettingsCard({
         vertexLocation:
           transport === "vertex_api_key" ? vertexLocation.trim() : null,
       });
-      if (credentialRevisionRef.current !== revision) return;
+      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision) return;
       setCredentialValidation({
         status: "ready",
         revision,
         validatedAt: Date.now(),
       });
     } catch (error) {
-      if (credentialRevisionRef.current !== revision) return;
+      if (!ownerIsCurrent() || credentialRevisionRef.current !== revision) return;
       const message =
         error instanceof Error
           ? error.message
@@ -390,6 +432,8 @@ export function GeminiRuntimeSettingsCard({
   };
 
   const saveByok = async () => {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     if (selectionPendingRef.current) return;
     const credential = draftKey.trim();
     const validationIsFresh =
@@ -427,6 +471,7 @@ export function GeminiRuntimeSettingsCard({
               : null,
         });
         await onSelectionReadyChange?.("byok_pending_vault");
+        if (!ownerIsCurrent()) return;
         setDraftKey("");
         invalidateCredentialValidation();
         setMode("byok");
@@ -435,10 +480,13 @@ export function GeminiRuntimeSettingsCard({
           "Gemini access is ready to protect when you finish setup.",
         );
       } catch {
+        if (!ownerIsCurrent()) return;
         toast.error("Gemini access could not be staged. Try again.");
       } finally {
         selectionPendingRef.current = false;
-        setIsSaving(false);
+        if (ownerIsCurrent()) {
+          setIsSaving(false);
+        }
       }
       return;
     }
@@ -462,6 +510,7 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_api_key",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(credentialResult);
       const transportResult =
         await PersonalKnowledgeModelService.storeRuntimeSecret({
@@ -476,6 +525,7 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_transport",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(transportResult);
       if (transport === "vertex_api_key") {
         const [projectResult, locationResult] = await Promise.all([
@@ -504,7 +554,9 @@ export function GeminiRuntimeSettingsCard({
             },
           }),
         ]);
+        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(projectResult);
+        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(locationResult);
       } else {
         const [projectResult, locationResult] = await Promise.all([
@@ -531,10 +583,13 @@ export function GeminiRuntimeSettingsCard({
             },
           }),
         ]);
+        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(projectResult);
+        if (!ownerIsCurrent()) return;
         assertRuntimeSecretStored(locationResult);
       }
       await persistMode("byok");
+      if (!ownerIsCurrent()) return;
       setDraftKey("");
       invalidateCredentialValidation();
       setMode("byok");
@@ -543,19 +598,25 @@ export function GeminiRuntimeSettingsCard({
       if (requiresExplicitSelection) {
         await onSelectionReadyChange?.("byok_pending_vault");
       }
+      if (!ownerIsCurrent()) return;
       notifyGeminiRuntimeConfigurationChanged();
       toast.success(
         "Your Gemini configuration is saved in your encrypted vault.",
       );
     } catch {
+      if (!ownerIsCurrent()) return;
       toast.error("Gemini key could not be saved.");
     } finally {
       selectionPendingRef.current = false;
-      setIsSaving(false);
+      if (ownerIsCurrent()) {
+        setIsSaving(false);
+      }
     }
   };
 
   const removeByok = async () => {
+    const ownerIsCurrent = captureOwnerGuard();
+    if (!ownerIsCurrent()) return;
     if (!vaultReady || !userId || !vaultKey || !vaultOwnerToken) {
       requestVault();
       return;
@@ -574,6 +635,7 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_api_key_remove",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(credentialResult);
       const transportResult =
         await PersonalKnowledgeModelService.removeRuntimeSecret({
@@ -587,6 +649,7 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_transport_remove",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(transportResult);
       const projectResult =
         await PersonalKnowledgeModelService.removeRuntimeSecret({
@@ -600,6 +663,7 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_vertex_project_remove",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(projectResult);
       const locationResult =
         await PersonalKnowledgeModelService.removeRuntimeSecret({
@@ -613,17 +677,20 @@ export function GeminiRuntimeSettingsCard({
             source: "profile_gemini_vertex_location_remove",
           },
         });
+      if (!ownerIsCurrent()) return;
       assertRuntimeSecretStored(locationResult);
       await persistMode("hushh_managed_vertex");
+      if (!ownerIsCurrent()) return;
       selectionRevisionRef.current += 1;
       setMode("hushh_managed_vertex");
       setHasSavedKey(false);
       notifyGeminiRuntimeConfigurationChanged();
       toast.success("Your saved Gemini key was removed.");
     } catch {
+      if (!ownerIsCurrent()) return;
       toast.error("Your Gemini key could not be removed.");
     } finally {
-      setIsRemoving(false);
+      if (ownerIsCurrent()) setIsRemoving(false);
     }
   };
 
