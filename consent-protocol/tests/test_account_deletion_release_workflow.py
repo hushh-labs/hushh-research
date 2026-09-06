@@ -263,6 +263,58 @@ def test_uat_scheduler_service_account_id_is_valid_and_consistent() -> None:
     ) in deploy_run
     assert "expected_service_account_email" in activation_run
     assert f"SCHEDULER_SERVICE_ACCOUNT_NAME:-{scheduler_account_id}" in scheduler_setup
+    assert "iam service-accounts add-iam-policy-binding" not in scheduler_setup
+    assert "roles/iam.serviceAccountTokenCreator" not in scheduler_setup
+
+
+def test_scheduler_setup_does_not_require_service_account_policy_admin(
+    tmp_path: Path,
+) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BACKEND_URL": "https://api.uat.example.com",
+            "PROJECT_ID": "example-uat-project",
+            "SCHEDULER_SERVICE_ACCOUNT_NAME": "account-deletion-cleanup",
+        }
+    )
+    calls = tmp_path / "gcloud-calls"
+    guards = f'''gcloud() {{
+      printf '%s\\n' "$*" >> "{calls.as_posix()}"
+      case "$1 $2 $3" in
+        "iam service-accounts describe") return 0 ;;
+        "scheduler jobs describe")
+          printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+            'ENABLED' '*/2 * * * *' \\
+            'https://api.uat.example.com/api/account/deletion-cleanup/drain?limit=10' \\
+            'POST' \\
+            'account-deletion-cleanup@example-uat-project.iam.gserviceaccount.com' \\
+            'https://api.uat.example.com'
+          return 0
+          ;;
+        "scheduler jobs update") return 0 ;;
+        *) echo "UNEXPECTED_GCLOUD_COMMAND: $*" >&2; return 96 ;;
+      esac
+    }}
+'''
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the scheduler behavior test"
+
+    result = subprocess.run(  # noqa: S603 - trusted script with guarded cloud commands
+        [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "Configured and verified Cloud Scheduler job" in result.stdout
+    assert "UNEXPECTED_GCLOUD_COMMAND" not in output
+    assert "add-iam-policy-binding" not in calls.read_text(encoding="utf-8")
 
 
 @pytest.mark.parametrize(
