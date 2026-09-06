@@ -122,8 +122,16 @@
     "impeccable": {
       "import_commit": "f844e6b66",
       "declared_version": "4.0.4",
-      "license_verification": "unresolved; no bundle-local LICENSE or NOTICE found",
-      "disposition": "retain intact pending provenance review; not part of canonical engineering fleet"
+      "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
+      "disposition": "retain original executable paths; dependency and nested-agent review remains required before relocation",
+      "source": "https://github.com/pbakaus/impeccable",
+      "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
+      "upstream_path": ".agents/skills/impeccable",
+      "imported_tree": "cb64801c3c3ee2e00324ce6f5ded1e1100326155",
+      "provenance_verification": "all 152 original imported files match the upstream Git tree exactly",
+      "license": "Apache-2.0; upstream NOTICE identifies MIT-derived platform references",
+      "license_file": ".claude/skills/impeccable/LICENSE",
+      "notice_file": ".claude/skills/impeccable/NOTICE.md"
     }
   }
 }

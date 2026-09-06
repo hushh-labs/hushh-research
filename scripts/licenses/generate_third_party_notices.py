@@ -30,6 +30,19 @@ def load_web_packages() -> list[dict[str, str]]:
     return packages
 
 
+def load_vendored_packages() -> list[dict[str, str]]:
+    inventory = REPO_ROOT / ".codex/skills/agent-orchestration-governance/references/platform-source-inventory.json"
+    imports = json.loads(inventory.read_text(encoding="utf-8")).get("imports", {})
+    return [
+        {
+            "name": name,
+            "version": item.get("declared_version", "UNKNOWN"),
+            "license": item.get("license", "UNVERIFIED"),
+        }
+        for name, item in sorted(imports.items())
+    ]
+
+
 def load_python_packages() -> list[dict[str, str]]:
     result = subprocess.run(
         ["uv", "run", "--directory", "consent-protocol", "pip-licenses", "--format=json", "--from=mixed"],
@@ -71,7 +84,7 @@ def write_markdown(path: Path, title: str, intro: str, sections: list[tuple[str,
         "",
         intro,
         "",
-        "This file is generated from the repo lockfiles and installed Python environment.",
+        "This file is generated from repo lockfiles, the installed Python environment, and the governed imported-resource inventory.",
         "Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.",
         "",
     ]
@@ -108,6 +121,7 @@ def main() -> int:
         [
             ("Frontend npm packages", web_packages),
             ("Backend Python packages", python_packages),
+            ("Vendored engineering resources", load_vendored_packages()),
         ],
     )
 
