@@ -246,8 +246,8 @@ contracts. Agent turns use the owning agent service and runtime. Extend those pa
 instead of introducing a second storage or agent bridge.
 
 For a platform-specific feature, return a typed unavailable result where unsupported
-and ensure the service/UI handles it. For example, background location sharing is
-implemented on iOS while Android reports `android_background_share_unavailable`.
+and ensure the service/UI handles it. Background location sharing uses native
+publishers on iOS and Android; web reports an unavailable result.
 Keep the supported-platform statement and behavioral verification explicit.
 
 ## BYOK Security Checklist

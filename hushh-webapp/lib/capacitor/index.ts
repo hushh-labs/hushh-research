@@ -12,7 +12,7 @@
  * For web/cloud deployment, use the existing API routes instead.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import type {
   // Consent types
@@ -745,7 +745,7 @@ export type BackgroundShareSession = {
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
-  /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
+  /** Request background authorization; Android opens the owner's app settings. */
   requestAlwaysAuthorization(): Promise<HushhLocationPermissionState>;
   openAppSettings(): Promise<{
     opened: boolean;
@@ -790,8 +790,8 @@ export interface HushhLocationPlugin {
   /** Stop a `watchPosition` subscription started with the returned id. */
   clearWatch(options: { id: string }): Promise<void>;
   /**
-   * Start native background publishing for the given share session. iOS only:
-   * requires Always authorization. Returns { started:false, reason } when
+   * Start native background publishing for the given share session on iOS/Android.
+   * Requires background authorization. Returns { started:false, reason } when
    * unavailable (web, missing permission). Foreground JS keeps publishing too;
    * native takes over while the app is backgrounded.
    */
@@ -800,6 +800,7 @@ export interface HushhLocationPlugin {
   ): Promise<{ started: boolean; reason?: string }>;
   /** Stop native background publishing. Safe to call when not started. */
   stopBackgroundShare(): Promise<void>;
+  addListener(eventName: "backgroundShareStopped", listener: () => void): Promise<PluginListenerHandle>;
 }
 
 

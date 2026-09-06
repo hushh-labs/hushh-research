@@ -2,12 +2,13 @@ import Foundation
 import Capacitor
 import CoreLocation
 import UIKit
+import FirebaseAuth
 
 /**
  * HushhLocationPlugin - foreground capture and permission-gated background sharing.
  *
- * One Location Agent v1 does not request background location. Coordinates are
- * returned only to the local web layer so it can encrypt before persistence.
+ * Foreground coordinates return to the local web layer. Opted-in background
+ * sharing encrypts on-device and publishes only to the configured backend.
  */
 @objc(HushhLocationPlugin)
 public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManagerDelegate {
@@ -36,8 +37,14 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
     // fans out to every saved callback call below. Foreground-only.
     private var watchCalls: [String: CAPPluginCall] = [:]
     private var pendingWatchStartCall: CAPPluginCall?
-    private lazy var backgroundPublisher = BackgroundLocationPublisher(onStop: { [weak self] in
+    private var backgroundOwnerUid: String?
+    private var authListener: AuthStateDidChangeListenerHandle?
+    private lazy var backgroundPublisher: BackgroundLocationPublisher = BackgroundLocationPublisher(onStop: { [weak self] in
         self?.stopUpdatingIfIdle()
+        DispatchQueue.main.async {
+            guard let self, !self.backgroundPublisher.isActive else { return }
+            self.notifyListeners("backgroundShareStopped", data: [:])
+        }
     })
 
     public override func load() {
@@ -45,7 +52,13 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
         manager.desiredAccuracy = kCLLocationAccuracyBest
         manager.allowsBackgroundLocationUpdates = true
         manager.pausesLocationUpdatesAutomatically = false
+        authListener = Auth.auth().addStateDidChangeListener { [weak self] _, user in
+            guard let self, let owner = self.backgroundOwnerUid, user?.uid != owner else { return }
+            self.backgroundPublisher.stop()
+        }
     }
+
+    deinit { if let authListener { Auth.auth().removeStateDidChangeListener(authListener) } }
 
     @objc func getPermissionState(_ call: CAPPluginCall) {
         call.resolve(permissionPayload())
@@ -254,13 +267,22 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     @objc func startBackgroundShare(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
+            self.backgroundPublisher.stop(notify: false)
+            self.stopUpdatingIfIdle()
             guard self.manager.authorizationStatus == .authorizedAlways else {
                 call.resolve(["started": false, "reason": "always-permission-required"])
                 return
             }
             guard
                 let token = call.getString("vaultOwnerToken"),
+                !token.isEmpty,
+                let ownerUid = Auth.auth().currentUser?.uid,
                 let base = call.getString("backendBaseUrl"),
+                let destination = URLComponents(string: base),
+                destination.scheme == "https", destination.user == nil, destination.password == nil,
+                destination.query == nil, destination.fragment == nil,
+                HushhProxyClient.normalizeBackendUrl(base) == HushhProxyClient.resolveBackendUrl(
+                    call: call, plugin: self, jsName: self.jsName, allowCallOverride: false),
                 let rawGrants = call.getArray("grants") as? [[String: Any]]
             else {
                 call.resolve(["started": false, "reason": "invalid-session"])
@@ -290,6 +312,7 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
                 minIntervalMs: call.getDouble("minIntervalMs") ?? 8000
             )
             self.backgroundPublisher.start(session: session)
+            self.backgroundOwnerUid = ownerUid
             self.manager.startUpdatingLocation()
             call.resolve(["started": true])
         }
@@ -297,7 +320,8 @@ public class HushhLocationPlugin: CAPPlugin, CAPBridgedPlugin, CLLocationManager
 
     @objc func stopBackgroundShare(_ call: CAPPluginCall) {
         DispatchQueue.main.async {
-            self.backgroundPublisher.stop()
+            self.backgroundPublisher.stop(notify: false)
+            self.stopUpdatingIfIdle()
             self.stopUpdatingIfIdle()
             call.resolve()
         }

@@ -116,6 +116,10 @@ const allowedAndroidPermissions = new Set([
   "android.permission.MODIFY_AUDIO_SETTINGS",
   "android.permission.ACCESS_FINE_LOCATION",
   "android.permission.ACCESS_COARSE_LOCATION",
+  "android.permission.ACCESS_BACKGROUND_LOCATION",
+  "android.permission.FOREGROUND_SERVICE",
+  "android.permission.FOREGROUND_SERVICE_LOCATION",
+  "android.permission.POST_NOTIFICATIONS",
   "android.permission.READ_CONTACTS",
 ]);
 const unexpectedAndroidPermissions = androidPermissions.filter(
@@ -141,8 +145,14 @@ if (!androidManifest.includes('android.permission.ACCESS_COARSE_LOCATION')) {
 if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
   fail("AndroidManifest.xml must include android.permission.READ_CONTACTS.");
 }
-if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
-  fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+for (const permission of ["ACCESS_BACKGROUND_LOCATION", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_LOCATION", "POST_NOTIFICATIONS"]) {
+  if (!androidPermissions.includes(`android.permission.${permission}`)) {
+    fail(`Background location sharing requires android.permission.${permission}.`);
+  }
+}
+const backgroundService = androidManifest.match(/<service\b[^>]*android:name="\.plugins\.HushhLocation\.BackgroundLocationService"[^>]*\/>/s)?.[0];
+if (!backgroundService?.includes('android:exported="false"') || !backgroundService.includes('android:foregroundServiceType="location"')) {
+  fail("Background location sharing requires a non-exported location foreground service.");
 }
 const androidContactsPlugin = read(androidContactsPluginPath);
 const androidDeviceRegion = androidContactsPlugin.match(

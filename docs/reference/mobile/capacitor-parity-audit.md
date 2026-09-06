@@ -236,9 +236,11 @@ Native parity for authenticated flows now includes the verified phone mandate af
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
   Android, and the `HushhLocation` plugin on web, iOS, and Android.
-- Background sharing is implemented on iOS with explicit permission and background
-  location mode. Android currently returns `android_background_share_unavailable`;
-  method-name parity does not prove equivalent background behavior.
+- Background sharing has native publishers on iOS and Android with explicit
+  background permission. Android uses a visible foreground service with a stop
+  action. Credentials and pending ciphertext stay in memory; process death
+  requires a new owner-authorized session. Compilation, synthetic execution,
+  and live background/provider success remain distinct evidence requirements.
 - `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is

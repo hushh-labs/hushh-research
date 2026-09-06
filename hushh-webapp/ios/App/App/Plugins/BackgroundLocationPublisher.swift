@@ -1,6 +1,15 @@
 import Foundation
 import CoreLocation
 
+private final class BackgroundPublishRedirectPolicy: NSObject, URLSessionTaskDelegate {
+    func urlSession(_ session: URLSession, task: URLSessionTask,
+                    willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest,
+                    completionHandler: @escaping (URLRequest?) -> Void) {
+        completionHandler(nil)
+    }
+}
+
 struct BackgroundShareGrantNative {
     let grantId: String
     let recipientKeyId: String
@@ -32,7 +41,7 @@ final class BackgroundLocationPublisher {
     private let urlSession: URLSession
     private let onStop: () -> Void
 
-    init(urlSession: URLSession = URLSession(configuration: .ephemeral), onStop: @escaping () -> Void = {}) {
+    init(urlSession: URLSession = URLSession(configuration: .ephemeral, delegate: BackgroundPublishRedirectPolicy(), delegateQueue: nil), onStop: @escaping () -> Void = {}) {
         self.urlSession = urlSession
         self.onStop = onStop
     }
@@ -50,7 +59,7 @@ final class BackgroundLocationPublisher {
 
     func start(session: BackgroundShareSessionNative) {
         lock.lock(); defer { lock.unlock() }
-        stop()
+        stop(notify: false)
         refusedGrants.removeAll()
         self.session = session
         self.lastPublishedAt = nil
@@ -59,14 +68,14 @@ final class BackgroundLocationPublisher {
         self.pending.removeAll()
     }
 
-    func stop() {
+    func stop(notify: Bool = true) {
         lock.lock(); defer { lock.unlock() }
         generation = UUID()
         for entry in tasks.values { entry.task.cancel() }
         tasks.removeAll()
         self.session = nil
         self.pending.removeAll()
-        onStop()
+        if notify { onStop() }
     }
 
     var isActive: Bool {
