@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback } from "react";
-import { CheckCircle2, Mail, MessageCircle } from "lucide-react";
+import { CheckCircle2, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
@@ -127,10 +128,9 @@ export function EmailAgentPageClient() {
                   </p>
                 </div>
               </div>
-              <Button type="button" onClick={openOneForDraft} className="w-full sm:w-auto">
-                <MessageCircle className="mr-2 h-4 w-4" />
+              <AskOneButton onClick={openOneForDraft}>
                 Try Email Agent with One
-              </Button>
+              </AskOneButton>
             </SurfaceInset>
           ) : (
             <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">

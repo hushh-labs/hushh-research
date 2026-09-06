@@ -15,7 +15,7 @@
  */
 
 import type { ComponentPropsWithoutRef, CSSProperties, ReactNode } from "react";
-import { Check, Sparkles } from "lucide-react";
+import { Check } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -233,34 +233,3 @@ export function RiaBanner({
   );
 }
 
-/**
- * "Ask One" action pill (white + gold sparkle). Forwards all button props so the
- * caller can attach onClick / data-voice-control-id / testid.
- */
-export function RiaAiActionPill({
-  children,
-  className,
-  ...props
-}: ComponentPropsWithoutRef<"button">) {
-  return (
-    <button
-      type="button"
-      className={cn(
-        "inline-flex items-center gap-2 rounded-full border px-4 py-2 text-[14px] font-semibold transition-transform active:scale-[0.98]",
-        className,
-      )}
-      style={{
-        backgroundColor: "var(--ria-selected-tint)",
-        borderColor: "var(--ria-divider-outer)",
-        color: "var(--ria-ink)",
-      }}
-      {...props}
-    >
-      <Sparkles
-        className="h-4 w-4 text-[color:var(--ria-gold)]"
-        fill="currentColor"
-      />
-      {children}
-    </button>
-  );
-}
