@@ -505,6 +505,12 @@ export function VaultProvider({ children }: VaultProviderProps) {
       setTokenExpiresAt(expiresAt);
       setVaultUserId(unlockingUserId);
 
+      // Notify listeners (e.g. Siri handoff) that the vault is now unlocked
+      // so they can resume any pending actions that were blocked by vault.
+      window.dispatchEvent(new CustomEvent("vault-unlocked", {
+        detail: { userId: unlockingUserId },
+      }));
+
       if (user?.uid && Capacitor.getPlatform() === "ios") {
         void (async () => {
           const firebaseIDToken = await AuthService.getIdToken(true).catch(

@@ -21,6 +21,11 @@ import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildSiriOneVoiceLoginRoute } from "@/lib/agent/siri-one-voice-handoff-policy";
 import { resolveSiriOneActionHandoffState } from "@/lib/agent/siri-one-action-handoff-policy";
 
+// Force re-evaluation when vault unlocks so a waiting-for-vault invocation
+// can immediately transition to dispatch without waiting for the next
+// effect cycle (which requires a dependency change that may not fire).
+const VAULT_UNLOCK_EVENT = "vault-unlocked";
+
 function logLifecycle(
   state: string,
   invocation: PendingOneSystemActionInvocation,
@@ -54,6 +59,7 @@ export function SiriOneActionHandoff(): null {
     useState<PendingOneSystemActionInvocation | null>(null);
   const [executorRevision, setExecutorRevision] = useState(0);
   const [visibilityRevision, setVisibilityRevision] = useState(0);
+  const [vaultUnlockRevision, setVaultUnlockRevision] = useState(0);
   const claimedRef = useRef<string | null>(null);
   const waitingStateRef = useRef<string | null>(null);
 
@@ -119,6 +125,17 @@ export function SiriOneActionHandoff(): null {
     const onVisibility = () => setVisibilityRevision((value) => value + 1);
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
+  }, []);
+
+  // Vault unlock may resolve a waiting_for_vault invocation before the
+  // AgentRuntimeStateProvider's tier recomputation triggers a re-render.
+  // Listen for the explicit event to force immediate re-evaluation.
+  useEffect(() => {
+    if (!OneSystemActionInvocationBridge.isSupported()) return undefined;
+    const onVaultUnlock = () => setVaultUnlockRevision((value) => value + 1);
+    window.addEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
+    return () =>
+      window.removeEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
   }, []);
 
   useEffect(() => {
@@ -242,6 +259,7 @@ export function SiriOneActionHandoff(): null {
     runtime?.tier,
     searchParams,
     user,
+    vaultUnlockRevision,
     visibilityRevision,
   ]);
 
