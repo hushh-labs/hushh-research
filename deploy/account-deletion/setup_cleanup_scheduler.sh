@@ -56,12 +56,12 @@ if ! gcloud iam service-accounts describe "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
     --display-name="Account deletion cleanup scheduler" >/dev/null
 fi
 
-PROJECT_NUMBER="$(gcloud projects describe "${PROJECT_ID}" --format='value(projectNumber)')"
-SCHEDULER_SERVICE_AGENT="service-${PROJECT_NUMBER}@gcp-sa-cloudscheduler.iam.gserviceaccount.com"
-gcloud iam service-accounts add-iam-policy-binding "${SCHEDULER_SERVICE_ACCOUNT_EMAIL}" \
-  --project="${PROJECT_ID}" \
-  --member="serviceAccount:${SCHEDULER_SERVICE_AGENT}" \
-  --role="roles/iam.serviceAccountTokenCreator" >/dev/null
+# Cloud Scheduler's Google-managed service agent receives the project-scoped
+# roles/cloudscheduler.serviceAgent grant when the API is enabled. That role is
+# what lets Scheduler mint an OIDC token for this client service account. Do not
+# mutate the client account's IAM policy during an application deployment: it is
+# unnecessary, requires broad iam.serviceAccounts.setIamPolicy permission, and
+# would make every otherwise-safe scheduler repair depend on IAM-admin access.
 
 URI="${BACKEND_URL%/}/api/account/deletion-cleanup/drain?limit=${BATCH_LIMIT}"
 COMMON_ARGS=(
