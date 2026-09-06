@@ -16,7 +16,9 @@ describe("Gmail Email Agent handoff contract", () => {
     // empty for whatever the owner actually came to write.
     expect(source).toContain("const handleOpenOneChat = useCallback(() => {");
     expect(source).toContain("agentPopover.openAgent();");
-    expect(source).toContain("router.push(ROUTES.AGENT);");
+    // The legacy full-page fallback now records this page as its origin, so
+    // minimizing that screen returns here instead of One home (#6134).
+    expect(source).toContain("router.push(agentRouteWithOrigin(pathname));");
     expect(source).not.toContain("createHandoff");
     expect(source).not.toContain("buildGmailAgentHandoffPrompt");
   });
