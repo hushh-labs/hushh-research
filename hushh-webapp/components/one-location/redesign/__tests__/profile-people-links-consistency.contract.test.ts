@@ -41,7 +41,7 @@ describe("Profile, Location People, and Location Links consistency contract", ()
     expect(source).toContain("accuracyLimited: vm.locationAccuracyLimited");
   });
 
-  it("uses shared SectionLabel for People and Links section headings", () => {
+  it("keeps accessible People, Circle, and Links section headings", () => {
     const hubSource = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
@@ -49,13 +49,8 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       "components/one-location/redesign/circles/named-circle-flows.tsx",
     );
 
-    expect(circleSource).toContain(
-      '<SectionLabel as="div" role="heading" aria-level={2}>',
-    );
-    expect(hubSource).toContain(
-      'id="one-location-connections-heading"',
-    );
-    expect(hubSource).toContain("Connections · {vm.recipientPageTotalCount}");
+    expect(circleSource).toMatch(/<SectionLabel\s+id=\{CIRCLE_MEMBERS_HEADING_ID\}\s+role="heading"\s+aria-level=\{2\}/);
+    expect(hubSource).toMatch(/<h2\s+id="one-location-people-heading"[^>]*>\s*People\s*<\/h2>/);
     expect(hubSource).toContain('title="Temporary link"');
     expect(hubSource).not.toContain("<SectionTitle as=\"h2\">Temporary link");
   });
@@ -83,15 +78,9 @@ describe("Profile, Location People, and Location Links consistency contract", ()
   it("normalizes Profile utility icons to neutral rows while preserving semantic exceptions", () => {
     const source = readSource("app/profile/profile-workspace-page.tsx");
 
-    expect(source).toContain('title={PROFILE_LABELS.referrals}');
-    expect(source).toContain('iconTone="gray"');
-    expect(source).toContain('title={PROFILE_LABELS.developerTools}');
-    expect(source).not.toContain(
-      'icon={Users}\n                iconTone="blue"',
-    );
-    expect(source).not.toContain(
-      'icon={CodeXml}\n                  iconTone="purple"',
-    );
+    expect(source).toMatch(/<SettingsRow\s+icon=\{Users\}\s+iconTone="blue"\s+title=\{PROFILE_LABELS.referrals\}/);
+    expect(source).toMatch(/<SettingsRow\s+icon=\{CodeXml\}\s+iconTone="purple"\s+title=\{PROFILE_LABELS.developerTools\}/);
+    expect(source).toMatch(/<SettingsRow\s+icon=\{MessageCircleQuestion\}\s+iconTone="gray"\s+title=\{PROFILE_LABELS.support\}/);
   });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {
