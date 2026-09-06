@@ -1,14 +1,20 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
   replace,
+  authUser,
+  finalizeSensitiveMock,
+  hasFinanceIntentMock,
   migrateOnboardingBufferMock,
   acknowledgeOneSetupExitMock,
   vaultDialogOpenStates,
 } = vi.hoisted(() => ({
   replace: vi.fn(),
+  authUser: { uid: "local-first-user" },
+  finalizeSensitiveMock: vi.fn(),
+  hasFinanceIntentMock: vi.fn(),
   migrateOnboardingBufferMock: vi.fn(),
   acknowledgeOneSetupExitMock: vi.fn(),
   vaultDialogOpenStates: [] as boolean[],
@@ -20,13 +26,13 @@ let vaultState = {
   isVaultUnlocked: false,
 };
 
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ replace, push: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(),
-}));
+vi.mock("next/navigation", () => {
+  const router = { replace, push: vi.fn() };
+  return { useRouter: () => router, useSearchParams: () => new URLSearchParams() };
+});
 
 vi.mock("@/lib/firebase/auth-context", () => ({
-  useAuth: () => ({ user: { uid: "local-first-user" } }),
+  useAuth: () => ({ user: authUser }),
 }));
 
 vi.mock("@/lib/vault/vault-context", () => ({
@@ -102,11 +108,30 @@ vi.mock("@/lib/agent/local-onboarding-actions", () => ({
   useLocalOnboardingActionHandler: () => undefined,
 }));
 
-vi.mock("@/lib/navigation/routes", () => ({
-  ROUTES: { ONE_HOME: "/one", ONE_SETUP_CLOUD: "/one/setup/cloud",
-    ONE_SETUP_CONNECTIONS: "/one/setup/connections" },
+vi.mock("@/lib/navigation/routes", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
   isOneSetupSurfaceRoute: () => false,
   normalizeInternalRouteHref: () => null,
+}));
+
+vi.mock("@/lib/services/account-identity-service", () => ({
+  AccountIdentityService: {
+    peekCachedIdentity: () => ({ data: { user_id: "local-first-user", phone_verified: true } }),
+    refreshCurrentUserIdentity: vi.fn(async () => ({ user_id: "local-first-user", phone_verified: true })),
+    hasVerifiedPhone: (identity: { phone_verified?: boolean }) => identity?.phone_verified === true,
+  },
+}));
+vi.mock("@/lib/services/pre-vault-sensitive-draft-service", () => ({
+  PreVaultSensitiveDraftService: {
+    finalizeForVault: finalizeSensitiveMock,
+    hasFinanceIntent: hasFinanceIntentMock,
+  },
+}));
+vi.mock("@/lib/services/post-unlock-sync-service", () => ({
+  PostUnlockSyncService: { run: vi.fn(async () => ({ onboardingSynced: true })) },
+}));
+vi.mock("@/lib/services/finance-setup-draft-service", () => ({
+  FinanceSetupDraftService: { finalizeForVault: vi.fn(async () => undefined) },
 }));
 
 vi.mock("@/components/app-ui/app-page-shell", () => ({
@@ -199,6 +224,8 @@ beforeEach(() => {
   vaultState = { vaultKey: null, vaultOwnerToken: null, isVaultUnlocked: false };
   vaultDialogOpenStates.length = 0;
   replace.mockReset();
+  finalizeSensitiveMock.mockReset().mockResolvedValue(undefined);
+  hasFinanceIntentMock.mockReset().mockReturnValue(false);
   migrateOnboardingBufferMock.mockReset();
   migrateOnboardingBufferMock.mockResolvedValue({
     outcome: "pending_vault",
@@ -210,6 +237,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.useRealTimers();
   restoreFlag();
 });
 
@@ -433,4 +461,60 @@ describe("flag ON — vault is the last step, after the migration", () => {
       expect(replace).toHaveBeenCalledWith("/one");
     });
   });
+});
+
+
+describe.each(["0", "1"])("finance continuation with local-first=%s", (flag) => {
+  beforeEach(() => {
+    process.env[FLAG] = flag;
+    vaultState = { vaultKey: "ab".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true };
+    hasFinanceIntentMock.mockReturnValue(true);
+  });
+
+  it("resumes queued Finance intent only after encrypted finalization", async () => {
+    let finishWrite!: () => void;
+    finalizeSensitiveMock.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve; }));
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
+    expect(replace).not.toHaveBeenCalled();
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+    await act(async () => { finishWrite(); });
+    await waitFor(() => expect(replace).toHaveBeenCalledWith("/one/setup/finance/import"));
+    expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1);
+    expect(replace).not.toHaveBeenCalledWith("/one");
+  });
+
+  it("does not navigate or drain when encrypted finalization fails", async () => {
+    finalizeSensitiveMock.mockRejectedValue(new Error("synthetic encrypted-write failure"));
+    render(<OneSetupHub />);
+    fireEvent.click(screen.getByTestId("one-setup-master-ack"));
+    await waitFor(() => expect(finalizeSensitiveMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.getByText("synthetic encrypted-write failure")).toBeTruthy());
+    expect(replace).not.toHaveBeenCalled();
+    expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  });
+});
+
+
+it("starts the Finance watchdog only after the encrypted finalizer succeeds", async () => {
+  process.env[FLAG] = "1";
+  vaultState = { vaultKey: "ab".repeat(32), vaultOwnerToken: "synthetic-owner-token", isVaultUnlocked: true };
+  hasFinanceIntentMock.mockReturnValue(true);
+  let finishWrite!: () => void;
+  finalizeSensitiveMock.mockImplementation(() => new Promise<void>((resolve) => { finishWrite = resolve; }));
+  migrateOnboardingBufferMock.mockReturnValue(new Promise(() => {}));
+  vi.useFakeTimers();
+  render(<OneSetupHub />);
+  await act(async () => { fireEvent.click(screen.getByTestId("one-setup-master-ack")); });
+  await act(async () => { await vi.advanceTimersByTimeAsync(8_000); });
+  expect(replace).not.toHaveBeenCalled();
+  expect(migrateOnboardingBufferMock).not.toHaveBeenCalled();
+  await act(async () => { finishWrite(); });
+  expect(migrateOnboardingBufferMock).toHaveBeenCalledTimes(1);
+  await act(async () => { await vi.advanceTimersByTimeAsync(7_999); });
+  expect(replace).not.toHaveBeenCalled();
+  await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+  expect(replace).toHaveBeenCalledWith("/one/setup/finance/import");
+  expect(replace).not.toHaveBeenCalledWith("/one");
 });

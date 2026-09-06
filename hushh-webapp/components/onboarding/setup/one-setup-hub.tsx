@@ -376,6 +376,14 @@ export function OneSetupHub() {
         ],
   });
 
+  const resolveFinalizedSetupTarget = useCallback(
+    () =>
+      user?.uid && PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
+        ? ROUTES.ONE_SETUP_FINANCE_IMPORT
+        : completionTarget,
+    [completionTarget, user?.uid],
+  );
+
   const completeSetupAfterVault = useCallback(async (): Promise<void> => {
     if (!user?.uid) {
       router.replace(completionTarget);
@@ -436,11 +444,7 @@ export function OneSetupHub() {
       // Finance source intents intentionally remain process-memory-only until
       // this encryption boundary completes. Resume the canonical source flow
       // once, now that it has a valid vault session.
-      router.replace(
-        PreVaultSensitiveDraftService.hasFinanceIntent(user.uid)
-          ? ROUTES.ONE_SETUP_FINANCE_IMPORT
-          : completionTarget,
-      );
+      router.replace(resolveFinalizedSetupTarget());
     })();
     finalizationInFlightRef.current = finalize;
     try {
@@ -459,6 +463,7 @@ export function OneSetupHub() {
     }
   }, [
     completionTarget,
+    resolveFinalizedSetupTarget,
     localFirstEnabled,
     router,
     user?.uid,
@@ -499,7 +504,7 @@ export function OneSetupHub() {
 
     let active = true;
     const watchdog = setTimeout(() => {
-      if (active) router.replace(completionTarget);
+      if (active) router.replace(resolveFinalizedSetupTarget());
     }, 8000);
 
     if (!user?.uid || !vaultKey || !vaultOwnerToken) {
@@ -518,11 +523,11 @@ export function OneSetupHub() {
       .catch((error) => {
         console.warn(
           "[OneSetupHub] Could not finish moving buffered details into the private agent:",
-          error,
+          error instanceof Error ? error.name : "UnknownError",
         );
       })
       .finally(() => {
-        if (active) router.replace(completionTarget);
+        if (active) router.replace(resolveFinalizedSetupTarget());
       });
 
     return () => {
@@ -530,7 +535,7 @@ export function OneSetupHub() {
       clearTimeout(watchdog);
     };
   }, [
-    completionTarget,
+    resolveFinalizedSetupTarget,
     localFirstEnabled,
     localFirstStage,
     router,
@@ -679,8 +684,15 @@ export function OneSetupHub() {
       await completeSetupAfterVault();
       return {
         status: "succeeded" as const,
-        summary: "Setup complete. Opening home.",
-        routeAfter: completionTarget,
+        summary: "Setup complete. Continuing.",
+        routeAfter: resolveFinalizedSetupTarget(),
+      };
+    } catch {
+      // The finalizer retains its visible failure state. Return a terminal
+      // action result so button and voice callers do not leak a rejected promise.
+      return {
+        status: "failed" as const,
+        summary: "Could not save your setup. Try again.",
       };
     } finally {
       setDismissing(false);
