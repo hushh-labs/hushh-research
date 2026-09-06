@@ -102,6 +102,40 @@ def test_without_a_log_memory_does_not_survive(tmp_path: Path) -> None:
     asyncio.run(run())
 
 
+@pytest.mark.parametrize("fail_at", [1, 2])
+def test_failed_append_never_exposes_uncommitted_memory(tmp_path: Path, fail_at: int) -> None:
+    """A live process and a restarted pod see exactly the committed prefix."""
+
+    async def run() -> None:
+        durable = _log(tmp_path)
+
+        class FailingLog:
+            calls = 0
+
+            async def replay(self):
+                return await durable.replay()
+
+            async def append(self, kind, payload):
+                self.calls += 1
+                if self.calls == fail_at:
+                    raise OSError("synthetic append refusal")
+                return await durable.append(kind, payload)
+
+        live = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=FailingLog())
+        with pytest.raises(OSError, match="synthetic append refusal"):
+            await live.add_session_to_memory(
+                _Session("radiator in guest room", "radiator in study")
+            )
+        restored = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+        for service in (live, restored):
+            hits = await service.search_memory(app_name="one", user_id=OWNER, query="radiator")
+            assert [m.content.parts[0].text for m in hits.memories] == (
+                [] if fail_at == 1 else ["radiator in guest room"]
+            )
+
+    asyncio.run(run())
+
+
 def test_a_neighbours_key_cannot_open_this_pods_memory(tmp_path: Path) -> None:
     """Custody, not just configuration: the same log under a different key is unreadable."""
 

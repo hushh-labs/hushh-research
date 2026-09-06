@@ -484,6 +484,19 @@ Bank is the first non-lexical retrieval in the system.
 
 Guard: `tests/test_pod_memory_bank.py`.
 
+### Sealed-log write visibility (2026-09-05)
+
+The memory service seals each event, awaits its log append, and only then adds it to
+the searchable in-process index. A refused append cannot leave an uncommitted fact
+recallable until restart. If a later event fails, earlier committed events remain
+available both before and after restart. This is per-event durability, not an atomic
+session write or retry deduplication guarantee. A lost acknowledgement after a real
+commit still requires replay to establish durable state.
+
+Memory Bank readiness is resolved per text turn. A turn started before the bank is
+ready uses the sealed log; a subsequent turn can use the ready bank. Historical
+backfill into Memory Bank is not established by this behavior.
+
 ### Recovery record and creation reservation (2026-09-05)
 
 The existing `memory_bank.json` binds recovery coordinates to project, region and

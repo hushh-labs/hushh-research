@@ -304,6 +304,19 @@ class PodMemoryStore:
         author: Optional[str] = None,
         custom_metadata: Optional[dict[str, Any]] = None,
     ) -> Optional[SealedMemory]:
+        rec = self.prepare(text=text, author=author, custom_metadata=custom_metadata)
+        if rec is not None:
+            self.hydrate([rec])
+        return rec
+
+    def prepare(
+        self,
+        *,
+        text: str,
+        author: Optional[str] = None,
+        custom_metadata: Optional[dict[str, Any]] = None,
+    ) -> Optional[SealedMemory]:
+        """Seal a record without making it searchable before its durable commit."""
         text = (text or "").strip()
         if not text:
             return None
@@ -319,9 +332,6 @@ class PodMemoryStore:
             author=author,
             custom_metadata=dict(custom_metadata or {}),
         )
-        self._records.append(rec)
-        if len(self._records) > _MAX_ENTRIES_PER_OWNER:
-            self._records = self._records[-_MAX_ENTRIES_PER_OWNER:]
         return rec
 
     def hydrate(self, records: "Iterable[SealedMemory]") -> int:
@@ -570,9 +580,11 @@ def build_pod_memory_service(
                 text = _content_text(getattr(event, "content", None))
                 if not text:
                     continue
-                rec = store.add(text=text, author=getattr(event, "author", None))
+                rec = store.prepare(text=text, author=getattr(event, "author", None))
                 if rec is not None and self.log is not None:
                     await self.log.append(_MEMORY_RECORD_KIND, rec.as_payload(pod_key))
+                if rec is not None:
+                    store.hydrate([rec])
             if self.bank is not None:
                 try:
                     await self.bank.add_session_to_memory(session)
