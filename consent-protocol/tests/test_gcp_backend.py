@@ -65,6 +65,33 @@ def test_rendered_config_carries_identity_but_no_secrets():
         assert forbidden not in blob
 
 
+def test_migration_auth_uses_the_identity_emitted_by_deployment(monkeypatch):
+    from api.routes.one import pod_migration
+    from hushh_mcp.services import scheduler_identity
+
+    spec = _spec(hushh_id="ha1_synthetic_owner")
+    config = _backend().render_deploy_config(spec)
+    for item in config["spec"]["template"]["spec"]["containers"][0]["env"]:
+        if "value" in item:
+            monkeypatch.setenv(item["name"], item["value"])
+    monkeypatch.delenv("HUSHH_ID", raising=False)
+    monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "synthetic-hub@example.invalid")
+    verified = []
+    monkeypatch.setattr(
+        scheduler_identity, "verify_scheduler_request", lambda **kwargs: verified.append(kwargs)
+    )
+
+    pod_migration._require_hub_caller("Bearer synthetic-proof")
+
+    assert verified == [
+        {
+            "authorization_header": "Bearer synthetic-proof",
+            "audience": pod_migration.hub_proof_audience(spec.hushh_id),
+            "allowed_emails": ("synthetic-hub@example.invalid",),
+        }
+    ]
+
+
 def test_startup_probe_is_http_not_the_tcp_default():
     """The load-bearing fix for false health.
 

@@ -108,7 +108,7 @@ def _require_hub_caller(proof: Optional[str]) -> None:
         verify_scheduler_request,
     )
 
-    hushh_id = str(os.getenv("HUSHH_ID") or "").strip()
+    hushh_id = str(os.getenv("HUSSH_ID") or "").strip()
     allowed = tuple(
         email.strip()
         for email in str(os.getenv("HUSSH_POD_HUB_CALLER_EMAILS") or "").split(",")

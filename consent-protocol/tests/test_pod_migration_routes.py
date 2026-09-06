@@ -311,7 +311,7 @@ async def test_a_pod_that_does_not_know_which_agent_it_is_refuses(monkeypatch):
     """Without a HusshID there is nothing to bind a proof to, and an unbound
     proof would make every pod interchangeable to a caller holding any one."""
     monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
-    monkeypatch.delenv("HUSHH_ID", raising=False)
+    monkeypatch.delenv("HUSSH_ID", raising=False)
     monkeypatch.setenv("HUSSH_POD_HUB_CALLER_EMAILS", "hub@example.iam.gserviceaccount.com")
 
     with pytest.raises(HTTPException) as excinfo:
@@ -330,7 +330,8 @@ async def test_an_empty_caller_allowlist_refuses_everything(monkeypatch):
     """An unconfigured allowlist is a misconfiguration, not permission -- the
     fail-closed rule `verify_scheduler_request` was written to enforce."""
     monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
-    monkeypatch.setenv("HUSHH_ID", "ha1_abc")
+    # Canonical deployment identity, also emitted by GcpBackend and AnypointBackend.
+    monkeypatch.setenv("HUSSH_ID", "ha1_abc")
     monkeypatch.delenv("HUSSH_POD_HUB_CALLER_EMAILS", raising=False)
 
     with pytest.raises(HTTPException) as excinfo:
