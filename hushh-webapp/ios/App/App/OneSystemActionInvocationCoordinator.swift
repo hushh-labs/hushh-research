@@ -344,7 +344,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             OneSystemActionCompletion(
                 id: id,
                 outcome: safeOutcome,
-                summary: safeSummary.isEmpty ? "HUSSH could not finish that action." : safeSummary,
+                summary: safeSummary.isEmpty ? "Agent One could not finish that action." : safeSummary,
                 finishedAt: now()
             ),
             key: completionKey
