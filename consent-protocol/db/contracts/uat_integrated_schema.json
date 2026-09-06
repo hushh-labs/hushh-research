@@ -1,6 +1,10 @@
 {
   "contract_name": "uat_integrated_schema",
-"expected_migration_version": 202,
+<<<<<<< ours
+  "expected_migration_version": 198,
+=======
+  "expected_migration_version": 201,
+>>>>>>> theirs
   "migration_version_policy": "exact",
   "required_functions": [
     "remove_domain_summary_key",
