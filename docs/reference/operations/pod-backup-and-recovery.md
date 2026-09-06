@@ -466,7 +466,8 @@ Bank is the first non-lexical retrieval in the system.
   2.x (`pyproject.toml` keeps the `gcp` extra out on purpose; the founder's pod created its
   engine and then hit `ImportError`, 2026-09-03). `build_rest_memory_bank_service` makes the
   two calls directly (`memories:generate` after a turn, not awaited; `memories:retrieve` on
-  recall) on the pod's ADC, and a refused call lands in `memoryBankError`.
+  recall) on the pod's ADC. Startup/resolution failures populate `memoryBankError`;
+  runtime bank failures are logged by exception type and fall back to the sealed log.
 - **Composite, log underneath.** `build_pod_memory_service(bank=...)` writes every turn to
   the sealed log **and** the bank; `search_memory` asks the bank first and falls back to
   the log. `load_memory` stays bound and observable (`pod_memory.recall
@@ -474,12 +475,40 @@ Bank is the first non-lexical retrieval in the system.
   and never fails a turn.
 - **Visible.** `/pod/info` reports `memoryBackend`, `memoryBankEngine`, `memoryBankError`;
   the heartbeat carries the engine id to the row.
-- **Not yet: erasure.** The bootstrap token cannot delete the engine, so account deletion
-  leaves it behind (Pillar 1). The fix is a pod-side erase step before deprovision.
+- **Erasure remains incomplete (2026-09-05 correction).** The bootstrap token cannot
+  delete the engine. Account deletion now refuses an unverified external-resource
+  cascade before destroying the pod. Completing deletion requires a pod-held erasure
+  step, durable lifecycle fence, provider verification and strict aggregate receipt.
 - Rendered for BYOC pods only (`POD_MEMORY_BACKEND=memory_bank`); managed pods stay on the
   commit log.
 
 Guard: `tests/test_pod_memory_bank.py`.
+
+### Recovery record and creation reservation (2026-09-05)
+
+The existing `memory_bank.json` binds recovery coordinates to project, region and
+owner display name. Missing storage, denied reads, invalid JSON and mismatched bindings
+cannot trigger creation. Before a provider create call, the pod atomically reserves
+this same object with `status: creating` and reads it back. This proves write authority
+and prevents competing boots from issuing another create.
+
+After a timeout or restart with a pending reservation, recovery only lists existing
+engines. A complete, unambiguous matching inventory can finish the record with compare
+and swap. An empty, denied, incomplete or ambiguous inventory remains unresolved;
+absence does not prove an earlier create can never finish. The reservation must not
+be deleted merely to retry. This conservative recovery can require operator
+reconciliation after a definitively failed creation; automatic failure reconciliation
+and operation-level erasure tracking remain incomplete.
+
+**Rollback constraint:** do not downgrade a pod with a pending reservation to an image
+that predates this contract. Older readers treat a record without `engineId` as missing
+and can create again. Preserve the reservation and sealed log, reconcile the provider
+inventory, and only use a reservation-aware recovery image. A recorded engine ID proves
+recovery coordinates, not live provider health or completed external erasure.
+
+The REST memory adapter independently checks the session/recall owner before examining
+events or requesting provider credentials. This reinforces the existing pod turn gate;
+it does not replace consent or turn authorization.
 
 ## Only the pod can vouch for its model (2026-09-03)
 

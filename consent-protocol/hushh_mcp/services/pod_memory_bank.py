@@ -27,9 +27,11 @@ Every failure here degrades to the sealed commit log -- the durable record of re
 composite service in :mod:`pod_memory_service` writes every turn to BOTH, so a Memory
 Bank outage loses recall quality, never memory.
 
-Not yet: erasure. The bootstrap token cannot delete the engine either, so account
-deletion leaves it behind (Pillar 1 item; the fix is a pod-side erase step before
-deprovision). Recorded here so nobody rediscovers it.
+External erasure is not complete. The bootstrap token cannot delete the engine;
+account deletion therefore refuses an unverified external-resource cascade. A
+pod-side erase step and durable lifecycle fence must precede deprovisioning.
+Creation intents below prevent blind retries after an uncertain provider response;
+they are not an erasure fence or a provider-health receipt.
 """
 
 from __future__ import annotations
@@ -54,6 +56,10 @@ _POLL_SECONDS = 3.0
 
 class MemoryBankUnavailable(RuntimeError):
     """Memory Bank could not be reached or created; the caller falls back."""
+
+
+class MemoryBankCreationPending(MemoryBankUnavailable):
+    """A durable creation intent exists; reconciliation must never create again."""
 
 
 @dataclass(frozen=True)
@@ -151,6 +157,7 @@ def find_or_create_engine(
     token: Optional[str] = None,
     wait_seconds: float = _CREATE_WAIT_SECONDS,
     sleep: Any = time.sleep,
+    allow_create: bool = True,
 ) -> str:
     """The engine for this pod, by display name; created when absent. Blocking.
 
@@ -162,19 +169,38 @@ def find_or_create_engine(
 
     http = session or requests.Session()
     headers = {"Authorization": f"Bearer {token or _adc_token()}"}
-    listing = http.get(
-        f"{_base_url(cfg)}/reasoningEngines",
-        headers=headers,
-        params={"filter": f'display_name="{cfg.display_name}"'},
-        timeout=30,
-    )
-    if listing.status_code != 200:
-        raise MemoryBankUnavailable(f"list {listing.status_code}: {_api_error(listing)}")
-    for engine in (listing.json() or {}).get("reasoningEngines") or []:
-        if engine.get("displayName") == cfg.display_name:
-            found = _engine_id_from_name(engine.get("name", ""))
-            if found:
-                return found
+    page_token = ""
+    found_ids: set[str] = set()
+    for _ in range(32):
+        listing = http.get(
+            f"{_base_url(cfg)}/reasoningEngines",
+            headers=headers,
+            params={
+                "filter": f'display_name="{cfg.display_name}"',
+                **({"pageToken": page_token} if page_token else {}),
+            },
+            timeout=30,
+        )
+        if listing.status_code != 200:
+            raise MemoryBankUnavailable(f"list {listing.status_code}: {_api_error(listing)}")
+        body = listing.json() or {}
+        for engine in body.get("reasoningEngines") or []:
+            if engine.get("displayName") == cfg.display_name:
+                found = _engine_id_from_name(engine.get("name", ""))
+                if not found:
+                    raise MemoryBankUnavailable("engine inventory has invalid identity")
+                found_ids.add(found)
+        page_token = str(body.get("nextPageToken") or "")
+        if not page_token:
+            break
+    else:
+        raise MemoryBankUnavailable("engine inventory exceeds 32 pages")
+    if len(found_ids) > 1:
+        raise MemoryBankUnavailable("multiple engines require reconciliation")
+    if found_ids:
+        return next(iter(found_ids))
+    if not allow_create:
+        raise MemoryBankCreationPending("creation inventory unresolved")
     created = http.post(
         f"{_base_url(cfg)}/reasoningEngines", headers=headers, json=_engine_body(cfg), timeout=60
     )
@@ -276,24 +302,55 @@ def reset_memory_bank_state() -> None:
     _SERVICE.clear()
 
 
-async def _read_record(store: Any) -> Optional[str]:
+async def _read_record(store: Any, cfg: MemoryBankConfig) -> Optional[str]:
     if store is None:
-        return None
-    try:
-        raw = await store.get(MEMORY_BANK_RECORD_KEY)
-    except Exception:  # noqa: BLE001 - a missing record is the common case
-        return None
-    if not raw:
-        return None
-    try:
-        return str(json.loads(raw).get("engineId") or "") or None
-    except Exception:  # noqa: BLE001
-        return None
+        raise MemoryBankUnavailable("durable memory record store unavailable")
+    # Only an absent object is absence. Denied reads and corrupt recovery records
+    # must not trigger another provider-side creation.
+    raw = await store.get(MEMORY_BANK_RECORD_KEY)
+    return _decode_record(raw, cfg)
 
 
-async def _write_record(store: Any, cfg: MemoryBankConfig, engine_id: str) -> None:
+def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
+    if raw is None:
+        return None
+    record = json.loads(raw)
+    expected = {"project": cfg.project, "location": cfg.location, "displayName": cfg.display_name}
+    if not isinstance(record, dict) or any(record.get(k) != v for k, v in expected.items()):
+        raise MemoryBankUnavailable("memory record owner or project mismatch")
+    if record.get("status") == "creating":
+        raise MemoryBankCreationPending("creation requires reconciliation")
+    engine_id = record.get("engineId")
+    if (
+        not isinstance(engine_id, str)
+        or not engine_id
+        or not all(c.isascii() and (c.isalnum() or c in "-_") for c in engine_id)
+    ):
+        raise MemoryBankUnavailable("invalid memory engine record")
+    return engine_id
+
+
+async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
+    payload = json.dumps(
+        {
+            "status": "creating",
+            "project": cfg.project,
+            "location": cfg.location,
+            "displayName": cfg.display_name,
+            "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+    ).encode()
+    generation = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, 0)
+    if generation is None or await store.get(MEMORY_BANK_RECORD_KEY) != payload:
+        raise MemoryBankUnavailable("creation reservation not confirmed")
+    return generation
+
+
+async def _write_record(
+    store: Any, cfg: MemoryBankConfig, engine_id: str, *, expected_generation: int = 0
+) -> None:
     if store is None:
-        return
+        raise MemoryBankUnavailable("durable memory record store unavailable")
     payload = json.dumps(
         {
             "engineId": engine_id,
@@ -303,10 +360,11 @@ async def _write_record(store: Any, cfg: MemoryBankConfig, engine_id: str) -> No
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
     ).encode()
-    try:
-        await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, 0)
-    except Exception:  # noqa: BLE001 - losing the race means another boot wrote it
-        logger.info("pod_memory_bank.record_exists")
+    await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, expected_generation)
+    # CAS loss is not proof that another boot stored the same engine. Verify the
+    # winning durable record before reporting readiness or enabling retrieval.
+    if await _read_record(store, cfg) != engine_id:
+        raise MemoryBankUnavailable("memory record persistence conflict")
 
 
 async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
@@ -315,17 +373,40 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
     Order: env id, then the pod's own record, then find-or-create in the person's
     project. The outcome lands in :func:`memory_bank_status` either way.
     """
-    if _STATE.get("engine_id"):
-        return str(_STATE["engine_id"])
     cfg = memory_bank_config()
     if cfg is None:
         return None
     _STATE["attempted"] = True
     try:
-        engine_id = cfg.engine_id or await _read_record(store)
-        if not engine_id:
-            engine_id = await asyncio.to_thread(find_or_create_engine, cfg)
-            await _write_record(store, cfg, engine_id)
+        try:
+            recorded = await _read_record(store, cfg)
+        except MemoryBankCreationPending:
+            # A previous process may have lost the create response. Discover only:
+            # absence is not proof the timed-out operation will never complete.
+            raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+            try:
+                engine_id = _decode_record(raw, cfg)
+            except MemoryBankCreationPending:
+                engine_id = await asyncio.to_thread(find_or_create_engine, cfg, allow_create=False)
+                await _write_record(store, cfg, engine_id, expected_generation=generation)
+            if not engine_id:
+                raise MemoryBankUnavailable("creation reservation disappeared")
+        else:
+            if cfg.engine_id and recorded and cfg.engine_id != recorded:
+                raise MemoryBankUnavailable("configured engine conflicts with durable record")
+            engine_id = recorded or cfg.engine_id
+            if not engine_id:
+                # Prove durable write authority and reserve creation BEFORE any
+                # provider request. Concurrent boots lose CAS and do not create.
+                generation = await _reserve_creation(store, cfg)
+                engine_id = await asyncio.to_thread(find_or_create_engine, cfg)
+                await _write_record(store, cfg, engine_id, expected_generation=generation)
+            elif not recorded:
+                await _write_record(store, cfg, engine_id)
+        if cfg.engine_id and cfg.engine_id != engine_id:
+            raise MemoryBankUnavailable("configured engine conflicts with durable record")
+        if _STATE.get("engine_id") != engine_id:
+            _SERVICE.clear()
         _STATE["engine_id"] = engine_id
         _STATE["error"] = None
         logger.info(
@@ -336,6 +417,8 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         )
         return engine_id
     except Exception as exc:  # noqa: BLE001 - memory must never take the pod down
+        _STATE["engine_id"] = None
+        _SERVICE.clear()
         _STATE["error"] = type(exc).__name__
         logger.warning("pod_memory_bank.unavailable reason=%s", _STATE["error"])
         return None
@@ -393,6 +476,14 @@ def build_rest_memory_bank_service(
     from google.adk.memory.memory_entry import MemoryEntry  # noqa: PLC0415
     from google.genai import types as genai_types  # noqa: PLC0415
 
+    owner_id = cfg.display_name.removeprefix(_DISPLAY_PREFIX)
+    if not cfg.display_name.startswith(_DISPLAY_PREFIX) or not owner_id:
+        raise MemoryBankUnavailable("memory owner binding unavailable")
+
+    def require_owner(user_id: Any) -> None:
+        if user_id != owner_id:
+            raise MemoryBankUnavailable("memory owner mismatch")
+
     http = session or requests.Session()
     bearer = token or _AdcToken()
     engine = f"{_base_url(cfg)}/reasoningEngines/{engine_id}"
@@ -405,6 +496,7 @@ def build_rest_memory_bank_service(
         engine_id_ = engine_id
 
         async def add_session_to_memory(self, session: Any) -> None:
+            require_owner(getattr(session, "user_id", None))
             events = []
             for event in getattr(session, "events", None) or []:
                 if str(getattr(event, "invocation_id", "") or "").startswith("history_"):
@@ -423,6 +515,7 @@ def build_rest_memory_bank_service(
             await asyncio.to_thread(self._post, "memories:generate", body)
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
+            require_owner(user_id)
             body = {
                 "scope": {"user_id": str(user_id or cfg.display_name)},
                 "similaritySearchParams": {"searchQuery": query, "topK": top_k},

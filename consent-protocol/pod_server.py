@@ -432,7 +432,7 @@ async def _ensure_memory_bank_task() -> None:
         log = None
         try:
             log = _resolve_log()
-        except Exception:  # noqa: BLE001 - no durable store means no record, not no bank
+        except Exception:  # noqa: BLE001 - no durable record means sealed-log fallback
             logger.info("pod_memory_bank.no_durable_store")
         await ensure_memory_bank(store=getattr(log, "_store", None))
     except Exception:  # noqa: BLE001

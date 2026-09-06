@@ -159,15 +159,20 @@ def test_a_denied_project_raises_a_named_refusal_instead_of_guessing() -> None:
 class _Store:
     def __init__(self):
         self.objects: dict[str, bytes] = {}
+        self.generations: dict[str, int] = {}
 
     async def get(self, key):
         return self.objects.get(key)
 
+    async def get_with_generation(self, key):
+        return self.objects.get(key), self.generations.get(key, 0)
+
     async def put_if_generation(self, key, data, expected):
-        if expected == 0 and key in self.objects:
+        if self.generations.get(key, 0) != expected:
             return None
         self.objects[key] = data
-        return 1
+        self.generations[key] = expected + 1
+        return expected + 1
 
 
 @pytest.mark.asyncio
@@ -554,3 +559,170 @@ async def test_provider_error_content_is_not_logged(caplog) -> None:
     assert found.memories
     assert marker not in caplog.text
     assert "RuntimeError" in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("record", [b"", b"broken-json", b"[]", b'{"engineId":"555"}'])
+async def test_invalid_recovery_record_never_creates_another_engine(monkeypatch, record):
+    _configure(monkeypatch)
+    store = _Store()
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = record
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("provider must not be reached")
+    )
+    assert await mb.ensure_memory_bank(store=store) is None
+    assert "memoryBankEngine" not in mb.memory_bank_status()
+
+
+@pytest.mark.asyncio
+async def test_missing_or_denied_record_store_never_creates_an_engine(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("provider must not be reached")
+    )
+    assert await mb.ensure_memory_bank() is None
+
+    class DeniedStore(_Store):
+        async def get(self, key):
+            raise PermissionError("synthetic private storage details")
+
+    assert await mb.ensure_memory_bank(store=DeniedStore()) is None
+    assert mb.memory_bank_status() == {"memoryBankError": "PermissionError"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("field", ["project", "location", "displayName"])
+async def test_recovery_record_binding_is_checked_even_after_cached_success(monkeypatch, field):
+    _configure(monkeypatch)
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *a, **k: "555")
+    store = _Store()
+    assert await mb.ensure_memory_bank(store=store) == "555"
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record[field] = "foreign-binding"
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *a, **k: pytest.fail("must not create"))
+    assert await mb.ensure_memory_bank(store=store) is None
+    assert mb.resolve_memory_bank_service() is None
+
+
+@pytest.mark.asyncio
+async def test_unconfirmed_record_write_does_not_report_a_ready_bank(monkeypatch):
+    _configure(monkeypatch)
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *a, **k: "555")
+
+    class LostWriteStore(_Store):
+        async def put_if_generation(self, key, data, expected):
+            return None
+
+    assert await mb.ensure_memory_bank(store=LostWriteStore()) is None
+    assert "memoryBankEngine" not in mb.memory_bank_status()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("user_id", ["foreign-owner", "", None])
+async def test_rest_memory_owner_guard_precedes_event_access_and_provider_auth(user_id):
+    class NeverToken:
+        def get(self):
+            pytest.fail("must not request provider credentials")
+
+    class ForeignSession:
+        @property
+        def events(self):
+            pytest.fail("must not inspect foreign events")
+
+    foreign = ForeignSession()
+    foreign.user_id = user_id
+    http = _RestHttp()
+    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=NeverToken())
+    with pytest.raises(mb.MemoryBankUnavailable, match="owner mismatch"):
+        await service.add_session_to_memory(foreign)
+    with pytest.raises(mb.MemoryBankUnavailable, match="owner mismatch"):
+        await service.search_memory(app_name="pod", user_id=user_id, query="synthetic recall")
+    assert http.posts == []
+
+
+@pytest.mark.asyncio
+async def test_absent_record_but_unwritable_store_never_creates_provider_resource(monkeypatch):
+    _configure(monkeypatch)
+
+    class UnwritableStore(_Store):
+        async def put_if_generation(self, key, data, expected):
+            raise PermissionError("synthetic denied or missing bucket")
+
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("must reserve before creating")
+    )
+    assert await mb.ensure_memory_bank(store=UnwritableStore()) is None
+
+
+@pytest.mark.asyncio
+async def test_uncertain_create_is_reconciled_without_a_second_create(monkeypatch):
+    _configure(monkeypatch)
+    store = _Store()
+
+    def uncertain(*args, **kwargs):
+        assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "creating"
+        raise TimeoutError("synthetic lost response")
+
+    monkeypatch.setattr(mb, "find_or_create_engine", uncertain)
+    assert await mb.ensure_memory_bank(store=store) is None
+    mb.reset_memory_bank_state()
+
+    def reconcile(*args, **kwargs):
+        assert kwargs["allow_create"] is False
+        return "555"
+
+    monkeypatch.setattr(mb, "find_or_create_engine", reconcile)
+    assert await mb.ensure_memory_bank(store=store) == "555"
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["engineId"] == "555"
+
+
+def test_unresolved_creation_inventory_never_repeats_provider_post():
+    http = _Http(_Resp(200, {"reasoningEngines": []}))
+    with pytest.raises(mb.MemoryBankCreationPending):
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, allow_create=False)
+    assert http.posts == []
+
+
+def test_engine_inventory_follows_later_pages_before_creating():
+    class Paged(_Http):
+        def get(self, url, **kwargs):
+            self.gets.append(url)
+            if kwargs.get("params", {}).get("pageToken") == "next":
+                return _Resp(
+                    200,
+                    {
+                        "reasoningEngines": [
+                            {
+                                "name": "projects/p/locations/us-central1/reasoningEngines/77",
+                                "displayName": _cfg().display_name,
+                            }
+                        ]
+                    },
+                )
+            return _Resp(200, {"nextPageToken": "next"})
+
+    http = Paged(None)
+    assert mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN) == "77"
+    assert len(http.gets) == 2
+    assert http.posts == []
+
+
+def test_duplicate_owned_engines_require_reconciliation():
+    http = _Http(
+        _Resp(
+            200,
+            {
+                "reasoningEngines": [
+                    {
+                        "name": f"projects/p/locations/us-central1/reasoningEngines/{engine}",
+                        "displayName": _cfg().display_name,
+                    }
+                    for engine in ("77", "88")
+                ]
+            },
+        )
+    )
+    with pytest.raises(mb.MemoryBankUnavailable, match="multiple engines"):
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
+    assert http.posts == []
