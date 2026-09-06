@@ -569,7 +569,8 @@ def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
     assert "DELETE FROM" not in executed_sql
 
 
-def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypatch):
+@pytest.mark.parametrize("registry", [None, {"registry": {"status": "unprovisioned"}}])
+def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypatch, registry):
     service = AccountService()
     conn = MagicMock()
     present = {"personal_agent_registry", "pod_lifecycle_events"}
@@ -579,7 +580,7 @@ def test_personal_agent_cleanup_fails_closed_for_orphaned_lifecycle_row(monkeypa
         lambda _conn, table_name: table_name in present,
     )
     conn.execute.side_effect = [
-        _mapped_result(None),
+        _mapped_result(registry),
         _mapped_result({"present": True}),
     ]
 

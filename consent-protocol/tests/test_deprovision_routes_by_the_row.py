@@ -1,20 +1,19 @@
-"""Teardown must run against the backend that BUILT the pod, not the process default.
+"""Retained teardown coordinates survive until owner-held erasure is proved.
 
-`provision()` has always routed per person via `_backend_for(spec)`. `deprovision()`
-used `self._backend`. That asymmetry was an erasure defect, not an inconsistency: for
-someone on their own cloud, teardown ran against hushh's default backend -- or
-NullBackend, which answers success without doing anything -- and then deleted the
-registry row. The only record of WHERE that person's pod lived went with it, leaving a
-live, billing Cloud Run service in a customer's project that nothing could name.
-
-It reaches `api/routes/account.py`, the one path where "we deleted everything" has to be
-true, and it is not flag-gated there.
+Historical host-routing tests were superseded by the shared account guard.
+Keep this CI entrypoint while proving that no destructive backend is reached.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
+import pytest
+
+from hushh_mcp.services.account_service import (
+    AccountService,
+    PersonalAgentDeprovisioningRequiredError,
+)
 from hushh_mcp.services.personal_agent_provisioning_service import (
     PersonalAgentProvisioningService,
 )
@@ -51,8 +50,11 @@ class _Registry:
 
 
 class _Grant:
+    def __init__(self):
+        self.revoked = []
+
     async def revoke_standing_pkm_read(self, user_id: str, ledger: Any = None) -> None:
-        return None
+        self.revoked.append(user_id)
 
 
 def _byoc_row() -> dict:
@@ -67,74 +69,41 @@ def _byoc_row() -> dict:
     }
 
 
-async def test_a_byoc_pod_is_not_torn_down_against_the_deployment_default():
-    """The load-bearing assertion.
+@pytest.mark.parametrize("row", [_byoc_row(), {"external_agent_id": "retained"}, None])
+@pytest.mark.parametrize("failure", [PersonalAgentDeprovisioningRequiredError, RuntimeError])
+async def test_shared_preflight_refusal_preserves_all_authority(monkeypatch, row, failure):
+    registry, grant, backend = _Registry(row), _Grant(), _Spy()
+    service = PersonalAgentProvisioningService(registry=registry, grant=grant, backend=backend)
 
-    The injected backend is the process default. For a person whose row names their own
-    cloud it must NOT be the thing teardown talks to -- if it is, the real service in
-    their project is never touched and the row that named it is then deleted.
+    def refuse(self, uid):
+        assert uid == "uid-1"
+        raise failure("synthetic refusal")
 
-    Broken on purpose: restore `await self._backend.deprovision(external_agent_id)` and
-    the spy records the call.
-    """
-    default_backend = _Spy("gcp")
-    registry = _Registry(_byoc_row())
-    service = PersonalAgentProvisioningService(
-        registry=registry, grant=_Grant(), backend=default_backend
-    )
-
-    await service.deprovision(user_id="uid-1")
-
-    assert default_backend.torn_down == [], (
-        "a BYOC pod was torn down against the deployment's own backend; the service in "
-        "the person's project survives and the row that named it is now gone"
-    )
-
-
-async def test_teardown_still_uses_the_injected_backend_when_the_row_names_no_target():
-    """Rows with no per-person target are the deployment's, and must not change.
-
-    This is what keeps every existing caller and every test that passes a fake backend
-    working: absent a target, the injected backend IS the right answer.
-    """
-    default_backend = _Spy("gcp")
-    row = {"hushh_id": "ha1_abc", "external_agent_id": "one-pod-ha1-abc"}
-    service = PersonalAgentProvisioningService(
-        registry=_Registry(row), grant=_Grant(), backend=default_backend
-    )
-
-    await service.deprovision(user_id="uid-1")
-
-    assert default_backend.torn_down == ["one-pod-ha1-abc"]
-
-
-async def test_a_row_is_still_tombstoned_and_deleted_when_teardown_cannot_reach_the_host():
-    """Teardown into a revoked project fails, and erasure must still complete.
-
-    A person revoking their grant before deleting their account is their right, not an
-    error. Blocking teardown on it would leave them unable to delete their account at
-    all -- the worse outcome of the two.
-    """
-    registry = _Registry(_byoc_row())
-    service = PersonalAgentProvisioningService(
-        registry=registry, grant=_Grant(), backend=_Spy("gcp")
-    )
-
-    await service.deprovision(user_id="uid-1")
-
-    assert registry.deleted == ["uid-1"]
-    assert registry.tombstones and registry.tombstones[0]["hushh_id"] == "ha1_abc"
-    # The tombstone still names the service, so an orphan is identifiable after the row
-    # is gone.
-    assert registry.tombstones[0]["external_agent_id"] == "one-pod-ha1-abc"
-
-
-async def test_a_missing_row_is_still_a_safe_idempotent_teardown():
-    registry = _Registry(None)
-    backend = _Spy("gcp")
-    service = PersonalAgentProvisioningService(registry=registry, grant=_Grant(), backend=backend)
-
-    await service.deprovision(user_id="uid-1")
-
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(failure):
+        await service.deprovision(user_id="uid-1")
+    assert registry.deleted == []
+    assert registry.tombstones == []
     assert backend.torn_down == []
-    assert registry.deleted == ["uid-1"]
+    assert grant.revoked == []
+
+
+async def test_empty_observation_does_not_delete_a_concurrent_provision(monkeypatch):
+    registry, grant, backend = _Registry(None), _Grant(), _Spy()
+    service = PersonalAgentProvisioningService(registry=registry, grant=grant, backend=backend)
+
+    def observed_empty_then_provisioned(self, uid):
+        registry.row = _byoc_row()
+
+    monkeypatch.setattr(
+        AccountService,
+        "assert_personal_agent_external_resources_absent",
+        observed_empty_then_provisioned,
+    )
+    result = await service.deprovision(user_id="uid-1")
+    assert result["noOp"] is True
+    assert registry.row == _byoc_row()
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert backend.torn_down == []
+    assert grant.revoked == []

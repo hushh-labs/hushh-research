@@ -1,19 +1,7 @@
-"""One CONTINUOUS pod lifecycle against shared state: provision -> serve ->
-teardown -> re-provision, with nothing hand-seeded between the steps.
+"""Continuous provisioning and compute recovery preserve owner isolation.
 
-The two halves of phone-recycle safety are asserted today in isolation:
-test_deprovision_tombstones_then_deletes stops after the delete, and
-test_provision_rotates_generation_for_recycled_phone hand-injects the tombstone
-it reacts to. Neither proves the chain: the tombstone the REAL deprovision path
-writes (provisioning_service.deprovision) is the same record the next
-provision's _next_free_generation reads via tombstone_exists, rotating to a new
-generation / HusshID / pods/{hushh_id} storage prefix. The identity-PRESERVING
-half (reap: host-only teardown, row kept, same HusshID on re-provision) is the
-reconcile worker's contract, exercised here through the real sweep.
-
-Same doubles as tests/test_personal_agent_provisioning_service.py; the registry
-fake is subclassed ONLY because its upsert pins rows' external_agent_id to
-None, which would make deprovision skip host teardown and gut the cycle.
+Owner-facing erasure is deliberately refused until its durable proof exists.
+A recycled phone must still avoid another owner's retained pod identity.
 """
 
 from __future__ import annotations
@@ -48,6 +36,9 @@ class CycleRegistry(FakeRegistry):
     external_agent_id the provision wrote. The base fake discards it, which
     would silently skip host teardown in the continuous flow.
     """
+
+    async def get_by_hushh_id(self, hushh_id):
+        return next((row for row in self.rows.values() if row.get("hushh_id") == hushh_id), None)
 
     async def upsert(self, **kw):
         self.upserts.append(kw)
@@ -124,7 +115,7 @@ async def _provision(svc, *, user_id):
     )
 
 
-async def test_full_deprovision_then_same_phone_provision_rotates_identity(cycle):
+async def test_refused_deletion_then_recycled_phone_preserves_both_owners(cycle, monkeypatch):
     registry, backend, svc = cycle
 
     # 1. Provision: owner A stands up a pod at generation 0.
@@ -133,23 +124,22 @@ async def test_full_deprovision_then_same_phone_provision_rotates_identity(cycle
     assert first["hushhId"] == gen0
     assert backend.live_hosts == {f"one-pod-{gen0}"}
 
-    # 2. Teardown through the REAL deprovision path. No fixture seeds the
-    #    tombstone; everything step 3 reads was written here.
-    down = await svc.deprovision(user_id=_OWNER_A)
-    assert down["status"] == "deprovisioned"
-    assert down["teardownReachedHost"] is True
-    assert down["unreclaimed"] is False
-    assert backend.deprovisioned == [f"one-pod-{gen0}"]
-    assert backend.live_hosts == set()
-    assert registry.deleted == [_OWNER_A]
-    assert len(registry.tombstones) == 1
-    assert registry.tombstones[0]["hushh_id"] == gen0
-    assert registry.tombstones[0]["status"] == "deprovision_requested"
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    # 3. Owner B receives the recycled phone. _next_free_generation reads the
-    #    tombstone step 2 wrote and rotates: new HusshID, and with it a fresh
-    #    pods/{hushh_id} storage prefix (SECURITY-REVIEW.md L1) -- the prior
-    #    owner's identity is never resurrected.
+    def refuse(self, uid):
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_OWNER_A)
+    assert backend.deprovisioned == []
+    assert registry.deleted == []
+    assert registry.tombstones == []
+
+    # The retained owner's identity is never assigned to a recycled phone owner.
     second = await _provision(svc, user_id=_OWNER_B)
     gen1 = ident.mint_hushh_id(_PHONE, 1)
     assert second["hushhId"] == gen1
@@ -157,9 +147,8 @@ async def test_full_deprovision_then_same_phone_provision_rotates_identity(cycle
 
     # The PodSpec is what keys pod storage: distinct hushh_ids, distinct prefixes.
     assert [s.hushh_id for s in backend.provisioned] == [gen0, gen1]
-    assert backend.live_hosts == {f"one-pod-{gen1}"}
-    # Shared state ends consistent: B carries the rotated identity, A is gone.
-    assert _OWNER_A not in registry.rows
+    assert backend.live_hosts == {f"one-pod-{gen0}", f"one-pod-{gen1}"}
+    assert registry.rows[_OWNER_A]["hushh_id"] == gen0
     assert registry.rows[_OWNER_B]["hushh_id"] == gen1
 
 

@@ -1503,18 +1503,12 @@ def test_external_resource_guard_preserves_pod_and_identity(monkeypatch, delete_
             "error_code": account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
         }
     )
-    teardown = AsyncMock()
     firebase = AsyncMock()
-    finalize = AsyncMock()
     monkeypatch.setattr(AccountService, "delete_account", delete)
-    monkeypatch.setattr(account, "_deprovision_personal_agent", teardown)
     monkeypatch.setattr(account, "_delete_firebase_auth_user", firebase)
-    monkeypatch.setattr(account, "_finalize_personal_agent_row_delete", finalize)
 
     response = TestClient(app).delete("/api/account/delete")
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
     delete.assert_awaited_once_with("user_123", target="both")
-    teardown.assert_not_awaited()
     firebase.assert_not_awaited()
-    finalize.assert_not_awaited()

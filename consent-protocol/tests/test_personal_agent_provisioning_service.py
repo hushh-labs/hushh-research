@@ -3,7 +3,7 @@
 No DB, no network: the registry and the grant are injected fakes. Verifies the
 kill-switch gate, that provisioning derives the HusshID and phone hash, validates
 the pod public key, mints the standing read, and records the mapping, and that
-teardown writes a retained tombstone before deleting the row (idempotent).
+teardown preserves retained resources until erasure is verified.
 """
 
 from __future__ import annotations
@@ -248,7 +248,7 @@ async def test_register_pending_flag_off_raises(monkeypatch):
         await _svc().register_pending(user_id=_UID, phone_e164=_PHONE)
 
 
-async def test_deprovision_revoke_false_skips_revoke():
+async def test_deprovision_refuses_retained_resources_even_with_revoke_false(monkeypatch):
     registry, grant = FakeRegistry(), FakeGrant()
     svc = PersonalAgentProvisioningService(registry=registry, grant=grant)
     pod = _pod_key()
@@ -259,14 +259,22 @@ async def test_deprovision_revoke_false_skips_revoke():
         pod_key_id=pod.key_id,
     )
 
-    result = await svc.deprovision(user_id=_UID, revoke=False)
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    # The cascade already fail-closed the token; no REVOKED event is written.
-    assert result["standingReadRevoked"] is False
+    def refuse(self, uid):
+        assert uid == _UID
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_UID, revoke=False)
     assert grant.revokes == []
-    # ... but the tombstone + registry-row delete still happen.
-    assert registry.deleted == [_UID]
-    assert len(registry.tombstones) == 1
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert _UID in registry.rows
 
 
 async def test_provision_rejects_bad_pod_key():
@@ -290,7 +298,7 @@ async def test_provision_rejects_bad_phone():
         )
 
 
-async def test_deprovision_tombstones_then_deletes():
+async def test_deprovision_refusal_preserves_registry_and_tombstones(monkeypatch):
     registry, grant = FakeRegistry(), FakeGrant()
     svc = PersonalAgentProvisioningService(registry=registry, grant=grant)
     pod = _pod_key()
@@ -301,28 +309,43 @@ async def test_deprovision_tombstones_then_deletes():
         pod_key_id=pod.key_id,
     )
 
-    result = await svc.deprovision(user_id=_UID)
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    assert result["status"] == "deprovisioned"
-    assert result["hushhId"] == ident.mint_hushh_id(_PHONE)
-    assert result["standingReadRevoked"] is True
-    # The standing read is revoked as part of teardown (M2).
-    assert grant.revokes == [_UID]
-    assert len(registry.tombstones) == 1
-    assert registry.tombstones[0]["status"] == "deprovision_requested"
-    assert registry.tombstones[0]["hushh_id"] == ident.mint_hushh_id(_PHONE)
-    assert registry.deleted == [_UID]
+    def refuse(self, uid):
+        assert uid == _UID
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_UID, revoke=False)
+    assert grant.revokes == []
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert _UID in registry.rows
 
 
-async def test_deprovision_missing_row_is_idempotent():
+async def test_deprovision_missing_row_is_idempotent(monkeypatch):
     svc = _svc()
+    from hushh_mcp.services.account_service import AccountService
+
+    observed = []
+    monkeypatch.setattr(
+        AccountService,
+        "assert_personal_agent_external_resources_absent",
+        lambda self, uid: observed.append(uid),
+    )
     result = await svc.deprovision(user_id="never_provisioned")
-    assert result["status"] == "deprovisioned"
-    assert result["hushhId"] is None
+    assert observed == ["never_provisioned"]
+    assert result["status"] == "unprovisioned"
+    assert result["noOp"] is True
+    assert result["standingReadRevoked"] is False
 
 
-async def test_deprovision_revoke_failure_does_not_block_teardown():
-    # Best-effort: a revoke failure is surfaced but teardown still completes.
+async def test_deprovision_refusal_never_attempts_revocation(monkeypatch):
+    # Revocation cannot run before erasure preflight succeeds.
     registry, grant = FakeRegistry(), FakeGrant(revoke_raises=True)
     svc = PersonalAgentProvisioningService(registry=registry, grant=grant)
     pod = _pod_key()
@@ -333,11 +356,22 @@ async def test_deprovision_revoke_failure_does_not_block_teardown():
         pod_key_id=pod.key_id,
     )
 
-    result = await svc.deprovision(user_id=_UID)
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    assert result["status"] == "deprovisioned"
-    assert result["standingReadRevoked"] is False
-    assert registry.deleted == [_UID]
+    def refuse(self, uid):
+        assert uid == _UID
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_UID, revoke=False)
+    assert grant.revokes == []
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert _UID in registry.rows
 
 
 async def test_provision_default_nullbackend_records_no_host_fields():
@@ -436,7 +470,7 @@ class _RaisingBackend:
         return True
 
 
-async def test_deprovision_unreclaimed_orphan_tombstones_the_address():
+async def test_deprovision_refusal_preserves_unreachable_host_coordinates(monkeypatch):
     registry, grant = FakeRegistry(), FakeGrant()
     registry.rows[_UID] = {
         "hushh_id": "ha1_orphan",
@@ -448,27 +482,46 @@ async def test_deprovision_unreclaimed_orphan_tombstones_the_address():
         registry=registry, grant=grant, backend=_RaisingBackend()
     )
 
-    result = await svc.deprovision(user_id=_UID)
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    assert result["status"] == "deprovisioned"
-    assert result["teardownReachedHost"] is False
-    assert result["unreclaimed"] is True
-    meta = registry.tombstones[0]["metadata"]
-    assert meta["unreclaimed"] is True
-    assert meta["user_cloud_project"] == "cust-proj-1"
-    assert meta["user_cloud_region"] == "us-central1"
+    def refuse(self, uid):
+        assert uid == _UID
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_UID, revoke=False)
+    assert grant.revokes == []
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert _UID in registry.rows
 
 
-async def test_deprovision_clean_teardown_records_unreclaimed_false():
+async def test_deprovision_refuses_ambiguous_missing_host_metadata(monkeypatch):
     registry, grant = FakeRegistry(), FakeGrant()
-    # No external_agent_id -> nothing to tear down -> a clean, reclaimed teardown.
+    # Missing external_agent_id alone cannot prove there is nothing to erase.
     registry.rows[_UID] = {"hushh_id": "ha1_clean", "external_agent_id": None}
     svc = PersonalAgentProvisioningService(registry=registry, grant=grant)
 
-    result = await svc.deprovision(user_id=_UID)
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
 
-    assert result["unreclaimed"] is False
-    assert registry.tombstones[0]["metadata"] == {"unreclaimed": False}
+    def refuse(self, uid):
+        assert uid == _UID
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id=_UID, revoke=False)
+    assert grant.revokes == []
+    assert registry.deleted == []
+    assert registry.tombstones == []
+    assert _UID in registry.rows
 
 
 # --- Boot-failure classification (graceful degradation) ---------------------------

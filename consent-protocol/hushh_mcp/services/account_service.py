@@ -820,14 +820,13 @@ class AccountService:
             conn.execute(self._delete_by_user_queries[table_name], params)
             results[table_name] = True
 
-    def _delete_personal_agent_state(
+    def _assert_personal_agent_external_resources_absent(
         self,
         conn,
         *,
         params: dict[str, Any],
-        results: dict[str, bool],
-    ) -> None:
-        """Erase only personal-agent state proven to have no external resources.
+    ) -> dict[str, bool]:
+        """Assert absence without deleting recovery state.
 
         The personal-agent migrations are parked in the release tree but exist in
         some live environments. A provisioned pod or an in-flight BYOC project can
@@ -843,9 +842,7 @@ class AccountService:
             table_name: self._table_exists(conn, table_name) for table_name in state_tables
         }
         if not any(table_presence.values()):
-            results.update({table_name: True for table_name in state_tables})
-            results["personal_agent_external_resources_absent"] = True
-            return
+            return table_presence
 
         registry_row = None
         if table_presence["personal_agent_registry"]:
@@ -944,17 +941,35 @@ class AccountService:
             )
 
         demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
-            registry_row is not None and status == "unprovisioned" and not has_external_coordinates
+            registry_row is not None
+            and lifecycle_row is None
+            and status == "unprovisioned"
+            and not has_external_coordinates
         )
         if byoc_row is not None or has_pending_deprovision or not demonstrably_unprovisioned:
             raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
 
-        results["personal_agent_external_resources_absent"] = True
+        return table_presence
 
-        # Only an unprovisioned registry with no provider coordinates reaches
-        # this point. Delete the mutable job slot and narrative before its row.
-        for table_name in state_tables:
-            if table_presence[table_name]:
+    def assert_personal_agent_external_resources_absent(self, user_id: str) -> None:
+        """Observe absence under existing database locks; perform no cleanup.
+
+        This is a preflight observation, not a reservation against a later
+        provisioning request. Callers must perform no deletion after it returns.
+        """
+        if not user_id:
+            raise ValueError("user_id is required")
+        with get_db_connection() as conn:
+            self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
+
+    def _delete_personal_agent_state(
+        self, conn, *, params: dict[str, Any], results: dict[str, bool]
+    ) -> None:
+        """Keep absence assertion and account-state deletion in one transaction."""
+        table_presence = self._assert_personal_agent_external_resources_absent(conn, params=params)
+        results["personal_agent_external_resources_absent"] = True
+        for table_name, present in table_presence.items():
+            if present:
                 conn.execute(self._delete_by_user_queries[table_name], params)
             results[table_name] = True
 

@@ -27,10 +27,8 @@ def test_unverified_erasure_refuses_deletion_before_cloud_or_identity_cleanup(
             "error_code": account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
         }
     )
-    cloud_delete = AsyncMock()
     identity_delete = AsyncMock()
     monkeypatch.setattr(AccountService, "delete_account", service_delete)
-    monkeypatch.setattr(account, "_deprovision_personal_agent", cloud_delete)
     monkeypatch.setattr(account, "_delete_firebase_auth_user", identity_delete)
     app = FastAPI()
     app.include_router(account.router)
@@ -41,5 +39,4 @@ def test_unverified_erasure_refuses_deletion_before_cloud_or_identity_cleanup(
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == account.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
     service_delete.assert_awaited_once_with("synthetic-owner", target="both")
-    cloud_delete.assert_not_awaited()
     identity_delete.assert_not_awaited()

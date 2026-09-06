@@ -26,18 +26,13 @@ the ``PERSONAL_AGENT_ENABLED`` kill-switch:
   key from the pod (``pod_key_collector``). Either way the standing read is minted
   only after both a host and a key exist — never for a pod that cannot hold it.
 
-  deprovision (mirrors the account-deletion teardown seam):
-    1. revoke the standing pkm.read FIRST (a REVOKED consent event), so the pod's
-       read authority is dead immediately rather than at its 24h expiry;
-    2. write a retained tombstone so the teardown stays auditable after the
-       user's rows are gone;
-    3. delete the registry row.
-    Revocation needs no stored token copy -- it writes a REVOKED marker for
-    (user, pkm.read, personal_agent) and is_token_active keys off the latest
-    event. The account-deletion cascade independently fail-closes the token too.
+  deprovision:
+    Refuse retained resources through the existing account-erasure guard until
+    pod-held erasure is implemented. An empty-state observation is a no-op.
 
-The registry is injected (a small Protocol), so the whole flow is testable with
-no DB. The concrete DB-backed registry adapter (``personal_agent_registry_repo``)
+
+Provisioning uses an injected registry. Destructive preflight uses the existing
+transaction-backed account authority. The concrete DB-backed registry adapter (``personal_agent_registry_repo``)
 and the owner-authorized route (``api/routes/one/personal_agent.py``) are wired
 but flag-gated: the route returns 404 and this module does no work until
 ``PERSONAL_AGENT_ENABLED`` is on.
@@ -1520,154 +1515,27 @@ class PersonalAgentProvisioningService:
         revoke: bool = True,
         defer_row_delete: bool = False,
     ) -> dict[str, Any]:
-        """Tear down the user's agent: revoke the standing read, tombstone, delete.
+        """Refuse destructive teardown until owner-held erasure can be proved.
 
-        Best-effort and idempotent: a missing row still writes a tombstone and a
-        (no-op) delete, so teardown stays auditable and safe to retry.
-
-        The standing pkm.read is revoked FIRST so the pod's read authority is dead
-        immediately, not at its 24h expiry (SECURITY-REVIEW.md M2). Revocation is
-        best-effort: a failure is logged and surfaced in ``standingReadRevoked``
-        but never blocks teardown.
-
-        ``revoke=False`` is for the account-deletion path, where the deletion
-        cascade has ALREADY wiped this user's consent_audit rows (which
-        independently fail-closes the token). Writing a REVOKED event there would
-        re-create a consent_audit row for a just-deleted user and break the erasure
-        guarantee, so the caller suppresses it.
+        The existing account guard owns retained-resource classification. A
+        successful empty-state observation performs no mutation after its locks
+        are released, so concurrent provisioning cannot be deleted by this call.
+        Legacy keyword arguments remain accepted for call compatibility.
         """
+        from hushh_mcp.services.account_service import AccountService  # noqa: PLC0415
+
         if not user_id:
             raise ValueError("user_id is required")
-
-        revoked = False
-        if revoke:
-            try:
-                await self._grant.revoke_standing_pkm_read(user_id, ledger=ledger)
-                revoked = True
-            except Exception as exc:  # best-effort: teardown must still complete
-                logger.warning(
-                    "personal_agent.deprovision revoke_failed err=%s", type(exc).__name__
-                )
-
-        row = await self._registry.get(user_id)
-        hushh_id = (row or {}).get("hushh_id")
-        external_agent_id = (row or {}).get("external_agent_id")
-
-        # Route host teardown through the backend that BUILT this pod, read from the
-        # row, not from the one this process happens to be configured with.
-        #
-        # This used to be `self._backend`, and the asymmetry with `provision()` -- which
-        # has always routed per person via `_backend_for(spec)` -- was an erasure defect
-        # rather than an inconsistency. For someone on their own cloud, teardown ran
-        # against hushh's default backend or NullBackend, which answers success without
-        # doing anything. The registry row was then deleted, so the only record of WHERE
-        # that person's pod lived went with it: a live, billing Cloud Run service left in
-        # a customer's own project that nothing in the system could name afterwards.
-        #
-        # It reaches account deletion (`api/routes/account.py`), which is the one path
-        # where "we deleted everything" has to be true.
-        teardown_spec = PodSpec(
-            hushh_id=str(hushh_id or ""),
-            phone_e164_hash="",
-            pod_pubkey="",
-            # Read, never re-derived, for the same reason the row carries the host
-            # coordinates below: the row is the only record of what this pod was.
-            billing_space_id=(row or {}).get("billing_space_id"),
-            deployment_target=(row or {}).get("deployment_target"),
-            user_cloud_project=(row or {}).get("user_cloud_project"),
-            user_cloud_region=(row or {}).get("user_cloud_region"),
-            user_cloud_bootstrap_sa=(row or {}).get("user_cloud_bootstrap_sa"),
-        )
-        teardown_reached_the_host = False
-        if external_agent_id:
-            try:
-                await self._backend_for(teardown_spec).deprovision(external_agent_id)
-                teardown_reached_the_host = True
-            except Exception as exc:  # best-effort: teardown must still complete
-                logger.warning(
-                    "personal_agent.deprovision backend_teardown_failed err=%s target=%s",
-                    type(exc).__name__,
-                    str((row or {}).get("deployment_target") or "default"),
-                )
-
-        # An orphan must stay NAMEABLE after the row is gone. Teardown into a project
-        # hushh holds no standing credential in can genuinely fail -- the person may have
-        # revoked the grant already, which is their right and not an error -- and once
-        # the row is deleted there is otherwise nothing left that knows a billing service
-        # exists in their cloud. The tenant reference is retained ONLY when there is a
-        # real orphan to name, so a clean teardown still writes the minimal tombstone the
-        # erasure guarantee expects.
-        unreclaimed = bool(external_agent_id) and not teardown_reached_the_host
-        if unreclaimed:
-            logger.warning(
-                "personal_agent.deprovision_unreclaimed hushh_id=%s target=%s project=%s "
-                "service=%s -- resources remain in a project hushh cannot reach",
-                hushh_id,
-                str((row or {}).get("deployment_target") or "default"),
-                str((row or {}).get("user_cloud_project") or ""),
-                external_agent_id,
-            )
-
-        # The orphan address: for an unreachable host it lets the reclaim sweep find
-        # and delete a billing service after the registry row is gone. For a user_gcp
-        # row it is recorded ALWAYS, reclaimed or not: the row is deleted a few lines
-        # below, and a later account deletion has nothing else to reach the person's
-        # project with. Without these coordinates the substrate teardown (admin-role
-        # bootstrap account, keyring, artifact repo) is silently skipped.
-        cloud_meta: dict[str, Any] = {}
-        if (row or {}).get("user_cloud_project"):
-            # A row that names the person's own project (Layer 1 never names the
-            # provider itself; the row's deployment_target carries it verbatim).
-            cloud_meta = {
-                "user_cloud_project": (row or {}).get("user_cloud_project"),
-                "user_cloud_region": (row or {}).get("user_cloud_region"),
-                "user_cloud_bootstrap_sa": (row or {}).get("user_cloud_bootstrap_sa"),
-                "deployment_target": (row or {}).get("deployment_target"),
-            }
-        elif unreclaimed:
-            cloud_meta = {
-                "user_cloud_project": (row or {}).get("user_cloud_project"),
-                "user_cloud_region": (row or {}).get("user_cloud_region"),
-                "deployment_target": (row or {}).get("deployment_target"),
-            }
-        await self._registry.tombstone(
-            hushh_id=hushh_id,
-            external_agent_id=external_agent_id,
-            status="deprovision_requested",
-            metadata={"unreclaimed": unreclaimed, **cloud_meta}
-            if (unreclaimed or cloud_meta)
-            else {"unreclaimed": False},
-        )
-        # ``defer_row_delete`` (delete-order V2) keeps the recovery-anchor row in
-        # place through the data cascade: the host is already torn down and the
-        # tombstone written, but the row -- the only thing that still names WHERE
-        # the pod was -- survives until the caller finalizes it AFTER the cascade,
-        # so a mid-delete failure leaves a recoverable/re-deletable row, never a
-        # half-deleted account with an unnameable orphan.
-        if not defer_row_delete:
-            await self._registry.delete(user_id)
-        logger.info(
-            "personal_agent.deprovisioned had_row=%s standing_read_revoked=%s row_delete_deferred=%s",
-            row is not None,
-            revoked,
-            defer_row_delete,
+        await asyncio.to_thread(
+            AccountService().assert_personal_agent_external_resources_absent, user_id
         )
         return {
-            "status": "deprovisioned",
-            "hushhId": hushh_id,
-            "standingReadRevoked": revoked,
-            "teardownReachedHost": teardown_reached_the_host,
-            "unreclaimed": unreclaimed,
-            "rowDeleteDeferred": defer_row_delete,
+            "status": "unprovisioned",
+            "noOp": True,
+            "standingReadRevoked": False,
+            "teardownReachedHost": False,
+            "rowDeleteDeferred": False,
         }
-
-    async def finalize_row_delete(self, *, user_id: str) -> None:
-        """Delete the registry row that ``deprovision(defer_row_delete=True)`` left
-        in place. Called AFTER the data cascade so the recovery anchor survives a
-        mid-delete failure. Idempotent -- a missing row is a safe no-op."""
-        if not user_id:
-            return
-        await self._registry.delete(user_id)
 
     async def _fleet_cap_reached(self, *, user_id: str) -> bool:
         """Whether the pod fleet already sits at ``PERSONAL_AGENT_MAX_PODS``.
