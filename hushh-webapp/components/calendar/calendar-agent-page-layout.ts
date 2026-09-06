@@ -30,9 +30,22 @@
  * with a fixed height it centres the overflow too, putting the top of the card
  * above the container's top edge where no scroll can reach it — which is the
  * bug this screen shipped with. Do not reintroduce a hard height here.
+ *
+ * The floor is measured against what the page actually gets, which is NOT the
+ * viewport. Inside the scroll root (`app/providers.tsx`) the page sits between
+ * two reserves it does not own: a top spacer of `--app-top-content-offset`
+ * (the top shell plus the body-start gap) and the root's own bottom padding of
+ * `--app-bottom-content-clearance` (the bottom chrome plus a reading gap).
+ * Subtracting the chrome from `100dvh` a second time made the floor taller
+ * than the space by exactly those two reserves, so a screen with nothing below
+ * the card still scrolled about 50px into an empty band. Naming the two tokens
+ * the scroll root uses keeps the floor and the space the same size.
+ *
+ * There is no `pb-` here for the same reason: `.app-page-shell` already carries
+ * the reading gap, and the scroll root already reserves the bottom bars.
  */
 export const CALENDAR_SETUP_SHELL_CLASSNAME =
-  "motion-step-enter flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col items-center justify-center gap-4 pb-[calc(var(--app-bottom-inset)+1rem)]";
+  "motion-step-enter flex min-h-[calc(100dvh-var(--app-top-content-offset,6rem)-var(--app-bottom-content-clearance,7rem))] w-full flex-col items-center justify-center gap-4";
 
 /** Header and content share one measure so the card never outgrows the title. */
 export const CALENDAR_SETUP_REGION_CLASSNAME = "w-full max-w-md mx-auto";
