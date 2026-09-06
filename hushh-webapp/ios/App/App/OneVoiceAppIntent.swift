@@ -737,79 +737,264 @@ struct OpenOneDestinationIntent: OneLocationOpenIntent {
     }
 }
 
+// MARK: - Free-text request capture intent
+
+@available(iOS 16.0, *)
+struct AskOneRequestIntent: AppIntent {
+    static let title: LocalizedStringResource = "Ask Agent One"
+    static let description = IntentDescription(
+        "Send a free-form request to Agent One for semantic interpretation and action execution."
+    )
+    static let authenticationPolicy: IntentAuthenticationPolicy =
+        .requiresLocalDeviceAuthentication
+    static let openAppWhenRun = true
+
+    @available(iOS 26.0, *)
+    static let supportedModes: IntentModes = [.foreground(.immediate)]
+
+    @Parameter(title: "Request", optionsProvider: OneRequestTextOptionsProvider())
+    var requestText: String
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Ask Agent One to \(\.$requestText)")
+    }
+
+    func perform() async throws -> some IntentResult & ShowsSnippetView {
+        guard !requestText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .result(
+                snippet: .init(string: "What would you like Agent One to do?")
+            )
+        }
+
+        let result = OneSystemRequestInvocationCoordinator.shared.captureRequest(requestText)
+        switch result {
+        case .captured:
+            return .result(
+                snippet: .init(string: "Your request is with Agent One. Continue in the app to complete it.")
+            )
+        case .ownerRequired:
+            return .result(
+                snippet: .init(string: "Sign in to Agent One to send a request from here.")
+            )
+        case .tooLarge:
+            return .result(
+                snippet: .init(string: "That request is too long. Try a shorter phrase.")
+            )
+        case .alreadyPending:
+            return .result(
+                snippet: .init(string: "Agent One is already handling a request. Complete or cancel it first.")
+            )
+        case .failure:
+            return .result(
+                snippet: .init(string: "I couldn't capture that request right now. Try again in the app.")
+            )
+        @unknown default:
+            return .result(
+                snippet: .init(string: "Continue in Agent One to complete your request.")
+            )
+        }
+    }
+}
+
+@available(iOS 16.0, *)
+struct OneRequestTextOptionsProvider: DynamicOptionsProvider {
+    typealias Intent = AskOneRequestIntent
+
+    func results() async throws -> [IntentStringOption] {
+        []
+    }
+}
+
 // MARK: - Zero-setup Siri phrases (Apple limits an app to ten App Shortcuts)
 
 @available(iOS 16.0, *)
 struct HusshOneAppShortcuts: AppShortcutsProvider {
+    private static let agentOne = ".applicationName"
+
+    // MARK: - Share Location phrase family
+    //
+    // Eight semantically distinct anchors teach Siri that every reasonable
+    // way of asking to share one's location resolves to the same intent.
+    // Apple's semantic similarity index generalises beyond these exact strings,
+    // but diversity here is what seeds that index.
+    // No phrase hardcodes a person name — the recipient is always the
+    // `\.$recipient` slot so Siri resolves against Agent One's contact entities.
+
+    private static let shareLocationPhrases: [String] = [
+        "Share my location with \(\.$recipient) in \(agentOne) Location Agent",
+        "Let \(\.$recipient) see my location with \(agentOne)",
+        "Agent One, share my location with \(\.$recipient)",
+        "Ask \(agentOne) to share my location with \(\.$recipient)",
+        "Tell \(agentOne) to share my location with \(\.$recipient)",
+        "Use \(agentOne) to share my location with \(\.$recipient)",
+        "Share my location to \(\.$recipient) using \(agentOne)",
+        "Start sharing my location in \(agentOne) with \(\.$recipient)",
+        "Turn on location sharing with \(\.$recipient) in \(agentOne)",
+        "Give \(\.$recipient) access to my location through \(agentOne)",
+    ]
+
+    // MARK: - Ask for Location phrase family
+
+    private static let askForLocationPhrases: [String] = [
+        "Ask \(\.$person) for location in \(agentOne) Location Agent",
+        "Request \(\.$person)'s location with \(agentOne)",
+        "Ask \(agentOne) to ask \(\.$person) for location",
+        "Tell \(agentOne) to request \(\.$person)'s location",
+        "Talk to \(agentOne) and ask \(\.$person) for location",
+        "Can you ask \(\.$person) for their location in \(agentOne)",
+        "Use \(agentOne) to request \(\.$person)'s location",
+        "Have \(agentOne) ask \(\.$person) where they are",
+    ]
+
+    // MARK: - Stop Sharing phrase family
+
+    private static let stopSharingPhrases: [String] = [
+        "Stop sharing location with \(\.$person) in \(agentOne) Location Agent",
+        "Stop my location in \(agentOne) Location Agent",
+        "Ask \(agentOne) to stop sharing location with \(\.$person)",
+        "Tell \(agentOne) to stop sharing location with \(\.$person)",
+        "Talk to \(agentOne) and stop sharing location with \(\.$person)",
+        "Turn off location sharing with \(\.$person) in \(agentOne)",
+        "Stop sharing my location to \(\.$person) using \(agentOne)",
+        "Cancel my location share with \(\.$person) in \(agentOne)",
+        "Ask \(agentOne) to pause my location",
+        "Tell \(agentOne) to pause my location",
+        "Talk to \(agentOne) and pause my location",
+        "Disable my location sharing in \(agentOne)",
+    ]
+
+    // MARK: - Location On / Off phrase family
+
+    private static let locationStatePhrases: [String] = [
+        "Turn \(agentOne) Location \(\.$state)",
+        "Ask \(agentOne) to turn Location \(\.$state)",
+        "Tell \(agentOne) to turn Location \(\.$state)",
+        "Talk to \(agentOne) and turn Location \(\.$state)",
+        "Turn location updates \(\.$state) in \(agentOne)",
+        "Start location sharing in \(agentOne)",
+        "Stop location updates in \(agentOne)",
+        "Turn on Agent One location",
+        "Turn off my Agent One location",
+    ]
+
+    // MARK: - Open Destination phrase family
+
+    private static let openDestinationPhrases: [String] = [
+        "Open \(\.$destination) in \(agentOne) Location Agent",
+        "Show \(\.$destination) in \(agentOne) Location",
+        "View \(\.$destination) in \(agentOne) Location Agent",
+        "Take me to \(\.$destination) in \(agentOne)",
+        "Open my \(\.$destination) on \(agentOne)",
+        "Show me \(\.$destination) in Agent One Location",
+    ]
+
+    // MARK: - Talk to Agent One phrase family
+
+    private static let talkToAgentOnePhrases: [String] = [
+        "Talk to \(agentOne)",
+        "Start a conversation with \(agentOne)",
+        "Open \(agentOne) and chat",
+        "Speak to \(agentOne)",
+        "Launch \(agentOne) voice",
+    ]
+
+    // MARK: - Check In phrase family
+
+    private static let checkInPhrases: [String] = [
+        "Check in with \(agentOne)",
+        "Do a Check In in \(agentOne)",
+        "Open Check In in \(agentOne) Location",
+        "Start a Check In with \(agentOne)",
+        "Use \(agentOne) to check in",
+        "Open my Agent One Check In",
+    ]
+
+    // MARK: - Create Circle phrase family
+
+    private static let createCirclePhrases: [String] = [
+        "Create a Circle in \(agentOne)",
+        "Make a new Circle in \(agentOne)",
+        "Start a Circle in \(agentOne)",
+        "Create a Circle named \(\.$name) in \(agentOne)",
+        "Make a new \(\.$name) Circle in \(agentOne)",
+        "Add a Circle in \(agentOne)",
+    ]
+
+    // MARK: - Open Map phrase family
+
+    private static let openMapPhrases: [String] = [
+        "Open the map in \(agentOne) Location",
+        "Show my location map in \(agentOne)",
+        "Open \(agentOne) Location Map",
+        "Show the map for \(agentOne) Location",
+        "View my location map in \(agentOne)",
+    ]
+
     static var appShortcuts: [AppShortcut] {
         AppShortcut(
-            intent: ShareLocationWithOneIntent(),
+            intent: AskOneRequestIntent(),
             phrases: [
-                "Share my location with \(\.$recipient) in \(.applicationName) Location Agent",
-                "Let \(\.$recipient) see my location with \(.applicationName)",
-                "Ask \(.applicationName) to share my location with \(\.$recipient)",
-                "Tell \(.applicationName) to share my location with \(\.$recipient)",
-                "Talk to \(.applicationName) and share my location with \(\.$recipient)"
+                "Ask Agent One with \(\.$requestText)",
+                "Ask \(agentOne) to \(\.$requestText)",
+                "Use \(agentOne) to \(\.$requestText)",
+                "Tell \(agentOne) to \(\.$requestText)",
             ],
+            shortTitle: "Ask Agent One",
+            systemImageName: "bubble.left.and.bubble.right"
+        )
+        AppShortcut(
+            intent: ShareLocationWithOneIntent(),
+            phrases: shareLocationPhrases,
             shortTitle: "Share Location",
             systemImageName: "location.fill"
         )
         AppShortcut(
             intent: AskForLocationWithOneIntent(),
-            phrases: [
-                "Ask \(\.$person) for location in \(.applicationName) Location Agent",
-                "Request \(\.$person)'s location with \(.applicationName)",
-                "Ask \(.applicationName) to ask \(\.$person) for location",
-                "Tell \(.applicationName) to request \(\.$person)'s location",
-                "Talk to \(.applicationName) and ask \(\.$person) for location"
-            ],
+            phrases: askForLocationPhrases,
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
         )
         AppShortcut(
             intent: StopLocationSharingWithOneIntent(),
-            phrases: [
-                "Stop sharing location with \(\.$person) in \(.applicationName) Location Agent",
-                "Stop my location in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to stop sharing location with \(\.$person)",
-                "Tell \(.applicationName) to stop sharing location with \(\.$person)",
-                "Talk to \(.applicationName) and stop sharing location with \(\.$person)",
-                "Ask \(.applicationName) to pause my location",
-                "Tell \(.applicationName) to pause my location",
-                "Talk to \(.applicationName) and pause my location"
-            ],
+            phrases: stopSharingPhrases,
             shortTitle: "Stop Sharing",
             systemImageName: "location.slash.fill"
         )
         AppShortcut(
             intent: SetOneLocationStateIntent(),
-            phrases: [
-                "Turn \(.applicationName) Location \(\.$state)",
-                "Ask \(.applicationName) to turn Location \(\.$state)",
-                "Tell \(.applicationName) to turn Location \(\.$state)",
-                "Talk to \(.applicationName) and turn Location \(\.$state)"
-            ],
+            phrases: locationStatePhrases,
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
         )
         AppShortcut(
             intent: OpenOneDestinationIntent(),
-            phrases: [
-                "Open \(\.$destination) in \(.applicationName) Location Agent",
-                "Show \(\.$destination) in \(.applicationName) Location",
-                "View \(\.$destination) in \(.applicationName) Location Agent"
-            ],
+            phrases: openDestinationPhrases,
             shortTitle: "Open Destination",
             systemImageName: "arrow.forward"
         )
         AppShortcut(
             intent: TalkToHusshOneIntent(),
-            phrases: [
-                "Talk to \(.applicationName)",
-                "Start a conversation with \(.applicationName)"
-            ],
+            phrases: talkToAgentOnePhrases,
             shortTitle: "Talk to Agent One",
             systemImageName: "waveform.circle.fill"
+        )
+        AppShortcut(
+            intent: CheckInWithOneIntent(),
+            phrases: checkInPhrases,
+            shortTitle: "Check In",
+            systemImageName: "checkmark.circle"
+        )
+        AppShortcut(
+            intent: CreateOneCircleIntent(),
+            phrases: createCirclePhrases,
+            shortTitle: "Create Circle",
+            systemImageName: "person.2.circle"
+        )
+        AppShortcut(
+            intent: OpenOneLocationMapIntent(),
+            phrases: openMapPhrases,
+            shortTitle: "Open Map",
+            systemImageName: "map"
         )
     }
 

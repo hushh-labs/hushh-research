@@ -109,6 +109,7 @@ class AppDelegate: UIResponder, UIApplicationDelegate {
         logNotificationSettings(context: "applicationDidBecomeActive")
         OneVoiceInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
         OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
+        OneSystemRequestInvocationCoordinator.shared.publishAvailability(state: "foregrounded")
     }
 
     func applicationWillTerminate(_ application: UIApplication) {

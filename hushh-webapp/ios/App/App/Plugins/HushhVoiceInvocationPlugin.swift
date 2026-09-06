@@ -14,11 +14,17 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "completeActionInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "reportActionInvocationProgress", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateActionEntityIndex", returnType: CAPPluginReturnPromise),
-        CAPPluginMethod(name: "clearActionState", returnType: CAPPluginReturnPromise)
+        CAPPluginMethod(name: "clearActionState", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "getPendingRequestInvocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "claimRequestInvocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "completeRequestInvocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reportRequestInvocationProgress", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "cancelRequestInvocation", returnType: CAPPluginReturnPromise)
     ]
 
     private var availabilityObserver: NSObjectProtocol?
     private var actionAvailabilityObserver: NSObjectProtocol?
+    private var requestAvailabilityObserver: NSObjectProtocol?
 
     public override func load() {
         availabilityObserver = NotificationCenter.default.addObserver(
@@ -35,8 +41,16 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         ) { [weak self] _ in
             self?.emitActionAvailability()
         }
+        requestAvailabilityObserver = NotificationCenter.default.addObserver(
+            forName: .oneSystemRequestInvocationAvailable,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            self?.emitRequestAvailability()
+        }
         OneVoiceInvocationCoordinator.shared.publishAvailability(state: "bridge_ready")
         OneSystemActionInvocationCoordinator.shared.publishAvailability(state: "bridge_ready")
+        OneSystemRequestInvocationCoordinator.shared.publishAvailability(state: "bridge_ready")
     }
 
     deinit {
@@ -45,6 +59,9 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         if let actionAvailabilityObserver {
             NotificationCenter.default.removeObserver(actionAvailabilityObserver)
+        }
+        if let requestAvailabilityObserver {
+            NotificationCenter.default.removeObserver(requestAvailabilityObserver)
         }
     }
 
@@ -163,6 +180,60 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         call.resolve()
     }
 
+    @objc func getPendingRequestInvocation(_ call: CAPPluginCall) {
+        guard let invocation = OneSystemRequestInvocationCoordinator.shared.pending() else {
+            call.resolve([:])
+            return
+        }
+        call.resolve(invocation.bridgePayload)
+    }
+
+    @objc func claimRequestInvocation(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("A non-empty request invocation id is required.")
+            return
+        }
+        let claimed = OneSystemRequestInvocationCoordinator.shared.claim(id: id)
+        call.resolve(["claimed": claimed])
+    }
+
+    @objc func reportRequestInvocationProgress(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("A non-empty request invocation id is required.")
+            return
+        }
+        let rawState = call.getString("state")
+        guard rawState != nil else {
+            call.reject("A progress state is required.")
+            return
+        }
+        call.resolve([
+            "reported": OneSystemRequestInvocationCoordinator.shared.reportProgress(
+                id: id,
+                state: rawState!
+            )
+        ])
+    }
+
+    @objc func completeRequestInvocation(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("A non-empty request invocation id is required.")
+            return
+        }
+        let summary = call.getString("summary") ?? "HUSSH could not finish that request."
+        OneSystemRequestInvocationCoordinator.shared.complete(
+            id: id,
+            outcome: call.getString("outcome") ?? "completed",
+            summary: summary
+        )
+        call.resolve()
+    }
+
+    @objc func cancelRequestInvocation(_ call: CAPPluginCall) {
+        OneSystemRequestInvocationCoordinator.shared.cancelRequest()
+        call.resolve()
+    }
+
     private func emitAvailability() {
         guard let invocation = OneVoiceInvocationCoordinator.shared.pending() else {
             return
@@ -180,6 +251,17 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         }
         notifyListeners(
             "systemActionInvocationAvailable",
+            data: invocation.bridgePayload,
+            retainUntilConsumed: true
+        )
+    }
+
+    private func emitRequestAvailability() {
+        guard let invocation = OneSystemRequestInvocationCoordinator.shared.pending() else {
+            return
+        }
+        notifyListeners(
+            "systemRequestInvocationAvailable",
             data: invocation.bridgePayload,
             retainUntilConsumed: true
         )

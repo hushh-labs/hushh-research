@@ -80,14 +80,18 @@ struct PendingOneSystemActionInvocation: Codable, Equatable, Sendable {
     let confirmedBySystem: Bool
     let createdAt: Date
     let expiresAt: Date
+    let generation: Int
+    var state: String
 
     init(
         id: String = UUID().uuidString,
         actionID: OneSystemActionID,
-        slots: [String: String],
-        confirmedBySystem: Bool,
-        createdAt: Date,
-        expiresAt: Date
+        slots: [String: String] = [:],
+        confirmedBySystem: Bool = false,
+        createdAt: Date? = nil,
+        expiresAt: Date? = nil,
+        generation: Int = 0,
+        state: String = "pending"
     ) {
         self.id = id
         self.kind = Self.supportedKind
@@ -96,8 +100,10 @@ struct PendingOneSystemActionInvocation: Codable, Equatable, Sendable {
         self.slots = slots
         self.requiresVault = actionID.requiresVault
         self.confirmedBySystem = confirmedBySystem
-        self.createdAt = createdAt
-        self.expiresAt = expiresAt
+        self.createdAt = createdAt ?? Date()
+        self.expiresAt = expiresAt ?? self.createdAt.addingTimeInterval(OneSystemActionInvocationCoordinator.ttl)
+        self.generation = generation
+        self.state = state
     }
 
     var bridgePayload: [String: Any] {
@@ -110,19 +116,27 @@ struct PendingOneSystemActionInvocation: Codable, Equatable, Sendable {
             "requiresVault": requiresVault,
             "confirmedBySystem": confirmedBySystem,
             "createdAt": Int64(createdAt.timeIntervalSince1970 * 1_000),
-            "expiresAt": Int64(expiresAt.timeIntervalSince1970 * 1_000)
+            "expiresAt": Int64(expiresAt.timeIntervalSince1970 * 1_000),
+            "generation": generation,
+            "state": state
         ]
     }
 }
 
 struct OneSystemActionCompletion: Codable, Equatable, Sendable {
     let id: String
+    let generation: Int
     let outcome: String
     let summary: String
     let finishedAt: Date
 }
 
-enum OneSystemActionProgressState: String, Codable, Sendable {
+struct OneSystemActionClaimRecord: Codable, Equatable, Sendable {
+    let invocation: PendingOneSystemActionInvocation
+    let claimedAt: Date
+}
+
+enum OneSystemActionProgressState: Codable, Equatable, Sendable {
     case waitingForVault = "waiting_for_vault"
 }
 
@@ -233,6 +247,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
     private let completionKey: String
     private let progressKey: String
     private let entityIndexKey: String
+    private let requestOwnerKey: String
     private let now: () -> Date
     private let currentUserID: () -> String?
     private let lock = NSLock()
@@ -249,9 +264,33 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         self.completionKey = "\(keyPrefix).completion"
         self.progressKey = "\(keyPrefix).progress"
         self.entityIndexKey = "\(keyPrefix).entities"
+        self.requestOwnerKey = "\(keyPrefix).request_owner"
         self.now = now
         self.currentUserID = currentUserID
     }
+
+    // MARK: - Request ownership
+
+    func currentRequestOwner() -> String? {
+        lock.lock()
+        defer { lock.unlock() }
+        guard let data = store.data(for: requestOwnerKey) else { return nil }
+        guard let value = String(data: data, encoding: .utf8), !value.isEmpty else { return nil }
+        return value
+    }
+
+    func bindRequestOwner(_ ownerID: String?) {
+        let safe = Self.sanitizeIdentifier(ownerID ?? "")
+        lock.lock()
+        if safe.isEmpty {
+            store.remove(requestOwnerKey)
+        } else {
+            _ = store.set(Data(safe.utf8), for: requestOwnerKey)
+        }
+        lock.unlock()
+    }
+
+    // MARK: - Enqueue
 
     @discardableResult
     func enqueue(
@@ -268,7 +307,9 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             slots: safeSlots,
             confirmedBySystem: confirmedBySystem,
             createdAt: createdAt,
-            expiresAt: createdAt.addingTimeInterval(Self.ttl)
+            expiresAt: createdAt.addingTimeInterval(Self.ttl),
+            generation: 0,
+            state: "pending"
         )
 
         lock.lock()
@@ -287,6 +328,8 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         return invocation
     }
 
+    // MARK: - Pending
+
     func pending() -> PendingOneSystemActionInvocation? {
         lock.lock()
         guard let invocation = readValidatedPending(key: pendingKey) else {
@@ -304,6 +347,9 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         return invocation
     }
 
+    // MARK: - Claim (atomic ownership transfer)
+
+    @discardableResult
     func claim(id: String) -> Bool {
         lock.lock()
         guard let invocation = readValidatedPending(key: pendingKey), invocation.id == id else {
@@ -316,24 +362,68 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             Self.log(state: "expired", invocation: invocation, outcome: "expired")
             return false
         }
-        guard write(invocation, key: claimedKey) else {
+
+        let nextGeneration = invocation.generation + 1
+        let claimed = PendingOneSystemActionInvocation(
+            id: invocation.id,
+            actionID: invocation.actionID,
+            slots: invocation.slots,
+            confirmedBySystem: invocation.confirmedBySystem,
+            createdAt: invocation.createdAt,
+            expiresAt: invocation.expiresAt,
+            generation: nextGeneration,
+            state: "claimed"
+        )
+
+        let claimRecord = OneSystemActionClaimRecord(
+            invocation: claimed,
+            claimedAt: now()
+        )
+
+        let wroteClaim = write(claimRecord, key: claimedKey)
+        guard wroteClaim else {
             lock.unlock()
             return false
         }
         store.remove(pendingKey)
         store.remove(progressKey)
         lock.unlock()
-        Self.log(state: "dispatched", invocation: invocation, outcome: "claimed")
+        Self.log(state: "dispatched", invocation: claimed, outcome: "claimed")
         return true
     }
 
-    func complete(id: String, outcome: String, summary: String) {
+    func claimedRecord() -> OneSystemActionClaimRecord? {
+        lock.lock()
+        guard let record = read(OneSystemActionClaimRecord.self, key: claimedKey) else {
+            lock.unlock()
+            return nil
+        }
+        guard record.invocation.expiresAt > now() else {
+            store.remove(claimedKey)
+            lock.unlock()
+            return nil
+        }
+        lock.unlock()
+        return record
+    }
+
+    // MARK: - Completion
+
+    func complete(id: String, generation: Int, outcome: String, summary: String) {
         let safeOutcome = Self.allowedOutcomes.contains(outcome) ? outcome : "failed"
         let safeSummary = Self.sanitizeDisplayText(summary, maxLength: 240)
         lock.lock()
-        let claimed = readValidatedPending(key: claimedKey)
+        let claimed = readClaimRecord(key: claimedKey)
         let pending = readValidatedPending(key: pendingKey)
-        guard let invocation = claimed?.id == id ? claimed : (pending?.id == id ? pending : nil) else {
+        let targetInvocation: PendingOneSystemActionInvocation?
+        if let claimed, claimed.invocation.id == id, claimed.invocation.generation == generation {
+            targetInvocation = claimed.invocation
+        } else if let pending, pending.id == id, pending.generation == generation {
+            targetInvocation = pending
+        } else {
+            targetInvocation = nil
+        }
+        guard let invocation = targetInvocation else {
             lock.unlock()
             return
         }
@@ -343,8 +433,9 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         _ = write(
             OneSystemActionCompletion(
                 id: id,
+                generation: generation,
                 outcome: safeOutcome,
-                summary: safeSummary.isEmpty ? "HUSSH could not finish that action." : safeSummary,
+                summary: safeSummary.isEmpty ? "Agent One could not finish that action." : safeSummary,
                 finishedAt: now()
             ),
             key: completionKey
@@ -353,12 +444,15 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         Self.log(state: safeOutcome, invocation: invocation, outcome: safeOutcome)
     }
 
-    func completion(id: String) -> OneSystemActionCompletion? {
+    func completion(id: String, generation: Int) -> OneSystemActionCompletion? {
         lock.lock()
         let value = read(OneSystemActionCompletion.self, key: completionKey)
         lock.unlock()
-        return value?.id == id ? value : nil
+        guard let value, value.id == id, value.generation == generation else { return nil }
+        return value
     }
+
+    // MARK: - Progress
 
     @discardableResult
     func reportProgress(id: String, state: OneSystemActionProgressState) -> Bool {
@@ -390,34 +484,26 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         return value?.id == id ? value : nil
     }
 
-    func waitForCompletion(id: String, timeout: TimeInterval = 25) async -> OneSystemActionCompletion? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let completion = completion(id: id) { return completion }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
-        return completion(id: id)
-    }
+    // MARK: - Cancel
 
-    func waitForCompletionOrProgress(
-        id: String,
-        timeout: TimeInterval = 25
-    ) async -> OneSystemActionWaitResult? {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if let completion = completion(id: id) { return .completion(completion) }
-            if let progress = progress(id: id) { return .progress(progress) }
-            try? await Task.sleep(nanoseconds: 200_000_000)
-        }
-        if let completion = completion(id: id) { return .completion(completion) }
-        if let progress = progress(id: id) { return .progress(progress) }
-        return nil
-    }
-
-    func cancelAll(outcome: String = "cancelled", clearEntityIndex: Bool = false) {
+    func cancel(outcome: String = "cancelled") {
         lock.lock()
         let pending = readValidatedPending(key: pendingKey)
-        let claimed = readValidatedPending(key: claimedKey)
+        let claimed = readClaimRecord(key: claimedKey)
+        store.remove(pendingKey)
+        store.remove(claimedKey)
+        store.remove(completionKey)
+        store.remove(progressKey)
+        lock.unlock()
+        if let pending { Self.log(state: "cancelled", invocation: pending, outcome: outcome) }
+        if let claimed { Self.log(state: "cancelled", invocation: claimed.invocation, outcome: outcome) }
+    }
+
+    @discardableResult
+    func cancelAll(outcome: String = "cancelled", clearEntityIndex: Bool = false) -> Bool {
+        lock.lock()
+        let pending = readValidatedPending(key: pendingKey)
+        let claimed = readClaimRecord(key: claimedKey)
         store.remove(pendingKey)
         store.remove(claimedKey)
         store.remove(completionKey)
@@ -425,8 +511,11 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         if clearEntityIndex { store.remove(entityIndexKey) }
         lock.unlock()
         if let pending { Self.log(state: "cancelled", invocation: pending, outcome: outcome) }
-        if let claimed { Self.log(state: "cancelled", invocation: claimed, outcome: outcome) }
+        if let claimed { Self.log(state: "cancelled", invocation: claimed.invocation, outcome: outcome) }
+        return true
     }
+
+    // MARK: - Availability
 
     func publishAvailability(state: String) {
         guard let invocation = pending() else { return }
@@ -438,6 +527,8 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             )
         }
     }
+
+    // MARK: - Entity index
 
     @discardableResult
     func updateEntityIndex(
@@ -472,6 +563,48 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
 
     func circles(matching query: String? = nil) -> [OneSystemEntityIndexEntry] {
         filteredEntities(keyPath: \OneSystemEntityIndex.circles, matching: query)
+    }
+
+    // MARK: - Private helpers
+
+    private func readClaimRecord(key: String) -> OneSystemActionClaimRecord? {
+        guard let value = read(OneSystemActionClaimRecord.self, key: key) else { return nil }
+        guard value.invocation.state == "claimed",
+              value.invocation.expiresAt > now() else {
+            store.remove(key)
+            return nil
+        }
+        return value
+    }
+
+    private func readValidatedPending(key: String) -> PendingOneSystemActionInvocation? {
+        guard let value = read(PendingOneSystemActionInvocation.self, key: key) else { return nil }
+        guard
+            value.kind == PendingOneSystemActionInvocation.supportedKind,
+            value.source == PendingOneSystemActionInvocation.supportedSource,
+            value.requiresVault == value.actionID.requiresVault,
+            sanitizedSlots(value.slots, for: value.actionID) == value.slots,
+            ["pending", "claimed"].contains(value.state)
+        else {
+            store.remove(key)
+            return nil
+        }
+        return value
+    }
+
+    private func read<T: Decodable>(_ type: T.Type, key: String) -> T? {
+        guard let data = store.data(for: key) else { return nil }
+        guard let value = try? JSONDecoder().decode(type, from: data) else {
+            store.remove(key)
+            return nil
+        }
+        return value
+    }
+
+    @discardableResult
+    private func write<T: Encodable>(_ value: T, key: String) -> Bool {
+        guard let data = try? JSONEncoder().encode(value) else { return false }
+        return store.set(data, for: key)
     }
 
     private func filteredEntities(
@@ -510,35 +643,6 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
             result[key] = safe
         }
         return result
-    }
-
-    private func readValidatedPending(key: String) -> PendingOneSystemActionInvocation? {
-        guard let value = read(PendingOneSystemActionInvocation.self, key: key) else { return nil }
-        guard
-            value.kind == PendingOneSystemActionInvocation.supportedKind,
-            value.source == PendingOneSystemActionInvocation.supportedSource,
-            value.requiresVault == value.actionID.requiresVault,
-            sanitizedSlots(value.slots, for: value.actionID) == value.slots
-        else {
-            store.remove(key)
-            return nil
-        }
-        return value
-    }
-
-    private func read<T: Decodable>(_ type: T.Type, key: String) -> T? {
-        guard let data = store.data(for: key) else { return nil }
-        guard let value = try? JSONDecoder().decode(type, from: data) else {
-            store.remove(key)
-            return nil
-        }
-        return value
-    }
-
-    @discardableResult
-    private func write<T: Encodable>(_ value: T, key: String) -> Bool {
-        guard let data = try? JSONEncoder().encode(value) else { return false }
-        return store.set(data, for: key)
     }
 
     private static func sanitizeEntities(
@@ -601,7 +705,7 @@ final class OneSystemActionInvocationCoordinator: @unchecked Sendable {
         let durationMs = max(0, Int(Date().timeIntervalSince(invocation.createdAt) * 1_000))
         let safeOutcome = outcome ?? "none"
         logger.info(
-            "state=\(state, privacy: .public) request_id=\(invocation.id, privacy: .public) source=\(invocation.source, privacy: .public) action_id=\(invocation.actionID.rawValue, privacy: .public) outcome=\(safeOutcome, privacy: .public) duration_ms=\(durationMs, privacy: .public)"
+            "state=\(state, privacy: .public) request_id=\(invocation.id, privacy: .public) source=\(invocation.source, privacy: .public) action_id=\(invocation.actionID.rawValue, privacy: .public) outcome=\(safeOutcome, privacy: .public) duration_ms=\(durationMs, privacy: .public) generation=\(invocation.generation, privacy: .public)"
         )
     }
 }
