@@ -682,6 +682,17 @@
   ],
   "database_families": [
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "account_deletion_tombstones",
+        "account_identity_presence"
+      ],
+      "id": "account_deletion_lifecycle",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "actor_profiles",
@@ -744,6 +755,7 @@
       "data_class": "audit_regulated",
       "exact_tables": [
         "consent_audit",
+        "consent_audit_receipts",
         "internal_access_events",
         "consent_scope_templates"
       ],
@@ -1067,6 +1079,8 @@
       "exact_tables": [
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
+        "one_location_visibility_preferences",
+        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -1079,6 +1093,7 @@
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
+        "kai_location_referrals",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
@@ -1157,6 +1172,19 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "personal_agent_registry",
+        "byoc_setup_jobs",
+        "pod_lifecycle_events",
+        "personal_agent_deletion_tombstones"
+      ],
+      "id": "personal_agent_provisioning",
+      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
       "data_class": "personal_projection",
@@ -5487,7 +5515,7 @@
     "action_gateway": "7b411158545f57fe5160dca108311d50e9cb1b6fdadc8831d03fd1e07a27265d",
     "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
     "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "19d1da4a01239d81f16e8657634e4e2b13e205342391a98dba31f36f9db8614a",
+    "data_plane": "a9eab526c377cba31e895e1dd66cad1b365960a06eeb5598215dd041f2708588",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
     "one_specialist_tools": "86efcd9ea24fa81138662169930b584b738c39e19d7f24e926d6cd45b506b31b",
     "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
@@ -5506,6 +5534,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 59
+    "table_families": 61
   }
 }

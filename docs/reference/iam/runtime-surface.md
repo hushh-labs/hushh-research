@@ -152,7 +152,7 @@ Consent-manager surface rules:
 ## Legacy Picks Retirement
 
 1. Migration `129_ria_pick_legacy_retirement.sql` deliberately retires the obsolete `ria_pick_uploads` and `ria_pick_upload_rows` tables. Legacy Picks are not imported into encrypted PKM; owners start with an empty encrypted `ria.advisor_package`.
-2. `ria_pick_legacy_retirements` retains only the retired upload identifier, owner/profile identifiers, aggregate row count, timestamp, and product-authorized reason. It contains no Pick values, package metadata, PKM material, or access authority.
+2. `ria_pick_legacy_retirements` retains only the retired upload identifier, owner/profile identifiers, aggregate row count, timestamp, and product-authorized reason while the RIA persona exists. It contains no Pick values, package metadata, PKM material, or access authority, and is erased before RIA-persona or full-account deletion so its `ON DELETE RESTRICT` audit FK cannot create a retry loop.
 3. The reset revokes every active legacy Picks grant/artifact that lacks explicit proposal lineage before dropping the tables. Historical proposal/share events remain immutable.
 
 ## Relationship Share Integration

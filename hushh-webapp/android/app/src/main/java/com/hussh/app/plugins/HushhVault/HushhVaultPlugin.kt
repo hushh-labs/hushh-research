@@ -50,6 +50,11 @@ class HushhVaultPlugin : Plugin() {
 
     private val TAG = "HushhVault"
     private val pluginScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private val accountNotFoundCode = "AUTH_ACCOUNT_NOT_FOUND"
+    private val maxLifecyclePayloadDepth = 6
+    private val maxLifecyclePayloadNodes = 64
+    private val maxLifecyclePayloadEntries = 32
+    private val maxLifecyclePayloadBytes = 16_384
     
     // Configure OkHttpClient with 30-second timeouts to prevent infinite hangs
     private val httpClient = OkHttpClient.Builder()
@@ -73,6 +78,55 @@ class HushhVaultPlugin : Plugin() {
         val callVersion = call?.getString("clientVersion")
         if (!callVersion.isNullOrBlank()) return callVersion.trim()
         return defaultClientVersion
+    }
+
+    private fun accountNotFoundCodeFromResponse(status: Int, body: String): String? {
+        if (status != 401 || body.toByteArray(Charsets.UTF_8).size > maxLifecyclePayloadBytes) {
+            return null
+        }
+        val payload = try {
+            JSONObject(body)
+        } catch (_: Exception) {
+            return null
+        }
+        val remainingNodes = intArrayOf(maxLifecyclePayloadNodes)
+        return accountNotFoundCodeFromPayload(payload, 0, remainingNodes)
+    }
+
+    private fun accountNotFoundCodeFromPayload(
+        value: Any?,
+        depth: Int,
+        remainingNodes: IntArray,
+    ): String? {
+        if (depth > maxLifecyclePayloadDepth || remainingNodes[0] <= 0) return null
+        remainingNodes[0] -= 1
+        if (value is String) {
+            return if (value == accountNotFoundCode) value else null
+        }
+        if (value is JSONObject) {
+            val keys = value.keys()
+            var entries = 0
+            while (keys.hasNext() && entries < maxLifecyclePayloadEntries) {
+                val code = accountNotFoundCodeFromPayload(
+                    value.opt(keys.next()),
+                    depth + 1,
+                    remainingNodes,
+                )
+                if (code != null) return code
+                entries += 1
+            }
+        } else if (value is JSONArray) {
+            val entries = minOf(value.length(), maxLifecyclePayloadEntries)
+            for (index in 0 until entries) {
+                val code = accountNotFoundCodeFromPayload(
+                    value.opt(index),
+                    depth + 1,
+                    remainingNodes,
+                )
+                if (code != null) return code
+            }
+        }
+        return null
     }
 
     // ==================== Derive Key ====================
@@ -257,8 +311,13 @@ class HushhVaultPlugin : Plugin() {
                         call.resolve(JSObject().put("exists", exists))
                     }
                 } else {
-                     activity.runOnUiThread {
-                        call.reject("Failed to check vault: HTTP $responseCode")
+                    val lifecycleCode = accountNotFoundCodeFromResponse(responseCode, body)
+                    activity.runOnUiThread {
+                        if (lifecycleCode != null) {
+                            call.reject("Account not found.", lifecycleCode)
+                        } else {
+                            call.reject("Failed to check vault: HTTP $responseCode")
+                        }
                     }
                 }
             } catch (e: Exception) {
@@ -366,8 +425,13 @@ class HushhVaultPlugin : Plugin() {
                     }
                 } else {
                     Log.e(TAG, "⚡ [getVault] Server error: ${response.code}")
+                    val lifecycleCode = accountNotFoundCodeFromResponse(response.code, body)
                     activity.runOnUiThread {
-                        call.reject("Failed to get vault: HTTP ${response.code}")
+                        if (lifecycleCode != null) {
+                            call.reject("Account not found.", lifecycleCode)
+                        } else {
+                            call.reject("Failed to get vault: HTTP ${response.code}")
+                        }
                     }
                 }
             } catch (t: Throwable) {
@@ -480,7 +544,7 @@ class HushhVaultPlugin : Plugin() {
                 activity.runOnUiThread {
                     if (!success) {
                         val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
-                        call.reject("Failed to setup vault: HTTP ${response.code} - ${detail}")
+                        call.reject("Failed to setup vault: HTTP ${response.code} - ${detail}", accountNotFoundCodeFromResponse(response.code, responseBody))
                         return@runOnUiThread
                     }
                     call.resolve(JSObject().put("success", true))
@@ -554,7 +618,7 @@ class HushhVaultPlugin : Plugin() {
                 activity.runOnUiThread {
                     if (!success) {
                         val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
-                        call.reject("Failed to upsert wrapper: HTTP ${response.code} - ${detail}")
+                        call.reject("Failed to upsert wrapper: HTTP ${response.code} - ${detail}", accountNotFoundCodeFromResponse(response.code, responseBody))
                         return@runOnUiThread
                     }
                     call.resolve(JSObject().put("success", true))
@@ -603,7 +667,7 @@ class HushhVaultPlugin : Plugin() {
                 activity.runOnUiThread {
                     if (!success) {
                         val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
-                        call.reject("Failed to set primary method: HTTP ${response.code} - ${detail}")
+                        call.reject("Failed to set primary method: HTTP ${response.code} - ${detail}", accountNotFoundCodeFromResponse(response.code, responseBody))
                         return@runOnUiThread
                     }
                     call.resolve(JSObject().put("success", true))
@@ -660,7 +724,7 @@ class HushhVaultPlugin : Plugin() {
                 activity.runOnUiThread {
                     if (!success) {
                         val detail = if (errorSnippet.isBlank()) "no response body" else errorSnippet
-                        call.reject("Failed to remove wrapper: HTTP ${response.code} - ${detail}")
+                        call.reject("Failed to remove wrapper: HTTP ${response.code} - ${detail}", accountNotFoundCodeFromResponse(response.code, responseBody))
                         return@runOnUiThread
                     }
                     call.resolve(JSObject().put("success", true))

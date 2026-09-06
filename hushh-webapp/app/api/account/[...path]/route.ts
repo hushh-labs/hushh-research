@@ -7,6 +7,7 @@ import {
   createUpstreamHeaders,
   resolveRequestId,
   withRequestIdJson,
+  withRequestIdResponse,
 } from "@/app/api/_utils/request-id";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
 
@@ -14,6 +15,29 @@ const ACCOUNT_API_TIMEOUT_MS = resolveSlowRequestTimeoutMs(45_000, {
   developmentFloorMs: 45_000,
   overrideEnvKey: "HUSHH_ACCOUNT_API_TIMEOUT_MS",
 });
+
+const ACCOUNT_RESPONSE_HEADERS = [
+  "Cache-Control",
+  "Content-Disposition",
+  "Content-Length",
+  "Content-Type",
+  "Retry-After",
+  "Vary",
+  "WWW-Authenticate",
+] as const;
+
+function sanitizeAccountResponse(response: Response): Response {
+  const headers = new Headers();
+  for (const name of ACCOUNT_RESPONSE_HEADERS) {
+    const value = response.headers.get(name);
+    if (value !== null) headers.set(name, value);
+  }
+  return new Response(response.body, {
+    status: response.status,
+    statusText: response.statusText,
+    headers,
+  });
+}
 
 function isUpstreamTimeoutError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
@@ -56,8 +80,12 @@ async function proxyRequest(request: NextRequest, params: { path: string[] }) {
       body,
       signal: AbortSignal.timeout(ACCOUNT_API_TIMEOUT_MS),
     });
-    const data = await response.json().catch(() => ({}));
-    return withRequestIdJson(requestId, data, { status: response.status });
+    // Preserve the backend's status body and lifecycle headers byte-for-byte.
+    // In particular, session-status 423 responses carry the bounded re-probe
+    // interval and all authenticated responses are explicitly non-cacheable.
+    // Only end-to-end account response headers are forwarded; provider cookies
+    // and hop-by-hop transport headers must not cross the service boundary.
+    return withRequestIdResponse(requestId, sanitizeAccountResponse(response));
   } catch (error) {
     const statusCode = isUpstreamTimeoutError(error) ? 504 : 502;
     return withRequestIdJson(

@@ -50,6 +50,11 @@ import { UnlockWarmOrchestrator } from "@/lib/services/unlock-warm-orchestrator"
 import { VaultService } from "@/lib/services/vault-service";
 import { CacheService, CACHE_KEYS } from "@/lib/services/cache-service";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import {
+  AUTH_SESSION_INVALIDATED_EVENT,
+  isAuthSessionInvalidationCode,
+  type AuthSessionInvalidationDetail,
+} from "@/lib/auth/session-invalidation";
 
 // ============================================================================
 // Types
@@ -246,6 +251,35 @@ export function VaultProvider({ children }: VaultProviderProps) {
     return () =>
       window.removeEventListener("vault-lock-requested", handleLockRequest);
   }, [lockVault]);
+
+  // Terminal session invalidation is also an immediate memory boundary. The
+  // AuthProvider hides protected routes and signs out; VaultProvider erases the
+  // matching user's decrypted key/token synchronously with that signal. UID
+  // scoping prevents a delayed account-A event from locking account B.
+  useEffect(() => {
+    const handleTerminalSessionInvalidation = (event: Event) => {
+      const detail = (event as CustomEvent<AuthSessionInvalidationDetail>)
+        .detail;
+      if (
+        !isAuthSessionInvalidationCode(detail?.code) ||
+        !detail?.userId ||
+        detail.userId !== user?.uid
+      ) {
+        return;
+      }
+      lockVault();
+    };
+
+    window.addEventListener(
+      AUTH_SESSION_INVALIDATED_EVENT,
+      handleTerminalSessionInvalidation,
+    );
+    return () =>
+      window.removeEventListener(
+        AUTH_SESSION_INVALIDATED_EVENT,
+        handleTerminalSessionInvalidation,
+      );
+  }, [lockVault, user?.uid]);
 
   useEffect(() => {
     const handleVaultRekeyed = (event: Event) => {

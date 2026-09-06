@@ -54,6 +54,8 @@ Profile bootstrap rule:
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_AUDIENCE` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC audience |
 | `GMAIL_PERSONAL_INFORMATION_REQUEST_MONITOR_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/api/routes/one/gmail_information_requests.py` | Y | N | N | env | N | env | N | required Cloud Scheduler OIDC service account |
 | `ONE_LOCATION_RETENTION_TOKEN` | `consent-protocol/api/routes/one/location.py` | Y | N | Y | secret | N | secret | N | required dedicated token for hosted One Location retention purge |
+| `ACCOUNT_DELETION_CLEANUP_AUDIENCE` | `consent-protocol/api/routes/account.py` | Y | N | Y | env | N | env | N | exact backend-origin audience for the hosted durable Firebase cleanup drain |
+| `ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL` | `consent-protocol/api/routes/account.py` | Y | N | Y | env | N | env | N | exact dedicated Google OIDC scheduler identity for the hosted durable Firebase cleanup drain |
 | `ONE_LOCATION_RETENTION_AUTH_ENABLED` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | env | N | optional local/test override; hosted auth remains enabled |
 | `ONE_LOCATION_NEARBY_PRESENCE_MODE` | `consent-protocol/api/routes/one/location.py` | Y | N | N | env | N | N | N | optional non-production override: `disabled` or `uat_simulation`; production always fails closed |
 | `ONE_EMAIL_KYC_STRICT_CLIENT_ZK_ENABLED` | `consent-protocol/hushh_mcp/services/one_email_kyc_service.py` | Y | N | N | env | N | env | N | strict client-side ZK guard; defaults true |

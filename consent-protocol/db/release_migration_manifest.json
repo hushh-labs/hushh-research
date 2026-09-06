@@ -172,7 +172,8 @@
     "197_one_agent_message_feedback.sql",
     "198_actor_identity_verified_phone_uniqueness.sql",
     "199_one_location_auto_approve_multi_circle_scope.sql",
-    "200_contact_sync_directory_policy_lock.sql"
+    "200_contact_sync_directory_policy_lock.sql",
+    "201_account_deletion_tombstones.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -296,7 +297,8 @@
       "195_gmail_personal_information_request_monitor_progress_guard.sql",
       "198_actor_identity_verified_phone_uniqueness.sql",
       "199_one_location_auto_approve_multi_circle_scope.sql",
-      "200_contact_sync_directory_policy_lock.sql"
+      "200_contact_sync_directory_policy_lock.sql",
+      "201_account_deletion_tombstones.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
