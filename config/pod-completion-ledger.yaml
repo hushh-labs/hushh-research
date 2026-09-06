@@ -34,6 +34,19 @@ assertions:
       a maintainer rather than more code.
     check:
       kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
+        - hushh-webapp/app/one/setup/page.tsx
+        - hushh-webapp/app/one/setup/cloud/page.tsx
+        - hushh-webapp/components/connections/byoc-cloud-setup-page.tsx
+      observation_requirements:
+        hubRendered: {equals: true}
+        reached: {equals: true}
+        actual_tile_click: {equals: true}
+        fresh_owner: {equals: true}
       reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
       expires_after_days: 14
       pending: >-
@@ -79,6 +92,17 @@ assertions:
       suppression, or to raise the pool for the lane.
     check:
       kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - hushh-webapp/lib/auth/use-session-chrome-suppression.ts
+        - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
+        - hushh-webapp/app/api/vault/bootstrap-state/route.ts
+        - consent-protocol/api/routes/db_proxy.py
+      observation_requirements:
+        database_pool_measured: {equals: true}
+        database_pool_within_configured_limit: {equals: true}
       reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
       expires_after_days: 14
       pending: >-
@@ -107,6 +131,20 @@ assertions:
       # would have kept saying it in 2027, which is the declared status this ledger
       # exists to abolish wearing a different field name. A receipt expires.
       kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/prove_identity.py
+        - consent-protocol/pod_server.py
+        - consent-protocol/hushh_mcp/services/pod_identity_store.py
+        - consent-protocol/hushh_mcp/services/pod_self_registration.py
+      observation_requirements:
+        revision_changed: {equals: true}
+        same_key: {equals: true}
+        durable_before: {equals: true}
+        durable_after: {equals: true}
+        storage_generation_unchanged: {equals: true}
+        negative_control_refused: {equals: true}
       verified_on: "2026-08-28"
       expires_after_days: 30
       reproduce: consent-protocol/scripts/ops/prove_identity.py
@@ -164,6 +202,17 @@ assertions:
     owner_action: "Land the nav/consent door first: deterministic, no model, no authority gate."
     check:
       kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/pod_parity_probe.py
+        - consent-protocol/hushh_mcp/observability/parity_oracle.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/hushh_mcp/services/pod_pkm_resolver.py
+        - consent-protocol/pod_server.py
+      observation_requirements:
+        specialist_execution_attributed_to_pod: {equals: true}
+        consented_success: {equals: true}
       reproduce: consent-protocol/scripts/ops/pod_parity_probe.py
       expires_after_days: 30
       pending: >-
@@ -228,6 +277,14 @@ assertions:
     falsifiable: true
     check:
       kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/measure_pod_cost.py
+      observation_requirements:
+        points: {minimum: 1}
+        billable_seconds: {minimum: 0}
+        usd: {minimum: 0}
       verified_on: "2026-08-31"
       expires_after_days: 30
       reproduce: consent-protocol/scripts/ops/measure_pod_cost.py

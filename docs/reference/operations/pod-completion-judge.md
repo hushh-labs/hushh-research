@@ -49,12 +49,8 @@ uv run python scripts/ops/pod_completion_judge.py --fail-on-unfinished # the nag
 The judge grades two synthetic items before it grades anything real: one that must pass and one
 that must fail. If either misbehaves the run is **void** and it publishes **no verdict at all**.
 
-This is the house judging doctrine, taken from the puppy-one harness's judging contract
-(`.codex/skills/puppy-one-harness/references/judging-contract.md`, currently on the
-`feat/puppy-one-on-device` branch and **not yet on this one**) so the two judges in this repo
-hold the same line. That the contract is reachable only from another branch is itself worth
-noting: the on-device work and the pod work are diverging, and shared doctrine is the first
-thing that gets duplicated when that happens. Its wording is the reason:
+The canonical [judging contract](../../../.codex/skills/puppy-one-harness/references/judging-contract.md)
+also governs this judge. Both use the same negative and positive control boundary.
 
 - A void run publishes no result, *"not a number with a caveat, because a number with a caveat
   gets quoted without the caveat"*.
@@ -75,8 +71,8 @@ run summary and kept as an artifact.
 The workflow runs the judge's own tests **before** trusting its verdict, because a judge with a
 broken guard can report anything.
 
-**Activation:** GitHub fires `schedule:` only from the default branch. Until this file is on
-`main` the cadence is off and the judge runs on dispatch and on ledger changes only.
+**Activation:** GitHub fires `schedule:` only from the default branch. Check the current default-branch workflow and remote run history to establish
+activation; local file presence alone does not prove that a schedule is active.
 
 ## Adding an item
 
@@ -88,7 +84,7 @@ read, a `check`, and `falsifiable`. Check kinds:
 | `pytest` | a named test that already runs in CI | the test fails, or the named test does not exist |
 | `command` | a shell check; declare `requires:` for tools | non-zero exit (a missing tool is UNKNOWN) |
 | `grep` | a pattern that must be present or absent in a file | the pattern is on the wrong side (a missing file is UNKNOWN) |
-| `receipt` | a dated proof from a live run that no CI runner can do | the receipt expires, or its `reproduce` path is not in the tree |
+| `receipt` | a dated proof from a live run that no CI runner can do | the artifact is absent, stale, mismatched, or its source/observations no longer satisfy the ledger |
 | `manual` | genuinely nothing else fits | never; it is UNKNOWN by construction, which is why it is last |
 
 Prefer `pytest` and `command` over `grep`, and `grep` over `receipt`. Reach for `manual` only when
@@ -101,22 +97,44 @@ field, and two of those notes read `PROVEN 2026-08-28...` and `MEASURED 2026-08-
 the declared status this whole mechanism exists to abolish, renamed to `note` and shipped inside
 it. Both notes also pointed at scratchpad scripts that no clone contained.
 
-**A receipt is the honest version of that.** It carries `verified_on`, `expires_after_days`, a
-`reproduce` path that must exist in the tree, and the `evidence` in prose. It passes only while
-it is fresh, and when it goes stale it **fails** rather than decaying to UNKNOWN, because "run it
-again" is actionable in a way that "we could not look" is not. A receipt with no `verified_on`
-yet fails too, and reports its `pending` line as the reason.
+**A receipt requires structured evidence.** Date and historical prose alone fail. The
+existing `receipt` check accepts a tracked, sanitized JSON `artifact` and its
+`artifact_sha256`. The artifact has `version: 1`, matching `assertion_id`,
+`result: "pass"`, integer `exit_code: 0`, timezone-aware `completed_at`, a resolvable
+40-character `source_commit`, `source_sha256` mapping and measured `observations`.
+The timestamp must agree with `verified_on` and remain inside `expires_after_days`.
+
+The ledger declares `source_paths`, including the producer and relevant runtime
+scope, and `observation_requirements` independently of the artifact. Every source
+hash must match both the cited revision and the current working tree. Unrelated
+commits do not invalidate evidence. Observation rules support strictly typed
+`equals`, numeric `minimum` and numeric `maximum`; no new latency or cost budget
+is inferred. First-run HTTP concurrency does not establish database occupancy.
+
+An independently declared `expected_target` must exactly match artifact `target`.
+It names `mode` (`local` or `deployed`) and `environment`; deployed mode also names
+`project`, `region` and immutable `image_digest`. Include separate frontend/backend
+origins and digests for cross-surface runs, and service/window for cost evidence.
+Never derive the expected target from the receipt under validation. A local
+synthetic run cannot establish a deployed lifecycle assertion.
+
+Digests establish integrity and invalidation, **not signed attestation**. The
+operator must still verify the producer and sanitize its output. Existing prose
+is dated history; producers that do not yet serialize these observations remain
+unfinished. Do not manufacture artifacts from historical claims. Missing tracked
+artifacts fail consistently in CI. The manual repeat run uses the same ledger,
+reruns affected producers, records the target independently and replaces the
+artifact/digest only after validation. This audit adds no schedule.
 
 `tests/test_pod_completion_judge.py` enforces that every shipped item declares falsifiability,
 has a runnable check kind and a unique id, that every receipt's `reproduce` path exists, and that
 no unblocked item is `manual` (which is the guard that keeps YES reachable).
 
-### Naming a test that does not exist yet
+### Upgrade evidence
 
-`pod-image-has-a-supported-upgrade-path` points at `tests/test_pod_image_upgrade_path.py`, which
-has not been written. That is deliberate: a missing pytest target **fails**, and "fails" is the
-accurate word for "nobody has built this". `manual` would have said UNKNOWN forever about work
-that is entirely within our control.
+`tests/test_pod_image_upgrade_path.py` exists and exercises the supported upgrade
+contract. Passing local tests does not establish a successful deployed upgrade,
+restore or recall drill; those require fresh target-bound operational evidence.
 
 ## Related
 

@@ -27,8 +27,11 @@ in the ledger itself rather than counted as passing.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
+import math
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -210,34 +213,161 @@ def check_manual(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     return UNKNOWN, str(item.get("note") or "needs a human or a live environment")
 
 
+def _receipt_path(raw: Any) -> Path:
+    if not isinstance(raw, str) or not raw or Path(raw).is_absolute() or ".." in Path(raw).parts:
+        raise ValueError("receipt paths must be repository-relative")
+    candidate = REPO_ROOT / raw
+    if not candidate.resolve().is_relative_to(REPO_ROOT.resolve()) or not candidate.is_file():
+        raise ValueError("receipt path is unavailable or escapes the repository")
+    code, _ = _run(["git", "ls-files", "--error-unmatch", "--", raw], REPO_ROOT, 10)
+    if code != 0:
+        raise ValueError("receipt artifact and sources must be tracked")
+    return candidate
+
+
+def _validate_receipt_artifact(item: dict[str, Any], verified: Any) -> tuple[bool, str]:
+    from datetime import datetime, timezone  # noqa: PLC0415
+
+    if not item.get("artifact"):
+        return False, "structured evidence required; historical date and prose are not proof"
+    try:
+        artifact = _receipt_path(item["artifact"])
+        if artifact.stat().st_size > 2_000_000:
+            raise ValueError("receipt artifact exceeds the size limit")
+        payload = artifact.read_bytes()
+        if hashlib.sha256(payload).hexdigest() != item.get("artifact_sha256"):
+            raise ValueError("receipt artifact digest mismatch")
+
+        def unique_fields(pairs):
+            result = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("duplicate receipt field")
+                result[key] = value
+            return result
+
+        receipt = json.loads(payload, object_pairs_hook=unique_fields)
+        if (
+            not isinstance(receipt, dict)
+            or type(receipt.get("version")) is not int
+            or receipt["version"] != 1
+        ):
+            raise ValueError("unsupported receipt version")
+        if receipt.get("assertion_id") != item.get("assertion_id"):
+            raise ValueError("receipt assertion mismatch")
+        if (
+            receipt.get("result") != "pass"
+            or type(receipt.get("exit_code")) is not int
+            or receipt["exit_code"] != 0
+        ):
+            raise ValueError("receipt producer did not succeed")
+        completed = datetime.fromisoformat(receipt["completed_at"].replace("Z", "+00:00"))
+        if (
+            completed.tzinfo is None
+            or completed.date() != verified
+            or completed > datetime.now(timezone.utc)
+        ):
+            raise ValueError("receipt execution timestamp is invalid")
+        target = item.get("expected_target")
+        if not isinstance(target, dict) or not target or receipt.get("target") != target:
+            raise ValueError("receipt target does not match the independently declared target")
+        if (
+            target.get("mode") not in {"local", "deployed"}
+            or not isinstance(target.get("environment"), str)
+            or not target["environment"].strip()
+        ):
+            raise ValueError("receipt target requires an explicit mode and environment")
+        if item.get("required_target_mode") and target["mode"] != item["required_target_mode"]:
+            raise ValueError("receipt target mode cannot establish this assertion")
+        if target["mode"] == "deployed" and (
+            any(
+                not isinstance(target.get(key), str) or not target[key].strip()
+                for key in ("project", "region")
+            )
+            or not re.fullmatch(r"sha256:[0-9a-f]{64}", str(target.get("image_digest", "")))
+        ):
+            raise ValueError("deployed receipt requires project, region and immutable image digest")
+        revision = receipt.get("source_commit", "")
+        if not isinstance(revision, str) or not re.fullmatch(r"[0-9a-f]{40}", revision):
+            raise ValueError("receipt source commit is invalid")
+        paths = item.get("source_paths")
+        hashes = receipt.get("source_sha256")
+        if (
+            not isinstance(paths, list)
+            or not paths
+            or item.get("reproduce") not in paths
+            or not isinstance(hashes, dict)
+        ):
+            raise ValueError("receipt requires its producer and declared source scope")
+        for relative in paths:
+            source = _receipt_path(relative)
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            old = subprocess.run(  # noqa: S603 - validated commit and tracked relative path, no shell
+                ["git", "show", f"{revision}:{relative}"],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                timeout=10,
+                check=False,
+            )
+            if (
+                old.returncode
+                or hashes.get(relative) != digest
+                or hashlib.sha256(old.stdout).hexdigest() != digest
+            ):
+                raise ValueError(
+                    "receipt source changed or revision is unavailable; re-run the producer"
+                )
+        observations = receipt.get("observations")
+        requirements = item.get("observation_requirements")
+        if (
+            not isinstance(observations, dict)
+            or not isinstance(requirements, dict)
+            or not requirements
+        ):
+            raise ValueError("receipt requires measured assertion-specific observations")
+        for key, rule in requirements.items():
+            if key not in observations:
+                raise ValueError("required observation is missing")
+            value = observations[key]
+            if not isinstance(rule, dict) or len(rule) != 1:
+                raise ValueError("invalid observation requirement")
+            operator, expected = next(iter(rule.items()))
+            if operator == "equals":
+                valid = type(value) is type(expected) and value == expected
+            elif operator in {"minimum", "maximum"}:
+                numeric = type(value) in {int, float} and type(expected) in {int, float}
+                valid = numeric and math.isfinite(value) and math.isfinite(expected)
+                valid = valid and (
+                    value >= expected if operator == "minimum" else value <= expected
+                )
+            else:
+                raise ValueError("unsupported observation requirement")
+            if not valid:
+                raise ValueError("receipt observations do not satisfy the assertion")
+        return True, "receipt validated"
+    except (
+        ValueError,
+        TypeError,
+        KeyError,
+        AttributeError,
+        OverflowError,
+        RecursionError,
+        OSError,
+        subprocess.SubprocessError,
+    ):
+        # Artifact contents, target identities and subprocess buffers stay private.
+        return (
+            False,
+            "invalid or stale structured receipt; verify digest, target, source scope and observations",
+        )
+
+
 def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
-    """A dated proof from a live run, which EXPIRES.
+    """Validate a fresh, revision-bound artifact without replaying live probes.
 
-    This is the answer to the worst failure mode available to this file: a
-    human-typed verdict that is true on the day it is written and re-printed
-    forever afterwards. That is the `currently` field this ledger exists to
-    abolish, wearing a different name.
-
-    A receipt passes only while it is fresh AND its reproduction path still
-    exists in the tree. It does not decay into UNKNOWN, it FAILS, because a stale
-    proof is actionable ("run it again") in a way that "we could not look" is not.
-    An untracked reproduction path fails too: a proof nobody else can re-run is a
-    claim, not evidence.
-
-    KNOWN WEAKNESS, stated rather than hidden. This checks that the reproduction
-    path EXISTS. It does not check that it RUNS, and the difference is not
-    academic: on 2026-08-31 the economics receipt was found green while
-    `measure_pod_cost.py` could never have executed, because it shelled out to
-    `gcloud monitoring time-series list`, a subcommand absent from SDK 577. The
-    file existed, so the receipt passed. A false green inside the very mechanism
-    built to abolish false greens.
-
-    Running each reproduction here is not the fix -- they need clouds, credentials
-    and minutes. The honest mitigation is that `verified_on` must only ever be set
-    by someone who actually ran the thing that day, and that a receipt whose
-    reproduction has rotted will be caught the next time somebody re-earns it.
-    Treat a receipt older than a code change to its reproduction path with
-    suspicion.
+    Digests prove integrity and source freshness, not signed attestation. The
+    ledger independently declares the target, invalidation scope and required
+    observations; historical prose never counts as operational evidence.
     """
     from datetime import date, timedelta  # noqa: PLC0415
 
@@ -263,15 +393,26 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
             f"reproduction path {reproduce} is not in the tree, so nobody else can re-run it",
         )
 
-    window = int(item.get("expires_after_days") or 30)
-    expires = verified + timedelta(days=window)
+    window = item.get("expires_after_days", 30)
+    if type(window) is not int or not 1 <= window <= 3650:
+        return FAIL, "expires_after_days must be an integer between 1 and 3650"
+    try:
+        expires = verified + timedelta(days=window)
+    except OverflowError:
+        return FAIL, "receipt expiry is outside the supported date range"
     today = date.today()
     if verified > today:
         return FAIL, "receipt is future-dated; proof cannot precede its execution"
     if today > expires:
         age = (today - verified).days
         return FAIL, f"receipt is {age}d old (window {window}d); re-run {reproduce}"
-    return PASS, f"verified {raw}, fresh until {expires.isoformat()}"
+    valid, detail = _validate_receipt_artifact(item, verified)
+    if not valid:
+        return FAIL, detail
+    return (
+        PASS,
+        f"verified {raw}, fresh until {expires.isoformat()}; revision-bound artifact validated",
+    )
 
 
 CHECKS = {
@@ -368,7 +509,9 @@ def judge(
             # A judge that nags about the unfixable trains people to ignore it.
             status, detail = UNKNOWN, f"blocked: {item['blocked_by']}"
         else:
-            status, detail = runner(check, timeout)
+            status, detail = runner(
+                {**check, "assertion_id": ident} if kind == "receipt" else check, timeout
+            )
         report.verdicts.append(
             Verdict(
                 id=ident,

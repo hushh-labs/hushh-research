@@ -295,10 +295,10 @@ def _receipt(**over):
     return _item("r", check=check)
 
 
-def test_a_fresh_receipt_passes():
+def test_date_and_existing_script_cannot_pass_without_structured_evidence():
     report = judge_mod.judge([_receipt()])
-    assert report.finished
-    assert "fresh until" in report.passing[0].detail
+    assert not report.finished
+    assert "structured evidence required" in report.failing[0].detail
 
 
 def test_a_stale_receipt_fails_rather_than_going_unknown():
@@ -392,3 +392,162 @@ def test_a_filtered_pass_is_not_whole_ledger_completion():
     assert not report.finished
     assert not report.to_dict()["scope_complete"]
     assert "FILTERED RUN" in judge_mod.render(report)
+
+
+@pytest.fixture
+def structured_receipt(tmp_path, monkeypatch):
+    import hashlib
+    import json
+    import subprocess
+
+    def git(*args):
+        return subprocess.check_output(["git", *args], cwd=tmp_path).decode().strip()  # noqa: S603 - synthetic fixture arguments
+
+    git("init", "-q")
+    git("config", "user.email", "synthetic@example.invalid")
+    git("config", "user.name", "Synthetic Fixture")
+    (tmp_path / "probe.py").write_text("print('synthetic')\n")
+    git("add", "probe.py")
+    git("commit", "-qm", "synthetic baseline")
+    revision = git("rev-parse", "HEAD")
+    target = {"mode": "local", "environment": "synthetic"}
+    artifact = {
+        "version": 1,
+        "assertion_id": "r",
+        "result": "pass",
+        "exit_code": 0,
+        "completed_at": _dt.datetime.now(_dt.timezone.utc).isoformat(),
+        "source_commit": revision,
+        "target": target,
+        "source_sha256": {
+            "probe.py": hashlib.sha256((tmp_path / "probe.py").read_bytes()).hexdigest()
+        },
+        "observations": {"negative_control_refused": True, "samples": 2},
+    }
+    check = dict(
+        _receipt()["check"],
+        reproduce="probe.py",
+        artifact="receipt.json",
+        source_paths=["probe.py"],
+        expected_target=target,
+        observation_requirements={
+            "negative_control_refused": {"equals": True},
+            "samples": {"minimum": 1},
+        },
+    )
+
+    def write():
+        raw = json.dumps(artifact).encode()
+        (tmp_path / "receipt.json").write_bytes(raw)
+        check["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
+        git("add", "receipt.json")
+        return _item("r", check=check)
+
+    monkeypatch.setattr(judge_mod, "REPO_ROOT", tmp_path)
+    return artifact, check, write, tmp_path
+
+
+def test_structured_receipt_passes_and_survives_unrelated_commit(structured_receipt):
+    import subprocess
+
+    artifact, check, write, root = structured_receipt
+    item = write()
+    subprocess.run(["git", "commit", "-qm", "record receipt"], cwd=root, check=True)
+    assert judge_mod.judge([item]).finished
+
+
+@pytest.mark.parametrize(
+    "field,value",
+    [
+        ("version", True),
+        ("version", 2),
+        ("assertion_id", "foreign"),
+        ("result", "fail"),
+        ("exit_code", True),
+        ("exit_code", 1),
+        ("source_commit", "0" * 40),
+        ("completed_at", "2026-01-01T00:00:00"),
+        ("target", {"mode": "local", "environment": "foreign"}),
+        ("observations", {"negative_control_refused": False, "samples": 2}),
+        ("observations", {"negative_control_refused": 1, "samples": 2}),
+        ("observations", {"negative_control_refused": True, "samples": 0}),
+    ],
+)
+def test_invalid_structured_receipt_cannot_pass(structured_receipt, field, value):
+    artifact, check, write, root = structured_receipt
+    artifact[field] = value
+    assert judge_mod.judge([write()]).failing
+
+
+def test_source_change_invalidates_receipt(structured_receipt):
+    artifact, check, write, root = structured_receipt
+    item = write()
+    (root / "probe.py").write_text("print('changed')\n")
+    assert judge_mod.judge([item]).failing
+
+
+def test_artifact_tampering_invalidates_receipt(structured_receipt):
+    artifact, check, write, root = structured_receipt
+    item = write()
+    (root / "receipt.json").write_text("{}")
+    assert judge_mod.judge([item]).failing
+
+
+@pytest.mark.parametrize(
+    "path", ["../receipt.json", "/outside-repository/receipt.json", "missing.json"]
+)
+def test_unsafe_receipt_paths_fail(structured_receipt, path):
+    artifact, check, write, root = structured_receipt
+    item = write()
+    check["artifact"] = path
+    assert judge_mod.judge([item]).failing
+
+
+@pytest.mark.parametrize("window", [True, 0, -1, "bad", "30", 10**100])
+def test_invalid_receipt_expiry_fails_without_crashing(window):
+    assert judge_mod.judge([_receipt(expires_after_days=window)]).failing
+
+
+def test_absent_observation_cannot_satisfy_null(structured_receipt):
+    artifact, check, write, root = structured_receipt
+    check["observation_requirements"] = {"absent": {"equals": None}}
+    assert judge_mod.judge([write()]).failing
+
+
+def test_huge_numeric_observation_fails_without_crashing(structured_receipt):
+    artifact, check, write, root = structured_receipt
+    artifact["observations"]["samples"] = 10**400
+    assert judge_mod.judge([write()]).failing
+
+
+def test_local_receipt_cannot_earn_deployed_assertion(structured_receipt):
+    artifact, check, write, root = structured_receipt
+    check["required_target_mode"] = "deployed"
+    assert judge_mod.judge([write()]).failing
+
+
+@pytest.mark.parametrize("digest", [None, "mutable-tag", "sha256:bad", "sha256:" + "a" * 64])
+def test_deployed_receipt_requires_immutable_image(structured_receipt, digest):
+    artifact, check, write, root = structured_receipt
+    target = {
+        "mode": "deployed",
+        "environment": "synthetic",
+        "project": "synthetic",
+        "region": "synthetic",
+        "image_digest": digest,
+    }
+    artifact["target"] = target
+    check["expected_target"] = target
+    check["required_target_mode"] = "deployed"
+    assert judge_mod.judge([write()]).finished is (digest == "sha256:" + "a" * 64)
+
+
+@pytest.mark.parametrize("raw", [b"{", b"[" * 2000 + b"]" * 2000, b'{"version":1,"version":1}'])
+def test_malformed_receipt_fails_without_crashing(structured_receipt, raw):
+    import hashlib
+
+    artifact, check, write, root = structured_receipt
+    item = write()
+    (root / "receipt.json").write_bytes(raw)
+    check["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
+    assert judge_mod.judge([item]).failing
