@@ -124,3 +124,20 @@ that is entirely within our control.
 - [dev-fast-lane.md](./dev-fast-lane.md): previewing a branch on dev.
 - `docs/reference/architecture/private-agent-north-star.md`: the seven requirements the ledger
   scores against.
+
+
+## First-run producer boundary
+
+`hushh-webapp/scripts/testing/first-run-reachability.mjs` composes the canonical
+reviewer preflight and session harness in read-only, headless mode. It checks
+owner-scoped bootstrap state, clicks the real cloud-setup tile, verifies the
+chooser route and rechecks session ownership. One browser-journey deadline
+covers authentication through chooser verification; preflight and browser
+launch are outside that measured budget.
+
+Its JSON contains booleans, counts, durations and finite failure stages. It does
+not persist tokens, owner identifiers, raw response bodies, console text or URLs.
+Requests are counted by identity until completion, including duplicate URLs.
+Browser API concurrency is not database occupancy. First-run state is not proof
+that the account was freshly created; creation and database-pool assertions
+remain unearned until independently measured. No fixture is reset by this driver.
