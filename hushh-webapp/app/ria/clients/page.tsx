@@ -215,6 +215,8 @@ export default function RiaClientsPage() {
           description={RIA_COPY.clients.description}
           icon={UserRound}
           accent="ria"
+          titleRole="agent"
+          className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-row]]:!items-center"
         />
       </AppPageHeaderRegion>
 
