@@ -123,7 +123,7 @@
       "import_commit": "f844e6b66",
       "declared_version": "4.0.4",
       "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
-      "disposition": "retain original executable paths; dependency and nested-agent review remains required before relocation",
+      "disposition": "retain pinned original executable paths and nested imported agents; do not promote imported writers or activate bypassing host subprocesses through the governed evidence fleet",
       "source": "https://github.com/pbakaus/impeccable",
       "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
       "upstream_path": ".agents/skills/impeccable",
@@ -131,7 +131,59 @@
       "provenance_verification": "all 152 original imported files match the upstream Git tree exactly",
       "license": "Apache-2.0; upstream NOTICE identifies MIT-derived platform references",
       "license_file": ".claude/skills/impeccable/LICENSE",
-      "notice_file": ".claude/skills/impeccable/NOTICE.md"
+      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "execution_review": {
+        "nested_authored_agents": 4,
+        "discovery_metadata": "agents/openai.yaml",
+        "host_bypass_entrypoint": "scripts/live-copy-edit-agent.mjs",
+        "host_bypass_flags": [
+          "--dangerously-bypass-approvals-and-sandbox",
+          "--permission-mode bypassPermissions"
+        ],
+        "relocation_requires": [
+          "preserve the full relative resource graph",
+          "reconcile installed hook and shortcut paths without invoking imported installers",
+          "validate dependency-backed detector modes independently"
+        ]
+      },
+      "dependency_review": {
+        "bundle_local_manifest_or_lock": false,
+        "optional_dynamic_dependencies": [
+          "htmlparser2",
+          "css-select",
+          "css-tree",
+          "domutils",
+          "puppeteer",
+          "@babel/parser",
+          "svelte/compiler"
+        ],
+        "coverage_boundary": "missing parser dependencies can downgrade detection; fallback success is not equivalent coverage"
+      }
+    },
+    "impeccable/modern-screenshot": {
+      "package": "modern-screenshot",
+      "version": "4.7.0",
+      "registry_tarball": "https://registry.npmjs.org/modern-screenshot/-/modern-screenshot-4.7.0.tgz",
+      "registry_integrity": "sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==",
+      "vendored_sha256": "bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b",
+      "matching_path": "package/dist/index.js",
+      "declared_version": "4.7.0",
+      "license": "MIT",
+      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt",
+      "source": "https://github.com/qq15725/modern-screenshot",
+      "local_path": ".claude/skills/impeccable/scripts/modern-screenshot.umd.js",
+      "provenance_verification": "vendored bytes match package/dist/index.js in the published npm 4.7.0 tarball exactly"
+    },
+    "impeccable/platform-design-skills": {
+      "source": "https://raw.githubusercontent.com/ehmo/platform-design-skills/baff03e456864470db3ba8acebc41a003cbfa541/LICENSE",
+      "upstream_commit": "baff03e456864470db3ba8acebc41a003cbfa541",
+      "sha256": "1126322e2cc8d165adc4c792eeb195717de2bcc7b39be1ce77959d78e87ef685",
+      "scope": "upstream original license for references attributed in Impeccable NOTICE; no exact derivative-source revision inferred",
+      "declared_version": "derived references; original revision not recorded by importer",
+      "license": "MIT",
+      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt",
+      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "provenance_verification": "derivation attributed by pinned Impeccable upstream NOTICE; original permission text retained from pinned upstream license commit"
     }
   }
 }
