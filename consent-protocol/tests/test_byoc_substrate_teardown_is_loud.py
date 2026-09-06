@@ -133,7 +133,10 @@ async def test_kms_listing_and_destroy_are_checked():
     # The :destroy POST result was previously ignored -- the quietest possible failure
     # on the real erasure of the sealed holdings. Now a refused destroy raises.
     session = _Session()
-    version = {"name": "projects/proj-x/.../cryptoKeyVersions/1", "state": "ENABLED"}
+    version = {
+        "name": "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/1",
+        "state": "ENABLED",
+    }
     session.rule("GET", "/cryptoKeyVersions", _Resp(200, {"cryptoKeyVersions": [version]}))
     session.rule("POST", ":destroy", _Resp(403))
     with pytest.raises(SubstrateDeleteError, match="kms version destroy http=403"):
@@ -363,3 +366,43 @@ async def test_failed_storage_cleanup_preserves_recovery_authority(monkeypatch):
     assert result["complete"]
     assert attempted[0] == "gcs_bucket"
     assert attempted[-1] == "service_account_iam_binding"
+
+
+@pytest.mark.parametrize("state", ["ENABLED", "DESTROY_SCHEDULED"])
+async def test_kms_recoverable_versions_never_count_as_erased(state):
+    session = _Session()
+    name = "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/1"
+    session.rule(
+        "GET",
+        "/cryptoKeyVersions",
+        _Resp(200, {"cryptoKeyVersions": [{"name": name, "state": state}]}),
+    )
+    session.rule("POST", ":destroy", _Resp(200, {"state": "DESTROY_SCHEDULED"}))
+    with pytest.raises(SubstrateDeleteError, match="destruction pending verification"):
+        await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
+    assert len([call for call in session.calls if call[0] == "POST"]) == (state == "ENABLED")
+
+
+async def test_kms_inventory_checks_later_pages_before_claiming_erasure():
+    session = _Session()
+
+    def listing(url, kwargs):
+        if kwargs["params"].get("pageToken") == "second":
+            return _Resp(200, {"cryptoKeyVersions": [{"state": "DESTROY_SCHEDULED"}]})
+        return _Resp(
+            200, {"cryptoKeyVersions": [{"state": "DESTROYED"}], "nextPageToken": "second"}
+        )
+
+    session.rule("GET", "/cryptoKeyVersions", listing)
+    with pytest.raises(SubstrateDeleteError, match="destruction pending verification"):
+        await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
+    assert len(session.calls) == 2
+
+
+async def test_kms_completed_destruction_is_retry_safe():
+    session = _Session()
+    session.rule(
+        "GET", "/cryptoKeyVersions", _Resp(200, {"cryptoKeyVersions": [{"state": "DESTROYED"}]})
+    )
+    await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
+    assert [call for call in session.calls if call[0] == "POST"] == []

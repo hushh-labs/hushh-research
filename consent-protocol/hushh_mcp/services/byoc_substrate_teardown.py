@@ -316,28 +316,45 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
 
     def _destroy_kms_versions(key_id: str) -> None:
         parent = f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{key_id}"
-        listing = session.get(
-            f"https://cloudkms.googleapis.com/v1/{parent}/cryptoKeyVersions",
-            headers=headers,
-            timeout=30,
-        )
-        if listing.status_code == 404:
-            return  # key never created -- retry-safe
-        if listing.status_code != 200:
-            raise SubstrateDeleteError(f"kms version listing http={listing.status_code}")
-        for version in (listing.json() or {}).get("cryptoKeyVersions") or []:
-            state = str(version.get("state") or "")
-            if state in ("DESTROYED", "DESTROY_SCHEDULED"):
-                continue
-            # This POST is the real erasure of the sealed holdings; unchecked it is
-            # the quietest possible failure, so its result is never ignored.
-            resp = session.post(
-                f"https://cloudkms.googleapis.com/v1/{version.get('name')}:destroy",
+        # Scheduling is reversible. Only a complete inventory of DESTROYED
+        # versions proves erasure; pending versions retain retry authority.
+        page_token = ""
+        pending = False
+        for _ in range(32):
+            listing = session.get(
+                f"https://cloudkms.googleapis.com/v1/{parent}/cryptoKeyVersions",
                 headers=headers,
+                params={"pageSize": 1000, **({"pageToken": page_token} if page_token else {})},
                 timeout=30,
             )
-            if resp.status_code not in (200, 404):
-                raise SubstrateDeleteError(f"kms version destroy http={resp.status_code}")
+            if listing.status_code == 404:
+                return  # key never created -- retry-safe
+            if listing.status_code != 200:
+                raise SubstrateDeleteError(f"kms version listing http={listing.status_code}")
+            body = listing.json() or {}
+            for version in body.get("cryptoKeyVersions") or []:
+                state = str(version.get("state") or "")
+                if state == "DESTROYED":
+                    continue
+                pending = True
+                if state == "DESTROY_SCHEDULED":
+                    continue
+                name = str(version.get("name") or "")
+                if not name.startswith(f"{parent}/cryptoKeyVersions/"):
+                    raise SubstrateDeleteError("kms version identity mismatch")
+                resp = session.post(
+                    f"https://cloudkms.googleapis.com/v1/{name}:destroy",
+                    headers=headers,
+                    timeout=30,
+                )
+                if resp.status_code not in (200, 404):
+                    raise SubstrateDeleteError(f"kms version destroy http={resp.status_code}")
+            page_token = str(body.get("nextPageToken") or "")
+            if not page_token:
+                if pending:
+                    raise SubstrateDeleteError("kms destruction pending verification")
+                return
+        raise SubstrateDeleteError("kms version inventory exceeds 32 pages")
 
     def _remove_project_iam_binding(role: str, member: str) -> None:
         # Read-modify-write on the project policy, mirroring bootstrap's merge_binding

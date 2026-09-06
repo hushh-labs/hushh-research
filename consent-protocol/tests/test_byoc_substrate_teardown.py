@@ -135,11 +135,12 @@ async def test_execute_records_failures_and_continues(monkeypatch):
     assert result["executed"] is True
     assert result["complete"] is False
     # the failure is recorded with its reason, never minted into "deleted"
-    assert [a["id"] for a in result["failed"]] == ["b"]
+    assert [a["id"] for a in result["failed"]] == ["b", "k"]
     assert result["failed"][0]["reason"] == "bucket http=403"
-    assert [a["id"] for a in result["deleted"]] == ["s", "k"]
-    # ... and the action AFTER the failure was still attempted
-    assert attempted == ["s", "b", "k"]
+    assert result["failed"][1]["reason"] == "deferred_until_dependencies_erased"
+    assert [a["id"] for a in result["deleted"]] == ["s"]
+    # Recovery authority is retained until the failed dependency is erased.
+    assert attempted == ["s", "b"]
 
 
 @pytest.mark.asyncio
