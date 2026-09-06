@@ -59,6 +59,7 @@ export default function RiaProfilePage() {
       eyebrow="RIA"
       title="Profile"
       description="Manage your advisor profile and verification details."
+      titleRole="agent"
       nativeTest={{
         routeId: "ria-profile",
         marker: "ria-profile-page",
