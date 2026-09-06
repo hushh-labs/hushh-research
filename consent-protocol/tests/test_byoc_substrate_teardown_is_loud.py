@@ -323,3 +323,43 @@ async def test_a_refused_revocation_is_loud():
     session.rule("POST", ":getIamPolicy", _Resp(500))
     with pytest.raises(SubstrateDeleteError):
         await _deleter(session)(dict(_REVOKE))
+
+
+async def test_failed_storage_cleanup_preserves_recovery_authority(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    attempted = []
+
+    async def delete(action):
+        attempted.append(action["type"])
+        if action["type"] == "gcs_bucket":
+            raise SubstrateDeleteError("bucket http=409")
+
+    actions = [
+        {"type": kind, "id": f"synthetic-{kind}"}
+        for kind in [
+            "service_account_iam_binding",
+            "secret",
+            "kms_key",
+            "gcs_bucket",
+            "service_account",
+            "iam_binding",
+        ]
+    ]
+    result = await execute_teardown(actions, deleter=delete, dry_run=False)
+    assert attempted == ["gcs_bucket"]
+    assert not result["complete"]
+    assert len(result["failed"]) == len(actions)
+    assert all(
+        item["reason"] == "deferred_until_dependencies_erased" for item in result["failed"][1:]
+    )
+
+    # Same receipt inventory can retry after the failed dependency is gone.
+    attempted.clear()
+
+    async def succeeding_delete(action):
+        attempted.append(action["type"])
+
+    result = await execute_teardown(actions, deleter=succeeding_delete, dry_run=False)
+    assert result["complete"]
+    assert attempted[0] == "gcs_bucket"
+    assert attempted[-1] == "service_account_iam_binding"

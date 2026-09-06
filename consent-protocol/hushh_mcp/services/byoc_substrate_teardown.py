@@ -32,7 +32,8 @@ _TEARDOWN_PRIORITY = {
     "cloud_scheduler_job": 10,
     "pubsub_subscription": 20,
     "pubsub_topic": 30,
-    "secret": 40,
+    # Preserve recovery material until storage/image removal has succeeded.
+    "secret": 65,
     # The user's own copy of the pod image. Nothing in the substrate depends on it, so
     # its slot is free; reclaim it promptly (before the bucket) so a delete that fails
     # surfaces early. The Cloud Run service that referenced it is already gone by now --
@@ -52,13 +53,24 @@ _TEARDOWN_PRIORITY = {
     "service_account_iam_binding": 120,
 }
 
+_RECOVERY_AUTHORITY_TYPES = frozenset(
+    {
+        "secret",
+        "iam_binding",
+        "service_account",
+        "kms_key",
+        "kms_keyring",
+        "service_account_iam_binding",
+    }
+)
+
 
 def plan_teardown(resources: Any) -> list[dict[str, Any]]:
     """Order a plan's resources into a dependency-safe teardown sequence. Pure.
 
     Each input is a ``{"type": ..., "id": ...}`` from the substrate plan. Unknown
-    types sort last (before nothing depends on them being handled specially), so a
-    new resource kind is never silently dropped from a teardown."""
+    types run before recovery authority is removed, so an unsupported resource
+    fails completeness while preserving access needed to finish its teardown."""
     actions: list[dict[str, Any]] = []
     for r in resources or []:
         if not isinstance(r, dict):
@@ -80,7 +92,7 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
             if r.get(key):
                 action[key] = str(r[key])
         actions.append(action)
-    actions.sort(key=lambda a: _TEARDOWN_PRIORITY.get(a["type"], 90))
+    actions.sort(key=lambda a: _TEARDOWN_PRIORITY.get(a["type"], 49))
     return actions
 
 
@@ -99,13 +111,15 @@ async def execute_teardown(
     cannot be confirmed gone -- injected so the destructive dependency is explicit at
     the call site and this stays testable without touching a customer's project.
     ``deleted`` holds only confirmed removals; a raise lands the action in ``failed``
-    with its reason and never aborts the rest of the plan, so one revoked-scope 403
-    cannot leave every later resource unattempted and unrecorded."""
+    with its reason. Independent cleanup continues after a failure, but credentials,
+    permissions and keys needed to recover are deferred and recorded as incomplete."""
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         personal_agent_substrate_teardown_enabled,
     )
 
-    plan = list(actions or [])
+    plan = sorted(
+        list(actions or []), key=lambda action: _TEARDOWN_PRIORITY.get(action["type"], 49)
+    )
     live = (not dry_run) and personal_agent_substrate_teardown_enabled()
     if not live:
         return {
@@ -118,6 +132,9 @@ async def execute_teardown(
     deleted: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
     for action in plan:
+        if failed and action.get("type") in _RECOVERY_AUTHORITY_TYPES:
+            failed.append({**action, "reason": "deferred_until_dependencies_erased"})
+            continue
         try:
             await deleter(action)
         except Exception as exc:  # noqa: BLE001 - record and continue; the rest may still delete
