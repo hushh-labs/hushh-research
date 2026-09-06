@@ -1474,7 +1474,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-calendar"
     },
     {
       "route_pattern": "/one/connect",
@@ -3855,7 +3855,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-calendar"
     },
     {
       "route_pattern": "/one/profile/integrations",
@@ -4957,7 +4957,6 @@
           "setup.open_email",
           "setup.open_finance",
           "setup.open_ria",
-          "setup.open_connected_systems",
           "setup.hub_master_ack"
         ],
         "required_inputs": [],
@@ -5091,7 +5090,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-calendar"
     },
     {
       "route_pattern": "/one/setup/cloud",
