@@ -63,6 +63,7 @@ import { VoicePreferencesPanel } from "@/components/profile/voice-preferences-pa
 import { VoiceChangelogPage } from "@/components/profile/voice-changelog-page";
 import { VoiceExamplesPage } from "@/components/profile/voice-examples-page";
 import { ConnectedSystemsPanel } from "@/components/profile/connected-systems-panel";
+import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
 import { ThemeToggleLean } from "@/components/theme-toggle";
 import {
   AlertDialog,
@@ -738,8 +739,12 @@ function ProfilePageContent() {
     () => resolveProfileRouteState(pathname, searchParams),
     [pathname, searchParams],
   );
-  const activePanel = profileRouteState.panel;
-  const activeDetail = profileRouteState.detail;
+  const localCrmEnabled = isLocalCrmBuildEnabled();
+  const activePanel =
+    profileRouteState.panel === "connected-systems" && !localCrmEnabled
+      ? null
+      : profileRouteState.panel;
+  const activeDetail = activePanel ? profileRouteState.detail : null;
   const supportComposeKind =
     activePanel === "support" && activeDetail?.startsWith("support-compose:")
       ? normalizeSupportKind(activeDetail.slice("support-compose:".length))
