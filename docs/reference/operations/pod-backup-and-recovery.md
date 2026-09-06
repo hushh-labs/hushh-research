@@ -28,6 +28,20 @@ resumes its conversation and learned preferences and starts every turn ungrounde
 owner's holdings, because `api/routes/one/pod_turn.py` is deliberately ungrounded and says
 so in its own docstring.
 
+## Erasure verification corrections (2026-09-05)
+
+Artifact Registry deletion is asynchronous. The substrate executor checks the returned
+operation identity, observes completion without a provider error, and requires repository
+absence before recording a successful removal. Pending operations remain incomplete and
+preserve recovery authority for retry. A repository already absent on retry is accepted.
+See the [provider deletion contract](https://docs.cloud.google.com/artifact-registry/docs/reference/rest/v1/projects.locations.repositories/delete).
+
+KMS versions scheduled for destruction remain incomplete until their state is
+`DESTROYED`. These checks do not establish complete account erasure: Memory Bank
+erasure, retained object versions, soft deletion, and restore prevention still need
+their own lifecycle evidence. The account deletion guard continues to refuse a clean
+deletion claim while external resources have not been proven erased.
+
 ## Visual Map
 
 ```mermaid

@@ -314,6 +314,50 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         else:
             raise SubstrateDeleteError("bucket not emptied after 32 pages (~32k objects)")
 
+    def _delete_artifact_repository(repository: str) -> None:
+        # DELETE acknowledges a long-running operation, not completed erasure.
+        # A pending operation keeps the existing teardown retry authority intact.
+        base = "https://artifactregistry.googleapis.com/v1/"
+        parent = f"projects/{project}/locations/{region}"
+        url = f"{base}{parent}/repositories/{repository}"
+        response = session.delete(url, headers=headers, timeout=30)
+        if response.status_code == 404:
+            return
+        if response.status_code != 200:
+            raise SubstrateDeleteError(f"artifact repository http={response.status_code}")
+        operation = response.json() or {}
+        name = str(operation.get("name") or "")
+        prefix = f"{parent}/operations/"
+        operation_id = name.removeprefix(prefix)
+        if (
+            not name.startswith(prefix)
+            or not operation_id
+            or any(
+                char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
+                for char in operation_id
+            )
+        ):
+            raise SubstrateDeleteError("artifact deletion operation identity mismatch")
+        if operation.get("done") is not True:
+            observed = session.get(f"{base}{name}", headers=headers, timeout=30)
+            if observed.status_code != 200:
+                raise SubstrateDeleteError(
+                    f"artifact deletion operation http={observed.status_code}"
+                )
+            operation = observed.json() or {}
+            if operation.get("name") != name:
+                raise SubstrateDeleteError("artifact deletion operation identity mismatch")
+        if "error" in operation:
+            # Provider error messages can contain private resource details.
+            raise SubstrateDeleteError("artifact deletion operation failed")
+        if operation.get("done") is not True or "response" not in operation:
+            raise SubstrateDeleteError("artifact deletion pending verification")
+        absent = session.get(url, headers=headers, timeout=30)
+        if absent.status_code != 404:
+            raise SubstrateDeleteError(
+                f"artifact repository absence unverified http={absent.status_code}"
+            )
+
     def _destroy_kms_versions(key_id: str) -> None:
         parent = f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{key_id}"
         # Scheduling is reversible. Only a complete inventory of DESTROYED
@@ -455,17 +499,7 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                     "service account",
                 )
             elif kind == "artifact_repository":
-                # Deleting the repo removes the images it holds (no per-image sweep, no
-                # `force` needed). The delete is an async LRO that returns 200 + an
-                # operation; accepting 200 without awaiting is fine for teardown. But a
-                # 403 here means the bootstrap admin grant was revoked and the repo (and
-                # its bill) SURVIVES -- every failure is loud now, so a swallowed warning
-                # can no longer let deletion report a clean erase over it.
-                _delete(
-                    f"https://artifactregistry.googleapis.com/v1/projects/{project}"
-                    f"/locations/{region}/repositories/{rid}",
-                    "artifact repository",
-                )
+                _delete_artifact_repository(rid)
             elif kind == "iam_binding":
                 _remove_project_iam_binding(
                     str(action.get("role") or ""), str(action.get("member") or "")

@@ -66,6 +66,52 @@ def _deleter(session: _Session):
     )
 
 
+@pytest.mark.parametrize(
+    "operation,absence,expected",
+    [
+        ({}, None, "pending verification"),
+        ({"done": True, "error": {"message": "synthetic private detail"}}, None, "failed"),
+        ({"done": True}, None, "pending verification"),
+        ({"done": True, "response": {}}, 200, "absence unverified"),
+        ({"done": True, "response": {}}, 403, "absence unverified"),
+        ({"done": True, "response": {}}, 404, None),
+    ],
+)
+async def test_artifact_delete_requires_completion_and_absence(operation, absence, expected):
+    session = _Session()
+    name = "projects/proj-x/locations/us-central1/operations/delete-123"
+    session.rule("DELETE", "/repositories/", _Resp(200, {"name": name}))
+    session.rule("GET", "/operations/", _Resp(200, {"name": name, **operation}))
+    if absence is not None:
+        session.rule("GET", "/repositories/", _Resp(absence))
+    action = {"type": "artifact_repository", "id": "one-pod"}
+    if expected:
+        with pytest.raises(SubstrateDeleteError, match=expected) as raised:
+            await _deleter(session)(action)
+        assert "synthetic private detail" not in str(raised.value)
+    else:
+        await _deleter(session)(action)
+
+
+async def test_artifact_delete_rejects_foreign_operation_before_fetch():
+    session = _Session()
+    session.rule(
+        "DELETE",
+        "/repositories/",
+        _Resp(200, {"name": "projects/foreign/locations/us-central1/operations/delete-123"}),
+    )
+    with pytest.raises(SubstrateDeleteError, match="identity mismatch"):
+        await _deleter(session)({"type": "artifact_repository", "id": "one-pod"})
+    assert [method for method, _, _ in session.calls] == ["DELETE"]
+
+
+async def test_artifact_delete_already_absent_is_retry_safe():
+    session = _Session()
+    session.rule("DELETE", "/repositories/", _Resp(404))
+    await _deleter(session)({"type": "artifact_repository", "id": "one-pod"})
+    assert len(session.calls) == 1
+
+
 _SA_ACTION = {
     "type": "service_account",
     "id": "one-pod-abc@proj-x.iam.gserviceaccount.com",
