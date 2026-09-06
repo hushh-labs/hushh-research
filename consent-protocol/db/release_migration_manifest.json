@@ -170,14 +170,11 @@
     "195_gmail_personal_information_request_monitor_progress_guard.sql",
     "196_one_model_preferences.sql",
     "197_one_agent_message_feedback.sql",
-<<<<<<< ours
-    "198_gmail_authorized_send_enablement_backfill.sql"
-=======
     "198_actor_identity_verified_phone_uniqueness.sql",
     "199_one_location_auto_approve_multi_circle_scope.sql",
     "200_contact_sync_directory_policy_lock.sql",
-    "201_account_deletion_tombstones.sql"
->>>>>>> theirs
+    "201_account_deletion_tombstones.sql",
+    "202_gmail_authorized_send_enablement_backfill.sql"
   ],
   "environment_overlays": {
     "uat": [

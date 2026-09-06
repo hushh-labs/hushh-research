@@ -3801,6 +3801,7 @@ async def add_to_pkm(memory_text: str, reason: str, tool_context: ToolContext) -
         "status": "directive_parked",
         "message": "Opening Memory to save this information.",
 
+    }
 def _resolve_timezone(tool_context: ToolContext) -> str:
     """Read the person's declared IANA timezone, defaulting to UTC.
 
