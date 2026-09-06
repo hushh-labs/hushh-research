@@ -126,10 +126,31 @@ secret_value_if_exists() {
   fi
 }
 
-DB_HOST="$(runtime_env_value DB_HOST)"
-DB_PORT="$(runtime_env_value DB_PORT)"
-DB_NAME="$(runtime_env_value DB_NAME)"
-DB_UNIX_SOCKET="$(runtime_env_value DB_UNIX_SOCKET)"
+# Match hydrate_runtime_environment(): a deployed DB env entry wins over the
+# corresponding packed runtime setting. Keep the JSON in process memory.
+BACKEND_RUNTIME_CONFIG="$(runtime_env_value BACKEND_RUNTIME_CONFIG_JSON)"
+if [ -n "$BACKEND_RUNTIME_CONFIG" ] && ! printf '%s' "$BACKEND_RUNTIME_CONFIG" | \
+  jq -e 'type == "object"' >/dev/null 2>&1; then
+  echo "Invalid packed runtime DB configuration." >&2
+  exit 1
+fi
+runtime_db_value() {
+  local name="$1" key="$2"
+  if printf '%s' "$SERVICE_JSON" | jq -e --arg name "$name" \
+    'any(.spec.template.spec.containers[0].env[]?; .name == $name)' >/dev/null; then
+    runtime_env_value "$name"
+    return
+  fi
+  if [ -n "$BACKEND_RUNTIME_CONFIG" ]; then
+    printf '%s' "$BACKEND_RUNTIME_CONFIG" | jq -r --arg key "$key" \
+      '.[$key] // empty | tostring | gsub("^\\s+|\\s+$"; "")'
+  fi
+}
+
+DB_HOST="$(runtime_db_value DB_HOST db_host)"
+DB_PORT="$(runtime_db_value DB_PORT db_port)"
+DB_NAME="$(runtime_db_value DB_NAME db_name)"
+DB_UNIX_SOCKET="$(runtime_db_value DB_UNIX_SOCKET db_unix_socket)"
 
 DB_HOST="${DB_HOST:-$(secret_value_if_exists DB_HOST)}"
 DB_PORT="${DB_PORT:-$(secret_value_if_exists DB_PORT)}"
