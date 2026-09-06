@@ -23,7 +23,7 @@ Within the seven-layer platform architecture, mobile is the main Layer 6 and Lay
 Native checks have two deliberately separate lanes:
 
 - `npm run ios:cold:audit` and `npm run android:cold:audit` are destructive fixture audits. They reset app state and use a reviewer fixture to prove cold-start route behavior. They do not prove retained route, authenticated session, or the memory-only vault across background/resume.
-- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive, visible same-session rehearsals. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
+- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
 The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector; vault, auth, and notification consumers subscribe to its lifecycle signal rather than registering competing Capacitor listeners.
 
