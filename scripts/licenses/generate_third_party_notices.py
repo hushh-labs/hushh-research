@@ -38,6 +38,8 @@ def load_vendored_packages() -> list[dict[str, str]]:
             "name": name,
             "version": item.get("declared_version", "UNKNOWN"),
             "license": item.get("license", "UNVERIFIED"),
+            "license_file": item.get("license_file", ""),
+            "notice_file": item.get("notice_file", ""),
         }
         for name, item in sorted(imports.items())
     ]
@@ -73,9 +75,14 @@ def render_summary(packages: list[dict[str, str]]) -> str:
 
 
 def render_package_list(packages: list[dict[str, str]]) -> str:
-    return "\n".join(
-        f"- `{item['name']}` `{item['version']}` — {item['license']}" for item in packages
-    )
+    lines = []
+    for item in packages:
+        line = f"- `{item['name']}` `{item['version']}` — {item['license']}"
+        for field, label in (("license_file", "License"), ("notice_file", "Upstream notice")):
+            if item.get(field):
+                line += f"; [{label}]({item[field]})"
+        lines.append(line)
+    return "\n".join(lines)
 
 
 def write_markdown(path: Path, title: str, intro: str, sections: list[tuple[str, list[dict[str, str]]]]) -> None:

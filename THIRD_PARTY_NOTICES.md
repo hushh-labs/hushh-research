@@ -1523,4 +1523,4 @@ Package count: 1
 
 ### Package inventory
 
-- `impeccable` `4.0.4` — Apache-2.0; upstream NOTICE identifies MIT-derived platform references
+- `impeccable` `4.0.4` — Apache-2.0; upstream NOTICE identifies MIT-derived platform references; [License](.claude/skills/impeccable/LICENSE); [Upstream notice](.claude/skills/impeccable/NOTICE.md)
