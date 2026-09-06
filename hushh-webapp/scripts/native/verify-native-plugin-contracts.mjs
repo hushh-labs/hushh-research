@@ -27,6 +27,7 @@ const webOnlyPlugins = new Set();
 const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
 const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
+  ["HushhLocation", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
 ]);
 
