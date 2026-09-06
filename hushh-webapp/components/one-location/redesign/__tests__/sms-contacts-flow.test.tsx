@@ -252,8 +252,8 @@ describe("SmsContactsFlow", () => {
       expect(
         screen.queryByRole("button", { name: "Add Family" }),
       ).not.toBeInTheDocument();
-      // Circle counts consistently exclude the person viewing the Circle.
-      expect(screen.getByText("2 members")).toBeInTheDocument();
+      // Circle counts include everyone in the Circle, owner included.
+      expect(screen.getByText("3 members")).toBeInTheDocument();
 
       fireEvent.click(
         screen.getByRole("button", { name: "Choose people from Family" }),

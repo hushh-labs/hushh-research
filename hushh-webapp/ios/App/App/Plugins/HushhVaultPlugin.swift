@@ -44,6 +44,10 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
     
     private let TAG = "HushhVault"
     private let defaultClientVersion = "2.0.0"
+    private let accountNotFoundCode = "AUTH_ACCOUNT_NOT_FOUND"
+    private let maxLifecyclePayloadDepth = 6
+    private let maxLifecyclePayloadNodes = 64
+    private let maxLifecyclePayloadEntries = 32
     private var clientVersionHeaderValue: String {
         if let configuredVersion = Bundle.main.object(forInfoDictionaryKey: "HushhClientVersion") as? String {
             let trimmedVersion = configuredVersion.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -60,6 +64,43 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             plugin: self,
             jsName: jsName
         )
+    }
+
+    private func accountNotFoundCode(
+        in value: Any?,
+        depth: Int = 0,
+        remainingNodes: inout Int
+    ) -> String? {
+        guard depth <= maxLifecyclePayloadDepth, remainingNodes > 0 else {
+            return nil
+        }
+        remainingNodes -= 1
+
+        if let string = value as? String {
+            return string == accountNotFoundCode ? string : nil
+        }
+        if let dictionary = value as? [String: Any] {
+            for (_, child) in dictionary.prefix(maxLifecyclePayloadEntries) {
+                if let code = accountNotFoundCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array.prefix(maxLifecyclePayloadEntries) {
+                if let code = accountNotFoundCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        }
+        return nil
     }
     
     // URLSession with 30s timeout (matching Android)
@@ -245,7 +286,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         
         performRequest(urlStr: urlStr, body: ["userId": userId], authToken: authToken) { json, error in
             if let error = error {
-                call.reject("Failed to check vault: \(error)")
+                if error == self.accountNotFoundCode {
+                    call.reject("Account not found.", error)
+                } else {
+                    call.reject("Failed to check vault: \(error)")
+                }
                 return
             }
             if let json = json, let hasVault = json["hasVault"] as? Bool {
@@ -364,7 +409,11 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             } else if let error = error, error.contains("404") {
                 call.resolve(["vault": NSNull()])
             } else {
-                call.reject(error ?? "Failed to get vault")
+                if error == self.accountNotFoundCode {
+                    call.reject("Account not found.", error)
+                } else {
+                    call.reject(error ?? "Failed to get vault")
+                }
             }
         }
     }
@@ -462,7 +511,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
             if let error = error {
                 print("❌ [\(self.TAG)] setupVault failed")
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -521,7 +570,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -551,7 +600,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
         performRequest(urlStr: urlStr, body: body, authToken: authToken) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -594,7 +643,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
             vaultOwnerToken: vaultOwnerToken
         ) { json, error in
             if let error = error {
-                call.reject(error)
+                call.reject(error, error == self.accountNotFoundCode ? error : nil)
                 return
             }
             if let success = json?["success"] as? Bool, success {
@@ -1084,15 +1133,26 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
             let status = httpResponse.statusCode
             var parsedJson: [String: Any]?
-            if let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            if ((200...299).contains(status) || data.count <= 16_384),
+               let jsonObject = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
                 parsedJson = jsonObject
             }
 
             if !(200...299).contains(status) {
+                if status == 401 {
+                    var remainingNodes = self.maxLifecyclePayloadNodes
+                    if let code = self.accountNotFoundCode(
+                        in: parsedJson,
+                        remainingNodes: &remainingNodes
+                    ) {
+                        completion(nil, code)
+                        return
+                    }
+                }
                 let backendDetail =
                     (parsedJson?["detail"] as? String) ??
                     (parsedJson?["error"] as? String) ??
-                    String(data: data, encoding: .utf8)
+                    String(data: data.prefix(300), encoding: .utf8)
                 let trimmedDetail = backendDetail?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
                 if trimmedDetail.isEmpty {
                     completion(nil, "HTTP \(status)")

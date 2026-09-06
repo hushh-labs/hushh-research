@@ -6,7 +6,11 @@ import { useRouter } from "next/navigation";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { buildEmailAgentIntroPrompt } from "@/lib/agent/email-agent-intro";
+import {
+  buildEmailAgentIntroPrompt,
+  hasSeenEmailAgentIntro,
+  markEmailAgentIntroSeen,
+} from "@/lib/agent/email-agent-intro";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -50,23 +54,40 @@ export function EmailAgentPageClient() {
       : "unavailable-valid";
 
   const openOneForDraft = useCallback(() => {
-    const createdAtMs = Date.now();
-    createHandoff({
-      id: `email-agent-prompt-${createdAtMs}`,
-      reason: "user_requested",
-      transcript: emailAgentIntroRecipient
-        ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
-        : "Please help me draft an email. I will review it before anything is sent.",
-      createdAtMs,
-    });
+    // The intro prompt asks One to compose a sample email about itself. That
+    // is a first-run demonstration, not what someone arriving to write a real
+    // email wants: queuing it on every open started a fresh sample draft each
+    // time, because every handoff carried a new id and so was never de-duped
+    // against the previous one. Queue it only until this user has seen it;
+    // afterwards the agent opens on an empty composer awaiting a real
+    // instruction.
+    const userId = user?.uid || null;
+    if (!hasSeenEmailAgentIntro(userId)) {
+      const createdAtMs = Date.now();
+      markEmailAgentIntroSeen(userId);
+      createHandoff({
+        id: `email-agent-prompt-${createdAtMs}`,
+        reason: "user_requested",
+        transcript: emailAgentIntroRecipient
+          ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
+          : "Please help me draft an email. I will review it before anything is sent.",
+        createdAtMs,
+      });
+    }
     if (agentPopover) {
       agentPopover.openAgent();
       return;
     }
-    // The handoff remains in the shared in-memory session for the legacy
-    // dedicated chat route too.
+    // Any queued handoff remains in the shared in-memory session for the
+    // legacy dedicated chat route too.
     router.push(ROUTES.AGENT);
-  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
+  }, [
+    agentPopover,
+    createHandoff,
+    emailAgentIntroRecipient,
+    router,
+    user?.uid,
+  ]);
 
   return (
     <AppPageShell

@@ -31,7 +31,7 @@ public class HushhContactsPlugin: CAPPlugin, CAPBridgedPlugin {
         qos: .userInitiated
     )
 
-    private static let defaultLimit = 5000
+    private static let defaultLimit = 10000
     private static let maxLimit = 10000
 
     @objc func getPermissionState(_ call: CAPPluginCall) {

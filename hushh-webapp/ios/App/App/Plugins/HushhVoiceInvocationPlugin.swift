@@ -12,6 +12,7 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
         CAPPluginMethod(name: "getPendingActionInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "claimActionInvocation", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "completeActionInvocation", returnType: CAPPluginReturnPromise),
+        CAPPluginMethod(name: "reportActionInvocationProgress", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "updateActionEntityIndex", returnType: CAPPluginReturnPromise),
         CAPPluginMethod(name: "clearActionState", returnType: CAPPluginReturnPromise)
     ]
@@ -114,6 +115,26 @@ public final class HushhVoiceInvocationPlugin: CAPPlugin, CAPBridgedPlugin {
             summary: summary
         )
         call.resolve()
+    }
+
+    @objc func reportActionInvocationProgress(_ call: CAPPluginCall) {
+        guard let id = call.getString("id"), !id.isEmpty else {
+            call.reject("A non-empty action invocation id is required.")
+            return
+        }
+        guard
+            let rawState = call.getString("state"),
+            let state = OneSystemActionProgressState(rawValue: rawState)
+        else {
+            call.reject("A supported action invocation progress state is required.")
+            return
+        }
+        call.resolve([
+            "reported": OneSystemActionInvocationCoordinator.shared.reportProgress(
+                id: id,
+                state: state
+            )
+        ])
     }
 
     @objc func updateActionEntityIndex(_ call: CAPPluginCall) {

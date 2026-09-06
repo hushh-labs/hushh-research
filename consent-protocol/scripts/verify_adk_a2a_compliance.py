@@ -81,7 +81,8 @@ def main() -> int:
             ROOT / "api/routes/kai/stream.py",
             [
                 r"CanonicalSSEStream",
-                r"validate_token",
+                r"Depends\(require_vault_owner_token\)",
+                r"_require_stream_owner_token",
                 r"short_recommendation",
                 r"analysis_degraded",
                 r"degraded_agents",

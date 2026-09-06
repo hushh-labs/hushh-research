@@ -1,6 +1,80 @@
 import UIKit
 import Capacitor
 
+/** Pure, bounded classifier for native streaming HTTP failures. */
+struct KaiStreamLifecycleErrorClassifier {
+    static let maxStreamErrorBodyBytes = 16 * 1024
+
+    private static let lifecycleStatuses: [String: Int] = [
+        "AUTH_ACCOUNT_NOT_FOUND": 401,
+        "AUTH_ACCOUNT_DELETION_IN_PROGRESS": 423,
+        "AUTH_ACCOUNT_STATUS_UNAVAILABLE": 503,
+    ]
+
+    static func bridgeCode(statusCode: Int, body: String) -> String {
+        let bodyData = body.data(using: .utf8) ?? Data()
+        if !bodyData.isEmpty,
+           bodyData.count <= maxStreamErrorBodyBytes,
+           let payload = try? JSONSerialization.jsonObject(
+               with: bodyData,
+               options: [.fragmentsAllowed]
+           ) {
+            var remainingNodes = 64
+            if let code = lifecycleCode(
+                in: payload,
+                depth: 0,
+                remainingNodes: &remainingNodes
+            ), lifecycleStatuses[code] == statusCode {
+                return code
+            }
+        }
+
+        // A rejected owner capability is non-terminal until the backend says
+        // account-not-found, but the WebView must still lock its in-memory
+        // Vault. Keep this local bridge code stable and free of backend prose.
+        if statusCode == 401 || statusCode == 403 {
+            return "AUTH_VAULT_OWNER_INVALID"
+        }
+        return "HUSHH_HTTP_\(statusCode)"
+    }
+
+    private static func lifecycleCode(
+        in value: Any,
+        depth: Int,
+        remainingNodes: inout Int
+    ) -> String? {
+        guard depth <= 6, remainingNodes > 0 else { return nil }
+        remainingNodes -= 1
+
+        if let code = value as? String,
+           lifecycleStatuses[code] != nil {
+            return code
+        }
+        if let object = value as? [String: Any] {
+            for child in object.values.prefix(32) {
+                if let code = lifecycleCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        } else if let array = value as? [Any] {
+            for child in array.prefix(32) {
+                if let code = lifecycleCode(
+                    in: child,
+                    depth: depth + 1,
+                    remainingNodes: &remainingNodes
+                ) {
+                    return code
+                }
+            }
+        }
+        return nil
+    }
+}
+
 /**
  * Kai Plugin - iOS Implementation
  * 
@@ -49,6 +123,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
     private var streamSession: URLSession?
     private var streamCall: CAPPluginCall?
     private var streamBuffer = ""
+    private var streamErrorBodyExceededLimit = false
     private var streamTask: URLSessionDataTask?
     private var activeStreamKind: String = "portfolio"
     
@@ -528,7 +603,21 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         // a stale URLSession emit into, or settle, the newer attachment.
         guard let activeSession = streamSession, session === activeSession else { return }
         if let str = String(data: data, encoding: .utf8) {
-            streamBuffer += str.replacingOccurrences(of: "\r\n", with: "\n")
+            let normalized = str.replacingOccurrences(of: "\r\n", with: "\n")
+            if let statusCode = (dataTask.response as? HTTPURLResponse)?.statusCode,
+               !(200...299).contains(statusCode) {
+                if !streamErrorBodyExceededLimit {
+                    let candidate = streamBuffer + normalized
+                    if candidate.lengthOfBytes(using: .utf8) <= KaiStreamLifecycleErrorClassifier.maxStreamErrorBodyBytes {
+                        streamBuffer = candidate
+                    } else {
+                        streamBuffer = ""
+                        streamErrorBodyExceededLimit = true
+                    }
+                }
+                return
+            }
+            streamBuffer += normalized
             // The active stream decides which parser to use.
             if activeStreamKind == "kai" {
                 parseSSEBlocksAndEmit(isKai: true)
@@ -547,16 +636,24 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         streamTask = nil
         streamSession = nil
         
-        // Process any remaining buffer before clearing
-        if !streamBuffer.isEmpty {
-            streamBuffer += "\n\n"
-            if activeStreamKind == "kai" {
-                parseSSEBlocksAndEmit(isKai: true)
-            } else {
-                parseSSEBlocksAndEmit(isKai: false)
+        let responseStatus = (task.response as? HTTPURLResponse)?.statusCode
+        let responseBody = streamBuffer
+
+        if error == nil, let statusCode = responseStatus, (200...299).contains(statusCode) {
+            // Process a final unterminated SSE block only for successful
+            // streams. Error responses are JSON and must never be emitted as
+            // an application stream event.
+            if !streamBuffer.isEmpty {
+                streamBuffer += "\n\n"
+                if activeStreamKind == "kai" {
+                    parseSSEBlocksAndEmit(isKai: true)
+                } else {
+                    parseSSEBlocksAndEmit(isKai: false)
+                }
             }
         }
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
@@ -564,8 +661,12 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
                 call?.reject("Stream error: \(error.localizedDescription)")
                 return
             }
-            if let httpResponse = task.response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
-                call?.reject("HTTP \(httpResponse.statusCode)")
+            if let statusCode = responseStatus, !(200...299).contains(statusCode) {
+                let code = KaiStreamLifecycleErrorClassifier.bridgeCode(
+                    statusCode: statusCode,
+                    body: responseBody
+                )
+                call?.reject("Stream request was rejected.", code)
                 return
             }
             call?.resolve(["success": true])
@@ -621,6 +722,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         
         streamCall = call
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         streamSession = makeStreamSession()
         streamTask = streamSession?.dataTask(with: request)
         streamTask?.resume()
@@ -662,6 +764,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
 
         streamCall = call
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         streamSession = makeStreamSession()
         streamTask = streamSession?.dataTask(with: request)
         streamTask?.resume()
@@ -731,6 +834,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
 
         streamCall = call
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         streamSession = makeStreamSession()
         streamTask = streamSession?.dataTask(with: request)
         streamTask?.resume()
@@ -748,6 +852,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         streamCall = nil
         streamTask = nil
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         streamSession?.invalidateAndCancel()
         streamSession = nil
         activeTask.cancel()
@@ -790,6 +895,7 @@ public class KaiPlugin: CAPPlugin, CAPBridgedPlugin, URLSessionDataDelegate {
         
         streamCall = call
         streamBuffer = ""
+        streamErrorBodyExceededLimit = false
         streamSession = makeStreamSession()
         streamTask = streamSession?.dataTask(with: request)
         streamTask?.resume()

@@ -41,12 +41,11 @@ export function LocationOnboardingSetupClient() {
     return <LocationSetupReturn onReturn={coordinator.returnToSetup} />;
   }
 
-  // No cinematic intro and no permission primer here any more. Both sat in
-  // front of the flow's own welcome screen, which already frames the value, and
-  // the features screen already requests Location and notifications the moment
-  // it opens -- so the primer was asking a second time for the same thing. That
-  // put first-run Location at five taps; it is now three. Other capabilities
-  // keep their intro gate: this is a Location-only change.
+  // No cinematic intro or separate permission primer here. The flow's own
+  // Welcome and Features screens frame the value, and Location is requested
+  // only after the person taps "Set up my location". Notifications are
+  // deliberately outside this onboarding journey. Other capabilities keep
+  // their intro gate: this is a Location-only change.
   return (
     <OneLocationAgentPage
       mode="setup"

@@ -52,6 +52,10 @@ export type OneSystemEntityIndexEntry = { id: string; name: string };
 
 const actionIds = new Set<string>(ONE_SYSTEM_ACTION_IDS);
 
+export function isOneSystemActionId(value: string): value is OneSystemActionId {
+  return actionIds.has(value);
+}
+
 function isStringRecord(value: unknown): value is Record<string, string> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return false;
   return Object.entries(value).every(
@@ -105,6 +109,16 @@ export const OneSystemActionInvocationBridge = {
   }): Promise<void> {
     if (!this.isSupported()) return;
     await NativeOneVoiceInvocation.completeActionInvocation(options);
+  },
+
+  async reportProgress(options: {
+    id: string;
+    state: "waiting_for_vault";
+  }): Promise<boolean> {
+    if (!this.isSupported()) return false;
+    const result =
+      await NativeOneVoiceInvocation.reportActionInvocationProgress(options);
+    return result.reported;
   },
 
   async updateEntityIndex(options: {

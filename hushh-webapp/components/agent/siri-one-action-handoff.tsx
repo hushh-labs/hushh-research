@@ -12,12 +12,19 @@ import {
 } from "@/lib/agent/one-system-action-executor";
 import {
   OneSystemActionInvocationBridge,
+  isOneSystemActionId,
   type OneSystemActionOutcome,
   type PendingOneSystemActionInvocation,
 } from "@/lib/capacitor/one-system-action-invocation";
 import { ROUTES } from "@/lib/navigation/routes";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { buildSiriOneVoiceLoginRoute } from "@/lib/agent/siri-one-voice-handoff-policy";
 import { resolveSiriOneActionHandoffState } from "@/lib/agent/siri-one-action-handoff-policy";
+
+// Force re-evaluation when vault unlocks so a waiting-for-vault invocation
+// can immediately transition to dispatch without waiting for the next
+// effect cycle (which requires a dependency change that may not fire).
+const VAULT_UNLOCK_EVENT = "vault-unlocked";
 
 function logLifecycle(
   state: string,
@@ -25,7 +32,7 @@ function logLifecycle(
   outcome?: string,
 ): void {
   console.info(
-    `[SIRI_ONE_ACTION] state=${state} request_id=${invocation.id} source=${invocation.source} action_id=${invocation.actionId} outcome=${outcome ?? "none"} duration_ms=${Math.max(0, Date.now() - invocation.createdAt)}`,
+    `[SIRI_ONE_ACTION] state=${state} request_id=${invocation.id} action_id=${invocation.actionId} outcome=${outcome ?? "none"} duration_ms=${Math.max(0, Date.now() - invocation.createdAt)}`,
   );
 }
 
@@ -52,6 +59,7 @@ export function SiriOneActionHandoff(): null {
     useState<PendingOneSystemActionInvocation | null>(null);
   const [executorRevision, setExecutorRevision] = useState(0);
   const [visibilityRevision, setVisibilityRevision] = useState(0);
+  const [vaultUnlockRevision, setVaultUnlockRevision] = useState(0);
   const claimedRef = useRef<string | null>(null);
   const waitingStateRef = useRef<string | null>(null);
 
@@ -119,8 +127,26 @@ export function SiriOneActionHandoff(): null {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, []);
 
+  // Vault unlock may resolve a waiting_for_vault invocation before the
+  // AgentRuntimeStateProvider's tier recomputation triggers a re-render.
+  // Listen for the explicit event to force immediate re-evaluation.
+  useEffect(() => {
+    if (!OneSystemActionInvocationBridge.isSupported()) return undefined;
+    const onVaultUnlock = () => setVaultUnlockRevision((value) => value + 1);
+    window.addEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
+    return () =>
+      window.removeEventListener(VAULT_UNLOCK_EVENT, onVaultUnlock);
+  }, []);
+
   useEffect(() => {
     if (!pending || claimedRef.current) return;
+    const configuredFallback = getKaiActionById(
+      pending.actionId,
+    )?.siri_vault_locked_fallback_action_id;
+    const vaultLockedFallbackActionId =
+      configuredFallback && isOneSystemActionId(configuredFallback)
+        ? configuredFallback
+        : null;
     const state = resolveSiriOneActionHandoffState({
       now: Date.now(),
       expiresAt: pending.expiresAt,
@@ -132,6 +158,7 @@ export function SiriOneActionHandoff(): null {
       runtimeReady: Boolean(runtime?.appRuntimeState),
       tier: runtime?.tier ?? null,
       requiresVault: pending.requiresVault,
+      hasVaultLockedFallback: Boolean(vaultLockedFallbackActionId),
       executorReady: isOneSystemActionExecutorReady(),
     });
     if (state === "expired") {
@@ -147,6 +174,12 @@ export function SiriOneActionHandoff(): null {
       if (waitingStateRef.current !== key) {
         waitingStateRef.current = key;
         logLifecycle(state, pending);
+        if (state === "waiting_for_vault") {
+          void OneSystemActionInvocationBridge.reportProgress({
+            id: pending.id,
+            state,
+          }).catch(() => undefined);
+        }
       }
       if (state === "waiting_for_auth" && pathname !== ROUTES.LOGIN) {
         const search = searchParams?.toString() ?? "";
@@ -163,7 +196,18 @@ export function SiriOneActionHandoff(): null {
       }
       return;
     }
-    if (state !== "dispatch") return;
+    if (state !== "dispatch" && state !== "review_vault") return;
+
+    const invocationToExecute: PendingOneSystemActionInvocation =
+      state === "review_vault" && vaultLockedFallbackActionId
+        ? {
+            ...pending,
+            actionId: vaultLockedFallbackActionId,
+            slots: {},
+            requiresVault: false,
+            confirmedBySystem: false,
+          }
+        : pending;
 
     let cancelled = false;
     void OneSystemActionInvocationBridge.claimInvocation({ id: pending.id })
@@ -174,8 +218,21 @@ export function SiriOneActionHandoff(): null {
           return;
         }
         claimedRef.current = pending.id;
-        logLifecycle("dispatched", pending);
-        const result = await executeOneSystemActionInvocation(pending);
+        logLifecycle(
+          state === "review_vault" ? "vault_review_dispatched" : "dispatched",
+          pending,
+        );
+        const result = await executeOneSystemActionInvocation(invocationToExecute);
+        if (state === "review_vault") {
+          await complete(
+            pending,
+            "blocked",
+            result.status === "succeeded" || result.status === "started"
+              ? "Agent One's Vault is locked. I opened Location Settings for you. Unlock your Vault, then ask me again to pause location sharing."
+              : result.resultSummary,
+          );
+          return;
+        }
         await complete(
           pending,
           normalizeOutcome(result.status),
@@ -202,6 +259,7 @@ export function SiriOneActionHandoff(): null {
     runtime?.tier,
     searchParams,
     user,
+    vaultUnlockRevision,
     visibilityRevision,
   ]);
 

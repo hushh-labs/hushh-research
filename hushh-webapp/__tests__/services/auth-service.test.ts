@@ -150,11 +150,14 @@ import {
 import { HushhAuth } from "@/lib/capacitor";
 import { AuthService } from "@/lib/services/auth-service";
 
-function createIdToken(expiresInSeconds: number): string {
+function createIdToken(
+  expiresInSeconds: number,
+  subject = "test-user",
+): string {
   const header = btoa(JSON.stringify({ alg: "HS256", typ: "JWT" }));
   const payload = btoa(
     JSON.stringify({
-      sub: "test-user",
+      sub: subject,
       exp: Math.floor(Date.now() / 1000) + expiresInSeconds,
     }),
   );
@@ -279,6 +282,38 @@ describe("AuthService native custom-token continuity", () => {
 
     await expect(AuthService.getIdToken()).resolves.toBe(keychainToken);
   });
+
+  it("passes strict force-refresh intent to every live native provider", async () => {
+    const firebaseOutage = Object.assign(new Error("network unavailable"), {
+      code: "auth/network-request-failed",
+    });
+    vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(
+      firebaseOutage,
+    );
+    vi.mocked(HushhAuth.getIdToken).mockResolvedValue({
+      idToken: null,
+    } as any);
+
+    await expect(AuthService.getIdToken(true)).rejects.toBe(firebaseOutage);
+    expect(FirebaseAuthentication.getIdToken).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
+    expect(HushhAuth.getIdToken).toHaveBeenCalledWith({
+      forceRefresh: true,
+    });
+  });
+
+  it("rethrows a terminal native Firebase error without consulting a local fallback", async () => {
+    const deletedUserError = Object.assign(new Error("User was deleted"), {
+      code: "auth/user-not-found",
+    });
+    vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(
+      deletedUserError,
+    );
+
+    await expect(AuthService.getIdToken(true)).rejects.toBe(deletedUserError);
+    expect(HushhAuth.getIdToken).not.toHaveBeenCalled();
+  });
 });
 
 describe("AuthService.getIdTokenWithRetry", () => {
@@ -391,7 +426,7 @@ describe("AuthService.restoreNativeSession", () => {
   });
 
   it("restores a native session from HushhAuth when FirebaseAuthentication has no current user", async () => {
-    const keychainToken = createIdToken(60 * 60);
+    const keychainToken = createIdToken(60 * 60, "ios-apple-user");
     vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({
       user: {
         uid: "ios-apple-user",
@@ -415,8 +450,8 @@ describe("AuthService.restoreNativeSession", () => {
   });
 
   it("uses a live native token provider for restored users instead of a frozen launch token", async () => {
-    const launchToken = createIdToken(60 * 60);
-    const freshToken = createIdToken(2 * 60 * 60);
+    const launchToken = createIdToken(60 * 60, "ios-google-user");
+    const freshToken = createIdToken(2 * 60 * 60, "ios-google-user");
     vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({
       user: {
         uid: "ios-google-user",
@@ -436,6 +471,87 @@ describe("AuthService.restoreNativeSession", () => {
     expect(restoredUser?.uid).toBe("ios-google-user");
     expect(restoredUser?.phoneNumber).toBe("+16505550101");
     await expect(restoredUser?.getIdToken(true)).resolves.toBe(freshToken);
+    expect(FirebaseAuthentication.getIdToken).toHaveBeenNthCalledWith(2, {
+      forceRefresh: true,
+    });
+  });
+
+  it("never returns the launch token when a restored user forces an unavailable refresh", async () => {
+    const launchToken = createIdToken(60 * 60, "ios-cached-user");
+    const refreshError = Object.assign(new Error("native auth offline"), {
+      code: "auth/network-request-failed",
+    });
+    vi.mocked(HushhAuth.getCurrentUser).mockResolvedValue({
+      user: {
+        uid: "ios-cached-user",
+        email: "cached@hushh.ai",
+        displayName: "Cached",
+        photoUrl: "",
+        emailVerified: true,
+      },
+    } as any);
+    vi.mocked(HushhAuth.getIdToken)
+      .mockResolvedValueOnce({ idToken: launchToken } as any)
+      .mockRejectedValueOnce(refreshError);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(
+      refreshError,
+    );
+
+    const restoredUser = await AuthService.restoreNativeSession();
+
+    expect(restoredUser?.uid).toBe("ios-cached-user");
+    await expect(restoredUser?.getIdToken(true)).rejects.toBe(refreshError);
+    expect(HushhAuth.getIdToken).toHaveBeenLastCalledWith({
+      forceRefresh: true,
+    });
+  });
+
+  it("never validates a restored native user with another UID's token", async () => {
+    const otherUsersToken = createIdToken(60 * 60, "other-user");
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({
+      user: {
+        uid: "restored-user",
+        email: "restored@example.test",
+        displayName: "Restored",
+        photoUrl: "",
+        emailVerified: true,
+      },
+    } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockResolvedValue({
+      token: otherUsersToken,
+    } as any);
+
+    const restoredUser = await AuthService.restoreNativeSession();
+
+    expect(restoredUser?.uid).toBe("restored-user");
+    await expect(restoredUser?.getIdToken(true)).rejects.toMatchObject({
+      code: "auth/invalid-user-token",
+      userId: "restored-user",
+    });
+  });
+
+  it("propagates a typed terminal cold-restore failure with its UID", async () => {
+    const terminalError = Object.assign(new Error("user missing"), {
+      code: "auth/user-not-found",
+    });
+    vi.mocked(FirebaseAuthentication.getCurrentUser).mockResolvedValue({
+      user: {
+        uid: "deleted-native-user",
+        email: "deleted@example.test",
+        displayName: "Deleted",
+        photoUrl: "",
+        emailVerified: true,
+      },
+    } as any);
+    vi.mocked(FirebaseAuthentication.getIdToken).mockRejectedValue(
+      terminalError,
+    );
+
+    await expect(AuthService.restoreNativeSession()).rejects.toMatchObject({
+      userId: "deleted-native-user",
+      cause: terminalError,
+    });
+    expect(HushhAuth.getCurrentUser).not.toHaveBeenCalled();
   });
 
   it("does not restore a cached native user when the fallback token is missing or stale", async () => {

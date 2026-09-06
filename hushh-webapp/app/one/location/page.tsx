@@ -3,6 +3,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -75,7 +76,6 @@ import {
 import { PreVaultSensitiveDraftService } from "@/lib/services/pre-vault-sensitive-draft-service";
 import { GOOGLE_MAPS_RENDERER_CONSENT_VERSION } from "@/lib/one-location/map-renderer-consent";
 
-import { useConsentNotificationState } from "@/components/consent/notification-provider";
 import {
   useLocalOnboardingActionHandler,
   type LocalOnboardingActionResult,
@@ -134,6 +134,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
 
 import { HushhContacts } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
+import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import {
   googleContactsAvailability,
   googlePeopleContactSource,
@@ -143,6 +144,9 @@ import {
   preloadGoogleContactsAuth,
   requestGoogleContactsToken,
 } from "@/lib/contacts/google-contacts-token";
+import { resolveContactSourceProbeFailure } from "@/lib/contacts/contact-source-availability";
+import { createContactSyncAccountPhoneResolver } from "@/lib/contacts/contact-sync-identity";
+import { useContactDiscoverabilityConsent } from "@/lib/contacts/use-contact-discoverability-consent";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
@@ -859,7 +863,7 @@ type OneLocationDurationBucket =
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
-type OneLocationOnboardingStep = "welcome" | "permissions";
+type OneLocationOnboardingStep = "welcome" | "features" | "place" | "ready";
 type OneLocationOnboardingGate = "checking" | "show" | "hidden";
 type OneLocationNativeTestConfig = ComponentProps<typeof NativeTestBeacon>;
 type OneLocationBackoffBucket =
@@ -2432,11 +2436,33 @@ export function OneLocationAgentPageContent({
     }
   }, [router, searchParams]);
   const auth = useRequireAuth();
+  // The backend identity is authoritative for UAT/native phone verification.
+  // Firebase's User object can remain phone-less even after AuthContext has
+  // hydrated the verified number, so contact normalization must use both.
+  const accountPhoneNumber = auth.phoneNumber ?? auth.user?.phoneNumber ?? null;
+  const contactSyncUserId = auth.userId ?? auth.user?.uid ?? null;
+  const contactSyncIdentityRef = useRef({
+    userId: contactSyncUserId,
+    accountPhoneNumber,
+  });
+  useLayoutEffect(() => {
+    contactSyncIdentityRef.current = {
+      userId: contactSyncUserId,
+      accountPhoneNumber,
+    };
+  }, [accountPhoneNumber, contactSyncUserId]);
+  const resolveContactPrivacyIdToken = useCallback(
+    async () => auth.user?.getIdToken() ?? null,
+    [auth.user],
+  );
   const {
-    deliveryMode: notificationDeliveryMode,
-    retryPushRegistration,
-    isRetryingPushRegistration,
-  } = useConsentNotificationState();
+    requestContactCheck,
+    dialogProps: contactDiscoverabilityConsentDialogProps,
+  } = useContactDiscoverabilityConsent({
+    userId: contactSyncUserId,
+    getIdToken: auth.user ? resolveContactPrivacyIdToken : null,
+    actionLabel: "Find contacts",
+  });
   const { vaultOwnerToken, vaultKey } = useVault();
   const pendingCircleInviteToken = useMemo(
     () => String(searchParams.get("circleInviteToken") || "").trim(),
@@ -2606,7 +2632,6 @@ export function OneLocationAgentPageContent({
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   // Saved-place prompt shown once per mounted journey after Location is ready.
   // Active root-setup replay deliberately gets a fresh opportunity.
-  const [saveLocationModalOpen, setSaveLocationModalOpen] = useState(false);
   const [saveLocationPoint, setSaveLocationPoint] =
     useState<PlainLocationPoint | null>(null);
   /**
@@ -2642,7 +2667,6 @@ export function OneLocationAgentPageContent({
   const savedLocationSessionEpochRef = useRef(0);
   const savedLocationPointUserIdRef = useRef<string | null>(null);
   const locationOnboardingRetryOnResumeRef = useRef(false);
-  const notificationOnboardingAttemptRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -2667,8 +2691,6 @@ export function OneLocationAgentPageContent({
     };
   }, [auth.userId, vaultOwnerToken]);
 
-  const notificationOnboardingObservedBusyRef = useRef(false);
-  const notificationOnboardingRetryOnFocusRef = useRef(false);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [activeMode, setActiveMode] = useState<ShareMode>("share");
   const locationTab = normalizeLocationTab(
@@ -2723,7 +2745,20 @@ export function OneLocationAgentPageContent({
     useState<OneLocationContactSignalState>(INITIAL_CONTACT_SIGNAL_STATE);
   const [contactSyncResult, setContactSyncResult] =
     useState<OneLocationContactSignalResult | null>(null);
+  const [onboardingContactResult, setOnboardingContactResult] =
+    useState<OnboardingContactSyncResult | null>(null);
   const [contactSyncResultsOpen, setContactSyncResultsOpen] = useState(false);
+  const contactResultOwnerUserIdRef = useRef(contactSyncUserId);
+  useLayoutEffect(() => {
+    if (contactResultOwnerUserIdRef.current === contactSyncUserId) return;
+    contactResultOwnerUserIdRef.current = contactSyncUserId;
+    // Results include local address-book names and must never survive an
+    // in-place auth account replacement.
+    setContactSyncResult(null);
+    setOnboardingContactResult(null);
+    setContactSyncResultsOpen(false);
+    setContactSignal(INITIAL_CONTACT_SIGNAL_STATE);
+  }, [contactSyncUserId]);
   const [activityRange, setActivityRange] =
     useState<OneLocationActivityRange>("30d");
   const [activitySnapshot, setActivitySnapshot] =
@@ -2854,7 +2889,6 @@ export function OneLocationAgentPageContent({
     savedLocationPromptedRef.current = false;
     savedLocationPromptInFlightRef.current = null;
     savedLocationPointUserIdRef.current = null;
-    setSaveLocationModalOpen(false);
     setSaveLocationPoint(null);
     // The one place the finale's point IS cleared. A coordinate belongs to the
     // account that produced it, and must never be inherited across a switch.
@@ -6554,6 +6588,40 @@ export function OneLocationAgentPageContent({
     [activeOwnerGrants, liveShareStatus?.stoppableGrantId],
   );
 
+  /**
+   * Publish one authoritative duration mutation, then reconcile from a read
+   * that is guaranteed to have started after it.
+   *
+   * Both the visible editor and the governed voice action reach the same API.
+   * Keeping the cache fence here prevents either caller from joining a state
+   * refresh that began before the PATCH and repainting the old duration.
+   */
+  const reconcileGrantDurationMutation = useCallback(
+    (updatedGrant: OneLocationGrant) => {
+      const activeUserId = auth.userId;
+      if (!activeUserId) {
+        void refresh({ background: true }).catch(() => null);
+        return;
+      }
+
+      const priorRefresh = refreshInFlightRef.current;
+      const merged = updatedGrant?.id
+        ? OneLocationStateResource.mergeOwnerGrant(
+            activeUserId,
+            updatedGrant,
+            state ?? undefined,
+          )
+        : false;
+      if (!merged) OneLocationStateResource.invalidate(activeUserId);
+
+      void (async () => {
+        if (priorRefresh) await priorRefresh;
+        await refresh({ background: true });
+      })().catch(() => null);
+    },
+    [auth.userId, refresh, state],
+  );
+
   const handleSaveLiveShareDuration = useCallback(async () => {
     const grantId = liveShareDurationGrantId ?? liveShareStatus?.stoppableGrantId;
     if (!vaultOwnerToken || !grantId) return;
@@ -6580,18 +6648,16 @@ export function OneLocationAgentPageContent({
 
     setLiveShareDurationSaving(true);
     try {
-      await OneLocationService.setGrantDuration({
+      const updatedGrant = await OneLocationService.setGrantDuration({
         vaultOwnerToken,
         grantId,
         durationHours,
         durationMode: untilStopped ? "until_stopped" : "timed",
       });
+      reconcileGrantDurationMutation(updatedGrant);
       toast.success("Time updated.");
       setLiveShareDurationEditing(false);
       setLiveShareDurationGrantId(null);
-      // Held until the list has reconciled, so the card's countdown is already
-      // reading the new expiry when the editor closes.
-      await refresh({ background: true }).catch(() => null);
     } catch (error) {
       toast.error(
         error instanceof Error
@@ -6606,7 +6672,7 @@ export function OneLocationAgentPageContent({
     liveShareDurationGrantId,
     liveShareDurationHours,
     liveShareStatus?.stoppableGrantId,
-    refresh,
+    reconcileGrantDurationMutation,
     vaultOwnerToken,
   ]);
 
@@ -6683,6 +6749,7 @@ export function OneLocationAgentPageContent({
    */
   const [awaitingContactSettings, setAwaitingContactSettings] = useState(false);
   const awaitingContactSettingsRef = useRef(false);
+  const contactSettingsResumeRef = useRef<(() => void) | null>(null);
   const markAwaitingContactSettings = useCallback((next: boolean) => {
     awaitingContactSettingsRef.current = next;
     setAwaitingContactSettings(next);
@@ -6693,18 +6760,19 @@ export function OneLocationAgentPageContent({
    * launched -- a browser, or an OS that refused -- and watching for a return
    * from a place nobody went to would leave the watcher armed for the session.
    */
-  const openContactSettingsAndWatch = useCallback(async () => {
-    const opened = await openContactPermissionSettings();
-    if (!opened) return;
-    markAwaitingContactSettings(true);
-    // Said before they leave, because after they leave there is no surface of
-    // ours to say it on -- the part the report singled out as what other apps
-    // do: "settings mein desired operation enable/disable karne ke baad entry
-    // ka path bhi dete hain".
-    toast.info(
-      "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
-    );
-  }, [markAwaitingContactSettings]);
+  const openContactSettingsAndWatch = useCallback(
+    async (resume?: () => void) => {
+      const opened = await openContactPermissionSettings();
+      if (!opened) return;
+      contactSettingsResumeRef.current = resume ?? null;
+      markAwaitingContactSettings(true);
+      // Name the switch and the way back before handing off to the OS.
+      toast.info(
+        "Turn on Contacts for Hushh, then come back — we'll pick up where you left off.",
+      );
+    },
+    [markAwaitingContactSettings],
+  );
 
   /**
    * `limited` counts. iOS limited access is a real grant over a hand-picked
@@ -6725,7 +6793,10 @@ export function OneLocationAgentPageContent({
     // Resume the work, not just the permission. The trip was never about the
     // switch -- it was about syncing contacts.
     toast.success("Contact access is on. Syncing…");
-    void handleSyncContactSignalRef.current?.();
+    const resume = contactSettingsResumeRef.current;
+    contactSettingsResumeRef.current = null;
+    if (resume) resume();
+    else void handleSyncContactSignalRef.current?.();
   }, [markAwaitingContactSettings]);
 
   useSettingsReturn({
@@ -6767,11 +6838,13 @@ export function OneLocationAgentPageContent({
       })
       .catch(() => {
         if (cancelled) return;
-        // No device plugin is still usable when the web-only Google source is
-        // configured. Native never reports Google as connectable.
-        setGoogleContactsFallback(googleConfigured);
-        setContactsStepAvailable(googleConfigured);
-        preloadGoogleFallback();
+        const fallback = resolveContactSourceProbeFailure({
+          native: !isWeb(),
+          googleConfigured,
+        });
+        setGoogleContactsFallback(fallback.googleFallback);
+        setContactsStepAvailable(fallback.available);
+        if (fallback.googleFallback) preloadGoogleFallback();
       });
     return () => {
       cancelled = true;
@@ -6780,6 +6853,7 @@ export function OneLocationAgentPageContent({
 
   const handleSyncOnboardingContacts =
     useCallback(async (): Promise<OnboardingContactSyncResult> => {
+      if (contactSyncInFlightRef.current) return { status: "cancelled" };
       if (!auth.user?.getIdToken) {
         return {
           status: "failed",
@@ -6787,6 +6861,29 @@ export function OneLocationAgentPageContent({
           canOpenSettings: false,
         };
       }
+      if (!requestContactCheck()) {
+        // The page owns the consent dialog. Return onboarding to its idle
+        // state and require the fresh Find contacts tap that browser/native
+        // contact pickers depend on after a preference is recorded.
+        return { status: "cancelled" };
+      }
+      const initiatingUserId = contactSyncUserId;
+      const publishResult = (result: OnboardingContactSyncResult) => {
+        if (contactSyncIdentityRef.current.userId === initiatingUserId) {
+          setOnboardingContactResult(result);
+        }
+        return result;
+      };
+      const resolveLatestAccountPhoneNumber =
+        createContactSyncAccountPhoneResolver({
+          initiatingUserId,
+          getCurrentIdentity: () => contactSyncIdentityRef.current,
+          hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
+        });
+      // The inline action, named sheet, Settings return, and hub share one
+      // mutation guard even when Finish unmounts the onboarding component.
+      contactSyncInFlightRef.current = true;
+      setBusy("contactSync");
       try {
         let googleSource: MarketplaceContactSource | undefined;
         if (googleContactsFallback) {
@@ -6805,30 +6902,26 @@ export function OneLocationAgentPageContent({
           }
         }
 
-        const idToken = await auth.user.getIdToken();
-        if (!idToken) {
-          return {
-            status: "failed",
-            message: "Sign in to check your contacts.",
-            canOpenSettings: false,
-          };
-        }
         const result = await syncOneLocationContactSignals({
-          idToken,
+          // Read the picker/source before Firebase or backend identity can
+          // consume the browser tap's transient activation.
+          resolveIdToken: () => auth.user!.getIdToken(),
           ...(googleSource ? { source: googleSource } : {}),
-          accountPhoneNumber: auth.user?.phoneNumber,
+          accountPhoneNumber,
+          resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
         });
+        await resolveLatestAccountPhoneNumber();
+        // The canonical result survives onboarding navigation (including a
+        // Finish tap while the scan is pending) and renders the same named
+        // report used by Connect and the Location hub.
+        setContactSyncResult(result);
+        setContactSyncResultsOpen(true);
+        const outcome = describeContactSyncOutcome(result);
         const matches = result.matches
           .map((match) => ({
             userId: match.userId,
             displayName: match.displayName || "Hushh user",
-            connectionStatus:
-              match.outcome === "auto_connected" ||
-              match.outcome === "already_connected"
-                ? ("connected" as const)
-                : match.outcome === "request_required"
-                  ? ("request_required" as const)
-                  : ("suppressed" as const),
+            connectionStatus: match.outcome,
           }))
           .filter((match) => match.userId && match.userId !== auth.userId);
         if (
@@ -6853,18 +6946,31 @@ export function OneLocationAgentPageContent({
           partial_access: result.limited,
           truncated: result.truncated,
         });
-        if (matches.length > 0) return { status: "matched", matches };
+        if (matches.length > 0) {
+          return publishResult({
+            status: "matched",
+            matches,
+            partial: result.partial,
+            ...(result.partial || result.mutationOutcomeUnknown
+              ? { summary: outcome.description }
+              : {}),
+          });
+        }
         if (result.mutationOutcomeUnknown) {
-          return {
+          return publishResult({
             status: "failed",
             message:
               "Some contact results need confirmation. Your connections were refreshed; try contact sync again.",
             canOpenSettings: false,
-          };
+          });
         }
         // A partial read is not proof that nobody matched -- the web picker and
         // iOS limited access only ever return a hand-picked subset.
-        return { status: "none", partial: result.partial };
+        return publishResult({
+          status: "none",
+          partial: result.partial,
+          ...(result.partial ? { summary: outcome.description } : {}),
+        });
       } catch (error) {
         const failure =
           error instanceof OneLocationContactSyncError
@@ -6879,7 +6985,7 @@ export function OneLocationAgentPageContent({
                 "We couldn't check your contacts. You can try again later.",
               )
             : null;
-        return {
+        return publishResult({
           status: "failed",
           message:
             directMessage ??
@@ -6891,13 +6997,20 @@ export function OneLocationAgentPageContent({
                   ? "Reading contacts is not available here. You can add people later from the People tab."
                   : "We couldn't check your contacts. You can try again later."),
           canOpenSettings,
-        };
+        });
+      } finally {
+        contactSyncInFlightRef.current = false;
+        setBusy((current) => (current === "contactSync" ? null : current));
       }
     }, [
+      accountPhoneNumber,
       auth.user,
       auth.userId,
+      auth.resolveVerifiedPhoneNumber,
+      contactSyncUserId,
       googleContactsFallback,
       loadRecipientPage,
+      requestContactCheck,
       recipientSearch,
       refresh,
     ]);
@@ -7004,8 +7117,16 @@ export function OneLocationAgentPageContent({
       toast.error(message);
       return;
     }
+    if (!requestContactCheck()) return;
     if (contactSyncInFlightRef.current) return;
     contactSyncInFlightRef.current = true;
+    const initiatingUserId = contactSyncUserId;
+    const resolveLatestAccountPhoneNumber =
+      createContactSyncAccountPhoneResolver({
+        initiatingUserId,
+        getCurrentIdentity: () => contactSyncIdentityRef.current,
+        hydrateAccountPhoneNumber: auth.resolveVerifiedPhoneNumber,
+      });
 
     try {
       // Google Contacts, only where there is no address book to read.
@@ -7047,14 +7168,17 @@ export function OneLocationAgentPageContent({
         error: null,
       }));
 
-      const idToken = await auth.user.getIdToken();
       const result = await syncOneLocationContactSignals({
-        idToken,
+        // Preserve transient activation for Chrome Android's Contact Picker;
+        // token and phone hydration happen inside the pipeline after reading.
+        resolveIdToken: () => auth.user!.getIdToken(),
         ...(googleSource ? { source: googleSource } : {}),
         // Tells the normalizer which region a bare "9876543210" belongs to.
         // Without it every 10-digit contact was read as North American.
-        accountPhoneNumber: auth.user.phoneNumber,
+        accountPhoneNumber,
+        resolveAccountPhoneNumber: resolveLatestAccountPhoneNumber,
       });
+      await resolveLatestAccountPhoneNumber();
       const nextStatus: OneLocationContactSignalStatus =
         result.matchedUserIds.length > 0 ? "matched" : "empty";
       setContactSyncResult(result);
@@ -7188,13 +7312,17 @@ export function OneLocationAgentPageContent({
       setBusy(null);
     }
   }, [
+    accountPhoneNumber,
     auth.user,
     auth.userId,
+    auth.resolveVerifiedPhoneNumber,
+    contactSyncUserId,
     contactSignal,
     googleContactsFallback,
     handleInviteContactCandidates,
     openContactSettingsAndWatch,
     loadRecipientPage,
+    requestContactCheck,
     recipientSearch,
     refresh,
   ]);
@@ -10279,6 +10407,56 @@ export function OneLocationAgentPageContent({
           };
         }
       }
+      // A recipient name can also be a Circle name -- try any name that still
+      // did not match a person (even after the fresh server-side retry above)
+      // against the user's Circles, and on a match, add that Circle's
+      // location-ready members the same way a tap on the Circle button would
+      // (handleResolveNamedCircleRecipients, "location" purpose -- no phone
+      // requirement, self and key-less members already excluded there).
+      // Appended, never replacing: a person who already matched earlier in
+      // the same turn ("share with Bob and Family") keeps their spot.
+      const stillUnnamed = unresolved.filter(
+        (entry) => entry.kind === "not_found",
+      );
+      const matchedCircleNames: string[] = [];
+      if (stillUnnamed.length > 0 && namedCircles.length > 0) {
+        const remaining: typeof unresolved = unresolved.filter(
+          (entry) => entry.kind !== "not_found",
+        );
+        for (const entry of stillUnnamed) {
+          const { match: circleMatch } = matchCircleByName(
+            namedCircles,
+            entry.spokenText,
+          );
+          if (!circleMatch) {
+            remaining.push(entry);
+            continue;
+          }
+          try {
+            const selection = await handleResolveNamedCircleRecipients(
+              circleMatch.id,
+              "location",
+            );
+            if (!selection.ready.length) {
+              remaining.push(entry);
+              continue;
+            }
+            matchedCircleNames.push(selection.circle.name);
+            for (const target of selection.ready) {
+              if (
+                !resolved.some(
+                  (existing) => existing.userId === target.recipient.userId,
+                )
+              ) {
+                resolved = [...resolved, target.recipient];
+              }
+            }
+          } catch {
+            remaining.push(entry);
+          }
+        }
+        unresolved = remaining;
+      }
       if (resolved.length === 0) {
         // Never guess between people. Two colleagues sharing a first name is
         // ordinary, and picking the wrong one here is not recoverable once the
@@ -10728,13 +10906,13 @@ export function OneLocationAgentPageContent({
       const grant = resolved.match;
       const untilStopped = requested === SHARE_DURATION_UNTIL_STOP_VALUE;
       try {
-        await OneLocationService.setGrantDuration({
+        const updatedGrant = await OneLocationService.setGrantDuration({
           vaultOwnerToken,
           grantId: grant.id,
           durationHours: untilStopped ? null : Number(requested),
           durationMode: untilStopped ? "until_stopped" : "timed",
         });
-        void refresh({ background: true }).catch(() => null);
+        reconcileGrantDurationMutation(updatedGrant);
       } catch (error) {
         return {
           status: "blocked" as const,
@@ -10865,6 +11043,49 @@ export function OneLocationAgentPageContent({
               "Location is still loading your connections. Please try that name again in a moment.",
           };
         }
+      }
+      // A named Circle asks every location-ready member the same way naming
+      // one asks that one person -- see location.select_share_recipient's own
+      // Circle fallback just above, which this mirrors exactly.
+      const stillUnnamedToAsk = unresolved.filter(
+        (entry) => entry.kind === "not_found",
+      );
+      if (stillUnnamedToAsk.length > 0 && namedCircles.length > 0) {
+        const remaining: typeof unresolved = unresolved.filter(
+          (entry) => entry.kind !== "not_found",
+        );
+        for (const entry of stillUnnamedToAsk) {
+          const { match: circleMatch } = matchCircleByName(
+            namedCircles,
+            entry.spokenText,
+          );
+          if (!circleMatch) {
+            remaining.push(entry);
+            continue;
+          }
+          try {
+            const selection = await handleResolveNamedCircleRecipients(
+              circleMatch.id,
+              "location",
+            );
+            if (!selection.ready.length) {
+              remaining.push(entry);
+              continue;
+            }
+            for (const target of selection.ready) {
+              if (
+                !resolved.some(
+                  (existing) => existing.userId === target.recipient.userId,
+                )
+              ) {
+                resolved = [...resolved, target.recipient];
+              }
+            }
+          } catch {
+            remaining.push(entry);
+          }
+        }
+        unresolved = remaining;
       }
       if (resolved.length === 0) {
         const ambiguous = unresolved.find(
@@ -12567,7 +12788,6 @@ export function OneLocationAgentPageContent({
         setOnboardingConfirmedPoint(point);
         setSaveLocationAddress(null);
         setSaveLocationAddressLoading(true);
-        setSaveLocationModalOpen(true);
 
         // Resolve friendly copy while the modal remains usable. Exact
         // coordinates are never rendered or written to browser storage.
@@ -12639,15 +12859,27 @@ export function OneLocationAgentPageContent({
        * populating" looked like once it reached the vault.
        */
       addressLine?: string | null,
-    ) => {
+      picked?: PickedLocation,
+    ): Promise<boolean> => {
+      const selectedPoint = picked
+        ? {
+            ...(saveLocationPoint ?? {
+              accuracyM: null,
+              capturedAt: new Date().toISOString(),
+              sourcePlatform: "web" as const,
+            }),
+            latitude: picked.latitude,
+            longitude: picked.longitude,
+          }
+        : saveLocationPoint;
       if (
         !auth.userId ||
         savedLocationSessionUserId !== auth.userId ||
         savedLocationPointUserIdRef.current !== auth.userId ||
-        !saveLocationPoint
+        !selectedPoint
       ) {
         toast.error("Choose a location before continuing.");
-        return;
+        return false;
       }
       const savingUserId = auth.userId;
       const sessionEpoch = savedLocationSessionEpochRef.current;
@@ -12660,8 +12892,8 @@ export function OneLocationAgentPageContent({
         const input = {
           category,
           label,
-          latitude: saveLocationPoint.latitude,
-          longitude: saveLocationPoint.longitude,
+          latitude: selectedPoint.latitude,
+          longitude: selectedPoint.longitude,
           address: details
             ? buildSavedLocationAddress(composedFrom, details)
             : composedFrom,
@@ -12706,7 +12938,7 @@ export function OneLocationAgentPageContent({
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
         ) {
-          return;
+          return false;
         }
         if (typeof window !== "undefined") {
           try {
@@ -12727,27 +12959,28 @@ export function OneLocationAgentPageContent({
           }
         }
         savedLocationAddressResolutionIdRef.current += 1;
-        setSaveLocationModalOpen(false);
-        setSaveLocationPoint(null);
-        setSaveLocationAddress(null);
-        savedLocationPointUserIdRef.current = null;
+        setSaveLocationPoint(selectedPoint);
+        setOnboardingConfirmedPoint(selectedPoint);
+        setLocationOnboardingStep("ready");
         toast.success(
           canPersistNow
             ? "Location saved securely."
             : "Location ready. One will save it after your private vault is set up.",
         );
+        return true;
       } catch (error) {
         if (
           savedLocationSessionEpochRef.current !== sessionEpoch ||
           savedLocationSessionUserId !== savingUserId
         ) {
-          return;
+          return false;
         }
         toast.error(
           error instanceof DuplicateSavedLocationError
             ? error.message
             : "Could not save this location. Please try again.",
         );
+        return false;
       } finally {
         if (
           savedLocationSessionEpochRef.current === sessionEpoch &&
@@ -12768,9 +13001,6 @@ export function OneLocationAgentPageContent({
   );
 
   const handleSkipSaveOnboardingLocation = useCallback(() => {
-    // Dismissing the saved-place picker must stay reversible during onboarding.
-    // Going back and continuing again should offer the picker again.
-    savedLocationPromptedRef.current = false;
     if (auth.userId) {
       PreVaultSensitiveDraftService.clearSavedLocation(auth.userId);
     }
@@ -12794,11 +13024,8 @@ export function OneLocationAgentPageContent({
       }
     }
     savedLocationAddressResolutionIdRef.current += 1;
-    setSaveLocationModalOpen(false);
-    setSaveLocationPoint(null);
-    setSaveLocationAddress(null);
     setSaveLocationAddressLoading(false);
-    savedLocationPointUserIdRef.current = null;
+    setLocationOnboardingStep("ready");
   }, [auth.userId]);
 
   const searchOnboardingSavedPlaces = useCallback(
@@ -12973,77 +13200,83 @@ export function OneLocationAgentPageContent({
     [vaultOwnerToken],
   );
 
-  const handleLocationOnboardingPermission = useCallback(async () => {
-    if (locationOnboardingBusy) return;
-    setLocationOnboardingBusy(true);
-    try {
-      if (isLocationServicesDisabled(permission)) {
-        await openLocationSettingsForOnboarding();
-        return;
-      }
-
-      if (permission?.state === "restricted") {
-        await openAppSettingsForOnboarding();
-        return;
-      }
-
-      if (permission?.state === "granted") {
-        const refreshedPermission = await refreshLocationPermission();
-        if (isLocationServicesDisabled(refreshedPermission)) {
+  const handleLocationOnboardingPermission =
+    useCallback(async (): Promise<boolean> => {
+      if (locationOnboardingBusy) return false;
+      setLocationOnboardingBusy(true);
+      try {
+        if (isLocationServicesDisabled(permission)) {
           await openLocationSettingsForOnboarding();
-          return;
+          return false;
         }
+
         if (
-          refreshedPermission?.state === "denied" ||
-          refreshedPermission?.state === "restricted"
+          permission?.state === "restricted" ||
+          permission?.state === "denied"
         ) {
           await openAppSettingsForOnboarding();
-          return;
+          return false;
         }
-        toast.success("Location access is on.");
-        return;
-      }
 
-      const requestedPermission =
-        await OneLocationService.requestLocationPermission();
-      setPermission(requestedPermission);
+        if (permission?.state === "granted") {
+          const refreshedPermission = await refreshLocationPermission();
+          if (isLocationServicesDisabled(refreshedPermission)) {
+            await openLocationSettingsForOnboarding();
+            return false;
+          }
+          if (
+            refreshedPermission?.state === "denied" ||
+            refreshedPermission?.state === "restricted"
+          ) {
+            await openAppSettingsForOnboarding();
+            return false;
+          }
+          toast.success("Location access is on.");
+          return true;
+        }
 
-      if (
-        requestedPermission.locationServicesEnabled === false ||
-        (requestedPermission.state === "unavailable" &&
-          requestedPermission.precise !== false)
-      ) {
-        await openLocationSettingsForOnboarding();
-        return;
-      }
+        const requestedPermission =
+          await OneLocationService.requestLocationPermission();
+        setPermission(requestedPermission);
 
-      if (
-        requestedPermission.state !== "granted" &&
-        !(await OneLocationService.captureCurrentPosition()
-          .then(() => true)
-          .catch(() => false))
-      ) {
-        await openAppSettingsForOnboarding();
-        return;
-      }
+        if (
+          requestedPermission.locationServicesEnabled === false ||
+          (requestedPermission.state === "unavailable" &&
+            requestedPermission.precise !== false)
+        ) {
+          await openLocationSettingsForOnboarding();
+          return false;
+        }
 
-      if (isLocationServicesDisabled(requestedPermission)) {
-        await openLocationSettingsForOnboarding();
-        return;
+        if (
+          requestedPermission.state !== "granted" &&
+          !(await OneLocationService.captureCurrentPosition()
+            .then(() => true)
+            .catch(() => false))
+        ) {
+          await openAppSettingsForOnboarding();
+          return false;
+        }
+
+        if (isLocationServicesDisabled(requestedPermission)) {
+          await openLocationSettingsForOnboarding();
+          return false;
+        }
+        toast.success("Location access enabled.");
+        return true;
+      } catch (error) {
+        toast.error(locationServicesErrorMessage(error));
+        return false;
+      } finally {
+        setLocationOnboardingBusy(false);
       }
-      toast.success("Location access enabled.");
-    } catch (error) {
-      toast.error(locationServicesErrorMessage(error));
-    } finally {
-      setLocationOnboardingBusy(false);
-    }
-  }, [
-    locationOnboardingBusy,
-    openAppSettingsForOnboarding,
-    openLocationSettingsForOnboarding,
-    permission,
-    refreshLocationPermission,
-  ]);
+    }, [
+      locationOnboardingBusy,
+      openAppSettingsForOnboarding,
+      openLocationSettingsForOnboarding,
+      permission,
+      refreshLocationPermission,
+    ]);
 
   useEffect(() => {
     // Onboarding's own retry, unchanged: it owns the flag and the ordering that
@@ -13092,80 +13325,6 @@ export function OneLocationAgentPageContent({
     };
   }, [refreshLocationPermission]);
 
-  useEffect(() => {
-    if (!notificationOnboardingAttemptRef.current) return;
-    if (isRetryingPushRegistration) {
-      notificationOnboardingObservedBusyRef.current = true;
-      return;
-    }
-    if (!notificationOnboardingObservedBusyRef.current) return;
-
-    notificationOnboardingAttemptRef.current = false;
-    notificationOnboardingObservedBusyRef.current = false;
-    if (notificationDeliveryMode === "push_active") {
-      toast.success("Notifications enabled.");
-      return;
-    }
-    if (notificationDeliveryMode === "push_blocked") {
-      toast.error(
-        "Notifications are still blocked. Allow them in Settings and try again.",
-      );
-      return;
-    }
-    toast.info(
-      "Push notifications could not be enabled. Updates will still appear in One.",
-    );
-  }, [isRetryingPushRegistration, notificationDeliveryMode]);
-
-  useEffect(() => {
-    const retryAfterSettings = () => {
-      if (
-        !notificationOnboardingRetryOnFocusRef.current ||
-        document.visibilityState === "hidden"
-      ) {
-        return;
-      }
-      notificationOnboardingRetryOnFocusRef.current = false;
-      notificationOnboardingAttemptRef.current = true;
-      notificationOnboardingObservedBusyRef.current = false;
-      retryPushRegistration();
-    };
-
-    window.addEventListener("focus", retryAfterSettings);
-    document.addEventListener("visibilitychange", retryAfterSettings);
-    return () => {
-      window.removeEventListener("focus", retryAfterSettings);
-      document.removeEventListener("visibilitychange", retryAfterSettings);
-    };
-  }, [retryPushRegistration]);
-
-  const handleLocationOnboardingNotifications = useCallback(async () => {
-    if (notificationDeliveryMode === "push_active") {
-      toast.success("Notifications are on.");
-      return;
-    }
-    if (notificationDeliveryMode === "push_blocked") {
-      notificationOnboardingRetryOnFocusRef.current = true;
-      const result = await OneLocationService.openAppSettings().catch(() => ({
-        opened: false,
-        sourcePlatform: "web" as const,
-      }));
-      if (!result.opened) {
-        notificationOnboardingRetryOnFocusRef.current = false;
-      }
-      toast.info(
-        result.opened
-          ? "Allow notifications in Settings, then return to One."
-          : "Allow notifications in your browser or device settings, then try again.",
-      );
-      return;
-    }
-
-    notificationOnboardingAttemptRef.current = true;
-    notificationOnboardingObservedBusyRef.current = false;
-    retryPushRegistration();
-  }, [notificationDeliveryMode, retryPushRegistration]);
-
   const nativeTestConfig: OneLocationNativeTestConfig = {
     routeId:
       surface === "map"
@@ -13209,15 +13368,17 @@ export function OneLocationAgentPageContent({
       <BodyPortal>
         <OneLocationOnboardingExperience
           key={auth.userId}
-          startAt={locationOnboardingStep}
+          startAt={
+            locationOnboardingStep === "welcome" ? "welcome" : "permissions"
+          }
+          activeScreen={locationOnboardingStep}
+          onScreenChange={setLocationOnboardingStep}
           currentUserName={
             String(
               auth.user?.displayName || auth.user?.email || "You",
             ).trim() || "You"
           }
           locationPermission={permission}
-          notificationDeliveryMode={notificationDeliveryMode}
-          notificationBusy={isRetryingPushRegistration}
           locationBusy={locationOnboardingBusy}
           nativeTest={nativeTestConfig}
           // Setup hands back to the wizard to finish the remaining capabilities;
@@ -13229,11 +13390,9 @@ export function OneLocationAgentPageContent({
           // is ready. Root setup stages the confirmed draft in memory; an
           // unlocked workspace persists it immediately.
           onLocationReady={promptSaveLocationDuringOnboarding}
-          onRequestNotifications={handleLocationOnboardingNotifications}
           onBack={handleOnboardingBack}
           onComplete={dismissLocationOnboarding}
           onSkip={skipLocationOnboarding}
-          requireLocationToComplete={mode === "setup"}
           // Always passed. This used to be withheld without a vault, which made
           // the flow drop the invite screen entirely -- hiding it from exactly
           // the first-run people onboarding exists for. The handler now falls
@@ -13257,17 +13416,37 @@ export function OneLocationAgentPageContent({
           onPreviewCircleCode={handlePreviewCircleCode}
           onAcceptCircleCode={handleAcceptCircleCode}
           onSyncOnboardingContacts={handleSyncOnboardingContacts}
+          contactSyncResult={onboardingContactResult}
           onAddOnboardingContact={handleAddOnboardingContact}
-          onOpenContactSettings={() => void openContactSettingsAndWatch()}
+          onOpenContactSettings={(resume) =>
+            void openContactSettingsAndWatch(resume)
+          }
           onPrepareOnboardingCircleInvite={handlePrepareOnboardingCircleInvite}
           onCopyOnboardingCircleCode={handleCopyNamedCircleCode}
           onShareOnboardingCircleCode={handleShareOnboardingCircleInvite}
+        />
+        <ContactDiscoverabilityConsentDialog
+          {...contactDiscoverabilityConsentDialogProps}
+        />
+        <ContactSyncResultsSheet
+          takeover
+          open={contactSyncResultsOpen}
+          onOpenChange={setContactSyncResultsOpen}
+          result={contactSyncResult}
+          syncing={busy === "contactSync"}
+          onSyncAgain={async () => {
+            const result = await handleSyncOnboardingContacts();
+            if (result.status === "failed") toast.error(result.message);
+          }}
+          onInvite={handleInviteContactCandidates}
+          onRequestConnection={handleRequestContactMatch}
         />
 
         <SaveLocationModal
           key={`saved-location-${auth.userId}`}
           open={
-            saveLocationModalOpen && savedLocationSessionUserId === auth.userId
+            locationOnboardingStep === "place" &&
+            savedLocationSessionUserId === auth.userId
           }
           address={saveLocationAddress}
           loadingAddress={saveLocationAddressLoading}
@@ -13299,16 +13478,19 @@ export function OneLocationAgentPageContent({
           // does nothing yet, over a step nobody has finished.
           takeover
           collectAddressDetails
+          unifiedOnboarding
+          onBack={() => setLocationOnboardingStep("features")}
           deferredUntilVault={!vaultKey || !vaultOwnerToken}
           initialAccuracyM={saveLocationPoint?.accuracyM}
           rendererDisclosureAccepted={savedLocationRendererAccepted}
           onAcceptRendererDisclosure={acceptSavedLocationMapRenderer}
-          onSave={(category, label, details, addressLine) =>
-            void handleSaveOnboardingLocation(
+          onSave={(category, label, details, addressLine, picked) =>
+            handleSaveOnboardingLocation(
               category,
               label,
               details,
               addressLine,
+              picked,
             )
           }
           onSkip={handleSkipSaveOnboardingLocation}
@@ -13650,6 +13832,9 @@ export function OneLocationAgentPageContent({
           onSyncAgain={handleSyncContactSignal}
           onInvite={handleInviteContactCandidates}
           onRequestConnection={handleRequestContactMatch}
+        />
+        <ContactDiscoverabilityConsentDialog
+          {...contactDiscoverabilityConsentDialogProps}
         />
       </AppPageShell>
     );

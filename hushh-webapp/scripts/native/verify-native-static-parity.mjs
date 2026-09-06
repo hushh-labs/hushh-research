@@ -6,6 +6,7 @@ import path from "node:path";
 const repoRoot = process.cwd();
 const iosInfoPlistPath = path.join(repoRoot, "ios/App/App/Info.plist");
 const androidManifestPath = path.join(repoRoot, "android/app/src/main/AndroidManifest.xml");
+const androidContactsPluginPath = path.join(repoRoot, "android/app/src/main/java/com/hussh/app/plugins/HushhContacts/HushhContactsPlugin.kt");
 const routesPath = path.join(repoRoot, "lib/navigation/routes.ts");
 const inventoryPath = path.join(repoRoot, "native-route-inventory.json");
 
@@ -142,6 +143,21 @@ if (!androidManifest.includes('android.permission.READ_CONTACTS')) {
 }
 if (androidManifest.includes('android.permission.ACCESS_BACKGROUND_LOCATION')) {
   fail("One Location Agent v1 must not request android.permission.ACCESS_BACKGROUND_LOCATION.");
+}
+const androidContactsPlugin = read(androidContactsPluginPath);
+const androidDeviceRegion = androidContactsPlugin.match(
+  /private fun deviceRegion\(\): String\?[\s\S]*?\n    private fun resolveContacts/,
+)?.[0];
+if (!androidDeviceRegion?.includes("simCountryIso")) {
+  fail("Android contact matching must derive its strongest region from the SIM.");
+}
+if (
+  androidDeviceRegion.includes("networkCountryIso") ||
+  androidDeviceRegion.includes("Locale.getDefault().country")
+) {
+  fail(
+    "Android must not label roaming-network or UI-locale fallbacks as home number-plan evidence; the shared resolver owns fallback after the verified account phone.",
+  );
 }
 const androidMainActivity = androidManifest.match(
   /<activity\b(?=[^>]*android:name="\.MainActivity")[^>]*>/,

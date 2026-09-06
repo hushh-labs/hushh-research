@@ -9,7 +9,8 @@ export type OneLocationShareDurationMode = "timed" | "until_stopped";
 
 export type AutoApproveScope =
   | { kind: "all_contacts" }
-  | { kind: "circle"; circleId: string };
+  | { kind: "circle"; circleId: string }
+  | { kind: "circles"; circleIds: string[] };
 
 export type OneLocationAutoApprovePreference = {
   enabled: boolean;

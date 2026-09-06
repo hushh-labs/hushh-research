@@ -40,6 +40,7 @@ function renderFinale(
 ) {
   const props: React.ComponentProps<typeof OneLocationOnboardingFlow> = {
     startAt: "welcome",
+    activeScreen: "ready",
     currentUserName: "Ankit",
     // "prompt", not "granted": granting sends the features screen into its
     // save-place preparation, which holds Continue busy and never reaches the
@@ -51,8 +52,6 @@ function renderFinale(
       background: "foreground-only",
       locationServicesEnabled: true,
     },
-    notificationDeliveryMode: "inbox_only",
-    notificationBusy: false,
     locationBusy: false,
     nativeTest: {
       routeId: "/one/location",
@@ -60,9 +59,8 @@ function renderFinale(
       authState: "authenticated",
       dataState: "loaded",
     },
-    onRequestLocation: vi.fn().mockResolvedValue(undefined),
+    onRequestLocation: vi.fn().mockResolvedValue(true),
     onLocationReady: vi.fn().mockResolvedValue(true),
-    onRequestNotifications: vi.fn().mockResolvedValue(undefined),
     onBack: vi.fn(),
     onComplete: vi.fn(),
     onSkip: vi.fn(),
@@ -76,11 +74,6 @@ function renderFinale(
   };
 
   render(<OneLocationOnboardingFlow {...props} />);
-
-  // welcome -> features -> contacts -> invite
-  fireEvent.click(screen.getByRole("button", { name: "Get started" }));
-  fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-  fireEvent.click(screen.getByRole("button", { name: "Not now" }));
 
   return props;
 }
@@ -121,7 +114,9 @@ describe("One Location onboarding finale — the map is real", () => {
     expect(screen.getByText("Map unavailable")).toBeTruthy();
 
     // And the headline stops promising a map.
-    expect(screen.getByRole("heading", { name: "You're all set." })).toBeTruthy();
+    expect(
+      screen.getByRole("heading", { name: "You're all set." }),
+    ).toBeTruthy();
     expect(screen.queryByRole("heading", { name: /on the map/ })).toBeNull();
   });
 

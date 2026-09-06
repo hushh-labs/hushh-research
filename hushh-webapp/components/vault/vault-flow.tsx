@@ -19,6 +19,8 @@ import {
   Copy,
   Download,
   Fingerprint,
+  Eye,
+  EyeOff,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -150,7 +152,9 @@ export function VaultFlow({
   const [isRestoringSession, setIsRestoringSession] = useState(false);
   const [checkAttempt, setCheckAttempt] = useState(0);
   const [passphrase, setPassphrase] = useState("");
+  const [showPassphrase, setShowPassphrase] = useState(false);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState<string>("");
   const [recoveryKeyInput, setRecoveryKeyInput] = useState("");
   const [copied, setCopied] = useState(false);
@@ -390,6 +394,7 @@ export function VaultFlow({
         vaultStatePromise.catch(() => undefined);
 
         const hasVault = await VaultService.checkVault(user.uid);
+        if (cancelled) return;
         if (!hasVault) {
           if (!allowVaultCreation) {
             setStep("setup_required");
@@ -409,6 +414,7 @@ export function VaultFlow({
         try {
           setUnlockHint(null);
           const vaultData = await vaultStatePromise;
+          if (cancelled) return;
           const preferPassphraseForAutomation =
             shouldSkipGeneratedVaultUnlockForAutomation();
           const primaryWrapper = VaultService.getPrimaryWrapper(vaultData);
@@ -456,14 +462,13 @@ export function VaultFlow({
             setUnlockWithPassphraseFallback(false);
           }
         } catch (metadataError) {
-          console.warn("Vault mode detection failed, defaulting to passphrase:", metadataError);
-          setVaultMode("passphrase");
-          setAvailableGeneratedMethod(null);
-          setUnlockWithPassphraseFallback(false);
-          setUnlockHint(null);
+          // A failed metadata read is not evidence of a passphrase Vault.
+          // In particular, terminal account errors must never select unlock.
+          throw metadataError;
         }
         setStep("unlock");
       } catch (err) {
+        if (cancelled) return;
         // A Firebase session still restoring is not a Vault failure -- it is
         // evidence we asked before a token existed. Show a transient
         // "restoring" state and retry a bounded number of times instead of
@@ -1043,6 +1048,7 @@ export function VaultFlow({
               >
                 Try again
               </Button>
+              {signOutEscape}
             </div>
           </div>
         </Card>
@@ -1116,7 +1122,7 @@ export function VaultFlow({
                   <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
                   <input
                     id="passphrase"
-                    type="password"
+                    type={showPassphrase ? "text" : "password"}
                     placeholder="Create passphrase"
                     value={passphrase}
                     onChange={(e) => setPassphrase(e.target.value)}
@@ -1124,6 +1130,15 @@ export function VaultFlow({
                     autoComplete="new-password"
                     className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassphrase((prev) => !prev)}
+                    className="shrink-0 p-1 text-foreground/50 transition-colors hover:text-foreground focus:outline-none"
+                    aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                    title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                  >
+                    <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
+                  </button>
                 </div>
               </div>
               <div className="space-y-1.5">
@@ -1142,13 +1157,22 @@ export function VaultFlow({
                   <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
                   <input
                     id="confirm"
-                    type="password"
+                    type={showConfirmPassphrase ? "text" : "password"}
                     placeholder="Confirm passphrase"
                     value={confirmPassphrase}
                     onChange={(e) => setConfirmPassphrase(e.target.value)}
                     autoComplete="new-password"
                     className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowConfirmPassphrase((prev) => !prev)}
+                    className="shrink-0 p-1 text-foreground/50 transition-colors hover:text-foreground focus:outline-none"
+                    aria-label={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
+                    title={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
+                  >
+                    <Icon icon={showConfirmPassphrase ? EyeOff : Eye} size={18} />
+                  </button>
                 </div>
                 {createPassphraseHelperText && (
                   <p className="text-xs font-medium text-destructive" role="status">
@@ -1258,7 +1282,7 @@ export function VaultFlow({
                     <Icon icon={Key} size={18} className="shrink-0 text-foreground/50" />
                     <input
                       id="unlock-passphrase"
-                      type="password"
+                      type={showPassphrase ? "text" : "password"}
                       placeholder="Enter passphrase"
                       aria-label="Vault passphrase"
                       value={passphrase}
@@ -1270,6 +1294,15 @@ export function VaultFlow({
                       autoComplete="current-password"
                       className="min-w-0 flex-1 bg-transparent text-[16px] text-foreground caret-[color:var(--app-accent)] outline-none placeholder:text-foreground/35"
                     />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassphrase((prev) => !prev)}
+                      className="shrink-0 p-1 text-foreground/50 transition-colors hover:text-foreground focus:outline-none"
+                      aria-label={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                      title={showPassphrase ? "Hide passphrase" : "Show passphrase"}
+                    >
+                      <Icon icon={showPassphrase ? EyeOff : Eye} size={18} />
+                    </button>
                   </div>
                 </div>
               )}

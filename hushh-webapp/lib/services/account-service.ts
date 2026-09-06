@@ -1,8 +1,71 @@
 // hushh-webapp/lib/services/account-service.ts
 import { Capacitor } from "@capacitor/core";
 import { HushhAccount } from "@/lib/capacitor";
-import { apiJson } from "./api-client";
+import { ApiError, apiJson } from "./api-client";
 import { trackEvent } from "@/lib/observability/client";
+
+const MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH = 128;
+const MAX_NATIVE_ACCOUNT_ERROR_MESSAGE_LENGTH = 512;
+
+function nativeAccountDeletionApiError(error: unknown): ApiError | null {
+  if (error instanceof ApiError) return error;
+  if (!error || typeof error !== "object") return null;
+
+  try {
+    const bridgeError = error as {
+      message?: unknown;
+      code?: unknown;
+      status?: unknown;
+      data?: unknown;
+    };
+    const data =
+      bridgeError.data &&
+      typeof bridgeError.data === "object" &&
+      !Array.isArray(bridgeError.data)
+        ? (bridgeError.data as Record<string, unknown>)
+        : null;
+    const statusCandidate = data?.status ?? bridgeError.status;
+    if (
+      typeof statusCandidate !== "number" ||
+      !Number.isInteger(statusCandidate) ||
+      statusCandidate < 400 ||
+      statusCandidate > 599
+    ) {
+      return null;
+    }
+
+    const rawCode =
+      typeof bridgeError.code === "string" ? bridgeError.code.trim() : "";
+    const code =
+      rawCode.length > 0 &&
+      rawCode.length <= MAX_NATIVE_ACCOUNT_ERROR_CODE_LENGTH &&
+      /^[A-Z0-9_]+$/.test(rawCode)
+        ? rawCode
+        : null;
+    const rawPayload = data?.payload;
+    const payloadRecord =
+      rawPayload &&
+      typeof rawPayload === "object" &&
+      !Array.isArray(rawPayload)
+        ? (rawPayload as Record<string, unknown>)
+        : {};
+    const payload = code
+      ? { ...payloadRecord, code }
+      : Object.keys(payloadRecord).length > 0
+        ? payloadRecord
+        : undefined;
+    const rawMessage =
+      typeof bridgeError.message === "string"
+        ? bridgeError.message.trim()
+        : "";
+    const message =
+      rawMessage.slice(0, MAX_NATIVE_ACCOUNT_ERROR_MESSAGE_LENGTH) ||
+      `Request failed: ${statusCandidate}`;
+    return new ApiError(message, statusCandidate, payload);
+  } catch {
+    return null;
+  }
+}
 
 export type AccountDeletionTarget = "investor" | "ria" | "both";
 
@@ -78,7 +141,9 @@ export interface AccountEmailAliasVerificationConfirmResponse {
 
 export class AccountServiceImpl {
   /**
-   * Delete the user's account and all associated information.
+   * Delete the user's account and user-owned information.
+   * Required security or regulated evidence follows its separately approved
+   * retention/redaction policy.
    * Requires VAULT_OWNER token (Unlock to Delete).
    * 
    * SECURITY: Token must be passed explicitly from useVault() hook.
@@ -103,10 +168,15 @@ export class AccountServiceImpl {
     try {
       if (Capacitor.isNativePlatform()) {
         // Native: Call Capacitor plugin directly to Python backend
-        const result = await HushhAccount.deleteAccount({
-          authToken: vaultOwnerToken,
-          target,
-        });
+        let result: AccountDeletionResult;
+        try {
+          result = await HushhAccount.deleteAccount({
+            authToken: vaultOwnerToken,
+            target,
+          });
+        } catch (error) {
+          throw nativeAccountDeletionApiError(error) ?? error;
+        }
         trackEvent("account_delete_completed", {
           result: result.success ? "success" : "error",
           status_bucket: result.success ? "2xx" : "5xx",

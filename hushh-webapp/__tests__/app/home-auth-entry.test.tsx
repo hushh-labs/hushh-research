@@ -8,8 +8,11 @@ const mocks = vi.hoisted(() => ({
   getIdTokenWithRetry: vi.fn(),
   user: { uid: "returning_user" } as { uid: string } | null,
   loading: false,
+  sessionVerificationRequired: false,
   phoneNumber: "+15555550100" as string | null,
   search: "",
+  retrySessionVerification: vi.fn(),
+  signOut: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
@@ -22,6 +25,9 @@ vi.mock("@/lib/firebase/auth-context", () => ({
     user: mocks.user,
     loading: mocks.loading,
     phoneNumber: mocks.phoneNumber,
+    sessionVerificationRequired: mocks.sessionVerificationRequired,
+    retrySessionVerification: mocks.retrySessionVerification,
+    signOut: mocks.signOut,
   }),
 }));
 
@@ -52,7 +58,9 @@ vi.mock("@/components/app-ui/hushh-loader", () => ({
   HushhLoader: ({ label }: { label: string }) => <div>{label}</div>,
 }));
 vi.mock("@/lib/morphy-ux/button", () => ({
-  Button: ({ children }: { children: React.ReactNode }) => <button>{children}</button>,
+  Button: ({ children }: { children: React.ReactNode }) => (
+    <button>{children}</button>
+  ),
 }));
 
 import Home from "@/app/page";
@@ -66,7 +74,10 @@ describe("authenticated root entry", () => {
     mocks.user = { uid: "returning_user" };
     mocks.loading = false;
     mocks.phoneNumber = "+15555550100";
+    mocks.sessionVerificationRequired = false;
     mocks.search = "";
+    mocks.retrySessionVerification.mockReset();
+    mocks.signOut.mockReset();
     mocks.getIdToken.mockResolvedValue("redacted-id-token");
     mocks.getIdTokenWithRetry.mockResolvedValue("redacted-id-token");
     mocks.resolveAfterLogin.mockResolvedValue("/one");
@@ -112,14 +123,44 @@ describe("authenticated root entry", () => {
     expect(screen.queryByText(/unable to verify setup progress/i)).toBeNull();
   });
 
-  it("still shows the retry screen when the bounded retry genuinely exhausts (no session, not a race)", async () => {
+  it("uses the secure reconnect recovery when the bounded retry genuinely exhausts", async () => {
     mocks.getIdTokenWithRetry.mockResolvedValue(null);
 
     render(<Home />);
 
     expect(
-      await screen.findByText(/unable to verify setup progress/i),
+      await screen.findByText(/reconnect to continue securely/i),
     ).toBeTruthy();
+    expect(screen.queryByText(/unable to verify setup progress/i)).toBeNull();
+    expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
+  });
+
+  it("holds signed-in routing behind the app-wide session recovery gate", async () => {
+    mocks.sessionVerificationRequired = true;
+
+    render(<Home />);
+
+    expect(
+      await screen.findByText(/reconnect to continue securely/i),
+    ).toBeTruthy();
+    expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
+    screen.getByRole("button", { name: "Try again" }).click();
+    expect(mocks.retrySessionVerification).toHaveBeenCalledTimes(1);
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
+  });
+
+  it("offers recovery when a native cold read cannot identify the account", async () => {
+    mocks.user = null;
+    mocks.sessionVerificationRequired = true;
+    render(<Home />);
+    expect(await screen.findByText(/reconnect to continue securely/i)).toBeTruthy();
+    expect(screen.queryByText("Welcome")).toBeNull();
+    screen.getByRole("button", { name: "Sign out" }).click();
+    expect(mocks.signOut).toHaveBeenCalledTimes(1);
+    expect(mocks.signOut).toHaveBeenCalledWith({ skipFcmCleanup: true });
     expect(mocks.resolveAfterLogin).not.toHaveBeenCalled();
   });
 });

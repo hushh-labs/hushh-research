@@ -1,36 +1,62 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { mockApiJson, mockTrackEvent } = vi.hoisted(() => ({
+const { mockApiJson, mockTrackEvent, mockNativeDeleteAccount, nativePlatform } =
+  vi.hoisted(() => ({
   mockApiJson: vi.fn(),
   mockTrackEvent: vi.fn(),
-}));
+    mockNativeDeleteAccount: vi.fn(),
+    nativePlatform: { current: false },
+  }));
 
 vi.mock("@capacitor/core", () => ({
   Capacitor: {
-    isNativePlatform: () => false,
-    getPlatform: () => "web",
+    isNativePlatform: () => nativePlatform.current,
+    getPlatform: () => (nativePlatform.current ? "ios" : "web"),
   },
 }));
 
 vi.mock("@/lib/capacitor", () => ({
   HushhAccount: {
-    deleteAccount: vi.fn(),
+    deleteAccount: mockNativeDeleteAccount,
   },
 }));
 
-vi.mock("@/lib/services/api-client", () => ({
-  apiJson: mockApiJson,
-}));
+vi.mock("@/lib/services/api-client", () => {
+  class ApiError extends Error {
+    constructor(
+      message: string,
+      readonly status: number,
+      readonly payload?: unknown,
+    ) {
+      super(message);
+      this.name = "ApiError";
+    }
+  }
+  return {
+    ApiError,
+    apiJson: mockApiJson,
+    apiErrorCode: (error: unknown) => {
+      if (!(error instanceof ApiError)) return null;
+      const payload = error.payload as
+        | { code?: unknown; detail?: { code?: unknown } }
+        | undefined;
+      const code = payload?.code ?? payload?.detail?.code;
+      return typeof code === "string" ? code : null;
+    },
+  };
+});
 
 vi.mock("@/lib/observability/client", () => ({
   trackEvent: mockTrackEvent,
 }));
 
+import { ApiError, apiErrorCode } from "@/lib/services/api-client";
 import { AccountService } from "@/lib/services/account-service";
 
 describe("AccountService", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    nativePlatform.current = false;
   });
 
   describe("deleteAccount", () => {
@@ -112,6 +138,35 @@ describe("AccountService", () => {
         })
       );
       expect(result.remaining_personas).toEqual(["ria"]);
+    });
+
+    it("normalizes native bridge rejection data into a typed ApiError", async () => {
+      nativePlatform.current = true;
+      mockNativeDeleteAccount.mockRejectedValueOnce({
+        message: "External resources must be removed first.",
+        code: "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+        data: {
+          status: 409,
+          payload: {
+            detail: {
+              code: "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+            },
+          },
+        },
+      });
+
+      const error = await AccountService.deleteAccount(
+        "vault-token-abc",
+      ).catch((caught: unknown) => caught);
+
+      expect(error).toBeInstanceOf(ApiError);
+      expect(error).toMatchObject({
+        status: 409,
+        message: "External resources must be removed first.",
+      });
+      expect(apiErrorCode(error)).toBe(
+        "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING",
+      );
     });
   });
 

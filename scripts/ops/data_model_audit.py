@@ -11,7 +11,6 @@ from collections import OrderedDict, defaultdict
 from pathlib import Path
 from typing import Any
 
-
 REPO_ROOT = Path(__file__).resolve().parents[2]
 CONTRACT_PATH = REPO_ROOT / "docs/reference/architecture/runtime-db-data-plane-contract.json"
 MIGRATIONS_DIR = REPO_ROOT / "consent-protocol/db/migrations"
@@ -27,6 +26,11 @@ TABLE_EVENT_RE = re.compile(
     r"(?:public\.)?(?P<drop>[a-zA-Z_][\w]*)))",
     re.IGNORECASE,
 )
+DOLLAR_QUOTE_RE = re.compile(r"\$(?:[a-zA-Z_][\w]*)?\$")
+DYNAMIC_SQL_PREFIX_RE = re.compile(
+    r"(?:\bEXECUTE(?:\s+format\s*\()?|\bDO|\bAS)\s*$",
+    re.IGNORECASE,
+)
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
 DB_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
 
@@ -37,6 +41,102 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 def _rel(path: Path) -> str:
     return str(path.relative_to(REPO_ROOT))
+
+
+def _strip_sql_comments_and_literals(sql: str) -> str:
+    """Blank non-code SQL while preserving whitespace and line boundaries.
+
+    The migration inventory is intentionally lightweight, but matching raw file
+    contents treats prose such as ``CREATE TABLE safety net`` and event-tag
+    literals such as ``'CREATE TABLE AS'`` as schema declarations. This scanner
+    understands the PostgreSQL quoting forms used by migrations, including
+    nested block comments and dollar-quoted function bodies. Executed dynamic
+    SQL remains code so migrations that conditionally create tables are still
+    part of the inventory.
+    """
+
+    output: list[str] = []
+    index = 0
+    length = len(sql)
+
+    def blank(character: str) -> str:
+        return "\n" if character == "\n" else " "
+
+    while index < length:
+        if sql.startswith("--", index):
+            while index < length and sql[index] != "\n":
+                output.append(" ")
+                index += 1
+            continue
+
+        if sql.startswith("/*", index):
+            depth = 1
+            output.extend((" ", " "))
+            index += 2
+            while index < length and depth:
+                if sql.startswith("/*", index):
+                    output.extend((" ", " "))
+                    index += 2
+                    depth += 1
+                elif sql.startswith("*/", index):
+                    output.extend((" ", " "))
+                    index += 2
+                    depth -= 1
+                else:
+                    output.append(blank(sql[index]))
+                    index += 1
+            continue
+
+        if sql[index] == "'":
+            preserve_literal = DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            output.append(" ")
+            index += 1
+            literal: list[str] = []
+            while index < length:
+                if sql[index] == "'":
+                    if index + 1 < length and sql[index + 1] == "'":
+                        literal.append("'")
+                        index += 2
+                        continue
+                    index += 1
+                    break
+                if sql[index] == "\\" and index + 1 < length:
+                    literal.append(sql[index + 1])
+                    index += 2
+                    continue
+                literal.append(sql[index])
+                index += 1
+            literal_text = "".join(literal)
+            if preserve_literal:
+                output.extend(_strip_sql_comments_and_literals(literal_text))
+            else:
+                output.extend(blank(character) for character in literal_text)
+            output.append(" ")
+            continue
+
+        dollar_quote = DOLLAR_QUOTE_RE.match(sql, index)
+        if dollar_quote:
+            delimiter = dollar_quote.group(0)
+            preserve_literal = DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            output.extend(" " for _ in delimiter)
+            index = dollar_quote.end()
+            closing_index = sql.find(delimiter, index)
+            content_end = length if closing_index < 0 else closing_index
+            content = sql[index:content_end]
+            if preserve_literal:
+                output.extend(_strip_sql_comments_and_literals(content))
+            else:
+                output.extend(blank(character) for character in content)
+            index = content_end
+            if closing_index >= 0:
+                output.extend(" " for _ in delimiter)
+                index += len(delimiter)
+            continue
+
+        output.append(sql[index])
+        index += 1
+
+    return "".join(output)
 
 
 def _migration_tables() -> OrderedDict[str, list[str]]:
@@ -51,7 +151,9 @@ def _migration_tables() -> OrderedDict[str, list[str]]:
     """
     tables: OrderedDict[str, list[str]] = OrderedDict()
     for migration in sorted(MIGRATIONS_DIR.glob("*.sql")):
-        text = migration.read_text(encoding="utf-8", errors="ignore")
+        text = _strip_sql_comments_and_literals(
+            migration.read_text(encoding="utf-8", errors="ignore")
+        )
         for match in TABLE_EVENT_RE.finditer(text):
             created = match.group("create")
             dropped = match.group("drop")
@@ -232,7 +334,7 @@ ORDER BY pg_total_relation_size(relid) DESC
 LIMIT 25;
 """
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603 - fixed psql argv; shell execution is disabled
             ["psql", database_url, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", "-c", query],
             check=True,
             capture_output=True,

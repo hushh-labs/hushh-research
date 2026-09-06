@@ -15,6 +15,29 @@ import CryptoKit
  */
 @objc(HushhAuthPlugin)
 public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
+    private enum TokenRefreshRejection: String {
+        case userNotFound = "auth/user-not-found"
+        case userDisabled = "auth/user-disabled"
+        case invalidUserToken = "auth/invalid-user-token"
+        case userTokenExpired = "auth/user-token-expired"
+        case networkRequestFailed = "auth/network-request-failed"
+        case internalError = "auth/internal-error"
+
+        var message: String {
+            switch self {
+            case .userNotFound:
+                return "The account no longer exists."
+            case .userDisabled:
+                return "The account has been disabled."
+            case .invalidUserToken, .userTokenExpired:
+                return "The current Firebase session is no longer valid."
+            case .networkRequestFailed:
+                return "Firebase could not be reached to validate the session."
+            case .internalError:
+                return "Firebase could not validate the current session."
+            }
+        }
+    }
     
     // MARK: - CAPBridgedPlugin Protocol
     public let identifier = "HushhAuthPlugin"
@@ -463,13 +486,49 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
     }
     
     // MARK: - Get ID Token
+    private func tokenRefreshRejection(for error: Error) -> TokenRefreshRejection {
+        switch (error as NSError).code {
+        case AuthErrorCode.userNotFound.rawValue:
+            return .userNotFound
+        case AuthErrorCode.userDisabled.rawValue:
+            return .userDisabled
+        case AuthErrorCode.invalidUserToken.rawValue:
+            return .invalidUserToken
+        case AuthErrorCode.userTokenExpired.rawValue:
+            return .userTokenExpired
+        case AuthErrorCode.networkError.rawValue,
+             AuthErrorCode.webNetworkRequestFailed.rawValue:
+            return .networkRequestFailed
+        default:
+            return .internalError
+        }
+    }
+
+    private func rejectForcedTokenRefresh(_ call: CAPPluginCall, error: Error?) {
+        let rejection: TokenRefreshRejection
+        if let error = error {
+            rejection = tokenRefreshRejection(for: error)
+            // Localized SDK details are diagnostic-only; JavaScript receives a
+            // stable code and non-localized message so classification is safe.
+            print("⚠️ [\(TAG)] Firebase token refresh failed [\(rejection.rawValue)]: \(error.localizedDescription)")
+        } else {
+            rejection = .invalidUserToken
+            print("⚠️ [\(TAG)] Firebase token refresh returned no live token")
+        }
+
+        call.reject(rejection.message, rejection.rawValue)
+    }
+
     @objc func getIdToken(_ call: CAPPluginCall) {
+        let forceRefresh = call.getBool("forceRefresh") ?? false
+
         if let user = Auth.auth().currentUser {
-            // Get fresh token from Firebase
-            user.getIDToken { [weak self] token, error in
+            // Firebase owns forced-refresh authority. In that mode, a failed
+            // refresh must not be hidden by the Keychain's unexpired token.
+            user.getIDTokenResult(forcingRefresh: forceRefresh) { [weak self] result, error in
                 guard let self = self else { return }
-                
-                if let token = token {
+
+                if let token = result?.token, !token.isEmpty {
                     self.currentIdToken = token
                     self.keychainSet(token, forKey: "hushh_id_token")
                     self.publishIMessageIdentitySilently(
@@ -480,6 +539,8 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                         firebaseIDToken: token
                     )
                     call.resolve(["idToken": token])
+                } else if forceRefresh {
+                    self.rejectForcedTokenRefresh(call, error: error)
                 } else if let cached = self.freshCachedIdToken() {
                     self.publishIMessageIdentitySilently(
                         uid: user.uid,
@@ -493,6 +554,10 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
                     call.resolve(["idToken": NSNull()])
                 }
             }
+        } else if forceRefresh {
+            // A forced validation request with no live Firebase principal must
+            // be terminal; returning null lets callers resurrect cached state.
+            rejectForcedTokenRefresh(call, error: nil)
         } else if let cached = freshCachedIdToken() {
             call.resolve(["idToken": cached])
         } else {

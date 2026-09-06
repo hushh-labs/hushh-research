@@ -160,8 +160,8 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(
                 HusshOneAppShortcuts.appShortcuts.count,
-                8,
-                "The focused shortcuts use one destination entity instead of mirroring screens."
+                9,
+                "Nine focused shortcuts cover direct capabilities, destinations, and conversation."
             )
         }
         if #available(iOS 26.0, *) {

@@ -76,6 +76,50 @@ const ALLOWED_DELEGATE_AGENT_IDS = [
 ];
 
 describe("kai-action-gateway", () => {
+  it("publishes the bounded Siri catalog and locked-vault review fallback", () => {
+    const direct = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "direct",
+    );
+    const review = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "review_ui",
+    );
+    const conversation = KAI_ACTION_GATEWAY.actions.filter(
+      (action) => action.siri_mode === "conversation_only",
+    );
+
+    expect(direct.map((action) => action.action_id).sort()).toEqual(
+      [
+        "location.create_circle",
+        "location.pause_updates",
+        "location.rename_circle",
+        "location.resume_updates",
+        "location.send_request",
+        "location.share_selected",
+        "location.stop_share",
+      ].sort(),
+    );
+    expect(review).toHaveLength(10);
+    expect(conversation.map((action) => action.action_id)).toEqual([
+      "location.chat.turn",
+    ]);
+    expect(getKaiActionById("location.pause_updates")).toMatchObject({
+      siri_mode: "direct",
+      siri_requires_vault: true,
+      siri_vault_locked_fallback_action_id: "location.open_settings",
+    });
+    expect(getKaiActionById("location.open_settings")).toMatchObject({
+      siri_mode: "review_ui",
+      siri_requires_vault: false,
+    });
+    for (const actionId of [
+      "location.trigger_sos",
+      "location.sos_default",
+      "location.delete_circle",
+    ]) {
+      expect(getKaiActionById(actionId)?.siri_mode).toBe("unsupported");
+    }
+  });
+
   it("does not advertise specialists that lack task-bound authority ingress as wired", () => {
     for (const actionId of ["email.chat.turn", "connections.chat.turn"]) {
       expect(getKaiActionById(actionId)?.execution_target.status).toBe(

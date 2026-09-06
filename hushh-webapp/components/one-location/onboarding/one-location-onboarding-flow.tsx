@@ -12,6 +12,7 @@ import { preconnect, preload } from "react-dom";
 import {
   ArrowLeft,
   Check,
+  ChevronDown,
   Copy,
   Loader2,
   MapPin,
@@ -19,8 +20,13 @@ import {
   UserPlus,
 } from "lucide-react";
 import { NativeTestBeacon } from "@/components/app-ui/native-test-beacon";
+import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
 import { ContactSourceBadge } from "@/components/connections/contact-source-badge";
 import { OnboardingLiveMap } from "@/components/one-location/onboarding/onboarding-live-map";
+import {
+  ONE_LOCATION_ONBOARDING_STEPS,
+  type OneLocationOnboardingScreen,
+} from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   READY_CODE_CLASSNAME,
   READY_MAP_CLASSNAME,
@@ -32,7 +38,6 @@ import { resolveOnboardingFinaleMapPoint } from "@/lib/one-location/onboarding-m
 import { normalizeCircleCode } from "@/lib/one-location/pending-circle-join";
 import { useCurrentLocation } from "@/lib/one-location/use-current-location";
 import { useGoogleMaps } from "@/lib/one-location/use-google-maps";
-import type { ConsentNotificationDeliveryMode } from "@/components/consent/notification-provider";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import locationOnboardingContract from "@/lib/onboarding/one-location-onboarding.contract.json";
 import { trackEvent } from "@/lib/observability/client";
@@ -40,7 +45,7 @@ import { trackLocationFunnelStepCompleted } from "@/lib/observability/growth";
 import { resolveRouteId } from "@/lib/observability/route-map";
 import { cn } from "@/lib/utils";
 
-type OnboardingScreen = "welcome" | "features" | "contacts" | "invite";
+type OnboardingScreen = OneLocationOnboardingScreen;
 
 const LOCATION_SCREEN_TEST_IDS = Object.fromEntries(
   locationOnboardingContract.screens.map(({ key, testId }) => [key, testId]),
@@ -77,7 +82,11 @@ export type OnboardingCircleInvite = {
 export type OnboardingContactMatch = {
   userId: string;
   displayName: string;
-  connectionStatus: "connected" | "request_required" | "suppressed";
+  connectionStatus:
+    | "auto_connected"
+    | "already_connected"
+    | "request_required"
+    | "suppressed";
 };
 
 /**
@@ -96,26 +105,37 @@ export type OnboardingCirclePreview = {
 };
 
 export type OnboardingContactSyncResult =
-  | { status: "matched"; matches: OnboardingContactMatch[] }
-  | { status: "none"; partial: boolean }
+  | {
+      status: "matched";
+      matches: OnboardingContactMatch[];
+      partial?: boolean;
+      summary?: string;
+    }
+  | { status: "none"; partial: boolean; summary?: string }
   | { status: "cancelled" }
   | { status: "failed"; message: string; canOpenSettings: boolean };
 
+type OnboardingContactState =
+  | { kind: "idle" }
+  | { kind: "busy" }
+  | { kind: "none"; partial: boolean; summary?: string }
+  | { kind: "matched"; partial: boolean; summary?: string }
+  | { kind: "failed"; message: string; canOpenSettings: boolean };
+
 type OneLocationOnboardingFlowProps = {
   startAt: OneLocationOnboardingStart;
+  /** Controlled screen used by the page so the sibling save-place modal can advance the flow. */
+  activeScreen?: OnboardingScreen;
+  onScreenChange?: (screen: OnboardingScreen) => void;
   currentUserName: string;
   locationPermission: HushhLocationPermissionState | null;
-  notificationDeliveryMode: ConsentNotificationDeliveryMode;
-  notificationBusy: boolean;
   locationBusy: boolean;
   nativeTest: React.ComponentProps<typeof NativeTestBeacon>;
-  onRequestLocation: () => Promise<void>;
+  onRequestLocation: () => Promise<boolean | void>;
   onLocationReady: () => Promise<boolean>;
-  onRequestNotifications: () => Promise<void>;
   onBack: () => void | Promise<void>;
   onComplete: () => void | Promise<void>;
   onSkip?: () => void | Promise<void>;
-  requireLocationToComplete?: boolean;
   /**
    * Label for the final CTA. Setup ends back in the wizard, the workspace ends
    * on the Location hub, and saying so beats a generic "Done" that leaves the
@@ -143,10 +163,12 @@ type OneLocationOnboardingFlowProps = {
    * Called only after the person taps on the contacts screen, never on mount.
    */
   onSyncOnboardingContacts?: () => Promise<OnboardingContactSyncResult>;
+  /** Latest settled result, including retries started from the named sheet. */
+  contactSyncResult?: OnboardingContactSyncResult | null;
   /** Send a connection request to one matched contact. */
   onAddOnboardingContact?: (userId: string) => Promise<void>;
   /** Open the OS settings page so a declined permission can be changed. */
-  onOpenContactSettings?: () => void;
+  onOpenContactSettings?: (resume: () => void) => void;
   /** Look up a circle code so it can be previewed before joining. */
   onPreviewCircleCode?: (code: string) => Promise<OnboardingCirclePreview>;
   /**
@@ -272,6 +294,7 @@ function OnboardingSkipButton({
 function OnboardingNavigation({
   onBack,
   onSkip,
+  currentStep,
   disabled = false,
   inverse = false,
   floating = false,
@@ -280,7 +303,8 @@ function OnboardingNavigation({
   className,
 }: {
   onBack: () => void;
-  onSkip: () => void;
+  onSkip?: () => void;
+  currentStep: number;
   disabled?: boolean;
   inverse?: boolean;
   floating?: boolean;
@@ -289,10 +313,9 @@ function OnboardingNavigation({
   className?: string;
 }) {
   return (
-    <nav
-      aria-label="Onboarding"
+    <div
       className={cn(
-        "relative z-40 flex h-14 shrink-0 items-center justify-between",
+        "relative z-40 grid h-16 shrink-0 grid-cols-[minmax(64px,1fr)_minmax(120px,220px)_minmax(64px,1fr)] items-center gap-2",
         className,
       )}
       data-one-onboarding-navigation
@@ -319,14 +342,26 @@ function OnboardingNavigation({
           <ArrowLeft className="h-6 w-6" aria-hidden="true" />
         )}
       </button>
-      <OnboardingSkipButton
+      <OnboardingStepper
+        steps={ONE_LOCATION_ONBOARDING_STEPS}
+        currentIndex={currentStep}
+        compact
         inverse={inverse}
-        floating={floating}
-        plain={plain}
-        onClick={onSkip}
-        disabled={disabled}
+        ariaLabel="One Location setup progress"
+        className="w-full"
       />
-    </nav>
+      {onSkip ? (
+        <OnboardingSkipButton
+          inverse={inverse}
+          floating={floating}
+          plain={plain}
+          onClick={onSkip}
+          disabled={disabled}
+        />
+      ) : (
+        <span className="h-11 w-11 justify-self-end" aria-hidden />
+      )}
+    </div>
   );
 }
 
@@ -412,6 +447,11 @@ function WelcomeScreen({
   onStart: () => void;
   leaving: boolean;
 }) {
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
   return (
     <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden bg-[#087ff5] px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-[max(var(--app-safe-area-top-effective,0px),10px)] text-white dark:bg-[#073d78]">
       <span className="pointer-events-none absolute -right-24 -top-32 h-72 w-72 rounded-full bg-white/[0.05]" />
@@ -419,6 +459,7 @@ function WelcomeScreen({
       <div className="relative z-10 mx-auto flex min-h-0 w-full max-w-[700px] flex-1 flex-col">
         <OnboardingNavigation
           inverse
+          currentStep={0}
           onBack={onBack}
           onSkip={onSkip}
           disabled={leaving}
@@ -436,7 +477,9 @@ function WelcomeScreen({
               Location
             </p>
             <h1
-              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em]"
+              ref={headingRef}
+              tabIndex={-1}
+              className="mx-auto mt-5 max-w-[410px] text-[28px] font-bold leading-[34px] tracking-[-0.015em] outline-none"
               data-one-welcome-heading
             >
               Share your location
@@ -806,45 +849,42 @@ function SaveMySoulFeatureCard() {
 
 function FeaturesScreen({
   locationGranted,
-  notificationsGranted,
+  locationBlocked,
   locationBusy,
   locationPreparationBusy,
   locationPreparationRetry,
-  notificationBusy,
-  requireLocationToContinue,
   onBack,
   onSkip,
   leaving,
   onContinue,
 }: {
   locationGranted: boolean;
-  notificationsGranted: boolean;
+  locationBlocked: boolean;
   locationBusy: boolean;
   locationPreparationBusy: boolean;
   locationPreparationRetry: boolean;
-  notificationBusy: boolean;
-  requireLocationToContinue: boolean;
   onBack: () => void;
   onSkip: () => void;
   leaving: boolean;
   onContinue: () => void;
 }) {
-  const waitingForLocation = requireLocationToContinue && !locationGranted;
-  const permissionBusy =
-    locationBusy || locationPreparationBusy || notificationBusy;
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  const permissionBusy = locationBusy || locationPreparationBusy;
   const status = locationPreparationBusy
-    ? "Preparing your saved place..."
+    ? "Finding your location…"
     : locationBusy
-      ? "Requesting Location permission..."
-      : notificationBusy
-        ? "Turning on notifications..."
-        : locationPreparationRetry
-          ? "We couldn't prepare your saved place. Try again."
-          : waitingForLocation
-            ? "Allow Location to continue. You stay in control of every share."
-            : locationGranted && notificationsGranted
-              ? "Location and notifications are ready."
-              : "You can adjust permissions later in Location Settings.";
+      ? "Requesting Location…"
+      : locationPreparationRetry
+        ? "We couldn't find your location. Check access and try again."
+        : locationBlocked
+          ? "Location access is off. Turn it on to set up One Location."
+          : locationGranted
+            ? "Location is ready. Your next tap opens the place picker."
+            : "Your location stays private until you share.";
 
   return (
     <div
@@ -853,6 +893,7 @@ function FeaturesScreen({
     >
       <OnboardingNavigation
         plain
+        currentStep={1}
         onBack={onBack}
         onSkip={onSkip}
         disabled={leaving}
@@ -874,7 +915,9 @@ function FeaturesScreen({
           data-one-feature-header
         >
           <h1
-            className="ui-text-agent-title text-[#111823] dark:!text-[color:var(--app-label)]"
+            ref={headingRef}
+            tabIndex={-1}
+            className="ui-text-agent-title text-[#111823] outline-none dark:!text-[color:var(--app-label)]"
             data-one-feature-heading
           >
             Keep your people updated.
@@ -895,11 +938,11 @@ function FeaturesScreen({
           </div>
         </div>
         <p
-          className={cn(
-            "shrink-0 pt-3 text-center text-[11px] font-semibold leading-4 text-[#7d838d] dark:text-[color:var(--app-secondary-label)]",
-            !waitingForLocation && !permissionBusy && "sr-only",
-          )}
+          className="shrink-0 pt-3 text-center text-[12px] font-semibold leading-4 text-[#6f7580] dark:text-[color:var(--app-secondary-label)]"
           aria-live="polite"
+          role={
+            locationPreparationRetry || locationBlocked ? "alert" : undefined
+          }
         >
           {status}
         </p>
@@ -914,7 +957,11 @@ function FeaturesScreen({
           disabled={permissionBusy}
           className="h-[52px] min-h-[52px]"
         >
-          {locationPreparationRetry ? "Try again" : "Continue"}
+          {locationPreparationRetry
+            ? "Try again"
+            : locationBlocked
+              ? "Open settings"
+              : "Set up my location"}
         </PrimaryButton>
       </div>
       <style>{`
@@ -1109,13 +1156,9 @@ function ContactsScreen({
   onSkip,
   onContinue,
   leaving,
+  embedded = false,
 }: {
-  state:
-    | { kind: "idle" }
-    | { kind: "busy" }
-    | { kind: "none"; partial: boolean }
-    | { kind: "matched" }
-    | { kind: "failed"; message: string; canOpenSettings: boolean };
+  state: OnboardingContactState;
   source: "device" | "google";
   matches: OnboardingContactMatch[];
   addedUserIds: string[];
@@ -1127,6 +1170,7 @@ function ContactsScreen({
   onSkip: () => void;
   onContinue: () => void;
   leaving: boolean;
+  embedded?: boolean;
 }) {
   const MATCH_PAGE_SIZE = 100;
   const [visibleMatchCount, setVisibleMatchCount] = useState(MATCH_PAGE_SIZE);
@@ -1138,45 +1182,65 @@ function ContactsScreen({
 
   return (
     <div
-      className="flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]"
+      className={cn(
+        embedded
+          ? "rounded-[18px] bg-[color:var(--app-card-surface-compact)] p-3.5"
+          : "flex min-h-0 flex-1 flex-col bg-[color:var(--app-grouped-background)]",
+      )}
       data-testid="one-location-onboarding-contacts-surface"
       aria-busy={contactOperationBusy}
     >
       {/* pt clears the status bar and notch. A bare pt-2 put Back and Skip
           under the clock and battery on every notched iPhone -- reachable
           only by guessing where they were. */}
-      <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
-        <button
-          type="button"
-          onClick={onBack}
-          disabled={navigationDisabled}
-          className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-          aria-label="Go back"
-        >
-          <ArrowLeft className="h-6 w-6" />
-        </button>
-        <OnboardingSkipButton onClick={onSkip} disabled={navigationDisabled} />
-      </header>
+      {!embedded ? (
+        <header className="flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
+          <button
+            type="button"
+            onClick={onBack}
+            disabled={navigationDisabled}
+            className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-black/[0.05] text-[#1f2b3d] disabled:opacity-50 dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+            aria-label="Go back"
+          >
+            <ArrowLeft className="h-6 w-6" />
+          </button>
+          <OnboardingSkipButton
+            onClick={onSkip}
+            disabled={navigationDisabled}
+          />
+        </header>
+      ) : null}
 
-      <main className="min-h-0 flex-1 overflow-y-auto px-6 pb-4">
+      <div
+        className={cn(!embedded && "min-h-0 flex-1 overflow-y-auto px-6 pb-4")}
+      >
         <div className="mx-auto flex w-full max-w-[520px] flex-col">
-          <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
-            <UserPlus className="h-7 w-7" strokeWidth={2} />
-          </span>
-          <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
-            Find your people
-          </h1>
+          {!embedded ? (
+            <>
+              <span className="mt-2 flex h-14 w-14 items-center justify-center rounded-2xl bg-[color:var(--app-accent-soft)] text-[color:var(--app-accent)]">
+                <UserPlus className="h-7 w-7" strokeWidth={2} />
+              </span>
+              <h1 className="ui-text-agent-title mt-4 text-[#151b26] dark:!text-[color:var(--app-label)]">
+                Find your people
+              </h1>
+            </>
+          ) : null}
           <p className="mt-2 text-[15px] font-normal leading-[20px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
             {primed
-              ? "Find people from your contacts already on One."
+              ? "Find people from your contacts already on One. Exact matches connect automatically."
               : state.kind === "matched"
-                ? "Connected matches are ready. You can request the rest."
+                ? "Your matched ONE contacts and connection results are ready."
                 : "You can always find people later from the People tab."}
           </p>
 
           {primed ? (
             <>
-              <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-white p-6 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
+              <div
+                className={cn(
+                  "rounded-[20px] border border-[#e4e6e9] bg-white p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]",
+                  embedded ? "mt-4" : "mt-7",
+                )}
+              >
                 {state.kind === "busy" ? (
                   <div className="flex min-h-32 items-center justify-center gap-2 text-sm text-[#777d86] dark:text-[color:var(--app-secondary-label)]">
                     <Loader2 className="h-5 w-5 animate-spin" /> Checking your
@@ -1192,7 +1256,7 @@ function ContactsScreen({
                       onClick={onSync}
                       disabled={leaving}
                     >
-                      Find contacts
+                      Check my contacts
                     </PrimaryButton>
                   </div>
                 )}
@@ -1208,7 +1272,9 @@ function ContactsScreen({
               {visibleMatches.map((match) => {
                 const added = addedUserIds.includes(match.userId);
                 const adding = addingUserIds.includes(match.userId);
-                const connected = match.connectionStatus === "connected";
+                const connected =
+                  match.connectionStatus === "auto_connected" ||
+                  match.connectionStatus === "already_connected";
                 const requestRequired =
                   match.connectionStatus === "request_required";
                 return (
@@ -1241,7 +1307,11 @@ function ContactsScreen({
                         {connected ? (
                           <Check className="h-4 w-4 text-emerald-600" />
                         ) : null}
-                        {connected ? "Connected" : "Not connected"}
+                        {match.connectionStatus === "auto_connected"
+                          ? "Connected now"
+                          : match.connectionStatus === "already_connected"
+                            ? "Already connected"
+                            : "Kept disconnected"}
                       </span>
                     )}
                   </li>
@@ -1265,20 +1335,43 @@ function ContactsScreen({
                   </button>
                 </li>
               ) : null}
+              {state.summary || state.partial ? (
+                <li className="rounded-2xl bg-amber-500/10 px-4 py-3 text-sm leading-5 text-foreground">
+                  {state.summary || "Only part of your contact list was checked."}
+                </li>
+              ) : null}
+              <li className="flex justify-center pt-2">
+                <button
+                  type="button"
+                  onClick={onSync}
+                  disabled={leaving}
+                  className="press-scale min-h-11 rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                >
+                  Sync again
+                </button>
+              </li>
             </ul>
           ) : null}
 
           {state.kind === "none" ? (
             <div className="mt-7 rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-6 text-center dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]">
               <p className="text-[15px] leading-5 text-[#5c626c] dark:text-[color:var(--app-secondary-label)]">
-                {state.partial
-                  ? "None of the contacts you shared are on One yet."
-                  : "None of your contacts are on One yet."}
+                No eligible contacts matched.
               </p>
               <p className="mt-2 text-[13px] leading-5 text-[#96999e] dark:text-[color:var(--app-secondary-label)]">
-                Your circle code is on the next screen — send it to whoever you
-                want here.
+                {state.partial
+                  ? state.summary || "Only part of your contact list was checked. "
+                  : "ONE users with an exact verified phone match connect automatically unless they are hidden, opted out, or were previously disconnected. "}
+                Use the circle code above to invite anyone you want here.
               </p>
+              <button
+                type="button"
+                onClick={onSync}
+                disabled={leaving}
+                className="press-scale mt-4 inline-flex min-h-11 items-center justify-center rounded-full border border-[#d5d9df] bg-white px-5 text-sm font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+              >
+                Sync again
+              </button>
             </div>
           ) : null}
 
@@ -1296,7 +1389,7 @@ function ContactsScreen({
                   Open Settings
                 </button>
               ) : null}
-              {source === "google" ? (
+              {!state.canOpenSettings || source === "google" ? (
                 <button
                   type="button"
                   onClick={onSync}
@@ -1309,22 +1402,24 @@ function ContactsScreen({
             </div>
           ) : null}
         </div>
-      </main>
+      </div>
 
-      <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
-        {/* Always present, whatever happened above. Declining contacts, finding
+      {!embedded ? (
+        <footer className="shrink-0 px-6 pb-[calc(env(safe-area-inset-bottom,0px)+18px)] pt-3">
+          {/* Always present, whatever happened above. Declining contacts, finding
             nobody, or a plugin failure must never be a dead end. */}
-        <div className="mx-auto w-full max-w-[520px]">
-          <PrimaryButton
-            className={primed && state.kind === "idle" ? "max-w-none" : ""}
-            onClick={onContinue}
-            disabled={navigationDisabled}
-            inverse={primed && state.kind === "idle"}
-          >
-            {state.kind === "idle" ? "Not now" : "Continue"}
-          </PrimaryButton>
-        </div>
-      </footer>
+          <div className="mx-auto w-full max-w-[520px]">
+            <PrimaryButton
+              className={primed && state.kind === "idle" ? "max-w-none" : ""}
+              onClick={onContinue}
+              disabled={navigationDisabled}
+              inverse={primed && state.kind === "idle"}
+            >
+              {state.kind === "idle" ? "Not now" : "Continue"}
+            </PrimaryButton>
+          </div>
+        </footer>
+      ) : null}
     </div>
   );
 }
@@ -1354,7 +1449,6 @@ function ReadyScreen({
   onCopy,
   onShare,
   onBack,
-  onSkip,
   onContinue,
   leaving,
   completeLabel,
@@ -1370,6 +1464,17 @@ function ReadyScreen({
   onPreviewJoinCode,
   onAcceptJoinCode,
   onClearJoinPreview,
+  activeDisclosure,
+  onToggleDisclosure,
+  contactsAvailable,
+  contactState,
+  contactsSource,
+  contactMatches,
+  addedContactIds,
+  addingContactIds,
+  onSyncContacts,
+  onAddContact,
+  onOpenContactSettings,
 }: {
   currentUserName: string;
   mapPoint: { lat: number; lng: number } | null;
@@ -1383,7 +1488,6 @@ function ReadyScreen({
   onCopy: () => void;
   onShare: () => void;
   onBack: () => void;
-  onSkip: () => void;
   onContinue: () => void;
   leaving: boolean;
   completeLabel: string;
@@ -1399,8 +1503,46 @@ function ReadyScreen({
   onPreviewJoinCode: () => void;
   onAcceptJoinCode: () => void;
   onClearJoinPreview: () => void;
+  activeDisclosure: "join" | "contacts" | null;
+  onToggleDisclosure: (disclosure: "join" | "contacts") => void;
+  contactsAvailable: boolean;
+  contactState: OnboardingContactState;
+  contactsSource: "device" | "google";
+  contactMatches: OnboardingContactMatch[];
+  addedContactIds: string[];
+  addingContactIds: string[];
+  onSyncContacts: () => void;
+  onAddContact: (userId: string) => void;
+  onOpenContactSettings: () => void;
 }) {
   const formattedCode = invite ? formatCircleCode(invite.code) : "";
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
+
+  useEffect(() => {
+    headingRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // A disclosure opens below the fold on a phone. Move only the panel's own
+  // scroller far enough to reveal it, otherwise the tap appears to do nothing
+  // except rotate a chevron while the new controls remain behind the pinned
+  // Finish footer.
+  useEffect(() => {
+    if (!activeDisclosure) return;
+    const frame = window.requestAnimationFrame(() => {
+      const panel = document.getElementById(
+        activeDisclosure === "join"
+          ? "onboarding-join-circle-panel"
+          : "onboarding-contacts-panel",
+      );
+      panel?.scrollIntoView?.({
+        behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+          ? "auto"
+          : "smooth",
+        block: "nearest",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [activeDisclosure]);
 
   return (
     <div
@@ -1424,7 +1566,7 @@ function ReadyScreen({
       {/* Same clearance, and it matters more here: the header floats over
           the map, so without it the controls sit directly under the status
           bar with map tiles behind both. */}
-      <header className="absolute inset-x-0 top-0 z-20 flex min-h-16 shrink-0 items-center justify-between px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
+      <header className="absolute inset-x-0 top-0 z-20 grid min-h-16 shrink-0 grid-cols-[minmax(64px,1fr)_minmax(120px,220px)_minmax(64px,1fr)] items-center gap-2 px-5 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)]">
         <button
           type="button"
           onClick={onBack}
@@ -1433,9 +1575,15 @@ function ReadyScreen({
         >
           <ArrowLeft className="h-6 w-6" />
         </button>
-        <span className="rounded-full bg-white/85 px-1 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
-          <OnboardingSkipButton onClick={onSkip} disabled={leaving} />
+        <span className="rounded-[14px] bg-white/90 px-3 py-2 shadow-[0_2px_10px_rgba(24,57,91,0.14)] backdrop-blur-sm dark:bg-[color:var(--app-glass-surface)] dark:shadow-[var(--app-glass-shadow)]">
+          <OnboardingStepper
+            steps={ONE_LOCATION_ONBOARDING_STEPS}
+            currentIndex={3}
+            compact
+            ariaLabel="One Location setup progress"
+          />
         </span>
+        <span className="h-11 w-11 justify-self-end" aria-hidden />
       </header>
 
       <div
@@ -1444,12 +1592,14 @@ function ReadyScreen({
       >
         <div className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-6 md:px-7 md:pb-5 md:pt-7">
           {/* The headline is the map's, so it only gets to make the claim when
-              there is a map. Reaching this screen with Location declined is an
-              ordinary outcome -- the features screen offers "Not now" -- and
+              there is a map. Reaching this screen after deliberately skipping
+              Location setup is an ordinary outcome, and
               telling that person they are on a map, over a panel that says the
               map is unavailable, is the one thing this screen must not do. */}
           <h1
-            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] dark:!text-[color:var(--app-label)]"
+            ref={headingRef}
+            tabIndex={-1}
+            className="ui-text-agent-title pb-1 leading-[1.15] text-[#151b26] outline-none dark:!text-[color:var(--app-label)]"
             data-one-ready-title
           >
             {mapPoint ? "You're on the map." : "You're all set."}
@@ -1544,112 +1694,174 @@ function ReadyScreen({
 
           {joinEnabled ? (
             <div className="mt-4" data-testid="onboarding-join-circle">
-              {joinAccepted ? (
-                <p
-                  className="flex items-center gap-2 rounded-[20px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-5 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
-                  role="status"
-                >
-                  <Check
-                    className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                    strokeWidth={2.5}
-                  />
-                  You&apos;ll join {joinPreview?.name ?? "their circle"} after
-                  setup.
-                </p>
-              ) : joinPreview ? (
-                <div
-                  // Same geometry as the invite card directly above it. These two
-                  // stack at the same width, so a 16px inset under a 20px one put
-                  // every line of the join card 4px left of the code card's --
-                  // a visibly ragged edge down the panel.
-                  className="rounded-[20px] border border-[#e4e6e9] bg-[#f8f9fb] p-5 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
-                  data-testid="onboarding-join-circle-preview"
-                >
-                  {/* Name, owner and size before accepting. Deciding whether to
-                    share your location with a group is not a decision anyone
-                    should make against an opaque string. */}
-                  <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
-                    {joinPreview.name}
-                  </p>
-                  <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-                    {joinPreview.ownerDisplayName} &middot;{" "}
-                    {joinPreview.memberCount}{" "}
-                    {joinPreview.memberCount === 1 ? "person" : "people"}
-                  </p>
-                  {joinPreview.alreadyMember ? (
-                    <p className="mt-3 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
-                      Already in this circle.
-                    </p>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={onAcceptJoinCode}
-                      disabled={joinBusy || leaving}
-                      className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
-                    >
-                      {joinBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : null}
-                      Join {joinPreview.name}
-                    </button>
+              <button
+                type="button"
+                onClick={() => onToggleDisclosure("join")}
+                aria-expanded={activeDisclosure === "join"}
+                aria-controls="onboarding-join-circle-panel"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                data-testid="onboarding-join-circle-toggle"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">Join with a code</span>
+                <ChevronDown
+                  className={cn(
+                    "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                    activeDisclosure === "join" && "rotate-180",
                   )}
-                  {/* The only way back. Previewing replaced the input, so without
-                    this a mistyped or wrong code left the person staring at
-                    someone else's circle with no route to try another. */}
-                  <button
-                    type="button"
-                    onClick={onClearJoinPreview}
-                    disabled={joinBusy || leaving}
-                    className="press-scale mt-2 inline-flex min-h-11 w-full items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50 dark:text-[color:var(--app-accent-bright)]"
-                    data-testid="onboarding-join-circle-reset"
-                  >
-                    Use a different code
-                  </button>
-                </div>
-              ) : (
-                <details
-                  className="group"
-                  data-testid="onboarding-join-circle-toggle"
-                  open={Boolean(joinCode)}
+                  aria-hidden
+                />
+              </button>
+              {activeDisclosure === "join" ? (
+                <div
+                  id="onboarding-join-circle-panel"
+                  className="mt-3"
+                  data-testid="onboarding-join-circle-panel"
                 >
-                  {/* An action, not a question. "Someone sent you a code?" asks
-                    the person to confirm a situation before it offers to do
-                    anything about it; this names what tapping does. */}
-                  <summary className="flex min-h-11 cursor-pointer list-none items-center justify-center text-[14px] font-bold text-[color:var(--app-accent-deep)] dark:text-[color:var(--app-accent-bright)]">
-                    Join with a code
-                  </summary>
-                  <div className="mt-3 flex gap-2">
-                    <input
-                      value={joinCode}
-                      onChange={(event) => onJoinCodeChange(event.target.value)}
-                      placeholder="Enter their code"
-                      aria-label="Circle code"
-                      autoCapitalize="characters"
-                      autoCorrect="off"
-                      spellCheck={false}
-                      className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
-                    />
-                    <button
-                      type="button"
-                      onClick={onPreviewJoinCode}
-                      disabled={joinBusy || !joinCode.trim() || leaving}
-                      className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-5 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                  {joinAccepted ? (
+                    <p
+                      className="flex items-center gap-2 rounded-[18px] border border-[color:var(--app-accent)]/25 bg-[color:var(--app-accent-soft)] px-4 py-3 text-[14px] font-medium leading-5 text-[#1f2b3d] dark:bg-[color:var(--app-accent-tint)] dark:text-[color:var(--app-label)]"
+                      role="status"
                     >
-                      {joinBusy ? (
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                      ) : null}
-                      Look up
-                    </button>
-                  </div>
-                </details>
-              )}
-              {joinError ? (
-                <p
-                  className="mt-2 text-center text-[13px] leading-[18px] text-[#c8372d] dark:text-[color:var(--app-destructive)]"
-                  role="status"
-                >
-                  {joinError}
-                </p>
+                      <Check
+                        className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                        strokeWidth={2.5}
+                        aria-hidden
+                      />
+                      You&apos;ll join {joinPreview?.name ?? "their circle"}{" "}
+                      after setup.
+                    </p>
+                  ) : joinPreview ? (
+                    <div
+                      className="rounded-[18px] border border-[#e4e6e9] bg-[#f8f9fb] p-4 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-primary-surface)]"
+                      data-testid="onboarding-join-circle-preview"
+                    >
+                      <p className="text-[15px] font-bold leading-5 text-[#151b26] dark:text-[color:var(--app-label)]">
+                        {joinPreview.name}
+                      </p>
+                      <p className="mt-1 text-[13px] leading-[18px] text-[#73777f] dark:text-[color:var(--app-secondary-label)]">
+                        {joinPreview.ownerDisplayName} &middot;{" "}
+                        {joinPreview.memberCount}{" "}
+                        {joinPreview.memberCount === 1 ? "person" : "people"}
+                      </p>
+                      {!joinPreview.alreadyMember ? (
+                        <button
+                          type="button"
+                          onClick={onAcceptJoinCode}
+                          disabled={joinBusy || leaving}
+                          className="press-scale mt-3 inline-flex h-11 w-full items-center justify-center gap-2 rounded-full bg-[color:var(--app-accent)] text-[15px] font-bold text-[color:var(--app-accent-fg)] disabled:opacity-60"
+                        >
+                          {joinBusy ? (
+                            <Loader2
+                              className="h-4 w-4 animate-spin"
+                              aria-hidden
+                            />
+                          ) : null}
+                          Join {joinPreview.name}
+                        </button>
+                      ) : (
+                        <p className="mt-3 text-[13px] text-muted-foreground">
+                          Already in this circle.
+                        </p>
+                      )}
+                      <button
+                        type="button"
+                        onClick={onClearJoinPreview}
+                        disabled={joinBusy || leaving}
+                        className="press-scale mt-2 min-h-11 w-full text-[14px] font-bold text-[color:var(--app-accent-deep)] disabled:opacity-50"
+                        data-testid="onboarding-join-circle-reset"
+                      >
+                        Use a different code
+                      </button>
+                    </div>
+                  ) : (
+                    <div className="flex gap-2">
+                      <input
+                        value={joinCode}
+                        onChange={(event) =>
+                          onJoinCodeChange(event.target.value)
+                        }
+                        placeholder="Enter their code"
+                        aria-label="Circle code"
+                        autoCapitalize="characters"
+                        autoCorrect="off"
+                        spellCheck={false}
+                        aria-describedby={
+                          joinError ? "onboarding-join-code-error" : undefined
+                        }
+                        className="h-11 min-w-0 flex-1 rounded-full border border-[#d5d9df] bg-white px-4 font-mono text-[15px] uppercase tracking-[0.08em] text-[#151b26] outline-none focus:border-[color:var(--app-accent)] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                      />
+                      <button
+                        type="button"
+                        onClick={onPreviewJoinCode}
+                        disabled={joinBusy || !joinCode.trim() || leaving}
+                        className="press-scale inline-flex h-11 shrink-0 items-center justify-center gap-2 rounded-full border border-[#d5d9df] bg-white px-4 text-[15px] font-bold text-[#1f2b3d] disabled:opacity-50 dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+                      >
+                        {joinBusy ? (
+                          <Loader2
+                            className="h-4 w-4 animate-spin"
+                            aria-hidden
+                          />
+                        ) : null}
+                        Look up
+                      </button>
+                    </div>
+                  )}
+                  {joinError ? (
+                    <p
+                      id="onboarding-join-code-error"
+                      className="mt-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                      role="alert"
+                    >
+                      {joinError}
+                    </p>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+
+          {contactsAvailable ? (
+            <div className="mt-3" data-testid="onboarding-contacts-disclosure">
+              <button
+                type="button"
+                onClick={() => onToggleDisclosure("contacts")}
+                aria-expanded={activeDisclosure === "contacts"}
+                aria-controls="onboarding-contacts-panel"
+                className="press-scale flex min-h-12 w-full items-center gap-3 rounded-[18px] border border-[#e4e6e9] bg-white px-4 text-left text-[15px] font-bold text-[#1f2b3d] dark:border-[color:var(--app-separator)] dark:bg-[color:var(--app-secondary-surface)] dark:text-[color:var(--app-label)]"
+              >
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/10 text-[color:var(--app-accent)]">
+                  <UserPlus className="h-4 w-4" aria-hidden />
+                </span>
+                <span className="min-w-0 flex-1">Find contacts</span>
+                <ChevronDown
+                  className={cn(
+                    "h-5 w-5 shrink-0 text-muted-foreground transition-transform",
+                    activeDisclosure === "contacts" && "rotate-180",
+                  )}
+                  aria-hidden
+                />
+              </button>
+              {activeDisclosure === "contacts" ? (
+                <div id="onboarding-contacts-panel" className="mt-3">
+                  <ContactsScreen
+                    embedded
+                    state={contactState}
+                    source={contactsSource}
+                    matches={contactMatches}
+                    addedUserIds={addedContactIds}
+                    addingUserIds={addingContactIds}
+                    onSync={onSyncContacts}
+                    onAdd={onAddContact}
+                    onOpenSettings={onOpenContactSettings}
+                    onBack={() => undefined}
+                    onSkip={() => undefined}
+                    onContinue={() => undefined}
+                    leaving={leaving}
+                  />
+                </div>
               ) : null}
             </div>
           ) : null}
@@ -1709,24 +1921,23 @@ function initialScreen(startAt: OneLocationOnboardingStart): OnboardingScreen {
 
 export function OneLocationOnboardingFlow({
   startAt,
+  activeScreen,
+  onScreenChange,
   currentUserName,
   locationPermission,
-  notificationDeliveryMode,
-  notificationBusy,
   locationBusy,
   nativeTest,
   onRequestLocation,
   onLocationReady,
-  onRequestNotifications,
   onBack,
   onComplete,
   onSkip = onComplete,
-  requireLocationToComplete = false,
   completeLabel = "Open One Location",
   mapPoint = null,
   contactsStepAvailable = true,
   contactsSource = "device",
   onSyncOnboardingContacts,
+  contactSyncResult,
   onAddOnboardingContact,
   onOpenContactSettings,
   onPreviewCircleCode,
@@ -1781,8 +1992,16 @@ export function OneLocationOnboardingFlow({
     [deviceSnapshot, mapPoint],
   );
 
-  const [screen, setScreen] = useState<OnboardingScreen>(() =>
+  const [internalScreen, setInternalScreen] = useState<OnboardingScreen>(() =>
     initialScreen(startAt),
+  );
+  const screen = activeScreen ?? internalScreen;
+  const setScreen = useCallback(
+    (next: OnboardingScreen) => {
+      setInternalScreen(next);
+      onScreenChange?.(next);
+    },
+    [onScreenChange],
   );
   // Invite screen (final step) state. The parent provisions the code; we cache
   // it so navigating back/forward never refetches or rotates it.
@@ -1800,13 +2019,9 @@ export function OneLocationOnboardingFlow({
   > | null>(null);
   // Contacts screen. Nothing runs until the person asks for it, so "idle" is
   // the resting state rather than a loading one.
-  const [contactState, setContactState] = useState<
-    | { kind: "idle" }
-    | { kind: "busy" }
-    | { kind: "none"; partial: boolean }
-    | { kind: "matched" }
-    | { kind: "failed"; message: string; canOpenSettings: boolean }
-  >({ kind: "idle" });
+  const [contactState, setContactState] = useState<OnboardingContactState>({
+    kind: "idle",
+  });
   const [contactMatches, setContactMatches] = useState<
     OnboardingContactMatch[]
   >([]);
@@ -1826,7 +2041,9 @@ export function OneLocationOnboardingFlow({
   const [leaving, setLeaving] = useState(false);
   const [completionBusy, setCompletionBusy] = useState(false);
   const [settlementRetryCount, setSettlementRetryCount] = useState(0);
-  const permissionPromptAttemptedRef = useRef(false);
+  const [activeReadyDisclosure, setActiveReadyDisclosure] = useState<
+    "join" | "contacts" | null
+  >(null);
   // Funnel bookkeeping. Refs, not state: none of this should cause a render.
   const codeSharedRef = useRef(false);
   const codeCopiedRef = useRef(false);
@@ -1854,73 +2071,43 @@ export function OneLocationOnboardingFlow({
     locationPermission?.state === "denied" ||
     locationPermission?.state === "restricted" ||
     locationPermission?.locationServicesEnabled === false;
-  const notificationsGranted = notificationDeliveryMode === "push_active";
+  const prepareSavedLocation = useCallback(
+    (permissionReady = locationGranted): Promise<boolean> => {
+      if (!permissionReady) return Promise.resolve(false);
+      if (locationPreparationCompleteRef.current) {
+        return Promise.resolve(true);
+      }
+      if (locationPreparationInFlightRef.current) {
+        return locationPreparationInFlightRef.current;
+      }
 
-  const requestMissingPermissions = useCallback(() => {
-    if (permissionPromptAttemptedRef.current) return;
-    permissionPromptAttemptedRef.current = true;
-    const requests: Promise<void>[] = [];
-    if (!locationGranted) requests.push(Promise.resolve(onRequestLocation()));
-    if (!notificationsGranted) {
-      requests.push(Promise.resolve(onRequestNotifications()));
-    }
-    void Promise.allSettled(requests);
-  }, [
-    locationGranted,
-    notificationsGranted,
-    onRequestLocation,
-    onRequestNotifications,
-  ]);
-
-  const prepareSavedLocation = useCallback((): Promise<boolean> => {
-    if (!locationGranted) return Promise.resolve(false);
-    if (locationPreparationCompleteRef.current) {
-      return Promise.resolve(true);
-    }
-    if (locationPreparationInFlightRef.current) {
-      return locationPreparationInFlightRef.current;
-    }
-
-    setLocationPreparationBusy(true);
-    setLocationPreparationRetry(false);
-    const attempt = Promise.resolve(onLocationReady())
-      .then((complete) => {
-        locationPreparationCompleteRef.current = complete;
-        setLocationPreparationRetry(!complete);
-        return complete;
-      })
-      .catch(() => {
-        locationPreparationCompleteRef.current = false;
-        setLocationPreparationRetry(true);
-        return false;
-      })
-      .finally(() => {
-        locationPreparationInFlightRef.current = null;
-        setLocationPreparationBusy(false);
-      });
-    locationPreparationInFlightRef.current = attempt;
-    return attempt;
-  }, [locationGranted, onLocationReady]);
+      setLocationPreparationBusy(true);
+      setLocationPreparationRetry(false);
+      const attempt = Promise.resolve(onLocationReady())
+        .then((complete) => {
+          locationPreparationCompleteRef.current = complete;
+          setLocationPreparationRetry(!complete);
+          return complete;
+        })
+        .catch(() => {
+          locationPreparationCompleteRef.current = false;
+          setLocationPreparationRetry(true);
+          return false;
+        })
+        .finally(() => {
+          locationPreparationInFlightRef.current = null;
+          setLocationPreparationBusy(false);
+        });
+      locationPreparationInFlightRef.current = attempt;
+      return attempt;
+    },
+    [locationGranted, onLocationReady],
+  );
 
   useEffect(() => {
-    const nextScreen = initialScreen(startAt);
-    setScreen(nextScreen);
-    permissionPromptAttemptedRef.current = false;
-  }, [startAt]);
-
-  useEffect(() => {
-    if (startAt === "permissions") requestMissingPermissions();
-  }, [requestMissingPermissions, startAt]);
-
-  useEffect(() => {
-    if (screen !== "features" || !requireLocationToComplete) return;
-    requestMissingPermissions();
-  }, [requestMissingPermissions, requireLocationToComplete, screen]);
-
-  useEffect(() => {
-    if (screen !== "features" || !locationGranted) return;
-    void prepareSavedLocation();
-  }, [locationGranted, prepareSavedLocation, screen]);
+    if (activeScreen) return;
+    setInternalScreen(initialScreen(startAt));
+  }, [activeScreen, startAt]);
 
   const prepareCircleInvite = useCallback(async () => {
     if (!onPrepareOnboardingCircleInvite) return;
@@ -1953,7 +2140,7 @@ export function OneLocationOnboardingFlow({
   }, [screen]);
 
   useEffect(() => {
-    if (screen !== "invite") return;
+    if (screen !== "ready") return;
     if (circleInvitePreparedRef.current || circleInviteInFlightRef.current) {
       return;
     }
@@ -1996,18 +2183,20 @@ export function OneLocationOnboardingFlow({
     );
   }, [circleInvite, onShareOnboardingCircleCode]);
 
-  const handleSyncContacts = useCallback(async () => {
-    if (!onSyncOnboardingContacts) return;
-    setContactState({ kind: "busy" });
-    try {
-      const result = await onSyncOnboardingContacts();
+  const canOpenContactSettings = Boolean(onOpenContactSettings);
+  const applyContactSyncResult = useCallback(
+    (result: OnboardingContactSyncResult) => {
       if (result.status === "cancelled") {
         setContactState({ kind: "idle" });
         return;
       }
       if (result.status === "matched" && result.matches.length > 0) {
         setContactMatches(result.matches);
-        setContactState({ kind: "matched" });
+        setContactState({
+          kind: "matched",
+          partial: Boolean(result.partial),
+          summary: result.summary,
+        });
         return;
       }
       // A declined permission resolves rather than throws, and must not be
@@ -2017,8 +2206,7 @@ export function OneLocationOnboardingFlow({
         setContactState({
           kind: "failed",
           message: result.message,
-          canOpenSettings:
-            result.canOpenSettings && Boolean(onOpenContactSettings),
+          canOpenSettings: result.canOpenSettings && canOpenContactSettings,
         });
         return;
       }
@@ -2027,7 +2215,23 @@ export function OneLocationOnboardingFlow({
       setContactState({
         kind: "none",
         partial: result.status === "none" ? result.partial : false,
+        summary: result.status === "none" ? result.summary : undefined,
       });
+    },
+    [canOpenContactSettings],
+  );
+
+  useEffect(() => {
+    if (contactSyncResult) applyContactSyncResult(contactSyncResult);
+  }, [applyContactSyncResult, contactSyncResult]);
+
+  const contactSyncInFlightRef = useRef(false);
+  const handleSyncContacts = useCallback(async () => {
+    if (!onSyncOnboardingContacts || contactSyncInFlightRef.current) return;
+    contactSyncInFlightRef.current = true;
+    setContactState({ kind: "busy" });
+    try {
+      applyContactSyncResult(await onSyncOnboardingContacts());
     } catch (error) {
       setContactState({
         kind: "failed",
@@ -2035,10 +2239,12 @@ export function OneLocationOnboardingFlow({
           error instanceof Error && error.message
             ? error.message
             : "We couldn't check your contacts. You can try again later.",
-        canOpenSettings: Boolean(onOpenContactSettings),
+        canOpenSettings: canOpenContactSettings,
       });
+    } finally {
+      contactSyncInFlightRef.current = false;
     }
-  }, [onOpenContactSettings, onSyncOnboardingContacts]);
+  }, [applyContactSyncResult, canOpenContactSettings, onSyncOnboardingContacts]);
 
   const handleAddContact = useCallback(
     (userId: string) => {
@@ -2211,14 +2417,9 @@ export function OneLocationOnboardingFlow({
 
   const openFeatures = () => {
     setScreen("features");
-    requestMissingPermissions();
   };
 
   const backFromFeatures = () => {
-    // A dismissed location picker is reversible. When the owner goes back and
-    // returns to Features, prepare Location again; the parent still suppresses
-    // duplicate work after a confirmed save.
-    locationPreparationCompleteRef.current = false;
     if (startAt === "permissions") {
       void runBack();
       return;
@@ -2227,15 +2428,21 @@ export function OneLocationOnboardingFlow({
   };
 
   const continueFromFeatures = () => {
-    if (requireLocationToComplete && !locationGranted) {
-      void onRequestLocation();
-      return;
-    }
-    if (locationGranted && !locationPreparationCompleteRef.current) {
-      void prepareSavedLocation();
-      return;
-    }
-    setScreen(contactsStepAvailable ? "contacts" : "invite");
+    if (locationBusy || locationPreparationBusy) return;
+    setLocationPreparationRetry(false);
+    void (async () => {
+      let permissionReady = locationGranted;
+      if (!permissionReady) {
+        try {
+          permissionReady = (await onRequestLocation()) === true;
+        } catch {
+          permissionReady = false;
+        }
+      }
+      if (!permissionReady) return;
+      const prepared = await prepareSavedLocation(true);
+      if (prepared) setScreen("place");
+    })();
   };
 
   return (
@@ -2269,13 +2476,7 @@ export function OneLocationOnboardingFlow({
           //
           // 431px is the phone breakpoint: below it the panel goes full-bleed
           // rather than leaving side gutters on a device that has none.
-          screen === "welcome"
-            ? "max-w-none"
-            : screen === "features" ||
-                screen === "contacts" ||
-                screen === "invite"
-              ? "max-w-none"
-              : "max-w-[430px] max-[431px]:max-w-none",
+          "max-w-none",
         )}
         data-testid={LOCATION_SCREEN_TEST_IDS[screen]}
       >
@@ -2290,12 +2491,10 @@ export function OneLocationOnboardingFlow({
         {screen === "features" ? (
           <FeaturesScreen
             locationGranted={locationGranted}
-            notificationsGranted={notificationsGranted}
+            locationBlocked={locationBlocked}
             locationBusy={locationBusy}
             locationPreparationBusy={locationPreparationBusy}
             locationPreparationRetry={locationPreparationRetry}
-            notificationBusy={notificationBusy}
-            requireLocationToContinue={requireLocationToComplete}
             onBack={backFromFeatures}
             onSkip={() => void runSkip()}
             leaving={leaving}
@@ -2308,29 +2507,13 @@ export function OneLocationOnboardingFlow({
             full-size instance renders here, invisibly, so the tiles are in the
             browser cache before the screen that shows them exists. It unmounts
             as the finale mounts, so there is never a second live map. */}
-        {screen === "contacts" && finaleMapPoint ? (
+        {screen === "place" && finaleMapPoint ? (
           <OnboardingLiveMap
             point={finaleMapPoint}
             className="pointer-events-none absolute inset-0 -z-10 opacity-0"
           />
         ) : null}
-        {screen === "contacts" ? (
-          <ContactsScreen
-            state={contactState}
-            source={contactsSource}
-            matches={contactMatches}
-            addedUserIds={addedContactIds}
-            addingUserIds={addingContactIds}
-            onSync={() => void handleSyncContacts()}
-            onAdd={handleAddContact}
-            onOpenSettings={() => onOpenContactSettings?.()}
-            onBack={() => setScreen("features")}
-            onSkip={() => void runSkip()}
-            onContinue={() => setScreen("invite")}
-            leaving={leaving}
-          />
-        ) : null}
-        {screen === "invite" ? (
+        {screen === "ready" ? (
           <ReadyScreen
             currentUserName={currentUserName}
             mapPoint={finaleMapPoint}
@@ -2348,10 +2531,7 @@ export function OneLocationOnboardingFlow({
             onRetry={() => void prepareCircleInvite()}
             onCopy={handleCopyCircleInvite}
             onShare={handleShareCircleInvite}
-            onBack={() =>
-              setScreen(contactsStepAvailable ? "contacts" : "features")
-            }
-            onSkip={() => void runSkip()}
+            onBack={() => setScreen("place")}
             onContinue={finishFromInvite}
             leaving={leaving}
             completeLabel={completeLabel}
@@ -2376,6 +2556,25 @@ export function OneLocationOnboardingFlow({
               setJoinPreview(null);
               setJoinError(null);
             }}
+            activeDisclosure={activeReadyDisclosure}
+            onToggleDisclosure={(disclosure) =>
+              setActiveReadyDisclosure((current) =>
+                current === disclosure ? null : disclosure,
+              )
+            }
+            contactsAvailable={
+              contactsStepAvailable && Boolean(onSyncOnboardingContacts)
+            }
+            contactState={contactState}
+            contactsSource={contactsSource}
+            contactMatches={contactMatches}
+            addedContactIds={addedContactIds}
+            addingContactIds={addingContactIds}
+            onSyncContacts={() => void handleSyncContacts()}
+            onAddContact={handleAddContact}
+            onOpenContactSettings={() =>
+              onOpenContactSettings?.(() => void handleSyncContacts())
+            }
           />
         ) : null}
       </section>

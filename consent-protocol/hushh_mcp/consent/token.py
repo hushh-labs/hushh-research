@@ -205,6 +205,7 @@ def validate_token(
     expected_scope: Optional[Union[str, ConsentScope]] = None,
     *,
     require_commercial: Optional[bool] = None,
+    _skip_revocation_cache: bool = False,
 ) -> Tuple[bool, Optional[str], Optional[HushhConsentToken]]:
     """
     Validate a consent token.
@@ -221,7 +222,7 @@ def validate_token(
         Tuple of (valid, error_reason, token_object)
     """
     # Check in-memory revocation first (fastest)
-    if token_str in _revoked_tokens:
+    if not _skip_revocation_cache and token_str in _revoked_tokens:
         return False, "Token has been revoked", None
 
     try:

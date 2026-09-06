@@ -455,7 +455,7 @@ def test_production_health_gates_only_probe_after_successful_promotion() -> None
 
 def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
     for path, expected_created_revision_lookups in (
-        (".github/workflows/deploy-uat.yml", 3),
+        (".github/workflows/deploy-uat.yml", 2),
         (".github/workflows/deploy-dev.yml", 2),
     ):
         workflow = _read(path)
@@ -463,4 +463,8 @@ def test_nonproduction_rollback_targets_are_traffic_bearing_revisions() -> None:
         assert (
             workflow.count("status.latestCreatedRevisionName") == expected_created_revision_lookups
         )
-        assert workflow.count("status.traffic[0].revisionName") >= 6
+        if path.endswith("deploy-uat.yml"):
+            assert "--format='value(status.traffic[0].revisionName)'" not in workflow
+            assert "resolve-cloud-run-serving-state.py" in workflow
+        else:
+            assert workflow.count("status.traffic[0].revisionName") >= 6

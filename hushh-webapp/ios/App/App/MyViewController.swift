@@ -97,6 +97,11 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
     
     override func viewDidLoad() {
         super.viewDidLoad()
+
+        // A fresh process starts unshielded. After an inactive transition this
+        // host keeps the native cover above the WebView until the resumed auth
+        // generation explicitly acknowledges validation.
+        HushhSessionPrivacyShield.shared.attach(to: view)
         
         // Disable bounce effect for stable scrolling (fixes iOS layout bounce)
         if let webView = self.webView {
@@ -143,8 +148,9 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         bridge?.registerPluginInstance(HushhLocationPlugin())
         bridge?.registerPluginInstance(HushhContactsPlugin())
         bridge?.registerPluginInstance(HushhVoiceInvocationPlugin())
+        bridge?.registerPluginInstance(HushhSessionPrivacyPlugin())
         
-        print("✅ [MyViewController] All 13 plugins registered successfully:")
+        print("✅ [MyViewController] All 14 plugins registered successfully:")
         print("   - HushhAuth (Google Sign-In)")
         print("   - HushhVault (Encryption + Cloud DB)")
         print("   - HushhConsent (Token Management)")
@@ -158,6 +164,7 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
         print("   - HushhLocation (Foreground Location)")
         print("   - HushhContacts (Contact Matching)")
         print("   - HushhVoiceInvocation (Siri voice + generated action handoff)")
+        print("   - HushhSessionPrivacy (resume validation privacy shield)")
         
         // Verify plugins are actually accessible by the bridge
         verifyPluginRegistration()
@@ -180,7 +187,8 @@ class MyViewController: CAPBridgeViewController, WKScriptMessageHandler {
             "HushhNotifications",
             "HushhLocation",
             "HushhContacts",
-            "HushhVoiceInvocation"
+            "HushhVoiceInvocation",
+            "HushhSessionPrivacy"
         ]
         
         for name in pluginNames {

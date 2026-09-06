@@ -15,8 +15,8 @@ import {
  * and tells the person nobody they know is here. The first test below proves
  * that failure mode rather than asserting it.
  *
- * Only Android reports a region derived from the number plan
- * (`simCountryIso`, then `networkCountryIso`). iOS reports `Locale.current`
+ * Only Android reports a region derived from the home number plan
+ * (`simCountryIso`). A roaming network country is intentionally omitted. iOS reports `Locale.current`
  * and has nothing better to give — `CTCarrier` has returned dummy values since
  * iOS 16 — and the web picker reports the browser locale. So provenance, not
  * platform, is what ranks the signal.

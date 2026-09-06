@@ -2,17 +2,47 @@
 """Account deletion orchestration for full-account and persona-scoped cleanup."""
 
 import logging
+from collections.abc import Iterable
 from datetime import datetime, timezone
 from typing import Any, Dict, Literal
 
 from sqlalchemy import text
 
 from db.db_client import get_db, get_db_connection
+from hushh_mcp.services.account_deletion_lifecycle_service import (
+    AccountDeletionLifecycleService,
+)
 from hushh_mcp.services.connection_graph_service import lock_connection_graph_users
 
 logger = logging.getLogger(__name__)
 
 DeleteAccountTarget = Literal["investor", "ria", "both"]
+PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE = (
+    "ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"
+)
+PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE = (
+    "Your private agent or cloud setup must be removed before the account can be "
+    "deleted. Please try again later or contact support."
+)
+
+
+class PersonalAgentDeprovisioningRequiredError(RuntimeError):
+    """Account deletion cannot safely orphan external personal-agent resources."""
+
+
+# Live-catalog UID-bearing state that is not represented by the release migration
+# chain yet. Keep this list next to the erasure implementation so a contract test
+# can compare the governed catalog with the executable delete predicates.
+TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
+    {
+        "byoc_setup_jobs",
+        "personal_agent_registry",
+        "one_location_visibility_preferences",
+        "one_location_visibility_exclusions",
+        "kai_location_referrals",
+        "pod_lifecycle_events",
+    }
+)
 
 
 class AccountService:
@@ -62,9 +92,58 @@ class AccountService:
             "connected_system_record_bindings": text(
                 "DELETE FROM connected_system_record_bindings WHERE user_id = :user_id"
             ),
+            "connected_system_owner_signing_keys": text(
+                "DELETE FROM connected_system_owner_signing_keys WHERE user_id = :user_id"
+            ),
+            "connected_system_zk_contexts": text(
+                "DELETE FROM connected_system_zk_contexts WHERE user_id = :user_id"
+            ),
+            "developer_oauth_tokens": text(
+                "DELETE FROM developer_oauth_tokens WHERE subject_firebase_uid = :user_id"
+            ),
+            "developer_oauth_authorizations": text(
+                "DELETE FROM developer_oauth_authorizations WHERE subject_firebase_uid = :user_id"
+            ),
+            "developer_oauth_audit_events": text(
+                """
+                DELETE FROM developer_oauth_audit_events
+                WHERE subject_firebase_uid = :user_id
+                   OR app_id IN (
+                     SELECT app_id FROM developer_apps
+                     WHERE owner_firebase_uid = :user_id
+                   )
+                """
+            ),
+            "developer_applications": text(
+                """
+                DELETE FROM developer_applications AS application
+                WHERE application.id IN (
+                  SELECT owned.application_id
+                  FROM developer_apps AS owned
+                  WHERE owned.owner_firebase_uid = :user_id
+                    AND owned.application_id IS NOT NULL
+                )
+                  AND NOT EXISTS (
+                    SELECT 1
+                    FROM developer_apps AS other
+                    WHERE other.application_id = application.id
+                      AND other.owner_firebase_uid IS DISTINCT FROM :user_id
+                  )
+                """
+            ),
+            "developer_apps": text(
+                "DELETE FROM developer_apps WHERE owner_firebase_uid = :user_id"
+            ),
             "internal_access_events": text(
                 "DELETE FROM internal_access_events WHERE user_id = :user_id"
             ),
+            "fabric_consent_requests": text(
+                "DELETE FROM fabric_consent_requests WHERE user_id = :user_id"
+            ),
+            "fabric_subscription_grants": text(
+                "DELETE FROM fabric_subscription_grants WHERE user_id = :user_id"
+            ),
+            "pwm_documents": text("DELETE FROM pwm_documents WHERE user_id = :user_id"),
             "kai_analyze_runs": text("DELETE FROM kai_analyze_runs WHERE user_id = :user_id"),
             "kai_funding_ach_relationships": text(
                 "DELETE FROM kai_funding_ach_relationships WHERE user_id = :user_id"
@@ -123,6 +202,24 @@ class AccountService:
                 "DELETE FROM marketplace_investor_actions "
                 "WHERE actor_user_id = :user_id OR target_user_id = :user_id"
             ),
+            "marketplace_delivery_envelopes": text(
+                """
+                DELETE FROM marketplace_delivery_envelopes
+                WHERE owner_user_id = :user_id OR buyer_user_id = :user_id
+                """
+            ),
+            "marketplace_access_requests": text(
+                """
+                DELETE FROM marketplace_access_requests
+                WHERE owner_user_id = :user_id OR buyer_user_id = :user_id
+                """
+            ),
+            "marketplace_recipient_keys": text(
+                "DELETE FROM marketplace_recipient_keys WHERE user_id = :user_id"
+            ),
+            "marketplace_opportunity_signals": text(
+                "DELETE FROM marketplace_opportunity_signals WHERE user_id = :user_id"
+            ),
             "pkm_data": text("DELETE FROM pkm_data WHERE user_id = :user_id"),
             "pkm_default_available_projections": text(
                 "DELETE FROM pkm_default_available_projections WHERE user_id = :user_id"
@@ -167,6 +264,28 @@ class AccountService:
             ),
             "one_location_auto_approve_preferences": text(
                 "DELETE FROM one_location_auto_approve_preferences WHERE user_id = :user_id"
+            ),
+            "one_location_visibility_preferences": text(
+                "DELETE FROM one_location_visibility_preferences WHERE owner_user_id = :user_id"
+            ),
+            "one_location_visibility_exclusions": text(
+                """
+                DELETE FROM one_location_visibility_exclusions
+                WHERE owner_user_id = :user_id
+                   OR excluded_user_id = :user_id
+                """
+            ),
+            "one_location_map_preferences": text(
+                "DELETE FROM one_location_map_preferences WHERE user_id = :user_id"
+            ),
+            "one_location_network_connections": text(
+                """
+                DELETE FROM one_location_network_connections
+                WHERE user_a_id = :user_id
+                   OR user_b_id = :user_id
+                   OR inviter_user_id = :user_id
+                   OR invitee_user_id = :user_id
+                """
             ),
             "one_location_envelopes": text(
                 """
@@ -331,6 +450,14 @@ class AccountService:
                    OR referred_user_id = :user_id
                 """
             ),
+            "kai_location_referrals": text(
+                """
+                DELETE FROM kai_location_referrals
+                WHERE owner_user_id = :user_id
+                   OR referrer_user_id = :user_id
+                   OR candidate_user_id = :user_id
+                """
+            ),
             "one_location_share_grants": text(
                 """
                 DELETE FROM one_location_share_grants
@@ -341,8 +468,95 @@ class AccountService:
             "runtime_persona_state": text(
                 "DELETE FROM runtime_persona_state WHERE user_id = :user_id"
             ),
+            "one_referral_risk_reviews": text(
+                """
+                DELETE FROM one_referral_risk_reviews AS review
+                WHERE review.relationship_id IN (
+                  SELECT relationship.id
+                  FROM one_referral_relationships AS relationship
+                  JOIN one_referral_attributions AS attribution
+                    ON attribution.id = relationship.attribution_id
+                  JOIN one_referral_codes AS referral_code
+                    ON referral_code.id = attribution.referral_code_id
+                  WHERE relationship.referrer_user_id = :user_id
+                     OR relationship.referred_user_id = :user_id
+                     OR attribution.referrer_user_id = :user_id
+                     OR attribution.bound_user_id = :user_id
+                     OR referral_code.owner_user_id = :user_id
+                )
+                """
+            ),
+            "one_referral_events": text(
+                """
+                DELETE FROM one_referral_events AS event
+                WHERE event.user_id = :user_id
+                   OR event.relationship_id IN (
+                     SELECT relationship.id
+                     FROM one_referral_relationships AS relationship
+                     JOIN one_referral_attributions AS attribution
+                       ON attribution.id = relationship.attribution_id
+                     JOIN one_referral_codes AS referral_code
+                       ON referral_code.id = attribution.referral_code_id
+                     WHERE relationship.referrer_user_id = :user_id
+                        OR relationship.referred_user_id = :user_id
+                        OR attribution.referrer_user_id = :user_id
+                        OR attribution.bound_user_id = :user_id
+                        OR referral_code.owner_user_id = :user_id
+                   )
+                """
+            ),
+            "one_referral_relationships": text(
+                """
+                DELETE FROM one_referral_relationships AS relationship
+                WHERE relationship.referrer_user_id = :user_id
+                   OR relationship.referred_user_id = :user_id
+                   OR relationship.attribution_id IN (
+                     SELECT attribution.id
+                     FROM one_referral_attributions AS attribution
+                     JOIN one_referral_codes AS referral_code
+                       ON referral_code.id = attribution.referral_code_id
+                     WHERE attribution.referrer_user_id = :user_id
+                        OR attribution.bound_user_id = :user_id
+                        OR referral_code.owner_user_id = :user_id
+                   )
+                """
+            ),
+            "one_referral_attributions": text(
+                """
+                DELETE FROM one_referral_attributions AS attribution
+                WHERE attribution.referrer_user_id = :user_id
+                   OR attribution.bound_user_id = :user_id
+                   OR attribution.referral_code_id IN (
+                     SELECT referral_code.id
+                     FROM one_referral_codes AS referral_code
+                     WHERE referral_code.owner_user_id = :user_id
+                   )
+                """
+            ),
+            "one_referral_codes": text(
+                "DELETE FROM one_referral_codes WHERE owner_user_id = :user_id"
+            ),
+            "one_agent_engagement_sessions": text(
+                "DELETE FROM one_agent_engagement_sessions WHERE user_id = :user_id"
+            ),
+            "ria_pick_legacy_retirements": text(
+                """
+                DELETE FROM ria_pick_legacy_retirements
+                WHERE owner_user_id = :user_id
+                   OR ria_profile_id IN (
+                     SELECT id FROM ria_profiles WHERE user_id = :user_id
+                   )
+                """
+            ),
             "user_push_tokens": text("DELETE FROM user_push_tokens WHERE user_id = :user_id"),
             "feed_events": text("DELETE FROM feed_events WHERE user_id = :user_id"),
+            "byoc_setup_jobs": text("DELETE FROM byoc_setup_jobs WHERE user_id = :user_id"),
+            "pod_lifecycle_events": text(
+                "DELETE FROM pod_lifecycle_events WHERE user_id = :user_id"
+            ),
+            "personal_agent_registry": text(
+                "DELETE FROM personal_agent_registry WHERE user_id = :user_id"
+            ),
             "vault_key_wrappers": text("DELETE FROM vault_key_wrappers WHERE user_id = :user_id"),
             "world_model_index_v2": text(
                 "DELETE FROM world_model_index_v2 WHERE user_id = :user_id"
@@ -567,6 +781,193 @@ class AccountService:
         for table_name in table_names:
             self._delete_user_rows_if_table_exists(conn, table_name=table_name, params=params)
             results[table_name] = True
+
+    def _delete_one_referral_graph(
+        self,
+        conn,
+        *,
+        params: dict[str, Any],
+        results: dict[str, bool],
+    ) -> None:
+        """Delete migration-165 referral state without crossing its RESTRICT edge."""
+        deletion_order = (
+            "one_referral_risk_reviews",
+            "one_referral_events",
+            "one_referral_relationships",
+            "one_referral_attributions",
+            "one_referral_codes",
+            "one_agent_engagement_sessions",
+        )
+        table_presence = {
+            table_name: self._table_exists(conn, table_name) for table_name in deletion_order
+        }
+        if not any(table_presence.values()):
+            results.update({table_name: True for table_name in deletion_order})
+            return
+        missing_tables = tuple(
+            table_name for table_name, exists in table_presence.items() if not exists
+        )
+        if missing_tables:
+            raise RuntimeError(
+                "incomplete migration-165 referral schema: " + ", ".join(missing_tables)
+            )
+
+        # relationship.attribution_id is ON DELETE RESTRICT. Remove audit/risk
+        # children and every relationship involving the deleting account (or
+        # one of its owned/bound attributions) before touching attribution or
+        # code rows. This also removes the other user's cross-account linkage.
+        for table_name in deletion_order:
+            conn.execute(self._delete_by_user_queries[table_name], params)
+            results[table_name] = True
+
+    def _delete_personal_agent_state(
+        self,
+        conn,
+        *,
+        params: dict[str, Any],
+        results: dict[str, bool],
+    ) -> None:
+        """Erase only personal-agent state proven to have no external resources.
+
+        The personal-agent migrations are parked in the release tree but exist in
+        some live environments. A provisioned pod or an in-flight BYOC project can
+        outlive its database row. No in-repo worker consumes the parked deletion
+        tombstones, so any state that may own external resources must fail closed.
+        """
+        state_tables = (
+            "byoc_setup_jobs",
+            "pod_lifecycle_events",
+            "personal_agent_registry",
+        )
+        table_presence = {
+            table_name: self._table_exists(conn, table_name) for table_name in state_tables
+        }
+        if not any(table_presence.values()):
+            results.update({table_name: True for table_name in state_tables})
+            results["personal_agent_external_resources_absent"] = True
+            return
+
+        registry_row = None
+        if table_presence["personal_agent_registry"]:
+            registry_row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT to_jsonb(registry) AS registry
+                        FROM personal_agent_registry AS registry
+                        WHERE registry.user_id = :user_id
+                        FOR UPDATE
+                        """
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+        byoc_row = None
+        if table_presence["byoc_setup_jobs"]:
+            byoc_row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT to_jsonb(job) AS job
+                        FROM byoc_setup_jobs AS job
+                        WHERE job.user_id = :user_id
+                        FOR UPDATE
+                        """
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+        lifecycle_row = None
+        if table_presence["pod_lifecycle_events"]:
+            lifecycle_row = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT TRUE AS present
+                        FROM pod_lifecycle_events
+                        WHERE user_id = :user_id
+                        LIMIT 1
+                        FOR UPDATE
+                        """
+                    ),
+                    params,
+                )
+                .mappings()
+                .first()
+            )
+
+        registry = dict((registry_row or {}).get("registry") or {})
+        status = str(registry.get("status") or "").strip().lower()
+        external_coordinate_fields = (
+            "space_id",
+            "external_agent_id",
+            "a2a_route",
+            "backend",
+            "backend_metadata",
+            "attestation_ref",
+            "pod_pubkey",
+            "pod_key_id",
+            "pod_key_wrapping_alg",
+            "region",
+            "provisioned_at",
+            "deployment_target",
+            "user_cloud_project",
+            "user_cloud_region",
+            "user_cloud_bootstrap_sa",
+            "user_cloud_authorized_at",
+        )
+        has_external_coordinates = any(
+            registry.get(field_name) not in (None, "", {}, [])
+            for field_name in external_coordinate_fields
+        )
+        has_pending_deprovision = False
+        hushh_id = str(registry.get("hushh_id") or "").strip()
+        if hushh_id and self._table_exists(conn, "personal_agent_deletion_tombstones"):
+            has_pending_deprovision = (
+                conn.execute(
+                    text(
+                        """
+                        SELECT TRUE
+                        FROM personal_agent_deletion_tombstones
+                        WHERE hushh_id = :hushh_id
+                        LIMIT 1
+                        FOR UPDATE
+                        """
+                    ),
+                    {"hushh_id": hushh_id},
+                ).first()
+                is not None
+            )
+
+        demonstrably_unprovisioned = (registry_row is None and lifecycle_row is None) or (
+            registry_row is not None and status == "unprovisioned" and not has_external_coordinates
+        )
+        if byoc_row is not None or has_pending_deprovision or not demonstrably_unprovisioned:
+            raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
+
+        results["personal_agent_external_resources_absent"] = True
+
+        # Only an unprovisioned registry with no provider coordinates reaches
+        # this point. Delete the mutable job slot and narrative before its row.
+        for table_name in state_tables:
+            if table_presence[table_name]:
+                conn.execute(self._delete_by_user_queries[table_name], params)
+            results[table_name] = True
+
+    @staticmethod
+    def _lock_fabric_receipt_users(conn, *, user_ids: Iterable[str]) -> None:
+        """Serialize account cleanup before Fabric grant/read/receipt writers."""
+        for user_id in sorted(
+            {normalized for candidate in user_ids if (normalized := str(candidate or "").strip())}
+        ):
+            conn.execute(
+                text("SELECT pg_advisory_xact_lock(hashtext(:lock_key))"),
+                {"lock_key": f"fabric_receipts:{user_id}"},
+            )
 
     def _delete_owned_named_circles(
         self,
@@ -905,11 +1306,17 @@ class AccountService:
             }
 
         if requested_target == "both":
-            return await self._delete_full_account(user_id, requested_target=requested_target)
+            return await self._delete_full_account(
+                user_id,
+                requested_target=requested_target,
+            )
 
         remaining_personas = [persona for persona in personas if persona != requested_target]
         if not remaining_personas:
-            return await self._delete_full_account(user_id, requested_target=requested_target)
+            return await self._delete_full_account(
+                user_id,
+                requested_target=requested_target,
+            )
 
         if requested_target == "ria":
             return await self._delete_ria_persona(
@@ -966,6 +1373,20 @@ class AccountService:
                 "connected_system_audit_events",
                 "connected_system_record_bindings",
                 "connected_system_intents",
+                "connected_system_owner_signing_keys",
+                "connected_system_zk_contexts",
+                # fabric_receipts is deliberately retained: it is an append-only,
+                # signed audit chain and the current schema has no chain-safe
+                # subject-redaction primitive. The Fabric lock is held before
+                # these authority/data rows are removed so no subscriber read,
+                # grant, revoke, or receipt append crosses the cleanup boundary.
+                "fabric_consent_requests",
+                "fabric_subscription_grants",
+                "pwm_documents",
+                "marketplace_delivery_envelopes",
+                "marketplace_access_requests",
+                "marketplace_recipient_keys",
+                "marketplace_opportunity_signals",
                 "trusted_device_challenges",
                 "trusted_device_authorizations",
                 "trusted_device_audit_events",
@@ -1108,12 +1529,17 @@ class AccountService:
         )
         for table_name in (
             "one_location_auto_approve_preferences",
+            "one_location_visibility_exclusions",
+            "one_location_visibility_preferences",
+            "one_location_map_preferences",
+            "one_location_network_connections",
             "one_location_events",
             "one_location_nearby_presences",
             "one_location_nearby_visits",
             "one_location_place_ratings",
             "one_location_sms_contacts",
             "one_location_referrals",
+            "kai_location_referrals",
             "one_location_public_invite_submissions",
             "one_location_public_invites",
             "one_location_circle_invites",
@@ -1149,6 +1575,7 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                self._lock_fabric_receipt_users(conn, user_ids=(user_id,))
                 lock_connection_graph_users(conn, user_ids=[user_id])
                 self._clear_user_data_tables(conn, user_id, results)
 
@@ -1265,6 +1692,7 @@ class AccountService:
             "plaid_link_sessions": False,
             "plaid_profile_cache": False,
             "kai_portfolio_source_preferences": False,
+            "kai_analyze_runs": False,
             "kai_gmail_connections": False,
             "kai_gmail_receipts": False,
             "kai_gmail_sync_runs": False,
@@ -1286,8 +1714,13 @@ class AccountService:
             "connected_system_audit_events": False,
             "connected_system_intents": False,
             "connected_system_record_bindings": False,
+            "connected_system_owner_signing_keys": False,
+            "connected_system_zk_contexts": False,
             "consent_audit": False,
             "internal_access_events": False,
+            "fabric_consent_requests": False,
+            "fabric_subscription_grants": False,
+            "pwm_documents": False,
             "push_tokens": False,
             "invite_links": False,
             "relationships": False,
@@ -1296,14 +1729,29 @@ class AccountService:
             "ria_pick_share_artifacts": False,
             "marketplace_investor_actions": False,
             "marketplace_profile": False,
+            "marketplace_delivery_envelopes": False,
+            "marketplace_access_requests": False,
+            "marketplace_recipient_keys": False,
+            "marketplace_opportunity_signals": False,
             "one_kyc_workflows": False,
+            "one_referral_risk_reviews": False,
+            "one_referral_events": False,
+            "one_referral_relationships": False,
+            "one_referral_attributions": False,
+            "one_referral_codes": False,
+            "one_agent_engagement_sessions": False,
             "one_location_auto_approve_preferences": False,
+            "one_location_visibility_exclusions": False,
+            "one_location_visibility_preferences": False,
+            "one_location_map_preferences": False,
+            "one_location_network_connections": False,
             "one_location_events": False,
             "one_location_nearby_presences": False,
             "one_location_nearby_visits": False,
             "one_location_place_ratings": False,
             "one_location_sms_contacts": False,
             "one_location_referrals": False,
+            "kai_location_referrals": False,
             "one_location_access_requests": False,
             "one_location_envelopes": False,
             "one_location_public_invite_submissions": False,
@@ -1325,14 +1773,46 @@ class AccountService:
             "one_location_recipient_keys": False,
             "feed_events": False,
             "runtime_persona_state": False,
+            "ria_pick_legacy_retirements": False,
+            "developer_oauth_tokens": False,
+            "developer_oauth_authorizations": False,
+            "developer_oauth_audit_events": False,
+            "developer_applications": False,
+            "developer_apps": False,
+            "byoc_setup_jobs": False,
+            "pod_lifecycle_events": False,
+            "personal_agent_registry": False,
+            "personal_agent_external_resources_absent": False,
             "vault_key_wrappers": False,
             "vault_keys": False,
+            "account_deletion_tombstone": False,
         }
 
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
-                lock_connection_graph_users(conn, user_ids=[user_id])
+                # The authenticated account UID is the only identity this
+                # full-erasure authority may tombstone. Phone-orphan cleanup
+                # has its own exact-token, phone-only, account-empty intent
+                # path and must never be smuggled through this service hook.
+                all_cleanup_user_ids = (user_id,)
+                self._lock_fabric_receipt_users(
+                    conn,
+                    user_ids=all_cleanup_user_ids,
+                )
+                cleanup_user_ids = (
+                    AccountDeletionLifecycleService.record_pending_many_in_transaction(
+                        conn,
+                        user_ids=all_cleanup_user_ids,
+                    )
+                )
+                results["account_deletion_tombstone"] = True
+                results["firebase_cleanup_intent_count"] = len(cleanup_user_ids)
+                self._delete_personal_agent_state(
+                    conn,
+                    params=params,
+                    results=results,
+                )
                 self._delete_optional_user_tables(
                     conn,
                     table_names=[
@@ -1356,11 +1836,21 @@ class AccountService:
                         "kai_gmail_connections",
                         "kai_receipt_memory_artifacts",
                         "kai_portfolio_source_preferences",
+                        "kai_analyze_runs",
                         "consent_export_refresh_jobs",
                         "consent_exports",
                         "connected_system_audit_events",
                         "connected_system_record_bindings",
                         "connected_system_intents",
+                        "connected_system_owner_signing_keys",
+                        "connected_system_zk_contexts",
+                        "fabric_consent_requests",
+                        "fabric_subscription_grants",
+                        "pwm_documents",
+                        "marketplace_delivery_envelopes",
+                        "marketplace_access_requests",
+                        "marketplace_recipient_keys",
+                        "marketplace_opportunity_signals",
                         "trusted_device_challenges",
                         "trusted_device_authorizations",
                         "trusted_device_audit_events",
@@ -1372,7 +1862,18 @@ class AccountService:
                         "pkm_domain_revisions",
                         "pkm_upgrade_steps",
                         "pkm_upgrade_runs",
+                        "ria_pick_legacy_retirements",
+                        "developer_oauth_tokens",
+                        "developer_oauth_authorizations",
+                        "developer_oauth_audit_events",
+                        "developer_applications",
+                        "developer_apps",
                     ],
+                    params=params,
+                    results=results,
+                )
+                self._delete_one_referral_graph(
+                    conn,
                     params=params,
                     results=results,
                 )
@@ -1527,14 +2028,18 @@ class AccountService:
                     # must be purged here as well.
                     "contact_sync_lookup_budgets",
                     "one_location_auto_approve_preferences",
+                    # Cross-user exclusions must go before their owner preference.
+                    "one_location_visibility_exclusions",
+                    "one_location_visibility_preferences",
+                    "one_location_map_preferences",
+                    "one_location_network_connections",
                     "one_location_events",
                     "one_location_nearby_presences",
                     "one_location_nearby_visits",
                     "one_location_place_ratings",
-                    "one_location_nearby_visits",
-                    "one_location_place_ratings",
                     "one_location_sms_contacts",
                     "one_location_referrals",
+                    "kai_location_referrals",
                     "one_location_public_invite_submissions",
                     "one_location_public_invites",
                     "one_location_circle_invites",
@@ -1593,6 +2098,22 @@ class AccountService:
                 "remaining_personas": [],
                 "details": results,
             }
+        except PersonalAgentDeprovisioningRequiredError:
+            logger.warning(
+                "Account deletion blocked until personal-agent resources are deprovisioned for %s",
+                user_id,
+            )
+            return {
+                "success": False,
+                "error": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "message": PERSONAL_AGENT_DEPROVISION_REQUIRED_MESSAGE,
+                "requested_target": requested_target,
+                "deleted_target": None,
+                "account_deleted": False,
+                "remaining_personas": [],
+                "details": results,
+            }
         except Exception as exc:
             logger.exception("❌ Full account deletion failed for %s", user_id)
             return {
@@ -1615,6 +2136,7 @@ class AccountService:
     ) -> Dict[str, Any]:
         logger.warning("🚨 RIA persona deletion requested for %s", user_id)
         results = {
+            "ria_pick_legacy_retirements": False,
             "ria_profile": False,
             "actor_profile": False,
             "runtime_persona_state": False,
@@ -1624,6 +2146,12 @@ class AccountService:
         try:
             with get_db_connection() as conn:
                 params = {"user_id": user_id}
+                self._delete_user_rows_if_table_exists(
+                    conn,
+                    table_name="ria_pick_legacy_retirements",
+                    params=params,
+                )
+                results["ria_pick_legacy_retirements"] = True
                 conn.execute(text("DELETE FROM ria_profiles WHERE user_id = :user_id"), params)
                 results["ria_profile"] = True
                 conn.execute(

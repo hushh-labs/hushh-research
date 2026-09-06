@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  useCallback,
   useEffect,
   useId,
   useRef,
@@ -24,6 +25,8 @@ import {
 
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Sheet, SheetContent, useSheetDragHandle } from "@/components/ui/sheet";
+import { OnboardingStepper } from "@/components/app-ui/onboarding-stepper";
+import { ONE_LOCATION_ONBOARDING_STEPS } from "@/components/one-location/onboarding/one-location-onboarding-steps";
 import {
   LocationPickerMap,
   type LocationPickerMapHandle,
@@ -79,8 +82,7 @@ import {
 const touchTargetClassName =
   "after:absolute after:left-1/2 after:top-1/2 after:h-11 after:w-11 after:-translate-x-1/2 after:-translate-y-1/2 after:content-['']";
 
-const iconButtonClassName =
-  `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const iconButtonClassName = `press-scale absolute flex h-9 w-9 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
 
 /**
  * The same control, laid out instead of absolutely positioned. Written as its
@@ -89,8 +91,7 @@ const iconButtonClassName =
  * key and `relative` is the only one -- which is exactly the trap documented
  * on `touchTargetClassName`.
  */
-const inlineIconButtonClassName =
-  `press-scale relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
+const inlineIconButtonClassName = `press-scale relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-secondary-label)] transition-colors hover:bg-[color:var(--app-neutral-fill-strong)]/80 disabled:opacity-45 ${touchTargetClassName}`;
 
 const controlLabelClassName =
   "mb-1.5 block text-[13px] font-semibold leading-[18px] text-muted-foreground";
@@ -367,6 +368,10 @@ export type SaveLocationModalProps = {
   takeover?: boolean;
   /** Follow pin confirmation with the complete entrance/address detail step. */
   collectAddressDetails?: boolean;
+  /** Present map, address, details, and category together as onboarding step 3. */
+  unifiedOnboarding?: boolean;
+  /** Navigate back without treating the place as skipped. */
+  onBack?: () => void;
   /** Pre-select a category when editing an existing saved place. */
   initialCategory?: SavedLocationCategory | null;
   /**
@@ -401,7 +406,9 @@ export type SaveLocationModalProps = {
      * top of whatever the last one produced.
      */
     addressLine?: string | null,
-  ) => void;
+    /** Exact map selection committed by the same Save press. */
+    picked?: PickedLocation,
+  ) => void | boolean | Promise<void | boolean>;
   onSkip: () => void;
 };
 
@@ -484,7 +491,9 @@ function SavedLocationCategoryPicker({
               )}
             >
               <Icon className="h-5 w-5" strokeWidth={1.9} aria-hidden />
-              <span className="text-[13px] font-semibold leading-[18px]">{label}</span>
+              <span className="text-[13px] font-semibold leading-[18px]">
+                {label}
+              </span>
             </button>
           );
         })}
@@ -515,6 +524,8 @@ export function SaveLocationModal({
   startWithMapPicker = false,
   takeover = false,
   collectAddressDetails = false,
+  unifiedOnboarding = false,
+  onBack,
   initialCategory = null,
   existingLocations = [],
   initialCustomLabel = null,
@@ -582,6 +593,10 @@ export function SaveLocationModal({
    * shouting, and never lets a press land on nothing.
    */
   const [addressTouched, setAddressTouched] = useState(false);
+  const [unifiedSaveError, setUnifiedSaveError] = useState<string | null>(null);
+  const [unifiedSaveInFlight, setUnifiedSaveInFlight] = useState(false);
+  const unifiedSaveInFlightRef = useRef(false);
+  const unifiedSessionInitializedRef = useRef(false);
   /**
    * Which presentation this surface opened in, held for as long as it stays
    * open.
@@ -609,6 +624,12 @@ export function SaveLocationModal({
   // provided initial values so the same add flow doubles as an update flow.
   useEffect(() => {
     if (open) {
+      if (unifiedOnboarding && unifiedSessionInitializedRef.current) {
+        setUnifiedSaveError(null);
+        setMapReady(false);
+        return;
+      }
+      if (unifiedOnboarding) unifiedSessionInitializedRef.current = true;
       // Treat a provided House or flat (edit mode) as already user-authored so
       // the detected-address effect does not clobber it.
       houseOrFlatEditedRef.current = Boolean(
@@ -616,6 +637,7 @@ export function SaveLocationModal({
       );
       setAddressLineValue(null);
       setAddressTouched(false);
+      setUnifiedSaveError(null);
       // Editing keeps the place's own label; a new place opens on the first
       // label still free, so the primary button is live on arrival instead of
       // waiting behind "Pick Home, Work or Other first."
@@ -642,8 +664,7 @@ export function SaveLocationModal({
     // Initial* props are read once per open; excluded to avoid mid-session
     // resets while the modal is open.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open]);
-
+  }, [open, unifiedOnboarding]);
 
   useEffect(() => {
     if (!open || !editingPlace || !onSearchPlaces) return;
@@ -687,7 +708,7 @@ export function SaveLocationModal({
   // once, here, so every place this line is shown or saved says the same thing.
   const resolvedAddress = stripPlusCodeSegment(address);
   const changingPlace = selectingPlaceId !== null;
-  const interactionBusy = saving || changingPlace;
+  const interactionBusy = saving || changingPlace || unifiedSaveInFlight;
   const canEditPlace = Boolean(onSearchPlaces && onSelectPlace);
   const canPickOnMap = Boolean(
     onPickExactLocation &&
@@ -779,7 +800,10 @@ export function SaveLocationModal({
    * House or flat and Landmark are enrichment and never block a save.
    */
   const saveBlockedReason: string | null =
-    saving || changingPlace || loadingAddress || editingPlace || flowStep === "map"
+    interactionBusy ||
+    (!unifiedOnboarding && loadingAddress) ||
+    editingPlace ||
+    (!unifiedOnboarding && flowStep === "map")
       ? null
       : category === null
         ? "Pick Home, Work or Other first."
@@ -792,12 +816,14 @@ export function SaveLocationModal({
           : null;
   const canSave =
     category !== null &&
-    !saving &&
-    !loadingAddress &&
+    !interactionBusy &&
+    (unifiedOnboarding || !loadingAddress) &&
     !editingPlace &&
-    flowStep !== "map" &&
+    (unifiedOnboarding || flowStep !== "map") &&
     !changingPlace &&
     saveBlockedReason === null;
+  const unifiedCanSave =
+    unifiedOnboarding && canSave && canPickOnMap && mapReady;
 
   /**
    * The pin and the address details are two slides of one thing, not two
@@ -886,16 +912,77 @@ export function SaveLocationModal({
     }
   };
 
+  const submitSave = async (picked?: PickedLocation) => {
+    if (!category || !canSave || unifiedSaveInFlightRef.current) return;
+    const label =
+      category === "other" ? customLabel.trim() || "Other" : undefined;
+    const addressLine = effectiveAddressLine.trim();
+    setUnifiedSaveError(null);
+    if (unifiedOnboarding) {
+      unifiedSaveInFlightRef.current = true;
+      setUnifiedSaveInFlight(true);
+    }
+    try {
+      const details = collectAddressDetails
+        ? {
+            ...normalizedAddressDetails,
+            postalCode: derivedPostalCode(
+              addressLine,
+              normalizedAddressDetails.postalCode,
+            ),
+          }
+        : undefined;
+      const result = collectAddressDetails
+        ? unifiedOnboarding
+          ? await onSave(
+              category,
+              label ?? "",
+              details,
+              addressLine || null,
+              picked,
+            )
+          : await onSave(category, label ?? "", details, addressLine || null)
+        : await onSave(category, label ?? "");
+      if (unifiedOnboarding && result === false) {
+        setUnifiedSaveError(
+          "We couldn't save this place. Your details are still here — try again.",
+        );
+      }
+    } catch {
+      if (unifiedOnboarding) {
+        setUnifiedSaveError(
+          "We couldn't save this place. Your details are still here — try again.",
+        );
+      }
+    } finally {
+      if (unifiedOnboarding) {
+        unifiedSaveInFlightRef.current = false;
+        setUnifiedSaveInFlight(false);
+      }
+    }
+  };
+
+  const updateUnifiedPickedLocation = useCallback(
+    (picked: PickedLocation) => {
+      onPickExactLocation?.(picked);
+      setPickedAddress(picked.address);
+      setAddressDetails((current) =>
+        detectedAddressDetails(
+          current,
+          picked.address,
+          houseOrFlatEditedRef.current,
+        ),
+      );
+    },
+    [onPickExactLocation],
+  );
+
   const handleConfirmMapPick = (picked: PickedLocation) => {
-    onPickExactLocation?.(picked);
-    setPickedAddress(picked.address);
-    setAddressDetails((current) =>
-      detectedAddressDetails(
-        current,
-        picked.address,
-        houseOrFlatEditedRef.current,
-      ),
-    );
+    updateUnifiedPickedLocation(picked);
+    if (unifiedOnboarding) {
+      void submitSave(picked);
+      return;
+    }
     setSlideFrom("right");
     setMapReady(false);
     setFlowStep(collectAddressDetails ? "details" : "summary");
@@ -908,29 +995,13 @@ export function SaveLocationModal({
 
   const handleSave = () => {
     if (!category || !canSave) return;
-    const label =
-      category === "other" ? customLabel.trim() || "Other" : undefined;
-    if (collectAddressDetails) {
-      const addressLine = effectiveAddressLine.trim();
-      onSave(
-        category,
-        label ?? "",
-        {
-          ...normalizedAddressDetails,
-          // Worked out from the line being saved, not asked for. `buildingColor`
-          // rides through untouched from `initialDetails`: the form stopped
-          // asking for it, which is not the same as throwing away what a place
-          // was already saved with.
-          postalCode: derivedPostalCode(
-            addressLine,
-            normalizedAddressDetails.postalCode,
-          ),
-        },
-        addressLine || null,
-      );
+    if (unifiedOnboarding && canPickOnMap) {
+      if (!mapPickerRef.current?.confirm()) {
+        setUnifiedSaveError("Wait for the pin to settle, then try again.");
+      }
       return;
     }
-    onSave(category, label ?? "");
+    void submitSave();
   };
 
   const updateAddressDetail = (
@@ -942,7 +1013,13 @@ export function SaveLocationModal({
   };
 
   const handleSurfaceOpenChange = (nextOpen: boolean) => {
-    if (!nextOpen && !interactionBusy) onSkip();
+    if (!nextOpen && !interactionBusy) {
+      if (unifiedOnboarding && onBack) {
+        onBack();
+        return;
+      }
+      onSkip();
+    }
   };
 
   // Location onboarding is a full-screen takeover at z-560 with an OPAQUE
@@ -954,7 +1031,7 @@ export function SaveLocationModal({
   // presentations, so moving to the shared sheet primitive does not quietly
   // move this surface to a different layer.
   const surfaceOverlayClassName = cn(
-    takeover ? TAKEOVER_OVERLAY_Z_CLASSNAME : "z-[600]",
+    takeover || unifiedOnboarding ? TAKEOVER_OVERLAY_Z_CLASSNAME : "z-[600]",
     nativeMapShowing
       ? // The native map is not part of the page: @capacitor/google-maps draws
         // it BELOW the WebView and the WebView is punched through to reveal it.
@@ -972,9 +1049,11 @@ export function SaveLocationModal({
   // screen rather than a rectangle pasted onto it.
   const surfaceEdgeClassName =
     "border-black/[0.06] bg-[color:var(--app-card-surface-default-solid)] dark:border-white/[0.08]";
-  const surfacePaddingClassName = detailsPaneActive
-    ? SHEET_DETAILS_SHELL_CLASSNAME
-    : SHEET_PLAIN_SHELL_CLASSNAME;
+  const surfacePaddingClassName = unifiedOnboarding
+    ? "!gap-0 !overflow-hidden !p-0"
+    : detailsPaneActive
+      ? SHEET_DETAILS_SHELL_CLASSNAME
+      : SHEET_PLAIN_SHELL_CLASSNAME;
   // `!` because the arbitrary shadow does not merge away the primitive's own
   // `shadow-[var(--app-card-shadow-feature)]`: tailwind-merge leaves both
   // classes on the element and the base one wins on stylesheet order, so the
@@ -987,233 +1066,549 @@ export function SaveLocationModal({
    * `SHEET_TAKEOVER_SURFACE_CLASSNAME` for why a merge cannot be trusted to
    * erase the 92% cap.
    */
-  const surfaceGeometryClassName = takeover
-    ? SHEET_TAKEOVER_SURFACE_CLASSNAME
-    : SHEET_SURFACE_CLASSNAME;
+  const surfaceGeometryClassName = unifiedOnboarding
+    ? "w-full max-h-[calc((100dvh-var(--kb-height,0px))*0.96)] rounded-t-[28px] border-x-0 border-b-0"
+    : takeover
+      ? SHEET_TAKEOVER_SURFACE_CLASSNAME
+      : SHEET_SURFACE_CLASSNAME;
   /**
    * The status bar and notch, applied AFTER the pane's own padding: a `p-5`
    * merged in later would take the `pt-` with it.
    */
-  const surfaceTakeoverTopClassName = takeover
-    ? detailsPaneActive
-      ? SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME
-      : SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME
-    : undefined;
-  const surfaceZClassName = takeover
-    ? TAKEOVER_SURFACE_Z_CLASSNAME
-    : "z-[601]";
+  const surfaceTakeoverTopClassName =
+    takeover && !unifiedOnboarding
+      ? detailsPaneActive
+        ? SHEET_TAKEOVER_DETAILS_TOP_CLASSNAME
+        : SHEET_TAKEOVER_PLAIN_TOP_CLASSNAME
+      : undefined;
+  const surfaceZClassName =
+    takeover || unifiedOnboarding ? TAKEOVER_SURFACE_Z_CLASSNAME : "z-[601]";
 
   const surfaceChildren = (
     <>
       <style>{CAROUSEL_KEYFRAMES}</style>
-        {flowStep === "map" && canPickOnMap ? (
-          <div {...paneProps}>
-            {/* Top of the pane, the same slot every other pane uses. This rail
+      {unifiedOnboarding ? (
+        <div
+          className="flex h-full min-h-0 w-full flex-col overflow-hidden bg-[color:var(--app-grouped-background)]"
+          data-testid="one-location-onboarding-save-place-surface"
+        >
+          <header className="grid min-h-[72px] shrink-0 grid-cols-[minmax(64px,1fr)_minmax(120px,220px)_minmax(64px,1fr)] items-center gap-2 border-b border-border/60 bg-[color:var(--app-primary-surface)] px-4 pb-2 pt-[max(var(--app-safe-area-top-effective,0px),8px)] sm:px-6">
+            <button
+              type="button"
+              onClick={onBack ?? onSkip}
+              disabled={interactionBusy}
+              aria-label="Back to what One Location does"
+              className="press-scale flex h-11 w-11 items-center justify-center rounded-full bg-[color:var(--app-neutral-fill-strong)] text-[color:var(--app-label)] disabled:opacity-50"
+            >
+              <ArrowLeft className="h-5 w-5" strokeWidth={2.3} aria-hidden />
+            </button>
+            <OnboardingStepper
+              steps={ONE_LOCATION_ONBOARDING_STEPS}
+              currentIndex={2}
+              compact
+              ariaLabel="One Location setup progress"
+              className="w-full"
+            />
+            <span className="h-11 w-11 justify-self-end" aria-hidden />
+          </header>
+
+          <div
+            className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 py-5 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden sm:px-6 lg:px-10"
+            data-testid="one-location-onboarding-save-place-scroll"
+          >
+            <div className="mx-auto w-full max-w-[1120px]">
+              <DialogTitle className="sr-only">Save this place</DialogTitle>
+              <div className="max-w-[660px]">
+                <h1
+                  ref={mapTitleRef}
+                  tabIndex={-1}
+                  className="ui-text-agent-title text-[color:var(--app-label)] outline-none"
+                >
+                  Save this place
+                </h1>
+                <p
+                  id={descriptionId}
+                  className="mt-2 text-[15px] leading-5 text-muted-foreground"
+                >
+                  Pin the entrance, then check the address. It stays private to
+                  you.
+                </p>
+              </div>
+
+              <div className="mt-5 grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1.08fr)_minmax(360px,0.92fr)] lg:items-start lg:gap-8">
+                <section
+                  className="min-w-0"
+                  aria-labelledby="save-place-map-title"
+                >
+                  <p
+                    id="save-place-map-title"
+                    className="mb-2 text-[15px] font-semibold text-[color:var(--app-label)]"
+                  >
+                    Pin your entrance
+                  </p>
+                  {canPickOnMap ? (
+                    <LocationPickerMap
+                      ref={mapPickerRef}
+                      embedded
+                      initialLatitude={mapInitial!.latitude}
+                      initialLongitude={mapInitial!.longitude}
+                      initialAddress={pickedAddress || resolvedAddress}
+                      initialAccuracyM={initialAccuracyM}
+                      reverseGeocode={reverseGeocode}
+                      onLocateMe={onLocateMe}
+                      onConfirm={handleConfirmMapPick}
+                      onSelectionChange={updateUnifiedPickedLocation}
+                      onReadyChange={setMapReady}
+                      onCancel={onBack ?? onSkip}
+                      rendererDisclosureAccepted={rendererReady}
+                      onAcceptRendererDisclosure={
+                        handleAcceptRendererDisclosure
+                      }
+                    />
+                  ) : (
+                    <div className="flex min-h-40 items-center justify-center rounded-2xl border border-border/70 bg-[color:var(--app-card-surface-compact)] px-6 text-center text-sm text-muted-foreground">
+                      We couldn&apos;t load the map. Go back and try Location
+                      again, or skip this place.
+                    </div>
+                  )}
+
+                  <div
+                    aria-live="polite"
+                    className="mt-3 flex items-start gap-2.5 rounded-[16px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3"
+                  >
+                    <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                      <MapPin
+                        className="h-4 w-4"
+                        strokeWidth={2.2}
+                        aria-hidden
+                      />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-[12px] leading-4 text-muted-foreground">
+                        Selected spot
+                      </p>
+                      <p className="mt-0.5 break-words text-[14px] font-semibold leading-5 text-[color:var(--app-label)]">
+                        {loadingAddress && !detectedAddress
+                          ? "Finding this address…"
+                          : detectedAddress ||
+                            "Address not found — enter it beside the map."}
+                      </p>
+                    </div>
+                  </div>
+                </section>
+
+                <section
+                  className="min-w-0 space-y-4"
+                  aria-label="Place details"
+                >
+                  <div>
+                    <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                      <label
+                        htmlFor="onboarding-saved-location-address"
+                        className={cn(controlLabelClassName, "mb-0")}
+                      >
+                        Address
+                      </label>
+                      <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
+                        Required
+                      </span>
+                    </div>
+                    <input
+                      id="onboarding-saved-location-address"
+                      type="text"
+                      required
+                      aria-required="true"
+                      aria-invalid={addressLineError}
+                      aria-describedby={
+                        addressLineError ? addressLineErrorId : undefined
+                      }
+                      value={effectiveAddressLine}
+                      onChange={(event) =>
+                        setAddressLineValue(event.target.value)
+                      }
+                      onBlur={() => setAddressTouched(true)}
+                      disabled={interactionBusy}
+                      maxLength={300}
+                      autoComplete={
+                        deferredUntilVault ? "off" : "street-address"
+                      }
+                      placeholder="12 MG Road, Bengaluru"
+                      className={cn(
+                        controlInputClassName,
+                        "aria-[invalid=true]:border-[color:var(--app-destructive)]",
+                      )}
+                    />
+                    {addressLineError ? (
+                      <p
+                        id={addressLineErrorId}
+                        role="alert"
+                        className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                      >
+                        Enter the address.
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-1 xl:grid-cols-2">
+                    <div>
+                      <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                        <label
+                          htmlFor="onboarding-saved-location-house"
+                          className={cn(controlLabelClassName, "mb-0")}
+                        >
+                          House or flat
+                        </label>
+                        <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                          Optional
+                        </span>
+                      </div>
+                      <input
+                        id="onboarding-saved-location-house"
+                        type="text"
+                        value={addressDetails.houseOrFlat}
+                        onChange={(event) =>
+                          updateAddressDetail("houseOrFlat", event.target.value)
+                        }
+                        disabled={interactionBusy}
+                        maxLength={80}
+                        autoComplete={
+                          deferredUntilVault ? "off" : "address-line1"
+                        }
+                        placeholder="Flat 4B, Tower 2"
+                        className={controlInputClassName}
+                      />
+                    </div>
+                    <div>
+                      <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                        <label
+                          htmlFor="onboarding-saved-location-landmark"
+                          className={cn(controlLabelClassName, "mb-0")}
+                        >
+                          Landmark
+                        </label>
+                        <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                          Optional
+                        </span>
+                      </div>
+                      <input
+                        id="onboarding-saved-location-landmark"
+                        type="text"
+                        value={addressDetails.landmark}
+                        onChange={(event) =>
+                          updateAddressDetail("landmark", event.target.value)
+                        }
+                        disabled={interactionBusy}
+                        maxLength={100}
+                        autoComplete={
+                          deferredUntilVault ? "off" : "address-line2"
+                        }
+                        placeholder="Near the main gate"
+                        className={controlInputClassName}
+                      />
+                    </div>
+                  </div>
+
+                  <SavedLocationCategoryPicker
+                    value={category}
+                    disabled={interactionBusy}
+                    onChange={setCategory}
+                  />
+
+                  {category === "other" ? (
+                    <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+                      <label
+                        htmlFor="onboarding-saved-location-name"
+                        className={controlLabelClassName}
+                      >
+                        Name it
+                      </label>
+                      <input
+                        id="onboarding-saved-location-name"
+                        type="text"
+                        value={customLabel}
+                        onChange={(event) => setCustomLabel(event.target.value)}
+                        disabled={interactionBusy}
+                        maxLength={40}
+                        placeholder="Gym, parents' house"
+                        className={controlInputClassName}
+                      />
+                    </div>
+                  ) : null}
+
+                  <p className="flex items-center gap-2 rounded-[14px] bg-[color:var(--app-accent)]/8 px-3.5 py-3 text-[13px] leading-[18px] text-muted-foreground">
+                    <Check
+                      className="h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                      aria-hidden
+                    />
+                    Private to you. Nothing is shared until you choose.
+                  </p>
+                </section>
+              </div>
+            </div>
+          </div>
+
+          <footer className="shrink-0 border-t border-border/60 bg-[color:var(--app-primary-surface)] px-4 pb-[calc(env(safe-area-inset-bottom,0px)+12px)] pt-3 sm:px-6">
+            <div className="mx-auto w-full max-w-[430px]">
+              {unifiedSaveError ? (
+                <p
+                  role="alert"
+                  className="mb-2 text-center text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                >
+                  {unifiedSaveError}
+                </p>
+              ) : !mapReady && canPickOnMap ? (
+                <p
+                  role="status"
+                  className="mb-2 text-center text-[13px] leading-[18px] text-muted-foreground"
+                >
+                  Getting the pin ready…
+                </p>
+              ) : saveBlockedReason ? (
+                <p
+                  role="status"
+                  className="mb-2 text-center text-[13px] leading-[18px] text-muted-foreground"
+                >
+                  {saveBlockedReason}
+                </p>
+              ) : null}
+              <button
+                type="button"
+                onClick={handleSave}
+                disabled={!unifiedCanSave}
+                aria-busy={saving || undefined}
+                className={primaryActionClassName(unifiedCanSave)}
+              >
+                {saving ? (
+                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+                ) : (
+                  <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
+                )}
+                {saving || unifiedSaveInFlight
+                  ? "Saving…"
+                  : unifiedSaveError
+                    ? "Try saving again"
+                    : "Save & continue"}
+              </button>
+              <button
+                type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                className="mt-1 min-h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+              >
+                Skip saving this place
+              </button>
+            </div>
+          </footer>
+        </div>
+      ) : flowStep === "map" && canPickOnMap ? (
+        <div {...paneProps}>
+          {/* Top of the pane, the same slot every other pane uses. This rail
                 used to sit at the BOTTOM of this one pane, under the buttons,
                 so advancing a step appeared to move the indicator. On a phone
                 the row is also the sheet's grabber. */}
+          <SheetDragRegion>
+            <SheetIndicator
+              carouselMode={carouselMode}
+              index={0}
+              count={2}
+              labels={carouselLabels}
+              canAdvance={mapReady}
+              onSelect={goToSlide}
+            />
+          </SheetDragRegion>
+          <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
+            {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
+          </DialogTitle>
+          <p id={descriptionId} className="sr-only">
+            {rendererReady
+              ? "Move the pin to the entrance."
+              : "Review before opening Maps."}
+          </p>
+          <LocationPickerMap
+            ref={mapPickerRef}
+            initialLatitude={mapInitial!.latitude}
+            initialLongitude={mapInitial!.longitude}
+            initialAddress={pickedAddress || resolvedAddress}
+            initialAccuracyM={initialAccuracyM}
+            reverseGeocode={reverseGeocode}
+            onLocateMe={onLocateMe}
+            onConfirm={handleConfirmMapPick}
+            onReadyChange={setMapReady}
+            onCancel={() => {
+              if (startWithMapPicker) {
+                onSkip();
+                return;
+              }
+              setFlowStep("summary");
+            }}
+            rendererDisclosureAccepted={rendererReady}
+            onAcceptRendererDisclosure={handleAcceptRendererDisclosure}
+            confirmLabel={
+              collectAddressDetails ? "Confirm pin" : "Confirm location"
+            }
+            cancelLabel={startWithMapPicker ? "Skip for now" : "Cancel"}
+          />
+        </div>
+      ) : flowStep === "details" && collectAddressDetails ? (
+        <div {...paneProps} className={cn(paneProps.className, "flex-1 gap-0")}>
+          {/* Pinned. The controls are laid out beside the title rather than
+                floated over it, which is what let a 36px button starting at
+                16px cover a header padded to 36px. */}
+          <header className={SHEET_HEADER_CLASSNAME}>
+            {/* On a phone this row IS the sheet's grabber, so a pull down on
+                  it dismisses the sheet -- the dots sit exactly where an iOS
+                  grabber sits and were already doing that job visually. */}
             <SheetDragRegion>
               <SheetIndicator
                 carouselMode={carouselMode}
-                index={0}
+                index={1}
                 count={2}
                 labels={carouselLabels}
-                canAdvance={mapReady}
+                canAdvance
                 onSelect={goToSlide}
               />
             </SheetDragRegion>
-            <DialogTitle ref={mapTitleRef} tabIndex={-1} className="sr-only">
-              {rendererReady ? "Pin your entrance" : "Before Google Maps opens"}
-            </DialogTitle>
-            <p id={descriptionId} className="sr-only">
-              {rendererReady
-                ? "Move the pin to the entrance."
-                : "Review before opening Maps."}
-            </p>
-            <LocationPickerMap
-              ref={mapPickerRef}
-              initialLatitude={mapInitial!.latitude}
-              initialLongitude={mapInitial!.longitude}
-              initialAddress={pickedAddress || resolvedAddress}
-              initialAccuracyM={initialAccuracyM}
-              reverseGeocode={reverseGeocode}
-              onLocateMe={onLocateMe}
-              onConfirm={handleConfirmMapPick}
-              onReadyChange={setMapReady}
-              onCancel={() => {
-                if (startWithMapPicker) {
-                  onSkip();
-                  return;
+            <div className="mt-1 flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  canPickOnMap ? goToSlide(0) : setFlowStep("summary")
                 }
-                setFlowStep("summary");
-              }}
-              rendererDisclosureAccepted={rendererReady}
-              onAcceptRendererDisclosure={handleAcceptRendererDisclosure}
-              confirmLabel={
-                collectAddressDetails ? "Confirm pin" : "Confirm location"
-              }
-              cancelLabel={startWithMapPicker ? "Skip for now" : "Cancel"}
-            />
-          </div>
-        ) : flowStep === "details" && collectAddressDetails ? (
-          <div
-            {...paneProps}
-            className={cn(paneProps.className, "flex-1 gap-0")}
-          >
-            {/* Pinned. The controls are laid out beside the title rather than
-                floated over it, which is what let a 36px button starting at
-                16px cover a header padded to 36px. */}
-            <header className={SHEET_HEADER_CLASSNAME}>
-              {/* On a phone this row IS the sheet's grabber, so a pull down on
-                  it dismisses the sheet -- the dots sit exactly where an iOS
-                  grabber sits and were already doing that job visually. */}
-              <SheetDragRegion>
-                <SheetIndicator
-                  carouselMode={carouselMode}
-                  index={1}
-                  count={2}
-                  labels={carouselLabels}
-                  canAdvance
-                  onSelect={goToSlide}
-                />
-              </SheetDragRegion>
-              <div className="mt-1 flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() =>
-                    canPickOnMap ? goToSlide(0) : setFlowStep("summary")
-                  }
-                  disabled={interactionBusy}
-                  aria-label={canPickOnMap ? "Back to map" : "Back"}
-                  className={inlineIconButtonClassName}
-                >
-                  <ArrowLeft className="h-4.5 w-4.5" strokeWidth={2.4} />
-                </button>
-                <DialogTitle
-                  ref={detailsTitleRef}
-                  tabIndex={-1}
-                  className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-[22px] tracking-normal text-foreground outline-none"
-                >
-                  Address details
-                </DialogTitle>
-                <button
-                  type="button"
-                  onClick={onSkip}
-                  disabled={interactionBusy}
-                  aria-label="Close"
-                  className={inlineIconButtonClassName}
-                >
-                  <X className="h-4.5 w-4.5" strokeWidth={2.4} />
-                </button>
-              </div>
-              {/* The sentence that used to sit under the title. The card below
+                disabled={interactionBusy}
+                aria-label={canPickOnMap ? "Back to map" : "Back"}
+                className={inlineIconButtonClassName}
+              >
+                <ArrowLeft className="h-4.5 w-4.5" strokeWidth={2.4} />
+              </button>
+              <DialogTitle
+                ref={detailsTitleRef}
+                tabIndex={-1}
+                className="min-w-0 flex-1 truncate text-center text-[17px] font-semibold leading-[22px] tracking-normal text-foreground outline-none"
+              >
+                Address details
+              </DialogTitle>
+              <button
+                type="button"
+                onClick={onSkip}
+                disabled={interactionBusy}
+                aria-label="Close"
+                className={inlineIconButtonClassName}
+              >
+                <X className="h-4.5 w-4.5" strokeWidth={2.4} />
+              </button>
+            </div>
+            {/* The sentence that used to sit under the title. The card below
                   shows the address and each field carries its own Required or
                   Optional badge, so on screen it only repeated them. Kept for
                   screen readers, which do not have the badges in view. */}
-              <p id={descriptionId} className="sr-only">
-                Check the address. The rest helps someone reach your door.
-              </p>
-            </header>
+            <p id={descriptionId} className="sr-only">
+              Check the address. The rest helps someone reach your door.
+            </p>
+          </header>
 
-            <div className={SHEET_BODY_CLASSNAME}>
-              {/* The detected address, shown as the thing the fields below were
+          <div className={SHEET_BODY_CLASSNAME}>
+            {/* The detected address, shown as the thing the fields below were
                   filled from. */}
-              <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
-                <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
-                  <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                    Pinned
-                  </p>
-                  <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
-                    {loadingAddress
-                      ? "Finding address…"
-                      : detectedAddress || "No address found"}
-                  </p>
-                </div>
-                {canPickOnMap ? (
-                  <button
-                    type="button"
-                    onClick={() => goToSlide(0)}
-                    disabled={interactionBusy}
-                    // One visible word; the pin is what the icon and the line
-                    // above it already say. The accessible name keeps the phrase.
-                    aria-label="Edit pin"
-                    className={cn(
-                      "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
-                      "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
-                    )}
-                  >
-                    Edit
-                  </button>
-                ) : null}
+            <div className="flex items-start gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+              <span className="mt-0.5 flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <MapPin
+                  className="h-[17px] w-[17px]"
+                  strokeWidth={1.9}
+                  aria-hidden
+                />
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                  Pinned
+                </p>
+                <p className="mt-0.5 line-clamp-2 text-[15px] font-semibold leading-5 text-foreground">
+                  {loadingAddress
+                    ? "Finding address…"
+                    : detectedAddress || "No address found"}
+                </p>
               </div>
+              {canPickOnMap ? (
+                <button
+                  type="button"
+                  onClick={() => goToSlide(0)}
+                  disabled={interactionBusy}
+                  // One visible word; the pin is what the icon and the line
+                  // above it already say. The accessible name keeps the phrase.
+                  aria-label="Edit pin"
+                  className={cn(
+                    "press-scale shrink-0 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 py-1.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                  )}
+                >
+                  Edit
+                </button>
+              ) : null}
+            </div>
 
-              {/* The address itself is editable, because a pin that resolves
+            {/* The address itself is editable, because a pin that resolves
                   to the wrong line left no way to correct it. It is also the
                   one field a saved place cannot do without, so it is first and
                   it is marked required -- an unmarked box that quietly
                   accepted nothing read as optional right up until the save
                   would not go. */}
-              <div>
-                {/* The badge is a sibling of the label, not inside it. Inside,
+            <div>
+              {/* The badge is a sibling of the label, not inside it. Inside,
                     it becomes part of the field's accessible name -- the box
                     would announce as "Address Required" and stop matching a
                     query for its own label. The requirement reaches assistive
                     technology through `aria-required` instead, which is what
                     that attribute is for. */}
-                <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                  <label
-                    htmlFor="saved-location-address-line"
-                    className={cn(controlLabelClassName, "mb-0")}
-                  >
-                    Address
-                  </label>
-                  {/* The word, not only a red asterisk: an asterisk is a
+              <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                <label
+                  htmlFor="saved-location-address-line"
+                  className={cn(controlLabelClassName, "mb-0")}
+                >
+                  Address
+                </label>
+                {/* The word, not only a red asterisk: an asterisk is a
                       convention people have to already know, and colour on its
                       own carries nothing to anyone who cannot see it. */}
-                  <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
-                    Required
-                  </span>
-                </div>
-                <input
-                  id="saved-location-address-line"
-                  type="text"
-                  required
-                  aria-required="true"
-                  aria-invalid={addressLineError}
-                  aria-describedby={
-                    addressLineError ? addressLineErrorId : undefined
-                  }
-                  value={effectiveAddressLine}
-                  onChange={(event) => {
-                    setAddressLineValue(event.target.value);
-                  }}
-                  onBlur={() => setAddressTouched(true)}
-                  disabled={interactionBusy}
-                  maxLength={300}
-                  autoComplete={deferredUntilVault ? "off" : "street-address"}
-                  placeholder={
-                    loadingAddress ? "Finding address…" : "12 MG Road, Bengaluru"
-                  }
-                  className={cn(
-                    controlInputClassName,
-                    "aria-[invalid=true]:border-[color:var(--app-destructive)]",
-                  )}
-                />
-                {addressLineError ? (
-                  <p
-                    id={addressLineErrorId}
-                    role="alert"
-                    className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                  >
-                    Enter the address.
-                  </p>
-                ) : null}
+                <span aria-hidden className={REQUIRED_BADGE_CLASSNAME}>
+                  Required
+                </span>
               </div>
+              <input
+                id="saved-location-address-line"
+                type="text"
+                required
+                aria-required="true"
+                aria-invalid={addressLineError}
+                aria-describedby={
+                  addressLineError ? addressLineErrorId : undefined
+                }
+                value={effectiveAddressLine}
+                onChange={(event) => {
+                  setAddressLineValue(event.target.value);
+                }}
+                onBlur={() => setAddressTouched(true)}
+                disabled={interactionBusy}
+                maxLength={300}
+                autoComplete={deferredUntilVault ? "off" : "street-address"}
+                placeholder={
+                  loadingAddress ? "Finding address…" : "12 MG Road, Bengaluru"
+                }
+                className={cn(
+                  controlInputClassName,
+                  "aria-[invalid=true]:border-[color:var(--app-destructive)]",
+                )}
+              />
+              {addressLineError ? (
+                <p
+                  id={addressLineErrorId}
+                  role="alert"
+                  className="mt-1.5 text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                >
+                  Enter the address.
+                </p>
+              ) : null}
+            </div>
 
-              {/* Two boxes, both optional, both things only the person standing
+            {/* Two boxes, both optional, both things only the person standing
                   at the door knows.
 
                   This group used to be four: Building colour and PIN /
@@ -1229,324 +1624,61 @@ export function SaveLocationModal({
                   the group. A box shaped exactly like the required Address box
                   reads as required no matter what a sentence higher up said --
                   people go by the shape of the box. */}
-              <div className="space-y-3.5">
-                <div>
-                  <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                    <label
-                      htmlFor="saved-location-house-or-flat"
-                      className={cn(controlLabelClassName, "mb-0")}
-                    >
-                      House or flat
-                    </label>
-                    <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                      Optional
-                    </span>
-                  </div>
-                  <input
-                    id="saved-location-house-or-flat"
-                    type="text"
-                    value={addressDetails.houseOrFlat}
-                    onChange={(event) =>
-                      updateAddressDetail("houseOrFlat", event.target.value)
-                    }
-                    disabled={interactionBusy}
-                    maxLength={80}
-                    autoComplete={deferredUntilVault ? "off" : "address-line1"}
-                    placeholder="Flat 4B, Tower 2"
-                    className={controlInputClassName}
-                  />
-                </div>
-
-                <div>
-                  <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
-                    <label
-                      htmlFor="saved-location-landmark"
-                      className={cn(controlLabelClassName, "mb-0")}
-                    >
-                      Landmark
-                    </label>
-                    <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
-                      Optional
-                    </span>
-                  </div>
-                  <input
-                    id="saved-location-landmark"
-                    type="text"
-                    value={addressDetails.landmark}
-                    onChange={(event) =>
-                      updateAddressDetail("landmark", event.target.value)
-                    }
-                    disabled={interactionBusy}
-                    maxLength={100}
-                    autoComplete={deferredUntilVault ? "off" : "address-line2"}
-                    placeholder="Near the main gate"
-                    className={controlInputClassName}
-                  />
-                </div>
-              </div>
-
-              <SavedLocationCategoryPicker
-                value={category}
-                disabled={interactionBusy}
-                onChange={setCategory}
-              />
-
-              {category === "other" ? (
-                <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+            <div className="space-y-3.5">
+              <div>
+                <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
                   <label
-                    htmlFor="saved-location-details-custom-label"
-                    className={controlLabelClassName}
+                    htmlFor="saved-location-house-or-flat"
+                    className={cn(controlLabelClassName, "mb-0")}
                   >
-                    Name it
+                    House or flat
                   </label>
-                  <input
-                    id="saved-location-details-custom-label"
-                    type="text"
-                    value={customLabel}
-                    onChange={(event) => setCustomLabel(event.target.value)}
-                    disabled={interactionBusy}
-                    maxLength={40}
-                    placeholder="Gym, parents' house"
-                    className={controlInputClassName}
-                  />
+                  <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                    Optional
+                  </span>
                 </div>
-              ) : null}
-
-              {/* A caption, not a card. It reassures; it is not a control, and
-                  the panel it used to sit in gave it a control's weight. */}
-              <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
-                Private to you.
-              </p>
-            </div>
-
-            <div
-              className={cn(
-                SHEET_FOOTER_CLASSNAME,
-                "bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]",
-              )}
-            >
-              {/* A disabled primary button with no explanation is the whole of
-                  "saving is not working" from the outside. When it is off, say
-                  which single thing turns it on. */}
-              {saveBlockedReason ? (
-                <p
-                  role="status"
-                  className="text-center text-[13px] leading-[18px] text-muted-foreground"
-                >
-                  {saveBlockedReason}
-                </p>
-              ) : null}
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!canSave}
-                aria-busy={saving || undefined}
-                className={primaryActionClassName(canSave)}
-              >
-                {saving ? (
-                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                ) : (
-                  <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
-                )}
-                {saveLabel}
-              </button>
-              <button
-                type="button"
-                onClick={onSkip}
-                disabled={interactionBusy}
-                className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
-              >
-                Skip for now
-              </button>
-            </div>
-          </div>
-        ) : (
-
-          <div {...paneProps}>
-            <button
-              type="button"
-              onClick={onSkip}
-              disabled={interactionBusy}
-              aria-label="Close"
-              className={cn(iconButtonClassName, "right-4 top-4")}
-            >
-              <X className="h-4.5 w-4.5" strokeWidth={2.4} />
-            </button>
-
-            {/* This pane rendered no indicator and no grabber at all, so the
-                sheet's header geometry changed the moment you advanced. It is
-                also the pane a cold start lands on most often: both call sites
-                pass `startWithMapPicker`, but `mapInitial` is null until the
-                GPS fix resolves, which collapses `carouselMode`. */}
-            <SheetDragRegion>
-              <SheetIndicator
-                carouselMode={carouselMode}
-                index={0}
-                count={2}
-                labels={carouselLabels}
-                canAdvance={canPickOnMap}
-                onSelect={goToSlide}
-              />
-            </SheetDragRegion>
-
-            <header className="pr-8">
-              <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
-                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
-              </span>
-              <DialogTitle className="mt-3 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
-                Save this place
-              </DialogTitle>
-              <p
-                id={descriptionId}
-                className="mt-2 text-[15px] leading-5 text-muted-foreground"
-              >
-                Tag where you are. It stays private to you.
-              </p>
-            </header>
-
-            <div className="flex items-center gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
-              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
-                <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
-                  Current location
-                </p>
-                {loadingAddress ? (
-                  <span className="mt-0.5 flex items-center gap-1.5 text-[15px] leading-5 text-muted-foreground">
-                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding
-                    your address…
-                  </span>
-                ) : (
-                  <p className="mt-0.5 truncate text-[15px] font-semibold leading-5 text-foreground">
-                    {resolvedAddress || "Address unavailable"}
-                  </p>
-                )}
-              </div>
-              {canEditPlace && !loadingAddress ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingPlace(true);
-                    setPlaceQuery("");
-                    setPlaceSuggestions([]);
-                    setPlaceSearchError(null);
-                  }}
+                <input
+                  id="saved-location-house-or-flat"
+                  type="text"
+                  value={addressDetails.houseOrFlat}
+                  onChange={(event) =>
+                    updateAddressDetail("houseOrFlat", event.target.value)
+                  }
                   disabled={interactionBusy}
-                  className={cn(
-                    "press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
-                    "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
-                  )}
-                  aria-label="Change captured location"
-                >
-                  <Pencil className="h-3.5 w-3.5" aria-hidden />
-                  Change
-                </button>
-              ) : null}
-            </div>
+                  maxLength={80}
+                  autoComplete={deferredUntilVault ? "off" : "address-line1"}
+                  placeholder="Flat 4B, Tower 2"
+                  className={controlInputClassName}
+                />
+              </div>
 
-            {canPickOnMap && !loadingAddress ? (
-              <button
-                type="button"
-                onClick={() => setFlowStep("map")}
-                disabled={interactionBusy}
-                data-testid="save-location-adjust-on-map"
-                className="press-scale flex w-full items-center gap-3 rounded-[14px] border border-dashed border-[color:var(--app-accent)]/35 bg-[color:var(--app-accent)]/10 px-3.5 py-3 text-left transition-colors hover:bg-[color:var(--app-accent)]/15 disabled:opacity-45"
-              >
-                <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
-                  <MapIcon className="h-[17px] w-[17px]" strokeWidth={1.9} aria-hidden />
-                </span>
-                <span className="min-w-0 flex-1">
-                  <span className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
-                    Pin your entrance
+              <div>
+                <div className={ADDRESS_LABEL_ROW_CLASSNAME}>
+                  <label
+                    htmlFor="saved-location-landmark"
+                    className={cn(controlLabelClassName, "mb-0")}
+                  >
+                    Landmark
+                  </label>
+                  <span aria-hidden className={OPTIONAL_BADGE_CLASSNAME}>
+                    Optional
                   </span>
-                  <span className="block text-[13px] leading-[18px] text-muted-foreground">
-                    GPS lands near, not at, your door.
-                  </span>
-                </span>
-              </button>
-            ) : null}
-
-            {editingPlace ? (
-              <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
-                <label
-                  htmlFor="saved-location-place-search"
-                  className={controlLabelClassName}
-                >
-                  Search for another place
-                </label>
-                <div className="relative">
-                  <Search
-                    className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]"
-                    aria-hidden
-                  />
-                  <input
-                    id="saved-location-place-search"
-                    type="search"
-                    value={placeQuery}
-                    onChange={(event) => setPlaceQuery(event.target.value)}
-                    disabled={interactionBusy}
-                    autoComplete="off"
-                    placeholder="Search address or place"
-                    className={cn(controlInputClassName, "pl-10 pr-10")}
-                  />
-                  {placeSearching || changingPlace ? (
-                    <Loader2
-                      className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[color:var(--app-tertiary-label)]"
-                      aria-label="Searching places"
-                    />
-                  ) : null}
                 </div>
-
-                {placeSuggestions.length > 0 ? (
-                  <div
-                    className="max-h-40 overflow-y-auto rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-1 shadow-none"
-                    aria-label="Location suggestions"
-                  >
-                    {placeSuggestions.map((suggestion) => (
-                      <button
-                        key={suggestion.placeId}
-                        type="button"
-                        onClick={() =>
-                          void handleSelectPlace(suggestion.placeId)
-                        }
-                        disabled={interactionBusy}
-                        className="flex min-h-11 w-full items-start gap-2 rounded-[10px] px-3 py-2.5 text-left text-[15px] leading-5 text-foreground hover:bg-foreground/[0.04] disabled:opacity-45"
-                      >
-                        <MapPin
-                          className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
-                          aria-hidden
-                        />
-                        <span>{suggestion.text}</span>
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
-
-                {placeSearchError ? (
-                  <p
-                    role="alert"
-                    className="text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
-                  >
-                    {placeSearchError}
-                  </p>
-                ) : null}
-
-                <button
-                  type="button"
-                  onClick={() => {
-                    setEditingPlace(false);
-                    setPlaceQuery("");
-                    setPlaceSuggestions([]);
-                    setPlaceSearchError(null);
-                  }}
+                <input
+                  id="saved-location-landmark"
+                  type="text"
+                  value={addressDetails.landmark}
+                  onChange={(event) =>
+                    updateAddressDetail("landmark", event.target.value)
+                  }
                   disabled={interactionBusy}
-                  className="text-[13px] font-semibold text-muted-foreground disabled:opacity-45"
-                >
-                  Keep current location
-                </button>
+                  maxLength={100}
+                  autoComplete={deferredUntilVault ? "off" : "address-line2"}
+                  placeholder="Near the main gate"
+                  className={controlInputClassName}
+                />
               </div>
-            ) : null}
+            </div>
 
             <SavedLocationCategoryPicker
               value={category}
@@ -1557,50 +1689,314 @@ export function SaveLocationModal({
             {category === "other" ? (
               <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
                 <label
-                  htmlFor="saved-location-custom-label"
+                  htmlFor="saved-location-details-custom-label"
                   className={controlLabelClassName}
                 >
                   Name it
                 </label>
                 <input
-                  id="saved-location-custom-label"
+                  id="saved-location-details-custom-label"
                   type="text"
                   value={customLabel}
                   onChange={(event) => setCustomLabel(event.target.value)}
                   disabled={interactionBusy}
                   maxLength={40}
-                  placeholder="Gym, Mom's house"
+                  placeholder="Gym, parents' house"
                   className={controlInputClassName}
                 />
               </div>
             ) : null}
 
-            <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
-              <button
-                type="button"
-                onClick={handleSave}
-                disabled={!canSave}
-                aria-busy={saving || undefined}
-                className={primaryActionClassName(canSave)}
+            {/* A caption, not a card. It reassures; it is not a control, and
+                  the panel it used to sit in gave it a control's weight. */}
+            <p className="px-1 text-[13px] leading-[18px] text-muted-foreground">
+              Private to you.
+            </p>
+          </div>
+
+          <div
+            className={cn(
+              SHEET_FOOTER_CLASSNAME,
+              "bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]",
+            )}
+          >
+            {/* A disabled primary button with no explanation is the whole of
+                  "saving is not working" from the outside. When it is off, say
+                  which single thing turns it on. */}
+            {saveBlockedReason ? (
+              <p
+                role="status"
+                className="text-center text-[13px] leading-[18px] text-muted-foreground"
               >
-                {saving ? (
-                  <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
-                ) : (
-                  <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
-                )}
-                {saveLabel}
-              </button>
+                {saveBlockedReason}
+              </p>
+            ) : null}
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canSave}
+              aria-busy={saving || undefined}
+              className={primaryActionClassName(canSave)}
+            >
+              {saving ? (
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+              ) : (
+                <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
+              )}
+              {saveLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              Skip for now
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div {...paneProps}>
+          <button
+            type="button"
+            onClick={onSkip}
+            disabled={interactionBusy}
+            aria-label="Close"
+            className={cn(iconButtonClassName, "right-4 top-4")}
+          >
+            <X className="h-4.5 w-4.5" strokeWidth={2.4} />
+          </button>
+
+          {/* This pane rendered no indicator and no grabber at all, so the
+                sheet's header geometry changed the moment you advanced. It is
+                also the pane a cold start lands on most often: both call sites
+                pass `startWithMapPicker`, but `mapInitial` is null until the
+                GPS fix resolves, which collapses `carouselMode`. */}
+          <SheetDragRegion>
+            <SheetIndicator
+              carouselMode={carouselMode}
+              index={0}
+              count={2}
+              labels={carouselLabels}
+              canAdvance={canPickOnMap}
+              onSelect={goToSlide}
+            />
+          </SheetDragRegion>
+
+          <header className="pr-8">
+            <span className="flex h-[34px] w-[34px] items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+              <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
+            </span>
+            <DialogTitle className="mt-3 text-[28px] font-bold leading-[1.12] tracking-normal text-foreground">
+              Save this place
+            </DialogTitle>
+            <p
+              id={descriptionId}
+              className="mt-2 text-[15px] leading-5 text-muted-foreground"
+            >
+              Tag where you are. It stays private to you.
+            </p>
+          </header>
+
+          <div className="flex items-center gap-2.5 rounded-[14px] bg-[color:var(--app-card-surface-compact)] px-3.5 py-3">
+            <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+              <MapPin className="h-[17px] w-[17px]" strokeWidth={1.9} />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[13px] font-normal leading-[18px] tracking-normal text-muted-foreground">
+                Current location
+              </p>
+              {loadingAddress ? (
+                <span className="mt-0.5 flex items-center gap-1.5 text-[15px] leading-5 text-muted-foreground">
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" /> Finding your
+                  address…
+                </span>
+              ) : (
+                <p className="mt-0.5 truncate text-[15px] font-semibold leading-5 text-foreground">
+                  {resolvedAddress || "Address unavailable"}
+                </p>
+              )}
+            </div>
+            {canEditPlace && !loadingAddress ? (
               <button
                 type="button"
-                onClick={onSkip}
+                onClick={() => {
+                  setEditingPlace(true);
+                  setPlaceQuery("");
+                  setPlaceSuggestions([]);
+                  setPlaceSearchError(null);
+                }}
                 disabled={interactionBusy}
-                className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+                className={cn(
+                  "press-scale inline-flex h-8 shrink-0 items-center gap-1 rounded-full bg-[color:var(--app-accent)]/12 px-2.5 text-[13px] font-semibold text-[color:var(--app-accent)] disabled:opacity-45",
+                  "relative after:absolute after:inset-x-0 after:top-1/2 after:h-11 after:-translate-y-1/2 after:content-['']",
+                )}
+                aria-label="Change captured location"
               >
-                Skip for now
+                <Pencil className="h-3.5 w-3.5" aria-hidden />
+                Change
+              </button>
+            ) : null}
+          </div>
+
+          {canPickOnMap && !loadingAddress ? (
+            <button
+              type="button"
+              onClick={() => setFlowStep("map")}
+              disabled={interactionBusy}
+              data-testid="save-location-adjust-on-map"
+              className="press-scale flex w-full items-center gap-3 rounded-[14px] border border-dashed border-[color:var(--app-accent)]/35 bg-[color:var(--app-accent)]/10 px-3.5 py-3 text-left transition-colors hover:bg-[color:var(--app-accent)]/15 disabled:opacity-45"
+            >
+              <span className="flex h-[34px] w-[34px] shrink-0 items-center justify-center rounded-[10px] bg-[color:var(--app-accent)]/12 text-[color:var(--app-accent)]">
+                <MapIcon
+                  className="h-[17px] w-[17px]"
+                  strokeWidth={1.9}
+                  aria-hidden
+                />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[15px] font-semibold leading-5 text-[color:var(--app-accent)]">
+                  Pin your entrance
+                </span>
+                <span className="block text-[13px] leading-[18px] text-muted-foreground">
+                  GPS lands near, not at, your door.
+                </span>
+              </span>
+            </button>
+          ) : null}
+
+          {editingPlace ? (
+            <div className="space-y-2.5 [animation:saveLocFadeIn_.2s_ease-out_both]">
+              <label
+                htmlFor="saved-location-place-search"
+                className={controlLabelClassName}
+              >
+                Search for another place
+              </label>
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3.5 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--app-tertiary-label)]"
+                  aria-hidden
+                />
+                <input
+                  id="saved-location-place-search"
+                  type="search"
+                  value={placeQuery}
+                  onChange={(event) => setPlaceQuery(event.target.value)}
+                  disabled={interactionBusy}
+                  autoComplete="off"
+                  placeholder="Search address or place"
+                  className={cn(controlInputClassName, "pl-10 pr-10")}
+                />
+                {placeSearching || changingPlace ? (
+                  <Loader2
+                    className="absolute right-3.5 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-[color:var(--app-tertiary-label)]"
+                    aria-label="Searching places"
+                  />
+                ) : null}
+              </div>
+
+              {placeSuggestions.length > 0 ? (
+                <div
+                  className="max-h-40 overflow-y-auto rounded-[14px] border border-border/70 bg-[color:var(--app-card-surface-default-solid)] p-1 shadow-none"
+                  aria-label="Location suggestions"
+                >
+                  {placeSuggestions.map((suggestion) => (
+                    <button
+                      key={suggestion.placeId}
+                      type="button"
+                      onClick={() => void handleSelectPlace(suggestion.placeId)}
+                      disabled={interactionBusy}
+                      className="flex min-h-11 w-full items-start gap-2 rounded-[10px] px-3 py-2.5 text-left text-[15px] leading-5 text-foreground hover:bg-foreground/[0.04] disabled:opacity-45"
+                    >
+                      <MapPin
+                        className="mt-0.5 h-4 w-4 shrink-0 text-[color:var(--app-accent)]"
+                        aria-hidden
+                      />
+                      <span>{suggestion.text}</span>
+                    </button>
+                  ))}
+                </div>
+              ) : null}
+
+              {placeSearchError ? (
+                <p
+                  role="alert"
+                  className="text-[13px] leading-[18px] text-[color:var(--app-destructive)]"
+                >
+                  {placeSearchError}
+                </p>
+              ) : null}
+
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingPlace(false);
+                  setPlaceQuery("");
+                  setPlaceSuggestions([]);
+                  setPlaceSearchError(null);
+                }}
+                disabled={interactionBusy}
+                className="text-[13px] font-semibold text-muted-foreground disabled:opacity-45"
+              >
+                Keep current location
               </button>
             </div>
+          ) : null}
+
+          <SavedLocationCategoryPicker
+            value={category}
+            disabled={interactionBusy}
+            onChange={setCategory}
+          />
+
+          {category === "other" ? (
+            <div className="[animation:saveLocFadeIn_.2s_ease-out_both]">
+              <label
+                htmlFor="saved-location-custom-label"
+                className={controlLabelClassName}
+              >
+                Name it
+              </label>
+              <input
+                id="saved-location-custom-label"
+                type="text"
+                value={customLabel}
+                onChange={(event) => setCustomLabel(event.target.value)}
+                disabled={interactionBusy}
+                maxLength={40}
+                placeholder="Gym, Mom's house"
+                className={controlInputClassName}
+              />
+            </div>
+          ) : null}
+
+          <div className="mt-1 flex flex-col gap-2.5 bg-background pb-[max(1.5rem,env(safe-area-inset-bottom))]">
+            <button
+              type="button"
+              onClick={handleSave}
+              disabled={!canSave}
+              aria-busy={saving || undefined}
+              className={primaryActionClassName(canSave)}
+            >
+              {saving ? (
+                <Loader2 className="h-5 w-5 animate-spin" aria-hidden />
+              ) : (
+                <Check className="h-5 w-5" strokeWidth={2.6} aria-hidden />
+              )}
+              {saveLabel}
+            </button>
+            <button
+              type="button"
+              onClick={onSkip}
+              disabled={interactionBusy}
+              className="h-11 w-full rounded-full text-[15px] font-semibold text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
+            >
+              Skip for now
+            </button>
           </div>
-        )}
+        </div>
+      )}
     </>
   );
 
@@ -1683,6 +2079,8 @@ export function SaveLocationModal({
           surfaceZClassName,
           "rounded-[20px] border",
           DIALOG_SURFACE_CLASSNAME,
+          unifiedOnboarding &&
+            "!h-[min(92dvh,860px)] !max-h-[min(92dvh,860px)] sm:!max-w-[min(1120px,calc(100vw-48px))]",
           surfaceEdgeClassName,
           surfacePaddingClassName,
           surfaceShadowClassName,

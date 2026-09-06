@@ -31,6 +31,10 @@ const mocks = vi.hoisted(() => ({
   // render would retrigger every effect keyed on it and spin forever, which
   // would say nothing about the page.
   user: { uid: "me", getIdToken: async () => "id-token" },
+  // AuthContext hydrates a verified backend phone separately when Firebase's
+  // User has no phoneNumber (notably the native UAT verification path).
+  authPhoneNumber: null as string | null,
+  resolveVerifiedPhoneNumber: vi.fn(),
   // Contact sync hides its control until it knows a source exists, and the
   // probe below is what decides. jsdom has no `navigator.contacts`, so the real
   // plugin answers "unavailable", the control never renders, and a suite that
@@ -38,6 +42,7 @@ const mocks = vi.hoisted(() => ({
   contactsPermissionState: "prompt" as "prompt" | "granted" | "unavailable",
   syncContactSignals: vi.fn(),
   toastInfo: vi.fn(),
+  requestContactCheck: vi.fn(() => true),
 }));
 
 vi.mock("@/lib/capacitor", () => ({
@@ -71,6 +76,24 @@ vi.mock("@/lib/one-location/contact-signals", async (importOriginal) => ({
   syncOneLocationContactSignals: mocks.syncContactSignals,
 }));
 
+vi.mock("@/lib/contacts/use-contact-discoverability-consent", () => ({
+  useContactDiscoverabilityConsent: () => ({
+    requestContactCheck: mocks.requestContactCheck,
+    preference: { status: "decided", enabled: false, ruleVersion: 1 },
+    dialogProps: {
+      open: false,
+      ready: false,
+      loading: false,
+      savingChoice: null,
+      error: null,
+      actionLabel: "Sync contacts",
+      onOpenChange: vi.fn(),
+      onChoose: vi.fn(),
+      onRetry: vi.fn(),
+    },
+  }),
+}));
+
 vi.mock("next/navigation", () => ({
   useRouter: () => ({
     push: mocks.routerPush,
@@ -85,7 +108,11 @@ vi.mock("next/navigation", () => ({
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
-  useRequireAuth: () => ({ user: mocks.user }),
+  useRequireAuth: () => ({
+    user: mocks.user,
+    phoneNumber: mocks.authPhoneNumber,
+    resolveVerifiedPhoneNumber: mocks.resolveVerifiedPhoneNumber,
+  }),
 }));
 
 // The debounce itself is covered by its own hook test; collapsing it here keeps
@@ -195,6 +222,11 @@ const EVERYONE = Array.from({ length: 100 }, (_, index) =>
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mocks.requestContactCheck.mockReturnValue(true);
+  mocks.authPhoneNumber = "+919000000001";
+  mocks.resolveVerifiedPhoneNumber.mockImplementation(
+    async () => mocks.authPhoneNumber,
+  );
   mocks.isNative.mockReturnValue(false);
   // A leaked search query in sessionStorage would silently seed the next
   // test's render, the same way a leaked `?tab=` would.
@@ -674,19 +706,22 @@ describe("Connect — People", () => {
     expect(screen.getByText("Person 0")).toBeTruthy();
   });
 
-  it("offers in-list progressive loading rather than visible pagination", async () => {
-    // A bounded first screenful was the right instinct, but refusing to page
-    // left the rest of the directory unreachable. Both now hold: a screenful
-    // by default, and a way through it.
+  it("pages the directory instead of growing it", async () => {
+    // Appending each batch left every previous page on screen, so the list
+    // grew without limit and the sections under it moved further away with
+    // each load. One page at a time, with a way to walk between them.
     render(<ConnectPageClient />);
 
     expect(await screen.findByText("Search by name.")).toBeTruthy();
     expect(
-      await screen.findByRole("button", { name: "Load 20 more people" }),
+      await screen.findByRole("button", { name: "Show the next page of people" }),
     ).toBeTruthy();
-    expect(screen.queryByLabelText("People per page")).toBeNull();
-    expect(screen.queryByLabelText("Next page")).toBeNull();
-    expect(screen.queryByLabelText("Previous page")).toBeNull();
+    expect(
+      screen.getByRole("button", { name: "Show the previous page of people" }),
+    ).toBeTruthy();
+    // The old append affordance is gone, not merely relabelled.
+    expect(screen.queryByRole("button", { name: "Load 20 more people" })).toBeNull();
+    expect(screen.queryByTestId("connect-load-more-row")).toBeNull();
   });
 
   it("reads heading, then instruction, then the field they describe", async () => {
@@ -718,16 +753,25 @@ describe("Connect — People", () => {
     ).toBeTruthy();
   });
 
-  it("keeps load-more inside the grouped list as a compact row", async () => {
+  it("keeps the pager inside the grouped list as a compact row", async () => {
     render(<ConnectPageClient />);
 
-    const row = await screen.findByTestId("connect-load-more-row");
+    const row = await screen.findByTestId("connect-pager-row");
     expect(row.className).not.toContain("flex-col");
     expect(row.className).toContain("min-h-14");
     expect(
-      within(row).getByRole("button", { name: "Load 20 more people" }),
+      within(row).getByRole("button", { name: "Show the next page of people" }),
     ).toBeTruthy();
-    expect(screen.queryByTestId("connect-pager-row")).toBeNull();
+    // Named, not counted: the directory endpoint reports `hasMore` and no
+    // total, so "Page 1 of N" would be a number nothing here knows.
+    expect(within(row).getByText("Page 1")).toBeTruthy();
+    expect(within(row).queryByText(/Page 1 of/)).toBeNull();
+    // Nowhere to go back to from the first page.
+    expect(
+      within(row)
+        .getByRole("button", { name: "Show the previous page of people" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("asks the server for the next batch the reader loads", async () => {
@@ -735,7 +779,7 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Load 20 more people" }),
+      screen.getByRole("button", { name: "Show the next page of people" }),
     );
 
     await waitFor(() => {
@@ -746,7 +790,39 @@ describe("Connect — People", () => {
       expect(latest).toMatchObject({ page: 2, limit: 20 });
     });
     expect(await screen.findByText("Person 20")).toBeTruthy();
-    expect(screen.getByText("Person 0")).toBeTruthy();
+    // Page two REPLACES page one. Keeping both is what made the list unbounded.
+    expect(screen.queryByText("Person 0")).toBeNull();
+    expect(screen.getByText("Page 2")).toBeTruthy();
+  });
+
+  it("walks back to the previous page and re-enables the first-page guard", async () => {
+    render(<ConnectPageClient />);
+    await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
+
+    const next = () =>
+      screen.getByRole("button", { name: "Show the next page of people" });
+    const previous = () =>
+      screen.getByRole("button", { name: "Show the previous page of people" });
+
+    fireEvent.click(next());
+    expect(await screen.findByText("Person 20")).toBeTruthy();
+    expect(screen.getByText("Page 2")).toBeTruthy();
+    expect(previous().hasAttribute("disabled")).toBe(false);
+
+    fireEvent.click(previous());
+
+    await waitFor(() => {
+      const latest =
+        mocks.searchDirectory.mock.calls[
+          mocks.searchDirectory.mock.calls.length - 1
+        ][0];
+      expect(latest).toMatchObject({ page: 1 });
+    });
+    expect(await screen.findByText("Person 0")).toBeTruthy();
+    expect(screen.queryByText("Person 20")).toBeNull();
+    expect(screen.getByText("Page 1")).toBeTruthy();
+    // Back at the start, so there is nowhere further back to go.
+    expect(previous().hasAttribute("disabled")).toBe(true);
   });
 
   it("keeps the visible directory stable while the next page loads", async () => {
@@ -773,12 +849,12 @@ describe("Connect — People", () => {
     expect(await screen.findByText("Person 0")).toBeTruthy();
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Load 20 more people" }),
+      screen.getByRole("button", { name: "Show the next page of people" }),
     );
 
-    await waitFor(() =>
-      expect(screen.getByText("Loading more…")).toBeTruthy(),
-    );
+    await waitFor(() => expect(screen.getByText("Loading…")).toBeTruthy());
+    // The page being left stays put until its replacement arrives, so the list
+    // never blanks mid-step.
     expect(screen.getByText("Person 0")).toBeTruthy();
     expect(screen.queryByText("Finding people…")).toBeNull();
 
@@ -792,8 +868,8 @@ describe("Connect — People", () => {
     });
 
     expect(await screen.findByText("Person 20")).toBeTruthy();
-    expect(screen.getByText("Person 0")).toBeTruthy();
-    expect(screen.queryByText("Loading more…")).toBeNull();
+    expect(screen.queryByText("Person 0")).toBeNull();
+    expect(screen.queryByText("Loading…")).toBeNull();
   });
 
   it("opens the full directory once a name is typed", async () => {
@@ -1069,7 +1145,7 @@ describe("Connect — People", () => {
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(1));
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Load 20 more people" }),
+      screen.getByRole("button", { name: "Show the next page of people" }),
     );
     await waitFor(() => expect(mocks.searchDirectory).toHaveBeenCalledTimes(2));
     expect(mocks.searchDirectory.mock.calls[1][0]).toMatchObject({ page: 2 });
@@ -1675,10 +1751,15 @@ describe("Connect — the phone-width geometry QA reported", () => {
     expect(classes.has("justify-end")).toBe(true);
   });
 
-  it("keeps one page scroll on phones and caps My connections on larger screens", async () => {
-    // A nested roster scroller traps touch gestures on phones and lets the
-    // fixed bottom chrome obscure whichever row owns the gesture. Phones use
-    // the app scroll root; larger screens can keep the bounded roster.
+  it("caps My connections on every viewport, phones included", async () => {
+    // Phones were once left uncapped because an earlier bound trapped touch
+    // gestures in the inner scroller and let the fixed bottom chrome cover the
+    // row owning the gesture. Uncapped is its own bug though: a long roster
+    // pushes the directory section below it out of reach. The bound is back,
+    // and `overscroll-contain` is what keeps it safe -- it stops a scroll that
+    // reaches the roster's end from chaining into the page behind it. The cap
+    // is measured in `dvh` so it tracks the visible viewport rather than
+    // measuring a phone as though its browser chrome were absent.
     mocks.listConnections.mockResolvedValue(
       Array.from({ length: 12 }, (_, index) => ({
         connectionId: `c-${index}`,
@@ -1695,12 +1776,18 @@ describe("Connect — the phone-width geometry QA reported", () => {
       '[data-testid="connect-my-connections-group"] [data-inset-separators="true"]',
     );
     expect(list).toBeTruthy();
-    expect(list!.className).toContain("sm:max-h-[320px]");
-    expect(list!.className).toContain("sm:overflow-y-auto");
-    expect(list!.className).toContain("sm:overscroll-contain");
-    expect(list!.className).not.toMatch(/(?:^|\s)max-h-\[232px\](?:\s|$)/);
-    expect(list!.className).not.toMatch(/(?:^|\s)overflow-y-auto(?:\s|$)/);
-    expect(list!.className).not.toMatch(/(?:^|\s)overscroll-contain(?:\s|$)/);
+    // Unprefixed, so the bound applies on phones too.
+    expect(list!.className).toContain("max-h-[min(42dvh,18rem)]");
+    expect(list!.className).toContain("overflow-y-auto");
+    // The mitigation the phone bound depends on. Without it the roster chains
+    // its scroll into the page and the old gesture trap comes back.
+    expect(list!.className).toContain("overscroll-contain");
+    // Not re-introduced behind a breakpoint: the cap is unconditional now.
+    expect(list!.className).not.toMatch(/(?:^|\s)sm:max-h-\[320px\](?:\s|$)/);
+    expect(list!.className).not.toMatch(/(?:^|\s)sm:overflow-y-auto(?:\s|$)/);
+    // A viewport unit that ignores browser chrome would let the list run under
+    // the fixed bottom bars on a phone.
+    expect(list!.className).not.toMatch(/max-h-\[[^\]]*\bvh\b/);
   });
 
   it("asks for the search field in two words", async () => {
@@ -2018,6 +2105,10 @@ describe("Connect — Circles", () => {
     expect(anchor.contains(menu)).toBe(true);
     expect(menu).not.toHaveAttribute("data-slot", "popover-content");
     expect(menu.className).toContain("absolute left-0 top-full");
+    expect(menu.className).toContain(
+      "bg-[color:var(--app-card-surface-default-solid)]",
+    );
+    expect(menu.className).not.toContain("app-card-surface-standard");
   });
 
   it("opens on People when the URL says nothing", async () => {
@@ -2191,6 +2282,101 @@ describe("Connect — contact sync", () => {
     ).toBeTruthy();
   });
 
+  it("preserves connection outcomes and partial warnings through the shared results retry", async () => {
+    const matches = [
+      {
+        lookupId: "new",
+        userId: "new",
+        displayName: "Asha Rao",
+        photoUrl: null,
+        outcome: "auto_connected" as const,
+      },
+      {
+        lookupId: "existing",
+        userId: "existing",
+        displayName: "Meena Shah",
+        photoUrl: null,
+        outcome: "already_connected" as const,
+      },
+      {
+        lookupId: "removed",
+        userId: "removed",
+        displayName: "Ravi Kumar",
+        photoUrl: null,
+        outcome: "suppressed" as const,
+      },
+    ];
+    mocks.syncContactSignals.mockResolvedValueOnce({
+      ...emptyContactSyncResult(),
+      matches,
+      matchedUserIds: matches.map((match) => match.userId),
+      totalContacts: 3,
+      readContactCount: 3,
+      checkedContactCount: 3,
+      matchedContactCount: 3,
+      autoConnectedCount: 1,
+      alreadyConnectedCount: 1,
+      suppressedCount: 1,
+      partial: true,
+      limited: true,
+    });
+    render(<ConnectPageClient />);
+    fireEvent.click(await screen.findByRole("button", { name: "Sync contacts" }));
+    const sheet = await screen.findByRole("dialog", {
+      name: "Contact sync results",
+    });
+
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      expect(
+        within(within(sheet).getByText(name).closest("li")!).getByText(status),
+      ).toBeInTheDocument();
+    }
+    expect(
+      within(sheet).getByText("Only part of your contact list was checked."),
+    ).toBeInTheDocument();
+    expect(mocks.sendRequest).not.toHaveBeenCalled();
+
+    mocks.syncContactSignals.mockResolvedValueOnce(emptyContactSyncResult());
+    fireEvent.click(within(sheet).getByRole("button", { name: "Sync again" }));
+    await within(sheet).findByText(/No eligible contacts matched/);
+    expect(within(sheet).queryByText("Asha Rao")).toBeNull();
+    expect(mocks.syncContactSignals).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the verified auth-context phone when Firebase has no phone", async () => {
+    // UAT/native phone verification writes the authoritative phone to the
+    // backend identity and AuthContext, while Firebase's User can remain
+    // phone-less. Dropping this value makes an Indian national contact hash as
+    // a plausible US number on an en-US iPhone/browser and silently match 0.
+    mocks.authPhoneNumber = "+919000000001";
+    mocks.syncContactSignals.mockImplementationOnce(async (options) => {
+      await expect(options.resolveAccountPhoneNumber?.()).resolves.toBe(
+        "+919000000001",
+      );
+      await expect(options.resolveIdToken?.()).resolves.toBe("id-token");
+      return emptyContactSyncResult();
+    });
+    render(<ConnectPageClient />);
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "Sync contacts" }),
+    );
+
+    await waitFor(() =>
+      expect(mocks.syncContactSignals).toHaveBeenCalledWith(
+        expect.objectContaining({
+          accountPhoneNumber: "+919000000001",
+          resolveAccountPhoneNumber: expect.any(Function),
+          resolveIdToken: expect.any(Function),
+        }),
+      ),
+    );
+  });
+
   it("does not offer it on the RIAs tab", async () => {
     mocks.listConnections.mockResolvedValue([]);
     render(<ConnectPageClient />);
@@ -2293,10 +2479,10 @@ describe("Connect — contact sync", () => {
     // deleting its mount breaks no test in this file.
     expect(await screen.findByText("Contact sync results")).toBeTruthy();
     expect(
-      screen.getByText("No Hushh accounts matched in this sync."),
+      screen.getByText(/No eligible contacts matched/),
     ).toBeTruthy();
     expect(mocks.toastInfo.mock.calls[0][0]).toBe(
-      "No Hushh users matched this time",
+      "No eligible contacts matched",
     );
   });
 });

@@ -28,6 +28,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_PENDING_DIRECTIVE,
     _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
+    _STATE_TIMEZONE,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
     BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
@@ -57,6 +58,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
+    STATE_TIMEZONE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
@@ -124,6 +126,7 @@ class TestAgentTreeShape:
             "ask_email_agent",
             "ask_location_agent",
             "ask_consent_agent",
+            "get_current_time",
             "calendar_summary",
             "calendar_events",
             "calendar_availability",
@@ -928,6 +931,7 @@ class TestRunAppAction:
         assert _STATE_SCREEN == _tree.STATE_SCREEN
         assert _STATE_USER_ID == STATE_USER_ID
         assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
+        assert _STATE_TIMEZONE == STATE_TIMEZONE
 
     @pytest.mark.asyncio
     async def test_unknown_action_never_infers_a_fallback(self):

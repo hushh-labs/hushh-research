@@ -55,6 +55,7 @@ vi.mock("@/lib/capacitor/kai", () => ({
 vi.mock("@/lib/services/auth-service", () => ({
   AuthService: {
     getIdToken: vi.fn().mockResolvedValue("firebase_test_token"),
+    getCurrentUser: vi.fn().mockReturnValue(null),
   },
 }));
 

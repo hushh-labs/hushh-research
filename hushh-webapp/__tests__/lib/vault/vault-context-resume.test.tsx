@@ -110,6 +110,7 @@ vi.mock("@/lib/pkm/pkm-domain-resource", () => ({
 
 import { VaultProvider, useVault } from "@/lib/vault/vault-context";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { AUTH_SESSION_INVALIDATED_EVENT } from "@/lib/auth/session-invalidation";
 
 const NOW = 1_800_000_000_000;
 
@@ -253,6 +254,56 @@ describe("VaultProvider app-resume expiry recovery", () => {
     expect(screen.getByTestId("vault-token").textContent).toBe("none");
     expect(screen.getByTestId("vault-key").textContent).toBe("none");
     expect(mocks.invalidateVaultState).toHaveBeenCalled();
+  });
+
+  it("immediately clears the matching Vault on uncertain account deletion", async () => {
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          detail: {
+            code: "account_deletion_uncertain",
+            path: "account_delete_uncertain_unverified",
+            userId: "vault-owner",
+          },
+        }),
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("vault-status").textContent).toBe("locked");
+    });
+    expect(screen.getByTestId("vault-token").textContent).toBe("none");
+    expect(screen.getByTestId("vault-key").textContent).toBe("none");
+    expect(mocks.clearAgentPkmContext).toHaveBeenCalledWith("vault-owner");
+  });
+
+  it("does not let a delayed account-A terminal event lock account B", () => {
+    mocks.authUser = {
+      uid: "account-b",
+      displayName: "Account B",
+      email: "b@example.test",
+      photoURL: null,
+    };
+    renderVault();
+    fireEvent.click(screen.getByRole("button", { name: "Unlock valid" }));
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent(AUTH_SESSION_INVALIDATED_EVENT, {
+          detail: {
+            code: "account_not_found",
+            path: "delayed_account_a_request",
+            userId: "account-a",
+          },
+        }),
+      );
+    });
+
+    expect(screen.getByTestId("vault-status").textContent).toBe("unlocked");
+    expect(screen.getByTestId("vault-token").textContent).toBe("vault-token");
   });
 
   it("relocks only when the shared native lifecycle becomes active", async () => {

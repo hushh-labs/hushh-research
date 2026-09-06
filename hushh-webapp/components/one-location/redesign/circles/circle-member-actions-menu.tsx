@@ -444,15 +444,6 @@ export function CircleMemberActionsMenu({
           collisionPadding={12}
           className={MEMBER_ACTIONS_MENU_SURFACE_CLASSNAME}
         >
-          {/* Same job as the sheet's header: name the person, so a menu that
-              paints over the next row still says who it belongs to. */}
-          <p className="whitespace-normal px-3 pt-1.5 pb-1 text-[13px] font-semibold leading-4 text-[color:var(--app-secondary-label)] [overflow-wrap:anywhere]">
-            {displayName}
-          </p>
-          <div
-            aria-hidden="true"
-            className="mx-1 mb-1 h-px bg-[color:var(--app-separator)]"
-          />
           {canShare ? (
             <DropdownMenuItem
               className={MEMBER_ACTIONS_MENU_ITEM_CLASSNAME}

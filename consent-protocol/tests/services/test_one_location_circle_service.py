@@ -8,7 +8,9 @@ import pytest
 
 import hushh_mcp.services.one_location_circle_service as circle_service_module
 import hushh_mcp.services.push_notifications as push_notifications_module
+import hushh_mcp.services.requester_identity as requester_identity_module
 from hushh_mcp.services.one_location_circle_service import (
+    CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS,
     OneLocationCircleError,
     OneLocationCircleService,
     format_circle_code,
@@ -1807,7 +1809,7 @@ def test_recent_terminal_invite_enforces_a_circle_wide_reinvite_cooldown() -> No
     assert raised.value.status_code == 429
     # The cooldown outlived the invitation flow on purpose. A declined
     # invitation is that person saying no; without this, adding them directly
-    # would be a way to overrule it twelve hours early.
+    # would be a way to overrule it early.
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
 
 
@@ -2093,9 +2095,10 @@ def test_leaving_a_circle_cannot_be_undone_the_moment_it_happens() -> None:
     could put you back the instant you left, as many times as they liked, and
     each round is a push notification.
 
-    So leaving now costs the same twelve hours a decline does. It binds the
-    OWNER too: every other rule here protects a Circle from its members, and
-    this one protects a person from the Circle.
+    So leaving now costs the same cooldown a decline does
+    (CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS). It binds the OWNER too: every
+    other rule here protects a Circle from its members, and this one protects
+    a person from the Circle.
 
     The permanent remedy is one level up and always was -- a connection is
     what makes adding possible at all, so disconnecting ends it outright.
@@ -2134,6 +2137,149 @@ def test_leaving_a_circle_cannot_be_undone_the_moment_it_happens() -> None:
     # Refused before anything is read about the pair, and nobody is written.
     assert not any("FROM connections connection" in sql for sql in conn.sql)
     assert not any("INSERT INTO one_location_circle_memberships" in sql for sql in conn.sql)
+
+
+def test_the_reinvite_cooldown_is_one_hour() -> None:
+    """#6467: was twelve hours, product asked for one."""
+    assert CIRCLE_MEMBER_REINVITE_COOLDOWN_HOURS == 1
+
+
+def test_left_recently_toast_states_the_exact_time_remaining() -> None:
+    """#6467: the toast must say when, not just "later"."""
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}],
+        None,
+        [
+            {
+                "user_id": "friend-one",
+                "status": "left",
+                "left_recently": True,
+                "left_recently_remaining_seconds": 45 * 60,
+            }
+        ],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_MEMBER_LEFT_RECENTLY"
+    assert "in 45 minutes" in raised.value.message
+
+
+def test_left_recently_toast_rounds_up_and_reports_the_longest_wait() -> None:
+    """Two people blocked at once: the toast must not understate either wait."""
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+        },
+        {"role": "owner", "inviter_display_name": "Owner"},
+        [{"user_id": "friend-one"}, {"user_id": "friend-two"}],
+        None,
+        [
+            {
+                "user_id": "friend-one",
+                "status": "left",
+                "left_recently": True,
+                # 61 seconds must round UP to 2 minutes, never down to 1 --
+                # retrying at "1 minute" would still be inside the window.
+                "left_recently_remaining_seconds": 61,
+            },
+            {
+                "user_id": "friend-two",
+                "status": "left",
+                "left_recently": True,
+                "left_recently_remaining_seconds": 75 * 60,  # 1h 15m
+            },
+        ],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one", "friend-two"],
+        )
+
+    assert "in 1 hour 15 minutes" in raised.value.message
+
+
+def test_invite_cooldown_toast_states_the_exact_time_remaining() -> None:
+    """#6467: same exact-time requirement for the declined-invite cooldown."""
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {
+            "id": circle_id,
+            "name": "Family",
+            "kind": "family",
+            "owner_user_id": "owner-user",
+            "member_limit": 20,
+            "role": "member",
+        },
+        {"role": "member", "inviter_display_name": "Member"},
+        [{"user_id": "friend-one"}],
+        None,
+        [],
+        [
+            {
+                "connection_id": "connection-1",
+                "user_id": "friend-one",
+                "invitee_display_name": "Friend One",
+            }
+        ],
+        [{"connection_id": "connection-1"}],
+        [
+            {
+                "id": "550e8400-e29b-41d4-a716-446655440002",
+                "circle_id": circle_id,
+                "inviter_user_id": "another-member",
+                "invitee_user_id": "friend-one",
+                "status": "declined",
+                "expires_at": datetime.now(timezone.utc) + timedelta(hours=1),
+                # Declined 45 minutes ago against a 1-hour cooldown -> 15 left.
+                "updated_at": datetime.now(timezone.utc) - timedelta(minutes=45),
+            }
+        ],
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+
+    with pytest.raises(OneLocationCircleError) as raised:
+        service.create_member_invites(
+            actor_user_id="owner-user",
+            circle_id=circle_id,
+            invitee_user_ids=["friend-one"],
+        )
+
+    assert raised.value.code == "LOCATION_CIRCLE_INVITE_COOLDOWN"
+    assert "in 15 minutes" in raised.value.message
 
 
 def test_an_old_departure_does_not_block_being_added_back(
@@ -3634,3 +3780,190 @@ def test_an_add_naming_only_blocked_people_still_fails_loudly():
     assert raised.value.status_code == 409
     # Unnamed, like every other refusal about somebody else's history.
     assert "friend-one" not in raised.value.args[0]
+
+
+# ---------------------------------------------------------------------------
+# Resolution pushes for invite decline/cancel and membership removal/leave --
+# the same "creation notifies, resolution goes silent" gap the Connect fix
+# (#6507/#6509) closed, found to repeat in this Circle service too.
+# ---------------------------------------------------------------------------
+
+
+def test_decline_member_invite_notifies_the_inviter(monkeypatch: pytest.MonkeyPatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440002"
+    db = _RecordingDb(
+        [
+            {
+                "id": invite_id,
+                "circle_id": circle_id,
+                "inviter_user_id": "inviter-member",
+                "circle_name": "Family",
+            }
+        ],
+        [{"id": invite_id, "status": "declined"}],
+    )
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+    monkeypatch.setattr(
+        requester_identity_module, "resolve_requester_label", lambda _uid: "Member User"
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_declined_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    service.decline_member_invite(user_id="member-user", invite_id=invite_id)
+
+    assert push_calls == [
+        {
+            "inviter_user_id": "inviter-member",
+            "invitee_user_id": "member-user",
+            "invitee_display_name": "Member User",
+            "circle_id": circle_id,
+            "circle_name": "Family",
+            "invite_id": invite_id,
+        }
+    ]
+
+
+def test_decline_member_invite_does_not_notify_when_invite_is_unavailable(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    invite_id = "550e8400-e29b-41d4-a716-446655440002"
+    db = _RecordingDb([], [{"status": "pending"}])
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_declined_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    with pytest.raises(OneLocationCircleError):
+        service.decline_member_invite(user_id="member-user", invite_id=invite_id)
+
+    assert push_calls == []
+
+
+def test_cancel_member_invite_notifies_the_invitee(monkeypatch: pytest.MonkeyPatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    invite_id = "550e8400-e29b-41d4-a716-446655440002"
+    db = _RecordingDb(
+        [
+            {
+                "id": invite_id,
+                "circle_id": circle_id,
+                "invitee_user_id": "invitee-member",
+                "circle_name": "Family",
+            }
+        ]
+    )
+    service = OneLocationCircleService(db=db, hmac_key="a" * 32)  # type: ignore[arg-type]
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_invite_cancelled_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    result = service.cancel_member_invite(actor_user_id="owner-user", invite_id=invite_id)
+
+    assert result is True
+    assert push_calls == [
+        {
+            "invitee_user_id": "invitee-member",
+            "circle_id": circle_id,
+            "circle_name": "Family",
+            "invite_id": invite_id,
+        }
+    ]
+
+
+def test_remove_member_notifies_the_removed_member(monkeypatch: pytest.MonkeyPatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {"owner_user_id": "owner-user", "system_kind": None, "name": "Family"},
+        {"user_id": "member-user"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_reconcile_circle_sourced_grants", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_cleanup_ineligible_sms_contacts", lambda *_a, **_kw: None)
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_removed_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    service.remove_member(
+        owner_user_id="owner-user", circle_id=circle_id, member_user_id="member-user"
+    )
+
+    assert push_calls == [
+        {"member_user_id": "member-user", "circle_id": circle_id, "circle_name": "Family"}
+    ]
+
+
+def test_leave_circle_notifies_the_owner(monkeypatch: pytest.MonkeyPatch) -> None:
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {"owner_user_id": "owner-user", "system_kind": None, "name": "Family"},
+        {"user_id": "member-user"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_reconcile_circle_sourced_grants", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_cleanup_ineligible_sms_contacts", lambda *_a, **_kw: None)
+    monkeypatch.setattr(
+        requester_identity_module, "resolve_requester_label", lambda _uid: "Member User"
+    )
+    push_calls: list[dict] = []
+    monkeypatch.setattr(
+        push_notifications_module,
+        "send_circle_member_left_push",
+        lambda **kwargs: push_calls.append(kwargs) or 1,
+    )
+
+    service.leave_circle(user_id="member-user", circle_id=circle_id)
+
+    assert push_calls == [
+        {
+            "owner_user_id": "owner-user",
+            "member_user_id": "member-user",
+            "member_display_name": "Member User",
+            "circle_id": circle_id,
+            "circle_name": "Family",
+        }
+    ]
+
+
+def test_notify_failure_does_not_break_leave_circle(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The write must survive a broken notifier -- best-effort, never load-bearing."""
+    circle_id = "550e8400-e29b-41d4-a716-446655440000"
+    conn = _CapacityConnection(
+        {"owner_user_id": "owner-user", "system_kind": None, "name": "Family"},
+        {"user_id": "member-user"},
+    )
+    service = OneLocationCircleService(
+        db=_TransactionDb(conn),  # type: ignore[arg-type]
+        hmac_key="a" * 32,
+    )
+    monkeypatch.setattr(circle_service_module, "revoke_circle_origins", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_reconcile_circle_sourced_grants", lambda *_a, **_kw: None)
+    monkeypatch.setattr(service, "_cleanup_ineligible_sms_contacts", lambda *_a, **_kw: None)
+
+    def _boom(**_kwargs):
+        raise RuntimeError("fcm is down")
+
+    monkeypatch.setattr(push_notifications_module, "send_circle_member_left_push", _boom)
+
+    service.leave_circle(user_id="member-user", circle_id=circle_id)

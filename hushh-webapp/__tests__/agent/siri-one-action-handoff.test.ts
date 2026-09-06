@@ -13,6 +13,7 @@ const readyInput = {
   runtimeReady: true,
   tier: "signed_unlocked" as const,
   requiresVault: true,
+  hasVaultLockedFallback: false,
   executorReady: true,
 };
 
@@ -55,6 +56,24 @@ describe("Siri One action handoff policy", () => {
         requiresVault: false,
       }),
     ).toBe("dispatch");
+  });
+
+  it("routes a locked-vault mutation to its declared review fallback exactly when executable", () => {
+    expect(
+      resolveSiriOneActionHandoffState({
+        ...readyInput,
+        tier: "signed_locked",
+        hasVaultLockedFallback: true,
+      }),
+    ).toBe("review_vault");
+    expect(
+      resolveSiriOneActionHandoffState({
+        ...readyInput,
+        tier: "signed_locked",
+        hasVaultLockedFallback: true,
+        executorReady: false,
+      }),
+    ).toBe("waiting_for_executor");
   });
 
   it("dispatches only when every lifecycle gate is ready", () => {

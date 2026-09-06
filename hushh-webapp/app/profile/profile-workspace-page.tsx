@@ -104,9 +104,11 @@ import { assignWindowLocation } from "@/lib/utils/browser-navigation";
 import {
   DELETE_ACCOUNT_DIALOG_DESCRIPTION,
   DELETE_ACCOUNT_DIALOG_TITLE,
+  accountDeletionErrorMessage,
   executeVerifiedAccountDeletion,
   resolveDeleteAccountAuth,
 } from "@/lib/flows/delete-account";
+import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { ROUTES } from "@/lib/navigation/routes";
 import { WALLET_CARD_COPY } from "@/components/wallet-card/wallet-card-copy";
 import { isWalletCardEntryEnabled } from "@/components/wallet-card/wallet-card-entry";
@@ -1219,7 +1221,8 @@ function ProfilePageContent() {
       void refreshPkmMetadata(true).catch(() => undefined);
     };
     window.addEventListener("pkm-domain-changed", handleDomainChanged);
-    return () => window.removeEventListener("pkm-domain-changed", handleDomainChanged);
+    return () =>
+      window.removeEventListener("pkm-domain-changed", handleDomainChanged);
   }, [hasVault, refreshPkmMetadata, user?.uid]);
 
   const refreshDomainManifest = useCallback(
@@ -1522,12 +1525,13 @@ function ProfilePageContent() {
             await executeVerifiedAccountDeletion({
               userId: user.uid,
               vaultOwnerToken: token,
+              sessionUser: user,
             });
           })(),
           {
             loading: "Deleting your account...",
             success: "Account deleted.",
-            error: "Failed to delete account. Please try again.",
+            error: accountDeletionErrorMessage,
             variant: "destructive",
           },
         )
@@ -1537,7 +1541,11 @@ function ProfilePageContent() {
       // FCM cleanup is skipped because the backend has already destroyed the
       // account and its push tokens. Redirect as fast as the session teardown
       // allows.
-      await signOut({ skipFcmCleanup: true });
+      await signOut({
+        redirectTo: buildLoginRouteWithAuthSessionNotice("account_deleted"),
+        expectedUserId: user.uid,
+        skipFcmCleanup: true,
+      });
     } catch (error) {
       console.error("Delete account error:", error);
     } finally {
@@ -2296,14 +2304,14 @@ function ProfilePageContent() {
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
-                  ? "Connected Systems"
-                  : activePanel === "preferences"
-                    ? PROFILE_LABELS.preferences
-                    : activePanel === "security"
-                      ? PROFILE_LABELS.security
-                      : activePanel === "gmail"
-                        ? "Gmail receipts"
-                        : PROFILE_LABELS.support,
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : PROFILE_LABELS.support,
           ...(activeDetail ? [activeDetail] : []),
         ]
       : [
@@ -2365,14 +2373,14 @@ function ProfilePageContent() {
             : activePanel === "my-data"
               ? "Memory"
               : activePanel === "connected-systems"
-                  ? "Connected Systems"
-                  : activePanel === "preferences"
-                    ? PROFILE_LABELS.preferences
-                    : activePanel === "security"
-                      ? PROFILE_LABELS.security
-                      : activePanel === "gmail"
-                        ? "Gmail receipts"
-                        : PROFILE_LABELS.support
+                ? "Connected Systems"
+                : activePanel === "preferences"
+                  ? PROFILE_LABELS.preferences
+                  : activePanel === "security"
+                    ? PROFILE_LABELS.security
+                    : activePanel === "gmail"
+                      ? "Gmail receipts"
+                      : PROFILE_LABELS.support
           : "Profile",
         purpose:
           "This surface manages account details, appearance, help, and vault privacy.",

@@ -65,6 +65,47 @@ describe("native cold-audit and continuity contract", () => {
     expect(notification).not.toContain('App.addListener("appStateChange"');
   });
 
+  it("keeps forced Firebase token refresh strict across the shared auth bridge", () => {
+    const contract = source("lib/capacitor/index.ts");
+    const web = source("lib/capacitor/plugins/auth-web.ts");
+    const service = source("lib/services/auth-service.ts");
+    const ios = source("ios/App/App/Plugins/HushhAuthPlugin.swift");
+    const android = source(
+      "android/app/src/main/java/com/hussh/app/plugins/HushhAuth/HushhAuthPlugin.kt",
+    );
+
+    expect(contract).toContain("HushhAuthGetIdTokenOptions");
+    expect(contract).toContain("forceRefresh?: boolean");
+    expect(web).toContain("firebaseUser.getIdToken(forceRefresh)");
+    expect(web).toContain("if (forceRefresh)");
+    expect(service).toContain("FirebaseAuthentication.getIdToken(nativeTokenOptions)");
+    expect(service).toContain("HushhAuth.getIdToken(nativeTokenOptions)");
+    expect(service).toContain("authSessionInvalidationCodeFromFirebaseError(error)");
+    expect(ios).toContain('call.getBool("forceRefresh") ?? false');
+    expect(ios).toContain("getIDTokenResult(forcingRefresh: forceRefresh)");
+    expect(android).toContain(
+      'call.getBoolean("forceRefresh", false) ?: false',
+    );
+    expect(android).toContain("user.getIdToken(forceRefresh)");
+    for (const stableCode of [
+      "auth/user-not-found",
+      "auth/user-disabled",
+      "auth/invalid-user-token",
+      "auth/user-token-expired",
+      "auth/network-request-failed",
+      "auth/internal-error",
+    ]) {
+      expect(contract).toContain(stableCode);
+      expect(ios).toContain(stableCode);
+      expect(android).toContain(stableCode);
+    }
+    expect(web).toContain("HUSHH_AUTH_TOKEN_ERROR_CODE.invalidUserToken");
+    expect(ios).toContain("rejectForcedTokenRefresh(call, error: nil)");
+    expect(android).toContain("rejectForcedTokenRefresh(call, null)");
+    expect(ios).not.toContain("Failed to refresh ID token: \\(error.localizedDescription)");
+    expect(android).not.toContain("Failed to refresh ID token: ${exception.message}");
+  });
+
   it("exposes explicit cold-audit scripts rather than silently resetting a normal continuity run", () => {
     const packageJson = JSON.parse(source("package.json")) as {
       scripts: Record<string, string>;
@@ -242,6 +283,12 @@ describe("native cold-audit and continuity contract", () => {
       locationFlow.matchAll(/LOCATION_ONBOARDING_CHECKPOINTS\[(\d+)\]/g),
       (match) => Number(match[1]),
     );
+    const actionSteps = Array.from(
+      locationFlow.matchAll(
+        /\{ type: "(click_button|wait_button)", name: "([^"]+)" \}/g,
+      ),
+      (match) => ({ type: match[1], name: match[2] }),
+    );
 
     expect(flowStart).toBeGreaterThan(-1);
     expect(checkpointIndexes).toEqual(
@@ -250,6 +297,12 @@ describe("native cold-audit and continuity contract", () => {
     expect(
       checkpointIndexes.every((index) => index < contract.screens.length),
     ).toBe(true);
+    expect(actionSteps).toEqual([
+      { type: "click_button", name: "Get started" },
+      { type: "click_button", name: "Set up my location" },
+      { type: "click_button", name: "Skip saving this place" },
+      { type: "wait_button", name: "Finish" },
+    ]);
   });
 
   it("binds each cold UI report to the exact generated manifest and real controls", () => {

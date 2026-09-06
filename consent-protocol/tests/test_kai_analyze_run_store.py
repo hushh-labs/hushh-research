@@ -410,11 +410,7 @@ def test_route_skips_410_for_durable_replay_on_stale_cursor(monkeypatch) -> None
 
     import api.routes.kai.stream as stream_mod
 
-    async def _noop_auth(*_a: Any, **_k: Any) -> None:
-        return None
-
     manager = KaiAnalyzeRunManager(retention_seconds=300, store=KaiAnalyzeRunStore())
-    monkeypatch.setattr(stream_mod, "_require_vault_owner_token", _noop_auth)
     monkeypatch.setattr(stream_mod, "_RUN_MANAGER", manager)
 
     user_id = f"user_{uuid.uuid4().hex}"
@@ -432,7 +428,7 @@ def test_route_skips_410_for_durable_replay_on_stale_cursor(monkeypatch) -> None
             run_id=rec.run_id,
             user_id=user_id,
             cursor=999,
-            authorization="Bearer test",
+            token_data={"user_id": user_id, "token": "fixture-owner-capability"},
         )
         assert isinstance(result, EventSourceResponse)
 
@@ -458,7 +454,7 @@ def test_route_skips_410_for_durable_replay_on_stale_cursor(monkeypatch) -> None
                 run_id=live.run_id,
                 user_id=user_id,
                 cursor=live.latest_cursor + 50,
-                authorization="Bearer test",
+                token_data={"user_id": user_id, "token": "fixture-owner-capability"},
             )
         except stream_mod.HTTPException as exc:
             raised = True

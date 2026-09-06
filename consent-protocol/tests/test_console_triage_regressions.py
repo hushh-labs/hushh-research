@@ -37,6 +37,10 @@ def test_deleted_account_token_is_401_not_500(monkeypatch):
     with pytest.raises(HTTPException) as excinfo:
         verify_firebase_bearer("Bearer replayed-after-deletion")
     assert excinfo.value.status_code == 401
+    assert excinfo.value.detail == {
+        "code": "AUTH_ACCOUNT_NOT_FOUND",
+        "message": "Account not found",
+    }
 
 
 @pytest.mark.asyncio

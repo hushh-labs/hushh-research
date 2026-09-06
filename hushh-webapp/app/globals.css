@@ -190,8 +190,20 @@ textarea {
 :root {
   /* Centralized app typography variables. Product UI uses Inter only. */
   --font-family-product: "InterVariable", "Inter", system-ui, sans-serif;
-  --font-app-display: var(--font-family-product);
-  --font-app-body: var(--font-family-product);
+  /* Emoji tier, appended to the text stack rather than folded into
+     --font-family-product: verify-apple-hierarchy pins that token's exact
+     literal to keep Inter the product typeface, and this must not weaken it.
+     Inter, its fallbacks and system-ui carry no emoji glyphs, so without an
+     emoji tier every emoji codepoint fell through to the browser's last-resort
+     matching, which has no defined priority — on a Mac with Noto Color Emoji
+     installed (Google Fonts, Docker and design tooling all ship it) Chrome
+     could pick the Android artwork, and the winner could change between paints
+     as InterVariable swapped in. Naming the platform emoji fonts in order pins
+     it: Apple on macOS/iOS, Segoe on Windows, Noto elsewhere. Emoji fonts
+     carry only emoji, so Latin text still resolves to Inter exactly as before. */
+  --font-app-emoji: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji";
+  --font-app-display: var(--font-family-product), var(--font-app-emoji);
+  --font-app-body: var(--font-family-product), var(--font-app-emoji);
   --font-app-text: var(--font-app-body);
   --font-app-heading: var(--font-app-display);
   --font-app-mono: var(--font-app-body);
@@ -2132,6 +2144,20 @@ html.kb-open .ambient-chrome-mask--bottom {
   opacity: 0;
   pointer-events: none;
   transition: opacity 150ms ease;
+}
+
+/* The 🤫 brand mark. Every surface that renders it — top bar, sidebar, intro
+   gate, onboarding — goes through this class so the glyph is chosen the same
+   way everywhere instead of per-component inline stacks (only the top bar had
+   one) or the ambient product font. Pinning it here also survives a component
+   that sets its own font-family on the mark's ancestor. Note the artwork is
+   still the platform's: Apple's shushing face on macOS/iOS, Segoe's on
+   Windows, Noto's elsewhere. Identical artwork on every OS would need a drawn
+   asset — Apple Color Emoji itself is not redistributable. */
+.hushh-brand-mark {
+  font-family: var(--font-app-emoji), emoji;
+  /* Emoji are presentational here; keep them from being read as text. */
+  font-variant-emoji: emoji;
 }
 
 .app-page-shell {
