@@ -270,11 +270,8 @@ describe("GeminiRuntimeSettingsCard setup choice", () => {
     clickManaged();
 
     await waitFor(() => expect(toastSuccessMock).toHaveBeenCalledTimes(1));
-    // The agent line rides in the toast DESCRIPTION now, so a long reason wraps
-    // instead of being clamped to an ellipsis.
-    expect(String(toastSuccessMock.mock.calls[0][1]?.description)).toContain(
-      "private agent is being built",
-    );
+    expect(screen.getByRole("status")).toHaveTextContent("private agent is being built");
+    expect(toastSuccessMock.mock.calls[0][1]?.description).toBeUndefined();
   });
 
   it("does not promise an agent when none was scheduled", async () => {

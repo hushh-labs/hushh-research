@@ -123,6 +123,7 @@ export function GeminiRuntimeSettingsCard({
   const [vertexLocation, setVertexLocation] = useState("global");
   const [isSaving, setIsSaving] = useState(false);
   const [isRemoving, setIsRemoving] = useState(false);
+  const [agentOutcome, setAgentOutcome] = useState("");
   const [credentialValidation, setCredentialValidation] =
     useState<CredentialValidationState>({ status: "idle" });
   const credentialRevisionRef = useRef(0);
@@ -132,6 +133,10 @@ export function GeminiRuntimeSettingsCard({
     !requiresExplicitSelection || initiallyConfigured,
   );
   const vaultReady = Boolean(userId && vaultKey && vaultOwnerToken);
+
+  useEffect(() => {
+    setAgentOutcome("");
+  }, [userId]);
 
   const invalidateCredentialValidation = useCallback(() => {
     credentialRevisionRef.current += 1;
@@ -242,6 +247,7 @@ export function GeminiRuntimeSettingsCard({
 
   const selectManaged = async () => {
     if (selectionPendingRef.current) return;
+    setAgentOutcome("");
     selectionPendingRef.current = true;
     selectionRevisionRef.current += 1;
     const previousMode = mode;
@@ -279,14 +285,12 @@ export function GeminiRuntimeSettingsCard({
           : selection.agentReason
             ? `Your private agent was not started: ${selection.agentReason}.`
             : "";
-      // One short headline; the agent's status goes in the description so a
-      // long reason wraps instead of being clamped to an ellipsis (founder-hit,
-      // 2026-09-02).
+      // Keep the full outcome on the screen: toast descriptions are clamped and
+      // disappear. This preserves the agent-start explanation without exceeding
+      // the shared two-line toast ceiling.
+      setAgentOutcome(agentLine);
       toast.success(
         ownCloudProject ? "Using your pod's AI." : "Using Hussh's AI.",
-        {
-          description: agentLine || undefined,
-        },
       );
     } catch (error) {
       setMode(previousMode);
@@ -625,6 +629,14 @@ export function GeminiRuntimeSettingsCard({
 
   return (
     <>
+      {agentOutcome ? (
+        <p
+          role="status"
+          className="text-sm text-muted-foreground whitespace-pre-wrap break-words"
+        >
+          {agentOutcome}
+        </p>
+      ) : null}
       <SettingsGroup
         title="Gemini"
         description="Available now"
