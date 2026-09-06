@@ -23,7 +23,7 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from db.db_client import get_db
 from hushh_mcp.runtime_settings import get_app_runtime_settings, get_core_security_settings
 
-GoogleService = Literal["gmail", "calendar", "drive", "contacts"]
+GoogleService = Literal["gmail", "calendar", "contacts"]
 
 _AUTHORIZE_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 _TOKEN_URL = "https://oauth2.googleapis.com/token"  # noqa: S105 - OAuth endpoint, not a credential
@@ -45,7 +45,6 @@ _SERVICE_SCOPES: dict[GoogleService, dict[str, tuple[str, ...]]] = {
             "https://www.googleapis.com/auth/calendar.freebusy",
         ),
     },
-    "drive": {"read": ("https://www.googleapis.com/auth/drive.file",)},
     "contacts": {"read": ("https://www.googleapis.com/auth/contacts.readonly",)},
 }
 

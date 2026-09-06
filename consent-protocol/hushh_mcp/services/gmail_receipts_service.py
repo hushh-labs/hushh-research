@@ -1454,7 +1454,11 @@ class GmailReceiptsService:
         claims = self._decode_id_token_claims(id_token)
         profile_history_id = _history_id_text(profile.get("historyId"))
 
-        existing = self._fetch_connection_row(user_id=user_id)
+        # The legacy SQLAlchemy client is synchronous. OAuth completion runs
+        # in Uvicorn's event loop, so every connector read/write here must be
+        # offloaded; a slow Cloud SQL query must never freeze OAuth, health
+        # checks, or unrelated Agent One turns.
+        existing = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
         if not refresh_token and existing:
             refresh_token = (
                 self._decrypt_token(
@@ -1498,8 +1502,11 @@ class GmailReceiptsService:
         bootstrap_window_start = bootstrap_window_end - timedelta(
             days=self._bootstrap_recent_days()
         )
+        send_enabled = _GMAIL_SEND_SCOPE in {
+            value for value in re.split(r"[\s,]+", scope_csv) if value
+        }
 
-        self.db.execute_raw(
+        await self._execute_raw_async(
             """
             INSERT INTO kai_gmail_connections (
                 user_id,
@@ -1515,6 +1522,7 @@ class GmailReceiptsService:
                 access_token_tag,
                 access_token_expires_at,
                 auto_sync_enabled,
+                send_enabled,
                 revoked,
                 history_id,
                 watch_status,
@@ -1544,6 +1552,7 @@ class GmailReceiptsService:
                 :access_token_tag,
                 :access_token_expires_at,
                 TRUE,
+                :send_enabled,
                 FALSE,
                 :history_id,
                 :watch_status,
@@ -1573,6 +1582,7 @@ class GmailReceiptsService:
                 access_token_tag = EXCLUDED.access_token_tag,
                 access_token_expires_at = EXCLUDED.access_token_expires_at,
                 auto_sync_enabled = TRUE,
+                send_enabled = EXCLUDED.send_enabled,
                 revoked = FALSE,
                 history_id = COALESCE(EXCLUDED.history_id, kai_gmail_connections.history_id),
                 watch_status = EXCLUDED.watch_status,
@@ -1606,6 +1616,7 @@ class GmailReceiptsService:
                 "access_token_iv": access_env["iv"],
                 "access_token_tag": access_env["tag"],
                 "access_token_expires_at": expires_at,
+                "send_enabled": send_enabled,
                 "history_id": initial_history_id,
                 "watch_status": watch_state.get("watch_status"),
                 "watch_expiration_at": watch_state.get("watch_expiration_at"),
@@ -1633,12 +1644,13 @@ class GmailReceiptsService:
             message = _clean_text(str(exc)) or (
                 "Gmail connected, but the first sync could not start. Try Sync now."
             )
-            self._update_connection_sync_status(
+            await asyncio.to_thread(
+                self._update_connection_sync_status,
                 user_id=user_id,
                 status="failed",
                 error_message=message,
             )
-            self.db.execute_raw(
+            await self._execute_raw_async(
                 """
                 UPDATE kai_gmail_connections
                 SET bootstrap_state = 'failed',
@@ -2392,6 +2404,16 @@ class GmailReceiptsService:
         messages: list[dict[str, Any]] = []
         for _message_id, result in zip(page_message_ids, results, strict=False):
             if isinstance(result, Exception):
+                # A History entry can outlive the message itself: Gmail may
+                # report ``messageAdded`` and the owner (or a retention rule)
+                # can delete the message before this bounded scan hydrates it.
+                # There is no unread Inbox content left to classify in that
+                # case, so retrying the same immutable 404 would permanently
+                # block every later message. Other provider failures remain
+                # retryable and keep the checkpoint in place.
+                if isinstance(result, GmailApiError) and result.status_code == 404:
+                    logger.info("gmail.personal_information_request.message_gone_before_scan")
+                    continue
                 # Do not advance the monitor checkpoint if even one source
                 # message could not be read. The caller retries the same
                 # bounded slice instead of permanently dropping that email.

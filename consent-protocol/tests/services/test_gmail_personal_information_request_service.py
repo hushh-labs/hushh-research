@@ -302,6 +302,62 @@ async def test_personal_monitor_history_page_does_not_skip_a_failed_message_fetc
 
 
 @pytest.mark.asyncio
+async def test_personal_monitor_history_page_skips_a_message_deleted_before_hydration(
+    monkeypatch,
+):
+    service = GmailReceiptsService()
+
+    async def ensure_access_token(*, user_id: str):
+        assert user_id == "owner"
+        return "access-token", {}
+
+    async def list_history(**_kwargs):
+        return {
+            "history": [
+                {
+                    "messagesAdded": [
+                        {"message": {"id": "deleted-message"}},
+                        {"message": {"id": "unread-message"}},
+                    ]
+                }
+            ],
+            "historyId": "history-high-water",
+        }
+
+    async def get_full(*, access_token: str, gmail_message_id: str):
+        if gmail_message_id == "deleted-message":
+            raise GmailApiError(
+                "message is gone",
+                status_code=404,
+                code="GMAIL_MESSAGE_NOT_FOUND",
+            )
+        return {
+            "id": gmail_message_id,
+            "threadId": "thread-unread-message",
+            "labelIds": ["INBOX", "UNREAD"],
+        }
+
+    monkeypatch.setattr(service, "_ensure_access_token", ensure_access_token)
+    monkeypatch.setattr(service, "_list_history", list_history)
+    monkeypatch.setattr(service, "_get_message_full", get_full)
+
+    (
+        messages,
+        next_page_token,
+        high_water,
+        next_message_offset,
+    ) = await service.list_personal_inbox_monitor_history_page(
+        user_id="owner",
+        start_history_id="history-at-opt-in",
+    )
+
+    assert [message["id"] for message in messages] == ["unread-message"]
+    assert next_page_token is None
+    assert high_water == "history-high-water"
+    assert next_message_offset is None
+
+
+@pytest.mark.asyncio
 async def test_gmail_send_requires_the_owner_local_send_toggle(monkeypatch):
     service = GmailReceiptsService()
     monkeypatch.setattr(service, "is_configured", lambda: True)
@@ -626,3 +682,151 @@ async def test_candidate_scopes_accept_only_exact_manifest_leaves(monkeypatch):
             "segment_ids": ["address"],
         }
     ]
+
+
+@pytest.mark.asyncio
+async def test_candidate_scopes_share_kyc_aliases_with_identity_profile(monkeypatch):
+    class ScopeGenerator:
+        async def get_available_scope_entries(self, user_id: str):
+            assert user_id == "owner"
+            return [
+                {
+                    "scope": "attr.identity.identity_profile.full_name",
+                    "domain": "identity",
+                    "path": "identity_profile.full_name",
+                    "path_type": "leaf",
+                    "segment_id": "identity_profile",
+                    "label": "Full name",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "consumer_visible": True,
+                }
+            ]
+
+    monkeypatch.setattr(monitor_module, "get_scope_generator", lambda: ScopeGenerator())
+    candidates = await PersonalGmailInformationRequestService()._candidate_scopes(
+        user_id="owner",
+        field_labels=("legal name",),
+        domains=(),
+    )
+
+    assert candidates[0]["canonical_field_ids"] == ["identity.identity_profile.full_name"]
+
+
+@pytest.mark.asyncio
+async def test_refresh_candidate_scopes_uses_current_manifest_metadata(monkeypatch):
+    class ScopeGenerator:
+        async def get_available_scope_entries(self, user_id: str):
+            assert user_id == "owner"
+            return [
+                {
+                    "scope": "attr.identity.full_name",
+                    "domain": "identity",
+                    "path": "full_name",
+                    "path_type": "leaf",
+                    "segment_id": "identity",
+                    "label": "Full name",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "consumer_visible": True,
+                },
+                {
+                    "scope": "attr.identity.age",
+                    "domain": "identity",
+                    "path": "age",
+                    "path_type": "leaf",
+                    "segment_id": "identity",
+                    "label": "Age",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "consumer_visible": True,
+                },
+                {
+                    "scope": "attr.education.institution",
+                    "domain": "education",
+                    "path": "institution",
+                    "path_type": "leaf",
+                    "segment_id": "education",
+                    "label": "Educational institution",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "consumer_visible": True,
+                },
+                {
+                    "scope": "attr.financial.account_number",
+                    "domain": "financial",
+                    "path": "account_number",
+                    "path_type": "leaf",
+                    "segment_id": "financial",
+                    "label": "Account number",
+                    "wildcard": False,
+                    "source_kind": "pkm_manifest_paths",
+                    "consumer_visible": True,
+                },
+            ]
+
+    writes: list[tuple[str, tuple[object, ...]]] = []
+
+    class Connection:
+        async def fetchrow(self, query: str, *args):
+            assert "SELECT requested_field_labels" in query
+            assert args == ("workflow-1", "owner")
+            return {
+                "requested_field_labels": ["name", "age", "education information"],
+                "candidate_scopes": [],
+                "status": "detected",
+            }
+
+        async def execute(self, query: str, *args):
+            writes.append((query, args))
+
+    class Acquire:
+        async def __aenter__(self):
+            return Connection()
+
+        async def __aexit__(self, *_args):
+            return False
+
+    class Pool:
+        def acquire(self):
+            return Acquire()
+
+    async def get_pool():
+        return Pool()
+
+    monkeypatch.setattr(monitor_module, "get_pool", get_pool)
+    monkeypatch.setattr(monitor_module, "get_scope_generator", lambda: ScopeGenerator())
+
+    refreshed = await PersonalGmailInformationRequestService().refresh_candidate_scopes(
+        user_id="owner",
+        workflow_id="workflow-1",
+    )
+
+    assert refreshed == {
+        "workflow_id": "workflow-1",
+        "candidate_scopes": [
+            {
+                "scope": "attr.identity.full_name",
+                "domain": "identity",
+                "label": "Full name",
+                "segment_ids": ["identity"],
+                "canonical_field_ids": ["identity.identity_profile.full_name"],
+            },
+            {
+                "scope": "attr.identity.age",
+                "domain": "identity",
+                "label": "Age",
+                "segment_ids": ["identity"],
+                "canonical_field_ids": ["identity.identity_profile.declared_age"],
+            },
+            {
+                "scope": "attr.education.institution",
+                "domain": "education",
+                "label": "Educational institution",
+                "segment_ids": ["education"],
+                "canonical_field_ids": ["identity.identity_profile.education.institution"],
+            },
+        ],
+    }
+    assert len(writes) == 1
+    assert "SET candidate_scopes" in writes[0][0]

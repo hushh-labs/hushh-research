@@ -186,6 +186,27 @@ async def test_send_requires_combined_gmail_scope(monkeypatch):
     assert exc_info.value.code == "GMAIL_SEND_PERMISSION_REQUIRED"
 
 
+@pytest.mark.asyncio
+async def test_send_ready_accepts_a_connected_account_with_the_granted_send_scope(monkeypatch):
+    service = GmailReceiptsService()
+    monkeypatch.setattr(service, "is_configured", lambda: True)
+    monkeypatch.setattr(
+        service,
+        "_fetch_connection_row",
+        lambda user_id: {
+            "status": "connected",
+            "revoked": False,
+            "scope_csv": (
+                "https://www.googleapis.com/auth/gmail.readonly "
+                "https://www.googleapis.com/auth/gmail.send"
+            ),
+            "send_enabled": True,
+        },
+    )
+
+    await service.assert_send_ready(user_id="user_123")
+
+
 def test_oauth_redirect_rejects_caller_selected_origin(monkeypatch):
     _configure_gmail_oauth(monkeypatch)
     service = GmailReceiptsService()
@@ -414,7 +435,10 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             result={
                 "access_token": "access-token",
                 "refresh_token": "refresh-token",
-                "scope": "gmail.readonly",
+                "scope": (
+                    "https://www.googleapis.com/auth/gmail.readonly "
+                    "https://www.googleapis.com/auth/gmail.send"
+                ),
                 "expires_in": 3600,
                 "id_token": "id-token",
             },
@@ -439,7 +463,11 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             "tag": f"{token}-tag",
         },
     )
-    monkeypatch.setattr(service, "_fetch_connection_row", lambda user_id: None)
+
+    def _fetch_connection_row(user_id: str):
+        return None
+
+    monkeypatch.setattr(service, "_fetch_connection_row", _fetch_connection_row)
 
     async def _queue_sync(**kwargs):
         raise RuntimeError("queue offline")
@@ -459,6 +487,14 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
             return SimpleNamespace(data=[])
 
     service._db = _CaptureDb()
+    original_to_thread = asyncio.to_thread
+    offloaded_call_names: list[str] = []
+
+    async def _track_to_thread(func, /, *args, **kwargs):
+        offloaded_call_names.append(getattr(func, "__name__", ""))
+        return await original_to_thread(func, *args, **kwargs)
+
+    monkeypatch.setattr(gmail_receipts_service_module.asyncio, "to_thread", _track_to_thread)
 
     with caplog.at_level("WARNING"):
         result = await service.complete_connect(
@@ -470,7 +506,12 @@ async def test_complete_connect_returns_status_even_when_initial_queue_sync_fail
 
     assert result == {"user_id": "user_123", "status": "connected"}
     assert any("gmail.connect.queue_failed" in record.message for record in caplog.records)
-    assert any("INSERT INTO kai_gmail_connections" in sql for sql, _ in service._db.calls)
+    connection_write = next(
+        params for sql, params in service._db.calls if "INSERT INTO kai_gmail_connections" in sql
+    )
+    assert connection_write["send_enabled"] is True
+    assert "_fetch_connection_row" in offloaded_call_names
+    assert "execute_raw" in offloaded_call_names
 
 
 class _FakeTransaction:

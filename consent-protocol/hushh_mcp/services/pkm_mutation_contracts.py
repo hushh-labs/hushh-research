@@ -35,9 +35,12 @@ class PkmConfirmationReceiptV2(BaseModel):
     displayed_domain: str = Field(..., min_length=1, max_length=64)
     displayed_scope: str = Field(..., min_length=1, max_length=128)
     sharing_impact_acknowledged: bool = False
-    authorization_mode: Literal["owner_confirmed", "owner_auto_save_policy"] = "owner_confirmed"
+    authorization_mode: Literal[
+        "owner_confirmed", "owner_auto_save_policy", "product_default_auto_save_policy"
+    ] = "owner_confirmed"
     auto_save_policy_version: Literal[1] | None = None
     auto_save_policy_enabled_at: datetime | None = None
+    product_default_effective_at: datetime | None = None
 
     @model_validator(mode="after")
     def validate_timestamp(self) -> PkmConfirmationReceiptV2:
@@ -57,9 +60,19 @@ class PkmConfirmationReceiptV2(BaseModel):
                 raise ValueError("auto_save_policy_timestamp_requires_timezone")
             if self.sharing_impact_acknowledged:
                 raise ValueError("auto_save_cannot_acknowledge_sharing")
+            if self.product_default_effective_at is not None:
+                raise ValueError("owner_auto_save_cannot_include_product_default")
+        elif self.authorization_mode == "product_default_auto_save_policy":
+            if self.auto_save_policy_version != 1 or self.product_default_effective_at is None:
+                raise ValueError("product_default_auto_save_receipt_incomplete")
+            if self.product_default_effective_at.tzinfo is None:
+                raise ValueError("product_default_auto_save_timestamp_requires_timezone")
+            if self.auto_save_policy_enabled_at is not None or self.sharing_impact_acknowledged:
+                raise ValueError("product_default_auto_save_receipt_invalid")
         elif (
             self.auto_save_policy_version is not None
             or self.auto_save_policy_enabled_at is not None
+            or self.product_default_effective_at is not None
         ):
             raise ValueError("owner_confirmation_cannot_include_auto_save_policy")
         return self
@@ -150,7 +163,10 @@ class PkmMutationPlanV2(BaseModel):
             raise ValueError(f"{self.operation}_requires_source_scope_handle")
         if self.operation in {"update", "move", "merge"} and not self.target_scope_handle:
             raise ValueError(f"{self.operation}_requires_target_scope_handle")
-        if self.confirmation_receipt.authorization_mode == "owner_auto_save_policy":
+        if self.confirmation_receipt.authorization_mode in {
+            "owner_auto_save_policy",
+            "product_default_auto_save_policy",
+        }:
             if self.operation == "delete":
                 raise ValueError("auto_save_delete_not_allowed")
             if self.sharing_impact.active_recipient_count > 0:

@@ -56,6 +56,11 @@ def test_calendar_manage_scope_keeps_availability_permission() -> None:
     assert "https://www.googleapis.com/auth/calendar.freebusy" in scopes
 
 
+def test_google_drive_is_not_an_authorizable_service() -> None:
+    with pytest.raises(GoogleConnectionError, match="Unsupported Google service permission"):
+        GoogleConnectionService.scopes("drive", "read")  # type: ignore[arg-type]
+
+
 def test_calendar_callback_derives_from_frontend_origin_without_reusing_gmail_path(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:

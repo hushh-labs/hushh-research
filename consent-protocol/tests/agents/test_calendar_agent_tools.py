@@ -127,6 +127,7 @@ def test_calendar_connection_requirement_becomes_a_connect_directive(monkeypatch
     result = asyncio.run(tools.calendar_summary(context))
 
     assert result["status"] == "connection_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["delegateAgentId"] == "agent_calendar"
     assert directive["payload"]["type"] == "calendar.connect"
@@ -148,6 +149,7 @@ def test_calendar_write_only_creates_a_confirmation_directive(monkeypatch) -> No
     )
 
     assert result["status"] == "confirmation_required"
+    assert result["directive"] == context.state["hussh:pending_directive:calendar"]
     directive = context.state["hussh:pending_directive:calendar"]
     assert directive["payload"]["proposalId"] == "gcal_example"
     assert directive["payload"]["type"] == "calendar.execute_proposal"

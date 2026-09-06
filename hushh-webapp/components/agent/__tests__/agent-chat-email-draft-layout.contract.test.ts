@@ -24,6 +24,10 @@ describe("Agent Chat email draft layout contract", () => {
     expect(source).toContain("bucketEmailDeliveryTimelineItems");
     expect(source).toContain("emailDraftAnchorMessageId");
     expect(source).toContain("setEmailDraftAnchorMessageId(assistantMessageId);");
+    expect(source).toContain("message.id === emailDraftAnchorMessageId");
+    expect(source).toContain("renderEmailDraftCard()");
+    expect(source).toContain("sourceBoundReply=");
+    expect(source).not.toContain("GmailKycReplyCard");
     expect(source).toContain("itemsAfterMessage.get(message.id)");
     expect(source).toContain(
       "openGmailEmailDraftFromDirective(toolEvent, assistantMessageId);",

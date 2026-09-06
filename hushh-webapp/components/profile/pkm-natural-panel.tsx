@@ -1206,10 +1206,10 @@ export function PkmNaturalPanel({
           <SettingsGroup separatorInset testId="memory-auto-save-group">
             <SettingsRow
               testId="memory-auto-save-row"
-              title="Let One remember useful preferences"
+              title="Let One save useful details"
               description={
                 autoSavePolicyError ||
-                "One can save simple preferences automatically. Sensitive details will still ask first."
+                "One can automatically save clear details you type. Secrets, sensitive details, corrections, and details with active recipient access still ask first."
               }
               tone={autoSavePolicyError ? "destructive" : "default"}
               stackTrailingOnMobile

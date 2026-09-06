@@ -121,6 +121,45 @@ describe("EmailDraftCard", () => {
     expect(onSent).toHaveBeenCalledTimes(1);
   });
 
+  it("reuses the reviewed composer for a source-bound Gmail reply", async () => {
+    const send = vi.fn().mockResolvedValue({ outcomeUnknown: false });
+    render(
+      <EmailDraftCard
+        initialInstruction="Reply to this Gmail KYC request"
+        initialDraft={{
+          to: "",
+          cc: "",
+          bcc: "",
+          subject: "",
+          body: "Hello,\n\nHere are the requested details.",
+        }}
+        getAuth={getAuth}
+        onRequireVault={vi.fn()}
+        onDismiss={vi.fn()}
+        onSent={vi.fn()}
+        sourceBoundReply={{ send }}
+      />,
+    );
+
+    expect(screen.getByTestId("one-email-draft-source-bound-notice")).toHaveTextContent(
+      "original Gmail thread",
+    );
+    expect(screen.queryByTestId("one-email-draft-to")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId("one-email-draft-send"));
+
+    await waitFor(() => expect(send).toHaveBeenCalledTimes(1));
+    expect(send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        firebaseIdToken: "firebase-token",
+        vaultOwnerToken: "vault-owner-token",
+        draft: expect.objectContaining({ body: expect.stringContaining("Hello") }),
+      }),
+    );
+    expect(EmailDeliveryService.prepare).not.toHaveBeenCalled();
+    expect(EmailDeliveryService.send).not.toHaveBeenCalled();
+  });
+
   it("shows clear draft progress instead of a disabled empty composer", async () => {
     vi.mocked(EmailDeliveryService.draft).mockImplementation(
       () => new Promise<never>(() => {}),
