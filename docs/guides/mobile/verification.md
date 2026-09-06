@@ -86,3 +86,5 @@ Manual simulator/device smoke is still required after build/sync checks when a c
 - push notifications
 - location
 - passkeys
+
+Native audit runners stay headless by default. Set `NATIVE_AUDIT_VISIBLE=true` only when a desktop simulator window is explicitly requested. The iOS continuity runner uses `-- --visible` for the same opt-in. Headless launch does not itself prove any product interaction.
