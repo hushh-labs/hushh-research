@@ -96,6 +96,27 @@ def _enabled(monkeypatch):
     monkeypatch.setattr(pod_relay, "_identity_token", lambda _audience: "hub-id-token")
 
 
+@pytest.fixture(autouse=True)
+def _standing_door_issuers(monkeypatch):
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
+
+    calls = []
+
+    async def location(_self, user_id):
+        calls.append((user_id, "cap.location.live.view"))
+        return await _door_grants(user_id)
+
+    async def scoped(_self, user_id, *, scope, **_kwargs):
+        calls.append((user_id, scope))
+        return {"token": f"standing-{scope.value}", "scope": scope, "reused": True}
+
+    monkeypatch.setattr(
+        PersonalAgentGrantService, "issue_or_reuse_standing_location_view", location
+    )
+    monkeypatch.setattr(PersonalAgentGrantService, "issue_or_reuse_standing_scope", scoped)
+    return calls
+
+
 async def _turn(**kwargs):
     defaults = {
         "hushh_id": "hushh-abc",
@@ -351,10 +372,14 @@ async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: True)
     pod = _Pod()
     await _turn(session=pod, door_grants=_door_grants)
-    assert pod.calls[0]["json"]["dataDoorGrants"] == {"location": "standing-location-view"}
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {
+        "location": "standing-location-view",
+        "email": "standing-cap.email.inbox.view",
+        "calendar": "standing-cap.calendar.events.view",
+    }
 
 
-async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch):
+async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch, _standing_door_issuers):
     monkeypatch.setattr(pod_relay, "pod_data_door_enabled", lambda: False)
     pod = _Pod()
     # A door issuer is provided but must never be consulted while the flag is off.
@@ -367,6 +392,7 @@ async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch):
     await _turn(session=pod, door_grants=_tripwire)
     assert pod.calls[0]["json"]["dataDoorGrants"] == {}
     assert consulted["called"] is False
+    assert _standing_door_issuers == []
 
 
 async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
@@ -380,7 +406,10 @@ async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
     # is dropped, so location falls back to today's runtime_unavailable.
     result = await _turn(session=pod, door_grants=_broken)
     assert result["text"] == "hello"
-    assert pod.calls[0]["json"]["dataDoorGrants"] == {}
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {
+        "email": "standing-cap.email.inbox.view",
+        "calendar": "standing-cap.calendar.events.view",
+    }
 
 
 async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch):
