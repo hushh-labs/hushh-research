@@ -2367,7 +2367,7 @@ export function LocationImmersiveMap({
    */
   const incomingShareLabel =
     markers.length === 0
-      ? "No one is sharing your location"
+      ? "No one is sharing their location"
       : markers.length === 1
         ? "1 person sharing with you"
         : `${markers.length} people sharing with you`;
@@ -2403,10 +2403,10 @@ export function LocationImmersiveMap({
   const privateShareHint = !privateShareCountKnown
     ? "Checking your active shares…"
     : privateShareCount > 0
-      ? // The lifetime, because it is the thing a person actually wonders
-        // about a share they started days ago -- and because it is now true
-        // without an asterisk: Ghost Mode no longer ends it early.
-        "Runs until you stop it"
+      ? // Nothing. The row expands to the names, which is what a person opens
+        // it for; a line about the lifetime of a share they can see listed
+        // was one more sentence to read past.
+        null
       : "Start a share to appear on their map";
 
   /** Anything other than an explicit "visible" is treated as hidden, so an
@@ -3696,9 +3696,11 @@ export function LocationImmersiveMap({
                           <span className="block truncate text-sm font-medium">
                             {privateShareLabel}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {privateShareHint}
-                          </span>
+                          {privateShareHint ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {privateShareHint}
+                            </span>
+                          ) : null}
                         </span>
                         {privateShareCount > 0 ? (
                           <ChevronDown

@@ -760,7 +760,7 @@ describe("LocationImmersiveMap demo experience", () => {
     expect(screen.getByText("No one sharing yet")).toBeInTheDocument();
     // The row below the header is where the audience is named in full.
     expect(
-      screen.getByText("No one is sharing your location"),
+      screen.getByText("No one is sharing their location"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("0 people sharing with you"),
