@@ -20,6 +20,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.middleware import require_firebase_auth, require_vault_owner_token
 from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.services.account_service import (
+    PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+    PersonalAgentDeprovisioningRequiredError,
+)
 from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.compute_backend import resolve_compute_backend
 from hushh_mcp.services.personal_agent_provisioning_service import (
@@ -531,7 +535,16 @@ async def deprovision_personal_agent(
     """Tear down the caller's own agent. Requires the owner's VAULT_OWNER token."""
     _require_enabled()
     user_id = token_data["user_id"]
-    result = await _service().deprovision(user_id=user_id)
+    try:
+        result = await _service().deprovision(user_id=user_id)
+    except PersonalAgentDeprovisioningRequiredError as exc:
+        raise HTTPException(
+            status_code=409,
+            detail={
+                "code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE,
+                "message": "Private-agent erasure is incomplete. Recovery resources have been preserved.",
+            },
+        ) from exc
     return {"success": True, **result}
 
 

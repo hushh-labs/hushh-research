@@ -391,3 +391,18 @@ def test_space_name_is_flag_gated(monkeypatch):
     client, _ = _build_space(monkeypatch, row={"hushh_id": "ha1_x"}, enabled=False)
     r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
     assert r.status_code in (403, 404, 503)
+
+
+def test_deprovision_refusal_is_409_and_never_success(monkeypatch):
+    client, calls = _build(monkeypatch)
+
+    class RefusingService:
+        async def deprovision(self, **kwargs):
+            raise pa.PersonalAgentDeprovisioningRequiredError("private upstream detail")
+
+    monkeypatch.setattr(pa, "_service", lambda: RefusingService())
+    response = client.post("/api/one/personal-agent/deprovision")
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == pa.PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE
+    assert "private upstream detail" not in response.text
+    assert response.json().get("success") is not True

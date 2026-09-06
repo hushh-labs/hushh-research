@@ -133,7 +133,7 @@ async def test_pre_fix_tombstone_without_bootstrap_derives_the_conventional_name
 
 
 @pytest.mark.asyncio
-async def test_deprovision_tombstone_always_names_the_cloud_for_user_gcp(monkeypatch):
+async def test_deprovision_preserves_cloud_authority_until_erasure(monkeypatch):
     from hushh_mcp.services import personal_agent_provisioning_service as mod
 
     row = {
@@ -175,11 +175,16 @@ async def test_deprovision_tombstone_always_names_the_cloud_for_user_gcp(monkeyp
     )
     reg = _Reg()
     svc = mod.PersonalAgentProvisioningService(registry=reg, grant=_Grant(), backend=_Backend())
-    result = await svc.deprovision(user_id="uid-1")
-    assert result["unreclaimed"] is False
-    assert reg.deleted == ["uid-1"]
-    meta = reg.tombstones[-1]["metadata"]
-    assert meta["unreclaimed"] is False
-    assert meta["user_cloud_project"] == _PROJECT
-    assert meta["user_cloud_bootstrap_sa"] == _BOOTSTRAP
-    assert meta["deployment_target"] == "user_gcp"
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
+
+    def refuse(self, uid):
+        raise PersonalAgentDeprovisioningRequiredError("retained resources")
+
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await svc.deprovision(user_id="uid-1")
+    assert reg.deleted == []
+    assert reg.tombstones == []

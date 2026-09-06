@@ -109,7 +109,7 @@ explicitly turned on.
 | Prompt-sync read adapter + service | `consent-protocol/hushh_mcp/services/personal_agent_prompt_repo.py`, `personal_agent_prompt_service.py` |
 | Prompt-sync read endpoint (`GET /api/one/agent-prompt`) | `consent-protocol/api/routes/one/agent_prompt.py` |
 | Recycled-phone HusshID generation rotation + tombstone index | `personal_agent_provisioning_service.py`, migration `902_personal_agent_tombstone_hushh_id_index.sql` |
-| Live wiring — phone-verify kickoff + account-deletion teardown | `hushh_mcp/services/actor_identity_service.py` (`schedule_provision_personal_agent`), `api/routes/account.py` (`_deprovision_personal_agent`) |
+| Provisioning kickoff and deletion containment | `actor_identity_service.py` owns the gated kickoff; `account_service.py` owns retained-resource refusal shared with standalone deprovision. |
 | Tests | `consent-protocol/tests/test_personal_agent_*`, `test_agent_prompt_*` (registered in `consent-protocol/scripts/test-ci.manifest.txt`) |
 
 ## Beyond Phase 0 — compute backends, the slim pod, audit/storage, WebAuthn
@@ -145,17 +145,16 @@ in [`ROADMAP.md`](./ROADMAP.md).
   validate the pod's public key, record the row as `provisioning` **before** minting
   the standing `pkm.read` (visible ledger), then flip to `provisioned` — so a
   registry failure can never orphan a live grant. Idempotent per user.
-- **Teardown** (on account deletion → `_deprovision_personal_agent`): revoke the
-  standing read (skipped on the account-deletion path, where the cascade already
-  wiped `consent_audit` — writing a REVOKED event there would re-create a row for a
-  deleted user), write a retained tombstone, delete the registry row. Best-effort:
-  never blocks account deletion. Standalone deprovision (keep account) **does**
-  revoke, so the read authority dies immediately rather than at its 24h expiry.
+- **Teardown containment (verified 2026-09-06).** Account deletion and standalone
+  deprovision refuse retained pod/cloud state until owner-held erasure is proved.
+  Empty standalone requests are observations with no revocation or cloud/registry
+  mutation. Durable erase-before-compute teardown remains unfinished. Historical
+  best-effort helper orchestration was disconnected and removed; it must not be
+  restored as an erasure path.
 
-The provision and deprovision paths are also reachable through the owner-authorized
-route (`POST /api/one/personal-agent/provision` and `/deprovision`), which requires
-the owner's VAULT_OWNER token and a verified phone, and returns 404 while the flag
-is off. Everything above is a no-op while `PERSONAL_AGENT_ENABLED` is off.
+The owner-authorized provision and deprovision routes require a VAULT_OWNER token
+and return 404 while `PERSONAL_AGENT_ENABLED` is off. Account deletion's retained
+resource guard remains active even when provisioning is disabled.
 
 ## Prompt-sync (hot prompt changes without redeploy)
 
