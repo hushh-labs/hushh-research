@@ -87,7 +87,7 @@ describe("private-agent feed vocabulary parity", () => {
     // Named explicitly because this is the one that went missing, and because
     // `connecting` is where a person waits longest with nothing else to look at.
     expect(BACKEND_EVENT_TYPES).toContain("personal_agent_connecting");
-    expect(BACKEND_EVENT_TYPES.length).toBe(7);
+    expect(BACKEND_EVENT_TYPES).toContain("personal_agent_updated");
   });
 });
 

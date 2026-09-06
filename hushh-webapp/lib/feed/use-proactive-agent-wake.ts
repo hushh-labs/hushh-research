@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 
-import { shouldWakePod } from "@/lib/feed/agent-presence-policy";
+import { isAgentNotAnswering, shouldWakePod } from "@/lib/feed/agent-presence-policy";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
 import { ApiService } from "@/lib/services/api-service";
 
@@ -186,6 +186,7 @@ export function useProactiveAgentWake(input: {
   useEffect(() => {
     if (!enabled) return;
     if (input.state !== "active") return;
+    if (isAgentNotAnswering(input.health)) return;
     if (typeof document === "undefined") return;
 
     let timer: ReturnType<typeof setInterval> | null = null;
@@ -220,7 +221,7 @@ export function useProactiveAgentWake(input: {
       document.removeEventListener("visibilitychange", onVisibility);
       stop();
     };
-  }, [enabled, input.state]);
+  }, [enabled, input.state, input.health]);
 
   return { wakeNow, isWaking, etaMs, livePresence };
 }
