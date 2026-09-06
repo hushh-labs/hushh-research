@@ -33,6 +33,30 @@ class PersonalAgentDeprovisioningRequiredError(RuntimeError):
 # Live-catalog UID-bearing state that is not represented by the release migration
 # chain yet. Keep this list next to the erasure implementation so a contract test
 # can compare the governed catalog with the executable delete predicates.
+#: User-keyed tables account deletion deliberately KEEPS, and why. Anything that is
+#: neither deleted nor listed here is a leak, which is what the coverage guard asserts.
+#: A retained table must carry the fact that something existed, never its content.
+ACCOUNT_ERASURE_RETAINED_TABLES: dict[str, str] = {
+    # The HusshID is derived from the phone number, so a recycled number would
+    # otherwise re-derive a prior owner's agent address. This tombstone is what makes
+    # the next owner rotate to a fresh generation. Measured 2026-09-04: a surviving
+    # registry row with no tombstone did exactly that and silently cost a real person
+    # their entire signup, with the API still reporting the agent as scheduled.
+    # Settlement receipts are accountability records, not user content: two existing
+    # deletion tests assert they survive both a reset and a full erase. They record
+    # that a transaction happened, which is exactly what must remain provable after
+    # the person is gone.
+    "fabric_receipts": (
+        "settlement accountability record; proves a transaction occurred and carries "
+        "no personal content, so it must outlive the account"
+    ),
+    "personal_agent_deletion_tombstones": (
+        "erasure marker; holds no user content and is what stops a recycled phone "
+        "number from re-deriving a deleted owner's HusshID"
+    ),
+}
+
+
 TRANSACTIONAL_ACCOUNT_ERASURE_TABLES = frozenset(
     {
         "byoc_setup_jobs",
@@ -62,6 +86,77 @@ class AccountService:
         self._db = None
         self._table_exists_cache: dict[str, bool] = {}
         self._delete_by_user_queries = {
+            "pod_migration_jobs": text("DELETE FROM pod_migration_jobs WHERE user_id = :user_id"),
+            "webauthn_credentials": text(
+                "DELETE FROM webauthn_credentials WHERE user_id = :user_id"
+            ),
+            "webauthn_challenges": text("DELETE FROM webauthn_challenges WHERE user_id = :user_id"),
+            "world_model_embeddings": text(
+                "DELETE FROM world_model_embeddings WHERE user_id = :user_id"
+            ),
+            "connected_system_intent_approval_challenges": text(
+                "DELETE FROM connected_system_intent_approval_challenges WHERE user_id = :user_id"
+            ),
+            "connection_voice_preferences": text(
+                "DELETE FROM connection_voice_preferences WHERE user_id = :user_id"
+            ),
+            "gmail_owner_send_actions": text(
+                "DELETE FROM gmail_owner_send_actions WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_request_preferences": text(
+                "DELETE FROM gmail_personal_information_request_preferences WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_request_scan_states": text(
+                "DELETE FROM gmail_personal_information_request_scan_states WHERE user_id = :user_id"
+            ),
+            "gmail_personal_information_requests": text(
+                "DELETE FROM gmail_personal_information_requests WHERE user_id = :user_id"
+            ),
+            "google_calendar_action_proposals": text(
+                "DELETE FROM google_calendar_action_proposals WHERE user_id = :user_id"
+            ),
+            "google_email_send_actions": text(
+                "DELETE FROM google_email_send_actions WHERE user_id = :user_id"
+            ),
+            "google_oauth_attempts": text(
+                "DELETE FROM google_oauth_attempts WHERE user_id = :user_id"
+            ),
+            "google_provider_connections": text(
+                "DELETE FROM google_provider_connections WHERE user_id = :user_id"
+            ),
+            "google_service_grants": text(
+                "DELETE FROM google_service_grants WHERE user_id = :user_id"
+            ),
+            "kai_funding_plaid_link_sessions": text(
+                "DELETE FROM kai_funding_plaid_link_sessions WHERE user_id = :user_id"
+            ),
+            "one_adk_sessions": text("DELETE FROM one_adk_sessions WHERE user_id = :user_id"),
+            "one_agent_message_feedback": text(
+                "DELETE FROM one_agent_message_feedback WHERE user_id = :user_id"
+            ),
+            "one_email_kyc_preferences": text(
+                "DELETE FROM one_email_kyc_preferences WHERE user_id = :user_id"
+            ),
+            "one_kyc_client_connectors": text(
+                "DELETE FROM one_kyc_client_connectors WHERE user_id = :user_id"
+            ),
+            "one_location_nearby_check_in_preferences": text(
+                "DELETE FROM one_location_nearby_check_in_preferences WHERE user_id = :user_id"
+            ),
+            "one_location_sos_voice_preferences": text(
+                "DELETE FROM one_location_sos_voice_preferences WHERE user_id = :user_id"
+            ),
+            "one_model_preferences": text(
+                "DELETE FROM one_model_preferences WHERE user_id = :user_id"
+            ),
+            "pkm_embeddings": text("DELETE FROM pkm_embeddings WHERE user_id = :user_id"),
+            "ria_business_contacts": text(
+                "DELETE FROM ria_business_contacts WHERE user_id = :user_id"
+            ),
+            "ria_claim_dossiers": text("DELETE FROM ria_claim_dossiers WHERE user_id = :user_id"),
+            "ria_license_verifications": text(
+                "DELETE FROM ria_license_verifications WHERE user_id = :user_id"
+            ),
             "contact_sync_lookup_budgets": text(
                 "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id"
             ),
@@ -1363,6 +1458,33 @@ class AccountService:
             conn,
             table_names=[
                 "one_action_directive_ledger",
+                "pod_migration_jobs",
+                "webauthn_credentials",
+                "webauthn_challenges",
+                "world_model_embeddings",
+                "connected_system_intent_approval_challenges",
+                "connection_voice_preferences",
+                "gmail_owner_send_actions",
+                "gmail_personal_information_request_preferences",
+                "gmail_personal_information_request_scan_states",
+                "gmail_personal_information_requests",
+                "google_calendar_action_proposals",
+                "google_email_send_actions",
+                "google_oauth_attempts",
+                "google_provider_connections",
+                "google_service_grants",
+                "kai_funding_plaid_link_sessions",
+                "one_adk_sessions",
+                "one_agent_message_feedback",
+                "one_email_kyc_preferences",
+                "one_kyc_client_connectors",
+                "one_location_nearby_check_in_preferences",
+                "one_location_sos_voice_preferences",
+                "one_model_preferences",
+                "pkm_embeddings",
+                "ria_business_contacts",
+                "ria_claim_dossiers",
+                "ria_license_verifications",
                 "pod_lifecycle_events",
                 "agent_chat_messages",
                 "agent_chat_conversations",
