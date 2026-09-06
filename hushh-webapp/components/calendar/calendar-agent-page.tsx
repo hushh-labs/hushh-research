@@ -37,6 +37,8 @@ import {
   SurfaceCardTitle,
 } from "@/components/app-ui/surfaces";
 import { useAuth } from "@/hooks/use-auth";
+import { isNative } from "@/lib/capacitor/platform";
+import { connectNativeGoogleCalendar } from "@/lib/google/native-google-oauth";
 import { Button } from "@/lib/morphy-ux/button";
 import {
   clearCalendarSetupOAuthReturn,
@@ -81,6 +83,12 @@ export function CalendarAgentPage({
   const [disconnectConfirmOpen, setDisconnectConfirmOpen] = useState(false);
   const expectedPopupAttempt = useRef<string | null>(null);
   const popupRef = useRef<Window | null>(null);
+
+  useEffect(() => {
+    if (isNative() && new URLSearchParams(window.location.search).get("calendar") === "restart") {
+      morphyToast.error("The app restarted during authorization. Connect Calendar again to finish securely.");
+    }
+  }, []);
 
   const refresh = useCallback(async () => {
     if (!user || connectionPending) return;
@@ -130,6 +138,17 @@ export function CalendarAgentPage({
   const connect = async () => {
     if (!user) return;
     setBusy(true);
+    if (isNative()) {
+      try {
+        const start = await GoogleCalendarService.startConnect({ idToken: await user.getIdToken(), userId: user.uid, accessLevel: "manage" });
+        await connectNativeGoogleCalendar({ ownerUid: user.uid, authorizeUrl: start.authorize_url, redirectUri: start.redirect_uri, expiresAt: start.expires_at });
+        await refresh();
+        morphyToast.success("Google Calendar connected.");
+      } catch (error) {
+        morphyToast.error(error instanceof Error ? error.message : "Unable to connect Calendar.");
+      } finally { setBusy(false); }
+      return;
+    }
     const attempt = createGoogleOAuthPopupAttempt("calendar");
     const popup = openGoogleOAuthPopup(attempt);
     if (!popup) { setBusy(false); morphyToast.error("Allow popups to connect Calendar without locking your vault."); return; }

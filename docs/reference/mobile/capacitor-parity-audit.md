@@ -59,10 +59,13 @@ Current policy keeps the full visible app surface in scope, including:
 - `/developers`
 - public/auth content routes
 
-Calendar is intentionally web-only until the app has a native browser/deep-link
-OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
-explicit exclusions rather than presenting a native Google authorization flow
-that cannot complete.
+Calendar uses the system browser and the existing owner-bound backend OAuth
+exchange. Its workspace, setup page, and canonical Google return route are
+required native checks. The return adapter waits for native authentication,
+deduplicates callbacks, and requires an explicit restart after process death
+loses the initiating Calendar attempt. BYOC retains its separate completion path.
+Unit tests and app-link declarations do not prove installed association or live
+Google success; those remain required release evidence.
 
 Current inventory policy:
 

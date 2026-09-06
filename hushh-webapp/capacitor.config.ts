@@ -39,6 +39,9 @@ const NORMALIZED_BACKEND_URL = (() => {
 })();
 
 const config: CapacitorConfig = {
+  // Bridge payloads include owner tokens and OAuth parameters. Keep metadata
+  // diagnostics in the owned native test/telemetry contracts, not payload logs.
+  loggingBehavior: "none",
   appId: "com.hushh.app",
   appName: "Hussh One",
   // Next writes static exports into `distDir` when it is overridden. Native

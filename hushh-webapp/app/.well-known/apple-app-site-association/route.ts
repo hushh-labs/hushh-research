@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { ROUTES } from "@/lib/navigation/routes";
 
 export const dynamic = "force-dynamic";
 
@@ -36,7 +37,7 @@ export async function GET() {
     {
       applinks: {
         apps: [],
-        details: [],
+        details: [{ appID: appId, paths: [ROUTES.PROFILE_GOOGLE_OAUTH_RETURN, `${ROUTES.PROFILE_GOOGLE_OAUTH_RETURN}/`] }],
       },
       webcredentials: {
         apps: [appId],

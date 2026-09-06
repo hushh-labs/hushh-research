@@ -63,6 +63,7 @@ import {
 } from "@/lib/navigation/routes";
 import { useAuth } from "@/hooks/use-auth";
 import { LocationBus } from "@/lib/one-location/location-bus";
+import { NativeGoogleOAuthReturn } from "@/components/calendar/native-google-oauth-return";
 import { PersonaProvider } from "@/lib/persona/persona-context";
 import {
   resolveSignedInShellContentOffset,
@@ -514,6 +515,7 @@ function AppShellFrame({ children }: ProvidersProps) {
                 fallback/resolved remounts from launching the same sync twice. */}
               <PostAuthOnboardingSyncBridge />
               <LocationBusAccountBridge />
+              <NativeGoogleOAuthReturn />
               <Suspense
                 fallback={
                   <>
