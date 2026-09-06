@@ -65,7 +65,13 @@ class OneSystemRequestInvocationWeb extends WebPlugin {
 
 export const NativeOneSystemRequestInvocation =
   registerPlugin<NativeOneSystemRequestInvocationPlugin>(
-    "HushhRequestInvocation",
+    // Must match the Swift plugin's `jsName`. The request methods
+    // (getPendingRequestInvocation, claimRequestInvocation, ...) are declared
+    // on HushhVoiceInvocationPlugin, whose jsName is "HushhVoiceInvocation".
+    // No native plugin registers "HushhRequestInvocation", so that name made
+    // every request-bridge call reject on device with the Siri path silently
+    // dead.
+    "HushhVoiceInvocation",
     { web: () => Promise.resolve(new OneSystemRequestInvocationWeb()) },
   );
 

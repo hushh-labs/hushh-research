@@ -57,7 +57,6 @@ from hushh_mcp.one_adk.action_tools import (
     continue_app_goal,
     discover_person_information,
     get_location_circle_members,
-    journey_for_specialist_request,
     list_app_actions,
     list_available_models,
     list_location_shared_with_me,
@@ -1303,49 +1302,12 @@ async def ask_consent_agent(
     and nothing here reroutes ``consent`` to ``connections`` or the reverse.
     Connections still requires task-specific ingress authority and stays
     unavailable until that authority is supplied.
-
-    What the request words DO decide is whether a specialist is the right lane
-    at all.  A named, concrete request that an authored journey already
-    performs is refused here with a redirect to that journey, because sending
-    it onward produces a consent boundary the person cannot act on for
-    something the app can simply do.  This narrows what specialists receive; it
-    never widens it, and it cannot pick a different specialist.
     """
     agent_id = {"consent": "agent_nav", "connections": "agent_connections"}.get(target)
     if agent_id is None:
         return {
             "status": "invalid_target",
             "message": "Choose either the Consent Center or its Connections specialist.",
-        }
-    # A named, concrete request goes to the journey that does it, not to a
-    # specialist that can only talk about it.
-    #
-    # This is a hard block rather than guidance because the guidance did not
-    # hold: One asked this specialist to "connect me with Ankit", the specialist
-    # reported a consent boundary, and One relayed it -- so a request the app
-    # can satisfy end to end came back as "I don't have the right permissions",
-    # pointing at the consent screen. Refusing here is the same refuse-with-
-    # redirect shape `run_app_action` already uses in the opposite direction.
-    journey = journey_for_specialist_request(agent_id, request)
-    if journey is not None:
-        logger.info(
-            "one_adk_specialist_decision agent_id=%s status=use_journey action=%s score=%s",
-            agent_id,
-            journey["action_id"],
-            journey["score"],
-        )
-        return {
-            "status": "use_journey",
-            "reason": "authored_journey_available",
-            "action_id": journey["action_id"],
-            "goal_id": journey["goal_id"],
-            "message": (
-                f"Do not ask a specialist for this. {journey['label']} is an "
-                f"authored journey: call start_app_goal with "
-                f"{journey['goal_id']}, which opens the right screen and runs "
-                "it. Say what you are doing as it happens; do not ask "
-                "permission to navigate."
-            ),
         }
     result = await _specialist_turn(agent_id, request, tool_context)
     # Every refusal branch in `_specialist_turn` returned silently, so a session

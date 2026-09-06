@@ -17,6 +17,7 @@ export type RequestRuntimeState =
   | { status: "claimed"; invocation: PendingOneSystemRequestInvocation }
   | { status: "processing"; invocation: PendingOneSystemRequestInvocation }
   | { status: "completed"; invocation: PendingOneSystemRequestInvocation; outcome: OneSystemRequestInvocationOutcome; summary: string }
+  | { status: "cancelled" }
   | { status: "failed"; error: string };
 
 type Listener = (state: RequestRuntimeState) => void;
@@ -80,7 +81,8 @@ export class OneSystemRequestRuntime {
     }
 
     // Listen for native availability events
-    const unsub = OneSystemRequestInvocationBridge.addAvailabilityListener(
+    // addAvailabilityListener returns Promise<PluginListenerHandle>
+    const handle = OneSystemRequestInvocationBridge.addAvailabilityListener(
       (invocation) => {
         this.handleNativeAvailability(invocation);
       },
@@ -89,7 +91,9 @@ export class OneSystemRequestRuntime {
     // Check for an existing pending request on start
     this.pollPending();
 
-    return unsub;
+    return () => {
+      handle.then((h) => h.remove()).catch(() => {});
+    };
   }
 
   /**

@@ -639,39 +639,17 @@ class TestSpecialistTurn:
         )
 
     @pytest.mark.asyncio
-    async def test_a_named_request_never_reaches_the_specialist_at_all(self):
-        """The redirect is a hard block, not advice the model may decline.
+    async def test_request_words_never_choose_the_specialist(self):
+        """Words never choose which specialist gets the request.
 
-        Guidance was tried first and did not hold: One was told specialists
-        validate consent, obeyed, and turned a doable request into a
-        permissions refusal. `_specialist_turn` must not even be awaited.
-        """
-        context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
-        with patch(
-            "hushh_mcp.one_adk.agent_tree._specialist_turn",
-            new=AsyncMock(return_value={"status": "authority_required"}),
-        ) as specialist_turn:
-            result = await ask_consent_agent(
-                "can you connect me with ankit",
-                context,
-                target="connections",
-            )
-
-        specialist_turn.assert_not_awaited()
-        assert result["status"] == "use_journey"
-        assert result["action_id"] == "connect.send_request"
-        assert result["goal_id"] == "goal.connect.send_request"
-        # Tells One what to call instead. A refusal with no next step is one it
-        # answers by apologising about permissions, which is the whole bug.
-        assert "start_app_goal" in result["message"]
-
-    @pytest.mark.asyncio
-    async def test_the_redirect_cannot_reroute_between_specialists(self):
-        """Words decide the LANE, never which specialist gets the request.
-
+        One's typed `target` selects the specialist; the sentence never does.
         `consent` must keep reaching Nav even when the words look like
         connections work, or this becomes exactly the word-sniffing subagent
         selection the typed-target design exists to prevent.
+
+        This outlived the journey redirect it was written alongside: with the
+        redirect gone, this is the repo's only guard that a request is routed
+        by One's selection rather than by its wording.
         """
         context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
         with patch(
@@ -684,8 +662,8 @@ class TestSpecialistTurn:
                 target="consent",
             )
 
-        # agent_nav declares no authored action surfaces, so it is never
-        # redirected and never swapped for agent_connections.
+        # The typed target chose agent_nav. Nothing may swap it for
+        # agent_connections on the strength of the words "connect me with".
         assert specialist_turn.await_args.args[0] == "agent_nav"
 
     @pytest.mark.asyncio
@@ -5045,65 +5023,47 @@ class TestNamedShareChain:
                 assert action_id not in nearby, action_id
 
 
-def test_a_named_request_goes_to_its_journey_not_to_a_specialist():
-    """The refusal that had no business happening.
-
-    One was told "you never execute sensitive actions directly: specialists
-    validate consent", written before journeys existed. Obeying it, One sent
-    "connect me with Ankit" to the connections specialist, the specialist hit a
-    consent boundary, and One relayed it honestly -- so a request the app can
-    satisfy end to end came back as "I don't have the right permissions",
-    pointing at the consent screen.
-
-    Nothing was broken underneath: the action outranks the specialist 182 to 80
-    on the spoken phrase, and is journey-reachable from 55 of 56 screens. Only
-    the decision was wrong, which is why the instruction alone was not trusted
-    to fix it.
-    """
-    from hushh_mcp.one_adk.action_tools import journey_for_specialist_request
-
-    for phrase in (
-        "send a connection request to ankit",
-        "connect me with ankit",
-        "can you connect me with ankit",
-    ):
-        journey = journey_for_specialist_request("agent_connections", phrase)
-        assert journey is not None, phrase
-        assert journey["action_id"] == "connect.send_request", phrase
-        assert journey["goal_id"] == "goal.connect.send_request", phrase
-
-    # Scoped to the specialist's own surface, not the whole gateway. Scored
-    # across everything, "connect me with ankit" ties three actions at 77 and
-    # `setup.connect_gmail` takes it on an alphabetical tiebreak -- a wrong
-    # answer that looks like a confident one.
-    assert (
-        journey_for_specialist_request("agent_connections", "remove my connection with rashid")
-        or {}
-    ).get("action_id") == "connect.remove_connection"
-
-
 def test_an_open_question_still_reaches_the_specialist():
-    """The redirect must not swallow what specialists are actually for.
+    """A question must still reach the specialist rather than be navigated away.
 
-    Thresholds measured against the live gateway rather than picked: inside the
-    connections surface, concrete requests score 77-182 while open-ended ones
-    top out at 32. Anything here scoring above the cut would mean a person can
-    no longer ask a question without being navigated somewhere.
+    History this guards: One was told "you never execute sensitive actions
+    directly: specialists validate consent", written before journeys existed.
+    Obeying it, One sent "connect me with Ankit" to the connections specialist,
+    the specialist hit a consent boundary, and One relayed it honestly -- so a
+    request the app can satisfy end to end came back as "I don't have the right
+    permissions", pointing at the consent screen.
+
+    The fix at the time was a hard block in `ask_consent_agent` that scored the
+    request words and redirected named requests to an authored journey. That
+    block is gone: One now chooses the target semantically and this function
+    only validates the choice, so nothing here inspects wording at all.
+
+    Note honestly what this test is now worth: with no interception left, it
+    passes trivially. It is a regression guard against re-introducing
+    word-driven interception, not proof that a scoring threshold holds. The
+    retrieval-side coverage -- that "connect me with ankit" actually surfaces
+    connect.send_request -- lives in tests/services/test_action_retrieval.py.
     """
-    from hushh_mcp.one_adk.action_tools import journey_for_specialist_request
+    import asyncio
 
+    context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
     for phrase in (
         "who do i trust",
         "what are my consents",
         "how does trust work here",
         "what can you do",
         "explain trusted connections",
+        # Previously intercepted and redirected before the specialist saw it.
+        "connect me with ankit",
     ):
-        assert journey_for_specialist_request("agent_connections", phrase) is None, phrase
-
-    # A specialist with no authored surfaces is never redirected at all.
-    assert journey_for_specialist_request("agent_email", "send a connection request") is None
-    assert journey_for_specialist_request("", "connect me with ankit") is None
+        with patch(
+            "hushh_mcp.one_adk.agent_tree._specialist_turn",
+            new=AsyncMock(return_value={"status": "ok"}),
+        ) as specialist_turn:
+            asyncio.run(ask_consent_agent(phrase, context, target="connections"))
+        specialist_turn.assert_awaited_once()
+        assert specialist_turn.await_args.args[0] == "agent_connections", phrase
+        assert specialist_turn.await_args.args[1] == phrase, phrase
 
 
 def test_sending_a_connection_request_is_reachable_from_every_screen():

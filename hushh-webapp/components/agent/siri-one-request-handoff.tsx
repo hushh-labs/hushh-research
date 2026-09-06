@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback } from "react";
-import { useSession } from "next-auth/react";
+import { useAuth } from "@/hooks/use-auth";
 import { oneSystemRequestRuntime, type RequestRuntimeState } from "@/lib/agent/one-system-request-runtime";
 
 /**
@@ -14,9 +14,9 @@ import { oneSystemRequestRuntime, type RequestRuntimeState } from "@/lib/agent/o
  * The runtime owns the claim lifecycle; this component only orchestrates.
  */
 export function SiriOneRequestHandoff() {
-  const { data: session, status } = useSession();
-  const ownerId = session?.user?.id ?? null;
-  const isReady = status === "authenticated" && Boolean(ownerId);
+  const { user, isAuthenticated } = useAuth();
+  const ownerId = user?.uid ?? null;
+  const isReady = isAuthenticated && Boolean(ownerId);
   const runtimeStartedRef = useRef(false);
   const lastHandoffRef = useRef<string | null>(null);
 
