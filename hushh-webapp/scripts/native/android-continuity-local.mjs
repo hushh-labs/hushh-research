@@ -4,7 +4,7 @@
 import { execFileSync, spawn } from "node:child_process";
 
 const serial = process.env.ANDROID_CONTINUITY_SERIAL || "";
-const bundleId = process.env.ANDROID_CONTINUITY_BUNDLE_ID || "com.hushh.app";
+const bundleId = process.env.ANDROID_CONTINUITY_BUNDLE_ID || "com.hussh.app";
 const adb = (args, options = {}) =>
   execFileSync("adb", [...(serial ? ["-s", serial] : []), ...args], {
     encoding: "utf8",
