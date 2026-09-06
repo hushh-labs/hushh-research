@@ -29,7 +29,6 @@ import logging
 import os
 import tempfile
 import unicodedata
-from functools import lru_cache
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -353,9 +352,14 @@ def _unicode_lexical_score(entry: dict[str, Any], query: str) -> int:
     q_tokens = _unicode_tokens(q)
     if not q_tokens:
         return 0
-    # Content tokens for the overlap signal; fall back to the raw tokens when a
-    # query is entirely stopwords so a short query still scores.
-    content_tokens = [t for t in q_tokens if t not in _LEXICAL_STOPWORDS] or q_tokens
+    # A query with no content words ("show me", "what can i do") carries no
+    # discriminating signal. Scoring it on stopwords ranks whichever unrelated
+    # action happens to contain "show" or "me" ABOVE the actions actually on the
+    # person's screen. Return 0 so the caller falls back to its availability-
+    # ordered context list, which is the answer to "what can I do here?".
+    content_tokens = [t for t in q_tokens if t not in _LEXICAL_STOPWORDS]
+    if not content_tokens:
+        return 0
     score = 0
     label = str(entry.get("label") or "").lower()
     meaning = str(entry.get("meaning") or "").lower()
@@ -410,10 +414,14 @@ def _unicode_lexical_score(entry: dict[str, Any], query: str) -> int:
         if token in meaning_tokens:
             score += 2
 
-    # Reward proportional coverage of the action's own label, so "share
-    # location" outranks an action that merely shares one common word.
-    if label_tokens and matched_label:
-        score += int(20 * matched_label / len(label_tokens))
+    # Deliberately NOT normalized by label length. Dividing by len(label_tokens)
+    # is an inverse-length bonus: "Refresh location" (2 tokens) scored +10 for
+    # matching one word while "Pick someone for the share" (5 tokens) scored +4,
+    # so the action that resolves the recipient in "share my location with mom"
+    # was pushed out of the window by an unrelated refresh action. The per-token
+    # award above already rewards broader coverage.
+    if matched_label > 1:
+        score += 4 * matched_label
 
     return score
 
@@ -462,17 +470,33 @@ def _reciprocal_rank_fusion(
 # ── Embedding model ──────────────────────────────────────────────────────────
 
 
-@lru_cache(maxsize=1)
+# Only a SUCCESSFUL load is memoized. A transient failure (momentary OOM, a
+# half-written cache dir) must not latch retrieval off for the worker's entire
+# life, which is what caching the None return did.
+_model_singleton: Any = None
+_model_dependency_missing = False
+
+
 def _get_model() -> Any:
     """Load (and cache) the Sentence Transformers model.
 
-    Called once per worker.  Falls back to a degraded state on any error so
-    the rest of the system continues to work.
+    Loaded once per worker on success. A missing dependency is permanent for
+    this process and is remembered cheaply; any other failure stays retryable,
+    and ``invalidate_cache()`` clears both.
     """
     global _retrieval_available, _retrieval_error
+    global _model_singleton, _model_dependency_missing
+
+    if _model_singleton is not None:
+        return _model_singleton
+    if _model_dependency_missing:
+        return None
+
     try:
         from sentence_transformers import SentenceTransformer
     except ImportError:
+        # Permanent for this process: the package cannot appear at runtime.
+        _model_dependency_missing = True
         _retrieval_available = False
         _retrieval_error = "sentence_transformers not installed"
         logger.warning("action_retrieval_degraded reason=%s", _retrieval_error)
@@ -490,8 +514,12 @@ def _get_model() -> Any:
             _MODEL_NAME,
             _MODEL_REVISION,
         )
+        _model_singleton = model
+        _retrieval_available = True
+        _retrieval_error = None
         return model
     except Exception:
+        # Retryable: do NOT memoize. The next call attempts the load again.
         _retrieval_available = False
         _retrieval_error = "model load failed"
         logger.exception("action_retrieval_degraded reason=model_load_failed")
@@ -889,6 +917,13 @@ def _tool_name(entry: dict[str, Any]) -> str | None:
 def invalidate_cache() -> None:
     """Force rebuild on next ``search_actions`` call.
 
-    Used in tests and when the gateway is known to have changed.
+    Used in tests and when the gateway is known to have changed. Also clears a
+    latched model failure so a transient error can be retried.
     """
+    global _model_singleton, _model_dependency_missing
+    global _retrieval_available, _retrieval_error
     _vector_cache.invalidate()
+    _model_singleton = None
+    _model_dependency_missing = False
+    _retrieval_available = True
+    _retrieval_error = None

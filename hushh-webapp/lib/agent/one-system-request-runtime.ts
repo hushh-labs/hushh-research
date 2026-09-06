@@ -4,10 +4,7 @@ import type {
   PendingOneSystemRequestInvocation,
   OneSystemRequestInvocationOutcome,
 } from "@/lib/capacitor/one-system-request-invocation";
-import {
-  OneSystemRequestInvocationBridge,
-  NativeOneSystemRequestInvocation,
-} from "@/lib/capacitor/one-system-request-invocation";
+import { OneSystemRequestInvocationBridge } from "@/lib/capacitor/one-system-request-invocation";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -24,7 +21,8 @@ type Listener = (state: RequestRuntimeState) => void;
 
 // ── Private text lifecycle ───────────────────────────────────────────────
 
-const PRIVATE_TEXT_MAX_UTF8_BYTES = 4 * 1024; // 4 KiB
+// The 4 KiB private-text cap is enforced in the native coordinator, which is
+// the only layer that handles the text; claimRequest returns {claimed} alone.
 const REQUEST_LIFETIME_MS = 5 * 60 * 1000; // 5 minutes
 const PROTOCOL_VERSION = "one.request.v1";
 
@@ -108,6 +106,22 @@ export class OneSystemRequestRuntime {
       return false;
     }
 
+    // Enforce the lifetime bound rather than only declaring it. Discovery is
+    // metadata-only by design, so expiry is checked here from the native
+    // timestamps; the 4 KiB text cap is enforced natively, at the only layer
+    // that ever sees the private text.
+    const expiresAt = Number(pending.expiresAt);
+    const createdAt = Number(pending.createdAt);
+    const now = Date.now();
+    const stale =
+      (Number.isFinite(expiresAt) && now > expiresAt) ||
+      (Number.isFinite(createdAt) && now - createdAt > REQUEST_LIFETIME_MS);
+    if (stale) {
+      await OneSystemRequestInvocationBridge.cancelRequest();
+      this.transition({ status: "failed", error: "request_expired" });
+      return false;
+    }
+
     return this.claim(pending.id);
   }
 
@@ -121,6 +135,7 @@ export class OneSystemRequestRuntime {
     }
 
     this.cancelled = true;
+    console.debug("[one-request] cancelling", { reason });
     await OneSystemRequestInvocationBridge.cancelRequest();
     this.transition({ status: "cancelled" });
   }

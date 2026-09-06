@@ -181,12 +181,14 @@ def test_an_explicit_connection_request_surfaces_its_action():
 @pytest.mark.xfail(
     reason=(
         "Known limitation of whole-gateway lexical ranking, documented by the "
-        "code this replaced: scored across the whole catalog, 'connect me with "
-        "ankit' is won by setup.connect_gmail -- 'a wrong answer that looks "
-        "like a confident one'. The deleted ask_consent_agent override "
-        "compensated by scoping to one specialist's surface. Semantic "
-        "retrieval is the intended replacement and is not installed here, so "
-        "this asserts the real current gap rather than passing vacuously."
+        "code this sits beside: scored across the whole catalog, 'connect me "
+        "with ankit' is won by setup.connect_gmail -- 'a wrong answer that "
+        "looks like a confident one'. In production this phrase is handled "
+        "before discovery, by the journey redirect in ask_consent_agent, which "
+        "is deliberately still in place. This xfail is the gate on REMOVING "
+        "that redirect: it must pass on retrieval's own merits, which needs "
+        "the embedding model packaged. Until then, removing the redirect "
+        "reintroduces the original permissions-refusal incident."
     ),
     strict=True,
 )
@@ -217,3 +219,70 @@ def test_a_paraphrase_with_no_shared_words_still_retrieves():
     gateway = load_action_gateway()
     results = ar.search_actions("let my wife see where I am", gateway)
     assert any(r.action_id.startswith("location.") for r in results)
+
+
+# ── Result-window integrity ──────────────────────────────────────────────────
+
+
+def test_the_reachability_filter_does_not_shrink_the_result_window():
+    """Filtering after truncation silently starved One of capabilities.
+
+    ``search_actions`` truncates to its limit, and reachability is only known
+    afterwards, in ``list_app_actions``. Requesting exactly the window size
+    meant a screen where most hits are off-screen returned two or three
+    actions instead of ten -- with no error and no log line.
+    """
+    import asyncio
+    from types import SimpleNamespace
+    from unittest.mock import patch
+
+    from hushh_mcp.one_adk import action_tools as at
+    from hushh_mcp.services.action_gateway import list_action_gateway_actions
+
+    declared = ["location.share_selected", "location.open_ask"]
+    wired = [
+        entry
+        for entry in list_action_gateway_actions()
+        if (entry.get("execution_target") or {}).get("status") == "wired"
+    ]
+    reachable, unreachable = [], []
+    for entry in wired:
+        action_id = str(entry.get("action_id"))
+        availability, _ = at._reachability(entry, action_id, set(declared))
+        target = unreachable if availability == "unreachable_from_here" else reachable
+        target.append(action_id)
+
+    if len(unreachable) < 8 or len(reachable) < 12:
+        pytest.skip("catalog does not have enough of both kinds to exercise this")
+
+    # Unreachable hits first, so a truncate-then-filter order starves the window.
+    order = unreachable[:8] + [a for a in reachable if a not in declared][:22]
+    hits = [
+        ar.RetrievedAction(
+            action_id=action_id,
+            score=1.0,
+            source="semantic",
+            meaning="m",
+            semantic_boundaries=None,
+            required_inputs={},
+            policy="allow_direct",
+            availability="on_screen",
+            navigation=None,
+            goal=None,
+        )
+        for action_id in order
+    ]
+
+    context = SimpleNamespace(
+        state={
+            at._STATE_VOICE_CONTEXT: {
+                "screen": "one_location",
+                "available_action_ids": declared,
+            }
+        }
+    )
+    with patch.object(at, "search_actions", return_value=hits) as retrieval:
+        result = asyncio.run(at.list_app_actions("share my location", context))
+
+    assert retrieval.call_args.kwargs["limit"] > at._MAX_LIST_RESULTS
+    assert len(result["results"]) == at._MAX_LIST_RESULTS

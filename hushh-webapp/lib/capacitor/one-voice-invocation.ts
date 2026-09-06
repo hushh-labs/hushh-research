@@ -62,6 +62,22 @@ export interface NativeOneVoiceInvocationPlugin {
     eventName: "systemActionInvocationAvailable",
     listener: (invocation: PendingOneSystemActionInvocation) => void,
   ): Promise<PluginListenerHandle>;
+  // Siri free-text request capture. These live on the SAME native plugin
+  // (HushhVoiceInvocationPlugin, jsName "HushhVoiceInvocation"), so they must be
+  // declared on the one registration -- Capacitor refuses a second
+  // registerPlugin for the same name and hands back the first proxy, which
+  // would leave these methods undefined on web.
+  getPendingRequestInvocation(): Promise<Record<string, unknown>>;
+  claimRequestInvocation(options: { id: string }): Promise<{ claimed: boolean }>;
+  completeRequestInvocation(options: Record<string, unknown>): Promise<void>;
+  reportRequestInvocationProgress(
+    options: Record<string, unknown>,
+  ): Promise<{ reported: boolean }>;
+  cancelRequestInvocation(): Promise<void>;
+  addListener(
+    eventName: "systemRequestInvocationAvailable",
+    listener: (invocation: unknown) => void,
+  ): Promise<PluginListenerHandle>;
 }
 
 class OneVoiceInvocationWeb extends WebPlugin {
@@ -94,6 +110,22 @@ class OneVoiceInvocationWeb extends WebPlugin {
   }
 
   async clearActionState(): Promise<void> {}
+
+  async getPendingRequestInvocation(): Promise<Record<string, never>> {
+    return {};
+  }
+
+  async claimRequestInvocation(): Promise<{ claimed: boolean }> {
+    return { claimed: false };
+  }
+
+  async completeRequestInvocation(): Promise<void> {}
+
+  async reportRequestInvocationProgress(): Promise<{ reported: boolean }> {
+    return { reported: false };
+  }
+
+  async cancelRequestInvocation(): Promise<void> {}
 }
 
 export const NativeOneVoiceInvocation =

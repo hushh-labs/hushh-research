@@ -2,10 +2,9 @@
 
 import {
   Capacitor,
-  WebPlugin,
-  registerPlugin,
   type PluginListenerHandle,
 } from "@capacitor/core";
+import { NativeOneVoiceInvocation } from "@/lib/capacitor/one-voice-invocation";
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -47,33 +46,18 @@ export interface NativeOneSystemRequestInvocationPlugin {
 
 // ── Web fallback ─────────────────────────────────────────────────────────
 
-class OneSystemRequestInvocationWeb extends WebPlugin {
-  async getPendingRequestInvocation(): Promise<Record<string, never>> {
-    return {};
-  }
-  async claimRequestInvocation(): Promise<{ claimed: boolean }> {
-    return { claimed: false };
-  }
-  async completeRequestInvocation(): Promise<void> {}
-  async reportRequestInvocationProgress(): Promise<{ reported: boolean }> {
-    return { reported: false };
-  }
-  async cancelRequestInvocation(): Promise<void> {}
-}
+// Web/Android fallbacks for these methods live on the shared
+// HushhVoiceInvocation registration in one-voice-invocation.ts.
 
 // ── Registered plugin ────────────────────────────────────────────────────
 
+// Deliberately NOT a second registerPlugin call. The request methods live on the
+// same native plugin as the voice/action methods (jsName "HushhVoiceInvocation"),
+// and Capacitor refuses a duplicate registration: it warns and returns the FIRST
+// proxy, so a second call here would silently inherit the voice web fallback and
+// leave every request method undefined in a browser or test build.
 export const NativeOneSystemRequestInvocation =
-  registerPlugin<NativeOneSystemRequestInvocationPlugin>(
-    // Must match the Swift plugin's `jsName`. The request methods
-    // (getPendingRequestInvocation, claimRequestInvocation, ...) are declared
-    // on HushhVoiceInvocationPlugin, whose jsName is "HushhVoiceInvocation".
-    // No native plugin registers "HushhRequestInvocation", so that name made
-    // every request-bridge call reject on device with the Siri path silently
-    // dead.
-    "HushhVoiceInvocation",
-    { web: () => Promise.resolve(new OneSystemRequestInvocationWeb()) },
-  );
+  NativeOneVoiceInvocation as unknown as NativeOneSystemRequestInvocationPlugin;
 
 // ── Runtime guards ───────────────────────────────────────────────────────
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef } from "react";
 import { useAuth } from "@/hooks/use-auth";
 import { oneSystemRequestRuntime, type RequestRuntimeState } from "@/lib/agent/one-system-request-runtime";
 
