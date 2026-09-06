@@ -37,7 +37,7 @@ const emulatorBinary =
   process.env.ANDROID_EMULATOR ||
   (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
 const bundleId = "com.hussh.app";
-const activityName = "com.hushh.app/.MainActivity";
+const activityName = `${bundleId}/.MainActivity`;
 const apkPath =
   process.env.ANDROID_APK_PATH ||
   path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
