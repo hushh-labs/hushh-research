@@ -291,20 +291,29 @@ jobs:
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
+          # Refuse a listener inherited from another job/instance.
+          python3 - <<'PYPORT'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 6543))
+          PYPORT
+
           cloud-sql-proxy \
             --address 127.0.0.1 \
             --port 6543 \
             ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
             "${{ env.DEV_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-dev.log 2>&1 &
-          PROXY_PID=$!
+          export PROXY_PID=$!
           trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
           python3 - <<'PY'
+          import os
           import socket
           import time
 
           deadline = time.time() + 20
           while time.time() < deadline:
+              os.kill(int(os.environ["PROXY_PID"]), 0)
               with socket.socket() as sock:
                   sock.settimeout(0.5)
                   if sock.connect_ex(("127.0.0.1", 6543)) == 0:
@@ -313,6 +322,8 @@ jobs:
           raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
           PY
 
+          kill -0 "${PROXY_PID}"
+          export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
           export DB_NAME=postgres
@@ -554,20 +565,29 @@ jobs:
           echo "::add-mask::${DB_USER}"
           echo "::add-mask::${DB_PASSWORD}"
 
+          # Refuse a listener inherited from another job/instance.
+          python3 - <<'PYPORT'
+          import socket
+          with socket.socket() as sock:
+              sock.bind(("127.0.0.1", 6543))
+          PYPORT
+
           cloud-sql-proxy \
             --address 127.0.0.1 \
             --port 6543 \
             ${GOOGLE_GHA_CREDS_PATH:+--credentials-file="${GOOGLE_GHA_CREDS_PATH}"} \
             "${{ env.DEV_CLOUDSQL_INSTANCE }}" >/tmp/cloud-sql-proxy-dev-postdeploy.log 2>&1 &
-          PROXY_PID=$!
+          export PROXY_PID=$!
           trap 'kill "${PROXY_PID}" >/dev/null 2>&1 || true' EXIT
 
           python3 - <<'PY'
+          import os
           import socket
           import time
 
           deadline = time.time() + 20
           while time.time() < deadline:
+              os.kill(int(os.environ["PROXY_PID"]), 0)
               with socket.socket() as sock:
                   sock.settimeout(0.5)
                   if sock.connect_ex(("127.0.0.1", 6543)) == 0:
@@ -576,6 +596,8 @@ jobs:
           raise SystemExit("Cloud SQL proxy did not bind 127.0.0.1:6543 in time")
           PY
 
+          kill -0 "${PROXY_PID}"
+          export DB_UNIX_SOCKET=""
           export DB_HOST=127.0.0.1
           export DB_PORT=6543
           export DB_NAME=postgres
