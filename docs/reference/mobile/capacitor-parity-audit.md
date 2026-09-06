@@ -46,6 +46,41 @@ cd hushh-webapp && npm run verify:capacitor:cold:audit
 
 The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device. iOS stays headless by default; append `-- --visible` only when a desktop window is requested.
 
+### Build profile and reviewer transport
+
+Select `APP_RUNTIME_PROFILE=dev` for dev audit builds. The native runners and
+build wrapper use `scripts/env/runtime_profile_lib.sh` for profile aliases,
+source filenames and runtime semantics. Dev uses its own resources while
+retaining the `uat` runtime environment. Explicit process values take precedence
+over the selected profile; a saved iOS overlay cannot fill another profile's
+missing identity. Missing required identity fails before building or resetting
+an app. Canonical optional public keys are explicitly empty when absent, so
+Next.js and Capacitor cannot fill them from an unrelated active profile.
+Unselected native release commands retain their saved overlay behavior.
+
+Reviewer passphrases and owner identifiers must never be launch arguments,
+intent extras, URLs or files. iOS simulator launches use the supported
+`SIMCTL_CHILD_` environment transport; XCTest uses `launchEnvironment`. Native
+consumption requires a debug build and explicit test mode. Android uses one
+bounded credential frame over a filesystem socket inside the app's private
+cache directory. The receiver checks the caller UID before reading and removes
+the socket before scheduling the existing bootstrap. `adb shell -T run-as`
+carries the frame through stdin; `exec-out` is unsuitable for this bidirectional
+exchange. The socket filename contains only a random launch identifier and
+stores no credential bytes. Timeout, cancellation and activity-generation
+guards prevent a stale receiver from starting another activity's bootstrap.
+
+Synthetic transport checks are separate from authenticated journey evidence:
+`NativeSupportTests`, `NativeAuditCredentialsTest`,
+`NativeAuditCredentialReceiverTest`, and the native script tests cover their
+respective boundaries. The receiver's host-transport test requires an explicit
+`nativeAuditHostRunId` instrumentation argument and a matching synthetic stdin
+frame from `deliverAndroidAuditCredentials`; its default skip is not a passed
+host transport check. Record instrumentation result contents, not only adb's
+exit code. After a process-killed rehearsal, remove only that run's empty socket
+artifact and verify cleanup. Never persist real credential payloads or raw
+subprocess exception objects in audit receipts.
+
 ## Route Classification Policy
 
 Every visible page in the canonical app route contract must be classified in the parity docs as one of:

@@ -50,6 +50,8 @@ object NativeTestModePolicy {
 class MainActivity : BridgeActivity() {
     private val nativeTestHandler = Handler(Looper.getMainLooper())
     private var nativeTestPollRunnable: Runnable? = null
+    private var nativeAuditCredentialReceiver: NativeAuditCredentialReceiver? = null
+    private var nativeAuditGeneration = 0
     private var sessionPrivacyOverlay: FrameLayout? = null
     private var sessionPrivacyShielded = false
     private var sessionPrivacyGeneration = 0
@@ -108,7 +110,43 @@ class MainActivity : BridgeActivity() {
             (applicationInfo.flags and ApplicationInfo.FLAG_DEBUGGABLE) != 0
         val config = NativeTestConfiguration.from(intent.extras, isDebuggableBuild)
         if (config.enabled) {
-            installNativeTestBridge(config)
+            if (intent.hasExtra("HUSHH_NATIVE_TEST_VAULT_PASSPHRASE") ||
+                intent.hasExtra("HUSHH_NATIVE_TEST_EXPECTED_USER_ID")) {
+                writeNativeTestStatus("ready=0;error=audit_credentials_unavailable")
+                return
+            }
+            val runId = intent.getStringExtra("HUSHH_NATIVE_TEST_CREDENTIAL_RUN_ID").orEmpty()
+            if (runId.isNotEmpty()) {
+                val generation = ++nativeAuditGeneration
+                try {
+                    nativeAuditCredentialReceiver = NativeAuditCredentialReceiver(
+                        this, config.enabled, runId,
+                        received = { credentials ->
+                            nativeTestHandler.post {
+                                if (!isDestroyed && nativeAuditGeneration == generation) {
+                                    installNativeTestBridge(config.copy(
+                                        vaultPassphrase = credentials.passphrase,
+                                        expectedUserId = credentials.userId,
+                                    ))
+                                }
+                            }
+                        },
+                        refused = {
+                            nativeTestHandler.post {
+                                if (!isDestroyed && nativeAuditGeneration == generation) {
+                                    writeNativeTestStatus("ready=0;error=audit_credentials_unavailable")
+                                }
+                            }
+                        },
+                    )
+                } catch (_: Exception) {
+                    writeNativeTestStatus("ready=0;error=audit_credentials_unavailable")
+                }
+            } else if (config.autoReviewerLogin) {
+                writeNativeTestStatus("ready=0;error=audit_credentials_unavailable")
+            } else {
+                installNativeTestBridge(config)
+            }
         }
     }
 
@@ -155,6 +193,9 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onDestroy() {
+        nativeAuditGeneration += 1
+        nativeAuditCredentialReceiver?.close()
+        nativeAuditCredentialReceiver = null
         sessionPrivacyActivityResumed = false
         restoreSessionContentAccessibility()
         nativeTestPollRunnable?.let { nativeTestHandler.removeCallbacks(it) }
@@ -983,8 +1024,8 @@ class MainActivity : BridgeActivity() {
                     expectedMarker = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_MARKER").orEmpty(),
                     expectedRoute = expectedRoute,
                     autoReviewerLogin = bundle?.getBoolean("HUSHH_NATIVE_TEST_AUTO_REVIEWER_LOGIN", false) ?: false,
-                    vaultPassphrase = bundle?.getString("HUSHH_NATIVE_TEST_VAULT_PASSPHRASE").orEmpty(),
-                    expectedUserId = bundle?.getString("HUSHH_NATIVE_TEST_EXPECTED_USER_ID").orEmpty(),
+                    vaultPassphrase = "",
+                    expectedUserId = "",
                     runUiFlows = bundle?.getBoolean("HUSHH_NATIVE_TEST_RUN_UI_FLOWS", false) ?: false,
                     uiFlowRunId = NativeTestModePolicy.uiFlowRunId(
                         bundle?.getString("HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID")
