@@ -21,6 +21,80 @@ function feedItem(
 
 describe("notification-backed Feed projection renderers", () => {
   it.each([
+    ["location_share_created", "recipient", {}],
+    ["location_share_created", "recipient", { duration_mode: "until_stopped" }],
+    ["location_share_created", "recipient", { share_kind: "sos" }],
+    ["location_access_approved", "requester", {}],
+    ["location_access_approved", "requester", { is_extension: true }],
+    ["location_share_shortened", "recipient", { reason: "owner_shorten" }],
+    ["location_share_duration_changed", "recipient", { direction: "extended" }],
+    [
+      "location_share_duration_changed",
+      "recipient",
+      { direction: "shortened" },
+    ],
+    [
+      "location_share_duration_changed",
+      "recipient",
+      { direction: "until_stopped" },
+    ],
+  ])(
+    "lands incoming %s/%s on Shared with me",
+    (eventType, audience, metadata) => {
+      // Current created-share Feed rows have no grant ID. Older history and
+      // duration/approval rows carrying IDs must all use the same list landing,
+      // without auto-opening a map or leaving stale deep-link intent on Back.
+      for (const ids of [
+        {},
+        { grant_id: "grant-1", request_id: "request-1" },
+      ]) {
+        const presented = presentFeedItem(
+          feedItem(eventType, {
+            ...metadata,
+            ...ids,
+            feed_audience: audience,
+            counterpart_label: "Ankit",
+          }),
+        );
+        expect(presented.href).toBe("/one/location?section=shared");
+      }
+    },
+  );
+
+  it.each(["owner", undefined])(
+    "preserves outgoing and legacy %s destinations",
+    (audience) => {
+      const metadata = { feed_audience: audience, grant_id: "grant-1" };
+      for (const event of [
+        "location_share_created",
+        "location_access_approved",
+      ]) {
+        expect(presentFeedItem(feedItem(event, metadata)).href).toBe(
+          "/one/location",
+        );
+      }
+      for (const event of [
+        "location_share_shortened",
+        "location_share_duration_changed",
+      ]) {
+        expect(presentFeedItem(feedItem(event, metadata)).href).toBe(
+          "/one/location?grantId=grant-1&section=shared",
+        );
+      }
+    },
+  );
+
+  it.each([
+    "location_share_revoked",
+    "location_share_expired",
+    "location_access_denied",
+  ])("preserves the terminal %s destination", (eventType) => {
+    expect(
+      presentFeedItem(feedItem(eventType, { feed_audience: "recipient" })).href,
+    ).toBe("/one/location");
+  });
+
+  it.each([
     {
       eventType: "location_share_shortened",
       metadata: {

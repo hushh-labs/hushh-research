@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
+import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -4512,6 +4513,143 @@ describe("OneLocationAgentPage", () => {
       }
     });
   });
+
+  it.each(["active", "revoked", "expired"])(
+    "lands an incoming Feed share on Shared with me with current status=%s",
+    async (status) => {
+      const active = status === "active";
+      const grant = {
+        id: "grant_feed",
+        ownerUserId: "user_b",
+        recipientUserId: "user_a",
+        ownerDisplayName: "Trusted B",
+        recipientKeyId: "key_a",
+        status,
+        consentScope: "cap.location.live.view",
+        capabilityScopes: ["cap.location.live.view"],
+        durationHours: 1,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      };
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      mockViewEnvelope.mockResolvedValue({
+        grant: {},
+        envelope: null,
+        status: "waiting",
+      });
+      mockGetState.mockResolvedValue({
+        ...locationState(),
+        ownerGrants: [],
+        receivedGrants:
+          status === "expired"
+            ? [grant]
+            : [
+                grant,
+                {
+                  ...grant,
+                  id: "grant_other_sender",
+                  ownerUserId: "user_d",
+                  ownerDisplayName: "Investor D",
+                  status: "active",
+                },
+              ],
+      });
+      const href = presentFeedItem({
+        id: "feed-1",
+        source_domain: "location",
+        event_type: "location_share_created",
+        actor_label: "Trusted B",
+        metadata: { feed_audience: "recipient", duration_hours: 1 },
+        read: true,
+        created_at: "2026-09-01T00:00:00.000Z",
+      }).href!;
+      mockUseSearchParams.mockReturnValue(
+        new URL(href, "https://app.test").searchParams,
+      );
+      const view = render(<OneLocationAgentPage />);
+      await waitFor(() =>
+        expect(mockRouterReplace).toHaveBeenCalledWith(
+          "/one/location?action=shared-with-me",
+          { scroll: false },
+        ),
+      );
+
+      // Apply the real normalization with a fresh query object, as Next does.
+      // This proves the intent settles and can be left, not just that replace ran.
+      mockUseSearchParams.mockReturnValue(
+        new URLSearchParams("action=shared-with-me"),
+      );
+      mockRouterReplace.mockClear();
+      view.rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Shared with me" }),
+      ).toBeTruthy();
+      if (status !== "expired") {
+        expect(
+          await screen.findByRole("button", {
+            name: "View shared location from Investor D",
+          }),
+        ).toBeTruthy();
+      } else {
+        expect(
+          screen.queryByRole("button", { name: /View shared location from/ }),
+        ).toBeNull();
+        expect(mockViewEnvelope).not.toHaveBeenCalled();
+      }
+      expect(screen.queryByTitle("Live location map preview")).toBeNull();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+
+      if (active) {
+        mockViewEnvelope.mockResolvedValue({
+          grant,
+          envelope: {
+            recipientKeyId: "key_a",
+            algorithm: "ECDH-P256-AES256-GCM",
+            ciphertext: "ciphertext",
+            iv: "iv",
+            senderEphemeralPublicKeyJwk: {
+              kty: "EC",
+              crv: "P-256",
+              x: "x",
+              y: "y",
+            },
+            capturedAt: "2026-09-06T00:00:00.000Z",
+            sourcePlatform: "web",
+          },
+          status: "published",
+        });
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "View shared location from Trusted B",
+          }),
+        );
+        expect(
+          await screen.findByTitle("Live location map preview"),
+        ).toBeTruthy();
+        expect(mockViewEnvelope).toHaveBeenCalledWith(
+          expect.objectContaining({ grantId: "grant_feed" }),
+        );
+      } else {
+        expect(
+          screen.queryByRole("button", {
+            name: "View shared location from Trusted B",
+          }),
+        ).toBeNull();
+        expect(mockViewEnvelope).not.toHaveBeenCalledWith(
+          expect.objectContaining({ grantId: "grant_feed" }),
+        );
+      }
+
+      mockUseSearchParams.mockReturnValue(new URLSearchParams("view=now"));
+      view.rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("heading", { name: "Shared with me" }),
+      ).toBeNull();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    },
+  );
 
   it("warns the recipient when the decrypted location update is stale", async () => {
     const staleGrant = {
