@@ -169,3 +169,100 @@ def test_db_guard_rejects_an_existing_proxy_port(tmp_path):
     assert result.returncode != 0
     assert "proxy port is occupied" in result.stderr
     assert not (tmp_path / "report.json").exists()
+
+
+def test_db_guard_resolves_packed_runtime_and_preserves_direct_precedence(tmp_path):
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import pytest
+
+    if not shutil.which("jq"):
+        pytest.skip("DB wrapper requires jq")
+    packed = json.dumps({"db_host": "127.0.0.1", "db_port": 16549, "db_name": "packed-name"})
+    entries = [
+        {"name": "DB_NAME", "value": "direct-name"},
+        {"name": "DB_USER", "value": "synthetic-user"},
+        {"name": "DB_PASSWORD", "value": "synthetic-password"},
+        {"name": "BACKEND_RUNTIME_CONFIG_JSON", "valueFrom": {
+            "secretKeyRef": {"name": "PACKED_CONFIG", "key": "42"}}},
+    ]
+    service = {"spec": {"template": {"spec": {"containers": [{"env": entries}]}}}}
+    cloud = tmp_path / "gcloud"
+    cloud.write_text(
+        f"#!{sys.executable}\nimport sys\n"
+        f"if sys.argv[1:4] == ['run', 'services', 'describe']: print({json.dumps(json.dumps(service))})\n"
+        "elif sys.argv[1:4] == ['secrets', 'versions', 'access']:\n"
+        " assert sys.argv[4] == '42' and '--secret=PACKED_CONFIG' in sys.argv\n"
+        f" print({packed!r})\n"
+        "elif sys.argv[1:3] == ['secrets', 'describe']: sys.exit(1)\n"
+        "else: sys.exit(2)\n"
+    )
+    cloud.chmod(0o700)
+    probe = tmp_path / "probe-python"
+    probe.write_text(
+        f"#!{sys.executable}\nimport os,sys\n"
+        "assert os.environ['DB_HOST'] == '127.0.0.1'\n"
+        "assert os.environ['DB_PORT'] == '16549'\n"
+        "assert os.environ['DB_NAME'] == 'direct-name'\n"
+        "assert os.environ['DB_UNIX_SOCKET'] == ''\n"
+        "assert os.environ['DB_USER'] == 'synthetic-user'\n"
+        "assert os.environ['DB_PASSWORD'] == 'synthetic-password'\n"
+        "assert 'synthetic-password' not in ' '.join(sys.argv)\n"
+        "print('packed runtime verified')\n"
+    )
+    probe.chmod(0o700)
+    result = subprocess.run([
+        "bash", "scripts/ops/verify_runtime_db_contract.sh", "--project", "fixture",
+        "--contract-file", "fixture.json", "--report-path", str(tmp_path / "report.json"),
+    ], cwd=Path(__file__).resolve().parents[2], env={
+        **os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        "PYTHON": str(probe), "DB_UNIX_SOCKET": "/cloudsql/stale-fixture",
+    }, capture_output=True, text=True, timeout=15)
+    assert result.returncode == 0, result.stderr
+    assert "packed runtime verified" in result.stdout
+    assert "synthetic-password" not in result.stdout + result.stderr
+
+
+def test_db_guard_rejects_malformed_packed_config_without_disclosing_it(tmp_path):
+    import json
+    import os
+    import shutil
+    import subprocess
+    import sys
+    import pytest
+
+    if not shutil.which("jq"):
+        pytest.skip("DB wrapper requires jq")
+    for packed in ('{"private_marker": secret-fixture}', '["secret-fixture"]'):
+        service = {"spec": {"template": {"spec": {"containers": [{"env": [
+            {"name": "BACKEND_RUNTIME_CONFIG_JSON", "value": packed},
+            {"name": "DB_HOST", "value": "127.0.0.1"},
+            {"name": "DB_PORT", "value": "5432"},
+            {"name": "DB_NAME", "value": "fixture"},
+            {"name": "DB_UNIX_SOCKET", "value": ""},
+        ]}]}}}}
+        cloud = tmp_path / "gcloud"
+        cloud.write_text(
+            f"#!{sys.executable}\nimport sys\n"
+            f"if sys.argv[1:4] == ['run', 'services', 'describe']: print({json.dumps(json.dumps(service))})\n"
+            "else: sys.exit(91)\n"
+        )
+        cloud.chmod(0o700)
+        probe = tmp_path / "probe-python"
+        probe.write_text("#!/bin/sh\necho 'guard-must-not-run'\nexit 92\n")
+        probe.chmod(0o700)
+        result = subprocess.run([
+            "bash", "scripts/ops/verify_runtime_db_contract.sh", "--project", "fixture",
+            "--contract-file", "fixture.json", "--report-path", str(tmp_path / "report.json"),
+        ], cwd=Path(__file__).resolve().parents[2], env={
+            **os.environ, "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "PYTHON": str(probe),
+        }, capture_output=True, text=True, timeout=15)
+        assert result.returncode != 0
+        assert "Invalid packed runtime DB configuration." in result.stderr
+        assert "secret-fixture" not in result.stdout + result.stderr
+        assert "guard-must-not-run" not in result.stdout + result.stderr
+        assert not (tmp_path / "report.json").exists()
