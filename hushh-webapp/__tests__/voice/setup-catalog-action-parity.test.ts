@@ -42,6 +42,7 @@ describe("setup catalog voice parity", () => {
       "Set up your advisor profile",
     ]);
     const visibleSetupActionIds = new Set([
+      "setup.open_cloud",
       "setup.open_connections",
       ...ONE_SETUP_CAPABILITIES.map((capability) => capability.setupActionId),
     ]);

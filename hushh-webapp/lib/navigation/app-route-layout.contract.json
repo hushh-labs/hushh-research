@@ -94,7 +94,6 @@
         "setup.open_email",
         "setup.open_finance",
         "setup.open_ria",
-        "setup.open_connected_systems",
         "setup.hub_master_ack"
       ],
       "requiredInputs": [],

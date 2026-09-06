@@ -140,7 +140,6 @@ describe("navigation journeys", () => {
       "setup.connect_gmail",
       "setup.finish_calendar",
       "setup.finish_cloud",
-      "setup.finish_connected_systems",
       "setup.finish_connections",
       "setup.finish_email",
       "setup.finish_finance",
