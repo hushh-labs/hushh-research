@@ -1299,29 +1299,33 @@ Package count: 1260
 
 ## Backend Python packages
 
-Package count: 178
+Package count: 199
 
 ### License summary
 
 - `3-Clause BSD License`: 1
+- `Apache 2.0 License`: 1
 - `Apache License 2.0`: 1
-- `Apache Software License`: 30
+- `Apache Software License`: 34
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 24
+- `Apache-2.0`: 26
+- `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
+- `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
 - `Apache-2.0 OR MIT`: 1
-- `BSD License`: 13
+- `BSD License`: 18
 - `BSD-2-Clause`: 2
-- `BSD-3-Clause`: 14
+- `BSD-3-Clause`: 18
 - `BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0`: 1
 - `BSD-3-Clause, Apache-2.0, dependency licenses`: 1
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
 - `GNU Library or Lesser General Public License (LGPL)`: 1
+- `ISC License (ISCL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 46
+- `MIT`: 49
 - `MIT License`: 27
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
@@ -1329,12 +1333,11 @@ Package count: 178
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
 - `Python Software Foundation License`: 2
-- `UNKNOWN`: 1
 
 ### Package inventory
 
 - `a2a-sdk` `0.3.26` — Apache-2.0
-- `a2ui-agent-sdk` `0.2.4` — UNKNOWN
+- `a2ui-agent-sdk` `0.2.4` — Apache-2.0
 - `ag-ui-a2ui-toolkit` `0.0.4` — MIT
 - `ag-ui-protocol` `0.1.21` — MIT
 - `ag_ui_adk` `0.7.0` — MIT
@@ -1363,6 +1366,7 @@ Package count: 178
 - `cffi` `2.0.0` — MIT
 - `charset-normalizer` `3.4.7` — MIT
 - `click` `8.4.2` — BSD-3-Clause
+- `cloudpickle` `3.1.2` — BSD License
 - `coverage` `7.13.5` — Apache-2.0
 - `cryptography` `50.0.1` — Apache-2.0 OR BSD-3-Clause
 - `curl_cffi` `0.15.0` — MIT
@@ -1371,10 +1375,12 @@ Package count: 178
 - `distro` `1.9.0` — Apache Software License
 - `docstring_parser` `0.18.0` — MIT License
 - `fastapi` `0.136.0` — MIT
+- `filelock` `3.32.5` — MIT
 - `firebase_admin` `7.1.0` — Apache Software License
 - `Flask` `3.1.3` — BSD-3-Clause
 - `frozendict` `2.4.7` — GNU Lesser General Public License v3 (LGPLv3)
 - `frozenlist` `1.8.0` — Apache-2.0
+- `fsspec` `2026.7.0` — BSD-3-Clause
 - `google-adk` `2.4.0` — Apache Software License
 - `google-api-core` `2.29.0` — Apache Software License
 - `google-auth` `2.49.2` — Apache Software License
@@ -1392,10 +1398,12 @@ Package count: 178
 - `gunicorn` `25.3.0` — MIT
 - `h11` `0.16.0` — MIT License
 - `h2` `4.4.1` — MIT
+- `hf-xet` `1.6.0` — Apache-2.0
 - `hpack` `4.2.0` — MIT
 - `httpcore` `1.0.9` — BSD-3-Clause
 - `httpx` `0.28.1` — BSD License
 - `httpx-sse` `0.4.3` — MIT
+- `huggingface_hub` `1.30.0` — Apache Software License
 - `hyperframe` `6.1.0` — MIT License
 - `idna` `3.18` — BSD-3-Clause
 - `iniconfig` `2.3.0` — MIT
@@ -1403,6 +1411,7 @@ Package count: 178
 - `Jinja2` `3.1.6` — BSD License
 - `jiter` `0.14.0` — MIT
 - `jmespath` `1.1.0` — MIT License
+- `joblib` `1.6.0` — BSD-3-Clause
 - `joserfc` `1.7.3` — BSD License
 - `jsonpatch` `1.33` — BSD License
 - `jsonpointer` `3.1.1` — BSD License
@@ -1422,11 +1431,14 @@ Package count: 178
 - `MarkupSafe` `3.0.3` — BSD-3-Clause
 - `mcp` `1.28.1` — MIT License
 - `mdurl` `0.1.2` — MIT License
+- `mpmath` `1.3.0` — BSD License
 - `msgpack` `1.2.1` — Apache-2.0
 - `multidict` `6.7.1` — Apache License 2.0
 - `multitasking` `0.0.12` — Apache Software License
 - `mypy` `1.20.1` — MIT
 - `mypy_extensions` `1.1.0` — MIT
+- `narwhals` `2.25.0` — MIT
+- `networkx` `3.6.1` — BSD-3-Clause
 - `numpy` `2.4.4` — BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0
 - `openai` `2.32.0` — Apache Software License
 - `opentelemetry-api` `1.42.1` — Apache-2.0
@@ -1478,6 +1490,7 @@ Package count: 178
 - `PyYAML` `6.0.3` — MIT License
 - `redis` `5.3.1` — MIT License
 - `referencing` `0.37.0` — MIT
+- `regex` `2026.9.3` — Apache-2.0 AND CNRI-Python
 - `requests` `2.33.1` — Apache Software License
 - `requests-toolbelt` `1.0.0` — Apache Software License
 - `rich` `15.0.0` — MIT License
@@ -1485,6 +1498,11 @@ Package count: 178
 - `rsa` `4.9.1` — Apache Software License
 - `ruff` `0.15.11` — MIT
 - `s3transfer` `0.16.0` — Apache Software License
+- `safetensors` `0.8.0` — Apache Software License
+- `scikit-learn` `1.9.0` — BSD-3-Clause
+- `scipy` `1.18.1` — BSD License
+- `sentence-transformers` `5.2.0` — Apache Software License
+- `shellingham` `1.5.4` — ISC License (ISCL)
 - `six` `1.17.0` — MIT License
 - `slowapi` `0.1.9` — MIT License
 - `sniffio` `1.3.1` — Apache Software License; MIT License
@@ -1493,8 +1511,14 @@ Package count: 178
 - `sse-starlette` `3.3.4` — BSD-3-Clause
 - `starlette` `1.3.1` — BSD-3-Clause
 - `stevedore` `5.7.0` — Apache Software License
+- `sympy` `1.14.0` — BSD License
 - `tenacity` `9.1.4` — Apache Software License
+- `threadpoolctl` `3.6.0` — BSD License
+- `tokenizers` `0.22.2` — Apache Software License
+- `torch` `2.14.0` — Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT
 - `tqdm` `4.67.3` — MPL-2.0 AND MIT
+- `transformers` `5.10.1` — Apache 2.0 License
+- `typer` `0.27.2` — MIT
 - `typing-inspection` `0.4.2` — MIT
 - `typing_extensions` `4.15.0` — PSF-2.0
 - `tzlocal` `5.3.1` — MIT License

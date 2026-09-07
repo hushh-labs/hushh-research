@@ -20,8 +20,7 @@ PROTOCOL_NOTICES = REPO_ROOT / "consent-protocol" / "THIRD_PARTY_NOTICES.md"
 
 # Reviewed installed release license files, 2026-09-06. These are evidence pins,
 # not license overrides: absent/changed files or versions remain UNKNOWN.
-# Hash raw bytes (limiter's license uses CRLF). Do not infer A2UI's distribution
-# license from source-file headers; that exact release remains unresolved.
+# Hash raw bytes (limiter's license uses CRLF).
 REVIEWED_LICENSE_FILES = {
     ("khroma", "2.1.0"): (
         "license",
@@ -43,6 +42,22 @@ REVIEWED_LICENSE_FILES = {
         "MIT",
         "3740096125b08735a247b8dd08cd82e0ba984d3bebd9221d378576637e5240da",
     ),
+}
+
+# Exact published SDK payload matched to google/A2UI release source. This is
+# repository-reviewed evidence, not an upstream metadata declaration. The root
+# license's MIT appendix applies to eval/bin/transcrypt, outside this payload.
+REVIEWED_SOURCE_DISTRIBUTIONS = {
+    ("a2ui-agent-sdk", "0.2.4"): {
+        "package": "a2ui",
+        "license": "Apache-2.0",
+        "source": "https://github.com/google/A2UI/tree/8e4b5c0bb1b4d29cb5a5b55f331ed52c4fdca40e/agent_sdks/python",
+        "sdist_sha256": "6c92363ca028e5c75a541f913e4bb1e6aef0c217e5c7dc693bb12712069b1e23",
+        "license_file": "scripts/licenses/evidence/a2ui-agent-sdk-0.2.4.LICENSE",
+        "license_sha256": "8c8b5b632d56c4c1658296963c693db5396772a33caaddb9a22593c4155c437a",
+        "payload_count": 38,
+        "payload_sha256": "d9b34138c7ea8e6d7d2f9e97f16fcfb9e241453fe4364c0a96121232ec236ac1",
+    },
 }
 
 
@@ -70,16 +85,60 @@ def installed_web_license(package_path: str, name: str, version: str) -> str:
         meta = json.loads((directory / "package.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return "UNKNOWN"
-    if not isinstance(meta, dict) or meta.get("name") != name or meta.get("version") != version:
+    if (
+        not isinstance(meta, dict)
+        or meta.get("name") != name
+        or meta.get("version") != version
+    ):
         return "UNKNOWN"
     declarations = [meta.get("license")] if meta.get("license") else []
     legacy = meta.get("licenses", [])
-    if not isinstance(legacy, list) or any(not isinstance(item, dict) for item in legacy):
+    if not isinstance(legacy, list) or any(
+        not isinstance(item, dict) for item in legacy
+    ):
         return "UNKNOWN"
     declarations.extend(item.get("type") for item in legacy)
     if any(value != review[1] for value in declarations):
         return "UNKNOWN"
     return reviewed_license(name, version, directory / review[0])
+
+
+def source_distribution_license(distribution, review: dict) -> str:
+    """Fail closed unless the installed package and reviewed license match exactly."""
+    try:
+        license_bytes = (REPO_ROOT / review["license_file"]).read_bytes()
+        if hashlib.sha256(license_bytes).hexdigest() != review["license_sha256"]:
+            return "UNKNOWN"
+        root = Path(distribution.locate_file(review["package"]))
+        if root.is_symlink() or not root.is_dir():
+            return "UNKNOWN"
+        entries = list(root.rglob("*"))
+        if any(path.is_symlink() for path in entries):
+            return "UNKNOWN"
+        files = sorted(
+            (
+                path
+                for path in entries
+                if path.is_file()
+                and "__pycache__" not in path.parts
+                and path.suffix != ".pyc"
+            ),
+            key=lambda path: path.relative_to(root).as_posix(),
+        )
+        if len(files) != review["payload_count"]:
+            return "UNKNOWN"
+        manifest = "".join(
+            f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {path.relative_to(root).as_posix()}\n"
+            for path in files
+        )
+        if (
+            hashlib.sha256(manifest.encode("utf-8")).hexdigest()
+            != review["payload_sha256"]
+        ):
+            return "UNKNOWN"
+    except OSError:
+        return "UNKNOWN"
+    return review["license"]
 
 
 def python_license_evidence() -> list[dict[str, str]]:
@@ -91,7 +150,10 @@ def python_license_evidence() -> list[dict[str, str]]:
         except importlib.metadata.PackageNotFoundError:
             continue
         metadata = distribution.metadata
-        if normalized_name(metadata.get("Name", "")) != name or distribution.version != version:
+        if (
+            normalized_name(metadata.get("Name", "")) != name
+            or distribution.version != version
+        ):
             continue
         declarations = [metadata.get("License-Expression"), metadata.get("License")]
         if any(value and value not in ("UNKNOWN", review[1]) for value in declarations):
@@ -102,11 +164,33 @@ def python_license_evidence() -> list[dict[str, str]]:
         candidates = [
             distribution.locate_file(item)
             for item in files
-            if str(item).endswith((f".dist-info/licenses/{review[0]}", f".dist-info/{review[0]}"))
+            if str(item).endswith(
+                (f".dist-info/licenses/{review[0]}", f".dist-info/{review[0]}")
+            )
         ]
         if len(candidates) != 1:
             continue
         license_name = reviewed_license(name, version, Path(candidates[0]))
+        if license_name != "UNKNOWN":
+            evidence.append({"name": name, "version": version, "license": license_name})
+    for (name, version), review in REVIEWED_SOURCE_DISTRIBUTIONS.items():
+        try:
+            distribution = importlib.metadata.distribution(name)
+        except importlib.metadata.PackageNotFoundError:
+            continue
+        metadata = distribution.metadata
+        if (
+            normalized_name(metadata.get("Name", "")) != name
+            or distribution.version != version
+        ):
+            continue
+        if any(
+            metadata.get(key)
+            and metadata.get(key) not in ("UNKNOWN", review["license"])
+            for key in ("License-Expression", "License")
+        ):
+            continue
+        license_name = source_distribution_license(distribution, review)
         if license_name != "UNKNOWN":
             evidence.append({"name": name, "version": version, "license": license_name})
     return evidence
@@ -202,7 +286,9 @@ def load_python_packages() -> list[dict[str, str]]:
 def render_summary(packages: list[dict[str, str]]) -> str:
     counts = Counter(item["license"] for item in packages)
     lines = []
-    for license_name, count in sorted(counts.items(), key=lambda item: (item[0].lower(), item[1])):
+    for license_name, count in sorted(
+        counts.items(), key=lambda item: (item[0].lower(), item[1])
+    ):
         lines.append(f"- `{license_name}`: {count}")
     return "\n".join(lines)
 
@@ -211,7 +297,10 @@ def render_package_list(packages: list[dict[str, str]]) -> str:
     lines = []
     for item in packages:
         line = f"- `{item['name']}` `{item['version']}` — {item['license']}"
-        for field, label in (("license_file", "License"), ("notice_file", "Upstream notice")):
+        for field, label in (
+            ("license_file", "License"),
+            ("notice_file", "Upstream notice"),
+        ):
             if item.get(field):
                 line += f"; [{label}]({item[field]})"
         lines.append(line)

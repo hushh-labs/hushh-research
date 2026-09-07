@@ -101,3 +101,47 @@ def test_unreviewed_a2ui_release_has_no_fallback(tmp_path):
     path = tmp_path / "LICENSE"
     path.write_text("A source header is not distribution license evidence")
     assert notices.reviewed_license("a2ui-agent-sdk", "0.2.4", path) == "UNKNOWN"
+
+
+@pytest.mark.parametrize(
+    "change", [None, "payload", "extra", "missing", "license", "version", "conflict"]
+)
+def test_source_review_requires_exact_distribution_payload(tmp_path, monkeypatch, change):
+    package = tmp_path / "example"
+    package.mkdir()
+    payload = package / "schema.json"
+    payload.write_bytes(b'{"synthetic": true}')
+    license_file = tmp_path / "LICENSE"
+    license_file.write_bytes(b"Synthetic reviewed permission")
+    manifest = f"{hashlib.sha256(payload.read_bytes()).hexdigest()}  schema.json\n"
+    review = {
+        "package": "example",
+        "license": "MIT",
+        "license_file": "LICENSE",
+        "license_sha256": hashlib.sha256(license_file.read_bytes()).hexdigest(),
+        "payload_count": 1,
+        "payload_sha256": hashlib.sha256(manifest.encode()).hexdigest(),
+    }
+    metadata = Message()
+    metadata["Name"] = "example"
+    if change == "conflict":
+        metadata["License-Expression"] = "GPL-3.0"
+    if change == "payload":
+        payload.write_bytes(b"modified")
+    if change == "extra":
+        (package / "extra.json").write_bytes(b"new unreviewed asset")
+    if change == "missing":
+        payload.unlink()
+    if change == "license":
+        license_file.write_bytes(b"different permission")
+    distribution = SimpleNamespace(
+        metadata=metadata,
+        version="2.0" if change == "version" else "1.0",
+        locate_file=lambda path: tmp_path / path,
+    )
+    monkeypatch.setattr(notices, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(notices, "REVIEWED_LICENSE_FILES", {})
+    monkeypatch.setattr(notices, "REVIEWED_SOURCE_DISTRIBUTIONS", {("example", "1.0"): review})
+    monkeypatch.setattr(notices.importlib.metadata, "distribution", lambda name: distribution)
+    expected = [{"name": "example", "version": "1.0", "license": "MIT"}] if change is None else []
+    assert notices.python_license_evidence() == expected
