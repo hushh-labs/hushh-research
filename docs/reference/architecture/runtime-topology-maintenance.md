@@ -149,9 +149,18 @@ object-version, key or backup erasure.
 
 `pod_lifecycle_drill.py --live` currently returns incomplete before acquiring
 cloud resources or consent authority. Its retained `GcpFleet` adapter is a
-migration surface, not an approved disposable-resource runner: existing-owner
-upsert, service adoption on conflict, name-only deletion and pre-cleanup reporting
-must be replaced through the existing registry, Cloud Run client and lifecycle
-services. Re-enabling requires exclusive attempt/incarnation ownership and
-verified cleanup, including durable external erasure. The existing dry-run and
+migration surface, not an approved disposable-resource runner. Its compute client
+now refuses adoption on conflict, captures an acknowledged creation UID before
+IAM/readiness, and requires that UID plus a fresh v2 etag precondition for
+deletion. Accepted deletion is followed by absence checks; a changed incarnation
+or unavailable observation remains incomplete. These receipts are in-process;
+an uncertain creation remains unresolved and is never deleted by name alone.
+
+Existing-owner upsert, durable attempt recovery and external erasure still need
+repair through the existing registry and lifecycle services. The structured
+cleanup result distinguishes verified compute absence from full disposal and
+never declares full completion. Re-enabling requires exclusive durable attempt
+ownership and verified cleanup, including external erasure. Existing product
+client callers retain their create/adopt and delete compatibility behavior;
+only the retained drill selects the stricter options. The existing dry-run and
 its schedule continue to test the oracle only; no new schedule is added.

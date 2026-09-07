@@ -220,6 +220,155 @@ def test_create_service_adopts_existing_on_409(monkeypatch):
     assert result == adopted  # the existing host is adopted, no raise
 
 
+def test_exclusive_create_refuses_conflict_before_adoption(monkeypatch):
+    import requests
+
+    client = _client_no_net()
+
+    def forbidden_read(name):
+        raise AssertionError("exclusive creation must not adopt")
+
+    client.get_service = forbidden_read
+    monkeypatch.setattr(requests, "post", lambda *args, **kwargs: _Resp409())
+    with pytest.raises(RuntimeError, match="already owned"):
+        client.create_service({"metadata": {"name": "synthetic-pod"}}, adopt_existing=False)
+
+
+@pytest.mark.parametrize("status", [202, 204, 301, 302])
+def test_exclusive_create_never_accepts_redirect_or_nonterminal_ack(monkeypatch, status):
+    from types import SimpleNamespace
+
+    import requests
+
+    def post(*args, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        return SimpleNamespace(status_code=status, raise_for_status=lambda: None, json=lambda: {})
+
+    monkeypatch.setattr(requests, "post", post)
+    with pytest.raises(RuntimeError, match="not confirmed"):
+        _client_no_net().create_service(
+            {"metadata": {"name": "synthetic-pod"}}, adopt_existing=False
+        )
+
+
+def _incarnation_client(monkeypatch, observations, delete_status=200):
+    from types import SimpleNamespace
+
+    import requests
+
+    client = _client_no_net()
+    client._project = "synthetic-project"
+    client._region = "us-central1"
+    observed = iter(observations)
+    deletes = []
+
+    def get(url, **kwargs):
+        assert (
+            url
+            == "https://run.googleapis.com/v2/projects/synthetic-project/locations/us-central1/services/synthetic-pod"
+        )
+        assert kwargs["allow_redirects"] is False
+        status, body = next(observed)
+        return SimpleNamespace(status_code=status, json=lambda: body)
+
+    def delete(url, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        deletes.append(kwargs["params"])
+        return SimpleNamespace(status_code=delete_status)
+
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(requests, "delete", delete)
+    return client, deletes
+
+
+def test_incarnation_delete_uses_read_etag_and_waits_for_absence(monkeypatch):
+    value = {"uid": "synthetic-uid", "etag": "version-one"}
+    client, deletes = _incarnation_client(monkeypatch, [(200, value), (200, value), (404, {})])
+    client.delete_service("synthetic-pod", expected_uid="synthetic-uid", interval_s=0)
+    assert deletes == [{"etag": "version-one"}]
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        (200, {"uid": "foreign-uid", "etag": "version-one"}),
+        (200, {"uid": "synthetic-uid"}),
+        (200, {}),
+        (200, []),
+        (403, {}),
+        (302, {}),
+    ],
+)
+def test_incarnation_delete_refuses_unproven_ownership_without_delete(monkeypatch, observation):
+    client, deletes = _incarnation_client(monkeypatch, [observation])
+    with pytest.raises(RuntimeError):
+        client.delete_service("synthetic-pod", expected_uid="synthetic-uid")
+    assert not deletes
+
+
+def test_already_absent_incarnation_needs_no_delete(monkeypatch):
+    client, deletes = _incarnation_client(monkeypatch, [(404, {})])
+    client.delete_service("synthetic-pod", expected_uid="synthetic-uid")
+    assert not deletes
+
+
+def test_replacement_between_observation_and_delete_fails_etag_precondition(monkeypatch):
+    client, deletes = _incarnation_client(
+        monkeypatch, [(200, {"uid": "synthetic-uid", "etag": "old-version"})], delete_status=409
+    )
+    with pytest.raises(RuntimeError, match="not accepted"):
+        client.delete_service("synthetic-pod", expected_uid="synthetic-uid")
+    assert deletes == [{"etag": "old-version"}]
+
+
+def test_replacement_during_polling_is_never_deleted(monkeypatch):
+    client, deletes = _incarnation_client(
+        monkeypatch,
+        [
+            (200, {"uid": "synthetic-uid", "etag": "old-version"}),
+            (200, {"uid": "foreign-uid", "etag": "new-version"}),
+        ],
+    )
+    with pytest.raises(RuntimeError, match="incarnation changed"):
+        client.delete_service("synthetic-pod", expected_uid="synthetic-uid")
+    assert len(deletes) == 1
+
+
+def test_delete_acknowledgement_without_absence_remains_incomplete(monkeypatch):
+    import requests
+
+    from hushh_mcp.services import gcp_run_client
+
+    value = {"uid": "synthetic-uid", "etag": "version-one"}
+    client, deletes = _incarnation_client(monkeypatch, [(200, value), (200, value)])
+    clock = [0.0]
+    original_get = requests.get
+    calls = []
+
+    def get(*args, **kwargs):
+        calls.append(kwargs)
+        response = original_get(*args, **kwargs)
+        if len(calls) == 2:
+            clock[0] = 2.0
+        return response
+
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(gcp_run_client.time, "monotonic", lambda: clock[0])
+    with pytest.raises(RuntimeError, match="remains incomplete"):
+        client.delete_service("synthetic-pod", expected_uid="synthetic-uid", timeout_s=1)
+    assert len(deletes) == 1
+    assert all(call["timeout"] <= 1 for call in calls)
+
+
+@pytest.mark.parametrize("field", ["timeout_s", "interval_s"])
+@pytest.mark.parametrize("value", [float("nan"), float("inf"), float("-inf"), True, "1"])
+def test_incarnation_delete_rejects_invalid_time_budgets_before_io(monkeypatch, field, value):
+    client, deletes = _incarnation_client(monkeypatch, [])
+    with pytest.raises(ValueError):
+        client.delete_service("synthetic-pod", expected_uid="synthetic-uid", **{field: value})
+    assert not deletes
+
+
 def test_create_service_409_but_service_gone_still_raises(monkeypatch):
     import requests
 

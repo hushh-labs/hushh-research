@@ -353,8 +353,8 @@ class GcpFleet:
     """Backs the same four operations with the real per-user pod backend.
 
     ``provision`` drives ``GcpBackend(live=True).provision`` for the owner and
-    resolves the served URL from the run API; ``kill`` deletes the service by name
-    via ``GcpRunClient``; ``teach``/``recall`` post real turns as an authorised
+    resolves the served URL from the run API; ``kill`` verifies and deletes only
+    the recorded service incarnation via ``GcpRunClient``; ``teach``/``recall`` post real turns as an authorised
     invoker (an operator ID token audience-bound to the pod URL, the same identity
     the hub proxies with). The durable commit log lives in the owner's cloud, so a
     second ``provision`` of the same owner reattaches to it after the first was
@@ -369,6 +369,8 @@ class GcpFleet:
         self._consent_token = consent_token
         self._user_id = user_id
         self._service_names: dict[str, str] = {}
+        self._service_uids: dict[str, str] = {}
+        self._unconfirmed_creates: set[str] = set()
         self._owner_bound = False
 
     # -- the owner binding a live turn cannot do without ---------------------- #
@@ -432,12 +434,45 @@ class GcpFleet:
     def _backend(self) -> Any:
         from hushh_mcp.services.gcp_backend import GcpBackend  # noqa: PLC0415
 
-        return GcpBackend(project=self._project, region=self._region, live=True)
+        return GcpBackend(
+            project=self._project,
+            region=self._region,
+            live=True,
+            client=self._run_client(),
+        )
 
     def _run_client(self) -> Any:
         from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
 
-        return GcpRunClient(project=self._project, region=self._region)
+        fleet = self
+
+        class AttemptRunClient(GcpRunClient):
+            def create_service(
+                self,
+                body: dict[str, Any],
+                *,
+                adopt_existing: bool = False,
+            ) -> dict[str, Any]:
+                if adopt_existing:
+                    raise RuntimeError("drill creation cannot adopt an existing service")
+                name = (body.get("metadata") or {}).get("name")
+                if not isinstance(name, str) or not name:
+                    raise RuntimeError("drill service name unavailable")
+                # Record uncertainty before POST. A lost acknowledgement is not
+                # permission to adopt or delete an unproven service by name.
+                fleet._unconfirmed_creates.add(name)
+                created = super().create_service(body, adopt_existing=False)
+                metadata = created.get("metadata") or {}
+                uid = metadata.get("uid")
+                if metadata.get("name") != name or not isinstance(uid, str) or not uid.strip():
+                    raise RuntimeError("drill creation incarnation unconfirmed")
+                # Captured before backend IAM/readiness work can fail. This is an
+                # in-process receipt only; durable attempt recovery remains required.
+                fleet._service_uids[name] = uid
+                fleet._unconfirmed_creates.discard(name)
+                return created
+
+        return AttemptRunClient(project=self._project, region=self._region)
 
     def _spec(self, hushh_id: str) -> Any:
         # A drill owner is a throwaway HusshID; a real drill run supplies the
@@ -461,8 +496,12 @@ class GcpFleet:
     async def provision(self, hushh_id: str) -> str:
         handle = await self._backend().provision(self._spec(hushh_id))
         name = str(handle.backend_metadata.get("service") or handle.external_agent_id)
+        if name not in self._service_uids:
+            raise RuntimeError("drill service incarnation was not established by creation")
         self._service_names[hushh_id] = name
         svc = self._run_client().get_service(name) or {}
+        if (svc.get("metadata") or {}).get("uid") != self._service_uids[name]:
+            raise RuntimeError("drill service incarnation changed before URL observation")
         url = (((svc.get("status") or {}).get("url")) or "").strip()
         if not url:
             raise RuntimeError(f"provisioned pod {name} exposed no URL")
@@ -488,8 +527,10 @@ class GcpFleet:
 
     async def kill(self, hushh_id: str) -> None:
         name = self._service_names.get(hushh_id)
-        if name:
-            await asyncio.to_thread(self._run_client().delete_service, name)
+        uid = self._service_uids.get(name or "")
+        if not name or not uid:
+            raise RuntimeError("drill cannot delete an unproven service incarnation")
+        await asyncio.to_thread(self._run_client().delete_service, name, expected_uid=uid)
 
     async def identity(self, pod_url: str) -> dict[str, Any]:
         """Read ``GET /pod/public-key``, the pod's own statement of who it is.
@@ -514,20 +555,28 @@ class GcpFleet:
 
         return await asyncio.to_thread(_get)
 
-    async def teardown(self) -> list[str]:
-        """Best-effort deletion of the last service provisioned for each owner --
-        the rebuilt pod the drill leaves live. Dev is shared and costed, so a
-        drill run must leave nothing serving, whether it passed, failed, or threw.
-        An already-deleted service (the one the drill's own kill removed) is not
-        an error here."""
+    async def teardown(self) -> dict[str, Any]:
+        """Verify recorded compute incarnations only; full disposal stays incomplete.
+
+        Includes creations followed by failed IAM/readiness. Unconfirmed creates
+        remain unresolved, and no service is deleted using only its name.
+        """
         removed: list[str] = []
-        for name in list(self._service_names.values()):
+        failed: list[dict[str, str]] = []
+        for name, uid in list(self._service_uids.items()):
             try:
-                await asyncio.to_thread(self._run_client().delete_service, name)
+                await asyncio.to_thread(self._run_client().delete_service, name, expected_uid=uid)
                 removed.append(name)
             except Exception as exc:  # noqa: BLE001 -- teardown must never raise
-                print(f"[drill] service teardown incomplete: {type(exc).__name__}")
-        return removed
+                failed.append({"service": name, "error_class": type(exc).__name__})
+        return {
+            "removed": removed,
+            "failed": failed,
+            "unconfirmed_creates": sorted(self._unconfirmed_creates),
+            "compute_absence_verified": not failed and not self._unconfirmed_creates,
+            "external_erasure_verified": False,
+            "complete": False,
+        }
 
     def _turn(self, pod_url: str, message: str) -> str:
         import requests  # noqa: PLC0415
@@ -616,8 +665,8 @@ def main() -> int:
             )
         return code
 
-    # The current live adapter can adopt an existing service, mutate an existing
-    # owner, and report success before disposal. Do not invoke it until the
+    # The current adapter can mutate an existing owner and lacks durable attempt
+    # recovery and external erasure. Do not invoke it until the
     # existing registry/client lifecycle proves attempt-bound ownership and
     # complete cleanup. Retain the adapter for that migration and offline tests.
     report = {

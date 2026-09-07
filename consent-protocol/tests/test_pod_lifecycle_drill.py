@@ -168,6 +168,7 @@ async def test_provisioning_binds_the_owner_so_a_live_turn_is_not_refused():
 
     fleet = drill.GcpFleet(project="p", region="r", user_id="drill-user")
     fleet._service_names["HA1BIND"] = "one-pod-ha1bind"
+    fleet._service_uids["one-pod-ha1bind"] = "synthetic-created-incarnation"
 
     async def _fake_prepare(hushh_id):
         calls.append(hushh_id)
@@ -187,6 +188,66 @@ async def test_an_unbound_owner_is_a_loud_refusal_not_a_silent_skip():
     fleet = drill.GcpFleet(project="p", region="r")  # no user_id
     with pytest.raises(RuntimeError, match="user-id"):
         await fleet.prepare_owner("HA1NOOWNER")
+
+
+async def test_drill_never_kills_a_service_without_creation_identity():
+    fleet = drill.GcpFleet(project="synthetic-project", region="us-central1")
+    fleet._service_names["synthetic-owner"] = "synthetic-pod"
+    with pytest.raises(RuntimeError, match="unproven service incarnation"):
+        await fleet.kill("synthetic-owner")
+
+
+@pytest.mark.parametrize("acknowledged", [False, True])
+async def test_partial_creation_is_tracked_before_readiness_and_cleanup_stays_honest(
+    monkeypatch, acknowledged
+):
+    from hushh_mcp.services import gcp_run_client
+
+    fleet = drill.GcpFleet(project="synthetic-project", region="us-central1")
+    monkeypatch.setattr(gcp_run_client, "load_operator_credentials", lambda: object())
+
+    def create(self, body, *, adopt_existing=True):
+        assert adopt_existing is False
+        if not acknowledged:
+            raise RuntimeError("acknowledgement lost")
+        return {"metadata": {"name": "synthetic-pod", "uid": "synthetic-uid"}}
+
+    deleted = []
+
+    def delete(self, name, *, expected_uid):
+        deleted.append((name, expected_uid))
+
+    monkeypatch.setattr(gcp_run_client.GcpRunClient, "create_service", create)
+    monkeypatch.setattr(gcp_run_client.GcpRunClient, "delete_service", delete)
+    client = fleet._run_client()
+    if acknowledged:
+        client.create_service({"metadata": {"name": "synthetic-pod"}})
+    else:
+        with pytest.raises(RuntimeError, match="acknowledgement lost"):
+            client.create_service({"metadata": {"name": "synthetic-pod"}})
+    # No backend handle returned: IAM/readiness may have failed after creation.
+    assert not fleet._service_names
+    result = await fleet.teardown()
+    assert result["compute_absence_verified"] is acknowledged
+    assert result["complete"] is False
+    assert result["external_erasure_verified"] is False
+    assert deleted == ([("synthetic-pod", "synthetic-uid")] if acknowledged else [])
+    assert result["unconfirmed_creates"] == ([] if acknowledged else ["synthetic-pod"])
+
+
+async def test_failed_compute_cleanup_is_not_reported_removed():
+    fleet = drill.GcpFleet(project="synthetic-project", region="us-central1")
+    fleet._service_uids["synthetic-pod"] = "synthetic-uid"
+
+    class Client:
+        def delete_service(self, name, *, expected_uid):
+            raise RuntimeError("sensitive-provider-body")
+
+    fleet._run_client = lambda: Client()
+    result = await fleet.teardown()
+    assert not result["removed"]
+    assert not result["compute_absence_verified"]
+    assert "sensitive-provider-body" not in json.dumps(result)
 
 
 def test_the_live_turn_uses_the_shared_operator_minter():
@@ -233,7 +294,24 @@ class _FakeBackend:
 class _FakeRunClient:
     @staticmethod
     def get_service(_name):
-        return {"status": {"url": "https://one-pod-ha1bind.run.app"}}
+        return {
+            "metadata": {"uid": "synthetic-created-incarnation"},
+            "status": {"url": "https://one-pod-ha1bind.run.app"},
+        }
+
+
+async def test_replacement_after_creation_cannot_supply_the_drill_turn_url():
+    fleet = drill.GcpFleet(project="synthetic-project", region="us-central1", user_id="drill-user")
+    fleet._service_uids["one-pod-ha1bind"] = "synthetic-original-incarnation"
+    fleet._backend = lambda: _FakeBackend()
+    fleet._run_client = lambda: _FakeRunClient()
+
+    async def forbidden_binding(owner):
+        raise AssertionError("replacement must not bind an owner")
+
+    fleet.prepare_owner = forbidden_binding
+    with pytest.raises(RuntimeError, match="incarnation changed"):
+        await fleet.provision("HA1BIND")
 
 
 def test_the_report_and_json_round_trip():

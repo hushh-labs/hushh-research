@@ -15,6 +15,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import os
 import time
 from typing import Any, Optional
@@ -136,11 +137,21 @@ class GcpRunClient:
             "Content-Type": "application/json",
         }
 
-    def create_service(self, body: dict[str, Any]) -> dict[str, Any]:
+    def create_service(
+        self, body: dict[str, Any], *, adopt_existing: bool = True
+    ) -> dict[str, Any]:
         import requests  # type: ignore[import-untyped]
 
-        r = requests.post(f"{self._base}/services", headers=self._headers(), json=body, timeout=60)
+        r = requests.post(
+            f"{self._base}/services",
+            headers=self._headers(),
+            json=body,
+            timeout=60,
+            **({"allow_redirects": False} if not adopt_existing else {}),
+        )
         if r.status_code == 409:
+            if not adopt_existing:
+                raise RuntimeError("Cloud Run service name is already owned")
             # AlreadyExists: a prior create for this DETERMINISTIC name already made
             # the service (a retry of a stuck 'provisioning' row hits the same
             # one-pod-{slug(hushh_id)} name). Adopt the existing service instead of
@@ -153,6 +164,8 @@ class GcpRunClient:
                 if existing is not None:
                     return existing
         r.raise_for_status()
+        if not adopt_existing and r.status_code not in (200, 201):
+            raise RuntimeError("Cloud Run exclusive creation not confirmed")
         return dict(r.json())
 
     # -- IAM ---------------------------------------------------------------------
@@ -405,13 +418,110 @@ class GcpRunClient:
         # Never return a partial fleet: callers use absence for reconciliation.
         raise RuntimeError("Cloud Run service inventory page bound exceeded")
 
-    def delete_service(self, name: str) -> None:
+    def delete_service(
+        self,
+        name: str,
+        *,
+        expected_uid: Optional[str] = None,
+        timeout_s: float = 60,
+        interval_s: float = 1,
+    ) -> None:
+        if expected_uid is not None:
+            self._delete_service_incarnation(
+                name,
+                expected_uid=expected_uid,
+                timeout_s=timeout_s,
+                interval_s=interval_s,
+            )
+            return
         import requests  # type: ignore[import-untyped]
 
         r = requests.delete(f"{self._base}/services/{name}", headers=self._headers(), timeout=60)
         # Idempotent teardown: an already-gone service is success.
         if r.status_code not in (200, 404):
             r.raise_for_status()
+
+    def _delete_service_incarnation(
+        self,
+        name: str,
+        *,
+        expected_uid: str,
+        timeout_s: float,
+        interval_s: float,
+    ) -> None:
+        """Delete only the recorded incarnation and verify absence before return.
+
+        v2 exposes the etag deletion precondition. Matching UID before DELETE and
+        sending that version's etag prevents a replacement between GET and DELETE
+        from inheriting the deletion. Polling never issues another DELETE.
+        """
+        import requests  # type: ignore[import-untyped]
+
+        if (
+            not isinstance(name, str)
+            or not name
+            or any(c not in "abcdefghijklmnopqrstuvwxyz0123456789-" for c in name)
+            or not isinstance(expected_uid, str)
+            or not expected_uid.strip()
+            or isinstance(timeout_s, bool)
+            or not isinstance(timeout_s, (float, int))
+            or not math.isfinite(timeout_s)
+            or isinstance(interval_s, bool)
+            or not isinstance(interval_s, (float, int))
+            or not math.isfinite(interval_s)
+            or timeout_s <= 0
+            or interval_s < 0
+        ):
+            raise ValueError("A valid service incarnation and deadline are required")
+        url = (
+            f"https://run.googleapis.com/v2/projects/{self._project}"
+            f"/locations/{self._region}/services/{name}"
+        )
+        deadline = time.monotonic() + timeout_s
+
+        def remaining() -> float:
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                raise RuntimeError("Cloud Run incarnation deletion remains incomplete")
+            return min(30, budget)
+
+        def observe() -> Optional[dict[str, Any]]:
+            headers = self._headers()
+            response = requests.get(
+                url, headers=headers, timeout=remaining(), allow_redirects=False
+            )
+            remaining()
+            if response.status_code == 404:
+                return None
+            if response.status_code != 200:
+                raise RuntimeError("Cloud Run incarnation observation unavailable")
+            value = response.json()
+            if not isinstance(value, dict) or value.get("uid") != expected_uid:
+                raise RuntimeError("Cloud Run service incarnation changed")
+            return value
+
+        before = observe()
+        if before is None:
+            return
+        etag = before.get("etag")
+        if not isinstance(etag, str) or not etag.strip():
+            raise RuntimeError("Cloud Run deletion precondition unavailable")
+        headers = self._headers()
+        response = requests.delete(
+            url,
+            headers=headers,
+            params={"etag": etag},
+            timeout=remaining(),
+            allow_redirects=False,
+        )
+        if response.status_code not in (200, 404):
+            raise RuntimeError("Cloud Run incarnation deletion not accepted")
+        while True:
+            if observe() is None:
+                return
+            if time.monotonic() >= deadline:
+                raise RuntimeError("Cloud Run incarnation deletion remains incomplete")
+            time.sleep(min(interval_s, max(0, deadline - time.monotonic())))
 
     def wait_ready(
         self, name: str, *, timeout_s: float = 150.0, interval_s: float = 3.0
