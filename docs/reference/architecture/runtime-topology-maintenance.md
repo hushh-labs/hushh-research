@@ -97,6 +97,12 @@ on both supported hosts. Platform-specific procedures and imported bundles still
 need explicit classification before migration; an inventory is not proof they
 are unused.
 
+C7/C8 distinguish hash-verified classifications from unclassified or changed
+resources. Pending imported-resource review remains an explicit `review_debt`
+result and still makes the full `--strict` audit nonzero. A classified host
+adapter is not an ungoverned duplicate, and an unchanged imported agent is not
+an authored engineering lane. Skill lint retains the structural ratchet.
+
 Persist a sanitized revision-bound report and compare it with the prior run.
 Preserve failed and unverified results, then correct one independently reversible
 boundary at a time. New model evaluations use the same contract fixtures and

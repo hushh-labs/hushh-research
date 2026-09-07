@@ -55,9 +55,9 @@ ENFORCEMENT = {
     ),
     "Project-Wide Runtime Telemetry Default & Chat Session Naming": ("asserted", "No automated enforcement."),
     "Project-Wide Agent Architecture Doctrine": (
-        "asserted",
-        "Nine principles, none gated. This is the section that drifted from ARCHITECTURE.md "
-        "sec 7a for eight days without any check noticing.",
+        "partial",
+        "Generated contracts and runtime tests enforce individual boundaries; no single "
+        "gate proves the entire doctrine or its deployment-specific implementation.",
     ),
     "Project-Wide Premise Verification Gate": (
         "partial",
@@ -66,8 +66,8 @@ ENFORCEMENT = {
     "Canonical skill center": (
         "mechanical",
         "Strongest section. sync_claude_agents.py --check verifies agent mirrors byte-for-byte; "
-        "skill_lint.py validates skill.json and required SKILL.md sections. Gap: nothing "
-        "verified bridge bodies until check C1 below.",
+        "skill_lint.py validates skill.json, required SKILL.md sections, bridge bodies and "
+        "pinned host/import classifications. Pending import review remains separate debt.",
     ),
     "Project-Wide Routing Gate": (
         "partial",
@@ -85,8 +85,9 @@ ENFORCEMENT = {
         "string-checked by truth_first_smoke.py and skill_lint.py; neither proves runtime conduct.",
     ),
     "Project-Wide BYOK Reviewer Browser Gate": (
-        "asserted",
-        "reviewer-app-testing-check.sh exists but no gate invokes it.",
+        "partial",
+        "reviewer-app-testing-check.sh is required by reviewer-app-rehearsal; "
+        "a routed check is not universal CI or proof of each browser session's conduct.",
     ),
     "Project-Wide Branch Discipline Gate (HARD RULE)": (
         "asserted",
@@ -94,7 +95,8 @@ ENFORCEMENT = {
     ),
     "Project-Wide Commit Attribution Gate (HARD RULE)": (
         "partial",
-        "No CI check scans commit messages. Sole control is the settings flag -- see C4.",
+        "check-dco-signoff.sh verifies commit signoffs in CI and the local release gate. "
+        "The separate agent-attribution policy relies on host settings -- see C4.",
     ),
 }
 
@@ -190,6 +192,9 @@ def classification_findings(root: Path) -> list[str]:
         if expected_agents.get(key) != hashlib.sha256(path.read_bytes()).hexdigest():
             findings.append(f"{key}: unclassified or changed imported agent resource")
     findings.extend(f"{key}: stale imported agent classification" for key in expected_agents.keys() - nested.keys())
+    for host in (".claude", ".codex"):
+        for path in sorted((root / host / "agents").rglob("*.toml")):
+            findings.append(f"{path.relative_to(root)}: unclassified host-local engineering agent")
 
     return findings
 
@@ -200,30 +205,27 @@ def c1_bridges_point_at_canonical() -> None:
            "; ".join(offenders) if offenders else "Existing canonical twins match on both hosts; absent discovery bridges are not covered.")
 
 
-def c7_platform_authored_inventory() -> None:
-    """Expose ungoverned bodies and nested agent definitions; never call them dead code."""
-    candidates = []
-    for host in (".claude", ".codex"):
-        for skill in sorted((REPO_ROOT / host / "skills").glob("*/SKILL.md")):
-            if (skill.parent / "skill.json").is_file():
-                continue  # governed owner/spoke behavior intentionally stays in .codex
-            if (REPO_ROOT / "skills" / skill.parent.name / "SKILL.md").is_file():
-                continue
-            text = skill.read_text(encoding="utf-8")
-            front = re.match(r"\A---\n(.*?)\n---(?:\n|$)", text, re.S)
-            body = text[front.end():].strip() if front else text
-            if len(body.splitlines()) > 20:
-                candidates.append(str(skill.relative_to(REPO_ROOT)))
-    record("C7 platform-authored skill review", not candidates,
-           "Review host adapters/imported resources versus portable behavior: " + ", ".join(candidates)
-           if candidates else "No substantial ungoverned platform skill bodies found.")
-    nested = [str(p.relative_to(REPO_ROOT)) for host in (".claude", ".codex")
-              for folder in ("agents", "skills")
-              for p in sorted((REPO_ROOT / host / folder).rglob("*.toml"))
-              if "agents" in p.relative_to(REPO_ROOT / host).parts]
-    record("C8 platform-authored agent review", not nested,
-           "Classify imported resources or migrate authored lanes: " + ", ".join(nested)
-           if nested else "No platform-local TOML agent definitions found.")
+def c7_platform_authored_inventory(root: Path | None = None) -> None:
+    """Separate classified resources and pending review from structural drift."""
+    root = root or REPO_ROOT
+    path = root / SOURCE_INVENTORY
+    inventory = json.loads(path.read_text()) if path.exists() else {}
+    sources = inventory.get("sources", {})
+    findings = classification_findings(root)
+    agents = [item for item in findings if item.split(": ", 1)[0].endswith(".toml")]
+    skills = [item for item in findings if item not in agents]
+    record("C7 platform-authored skill review", not skills,
+           "; ".join(skills) if skills else
+           f"{len(sources)} pinned platform sources match their classifications; this does not approve imported execution.")
+    record("C8 platform-authored agent review", not agents,
+           "; ".join(agents) if agents else
+           f"{len(inventory.get('imported_agents', {}))} pinned imported agent resources retained outside the authored fleet.")
+    pending = [f"{key}: {entry['classification']}" for key, entry in sorted(sources.items())
+               if "_pending_" in entry.get("classification", "")]
+    if pending:
+        record("C7 classified platform review debt", False,
+               "; ".join(pending) + f". Retain the recorded disposition in {SOURCE_INVENTORY}; classification is not completion.",
+               "review_debt")
 
 
 def c2_canonical_frontmatter() -> None:
@@ -263,7 +265,7 @@ def c3_agent_mirrors_have_authored_source() -> None:
 
 
 def c4_commit_attribution_control() -> None:
-    """The Commit Attribution HARD RULE's only control is a settings flag."""
+    """Inspect the host attribution flag separately from the DCO signoff gate."""
     settings = REPO_ROOT / ".claude" / "settings.json"
     if not settings.is_file():
         record("C4 commit attribution control present", False, "settings.json absent.", "risk")
@@ -276,14 +278,14 @@ def c4_commit_attribution_control() -> None:
     record(
         "C4 commit attribution control present",
         val is False,
-        f"includeCoAuthoredBy={val!r}. No CI check scans commit messages — this flag is the "
-        "entire control for a HARD RULE.",
+        f"includeCoAuthoredBy={val!r}. This host setting controls automatic agent attribution; "
+        "the separate DCO gate checks commit signoffs, not this attribution policy.",
         "risk",
     )
 
 
 def c5_orchestrate_stages_reachable() -> None:
-    """Which orchestrate.sh stages does CI actually invoke? Unreached stages are dead gates."""
+    """Find direct CI stage calls; absent literals require indirect-caller review."""
     orch = REPO_ROOT / "scripts" / "ci" / "orchestrate.sh"
     wf_dir = REPO_ROOT / ".github" / "workflows"
     if not orch.is_file() or not wf_dir.is_dir():
@@ -390,6 +392,45 @@ def self_test() -> int:
         imported.parent.mkdir(parents=True)
         imported.write_text('name = "unexpected"')
         assert any("unclassified.toml" in x for x in classification_findings(root))
+    with tempfile.TemporaryDirectory() as directory:
+        root = Path(directory)
+        adapter = root / ".claude/skills/adapter/SKILL.md"
+        adapter.parent.mkdir(parents=True)
+        adapter.write_text("Host procedure\n" * 30)
+        imported = root / ".claude/skills/bundle/agents/worker.toml"
+        imported.parent.mkdir(parents=True)
+        imported.write_text('name = "imported-resource"')
+        bundle = imported.parents[1] / "SKILL.md"
+        bundle.write_text("Imported procedure\n" * 30)
+        payload = {"sources": {
+            adapter.relative_to(root).as_posix(): {
+                "classification": "host_adapter", "sha256": hashlib.sha256(adapter.read_bytes()).hexdigest()},
+            bundle.relative_to(root).as_posix(): {
+                "classification": "imported_dependency_pending_review", "sha256": hashlib.sha256(bundle.read_bytes()).hexdigest()},
+        }, "imported_agents": {
+            imported.relative_to(root).as_posix(): hashlib.sha256(imported.read_bytes()).hexdigest()}}
+        inventory = root / SOURCE_INVENTORY
+        inventory.parent.mkdir(parents=True)
+        inventory.write_text(json.dumps(payload))
+        assert classification_findings(root) == []
+        RESULTS.clear()
+        c7_platform_authored_inventory(root)
+        assert all(r["ok"] for r in RESULTS if r["severity"] == "finding")
+        debt = [r for r in RESULTS if r["severity"] == "review_debt"]
+        assert len(debt) == 1 and not debt[0]["ok"]
+        assert "bundle/SKILL.md" in debt[0]["detail"]
+        assert "adapter/SKILL.md" not in debt[0]["detail"]
+        imported.write_text('name = "changed-resource"')
+        assert any("worker.toml" in x and "changed" in x for x in classification_findings(root))
+        rogue = root / ".codex/skills/new/SKILL.md"
+        rogue.parent.mkdir(parents=True)
+        rogue.write_text("Short unclassified behavior")
+        assert any("new/SKILL.md" in x and "unclassified" in x for x in classification_findings(root))
+        local_agent = root / ".claude/agents/rogue.toml"
+        local_agent.parent.mkdir(parents=True)
+        local_agent.write_text('name = "second-authored-copy"')
+        assert any("host-local engineering" in x for x in classification_findings(root))
+        RESULTS.clear()
     print("Portable bridge regression checks passed (both hosts, metadata, target, procedure, malformed source).")
     return 0
 
@@ -443,7 +484,7 @@ def main() -> int:
         print("The curated enforcement map is review context; live checks below provide structural evidence.\n")
         print("-- Live structural checks --\n")
         for r in RESULTS:
-            mark = "PASS" if r["ok"] else ("RISK" if r["severity"] == "risk" else "FAIL")
+            mark = "PASS" if r["ok"] else {"risk": "RISK", "review_debt": "REVIEW"}.get(r["severity"], "FAIL")
             print(f"[{mark}] {r['check']}\n       {r['detail']}\n")
 
     failed = [r for r in RESULTS if not r["ok"]]
