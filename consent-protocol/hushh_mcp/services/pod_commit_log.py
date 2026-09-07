@@ -479,6 +479,19 @@ class PodCommitLog:
         raw, _ = await self._store.get_with_generation(self.HEAD)
         self._read_head(raw)
 
+    async def require_fenced(self, *, owner_id: str, attempt_id: str) -> None:
+        """Verify an existing authenticated fence without exposing prior history."""
+        if (
+            not self._valid_identity(owner_id)
+            or owner_id != self._owner_id
+            or not self._valid_identity(attempt_id)
+        ):
+            raise PodLogFenced("log erasure authority unavailable")
+        raw, _ = await self._store.get_with_generation(self.HEAD)
+        fence = self._read_fence(raw) if raw is not None else None
+        if fence is None or fence["attempt_id"] != attempt_id:
+            raise PodLogFenced("log erasure fence does not match")
+
     async def fence_for_erasure(self, *, owner_id: str, attempt_id: str) -> None:
         """Close committed appends and ordinary replay on the existing head CAS.
 

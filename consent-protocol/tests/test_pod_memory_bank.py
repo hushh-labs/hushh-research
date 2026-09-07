@@ -1430,3 +1430,287 @@ async def test_busy_provider_preserves_second_composite_turn_in_durable_log(tmp_
     response = await rebuilt.search_memory(app_name="one", user_id="ha1_test", query="sailboat")
     assert [m.content.parts[0].text for m in response.memories] == ["synthetic sailboat fact"]
     assert len(http.posts) == 1
+
+
+class _ErasureHttp(_RestHttp):
+    created_at = "2026-09-01T00:00:00Z"
+    deletion_name = "projects/123/locations/us-central1/reasoningEngines/91/operations/delete-1"
+
+    def __init__(self):
+        super().__init__()
+        self.present = True
+        self.deletes = []
+        self.gets = []
+        self.completion = {"name": self.deletion_name, "done": True, "response": {}}
+
+    def get(self, url, **kwargs):
+        self.gets.append(url)
+        assert kwargs["allow_redirects"] is False
+        if "/operations/delete-1" in url:
+            return _Resp(200, self.completion)
+        if "/operations/" in url:
+            return super().get(url, **kwargs)
+        if not self.present:
+            return _Resp(404)
+        return _Resp(
+            200,
+            {
+                "name": "projects/123/locations/us-central1/reasoningEngines/91",
+                "createTime": self.created_at,
+            },
+        )
+
+    def delete(self, url, **kwargs):
+        assert kwargs["params"] == {"force": "true"}
+        assert "json" not in kwargs and "data" not in kwargs
+        assert kwargs["allow_redirects"] is False and kwargs["timeout"] == 30
+        self.deletes.append(url)
+        self.present = False
+        return _Resp(200, {"name": self.deletion_name})
+
+
+async def _erasure_log(store, *, fenced=True):
+    from hushh_mcp.services.pod_commit_log import PodCommitLog
+
+    log = PodCommitLog(store, b"k" * 32, owner_id="ha1_test")
+    if fenced:
+        await log.fence_for_erasure(owner_id="ha1_test", attempt_id="erase-attempt")
+    return log
+
+
+async def _erase(client, log, **changes):
+    return await client.reconcile_memory_bank_erasure(
+        **{
+            "log": log,
+            "user_id": "ha1_test",
+            "attempt_id": "erase-attempt",
+            "incarnation_id": "synthetic-incarnation",
+            "expected_engine_create_time": _ErasureHttp.created_at,
+            **changes,
+        }
+    )
+
+
+async def test_bank_erasure_survives_restart_without_recreating_or_reopening(monkeypatch):
+    _configure(monkeypatch, GOOGLE_CLOUD_PROJECT="p")
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    client = _tracked_service(store, http)
+    with pytest.raises(mb.MemoryBankErasurePending):
+        await _erase(client, log)
+    state = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["erasure"]
+    assert state["providerProject"] == "123"
+    assert state["operation"].startswith("projects/p/")
+    restarted = mb.build_rest_memory_bank_service(
+        _cfg(), "91", store=store, is_current=lambda: False, session=http, token=_Token()
+    )
+    assert await _erase(restarted, log) == {"status": "provider_deleted"}
+    calls = len(http.gets)
+    assert await _erase(restarted, log) == {"status": "provider_deleted"}
+    assert len(http.gets) == calls and len(http.deletes) == 1
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *a, **k: pytest.fail("recreated"))
+    assert await mb.ensure_memory_bank(store=store) is None
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await client.search_memory(app_name="one", user_id="ha1_test", query="deleted")
+    from hushh_mcp.services.pod_commit_log import PodLogFenced
+
+    with pytest.raises(PodLogFenced):
+        await log.replay()
+    assert len(http.gets) == calls and http.posts == []
+
+
+@pytest.mark.parametrize("boundary", ["foreign_owner", "wrong_attempt", "open_log"])
+async def test_bank_erasure_refuses_before_provider_access(boundary):
+    from hushh_mcp.services.pod_commit_log import PodLogFenced
+
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store, fenced=boundary != "open_log")
+    changes = (
+        {"user_id": "foreign"}
+        if boundary == "foreign_owner"
+        else ({"attempt_id": "wrong"} if boundary == "wrong_attempt" else {})
+    )
+    with pytest.raises((mb.MemoryBankUnavailable, PodLogFenced)):
+        await _erase(_tracked_service(store, http), log, **changes)
+    assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("failure", ["cas_loss", "readback_failure"])
+async def test_bank_erasure_reservation_must_be_confirmed_before_provider(failure):
+    class Store(_Store):
+        async def put_if_generation(self, key, data, expected):
+            if key == mb.MEMORY_BANK_RECORD_KEY:
+                if failure == "cas_loss":
+                    return None
+                await super().put_if_generation(key, data, expected)
+                raise OSError("synthetic-private-storage-error")
+            return await super().put_if_generation(key, data, expected)
+
+    store, http = Store(), _ErasureHttp()
+    store.objects.update(_ready_store().objects)
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankUnavailable) as error:
+        await _erase(_tracked_service(store, http), log)
+    assert "synthetic-private-storage-error" not in str(error.value)
+    assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("field", ["incarnation_id", "expected_engine_create_time"])
+async def test_bank_erasure_retry_cannot_change_its_captured_binding(field):
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankErasurePending):
+        await _erase(_tracked_service(store, http), log)
+    gets = len(http.gets)
+    with pytest.raises(mb.MemoryBankUnavailable, match="incarnation mismatch"):
+        await _erase(_tracked_service(store, http), log, **{field: "replacement"})
+    assert len(http.gets) == gets and len(http.deletes) == 1
+
+
+async def test_bank_erasure_requires_observed_engine_incarnation():
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankUnavailable, match="incarnation not observed"):
+        await _erase(_tracked_service(store, http), log, expected_engine_create_time="replacement")
+    assert http.deletes == []
+
+
+async def test_lost_bank_delete_acknowledgement_never_repeats_destructive_request():
+    class Lost(_ErasureHttp):
+        def delete(self, *args, **kwargs):
+            super().delete(*args, **kwargs)
+            raise TimeoutError("synthetic-provider-secret")
+
+    store, http = _ready_store(), Lost()
+    log = await _erasure_log(store)
+    for _ in range(2):
+        with pytest.raises(mb.MemoryBankErasurePending):
+            await _erase(_tracked_service(store, http), log)
+        # A resource with the same path may now be a replacement. Never delete it.
+        http.present = True
+    assert len(http.deletes) == 1
+    assert (
+        json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["erasure"]["phase"]
+        == "delete_submitting"
+    )
+
+
+@pytest.mark.parametrize(
+    "completion",
+    [
+        {
+            "name": "projects/123/locations/us-central1/operations/foreign",
+            "done": True,
+            "response": {},
+        },
+        {"done": True, "response": {}},
+        {"done": True, "error": {"code": 7, "message": "synthetic-private-denial"}},
+        {"done": True, "response": {"unexpected": True}},
+        {"done": "true", "response": {}},
+    ],
+)
+async def test_unverified_bank_delete_completion_retains_fenced_pending_state(completion):
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankErasurePending):
+        await _erase(_tracked_service(store, http), log)
+    http.completion = {"name": http.deletion_name, **completion}
+    if (
+        "name" not in completion
+        and "error" not in completion
+        and completion.get("response") == {}
+        and completion.get("done") is True
+    ):
+        http.completion.pop("name")
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _erase(_tracked_service(store, http), log)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing" and record["erasure"]["phase"] == "delete_pending"
+    assert len(http.deletes) == 1
+
+
+async def test_erasure_retains_late_generation_ack_without_reopening():
+    import asyncio
+
+    store = _ready_store()
+    log = await _erasure_log(store)
+    loop = asyncio.get_running_loop()
+
+    class DuringGeneration(_ErasureHttp):
+        def post(self, *args, **kwargs):
+            async def start_erasure():
+                with pytest.raises(mb.MemoryBankErasurePending, match="generation acknowledgement"):
+                    await _erase(_tracked_service(store, self), log)
+
+            asyncio.run_coroutine_threadsafe(start_erasure(), loop).result(timeout=5)
+            return _Resp(
+                200,
+                {
+                    "name": "projects/p/locations/us-central1/operations/1",
+                    "done": True,
+                    "response": {},
+                },
+            )
+
+    http = DuringGeneration()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("synthetic fact"))
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing" and record["generationOperation"]["phase"] == "pending"
+    assert http.deletes == []
+    with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
+        await _erase(_tracked_service(store, http), log)
+    assert len(http.deletes) == 1 and _slot(store) is None
+
+
+async def test_erasure_fence_storage_failure_is_sanitized_before_provider():
+    import traceback
+
+    class Store(_Store):
+        async def get_with_generation(self, key):
+            raise PermissionError("synthetic-private-custody-path")
+
+    store, http = Store(), _ErasureHttp()
+    log = await _erasure_log(store, fenced=False)
+    with pytest.raises(mb.MemoryBankUnavailable) as error:
+        await _erase(_tracked_service(store, http), log)
+    assert "synthetic-private-custody-path" not in "".join(traceback.format_exception(error.value))
+    assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("status", [None, "ready", "creating"])
+async def test_mixed_erasure_record_never_initializes_or_reaches_provider(monkeypatch, status):
+    _configure(monkeypatch, GOOGLE_CLOUD_PROJECT="p")
+    store, http = _ready_store(), _ErasureHttp()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record["erasure"] = {"phase": "waiting"}
+    if status is not None:
+        record.update(status=status, generationProtocol=1)
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("provider reached")
+    )
+    assert await mb.ensure_memory_bank(store=store) is None
+    client = _tracked_service(store, http)
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await client.add_session_to_memory(_rest_session("synthetic fact"))
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert http.gets == [] and http.posts == []
+
+
+async def test_unacknowledged_generation_keeps_erasure_pending_after_restart():
+    store, http = _ready_store(), _ErasureHttp()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record.update(
+        status="ready",
+        generationProtocol=1,
+        generationOperation={"attempt": "a" * 32, "phase": "submitting"},
+    )
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    log = await _erasure_log(store)
+    for _ in range(2):
+        with pytest.raises(mb.MemoryBankErasurePending, match="generation acknowledgement"):
+            await _erase(_tracked_service(store, http), log)
+    assert _slot(store)["phase"] == "submitting"
+    assert http.gets == [] and http.deletes == []

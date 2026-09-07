@@ -29,8 +29,9 @@ before attempting the bank. Busy or unavailable generation falls back to that lo
 there is no automatic backfill of turns skipped by the bank.
 
 External erasure is not complete. The bootstrap token cannot delete the engine;
-account deletion therefore refuses an unverified external-resource cascade. A
-pod-side erase step and durable lifecycle fence must precede deprovisioning.
+account deletion therefore refuses an unverified external-resource cascade. The
+internal erasure reconciler below retains provider retry state behind the log fence;
+trusted lifecycle admission and complete receipts must precede deprovisioning.
 Creation intents below prevent blind retries after an uncertain provider response;
 they are not an erasure fence or a provider-health receipt.
 """
@@ -66,6 +67,10 @@ class MemoryBankCreationPending(MemoryBankUnavailable):
 
 class MemoryBankGenerationPending(MemoryBankUnavailable):
     """An earlier provider mutation has not established terminal completion."""
+
+
+class MemoryBankErasurePending(MemoryBankUnavailable):
+    """Erasure remains fenced until provider completion can be established."""
 
 
 @dataclass(frozen=True)
@@ -349,6 +354,8 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     expected = {"project": cfg.project, "location": cfg.location, "displayName": cfg.display_name}
     if not isinstance(record, dict) or any(record.get(k) != v for k, v in expected.items()):
         raise MemoryBankUnavailable("memory record owner or project mismatch")
+    if "erasure" in record:
+        raise MemoryBankUnavailable("memory record is fenced for erasure")
     if "status" not in record and (
         "generationProtocol" in record or "generationOperation" in record
     ):
@@ -399,6 +406,64 @@ def _generation_slot(record: dict[str, Any]) -> Optional[dict[str, Any]]:
     return slot
 
 
+def _erasure_state(record: dict[str, Any], cfg: MemoryBankConfig, engine_id: str) -> dict[str, Any]:
+    """Validate lifecycle metadata without admitting ordinary memory operations."""
+    state = record.get("erasure")
+    if (
+        record.get("status") not in {"erasing", "provider_deleted"}
+        or not isinstance(state, dict)
+        or set(state)
+        - {
+            "version",
+            "ownerId",
+            "attemptId",
+            "incarnationId",
+            "engineCreateTime",
+            "phase",
+            "providerProject",
+            "operation",
+        }
+        or type(state.get("version")) is not int
+        or state["version"] != 1
+        or state.get("ownerId") != cfg.display_name.removeprefix(_DISPLAY_PREFIX)
+        or any(
+            not isinstance(state.get(key), str)
+            or not 0 < len(state[key]) <= 256
+            or state[key] != state[key].strip()
+            or any(ord(c) < 32 or ord(c) == 127 for c in state[key])
+            for key in ("attemptId", "incarnationId", "engineCreateTime")
+        )
+        or state.get("phase")
+        not in {"waiting", "delete_submitting", "delete_pending", "provider_deleted"}
+        or (record["status"] == "provider_deleted") != (state["phase"] == "provider_deleted")
+        or ("providerProject" in state and not _resource_segment(state["providerProject"]))
+        or (state["phase"] != "waiting" and "providerProject" not in state)
+        or (state["phase"] in {"delete_pending", "provider_deleted"}) != ("operation" in state)
+    ):
+        raise MemoryBankUnavailable("invalid memory erasure record")
+    ready_fields = {key: value for key, value in record.items() if key != "erasure"}
+    if _decode_record(json.dumps({**ready_fields, "status": "ready"}), cfg) != engine_id:
+        raise MemoryBankUnavailable("memory erasure binding mismatch")
+    if state["phase"] != "waiting" and _generation_slot(record) is not None:
+        raise MemoryBankUnavailable("memory erasure has an unresolved mutation")
+    return state
+
+
+async def _persist_record(store: Any, record: dict[str, Any], generation: int) -> int:
+    payload = json.dumps(record, sort_keys=True).encode()
+    updated = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, generation)
+    observed, observed_generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+    if (
+        type(updated) is not int
+        or updated <= 0
+        or type(observed_generation) is not int
+        or observed != payload
+        or observed_generation != updated
+    ):
+        raise MemoryBankUnavailable("memory record persistence unconfirmed")
+    return updated
+
+
 async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
     payload = json.dumps(
         {
@@ -410,7 +475,11 @@ async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
         }
     ).encode()
     generation = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, 0)
-    if generation is None or await store.get(MEMORY_BANK_RECORD_KEY) != payload:
+    if (
+        type(generation) is not int
+        or generation <= 0
+        or await store.get(MEMORY_BANK_RECORD_KEY) != payload
+    ):
         raise MemoryBankUnavailable("creation reservation not confirmed")
     return generation
 
@@ -665,13 +734,216 @@ def build_rest_memory_bank_service(
         async def _save_state(self, record: dict[str, Any], generation: int) -> int:
             if not is_current():
                 raise MemoryBankUnavailable("memory generation admission changed")
-            payload = json.dumps(record, sort_keys=True).encode()
-            updated = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, generation)
-            if updated is None or await store.get(MEMORY_BANK_RECORD_KEY) != payload:
-                raise MemoryBankUnavailable("memory generation persistence unconfirmed")
+            updated = await _persist_record(store, record, generation)
             if not is_current():
                 raise MemoryBankUnavailable("memory generation admission changed")
             return updated
+
+        async def _save_generation_acknowledgement(
+            self, record: dict[str, Any], generation: int
+        ) -> int:
+            try:
+                return await self._save_state(record, generation)
+            except MemoryBankUnavailable:
+                # Erasure can win the CAS while an admitted generation POST is
+                # returning. Retain only its exact acknowledgement, never reopen
+                # the record or submit new work through an invalidated client.
+                raw, current_generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+                current = json.loads(raw)
+                state = _erasure_state(current, cfg, engine_id)
+                previous, incoming = _generation_slot(current), _generation_slot(record)
+                if (
+                    state["phase"] != "waiting"
+                    or previous is None
+                    or incoming is None
+                    or previous["attempt"] != incoming["attempt"]
+                    or incoming["phase"] != "pending"
+                    or (previous["phase"] == "pending" and previous != incoming)
+                ):
+                    raise MemoryBankUnavailable("memory acknowledgement binding changed") from None
+                return await _persist_record(
+                    store, {**current, "generationOperation": incoming}, current_generation
+                )
+
+        def _erasure_engine_observation(self) -> Optional[dict[str, Any]]:
+            try:
+                response = http.get(engine, headers=_headers(), timeout=30, allow_redirects=False)
+            except Exception:  # noqa: BLE001
+                raise MemoryBankUnavailable("memory erasure observation unavailable") from None
+            if response.status_code == 404:
+                return None
+            if response.status_code != 200:
+                raise MemoryBankUnavailable(_api_error(response))
+            body = _json_object(response)
+            name = body.get("name")
+            parts = name.split("/") if isinstance(name, str) else []
+            if (
+                "error" in body
+                or len(parts) != 6
+                or parts[0] != "projects"
+                or not _resource_segment(parts[1])
+                or parts[2:] != ["locations", cfg.location, "reasoningEngines", engine_id]
+            ):
+                raise MemoryBankUnavailable("memory erasure engine identity unavailable")
+            return body
+
+        def _delete_engine(self) -> dict[str, Any]:
+            try:
+                response = http.delete(
+                    engine,
+                    params={"force": "true"},
+                    headers=_headers(),
+                    timeout=30,
+                    allow_redirects=False,
+                )
+            except Exception:  # noqa: BLE001
+                raise MemoryBankErasurePending(
+                    "memory deletion acknowledgement unresolved"
+                ) from None
+            if response.status_code != 200:
+                raise MemoryBankErasurePending("memory deletion acknowledgement unavailable")
+            return _json_object(response)
+
+        async def reconcile_memory_bank_erasure(
+            self,
+            *,
+            log: Any,
+            user_id: str,
+            attempt_id: str,
+            incarnation_id: str,
+            expected_engine_create_time: str,
+        ) -> dict[str, str]:
+            """Internal provider reconciliation; not account-erasure completion.
+
+            The trusted lifecycle caller owns consent and registry/replacement
+            fencing. Google DELETE has no incarnation precondition: createTime
+            equality is an observation only. Public teardown remains disabled.
+            This method uses the captured store even after ordinary resolution
+            is invalidated; every retry verifies its irreversible record binding.
+            """
+            require_owner(user_id)
+            try:
+                await log.require_fenced(owner_id=user_id, attempt_id=attempt_id)
+                return await self._reconcile_erasure(
+                    log=log,
+                    user_id=user_id,
+                    attempt_id=attempt_id,
+                    incarnation_id=incarnation_id,
+                    expected_engine_create_time=expected_engine_create_time,
+                )
+            except MemoryBankUnavailable:
+                raise
+            except Exception:  # noqa: BLE001 - storage/provider details stay private
+                raise MemoryBankUnavailable("memory erasure reconciliation unavailable") from None
+
+        async def _reconcile_erasure(
+            self,
+            *,
+            log: Any,
+            user_id: str,
+            attempt_id: str,
+            incarnation_id: str,
+            expected_engine_create_time: str,
+        ) -> dict[str, str]:
+            expected = {
+                "version": 1,
+                "ownerId": user_id,
+                "attemptId": attempt_id,
+                "incarnationId": incarnation_id,
+                "engineCreateTime": expected_engine_create_time,
+            }
+            raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+            record = json.loads(raw)
+            if record.get("status") not in {"erasing", "provider_deleted"}:
+                if _decode_record(raw, cfg) != engine_id:
+                    raise MemoryBankUnavailable("memory erasure binding mismatch")
+                record = {
+                    **record,
+                    "status": "erasing",
+                    "generationProtocol": 1,
+                    "erasure": {**expected, "phase": "waiting"},
+                }
+                _erasure_state(record, cfg, engine_id)
+                generation = await _persist_record(store, record, generation)
+            state = _erasure_state(record, cfg, engine_id)
+            if any(state.get(key) != value for key, value in expected.items()):
+                raise MemoryBankUnavailable("memory erasure attempt or incarnation mismatch")
+            if "operation" in state:
+                self._provider_project = state["providerProject"]
+                self._operation_path(state["operation"])
+            if state["phase"] == "provider_deleted":
+                return {"status": "provider_deleted"}
+            # Recheck before credentials or provider information access. No
+            # timeout clears unresolved submission slots or reverses this fence.
+            await log.require_fenced(owner_id=user_id, attempt_id=attempt_id)
+            if state["phase"] == "delete_submitting":
+                raise MemoryBankErasurePending("memory deletion acknowledgement unresolved")
+            if state["phase"] == "waiting":
+                slot = _generation_slot(record)
+                if slot is not None and slot["phase"] == "submitting":
+                    raise MemoryBankErasurePending("memory generation acknowledgement unresolved")
+                body = await asyncio.to_thread(self._erasure_engine_observation)
+                if body is None or body.get("createTime") != expected_engine_create_time:
+                    raise MemoryBankUnavailable("memory erasure incarnation not observed")
+                provider_project = body["name"].split("/")[1]
+                if "providerProject" in state and state["providerProject"] != provider_project:
+                    raise MemoryBankUnavailable("memory provider project binding changed")
+                self._provider_project = provider_project
+                state = {**state, "providerProject": provider_project}
+                record = {**record, "erasure": state}
+                generation = await _persist_record(store, record, generation)
+                if slot is not None:
+                    operation = self._operation_path(slot["operation"])
+                    payload = await asyncio.to_thread(self._get, operation)
+                    if self._operation_path(payload.get("name")) != operation:
+                        raise MemoryBankUnavailable("memory generation response mismatch")
+                    if payload.get("done") is not True:
+                        raise MemoryBankErasurePending("memory generation still pending")
+                    if "error" in payload:
+                        error = payload["error"]
+                        if (
+                            not isinstance(error, dict)
+                            or type(error.get("code")) is not int
+                            or not 1 <= error["code"] <= 16
+                            or "response" in payload
+                        ):
+                            raise MemoryBankUnavailable("memory generation result invalid")
+                    elif not isinstance(payload.get("response"), dict):
+                        raise MemoryBankUnavailable("memory generation result unavailable")
+                    record = {**record, "generationOperation": None}
+                state = {**state, "phase": "delete_submitting"}
+                record = {**record, "erasure": state}
+                generation = await _persist_record(store, record, generation)
+                await log.require_fenced(owner_id=user_id, attempt_id=attempt_id)
+                payload = await asyncio.to_thread(self._delete_engine)
+                operation = self._operation_path(payload.get("name"))
+                state = {**state, "phase": "delete_pending", "operation": operation}
+                record = {**record, "erasure": state}
+                generation = await _persist_record(store, record, generation)
+            else:
+                # Persisted alias came from the configured engine's authenticated
+                # GET. A deleted engine cannot supply it again after restart.
+                self._provider_project = state["providerProject"]
+                operation = self._operation_path(state["operation"])
+                payload = await asyncio.to_thread(self._get, operation)
+                if self._operation_path(payload.get("name")) != operation:
+                    raise MemoryBankUnavailable("memory deletion response mismatch")
+            if payload.get("done") is not True:
+                raise MemoryBankErasurePending("memory deletion still pending")
+            if "error" in payload or payload.get("response") not in (
+                {},
+                {"@type": "type.googleapis.com/google.protobuf.Empty"},
+            ):
+                raise MemoryBankUnavailable("memory deletion completion unverified")
+            if await asyncio.to_thread(self._erasure_engine_observation) is not None:
+                raise MemoryBankErasurePending("memory engine absence unconfirmed")
+            record = {
+                **record,
+                "status": "provider_deleted",
+                "erasure": {**state, "phase": "provider_deleted"},
+            }
+            await _persist_record(store, record, generation)
+            return {"status": "provider_deleted"}
 
         async def _finish_operation(
             self, record: dict[str, Any], generation: int, payload: dict[str, Any]
@@ -733,8 +1005,9 @@ def build_rest_memory_bank_service(
                     "operation": operation,
                 },
             }
-            generation = await self._save_state(record, generation)
+            generation = await self._save_generation_acknowledgement(record, generation)
             if payload.get("done") is True:
+                await require_record()
                 await self._finish_operation(record, generation, payload)
 
         async def add_session_to_memory(self, session: Any) -> None:

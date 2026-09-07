@@ -607,7 +607,7 @@ rollback to an older valid head remains an additional recovery obligation.
 There is no public erasure endpoint or destructive lifecycle activation in this
 change. The trusted lifecycle caller must establish consent, durable attempt and
 compute-incarnation authority before invoking it. The separate Memory Bank
-reservation still needs its own fence and reconciliation; the two objects are not
+reservation now has internal erasure reconciliation described below; the two objects are not
 an atomic transaction. An already admitted writer can upload an unreferenced
 encrypted object after closure, and an already admitted SQLite mutation can finish
 locally. Read admission checks do not drain in-flight requests. Object versions,
@@ -635,3 +635,32 @@ model answers with a typed "not supported" that still proves it exists; a 404 is
 answer that says it does not; a 403 names the missing role.
 
 Guard: `tests/test_pod_model_diagnostic.py`.
+
+
+### Internal Memory Bank erasure reconciliation (2026-09-07)
+
+`reconcile_memory_bank_erasure` on the existing REST adapter requires the same
+owner/attempt's authenticated log fence. It compare-and-swaps the existing
+`memory_bank.json` into `erasing`, preserving the captured engine, lifecycle
+incarnation, expected provider creation time and unresolved generation slot.
+Ordinary initialization, generation and retrieval refuse this state. A late
+generation acknowledgement can update only its matching slot without reopening
+memory. An unacknowledged creation or generation remains incomplete.
+
+Before deletion, a configured-engine GET must match the expected creation time.
+Its independently observed canonical project alias is persisted for operation
+validation after restart, when the engine itself may already be absent. The
+adapter persists `delete_submitting` before an empty-body DELETE with `force=true`,
+then records its exact operation as `delete_pending`. A valid terminal response
+and exact-resource404 establish `provider_deleted`; the durable record remains.
+Lost deletion acknowledgements never trigger another DELETE, even after restart.
+They remain incomplete and require separately verified reconciliation.
+
+This uses the existing [provider deletion contract](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1beta1/projects.locations.reasoningEngines/delete).
+That API documents no atomic incarnation precondition. The creation-time check is
+an observation, so trusted registry/replacement fencing is still required before
+public activation. This internal method is not wired to account teardown and does
+not establish provider retention, backup erasure, restoration safety or complete
+account deletion. Keep pod credentials and both fences until those obligations
+are proven. Use an erasure-aware recovery image; never remove the record or
+restore a pre-fence snapshot to regain access.
