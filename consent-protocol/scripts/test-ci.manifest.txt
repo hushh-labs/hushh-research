@@ -200,3 +200,5 @@ tests/test_dev_release_classification.py
 tests/test_data_model_audit_postgres.py
 
 tests/test_data_model_audit_script.py
+
+tests/test_third_party_license_evidence.py
