@@ -124,7 +124,7 @@ import { redactSensitiveVoiceTranscript } from "@/lib/voice/voice-sensitive-reda
 
 import { canReusePrewarmedRelay, type PrewarmedGeminiRelay } from "@/lib/voice/prewarmed-relay";
 import { currentVoiceContinuationHandle, isVoiceSessionOwnerCurrent, snapshotVoiceSessionOwner, type VoiceContinuation, type VoiceSessionOwner } from "@/lib/voice/voice-session-owner";
-import { snapshotValidatedAuthSessionOwner } from "@/lib/auth/session-owner";
+import { snapshotAuthSessionGeneration } from "@/lib/auth/session-owner";
 
 type PendingVoiceConfirmation = {
   directiveId: string;
@@ -2034,7 +2034,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     }
 
     const controller = new AbortController();
-    const ownerSnapshot = snapshotValidatedAuthSessionOwner();
+    const ownerSnapshot = snapshotAuthSessionGeneration();
     const timer = window.setTimeout(() => {
       // The snapshot identity churns on every navigation and cache event, so
       // this effect re-fires constantly. The ticket is context-free (context

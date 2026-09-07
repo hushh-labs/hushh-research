@@ -1,7 +1,7 @@
 import { afterEach, expect, it } from "vitest";
 import {
   publishValidatedAuthSessionOwner,
-  snapshotValidatedAuthSessionOwner,
+  snapshotAuthSessionGeneration,
 } from "@/lib/auth/session-owner";
 import {
   canReusePrewarmedRelay,
@@ -20,7 +20,7 @@ function ticket(
     snapshotId: "synthetic",
     accessTier: tier,
     ownerUserId: owner,
-    ownerSnapshot: snapshotValidatedAuthSessionOwner(),
+    ownerSnapshot: snapshotAuthSessionGeneration(),
   };
 }
 it("rejects same-tier owner replacement and logout/login generations", () => {
@@ -49,4 +49,11 @@ it("rejects expired and guest-to-signed cache reuse", () => {
   expect(canReusePrewarmedRelay(cached, "anon_onboarding", null, 100)).toBe(
     false,
   );
+});
+
+it("rejects anonymous cache reuse after a signed-in round trip", () => {
+  const cached = ticket(null, "anon_onboarding");
+  publishValidatedAuthSessionOwner("owner-a");
+  publishValidatedAuthSessionOwner(null);
+  expect(canReusePrewarmedRelay(cached, "anon_onboarding", null, 100)).toBe(false);
 });

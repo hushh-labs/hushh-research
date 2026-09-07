@@ -1325,6 +1325,19 @@ describe("voice relay authentication downgrade boundary", () => {
     expect(relayFetch).not.toHaveBeenCalled();
   });
 
+  it("rejects an anonymous relay response after sign-in and sign-out", async () => {
+    publishValidatedAuthSessionOwner(null);
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(null);
+    const response = deferred<Response>();
+    const relayFetch = vi.spyOn(ApiService, "apiFetch").mockReturnValue(response.promise);
+    const pending = ApiService.createOneAdkRelaySession();
+    await vi.waitFor(() => expect(relayFetch).toHaveBeenCalledOnce());
+    publishValidatedAuthSessionOwner("owner-a");
+    publishValidatedAuthSessionOwner(null);
+    response.resolve(jsonResponse({ relay_ticket: "synthetic-ticket" }));
+    await expect(pending).rejects.toMatchObject({ status: 401 });
+  });
   it("rejects a relay response that arrives after owner replacement", async () => {
     vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({ sub: "synthetic-owner" }));
     const response = deferred<Response>();

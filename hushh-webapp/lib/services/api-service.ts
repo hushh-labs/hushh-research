@@ -73,6 +73,7 @@ import {
   type AuthSessionOwnerSnapshot,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotAuthSessionGeneration,
 } from "@/lib/auth/session-owner";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
@@ -3237,10 +3238,12 @@ export class ApiService {
     cell_reason?: string | null;
   }> {
     const owner = snapshotValidatedAuthSessionOwner();
+    const generation = snapshotAuthSessionGeneration();
     const requireAuthenticated = data?.requireAuthenticated === true || Boolean(owner || AuthService.getCurrentUser());
-    const ownerIsCurrent = () => owner
-      ? isValidatedAuthSessionOwnerCurrent(owner)
-      : snapshotValidatedAuthSessionOwner() === null && AuthService.getCurrentUser() === null;
+    const ownerIsCurrent = () => Boolean(
+      generation && isValidatedAuthSessionOwnerCurrent(generation) &&
+      (owner || AuthService.getCurrentUser() === null),
+    );
     let firebaseIdToken: string | undefined;
     if (requireAuthenticated) {
       if (!owner) {

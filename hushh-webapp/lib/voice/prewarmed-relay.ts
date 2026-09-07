@@ -1,4 +1,4 @@
-import type { AuthSessionOwnerSnapshot } from "@/lib/auth/session-owner";
+import type { AuthSessionGenerationSnapshot } from "@/lib/auth/session-owner";
 import { isVoiceSessionOwnerCurrent } from "@/lib/voice/voice-session-owner";
 
 export type PrewarmedGeminiRelay = {
@@ -7,7 +7,7 @@ export type PrewarmedGeminiRelay = {
   snapshotId: string;
   accessTier: string;
   ownerUserId: string | null;
-  ownerSnapshot: AuthSessionOwnerSnapshot | null;
+  ownerSnapshot: AuthSessionGenerationSnapshot | null;
 };
 
 /** Cache reuse follows the existing validated session owner, never just a tier. */

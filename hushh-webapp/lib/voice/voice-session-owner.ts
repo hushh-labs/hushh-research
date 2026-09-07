@@ -1,30 +1,26 @@
 import {
   isValidatedAuthSessionOwnerCurrent,
-  snapshotValidatedAuthSessionOwner,
-  type AuthSessionOwnerSnapshot,
+  snapshotAuthSessionGeneration,
+  type AuthSessionGenerationSnapshot,
 } from "@/lib/auth/session-owner";
 
 export type VoiceSessionOwner = Readonly<{
   userId: string | null;
-  snapshot: AuthSessionOwnerSnapshot | null;
+  snapshot: AuthSessionGenerationSnapshot | null;
 }>;
 
 /** A voice continuation follows the existing auth generation, never a tier. */
 export function snapshotVoiceSessionOwner(
   userId: string | null,
 ): VoiceSessionOwner {
-  return { userId, snapshot: snapshotValidatedAuthSessionOwner() };
+  return { userId, snapshot: snapshotAuthSessionGeneration() };
 }
 
 export function isVoiceSessionOwnerCurrent(owner: VoiceSessionOwner): boolean {
-  if (owner.userId) {
-    return (
-      owner.snapshot?.userId === owner.userId &&
-      isValidatedAuthSessionOwnerCurrent(owner.snapshot)
-    );
-  }
-  return (
-    owner.snapshot === null && snapshotValidatedAuthSessionOwner() === null
+  return Boolean(
+    owner.snapshot &&
+    owner.snapshot.userId === owner.userId &&
+    isValidatedAuthSessionOwnerCurrent(owner.snapshot),
   );
 }
 

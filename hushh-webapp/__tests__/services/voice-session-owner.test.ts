@@ -40,3 +40,12 @@ it("retains anonymous continuation only while still anonymous", () => {
     currentVoiceContinuationHandle({ owner, handle: "synthetic-guest" }),
   ).toBeNull();
 });
+
+it("rejects anonymous retries and continuations after a signed-in round trip", () => {
+  publishValidatedAuthSessionOwner(null);
+  const owner = snapshotVoiceSessionOwner(null);
+  publishValidatedAuthSessionOwner("owner-a");
+  publishValidatedAuthSessionOwner(null);
+  expect(isVoiceSessionOwnerCurrent(owner)).toBe(false);
+  expect(currentVoiceContinuationHandle({ owner, handle: "synthetic-guest" })).toBeNull();
+});
