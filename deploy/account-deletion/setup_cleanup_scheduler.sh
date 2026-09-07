@@ -71,7 +71,6 @@ COMMON_ARGS=(
   --time-zone="${TIMEZONE}"
   --uri="${URI}"
   --http-method=POST
-  --headers="Content-Type=application/json"
   --oidc-service-account-email="${SCHEDULER_SERVICE_ACCOUNT_EMAIL}"
   --oidc-token-audience="${OIDC_AUDIENCE}"
   --attempt-deadline=300s
@@ -84,9 +83,16 @@ COMMON_ARGS=(
 if gcloud scheduler jobs describe "${JOB_NAME}" \
   --project="${PROJECT_ID}" \
   --location="${SCHEDULER_LOCATION}" >/dev/null 2>&1; then
-  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+# `create http` takes --headers; `update http` does not -- it takes
+# --update-headers. Sharing one flag between both subcommands made every
+# scheduler REPAIR fail with "unrecognized arguments: --headers=..." while
+# first-time creation kept working, so the break only appeared once the job
+# already existed.
+  gcloud scheduler jobs update http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --update-headers="Content-Type=application/json" >/dev/null
 else
-  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" >/dev/null
+  gcloud scheduler jobs create http "${JOB_NAME}" "${COMMON_ARGS[@]}" \
+    --headers="Content-Type=application/json" >/dev/null
 fi
 
 JOB_EVIDENCE="$(gcloud scheduler jobs describe "${JOB_NAME}" \

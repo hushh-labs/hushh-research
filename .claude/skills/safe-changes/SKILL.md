@@ -1150,3 +1150,61 @@ would have broken.
 The Check line must be a command that **runs in this repo** and returns
 something meaningful. Run it before committing the rule. A rule with a command
 that doesn't work here is worse than no rule.
+
+### R29 — A flag shared between `create` and `update` breaks only on the second run
+
+**Incident (2026-09-07, UAT backend deploy run 34154374598.)** The release was
+healthy — migrations applied, the backend deployed, traffic promoted, provenance
+verified, rollback skipped, the release tagged last known good — and the workflow
+still reported **failure**. The last step died on:
+
+```
+ERROR: (gcloud.scheduler.jobs.update.http) unrecognized arguments:
+  --headers=Content-Type=application/json (did you mean '--clear-headers'?)
+```
+
+`deploy/account-deletion/setup_cleanup_scheduler.sh` built one `COMMON_ARGS`
+array and passed it to **both** `gcloud scheduler jobs create http` and
+`gcloud scheduler jobs update http`. Only `create` accepts `--headers`; `update`
+spells it `--update-headers`. So the script worked perfectly the first time a
+job was created and failed forever afterwards — the failure mode appears only
+once the resource already exists, which is exactly when nobody is watching.
+
+The same idiom had been copied into three more schedulers — One Email KYC
+retention, One Location retention, and the Gmail personal-information-request
+monitor — all with the same latent break.
+
+**Rule.** Never share a flag array between a `create` and an `update`
+subcommand without checking both accept every flag in it. The two are different
+commands with different flag sets, and CLIs routinely rename a flag in the
+update form to express intent (`--update-headers`, `--remove-headers`,
+`--clear-headers`). When a deploy step touches a resource that may already
+exist, the *update* path is the one that runs in steady state — test that one.
+
+And a workflow that fails on a post-deploy configuration step must not be read
+as a failed release. Check where in the step list it died before rolling
+anything back.
+
+**Check.**
+```bash
+cd ~/Desktop/husshOne
+# Any --headers on an `update http` path is the bug. Expect no output.
+for f in $(grep -rl 'scheduler jobs update http' deploy --include='*.sh'); do
+  awk '/jobs update http/,/>\/dev\/null/' "$f" | grep -q -- '--headers=' \
+    && echo "BROKEN: $f"
+done
+# And the two arms must AGREE. A script that sends headers on one path and not
+# the other has lost them; a script that sends none on either is fine (several
+# jobs post `--message-body '{}'` with no Content-Type and never needed one).
+for f in $(grep -rl 'scheduler jobs create http' deploy --include='*.sh'); do
+  c=$(awk '/jobs create http/,/>\/dev\/null/' "$f" | grep -c -- '--headers=')
+  u=$(awk '/jobs update http/,/>\/dev\/null/' "$f" | grep -c -- '--update-headers=')
+  [ "$c" \!= "$u" ] && echo "ASYMMETRIC HEADERS: $f (create=$c update=$u)"
+done
+```
+Both loops must print nothing.
+
+The second loop was wrong when first written: it asserted every `create` sends
+headers, and flagged `setup_investor_replenisher_scheduler.sh` and
+`setup_gcp_observability.sh`, which deliberately send none on either path. A
+check that reports a deliberate choice as a defect trains people to ignore it.
