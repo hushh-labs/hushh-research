@@ -9,13 +9,22 @@ const source = readFileSync(
 );
 
 describe("Gmail Email Agent handoff contract", () => {
-  it("queues the intro as a normal Agent Chat transcript", () => {
-    expect(source).toContain("transcript = buildGmailAgentHandoffPrompt(");
-    expect(source).toContain("gmail.status?.google_email || user?.email || \"\"");
-    expect(source).toContain("createHandoff({");
+  it("opens One Chat without queuing anything for it to draft", () => {
+    // The workspace used to hand One a demonstration prompt -- "explain all
+    // the features of the Gmail agent" -- so every press started a sample
+    // email about the agent itself. Opening chat now leaves the composer
+    // empty for whatever the owner actually came to write.
+    expect(source).toContain("const handleOpenOneChat = useCallback(() => {");
     expect(source).toContain("agentPopover.openAgent();");
-    expect(source).not.toContain(
-      "emailDraftInstruction: buildGmailAgentHandoffPrompt(",
-    );
+    // The legacy full-page fallback now records this page as its origin, so
+    // minimizing that screen returns here instead of One home (#6134).
+    expect(source).toContain("router.push(agentRouteWithOrigin(pathname));");
+    expect(source).not.toContain("createHandoff");
+    expect(source).not.toContain("buildGmailAgentHandoffPrompt");
+  });
+
+  it("no longer promises a sample email before opening chat", () => {
+    expect(source).not.toContain("Start with a guided Gmail email");
+    expect(source).not.toContain("explaining what the Gmail agent can do");
   });
 });

@@ -2712,6 +2712,8 @@ export default function RiaPicksPage() {
           description={RIA_COPY.picks.description}
           icon={FileSpreadsheet}
           accent="ria"
+          titleRole="agent"
+          className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-row]]:!items-center"
         />
       </AppPageHeaderRegion>
 

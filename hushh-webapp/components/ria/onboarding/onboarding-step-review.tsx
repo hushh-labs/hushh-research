@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { ChevronDown, ChevronUp, Pencil, ShieldCheck } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { RiaAiActionPill, RiaChip } from "@/components/ria/ui/ria-primitives";
+import { RiaChip } from "@/components/ria/ui/ria-primitives";
 
 interface OnboardingStepReviewProps {
   advisorName: string;
@@ -220,9 +221,9 @@ export function OnboardingStepReview({
         </span>
       </div>
 
-      <RiaAiActionPill onClick={onAskKaiUpdateAnything}>
+      <AskOneButton onClick={onAskKaiUpdateAnything}>
         Ask One to update anything
-      </RiaAiActionPill>
+      </AskOneButton>
     </div>
   );
 }
