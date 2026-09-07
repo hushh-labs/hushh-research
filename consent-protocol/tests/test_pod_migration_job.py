@@ -13,9 +13,14 @@ anything a test would otherwise notice.
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 
+import psycopg2
 import pytest
+from sqlalchemy import create_engine, event, text
 
+from db.db_client import DatabaseClient
+from hushh_mcp.services.byoc_setup_job_service import ByocSetupJobRepo, JobSuperseded
 from hushh_mcp.services.pod_migration_service import (
     JOB_STAGES,
     STALE_AFTER_SECONDS,
@@ -25,6 +30,69 @@ from hushh_mcp.services.pod_migration_service import (
     new_job_id,
     person_facing_stage,
 )
+from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
+
+
+@pytest.mark.parametrize(
+    "repo_type,table,migration,fields,refusal",
+    [
+        (
+            PodMigrationJobRepo,
+            "pod_migration_jobs",
+            "911_pod_migration_jobs.sql",
+            {"hushh_id": "synthetic-pod", "target_project": "synthetic-project"},
+            MigrationJobSuperseded,
+        ),
+        (
+            ByocSetupJobRepo,
+            "byoc_setup_jobs",
+            "909_byoc_setup_jobs.sql",
+            {"project_id": "synthetic-project"},
+            JobSuperseded,
+        ),
+    ],
+)
+async def test_replacement_committed_before_update_preserves_successor(
+    isolated_postgres, repo_type, table, migration, fields, refusal
+):
+    """Run the shipped query builder against PostgreSQL, replacing after any pre-read."""
+    engine = create_engine(
+        "postgresql+psycopg2://", creator=lambda: psycopg2.connect(isolated_postgres)
+    )
+    client = DatabaseClient(engine=engine)
+    try:
+        schema = Path(__file__).resolve().parents[1] / "db/migrations/parked" / migration
+        with engine.begin() as conn:
+            conn.execute(text(schema.read_text()))
+        for owner in ("synthetic-owner", "other-owner"):
+            client.table(table).insert({"user_id": owner, "job_id": "old-job", **fields}).execute()
+        repo = repo_type(client=client)
+        armed = True
+
+        def replace_before_write(conn, cursor, statement, parameters, context, executemany):
+            nonlocal armed
+            if armed and statement.startswith("UPDATE"):
+                armed = False
+                # A second committed connection wins after the old worker's read,
+                # immediately before PostgreSQL receives that worker's UPDATE.
+                client.table(table).update({"job_id": "new-job"}).eq(
+                    "user_id", "synthetic-owner"
+                ).execute()
+
+        event.listen(engine, "before_cursor_execute", replace_before_write)
+        try:
+            with pytest.raises(refusal):
+                await repo.finish(user_id="synthetic-owner", job_id="old-job", status="succeeded")
+        finally:
+            event.remove(engine, "before_cursor_execute", replace_before_write)
+        successor = await repo.get("synthetic-owner")
+        assert successor["job_id"] == "new-job"
+        assert successor["status"] == "running"
+        await repo.finish(user_id="synthetic-owner", job_id="new-job", status="succeeded")
+        assert (await repo.get("synthetic-owner"))["status"] == "succeeded"
+        assert (await repo.get("other-owner"))["status"] == "running"
+    finally:
+        engine.dispose()
 
 
 class _FakeResponse:

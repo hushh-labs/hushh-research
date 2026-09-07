@@ -157,11 +157,18 @@ class PodMigrationJobRepo:
         return dict(rows[0]) if rows else None
 
     async def _guarded_update(self, *, user_id: str, job_id: str, data: dict) -> None:
-        current = await self._current(user_id)
-        if not current or current.get("job_id") != job_id:
+        # Ownership must hold in the UPDATE itself: a replacement can commit
+        # after a pre-read. RETURNING distinguishes a refusal from publication.
+        response = (
+            self._db()
+            .table(_JOBS)
+            .update({**data, "updated_at": _now()})
+            .eq("user_id", user_id)
+            .eq("job_id", job_id)
+            .execute()
+        )
+        if not response.data:
             raise MigrationJobSuperseded(f"job {job_id} no longer owns the row")
-        data["updated_at"] = _now()
-        self._db().table(_JOBS).update(data).eq("user_id", user_id).execute()
 
     async def advance(self, *, user_id: str, job_id: str, stage: str) -> None:
         current = await self._current(user_id)
