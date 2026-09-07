@@ -858,15 +858,16 @@ class TestOpenScreen:
 
     @pytest.mark.asyncio
     async def test_normalizes_screen_names(self):
+        # Normalization must not depend on deployment-specific CRM enablement.
         state: dict = {}
-        result = await open_screen("Connected Systems", _tool_context(state))
+        result = await open_screen("Personal Data", _tool_context(state))
         assert result["status"] == "ok"
-        assert result["route"] == APP_ROUTES["connected_systems"]
-        assert state[f"{STATE_PENDING_DIRECTIVE}:connected_systems"] == {
+        assert result["route"] == APP_ROUTES["personal_data"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:personal_data"] == {
             "kind": "navigate",
             "payload": {
-                "route": APP_ROUTES["connected_systems"],
-                "screen": "connected_systems",
+                "route": APP_ROUTES["personal_data"],
+                "screen": "personal_data",
             },
         }
 
