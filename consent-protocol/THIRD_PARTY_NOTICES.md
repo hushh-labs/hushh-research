@@ -17,7 +17,7 @@ Package count: 197
 - `Apache Software License`: 34
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 25
+- `Apache-2.0`: 26
 - `Apache-2.0 AND Apache-2.0 WITH LLVM-exception AND BSD-2-Clause AND BSD-3-Clause AND BSL-1.0 AND MIT`: 1
 - `Apache-2.0 AND CNRI-Python`: 1
 - `Apache-2.0 AND MIT`: 1
@@ -41,12 +41,11 @@ Package count: 197
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
 - `Python Software Foundation License`: 2
-- `UNKNOWN`: 1
 
 ### Package inventory
 
 - `a2a-sdk` `0.3.26` — Apache-2.0
-- `a2ui-agent-sdk` `0.2.4` — UNKNOWN
+- `a2ui-agent-sdk` `0.2.4` — Apache-2.0
 - `ag-ui-a2ui-toolkit` `0.0.4` — MIT
 - `ag-ui-protocol` `0.1.21` — MIT
 - `ag_ui_adk` `0.7.0` — MIT
