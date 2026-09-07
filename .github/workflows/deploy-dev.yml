@@ -796,7 +796,7 @@ jobs:
                   append_unique(blocking, ["runtime_behavior_failed"])
               if "smoke_auth" in blocking_semantic_failures:
                   append_unique(blocking, ["smoke_overlay_dependency_leak"])
-              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session"}:
+              if blocking_semantic_failures & {"backend_health", "smoke_auth", "gmail_status", "voice_capability", "voice_realtime_session", "voice_relay_session"}:
                   backend_failure = True
               if "frontend_login" in blocking_semantic_failures:
                   frontend_failure = True
