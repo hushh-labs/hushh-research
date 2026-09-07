@@ -190,3 +190,5 @@ tests/services/test_action_retrieval.py
 
 # Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
+
+tests/test_dev_release_classification.py
