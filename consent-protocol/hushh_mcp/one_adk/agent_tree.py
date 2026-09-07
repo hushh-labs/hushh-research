@@ -74,6 +74,7 @@ from hushh_mcp.one_adk.action_tools import (
     list_pending_connection_requests,
     list_pending_information_requests,
     list_pending_location_requests,
+    propose_app_action,
     propose_information_request,
     read_my_pkm_domain_summary,
     run_app_action,
@@ -1727,41 +1728,21 @@ def _build_wallet_agent(*, model: Any | None = None) -> LlmAgent:
     )
 
 
-def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
-    """The full /one specialist roster, shared by every One head.
+def _one_roster_tools(*, specialist_model: Any | None = None, tool_mode: str = "full") -> list:
+    """The /one specialist roster, shared by every One head.
 
-    AgentTool wraps the LLM-backed specialists (Finance, RIA) so One can
-    consult them as tools; the dispatch-backed specialists (email, location,
-    connections, connected systems, consent) are plain function
-    tools that call the existing governed adk_bridge handlers.
-
-    The Location/Connect `list_*` read tools and `run_app_action`'s
-    BACKEND_DIRECT_ACTION_IDS mutations are the deliberate line for what may
-    depend on the frontend at all: navigation (`open_screen`,
-    `start_app_goal`, `route.*`) is frontend-triggered because there's no
-    backend concept of "which screen is open" -- everything else here reads
-    or writes the real backend data directly, so a frontend screen rewrite
-    can never silently break what these tools return or do.
-
-    Uses GoogleSearchTool(bypass_multi_tools_limit=True) rather than the bare
-    google_search function-tool. Binding Gemini's native google_search
-    directly alongside this many custom function/agent tools in the SAME
-    LlmAgent.tools=[...] list is unstable on google-adk 2.4.0 (verified in
-    hushh-search-console's adk_runtime.py via 15+ live trials: redundant
-    tool calls, intermittent TaskGroup errors, occasional full timeouts).
-    bypass_multi_tools_limit=True makes LlmAgent's own tool conversion wrap
-    google_search as an isolated per-call sub-agent turn (a
-    GoogleSearchAgentTool with propagate_grounding_metadata=True), which ADK
-    itself maintains and which still propagates real grounding metadata
-    (search queries + grounding chunks with real URLs) back onto One's own
-    event stream - so voice/chat answers keep real citations, not just a
-    plain summarized string. That isolated search turn is text-only, so it
-    MUST use the text specialist model rather than inherit One's native-audio
-    Live model: native-audio models are valid for BidiGenerateContent, not
-    the nested GenerateContent turn ADK uses for this tool.
+    ``tool_mode`` selects a restricted subset:
+    - ``"full"`` (default): all tools.
+    - ``"proposal"``: only ``list_app_actions`` and ``propose_app_action``.
+      Used for the proposal-mode text head.  No execution, mutation,
+      specialist delegation, or preference-setting tools are exposed.
     """
     from google.adk.tools.agent_tool import AgentTool
 
+    if tool_mode == "proposal":
+        return [list_app_actions, propose_app_action]
+
+    # Full roster below.
     text_model = specialist_model or build_managed_gemini_adk_model(_SPECIALIST_MODEL)
     search_agent = LlmAgent(
         name="google_search",
@@ -1812,6 +1793,7 @@ def _one_roster_tools(*, specialist_model: Any | None = None) -> list:
         open_screen,
         resolve_onboarding_goal,
         run_app_action,
+        propose_app_action,
         start_app_goal,
         continue_app_goal,
         list_app_actions,

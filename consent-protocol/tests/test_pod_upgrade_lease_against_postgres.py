@@ -349,3 +349,45 @@ async def test_changed_host_refuses_claim_and_old_publication(pg, engine, change
         )[0]
         == before
     )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("metadata", [None, "null"])
+async def test_claim_distinguishes_sql_null_from_json_null(pg, engine, metadata):
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
+        (metadata, _USER),
+    )
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    lease = await repo.claim_image_upgrade(
+        user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+    )
+    stored = pg.execute(
+        "SELECT backend_metadata->>'upgradeLease' FROM personal_agent_registry WHERE user_id=%s",
+        (_USER,),
+    )[0][0]
+    if metadata is None:
+        assert lease and stored == lease
+    else:
+        assert lease is None and stored is None
+
+
+@pytest.mark.asyncio
+async def test_equivalent_timestamp_offsets_preserve_claim(pg, engine):
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    pg.execute(
+        "UPDATE personal_agent_registry SET user_cloud_authorized_at=updated_at WHERE user_id=%s",
+        (_USER,),
+    )
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    observed = await repo.get(_USER)
+    for key in ("updated_at", "user_cloud_authorized_at"):
+        value = observed[key]
+        instant = datetime.fromisoformat(value) if isinstance(value, str) else value
+        observed[key] = instant.astimezone(timezone(timedelta(hours=-7))).isoformat()
+    assert await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)

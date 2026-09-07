@@ -20,6 +20,7 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import re
@@ -33,6 +34,14 @@ from google.adk.tools.tool_context import ToolContext
 from hushh_mcp.consent.pii_sanitizer import mask_email
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
+from hushh_mcp.one_adk import action_retrieval
+from hushh_mcp.one_adk.action_retrieval import (
+    RetrievedAction,
+    is_retrieval_available,
+    lexical_score,
+    retrieval_error,
+    search_actions,
+)
 from hushh_mcp.one_adk.request_secrets import resolve_request_secret
 from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
@@ -125,6 +134,19 @@ _DELEGATE_TOOL_BY_AGENT_ID: dict[str, str] = {
 }
 
 _MAX_LIST_RESULTS = 10
+# Retrieval truncates before reachability is known, so ask for more than
+# the window and trim after filtering.
+_RETRIEVAL_OVERFETCH = 3
+# Enough to settle a shared-alias tie in favour of the screen the person is
+# on, without letting a weak on-screen match beat a strong off-screen one.
+# Sized from the real gap: the shared-alias tie is 2 points, so this settles it
+# while staying far below a genuine relevance difference.
+_ON_SCREEN_RANK_BONUS = 5.0
+# The semantic branch scores on a different scale: RRF scores cluster around
+# 1-2 and a shared-alias tie measures ~0.03 ("people tab" reaches both
+# connect.open_people and location.open_people). Sized to settle that tie and
+# no more, so a genuinely better match is never displaced.
+_ON_SCREEN_SEMANTIC_BONUS = 0.05
 _MAX_QUERY_TOKENS = 8
 # On-screen actions a queried call may keep for context after the real matches.
 _MAX_QUERY_FILLER = 4
@@ -3482,9 +3504,18 @@ async def continue_app_goal(tool_context: ToolContext) -> dict[str, Any]:
 
 
 def _query_tokens(query: str) -> list[str]:
-    """Lowercase word tokens from a model query, bounded and deduplicated."""
+    """Unicode-normalized word tokens from a model query, bounded and deduplicated.
+
+    Delegates to the shared semantic-retrieval normalizer so Hindi and Hinglish
+    words are preserved.  Falls back to a whitespace split on transient retrieval
+    errors so the caller still gets a token list.
+    """
+    try:
+        normalized = action_retrieval._normalize_query(query)  # type: ignore[attr-defined]
+    except Exception:  # noqa: BLE001 - graceful degradation
+        normalized = str(query or "")
     tokens: list[str] = []
-    for raw in re.split(r"[^a-z0-9]+", str(query or "").lower()):
+    for raw in re.split(r"\s+", normalized):
         token = raw.strip()
         if len(token) < 2 or token in _QUERY_STOPWORDS or token in tokens:
             continue
@@ -3494,6 +3525,10 @@ def _query_tokens(query: str) -> list[str]:
     return tokens
 
 
+# Restored: the specialist journey redirect below depends on this score.
+# It is a RANKING signal for that one guarded decision and for the degraded
+# discovery path -- never a general execution gate. Semantic retrieval in
+# action_retrieval is the primary ranking path once its model is packaged.
 def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
     """Rank one action against the query's tokens.
 
@@ -3534,6 +3569,30 @@ def _relevance_score(entry: dict[str, Any], tokens: list[str]) -> int:
 # A specialist is for open-ended questions. When someone names a concrete thing
 # that has an authored journey, the journey is the answer and the specialist is
 # a detour that ends in a consent boundary.
+def _reachability(
+    entry: dict[str, Any],
+    action_id: str,
+    available_action_ids: set[str] | None,
+) -> tuple[str, str | None]:
+    """How One could actually reach ``action_id`` from where it is standing.
+
+    Discovery is not authority: ``run_app_action`` still refuses anything the
+    browser has not declared. What this adds is an honest next step, so an
+    off-screen answer becomes "open X first" instead of a dead end.
+    """
+    if available_action_ids is None or action_id in available_action_ids:
+        return "on_screen", None
+    if is_navigation_action(entry):
+        return "on_screen", None
+    if _is_journey_startable(entry):
+        return "journey", None
+    for route in (entry.get("reachability") or {}).get("routes") or []:
+        navigation_action_id = _navigation_action_for_route(str(route))
+        if navigation_action_id:
+            return "navigate_first", navigation_action_id
+    return "unreachable_from_here", None
+
+
 _SPECIALIST_ACTION_SURFACES: dict[str, tuple[str, ...]] = {
     "agent_connections": ("one_connect",),
 }
@@ -3598,118 +3657,314 @@ def journey_for_specialist_request(agent_id: str, request: str) -> dict[str, Any
     }
 
 
-def _reachability(
-    entry: dict[str, Any],
-    action_id: str,
-    available_action_ids: set[str] | None,
-) -> tuple[str, str | None]:
-    """How One could actually reach ``action_id`` from where it is standing.
-
-    Discovery is not authority: ``run_app_action`` still refuses anything the
-    browser has not declared. What this adds is an honest next step, so an
-    off-screen answer becomes "open X first" instead of a dead end.
-    """
-    if available_action_ids is None or action_id in available_action_ids:
-        return "on_screen", None
-    if is_navigation_action(entry):
-        return "on_screen", None
-    if _is_journey_startable(entry):
-        return "journey", None
-    for route in (entry.get("reachability") or {}).get("routes") or []:
-        navigation_action_id = _navigation_action_for_route(str(route))
-        if navigation_action_id:
-            return "navigate_first", navigation_action_id
-    return "unreachable_from_here", None
-
-
 async def list_app_actions(query: str, tool_context: ToolContext) -> dict[str, Any]:
     """List generated actions One can reach from the active app context.
 
-    Semantic selection still belongs to One, but the result list is bounded:
-    without ranking, One saw an alphabetical prefix of the catalog and simply
-    could not know that most of the app existed. ``query`` now decides which
-    actions occupy those slots, and a queried call may surface actions that
-    live on other screens -- each carrying how to reach it.
+    Uses semantic retrieval (embedding + RRF fusion) for natural-language
+    queries so that meaning-based matches surface even when the query shares
+    no words with an action's label or aliases.  An empty query still returns
+    the screen-available actions as a bounded context window.
 
     Execution authority is unchanged. Everything here is still filtered by the
     generated manifest, and ``run_app_action`` still refuses any action the
     browser has not declared on the current screen.
     """
-    tokens = _query_tokens(query)
     available_action_ids = _available_action_ids(tool_context)
-    candidates: list[tuple[int, int, str, dict[str, Any], str, str | None]] = []
-    for entry in list_action_gateway_actions():
-        if (entry.get("execution_target") or {}).get("status") != "wired":
-            continue
-        action_id = str(entry.get("action_id") or "")
-        if not action_id:
-            continue
-        availability, open_first = _reachability(entry, action_id, available_action_ids)
-        score = _relevance_score(entry, tokens)
-        if availability == "unreachable_from_here":
-            continue
-        # An unqueried call is "what can I do here" -- answer with this screen
-        # rather than the whole app. Only an actual query opens the catalog,
-        # and then only to actions the query matched.
-        if availability not in {"on_screen", "journey"} and (not tokens or score <= 0):
-            continue
-        candidates.append(
-            (
-                -score,
-                _AVAILABILITY_ORDER.get(availability, 9),
-                str(entry.get("label") or ""),
-                entry,
-                availability,
-                open_first,
+
+    semantic_results: list[RetrievedAction] = []
+    if query and str(query).strip():
+        # Semantic retrieval path: natural-language query.  ``search_actions``
+        # ranks against the generated catalog, so it takes the gateway - not
+        # the ToolContext, which carries live screen state instead.
+        try:
+            # Must be the SAME filtered catalog that resolves results below.
+            # load_action_gateway() is unfiltered; list_action_gateway_actions()
+            # drops CRM actions when the CRM product is off. Passing the
+            # unfiltered one lets CRM hits consume result slots and then vanish
+            # at resolution, returning fewer actions than One asked for.
+            # Over-fetch: reachability is applied below, AFTER retrieval has
+            # already truncated. Asking for exactly _MAX_LIST_RESULTS means a
+            # screen where most hits are unreachable hands One two or three
+            # capabilities instead of a full window.
+            semantic_results = search_actions(
+                query,
+                {"actions": list_action_gateway_actions()},
+                limit=_MAX_LIST_RESULTS * _RETRIEVAL_OVERFETCH,
+            )
+        except Exception:  # noqa: BLE001 - graceful degradation to local
+            logger.exception("semantic_retrieval_failed")
+            semantic_results = []
+
+    selected: list[RetrievedAction] = []
+
+    if semantic_results:
+        # Retrieval ranks against the catalog and cannot see the live screen,
+        # so recompute reachability here where the browser-declared ids exist.
+        for item in semantic_results:
+            entry = get_action_gateway_action(item.action_id) or {}
+            availability, open_first = _reachability(entry, item.action_id, available_action_ids)
+            # Same filter the lexical branch applies. A dead-end action has no
+            # next step for One to take: offering it produces a list -> run ->
+            # refused -> list loop rather than an answer.
+            if availability == "unreachable_from_here":
+                continue
+            selected.append(
+                dataclasses.replace(
+                    item,
+                    availability=availability,
+                    navigation=({"open_first_action_id": open_first} if open_first else None),
+                )
+            )
+
+        # Same on-screen preference the lexical branch applies: when two actions
+        # share an alias, the one the person is looking at wins. Retrieval ranks
+        # against the catalog and cannot see the screen, so it happens here.
+        on_screen_ids = available_action_ids or set()
+        selected.sort(
+            key=lambda ra: (
+                -(ra.score + (_ON_SCREEN_SEMANTIC_BONUS if ra.action_id in on_screen_ids else 0.0))
             )
         )
+        selected = selected[:_MAX_LIST_RESULTS]
+    else:
+        # Fallback: list wired actions filtered by reachability (lexical path).
+        candidates: list[tuple[int, str, dict[str, Any], str, str | None]] = []
+        for entry in list_action_gateway_actions():
+            if (entry.get("execution_target") or {}).get("status") != "wired":
+                continue
+            action_id = str(entry.get("action_id") or "")
+            if not action_id:
+                continue
+            availability, open_first = _reachability(entry, action_id, available_action_ids)
+            if availability == "unreachable_from_here":
+                continue
+            candidates.append(
+                (
+                    _AVAILABILITY_ORDER.get(availability, 9),
+                    str(entry.get("label") or ""),
+                    entry,
+                    availability,
+                    open_first,
+                )
+            )
 
-    candidates.sort(key=lambda item: (item[0], item[1], item[2]))
-    if tokens:
-        # A queried call padded to the cap with whatever happened to be on
-        # screen buries the two or three actions that actually answered the
-        # question. Keep some on-screen context, but never at the cost of a
-        # match: a short relevant list beats a full mostly-irrelevant one.
-        matched = [item for item in candidates if item[0] < 0]
-        filler = [item for item in candidates if item[0] == 0][:_MAX_QUERY_FILLER]
-        candidates = matched + filler
-    selected = candidates[:_MAX_LIST_RESULTS]
+        # Degraded path: the embedding model is unavailable, so rank by the
+        # query lexically rather than returning a query-blind list.  Sorting
+        # only by (availability, label) drops the action a person actually
+        # asked for outside the truncation window -- One then cannot see it at
+        # all.  This is a ranking signal, never an execution decision.
+        if query and str(query).strip():
+            # On-screen bonus rather than sorting by availability first. Two
+            # actions can share an alias ("people tab" reaches both
+            # connect.open_people and location.open_people); the one the person
+            # is actually looking at should win that tie. Making availability
+            # the primary key instead would let a weak on-screen match outrank
+            # a much stronger off-screen one, which is the opposite failure.
+            on_screen_ids = available_action_ids or set()
+
+            def _rank(item: tuple) -> tuple:
+                entry = item[2]
+                action_id = str(entry.get("action_id") or "")
+                score = lexical_score(entry, str(query))
+                if action_id in on_screen_ids:
+                    score += _ON_SCREEN_RANK_BONUS
+                return (-score, item[0], item[1])
+
+            candidates.sort(key=_rank)
+        else:
+            candidates.sort(key=lambda item: (item[0], item[1]))
+        selected = [
+            RetrievedAction(
+                action_id=str(entry.get("action_id") or ""),
+                score=0.0,
+                source="lexical",
+                meaning=str(entry.get("meaning") or ""),
+                semantic_boundaries=None,
+                required_inputs={
+                    spec.get("slot", ""): spec
+                    for spec in (entry.get("goal") or {}).get("required_inputs", [])
+                    if isinstance(spec, dict)
+                },
+                policy=str(entry.get("execution_policy") or "allow_direct"),
+                availability=availability,
+                navigation=({"open_first_action_id": open_first} if open_first else None),
+                goal=entry.get("goal"),
+            )
+            for _, _, entry, availability, open_first in candidates[:_MAX_LIST_RESULTS]
+        ]
+
+    # Build a lookup from action_id to entry for tool/availability resolution.
+    all_entries: dict[str, dict[str, Any]] = {
+        str(e.get("action_id") or ""): e for e in list_action_gateway_actions()
+    }
+
     results = []
-    for _, _, _, entry, availability, open_first in selected:
-        delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(str(entry.get("delegate_agent_id") or ""))
-        # Always name the tool; never leave it to be inferred. A delegate wins
-        # (it owns the turn), then a journey (start_app_goal opens the right
-        # screen first), and everything else runs through run_app_action.
-        #
-        # Leaving it unset for ordinary actions left One to guess, and it
-        # guessed the action id WAS the tool. ADK then raised "Tool
-        # 'analysis.open_summary_tab' not found", which escaped the live flow
-        # and killed the relay pump -- one bad guess dropped the whole call.
-        # An action id and a tool name are different kinds of thing, so every
-        # result now says which one it is holding.
+    for ra in selected:
+        action_entry = all_entries.get(ra.action_id)
+        if action_entry is None:
+            continue
+
+        delegate_tool = _DELEGATE_TOOL_BY_AGENT_ID.get(
+            str(action_entry.get("delegate_agent_id") or "")
+        )
         use_tool = delegate_tool or (
-            "start_app_goal" if _is_journey_startable(entry) else "run_app_action"
+            "start_app_goal" if _is_journey_startable(action_entry) else "run_app_action"
         )
-        results.append(
-            {
-                "action_id": entry["action_id"],
-                "label": str(entry.get("label") or ""),
-                "meaning": str(entry.get("meaning") or ""),
-                # Read from the action's own field. This used to read a `risk`
-                # object that is null on every generated action, so all 117
-                # reported as allow_direct -- One was told that 23 manual_only
-                # and 8 confirm_required actions needed no confirmation.
-                "policy": str(entry.get("execution_policy") or "allow_direct"),
-                "availability": availability,
-                **({"use_tool": use_tool} if use_tool else {}),
-                **({"open_first_action_id": open_first} if open_first else {}),
-            }
-        )
-    return {
+        availability = ra.availability if isinstance(ra.availability, str) else "on_screen"
+
+        result_dict: dict[str, Any] = {
+            "action_id": ra.action_id,
+            "label": str(action_entry.get("label") or ""),
+            "meaning": ra.meaning,
+            "policy": ra.policy,
+            "availability": availability,
+            **({"use_tool": use_tool} if use_tool else {}),
+        }
+        if ra.semantic_boundaries:
+            result_dict["semantic_boundaries"] = ra.semantic_boundaries
+        nav = ra.navigation
+        if isinstance(nav, dict) and nav.get("open_first_action_id"):
+            result_dict["open_first_action_id"] = nav["open_first_action_id"]
+        results.append(result_dict)
+
+    payload: dict[str, Any] = {
         "status": "ok",
         "total_actions": len(list_action_gateway_actions()),
         "results": results,
     }
+    # Say so when ranking is lexical-only. Without this the degraded path is
+    # indistinguishable from a working one -- the same invisibility that let
+    # the original retrieval bug ride into production looking healthy.
+    if query and str(query).strip() and not is_retrieval_available():
+        payload["ranking"] = "lexical_only"
+        payload["ranking_degraded_reason"] = retrieval_error() or "unavailable"
+    return payload
+
+
+async def propose_app_action(
+    action_id: str,
+    slots: dict[str, Any] | None = None,
+    tool_context: ToolContext | None = None,
+) -> dict[str, Any]:
+    """Return a typed proposal for one action without executing it.
+
+    This is the proposal-mode counterpart of ``run_app_action``: One returns a
+    structured assessment (action, inputs, gaps, confirmation need) and the
+    app's proposal controller decides whether to admit, confirm, or reject
+    the draft.  No domain mutation occurs here.
+
+    ``tool_mode`` enforcement (in ``agent_tree.py``) restricts this tool to
+    the proposal roster.  The server-side controller still validates the
+    action, slots, and current context before admitting the draft.
+    """
+    clean_id = str(action_id or "").strip()
+    if not clean_id:
+        return {"status": "blocked", "message": "An action id is required."}
+
+    entry = get_action_gateway_action(clean_id)
+    if entry is None:
+        return {
+            "status": "unsupported",
+            "action_id": clean_id,
+            "message": f"'{clean_id}' is not a recognized action.",
+        }
+
+    # Enforce execution boundary at the tool layer.
+    policy = str(entry.get("execution_policy") or "allow_direct")
+    if policy == "manual_only":
+        return {
+            "status": "blocked",
+            "action_id": clean_id,
+            "message": f"'{clean_id}' requires the app UI and cannot be proposed.",
+        }
+
+    # Resolve required inputs from the goal contract.
+    goal = entry.get("goal") or {}
+    required_specs: list[dict[str, Any]] = [
+        spec
+        for spec in goal.get("required_inputs", [])
+        if isinstance(spec, dict) and spec.get("required")
+    ]
+    provided_slots = {str(k): v for k, v in (slots or {}).items() if str(k).strip()}
+
+    missing: list[dict[str, str]] = []
+    for spec in required_specs:
+        slot_name = str(spec.get("slot") or spec.get("name") or "").strip()
+        if not slot_name:
+            continue
+        if provided_slots.get(slot_name) not in (None, ""):
+            continue
+        default_value = spec.get("default_value")
+        if default_value not in (None, ""):
+            continue
+        missing.append(
+            {
+                "slot": slot_name,
+                "prompt": str(spec.get("prompt") or f"What should {slot_name} be?"),
+            }
+        )
+
+    delegate_id = str(entry.get("delegate_agent_id") or "").strip()
+    use_tool: str | None = None
+    if delegate_id in _DELEGATE_TOOL_BY_AGENT_ID:
+        use_tool = _DELEGATE_TOOL_BY_AGENT_ID[delegate_id]
+    elif _is_journey_startable(entry):
+        use_tool = "start_app_goal"
+    else:
+        use_tool = "run_app_action"
+
+    nav_target: dict[str, Any] | None = None
+    exec_target = entry.get("execution_target") or {}
+    if exec_target.get("path") == "route":
+        nav_target = {"route": str(exec_target.get("target") or ""), "path": "route"}
+
+    proposal_status = "needs_resolution" if missing else "needs_review"
+    if policy == "confirm_required" and not missing:
+        proposal_status = "ready_for_confirmation"
+
+    return {
+        "status": "ok",
+        "proposal": {
+            "schemaVersion": "one.action_proposal.v1",
+            "status": proposal_status,
+            "actionId": clean_id,
+            "label": str(entry.get("label") or ""),
+            "meaning": str(entry.get("meaning") or ""),
+            "semanticBoundaries": _normalize_boundaries_str(entry.get("semantic_boundaries")),
+            "slots": provided_slots,
+            "requiredInputs": [
+                {
+                    "name": str(spec.get("slot") or spec.get("name") or ""),
+                    "slot": str(spec.get("slot") or spec.get("name") or ""),
+                    "resolver": str(spec.get("resolver") or ""),
+                    "prompt": str(spec.get("prompt") or ""),
+                    "required": bool(spec.get("required", True)),
+                }
+                for spec in required_specs
+            ],
+            "missingSlots": missing,
+            "entityMentions": [],
+            "catalogRevision": "server-computed",
+            "contextRevision": "validated-at-admit",
+            "confirmationRequired": policy == "confirm_required",
+            "executionPolicy": policy,
+            "useTool": use_tool,
+            "delegateAgentId": delegate_id or None,
+            "navigation": nav_target,
+            "guardIds": [str(g) for g in (entry.get("guard_ids") or []) if str(g)],
+        },
+    }
+
+
+def _normalize_boundaries_str(value: Any) -> str | None:
+    """Return semantic_boundaries as a single string or None."""
+    if value is None:
+        return None
+    if isinstance(value, list):
+        joined = " ".join(str(x) for x in value).strip()
+        return joined or None
+    s = str(value).strip()
+    return s or None
 
 
 async def list_available_models(tool_context: ToolContext) -> dict[str, Any]:

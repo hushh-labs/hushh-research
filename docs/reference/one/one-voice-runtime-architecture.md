@@ -27,7 +27,7 @@ flowchart TD
 ### Siri/App Shortcut entry adapter
 
 On iOS 16 and later, Siri is a structured entry adapter into the existing One
-runtime, not a second voice runtime or action engine. There are two modes:
+runtime. Two structured adapters are connected:
 
 1. `TalkToHusshOneIntent` foregrounds the UIKit/Capacitor app and enqueues the
    existing five-minute, metadata-only voice invocation. The Agent Bar remains
@@ -43,7 +43,7 @@ Both native envelopes use latest-request-wins and exact claim/completion. They
 survive ordinary cold launch and HUSSH sign-in for five minutes and clear on
 completion, failure, expiry, replacement, cancellation, or sign-out. The
 action envelope is stored in this-device-only Keychain storage and is closed
-to seventeen allowlisted generated action identifiers and per-action slot names.
+to eighteen allowlisted generated action identifiers and per-action slot names.
 The App Entity index is owner-bound and contains only existing HUSSH ids and
 display names; it contains no phone numbers, credentials, coordinates, routes,
 tokens, speech, or contact-book records.
@@ -77,8 +77,8 @@ duplicate authority-bearing logic. A future background intent is acceptable
 only after that same executor is available behind a shared non-UI port with
 identical guards and settlement.
 
-The authoritative Location contract currently contains 50 generated actions.
-Seventeen are Siri-exposed as either `direct` or `review_ui`. The sole
+The authoritative Location contract currently contains 51 generated actions.
+Eighteen are Siri-exposed as either `direct` or `review_ui`. The sole
 `conversation_only` action is `location.chat.turn`; it is reached only through
 the explicit conversation intent. The Siri surface exposes this useful,
 bounded Location subset:
@@ -94,6 +94,7 @@ bounded Location subset:
 | Open temporary-link composer | `location.open_temporary_link` | No | No |
 | Open Check-In composer | `location.open_check_in` | No | No |
 | Open SOS review | `location.open_sos` | No; does not send | No |
+| Send SOS after local device authentication | `location.trigger_sos` | No additional dialog | Yes |
 | Open emergency SMS contacts | `location.open_sms_contacts` | No | No |
 | Share with a resolved contact | `location.share_selected` | Yes | Yes |
 | Ask a resolved contact for location | `location.send_request` | Yes | Yes |
@@ -103,7 +104,7 @@ bounded Location subset:
 | Create a named Circle | `location.create_circle` | Yes | Yes |
 | Rename a resolved Circle | `location.rename_circle` | Yes | Yes |
 
-The other 33 Location contract actions default to `unsupported` for Siri and
+Thirty-two Location contract actions default to `unsupported` for Siri and
 remain available through the existing One Voice and visible Location
 experience:
 
@@ -119,10 +120,11 @@ experience:
   place, and active Check-In mutations require a typed current-state entity or
   an already prepared in-app composer. Exposing them by spoken name alone would
   guess at authority-bearing records or change the meaning of the contract.
-- `trigger_sos` and `sos_default` are intentionally excluded from direct Siri
-  execution because the current generated contract can send an alert without
-  a confirmation gate. Siri may open the existing SOS review surface, but it
-  cannot send the alert in this release.
+- `sos_default` remains unsupported. The authored explicit SOS-send intent now
+  exposes `trigger_sos`, requires local device authentication and vault access,
+  and deliberately adds no further confirmation dialog. `open_sos` still opens
+  the review surface without sending. These are source contracts; successful
+  alert delivery and simulator/device journey evidence must be recorded separately.
 
 The internal iOS bundle name remains the unique, previously accepted
 `Hussh One`. The installed display name and `CFBundleSpokenName` are `Agent One`, so
@@ -135,23 +137,35 @@ Check-In, SOS review, and emergency SMS contacts). Its `OpenIntent` tells Siri
 that “Location Agent” is content inside Agent One rather than a separate app.
 
 Apple limits an app to ten zero-setup App Shortcuts. The provider deliberately
-publishes nine focused shortcuts: share, request, stop/pause, location on/off,
-create Circle, rename Circle, Check-In, open a structured Location destination,
-and Talk to Agent One.
-Mutation intents keep Apple's parameter follow-ups and native confirmation,
-then hand the exact generated action to the existing browser executor. The
-other App Intents remain discoverable in the Shortcuts app. Android and web
+publishes nine focused shortcuts: Ask Agent One, Share Location, Ask for Location,
+Location On/Off, Talk to Agent One, Check-In, Create Circle, Save My Soul, and
+Send Save My Soul. Stop, Rename, and Open Destination intents remain authored
+without dedicated registered shortcut slots.
+Ordinary mutation intents retain Apple's parameter follow-ups and their authored
+native confirmation. The explicit SOS-send exception is described above. Exact
+generated actions reach the existing browser executor. Other App Intents remain
+discoverable in the Shortcuts app. Android and web
 deliberately report this Apple system surface as unsupported/no pending
 invocation.
 
 The deterministic shortcuts advertise typed `Ask Agent One to…`, `Tell Agent
 One to…`, and `Talk to Agent One and…` phrase families. The conversation
-shortcut advertises only `Talk to Agent One` and `Start a conversation with
-Agent One`; it does not advertise bare `Ask Agent One`. There is no free-form
-command slot, keyword router, or model classifier. Direct intents can create
-only `execute_one_action`, while the conversation intent can create only
-`start_one_voice`. Unsupported or incomplete requests remain with Siri for
-system clarification and cannot fall through to the internal voice surface.
+shortcut advertises `Talk to Agent One` and `Start a conversation with Agent One`.
+Direct intents create `execute_one_action`; the conversation intent creates
+`start_one_voice`.
+
+The incoming `AskOneRequestIntent` separately authors bounded free-text capture
+under `one.request.v1`. Its foreground journey is incomplete: `SiriOneRequestHandoff`
+is unmounted and contains a placeholder executor. Capture must not be described as
+successful private-agent execution. Completing this journey requires owner-bound,
+vault-gated delivery into the existing private chat, cancellation across account
+changes, and truthful settlement. It remains a release gap.
+
+On the private branch, the authenticated action-search and proposal HTTP entrypoints
+return the existing `AGENT_PRIVATE_RUNTIME_REQUIRED` refusal before retrieval,
+provider calls, session creation or proposal storage. They preserve discovery and
+request contracts while the private transport is incomplete. Personal requests
+must use the owner's active pod; these endpoints do not enable shared-hub fallback.
 
 ### Route orchestration index
 
@@ -653,6 +667,9 @@ vault, consent, confirmation, and settlement boundaries.
 ```bash
 cd consent-protocol && ./bin/consent-protocol test-ci
 cd consent-protocol && python3 -m pytest tests/test_one_adk_agent_tree.py -q
+# After preparing the pinned embedding model cache, and only when the model,
+# dependencies, retrieval or generated catalog changes:
+cd consent-protocol && HF_HUB_OFFLINE=1 TRANSFORMERS_OFFLINE=1 uv run pytest tests/integration/test_action_retrieval_embeddings.py -q
 cd hushh-webapp && npx vitest run __tests__/voice
 cd hushh-webapp && npm run typecheck && npm run verify:design-system
 ```

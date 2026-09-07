@@ -382,3 +382,4 @@ tests/test_parked_cloud_reaches_the_person.py
 
 # Exact-release license evidence rejects missing, modified and conflicting metadata.
 tests/test_third_party_license_evidence.py
+tests/services/test_action_retrieval.py

@@ -96,6 +96,7 @@ describe("kai-action-gateway", () => {
         "location.send_request",
         "location.share_selected",
         "location.stop_share",
+        "location.trigger_sos",
       ].sort(),
     );
     expect(review).toHaveLength(10);
@@ -111,11 +112,21 @@ describe("kai-action-gateway", () => {
       siri_mode: "review_ui",
       siri_requires_vault: false,
     });
-    for (const actionId of [
-      "location.trigger_sos",
-      "location.sos_default",
-      "location.delete_circle",
-    ]) {
+    // trigger_sos is direct and vault-gated: it is reachable from exactly one
+    // App Intent, whose only purpose is to send, and it has no locked-vault
+    // fallback -- a locked vault refuses and says so rather than quietly
+    // opening a screen the person did not ask for.
+    expect(getKaiActionById("location.trigger_sos")).toMatchObject({
+      siri_mode: "direct",
+      siri_requires_vault: true,
+    });
+    expect(
+      getKaiActionById("location.trigger_sos")
+        ?.siri_vault_locked_fallback_action_id ?? null,
+    ).toBeNull();
+    // sos_default must never become direct: it branches on a stored
+    // preference, so a hardware button cannot know what it would do.
+    for (const actionId of ["location.sos_default", "location.delete_circle"]) {
       expect(getKaiActionById(actionId)?.siri_mode).toBe("unsupported");
     }
   });

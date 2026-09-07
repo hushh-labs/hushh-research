@@ -4,6 +4,7 @@ from fastapi import APIRouter
 
 from .a2a import router as a2a_router
 from .a2a import well_known_router as a2a_well_known_router
+from .action_proposals import router as action_proposals_router
 from .adk_live import router as adk_live_router
 from .advisors import router as advisors_router
 from .agent_chat import router as agent_chat_router
@@ -85,4 +86,4 @@ router.include_router(referrals_router)
 router.include_router(runtime_router)
 router.include_router(webauthn_router)
 
-__all__ = ["router"]
+__all__ = ["action_proposals_router", "router"]

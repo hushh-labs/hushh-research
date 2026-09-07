@@ -7,6 +7,7 @@ never selects a full shared runner, even for valid vault-owner credentials.
 from __future__ import annotations
 
 import hashlib
+import logging
 from typing import Any
 
 from ag_ui.core import RunAgentInput
@@ -33,6 +34,7 @@ from hushh_mcp.one_adk.agent_tree import (
 )
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
 
+logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Agent One"])
 
 
@@ -298,4 +300,88 @@ async def delete_conversation(
     return {"conversation_id": conversation_id, "deleted": True}
 
 
+# ── Proposal mode: action search and structured proposals ────────────────────
+
+
+class ActionSearchRequest(BaseModel):
+    query: str = Field(min_length=1, max_length=2048)
+
+
+class ActionProposalRequest(BaseModel):
+    conversation_id: str
+    query: str = Field(min_length=1, max_length=4096)
+
+
+class ConfirmProposalRequest(BaseModel):
+    confirmed_slots: dict[str, Any] = Field(default_factory=dict)
+
+
+proposal_router = APIRouter(tags=["Agent One"])
+
+
+@proposal_router.post("/api/one/actions/search")
+async def search_actions_endpoint(
+    payload: ActionSearchRequest,
+    request: Request,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
+@proposal_router.post("/api/one/agent-chat/proposals")
+async def create_action_proposal(
+    payload: ActionProposalRequest,
+    request: Request,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/admit")
+async def admit_proposal(
+    proposal_id: str,
+    request: Request,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/confirm")
+async def confirm_proposal(
+    proposal_id: str,
+    request: Request,
+    payload: ConfirmProposalRequest = ConfirmProposalRequest(),
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
+@proposal_router.post("/api/one/action-proposals/{proposal_id}/settle")
+async def settle_proposal(
+    proposal_id: str,
+    result_payload: dict[str, Any],
+    request: Request,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
+@proposal_router.delete("/api/one/action-proposals/{proposal_id}")
+async def cancel_proposal(
+    proposal_id: str,
+    request: Request,
+    token: dict = Depends(require_vault_owner_token),
+):
+    """Personal proposal transport requires the owner's private runtime."""
+    raise _private_runtime_required()
+
+
 __all__ = ["router"]
+
+
+router.include_router(proposal_router)

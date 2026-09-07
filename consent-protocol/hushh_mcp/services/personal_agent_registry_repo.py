@@ -140,30 +140,31 @@ def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
     return snapshot
 
 
-def _upgrade_snapshot_predicate(snapshot: dict, *, publishing: bool = False) -> tuple[str, dict]:
-    clauses, params = [], {}
-    for column, value in snapshot.items():
-        if publishing and column in {"updated_at", "backend_metadata"}:
-            continue  # Heartbeats may advance; metadata is merged separately.
-        parameter = f"observed_{column}"
-        expression = f":{parameter}"
-        if column == "host_metadata":
-            fields = ", ".join(
-                f"'{key}', backend_metadata->'{key}'" for key in _UPGRADE_HOST_METADATA_KEYS
-            )
-            clauses.append(
-                f"jsonb_build_object({fields}) IS NOT DISTINCT FROM CAST({expression} AS jsonb)"
-            )
-            params[parameter] = json.dumps(value)
-            continue
-        if column == "backend_metadata":
-            expression = f"CAST({expression} AS jsonb)"
-            value = json.dumps(value) if value is not None else None
-        elif column in {"updated_at", "user_cloud_authorized_at"}:
-            expression = f"CAST({expression} AS timestamptz)"
-        clauses.append(f"{column} IS NOT DISTINCT FROM {expression}")
-        params[parameter] = value
-    return " AND ".join(clauses), params
+def _upgrade_snapshot_params(snapshot: dict, *, publishing: bool = False) -> dict:
+    """Bind observations as values; registry/metadata keys never become SQL.
+
+    Timestamps retain their typed comparisons, and full metadata stays separate
+    so a SQL NULL cannot match a stored JSON null. Publication tolerates heartbeat
+    changes while retaining the exact host/custody projection.
+    """
+    registry = {
+        key: value
+        for key, value in snapshot.items()
+        if key
+        not in {"updated_at", "user_cloud_authorized_at", "backend_metadata", "host_metadata"}
+    }
+    return {
+        "observed_registry": json.dumps(registry),
+        "observed_host_metadata": json.dumps(snapshot["host_metadata"]),
+        "observed_updated_at": snapshot["updated_at"],
+        "observed_user_cloud_authorized_at": snapshot["user_cloud_authorized_at"],
+        "observed_backend_metadata": (
+            json.dumps(snapshot["backend_metadata"])
+            if snapshot["backend_metadata"] is not None
+            else None
+        ),
+        "publishing": publishing,
+    }
 
 
 class PersonalAgentRegistryRepo:
@@ -897,12 +898,12 @@ class PersonalAgentRegistryRepo:
             or snapshot["status"] != "provisioned"
         ):
             return None
-        predicate, observed_params = _upgrade_snapshot_predicate(snapshot)
+        observed_params = _upgrade_snapshot_params(snapshot)
         now = datetime.now(timezone.utc)
         lease = f"{now.isoformat()}|{uuid.uuid4().hex}|{target_image}"
         result = self._db().execute_raw(
             """
-            UPDATE personal_agent_registry
+            UPDATE personal_agent_registry AS registry
             SET backend_metadata = jsonb_set(
                     coalesce(backend_metadata, '{}'::jsonb),
                     '{upgradeLease}',
@@ -911,14 +912,31 @@ class PersonalAgentRegistryRepo:
                 )
             WHERE user_id = :user_id
               AND status = 'provisioned'
-              AND {predicate}
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
+                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
+                  )
+              AND user_cloud_authorized_at IS NOT DISTINCT FROM
+                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
+              AND (
+                    CAST(:publishing AS boolean)
+                    OR (
+                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
+                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
+                    )
+                  )
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
+                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
+                          IS DISTINCT FROM observed.value
+                  )
               AND (
                     backend_metadata->>'upgradeLease' IS NULL
                     OR CAST(split_part(backend_metadata->>'upgradeLease', '|', 1) AS timestamptz)
                        < CAST(:stale_before AS timestamptz)
                   )
             RETURNING user_id
-            """.replace("{predicate}", predicate),
+            """,
             {
                 **observed_params,
                 "user_id": user_id,
@@ -952,7 +970,7 @@ class PersonalAgentRegistryRepo:
             or snapshot["status"] != "provisioned"
         ):
             return False
-        predicate, observed_params = _upgrade_snapshot_predicate(snapshot, publishing=True)
+        observed_params = _upgrade_snapshot_params(snapshot, publishing=True)
         changes = {
             key: value
             for key, value in backend_metadata.items()
@@ -976,9 +994,26 @@ class PersonalAgentRegistryRepo:
                 updated_at = NOW()
             WHERE user_id = :user_id AND status = 'provisioned'
               AND backend_metadata->>'upgradeLease' = :expected_lease
-              AND {predicate}
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_registry AS jsonb)) AS observed
+                    WHERE to_jsonb(registry)->observed.key IS DISTINCT FROM observed.value
+                  )
+              AND user_cloud_authorized_at IS NOT DISTINCT FROM
+                    CAST(:observed_user_cloud_authorized_at AS timestamptz)
+              AND (
+                    CAST(:publishing AS boolean)
+                    OR (
+                        updated_at IS NOT DISTINCT FROM CAST(:observed_updated_at AS timestamptz)
+                        AND backend_metadata IS NOT DISTINCT FROM CAST(:observed_backend_metadata AS jsonb)
+                    )
+                  )
+              AND NOT EXISTS (
+                    SELECT 1 FROM jsonb_each(CAST(:observed_host_metadata AS jsonb)) AS observed
+                    WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
+                          IS DISTINCT FROM observed.value
+                  )
             RETURNING user_id
-            """.replace("{predicate}", predicate),
+            """,
             {
                 **observed_params,
                 "user_id": user_id,

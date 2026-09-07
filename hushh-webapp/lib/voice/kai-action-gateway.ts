@@ -1,10 +1,16 @@
 import gatewayJson from "@/contracts/kai/kai-action-gateway.vnext.json";
+import { ApiService } from "@/lib/services/api-service";
 
 import type { KaiCommandAction } from "@/lib/kai/kai-command-types";
 import type { Persona } from "@/lib/services/ria-service";
 import type { AppRuntimeState, VoiceToolCall } from "@/lib/voice/voice-types";
 import type { VoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { isLocalCrmBuildEnabled } from "@/lib/connected-systems/crm-product-availability";
+
+const logger =
+  typeof console !== "undefined" && typeof console.warn === "function"
+    ? console
+    : { warn: () => {}, log: () => {}, error: () => {} };
 
 export type KaiActionRiskLevel = "low" | "medium" | "high";
 export type KaiActionExecutionPolicy =
@@ -1163,4 +1169,147 @@ export function searchKaiActions(input: {
       return a.action.label.localeCompare(b.action.label);
     })
     .slice(0, limit);
+}
+
+// ---------------------------------------------------------------------------
+// Backend semantic search (falls back to local scoring when unavailable)
+// ---------------------------------------------------------------------------
+
+type SemanticSearchCandidate = {
+  action_id: string;
+  label: string;
+  meaning: string;
+  policy: string;
+  availability: string;
+  ranking: string;
+  use_tool?: string;
+  semantic_boundaries?: string;
+};
+
+let _semanticSearchDebounce: ReturnType<typeof setTimeout> | null = null;
+let _pendingSemanticAbort: AbortController | null = null;
+
+async function searchKaiActionsSemantic(
+  input: {
+    query: string;
+    appRuntimeState?: AppRuntimeState;
+    surfaceMetadata?: VoiceSurfaceMetadata | null;
+    limit?: number;
+  },
+  signal?: AbortSignal,
+): Promise<Array<{
+  action: KaiActionDefinition;
+  availability: KaiActionAvailability;
+  score: number;
+  semantic?: true;
+}>> {
+  const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
+  const url =
+    `/api/one/actions/search?limit=${encodeURIComponent(String(limit))}` +
+    (input.query.trim() ? `&query=${encodeURIComponent(input.query.trim())}` : "");
+
+  const controller = _pendingSemanticAbort;
+  if (controller) controller.abort();
+  const abort = new AbortController();
+  if (signal) {
+    signal.addEventListener("abort", () => abort.abort(), { once: true });
+  }
+  _pendingSemanticAbort = abort;
+
+  try {
+    // ApiService.apiFetch, not fetch: on iOS/Android there is no Next.js
+    // server to serve a relative /api path, so a direct fetch resolves to
+    // nothing on device -- which is exactly where the Siri handoff runs.
+    // apiFetch routes to the real backend base URL on native platforms.
+    const res = await ApiService.apiFetch(url, {
+      method: "GET",
+      headers: { "Content-Type": "application/json" },
+      signal: signal ?? abort.signal,
+      credentials: "include",
+    });
+    if (!res.ok) {
+      if (res.status === 429 || res.status >= 500) {
+        logger.warn(`semantic_search_failed status=${res.status}`);
+        return [];
+      }
+      throw new Error(`semantic_search status ${res.status}`);
+    }
+    const payload = (await res.json()) as {
+      results?: SemanticSearchCandidate[];
+      ranking?: string;
+    };
+    const candidates = payload.results ?? [];
+    const results: Array<{
+      action: KaiActionDefinition;
+      availability: KaiActionAvailability;
+      score: number;
+      semantic?: true;
+    }> = [];
+    for (const c of candidates) {
+      const action = getKaiActionById(c.action_id);
+      if (!action) continue;
+      const availability = evaluateKaiActionAvailability({
+        action,
+        appRuntimeState: input.appRuntimeState,
+        surfaceMetadata: input.surfaceMetadata,
+      });
+      results.push({
+        action,
+        availability,
+        score: 0.01 + results.length * 0.001,
+        semantic: true,
+      });
+    }
+    return results;
+  } catch (error) {
+    if ((error as Error)?.name === "AbortError") return [];
+    logger.warn("semantic_search_error", { error });
+    return [];
+  } finally {
+    if (_pendingSemanticAbort === abort) {
+      _pendingSemanticAbort = null;
+    }
+  }
+}
+
+export async function searchKaiActionsAsync(input: {
+  query: string;
+  appRuntimeState?: AppRuntimeState;
+  surfaceMetadata?: VoiceSurfaceMetadata | null;
+  limit?: number;
+  debounceMs?: number;
+  signal?: AbortSignal;
+}): Promise<Array<{
+  action: KaiActionDefinition;
+  availability: KaiActionAvailability;
+  score: number;
+  semantic?: true;
+}>> {
+  const trimmed = input.query.trim();
+  const debounceMs = input.debounceMs ?? 180;
+  const { signal: outerSignal } = input;
+
+  if (!trimmed) {
+    return searchKaiActions(input);
+  }
+
+  await new Promise<void>((resolve) => {
+    if (_semanticSearchDebounce) clearTimeout(_semanticSearchDebounce);
+    _semanticSearchDebounce = setTimeout(resolve, debounceMs);
+  });
+
+  if (outerSignal?.aborted) return [];
+
+  const semantic = await searchKaiActionsSemantic(input, input.signal);
+  if (semantic.length > 0) {
+    const actionIds = new Set(semantic.map((r) => r.action.action_id));
+    // No `semantic: false` tag: the declared return type marks semantic hits
+    // with `semantic?: true`, so absence already means a local hit. Tagging it
+    // widens the union and breaks every consumer that reads `availability`.
+    const local = searchKaiActions(input).filter(
+      (r) => !actionIds.has(r.action.action_id),
+    );
+    return [...semantic, ...local];
+  }
+  return searchKaiActions(input);
 }

@@ -235,3 +235,61 @@ def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
     assert response.status_code == 409
     assert response.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
     sessions.assert_not_awaited()
+
+
+@pytest.mark.parametrize("authorized", [True, False])
+@pytest.mark.parametrize(
+    "method,path,payload",
+    [
+        ("POST", "/api/one/actions/search", {"query": "synthetic request"}),
+        (
+            "POST",
+            "/api/one/agent-chat/proposals",
+            {"conversation_id": "synthetic", "query": "synthetic request"},
+        ),
+        ("POST", "/api/one/action-proposals/synthetic/admit", {}),
+        ("POST", "/api/one/action-proposals/synthetic/confirm", {}),
+        ("POST", "/api/one/action-proposals/synthetic/settle", {}),
+        ("DELETE", "/api/one/action-proposals/synthetic", None),
+    ],
+)
+def test_proposal_ingress_cannot_execute_on_shared_hub(
+    monkeypatch, no_secret_storage, authorized, method, path, payload
+):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    from api.routes.one import router
+
+    app = FastAPI()
+    app.include_router(router)
+
+    async def owner():
+        if not authorized:
+            raise HTTPException(status_code=401, detail="synthetic denial")
+        return {"user_id": "owner-a", "token": "synthetic-hct"}
+
+    app.dependency_overrides[agent_chat.require_vault_owner_token] = owner
+    retrieval = Mock(side_effect=AssertionError("shared retrieval invoked"))
+    model = Mock(side_effect=AssertionError("shared model invoked"))
+    monkeypatch.setattr(
+        "hushh_mcp.one_adk.action_retrieval.search_actions_for_command_palette", retrieval
+    )
+    monkeypatch.setattr("hushh_mcp.one_adk.agent_tree.build_one_text_agent", model)
+    sessions = AsyncMock(side_effect=AssertionError("shared session invoked"))
+    monkeypatch.setattr(agent_chat._intro_session_service, "create_session", sessions)
+    with TestClient(app) as client:
+        response = client.request(method, path, json=payload)
+    assert response.status_code == (409 if authorized else 401)
+    if authorized:
+        assert response.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    retrieval.assert_not_called()
+    model.assert_not_called()
+    no_secret_storage.assert_not_called()
+    sessions.assert_not_awaited()
+    matching = [
+        r
+        for r in app.routes
+        if getattr(r, "path_regex", None) and r.path_regex.fullmatch(path) and method in r.methods
+    ]
+    assert len(matching) == 1

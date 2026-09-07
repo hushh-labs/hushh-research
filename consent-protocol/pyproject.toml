@@ -56,6 +56,10 @@ dependencies = [
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
+    "sentence-transformers==5.2.0",
+    "transformers==5.10.1",
+    # Directly declared runtime dependency of the pinned embedding model.
+    "torch>=2,<3",
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
@@ -98,6 +102,8 @@ build-backend = "setuptools.build_meta"
 [tool.uv]
 package = false
 
+# Use the default Torch index after the CPU-only pin blocked the UAT build.
+# Linux dependency size and cold-start cost still need deployment measurements.
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile
 target-version = "py313"

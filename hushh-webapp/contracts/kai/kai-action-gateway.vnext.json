@@ -6543,7 +6543,7 @@
         "text",
         "sos"
       ],
-      "meaning": "Opens the emergency SMS contacts screen, where you choose who receives a text message when you raise an SOS.",
+      "meaning": "Opens the Save My Soul contacts screen, where you choose who is alerted when you raise an SOS. SMS is short for Save My Soul; no text message is sent -- contacts get a push notification, an email fallback, and a live location share.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -10757,8 +10757,8 @@
       "risk_level": "high",
       "execution_policy": "allow_direct",
       "activation_policy": "none",
-      "siri_mode": "unsupported",
-      "siri_requires_vault": false,
+      "siri_mode": "direct",
+      "siri_requires_vault": true,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
         "status": "wired",

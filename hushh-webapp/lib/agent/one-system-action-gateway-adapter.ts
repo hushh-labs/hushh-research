@@ -155,5 +155,21 @@ export async function executeOneSystemActionThroughGateway(input: {
   if (selectsRecipient) {
     delete slots.resolvedRecipientId;
   }
+  if (invocation.actionId === "location.trigger_sos") {
+    // resolveTriggerSos gates on `confirmed === true` (strictly), and native
+    // slots are strings, so a "confirmed" slot could never satisfy it even if
+    // the coordinator allowed one through -- which it does not. The
+    // confirmation therefore comes from the invocation envelope instead, and
+    // only SendSaveMySoulAlertIntent sets it: an intent that exists solely to
+    // send, carries long deliberate phrases, and is the one meant to be
+    // assigned to the Action button, where the press-and-hold is the
+    // confirming gesture. Anything else reaching this action arrives
+    // unconfirmed and gets the tappable confirm card.
+    //
+    // Every other guard in resolveTriggerSos still runs and still fails
+    // closed: locked vault, an SOS already running, blocked location
+    // permission, and zero ready contacts.
+    slots.confirmed = invocation.confirmedBySystem === true;
+  }
   return input.execute(invocation.actionId, slots, goalAuthorization);
 }
