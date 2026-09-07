@@ -12,34 +12,52 @@ SCHEME="App"
 DEVICE_NAME="${IOS_TEST_DEVICE_NAME:-iPhone 14 Plus}"
 SDK="${IOS_TEST_SDK:-iphonesimulator}"
 DERIVED_DATA_PATH="${IOS_DERIVED_DATA_PATH:-ios/App/build/DerivedData}"
-if [[ -n "${IOS_TEST_DESTINATION:-}" ]]; then
-  DESTINATION="$IOS_TEST_DESTINATION"
-else
-  DESTINATION="$(IOS_TEST_DEVICE_NAME="$DEVICE_NAME" node <<'NODE'
+if [[ "$SDK" != "iphonesimulator" ]]; then
+  echo "ios:test requires a simulator; use ios-device-ui-test.sh for physical devices." >&2
+  exit 2
+fi
+DESTINATION="$(IOS_TEST_DEVICE_NAME="$DEVICE_NAME" node <<'NODE'
 const { execFileSync } = require("node:child_process");
 
 const deviceName = process.env.IOS_TEST_DEVICE_NAME || "iPhone 14 Plus";
+const requested = new Map((process.env.IOS_TEST_DESTINATION || "")
+  .split(",").filter(Boolean).map((part) => {
+    const separator = part.indexOf("=");
+    return [part.slice(0, separator), part.slice(separator + 1)];
+  }));
+if (requested.size && requested.get("platform") !== "iOS Simulator") {
+  console.error("An iOS Simulator destination is required before a cold audit.");
+  process.exit(2);
+}
 try {
   const output = execFileSync(
     "xcrun",
     ["simctl", "list", "devices", "available", "--json"],
-    { encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL" }
+    { encoding: "utf8", timeout: 15_000, killSignal: "SIGKILL" }
   );
   const payload = JSON.parse(output);
-  for (const devices of Object.values(payload.devices || {})) {
-    const device = devices.find((candidate) => candidate.name === deviceName && candidate.isAvailable);
+  const runtimes = Object.entries(payload.devices || {}).sort(([a], [b]) => b.localeCompare(a, undefined, { numeric: true }));
+  for (const [runtime, devices] of runtimes) {
+    if (!runtime.includes(".iOS-")) continue;
+    const os = requested.get("OS");
+    if (os && os !== "latest" && !runtime.endsWith(`.iOS-${os.replaceAll(".", "-")}`)) continue;
+    const device = devices.find((candidate) => candidate.isAvailable && (
+      requested.has("id")
+        ? candidate.udid.toLowerCase() === requested.get("id").toLowerCase()
+        : candidate.name === (requested.get("name") || deviceName)
+    ));
     if (device?.udid) {
       console.log(`platform=iOS Simulator,id=${device.udid}`);
       process.exit(0);
     }
   }
-} catch (error) {
-  // Fall through to the human-readable destination below.
+} catch {
+  // Never start an audit without a concrete target for verified cleanup.
 }
-console.log(`platform=iOS Simulator,name=${deviceName}`);
+console.error("Requested iOS Simulator is unavailable; no test app was launched.");
+process.exit(2);
 NODE
 )"
-fi
 COMMON_FLAGS=(
   -project "$PROJECT"
   -scheme "$SCHEME"
@@ -51,16 +69,21 @@ COMMON_FLAGS=(
 )
 
 cleanup_native_test_app() {
+  local test_result=$?
+  local cleanup_result=0
+  trap - EXIT
   if [[ "$DESTINATION" == *",id="* ]]; then
     local device_id="${DESTINATION##*,id=}"
-    python3 - "$device_id" <<'PYTHON' >/dev/null 2>&1 || true
-import subprocess, sys
-try:
-    subprocess.run(["xcrun", "simctl", "terminate", sys.argv[1], "com.hushh.app"], timeout=15)
-except subprocess.TimeoutExpired:
-    sys.exit(1)
-PYTHON
+    device_id="${device_id%%,*}"
+    python3 ./scripts/native/ios-simulator-cleanup.py "$device_id" || cleanup_result=$?
+  else
+    echo "Test app cleanup is unverified: an explicit simulator UUID is required." >&2
+    cleanup_result=1
   fi
+  if (( test_result != 0 )); then
+    exit "$test_result"
+  fi
+  exit "$cleanup_result"
 }
 
 # This script runs only behind the explicit cold-audit gate above. Always

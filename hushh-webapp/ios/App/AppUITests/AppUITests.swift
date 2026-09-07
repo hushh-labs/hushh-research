@@ -35,7 +35,9 @@ final class AppUITests: XCTestCase {
             allowedDataStates: ["loaded"]
         )
         let app = launchApp(route)
-        defer { app.terminate() }
+        // The CI host owns bounded cleanup and verifies app-process absence.
+        // XCTest can miss a successful SIGTERM acknowledgement and fail here
+        // after every recovery assertion passed; retain that independent proof.
         let notice = app.staticTexts["Account not found. Redirecting you to login screen."]
         XCTAssertTrue(notice.waitForExistence(timeout: 45))
         _ = try waitForSatisfiedStatus(app, route: route, timeout: 45)

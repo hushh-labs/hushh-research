@@ -587,6 +587,19 @@ jobs:
           raise SystemExit("No available iPhone Simulator is installed on the CI runner.")
           PY
           )"
+          cleanup_native_test_app() {
+            test_result=$?
+            cleanup_result=0
+            trap - EXIT
+            python3 hushh-webapp/scripts/native/ios-simulator-cleanup.py "$SIMULATOR_ID" || cleanup_result=$?
+            if [ "$test_result" -ne 0 ]; then
+              exit "$test_result"
+            fi
+            exit "$cleanup_result"
+          }
+          trap cleanup_native_test_app EXIT
+          trap 'exit 130' INT
+          trap 'exit 143' TERM
           xcodebuild test \
             -project "${XCODE_PROJECT}" \
             -scheme "${XCODE_SCHEME}" \

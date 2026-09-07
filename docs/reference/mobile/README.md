@@ -101,6 +101,14 @@ substituted for one another:
 - Physical-device tests use a separately authorised test session and terminate
   their launched app even when an XCTest assertion fails.
 
+The anonymous account-recovery CI smoke leaves final termination to its host.
+`hushh-webapp/scripts/native/ios-simulator-cleanup.py` requires an explicit simulator UUID,
+bounds termination and process checks, and verifies absence of the exact app's
+launchd label. The existing cold-audit wrapper uses the same helper. Test failure
+remains failure; successful assertions with unverified cleanup also fail. This
+proves app-process absence only, not cleanup of every WebKit child or XCTest
+runner. Direct invocations of that smoke must run the same host cleanup.
+
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
 and a pinned id fails only after a full build. Simulator launches resolve a
