@@ -374,3 +374,6 @@ tests/test_pod_update_detection.py
 tests/test_byoc_authorization_instructions_route.py
 tests/test_pod_upgrade_lease_against_postgres.py
 tests/test_parked_cloud_reaches_the_person.py
+
+# Exact-release license evidence rejects missing, modified and conflicting metadata.
+tests/test_third_party_license_evidence.py
