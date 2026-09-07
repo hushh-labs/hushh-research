@@ -108,6 +108,39 @@ Preserve failed and unverified results, then correct one independently reversibl
 boundary at a time. New model evaluations use the same contract fixtures and
 negative controls as the prior baseline.
 
+### Audit closure and branch-specific transfers
+
+An architecture audit and an operational release have different evidence requirements.
+Close the audit by inspecting the declared surfaces, correcting verified defects and
+contradictory instructions, and recording each remaining implementation or access gap
+with its owning workflow and acceptance evidence. An open requirement is not a passing
+capability. Release completion still requires the applicable existing pod ledger and
+release gates; never rename missing provider or lifecycle evidence as an exclusion.
+
+Reuse passing evidence when its owning source and dependencies are unchanged. After a
+bounded correction, run the smallest authoritative checks and the required owner gate.
+Run the combined release gate once on the integrated candidate; repeat only affected
+checks after subsequent changes. Retain behavioral and security negative controls.
+Remove one-off tests or source-text assertions only when their protection is redundant
+or disconnected, and record what retained check covers the behavior.
+
+For shared-runtime and private-pod branches:
+
+1. Record each worktree's branch, exact revision, dirty paths and remote relationship.
+2. Classify a correction as portable, target-adapted or private-only before transfer.
+3. Transfer bounded commits through the existing shared-runtime worktree/review lane.
+   Preserve its session, routing, setup, deployment and fleet contracts; never copy the
+   private branch's router, lifecycle or entire agent fleet into it.
+4. Regenerate projections from the target's authored sources and run target-owned checks.
+   A clean cherry-pick is not proof of architectural compatibility.
+5. Preserve independently active edits and unpublished commits. Review and publication
+   follow the existing branch-freshness and PR workflows; do not overwrite shared history
+   or bypass review to clear an audit checklist.
+
+Keep the transfer map and sanitized receipts in the revision-bound audit report. This
+procedure reuses existing workflows and the pod ledger; it creates no second completion
+authority, scheduler or patch queue.
+
 ### Platform-source ratchet
 
 `skill_lint.py` reuses the alignment audit's bridge and classification checks.

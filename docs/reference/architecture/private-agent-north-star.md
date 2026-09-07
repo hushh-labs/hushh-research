@@ -242,8 +242,9 @@ The hussh **dev** GCP environment exists **purely to validate this architecture*
 simulator for the complete production environment — orchestration, deployment, scaling,
 synchronisation, upgrades, recovery, backups, performance, and end-to-end interaction.
 
-The dev environment is not the product. The same platform runs, or must be able to run,
-every row below — and a row's status is stated honestly rather than aspirationally:
+The dev environment is not the product. The deployment observations below are dated
+2026-08-25 history; they do not identify the currently installed image or prove present
+health. Re-earn those observations for a release candidate:
 
 | Target | Purpose | Status (2026-08-25) |
 |---|---|---|
@@ -273,23 +274,56 @@ Isolation, authority, identity, capability, **persistence**, portability, econom
 same decomposition, now scored against persistent per-person pods rather than a stateless
 fleet.
 
-*(Corrected 2026-08-25: this heading read "the six requirements" while the table below
-listed seven. Persistence was added as a named requirement when the target stopped being a
-stateless fleet — see the note under the table — and the count was never updated, so
-"all the requirements" had no citable referent. It does now.)*
+The following observations were recorded on 2026-08-25; they are historical evidence,
+not certification of the current revision or deployed fleet. Source review on 2026-09-07
+qualifies their limits below. Use `config/pod-completion-ledger.yaml` and its current
+revision-bound judge receipt for completion assertions, not this summary table.
 
-| Requirement | What the vision demands | Current state (updated 2026-08-25) |
+| Requirement | What the vision demands | Recorded evidence and remaining limits |
 |---|---|---|
-| **Isolation** | one person's holdings unreachable from another's | met — separate service, no shared credential, zero-permission identity |
-| **Authority** | consented, scoped, revocable, non-repudiable | partial — primitive strong, pod proposes/hub authorizes; Ed25519 signing staged on dev (existence-gated flip, `test_consent_signing_dev_rollout_contract`) |
-| **Identity** | the pod proves *which* person's agent it is, in any project | shown — BYOC pods run as a per-person service account + X25519 key; `verify_pod_identity` binds the asserted HusshID to it (`runtime_service_account` in the registry row) |
-| **Capability** | the full agent ecosystem runs *inside* the pod | partial — the pod runs the ENTIRE agent tree in-process (Finance/Kai, RIA, Investor, search, action tools, recall); the DB-backed dispatch specialists read the owner's real state through the staged data door: **location and email are OPEN** (fail-closed projection, per-turn scope, `serve_specialist_via_data_door`), with nav and connections next on the same dispatch hook. Calendar and finance are in-process tools rather than dispatch specialists, so their doors also need an in-process-tool→broker bridge; finance is special — a keyless pod can read CONNECTION STATUS (which brokerages, sync state) through a `cap.finance.connections.view` door, while the vault-key-gated portfolio itself can never cross a hub read and stays browser-executed |
-| **Persistence** | memory survives restarts and compounds | shown — the tier-agnostic key resolver is wired, the first live pod served `memoryEnabled=true`, and the evolution simulation measures recall 1.0 across two restarts with a negative control |
-| **Portability** | same platform, three targets, by configuration | shown — Agent One served in the user's own project from the user's own registry (digest-pinned copy, no hussh runtime dependency) |
-| **Economics** | cost per person far below value per person | improving — economy (minScale 0) is the default and BYOC handles now record `livenessMode`, so the sweep never probes/wakes/bills a healthy sleeping pod |
+| **Isolation** | one person's information unreachable from another's | Separate services and owner checks establish particular boundaries. Cross-owner negative controls and deployed IAM/KMS authority must be verified; runtime identities need permissions for storage, keys and providers. |
+| **Authority** | consented, scoped, revocable, non-repudiable | Scoped consent primitives and pod-proposes/hub-authorizes wiring exist. Complete specialist authority threading and durable receipt coverage remain to be proven. |
+| **Identity** | the pod proves which person's agent it is, in any project | Per-person service-account and X25519 identity wiring exist. Current live identity after replacement is a separate assertion. |
+| **Capability** | the full agent ecosystem runs inside the pod | In-process agents/tools and transitional scoped hub-read doors exist. Registry or import presence alone does not prove consented specialist execution inside a deployed pod. |
+| **Persistence** | memory survives restarts and compounds | Sealed-log hydration and memory-provider integration exist; earlier simulation reported recall across two restarts. Current compute-replacement, restore and provider-memory proof remain separate. |
+| **Portability** | same platform, three targets, by configuration | Earlier BYOC deployment was reported from the owner's registry. Supported migration, key custody and complete cleanup need evidence for each target; Anypoint remains unimplemented. |
+| **Economics** | cost per person far below value per person | Scale-to-zero configuration and liveness policy reduce avoidable work. They do not measure billed cost or establish a cost target. |
 
-Note the change from the previous framing: **persistence is now a named requirement.** It
-was not one when the target was a stateless fleet, which is exactly how it went missing.
+Persistence is a named requirement because the target is a persistent private agent.
+The shared multi-tenant runtime retains its own owner-scoped session contract; this
+workstream does not make shared agents hold ambient personal memory.
+
+### Memory, custody and audit boundaries
+
+PKM is the information authority. `PodPkmStore` is its consented working replica;
+`PodCommitLog` protects recovery history. Agent-experience memory is separate from PKM.
+The owner-project Memory Bank adapter in
+`consent-protocol/hushh_mcp/services/pod_memory_bank.py` sends readable conversation events
+through `directContentsSource.events` to the provider's memory-generation API. Provider
+memory is derived experience, not another PKM authority. Owner-project placement and
+sealed logs do not make that provider blind to the content it processes.
+
+`consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py` registers public
+keys only. This does not establish every deployment's runtime-key custody.
+`consent-protocol/hushh_mcp/services/byoc_key_custody.py` wraps the recovery key in the
+owner's KMS and unwraps it with runtime authority. Confidentiality depends on actual
+runtime, KMS and administrative permissions, verified independently from registration.
+Ciphertext-only vault routes, specific plaintext-removal migrations and diagnostic
+sanitizers each establish bounded protections, not universal encryption or log coverage.
+
+Owner authorization remains mandatory before information access. The designated access
+gate in `consent-protocol/hushh_mcp/services/pod_access_audit.py` attempts an audit receipt,
+but receipt persistence is best-effort and does not invalidate an otherwise authorized
+request. Complete recall coverage and durable receipts remain requirements; an outer-turn
+receipt does not prove that every internal read is independently receipted.
+
+Internal Memory Bank erasure reconciliation records durable progress under a log fence.
+It does not activate complete account deletion. Public lifecycle completion still needs
+coordinated owner admission, in-flight provider reconciliation, retained retry authority
+and verified cleanup of all resources. The account service currently refuses destructive
+teardown while required external resources remain; this containment must not be described
+as successful erasure. Verify no resurrection through replay, restore or regeneration
+before claiming the lifecycle complete.
 
 ## What this changes about the work
 
