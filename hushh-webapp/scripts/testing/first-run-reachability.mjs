@@ -65,7 +65,7 @@ export async function auditFirstRun({ reviewer, browser, origin, budgetMs = 60_0
   const report = {
     passed: false, hubRendered: false, reached: false, actual_tile_click: false,
     first_run_state: false, account_creation_proven: false,
-    database_pool_measured: false, browserJourneyBudgetMs: budgetMs,
+    database_pool_measured: false, telemetry_delivery_proven: false, browserJourneyBudgetMs: budgetMs,
   };
   try {
     const run = async () => {

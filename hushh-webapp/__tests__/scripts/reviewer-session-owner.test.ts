@@ -56,3 +56,50 @@ describe("reviewer session authority", () => {
     await expect(reviewer.assertVaultContinuity(established.page, "established")).rejects.toThrow();
   });
 });
+
+
+describe("read-only request admission", () => {
+  it("installs interception before first navigation", async () => {
+    const reviewer = await harness();
+    const b = browser();
+    let release;
+    b.context.route.mockImplementation(() => new Promise(resolve => { release = resolve; }));
+    const opened = reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    await new Promise(resolve => setImmediate(resolve));
+    expect(b.page.goto).not.toHaveBeenCalled();
+    release();
+    await opened;
+    expect(b.page.goto).toHaveBeenCalledOnce();
+  });
+  it.each([
+    ["https://www.google-analytics.com/g/collect", true],
+    ["https://region1.google-analytics.com/g/collect", true],
+    ["https://analytics.google.com/g/collect", true],
+    ["https://www.google-analytics.com.evil.invalid/g/collect", false],
+    ["https://synthetic.example/g/collect", false],
+    ["https://www.google-analytics.com/account/delete", false],
+    ["https://synthetic.example/api/account/delete", false],
+  ])("suppresses only known telemetry locally: %s", async (url, suppressed) => {
+    const reviewer = await harness();
+    const b = browser();
+    const session = await reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false });
+    const intercept = b.context.route.mock.calls[0][1];
+    const route = { request: () => ({ method: () => "POST", url: () => url }), fulfill: vi.fn(), continue: vi.fn() };
+    await intercept(route);
+    expect(route.continue).not.toHaveBeenCalled();
+    expect(route.fulfill).toHaveBeenCalledWith(expect.objectContaining({ status: suppressed ? 204 : 409 }));
+    expect(session.readOnlyGuard.suppressedAnalyticsRequests()).toBe(suppressed ? 1 : 0);
+    if (suppressed) expect(() => session.readOnlyGuard.assertNoBlockedMutation()).not.toThrow();
+    else expect(() => session.readOnlyGuard.assertNoBlockedMutation()).toThrow("blocked state-changing");
+  });
+});
+
+
+it("closes contexts when request interception cannot be installed", async () => {
+  const reviewer = await harness();
+  const b = browser();
+  b.context.route.mockRejectedValue(new Error("synthetic interception failure"));
+  await expect(reviewer.openSession(b, "/one/setup", { requireVaultUnlocked: false })).rejects.toThrow("bootstrap failed");
+  expect(b.context.close).toHaveBeenCalledTimes(3);
+  expect(b.page.goto).not.toHaveBeenCalled();
+});

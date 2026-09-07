@@ -50,8 +50,9 @@ function requestPathname(request) {
   return endpointPath(request.url());
 }
 
-function installReadOnlyMutationGuard(context) {
+async function installReadOnlyMutationGuard(context) {
   const blockedMutations = [];
+  let suppressedAnalytics = 0;
   if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true") {
     return {
       assertNoBlockedMutation() {},
@@ -59,10 +60,22 @@ function installReadOnlyMutationGuard(context) {
     };
   }
 
-  void context.route("**/*", async (route) => {
+  await context.route("**/*", async (route) => {
     const request = route.request();
     const method = request.method().toUpperCase();
     const pathname = requestPathname(request);
+    const hostname = requestHostname(request);
+    // Read-only product rehearsals must not send measurement events or mistake
+    // suppressed telemetry for a product mutation. This exact collection route
+    // is answered locally; analytics delivery has its own owning smoke workflow.
+    if (
+      method === "POST" && pathname === "/g/collect" &&
+      ["www.google-analytics.com", "region1.google-analytics.com", "analytics.google.com"].includes(hostname)
+    ) {
+      suppressedAnalytics += 1;
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
       READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
@@ -90,6 +103,7 @@ function installReadOnlyMutationGuard(context) {
         `Read-only reviewer rehearsal blocked state-changing request(s): ${blockedMutations.join(", ")}. Fix the app's test/read-only posture or use an isolated fixture with explicit mutation authority.`,
       );
     },
+    suppressedAnalyticsRequests: () => suppressedAnalytics,
     policy: "read_only",
   };
 }
@@ -381,14 +395,12 @@ export async function createReviewerSessionHarness({
       if (!requireVaultUnlocked) firstRunPages.add(page);
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
-      const readOnlyGuard = installReadOnlyMutationGuard(context);
       const capture = attachMemoryOnlyCapture(page);
-      // With no vault to open, handing the bridge a passphrase makes its auto-unlock
-      // run and report `vault_error` (it refuses to CREATE a vault for a fixture).
-      // Withholding it leaves bootstrap at `authenticated` so the caller can drive
-      // the real "Set a lock" dialog, which is the first-run experience itself.
-      await installBridge(page, { includePassphrase: requireVaultUnlocked });
       try {
+        const readOnlyGuard = await installReadOnlyMutationGuard(context);
+        // First-run authentication does not inject a vault passphrase or create
+        // a vault. The application owns the visible setup flow.
+        await installBridge(page, { includePassphrase: requireVaultUnlocked });
         if (onPageCreated) await onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
@@ -423,9 +435,9 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = installReadOnlyMutationGuard(context);
     const capture = attachMemoryOnlyCapture(page);
     try {
+      const readOnlyGuard = await installReadOnlyMutationGuard(context);
       // Authenticate the canonical reviewer through the test bridge, but do
       // not inject or submit the passphrase. This context must prove the app
       // itself presents the locked-vault challenge first.
