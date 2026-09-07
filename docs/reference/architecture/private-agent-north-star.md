@@ -298,6 +298,12 @@ was not one when the target was a stateless fleet, which is exactly how it went 
    `PodCommitLog` through `pod_memory_service.py`; `PodPkmStore` owns the separate PKM
    working copy. Keep restart/replay and owner-isolation evidence current when either
    storage path changes.
+   The local PKM resolver reserves the consent-verified Firebase owner UID before
+   hydration and shares one retained initialization task across same-owner callers.
+   A cancelled waiter cannot release initialization while SQLite work continues;
+   a failed rebuild retains the owner binding for same-owner retry. This is
+   process-local initialization protection, not cross-process erasure fencing or
+   proof of current information freshness.
 2. **Specialists must be re-homed into the pod**, not proxied to the hub indefinitely. A
    pod that forwards every specialist call to a central database is a thin client with a
    local model — an acceptable *transitional* step, never the destination, and it must be

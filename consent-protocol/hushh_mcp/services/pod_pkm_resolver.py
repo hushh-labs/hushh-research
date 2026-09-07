@@ -52,6 +52,7 @@ A pod serves one person; being asked for a second is a fault, not a cache miss.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 import time
@@ -99,6 +100,7 @@ class RebuildStats:
 _STORE: Optional[Any] = None
 _OWNER: Optional[str] = None
 _STATS: Optional[RebuildStats] = None
+_INITIALIZATION: Optional[asyncio.Task[Optional[Any]]] = None
 
 
 def local_pkm_enabled() -> bool:
@@ -116,7 +118,8 @@ def rebuild_stats() -> Optional[RebuildStats]:
 
 def reset_for_tests() -> None:
     """Drop the cached store. Test-only; a running pod never needs this."""
-    global _STORE, _OWNER, _STATS
+    global _STORE, _OWNER, _STATS, _INITIALIZATION
+    _INITIALIZATION = None
     _STORE = None
     _OWNER = None
     _STATS = None
@@ -136,20 +139,29 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
     or a routing fault, and quietly rebuilding a different person's index is the
     one outcome that must never be reachable by accident.
     """
-    global _STORE, _OWNER, _STATS
+    global _OWNER, _INITIALIZATION
 
     owner = str(owner_user_id or "").strip()
-    if not owner:
+    if not owner or not local_pkm_enabled():
         return None
-    if not local_pkm_enabled():
-        return None
-
+    # The caller supplies the consent-verified Firebase owner UID. Reserve it
+    # before any suspension or hydration; a failed rebuild cannot retarget this
+    # process to another owner or another owner's partially initialized file.
+    if _OWNER is not None and _OWNER != owner:
+        raise PodPkmOwnerMismatch("pod PKM owner mismatch")
+    _OWNER = owner
     if _STORE is not None:
-        if _OWNER != owner:
-            raise PodPkmOwnerMismatch(
-                f"this pod serves {_OWNER!r} and was asked for {owner!r}'s PKM"
-            )
         return _STORE
+    # Assignment happens before the first await, so same-owner callers join one
+    # initialization. The task, not a caller's lock, owns its lifetime: cancelling
+    # a waiter must not release serialization while a SQLite thread still runs.
+    if _INITIALIZATION is None or _INITIALIZATION.done():
+        _INITIALIZATION = asyncio.create_task(_initialize_pod_pkm_store(owner, log=log))
+    return await asyncio.shield(_INITIALIZATION)
+
+
+async def _initialize_pod_pkm_store(owner: str, *, log: Any) -> Optional[Any]:
+    global _STORE, _STATS
 
     commit_log = log
     if commit_log is None:
@@ -168,7 +180,7 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
                 return None
             commit_log = getattr(storage, "_log", None)
         except Exception:  # noqa: BLE001 - an unreadable log must not break a turn
-            logger.warning("pod_pkm.storage_unavailable", exc_info=True)
+            logger.warning("pod_pkm.storage_unavailable")
             return None
     if commit_log is None:
         return None
@@ -184,7 +196,7 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
         # raises here (chain verification lives inside `replay`), and refusing to
         # materialise altered history is the correct outcome -- but it must not
         # also take the person's turn down with it.
-        logger.warning("pod_pkm.rebuild_failed owner=%s", owner, exc_info=True)
+        logger.warning("pod_pkm.rebuild_failed")
         return None
 
     duration_ms = int((time.monotonic() - started) * 1000)
@@ -194,7 +206,6 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
         replayed = -1
 
     _STORE = store
-    _OWNER = owner
     _STATS = RebuildStats(
         owner_user_id=owner,
         records_replayed=replayed,
@@ -202,11 +213,9 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
         sqlite_path=path,
     )
     logger.info(
-        "pod_pkm.rebuilt owner=%s records=%d duration_ms=%d path=%s",
-        owner,
+        "pod_pkm.rebuilt records=%d duration_ms=%d",
         replayed,
         duration_ms,
-        path,
     )
     return store
 
@@ -253,7 +262,7 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
             (owner_user_id,),
         ).fetchone()
     except Exception:  # noqa: BLE001
-        logger.warning("pod_pkm.index_unreadable", exc_info=True)
+        logger.warning("pod_pkm.index_unreadable")
         return None
     finally:
         conn.close()

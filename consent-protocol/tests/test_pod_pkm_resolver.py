@@ -19,6 +19,9 @@ outcome that must be unreachable.
 
 from __future__ import annotations
 
+import asyncio
+import threading
+
 import pytest
 
 from hushh_mcp.services import pod_pkm_resolver as resolver
@@ -145,8 +148,121 @@ async def test_a_second_owner_is_refused_loudly(tmp_path, monkeypatch):
     with pytest.raises(PodPkmOwnerMismatch) as excinfo:
         await resolve_pod_pkm_store("owner-b", log=log)
 
-    assert "owner-a" in str(excinfo.value)
-    assert "owner-b" in str(excinfo.value)
+    assert str(excinfo.value) == "pod PKM owner mismatch"
+    assert "owner-a" not in str(excinfo.value)
+    assert "owner-b" not in str(excinfo.value)
+
+
+@pytest.mark.parametrize("cancel_waiter", [False, True])
+async def test_initialization_is_owner_reserved_and_survives_waiter_cancellation(
+    tmp_path, monkeypatch, cancel_waiter
+):
+    from hushh_mcp.services.pod_pkm_store import PodPkmStore
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
+    log = await _log_with(tmp_path, [_commit("owner-a")])
+    started, release = threading.Event(), threading.Event()
+    original = PodPkmStore.rebuild
+    calls = []
+
+    def pending_worker():
+        started.set()
+        assert release.wait(timeout=5), "test did not release the initialization worker"
+
+    async def delayed_rebuild(*args, **kwargs):
+        calls.append(kwargs["owner_user_id"])
+        await asyncio.to_thread(pending_worker)
+        return await original(*args, **kwargs)
+
+    monkeypatch.setattr(PodPkmStore, "rebuild", delayed_rebuild)
+    first = asyncio.create_task(resolve_pod_pkm_store("owner-a", log=log))
+    second = None
+    try:
+        assert await asyncio.to_thread(started.wait, 2)
+        with pytest.raises(PodPkmOwnerMismatch, match="pod PKM owner mismatch"):
+            await resolve_pod_pkm_store("owner-b", log=log)
+        if cancel_waiter:
+            first.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await first
+        second = asyncio.create_task(resolve_pod_pkm_store("owner-a", log=log))
+        await asyncio.sleep(0)
+        assert calls == ["owner-a"]
+        assert not second.done()
+        release.set()
+        store = await asyncio.wait_for(second, timeout=3)
+        assert store is not None
+        if not cancel_waiter:
+            assert await first is store
+        assert await resolve_pod_pkm_store("owner-a", log=log) is store
+        assert calls == ["owner-a"]
+    finally:
+        release.set()
+        await asyncio.gather(first, *([second] if second else []), return_exceptions=True)
+        if resolver._INITIALIZATION is not None:
+            await asyncio.gather(resolver._INITIALIZATION, return_exceptions=True)
+
+
+async def test_failed_initialization_keeps_owner_and_permits_only_same_owner_retry(
+    tmp_path, monkeypatch, caplog
+):
+    from hushh_mcp.services.pod_pkm_store import PodPkmStore
+
+    caplog.set_level("INFO", logger=resolver.__name__)
+    owner = "private-owner-sentinel"
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "private-path-sentinel.sqlite3"))
+    log = await _log_with(tmp_path, [_commit(owner)])
+    original = PodPkmStore.rebuild
+
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("private-provider-error-sentinel")
+
+    monkeypatch.setattr(PodPkmStore, "rebuild", unavailable)
+    assert await resolve_pod_pkm_store(owner, log=log) is None
+    with pytest.raises(PodPkmOwnerMismatch):
+        await resolve_pod_pkm_store("foreign-owner-sentinel", log=log)
+    monkeypatch.setattr(PodPkmStore, "rebuild", original)
+    assert await resolve_pod_pkm_store(owner, log=log) is not None
+    assert resolver.rebuild_stats().owner_user_id == owner
+    for private in (owner, "private-path-sentinel", "private-provider-error-sentinel"):
+        assert private not in caplog.text
+    assert all(
+        record.exc_info is None for record in caplog.records if record.name == resolver.__name__
+    )
+
+
+async def test_storage_lookup_failure_never_logs_private_error(monkeypatch, caplog):
+    from hushh_mcp.services import pod_storage
+
+    def unavailable():
+        raise RuntimeError("private-storage-location-sentinel")
+
+    monkeypatch.setattr(pod_storage, "resolve_pod_storage", unavailable)
+    assert await resolve_pod_pkm_store("private-owner-sentinel") is None
+    assert "private-storage-location-sentinel" not in caplog.text
+    assert "private-owner-sentinel" not in caplog.text
+    assert all(
+        record.exc_info is None for record in caplog.records if record.name == resolver.__name__
+    )
+
+
+async def test_index_read_failure_never_logs_private_error(monkeypatch, caplog):
+    import sqlite3
+    from types import SimpleNamespace
+
+    def unavailable(*args):
+        raise RuntimeError("private-index-contents-sentinel")
+
+    connection = SimpleNamespace(execute=unavailable, close=lambda: None)
+    monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
+    monkeypatch.setattr(resolver, "_STORE", object())
+    monkeypatch.setattr(resolver, "_OWNER", "private-owner-sentinel")
+    assert await resolver.local_grounding("private-owner-sentinel") is None
+    assert "private-index-contents-sentinel" not in caplog.text
+    assert "private-owner-sentinel" not in caplog.text
+    assert all(
+        record.exc_info is None for record in caplog.records if record.name == resolver.__name__
+    )
 
 
 async def test_another_persons_records_never_enter_this_index(tmp_path, monkeypatch):
