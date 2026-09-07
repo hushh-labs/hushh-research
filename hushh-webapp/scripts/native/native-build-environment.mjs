@@ -85,8 +85,15 @@ export function verifyPrebuiltNativeEnvironment({ appPath, env }) {
     const backends = Object.values(config.plugins || {}).flatMap((plugin) =>
       plugin && typeof plugin.backendUrl === "string" ? [plugin.backendUrl] : []);
     const expected = String(env.NEXT_PUBLIC_BACKEND_URL || "").replace(/\/$/, "");
-    const project = fs.readFileSync(path.join(appPath, "GoogleService-Info.plist"), "utf8")
-      .match(/<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
+    const plistPath = path.join(appPath, "GoogleService-Info.plist");
+    const plist = fs.readFileSync(plistPath);
+    // Xcode packages binary plists; source XML fixtures alone do not verify an
+    // installed app. Extract only the required identity field, never the plist.
+    const project = plist.subarray(0, 8).toString("ascii") === "bplist00"
+      ? execFileSync("/usr/bin/plutil", ["-extract", "PROJECT_ID", "raw", "-o", "-", plistPath], {
+        encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 10_000,
+      }).trim()
+      : plist.toString("utf8").match(/<key>PROJECT_ID<\/key>\s*<string>([^<]+)<\/string>/)?.[1];
     if (!expected || backends.length === 0 || backends.some((url) => url.replace(/\/$/, "") !== expected)
       || !project || project !== env.NEXT_PUBLIC_FIREBASE_PROJECT_ID) throw new Error("mismatch");
   } catch {

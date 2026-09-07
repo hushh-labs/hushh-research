@@ -101,6 +101,17 @@ describe("prebuilt native target validation", () => {
   it("rejects missing artifacts without exposing their contents", () => {
     expect(() => verifyPrebuiltNativeEnvironment({ appPath: fixture(), env: dev })).toThrow("rebuild");
   });
+  it.skipIf(process.platform !== "darwin")("validates Xcode's binary plist instead of requiring source XML", () => {
+    const appPath = bundle();
+    writeFileSync(join(appPath, "GoogleService-Info.plist"), Buffer.from("YnBsaXN0MDDRAQJaUFJPSkVDVF9JRFtkZXYtZml4dHVyZQgLFgAAAAAAAAEBAAAAAAAAAAMAAAAAAAAAAAAAAAAAAAAi", "base64"));
+    expect(() => verifyPrebuiltNativeEnvironment({ appPath, env: dev })).not.toThrow();
+    expect(() => verifyPrebuiltNativeEnvironment({ appPath, env: { ...dev, NEXT_PUBLIC_FIREBASE_PROJECT_ID: "foreign" } })).toThrow("rebuild");
+  });
+  it.skipIf(process.platform !== "darwin")("refuses corrupted binary plists with sanitized errors", () => {
+    const appPath = bundle();
+    writeFileSync(join(appPath, "GoogleService-Info.plist"), "bplist00synthetic-invalid");
+    expect(() => verifyPrebuiltNativeEnvironment({ appPath, env: dev })).toThrow("Prebuilt native identity cannot be verified");
+  });
   it("uses bundle validation in the route skip-build branch", () => {
     const source = readFileSync(join(process.cwd(), "scripts/native/ios-route-audit.mjs"), "utf8");
     expect(source).not.toContain("resolveNativeTestBackendUrl");
