@@ -198,6 +198,57 @@ async def test_tombstone_records_retained_row():
     assert "external_agent_id" not in tombstones[0]  # None dropped
 
 
+@pytest.mark.parametrize("committed_before_failure", [False, True])
+async def test_tombstone_never_drops_recovery_metadata_after_uncertain_write(
+    committed_before_failure,
+):
+    payloads = []
+    persisted = []
+
+    class FailingQuery:
+        def insert(self, payload):
+            payloads.append(payload)
+            return self
+
+        def execute(self):
+            if committed_before_failure:
+                persisted.append(payloads[-1])
+            raise RuntimeError("write acknowledgement unavailable")
+
+    client = SimpleNamespace(table=lambda name: FailingQuery())
+    repo = PersonalAgentRegistryRepo(client=client)
+    metadata = {"user_cloud_project": "synthetic-project", "user_cloud_region": "us-central1"}
+    with pytest.raises(RuntimeError, match="acknowledgement unavailable"):
+        await repo.tombstone(
+            hushh_id="synthetic-owner",
+            external_agent_id="synthetic-pod",
+            status="deprovision_requested",
+            metadata=metadata,
+        )
+    assert len(payloads) == 1
+    assert payloads[0]["metadata"] == metadata
+    assert len(persisted) == int(committed_before_failure)
+
+
+async def test_tombstone_preserves_complete_recovery_metadata():
+    repo, db = _repo_and_db()
+    metadata = {
+        "user_cloud_project": "synthetic-project",
+        "user_cloud_region": "us-central1",
+        "optional": None,
+    }
+    await repo.tombstone(
+        hushh_id="synthetic-owner",
+        external_agent_id="synthetic-pod",
+        status="deprovision_requested",
+        metadata=metadata,
+    )
+    assert db.tables["personal_agent_deletion_tombstones"][0]["metadata"] == {
+        "user_cloud_project": "synthetic-project",
+        "user_cloud_region": "us-central1",
+    }
+
+
 async def test_tombstone_exists_lookup():
     repo, _ = _repo_and_db()
     assert await repo.tombstone_exists("ha1_abc") is False

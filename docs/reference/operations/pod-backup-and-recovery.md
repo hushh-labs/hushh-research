@@ -575,6 +575,13 @@ refuse the record. Never remove an unresolved slot or downgrade to bypass it. Th
 tracking is a prerequisite for draining writes before erasure; it does not implement
 provider deletion, an erasure fence, restore protection or completed account deletion.
 
+Recovery tombstones retain their supplied metadata atomically. If that write fails
+or its acknowledgement is uncertain, the registry adapter propagates failure; it
+does not retry a reduced record without cloud coordinates. An installation lacking
+the existing tombstone-metadata migration must report incomplete cleanup until its
+schema is aligned. This preserves recovery information but does not make the
+append-only tombstone writer an idempotent erasure coordinator.
+
 ## Only the pod can vouch for its model (2026-09-03)
 
 The receipt Pillar 6 needs before voice moves to the pod, "the person's own project can

@@ -845,19 +845,14 @@ class PersonalAgentRegistryRepo:
             "status": status,
         }
         # ``metadata`` names WHERE an unreclaimed orphan lives (project/region/target)
-        # so a billing host stays reclaimable after the registry row is gone. Written
-        # resiliently: if the column has not been applied yet (dev parked lane), the
-        # insert degrades to the base row rather than failing the best-effort teardown.
+        # so a billing host stays reclaimable after the registry row is gone. A
+        # missing column or uncertain write must fail: dropping recovery coordinates
+        # would acknowledge an unusable receipt, and retrying an uncertain INSERT
+        # with less information can also duplicate a write that already committed.
         clean_meta = {k: v for k, v in (metadata or {}).items() if v is not None}
         base = {k: v for k, v in data.items() if v is not None}
-        try:
-            payload = {**base, "metadata": clean_meta} if clean_meta else base
-            self._db().table(_TOMBSTONES).insert(payload).execute()
-        except Exception:  # noqa: BLE001 - a missing metadata column must not block teardown
-            if clean_meta:
-                self._db().table(_TOMBSTONES).insert(base).execute()
-            else:
-                raise
+        payload = {**base, "metadata": clean_meta} if clean_meta else base
+        self._db().table(_TOMBSTONES).insert(payload).execute()
 
     async def delete(self, user_id: str) -> None:
         self._db().table(_REGISTRY).delete().eq("user_id", user_id).execute()
