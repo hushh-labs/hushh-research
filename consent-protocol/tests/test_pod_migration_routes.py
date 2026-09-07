@@ -145,7 +145,37 @@ async def test_a_broken_chain_is_refused_before_anything_is_sealed(enabled, tmp_
         )
 
     assert excinfo.value.status_code == 409
-    assert "did not verify" in str(excinfo.value.detail)
+    assert excinfo.value.detail == "this pod's log is unavailable for migration"
+
+
+@pytest.mark.parametrize("operation", ["export", "import"])
+async def test_erasure_fenced_log_cannot_migrate(enabled, tmp_path, operation):
+    keys, other = generate_pod_keypair(), generate_pod_keypair()
+    _own_keys(enabled, keys)
+    store = LocalObjectStore(str(tmp_path / "fenced"))
+    log = PodCommitLog(store, b"S" * 32, owner_id="synthetic-owner")
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    before = await store.get_with_generation(log.HEAD)
+    _mount_log(enabled, log)
+    with pytest.raises(HTTPException) as caught:
+        if operation == "export":
+            await pod_migration.export_log(
+                request=None,
+                body=pod_migration.ExportRequest(
+                    recipientPublicKey=other.public_key_b64, recipientKeyId=other.key_id
+                ),
+                x_hussh_hub_proof="Bearer x",
+            )
+        else:
+            # Refuse before even opening an incoming migration bundle.
+            await pod_migration.import_log(
+                request=None,
+                body=pod_migration.ImportRequest(bundle={}),
+                x_hussh_hub_proof="Bearer x",
+            )
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "this pod's log is unavailable for migration"
+    assert await store.get_with_generation(log.HEAD) == before
 
 
 async def test_an_export_returns_ciphertext_and_coordinates(enabled, tmp_path):

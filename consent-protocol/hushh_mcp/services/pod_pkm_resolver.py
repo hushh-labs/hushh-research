@@ -59,6 +59,8 @@ import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
+from hushh_mcp.services.pod_commit_log import PodLogFenced
+
 logger = logging.getLogger(__name__)
 
 #: Where the derived index lives. A tmpfs path on Cloud Run, which is correct:
@@ -134,7 +136,8 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
     is the behaviour every pod has today, so a pod that cannot do this is exactly
     as capable as it was before rather than broken.
 
-    It DOES raise on an owner mismatch, because that is not an ordinary reason.
+    It DOES raise on an erasure fence or owner mismatch: neither is an ordinary
+    availability failure that permits fallback.
     A pod serves one person; being asked for a second means either a recycled pod
     or a routing fault, and quietly rebuilding a different person's index is the
     one outcome that must never be reachable by accident.
@@ -151,6 +154,7 @@ async def resolve_pod_pkm_store(owner_user_id: str, *, log: Any = None) -> Optio
         raise PodPkmOwnerMismatch("pod PKM owner mismatch")
     _OWNER = owner
     if _STORE is not None:
+        await _STORE.require_open()
         return _STORE
     # Assignment happens before the first await, so same-owner callers join one
     # initialization. The task, not a caller's lock, owns its lifetime: cancelling
@@ -191,6 +195,8 @@ async def _initialize_pod_pkm_store(owner: str, *, log: Any) -> Optional[Any]:
 
         path = sqlite_path()
         store = await PodPkmStore.rebuild(commit_log, path, owner_user_id=owner)
+    except PodLogFenced:
+        raise
     except Exception:  # noqa: BLE001 - a failed rebuild degrades to hub grounding
         # Deliberately loud in the log and quiet to the caller. A tampered log
         # raises here (chain verification lives inside `replay`), and refusing to
@@ -205,6 +211,9 @@ async def _initialize_pod_pkm_store(owner: str, *, log: Any) -> Optional[Any]:
     except Exception:  # noqa: BLE001 - stats must never break the path they measure
         replayed = -1
 
+    # Rebuild and its optional stats replay can suspend while another process
+    # fences this log. Do not publish stale readiness after observing closure.
+    await store.require_open()
     _STORE = store
     _STATS = RebuildStats(
         owner_user_id=owner,
@@ -240,12 +249,13 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
     engine's internals or adding a method to an oracle-conformant class. The
     resolver already owns that path, so this is it reading its own file.
 
-    Returns None on anything unexpected. Grounding is an enhancement to a turn,
-    never a precondition for one.
+    Ordinary index availability failures return None. Owner and erasure
+    admission failures propagate; they do not authorize a grounding fallback.
     """
     store = await resolve_pod_pkm_store(owner_user_id, log=log)
     if store is None:
         return None
+    await store.require_open()
 
     import json  # noqa: PLC0415
     import sqlite3  # noqa: PLC0415
@@ -296,6 +306,7 @@ async def local_grounding(owner_user_id: str, *, log: Any = None) -> Optional[st
             used += len(line) + 1
         clipped.append("(earlier domains omitted for length)")
         text = "\n".join(clipped)
+    await store.require_open()
     return text
 
 

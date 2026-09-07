@@ -65,9 +65,18 @@ class PodPkmStore:
         self._engine = engine
         self._log = log
 
+    async def require_open(self) -> None:
+        """Admission for consumers of this store's derived SQLite index."""
+        await self._log.require_open()
+
     # -- mutations: engine first, then the log ---------------------------------------
 
     async def _mutate(self, op: str, params: dict[str, Any]) -> Any:
+        # Existing SQLite-first semantics remain. This admission check blocks
+        # work begun after closure; append's CAS blocks committed successors.
+        # It is not a transaction spanning SQLite and object storage or a drain
+        # of local mutations already admitted before the fence.
+        await self._log.require_open()
         result = await getattr(self._engine, op)(params)
         if _applied(op, result):
             # Engine first, log second: the log records what HAPPENED. The
@@ -77,6 +86,7 @@ class PodPkmStore:
             # visibly ahead for reconcile" posture the hub takes, and the next
             # rebuild reconverges via the engine's idempotency ledger.
             await self._log.append(_KIND_BY_OP[op], _plain_params(params))
+        await self._log.require_open()
         return result
 
     async def commit_domain_mutation(self, params: dict[str, Any]) -> Any:
@@ -94,7 +104,10 @@ class PodPkmStore:
     # -- reads: straight through ------------------------------------------------------
 
     async def get_domain_snapshot(self, params: dict[str, Any]) -> Any:
-        return await self._engine.get_domain_snapshot(params)
+        await self._log.require_open()
+        result = await self._engine.get_domain_snapshot(params)
+        await self._log.require_open()
+        return result
 
     # -- durability -------------------------------------------------------------------
 
@@ -125,10 +138,11 @@ class PodPkmStore:
         that does not know whose index it is building is not a rebuild anyone should
         be able to ask for by accident.
         """
+        records = await log.replay()
         engine = SqlitePkmWriteEngine(sqlite_path)
         op_by_kind = {kind: op for op, kind in _KIND_BY_OP.items()}
         skipped_foreign = 0
-        for record in await log.replay():
+        for record in records:
             op = op_by_kind.get(record["kind"])
             if op is None:
                 continue  # other subsystems' records (memory, storage pointers)
@@ -143,4 +157,5 @@ class PodPkmStore:
             logger.warning(
                 "pod_pkm_store.rebuild_skipped_foreign_records count=%d", skipped_foreign
             )
+        await log.require_open()
         return cls(engine, log)

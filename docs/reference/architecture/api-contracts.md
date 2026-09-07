@@ -180,6 +180,14 @@ probe proves the current host is gone. Existing successful response shapes remai
 unchanged. Parked BYOC setup can still resolve before a registry cloud exists;
 its probe cannot clear authorization on an unrelated registry row.
 
+Private pod storage uses the existing error responses for unavailable history.
+Migration export and import return a sanitized `409` when ordinary log replay
+is refused, including an authenticated erasure fence. A pod turn that encounters
+that fence while resolving local grounding returns `409`; it does not continue
+to the model with an empty local context. Request and successful response shapes
+are unchanged. These storage checks are not a public erasure endpoint or a
+replacement for consent, lifecycle admission, or draining already admitted work.
+
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to
 managed Gemini or `byok_pending_vault`; a Gemini key is never accepted by this

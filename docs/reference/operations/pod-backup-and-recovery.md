@@ -582,6 +582,38 @@ the existing tombstone-metadata migration must report incomplete cleanup until i
 schema is aligned. This preserves recovery information but does not make the
 append-only tombstone writer an idempotent erasure coordinator.
 
+### Irreversible log admission fence (2026-09-07)
+
+The existing commit log exposes an internal, owner-bound `fence_for_erasure`
+primitive. It publishes an authenticated erasure-attempt marker through the same
+`head.json` generation compare-and-swap used by append. An append that wins first
+is included in the preserved prior head; one that loses to the fence cannot
+publish a successor. Same-attempt reconciliation is idempotent. A different owner
+or attempt, corrupted marker or unconfirmed write cannot establish success.
+
+Ordinary replay, cached agent-memory access, PKM access, storage-pointer restore
+and migration export/import refuse a fenced log. Its prior head is sealed under
+the existing log key, alongside the owner and attempt. No ordinary unfreeze or
+replay-through-fence capability exists. The marker has an invalid legacy sequence
+and omits legacy record coordinates, so the inspected older append/replay
+implementations refuse it instead of treating it as an empty log.
+
+**Rollback constraint:** preserve the marker and use a fence-aware recovery image.
+Historical source compatibility is not installed-fleet evidence. Never restore
+an old head or import a pre-fence bundle to bypass closure. Detecting a malicious
+rollback to an older valid head remains an additional recovery obligation.
+
+**Scope:** this is a storage admission prerequisite, not enabled account erasure.
+There is no public erasure endpoint or destructive lifecycle activation in this
+change. The trusted lifecycle caller must establish consent, durable attempt and
+compute-incarnation authority before invoking it. The separate Memory Bank
+reservation still needs its own fence and reconciliation; the two objects are not
+an atomic transaction. An already admitted writer can upload an unreferenced
+encrypted object after closure, and an already admitted SQLite mutation can finish
+locally. Read admission checks do not drain in-flight requests. Object versions,
+provider operations, caches, keys and backups still require complete cleanup and
+verified recovery before any account-deletion completion assertion can pass.
+
 ## Only the pod can vouch for its model (2026-09-03)
 
 The receipt Pillar 6 needs before voice moves to the pod, "the person's own project can

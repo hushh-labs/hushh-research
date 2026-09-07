@@ -63,6 +63,10 @@ class PodLogConflict(RuntimeError):
     """The pointer moved underneath a writer more times than it was willing to retry."""
 
 
+class PodLogFenced(RuntimeError):
+    """Ordinary access to this log has been irreversibly closed for erasure."""
+
+
 def log_key_from_env() -> bytes:
     material = (os.getenv(POD_LOG_KEY_ENV) or "").strip()
     if not material:
@@ -280,7 +284,9 @@ class GcsObjectStore:
         self._bucket = bucket
         self._prefix = prefix.strip("/")
         if session is None:
-            import requests as session  # noqa: PLC0415 - deferred so tests can inject
+            import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+            session = requests
         self._session = session
 
     def _key(self, key: str) -> str:
@@ -290,7 +296,11 @@ class GcsObjectStore:
         response = self._session.get(
             self._METADATA_ACCESS_ENDPOINT, headers={"Metadata-Flavor": "Google"}, timeout=10
         )
-        return response.json()["access_token"]
+        response.raise_for_status()
+        token = response.json()["access_token"]
+        if not isinstance(token, str) or not token.strip():
+            raise RuntimeError("pod storage credential unavailable")
+        return token
 
     def _headers(self) -> dict[str, str]:
         return {"Authorization": f"Bearer {self._token()}"}
@@ -361,12 +371,20 @@ class PodCommitLog:
 
     HEAD = "head.json"
 
-    def __init__(self, store: ObjectStore, seal_key: bytes, *, max_retries: int = 8) -> None:
+    def __init__(
+        self,
+        store: ObjectStore,
+        seal_key: bytes,
+        *,
+        max_retries: int = 8,
+        owner_id: Optional[str] = None,
+    ) -> None:
         if len(seal_key) != _KEY_LEN:
             raise ValueError("the log key must be exactly 32 bytes")
         self._store = store
         self._aead = AESGCM(seal_key)
         self._max_retries = max_retries
+        self._owner_id = owner_id
 
     # -- sealing ----------------------------------------------------------------------
 
@@ -377,14 +395,18 @@ class PodCommitLog:
     def _unseal(self, blob: bytes) -> dict[str, Any]:
         try:
             plaintext = self._aead.decrypt(blob[:_NONCE_LEN], blob[_NONCE_LEN:], None)
-            return json.loads(plaintext)
-        except Exception as exc:
-            raise PodLogTampered("a log record failed authenticated decryption") from exc
+            record = json.loads(plaintext)
+            if not isinstance(record, dict):
+                raise ValueError("record shape")
+            return record
+        except Exception:
+            raise PodLogTampered("a log record failed authenticated decryption") from None
 
-    @staticmethod
-    def _read_head(head_bytes: Optional[bytes]) -> Optional[dict[str, Any]]:
+    def _read_head(self, head_bytes: Optional[bytes]) -> Optional[dict[str, Any]]:
         if head_bytes is None:
             return None
+        if self._read_fence(head_bytes) is not None:
+            raise PodLogFenced("the log is closed for erasure")
         try:
             head = json.loads(head_bytes)
             if not isinstance(head, dict):
@@ -409,6 +431,106 @@ class PodCommitLog:
             return head
         except (ValueError, TypeError, UnicodeError) as exc:
             raise PodLogTampered("the log head is malformed") from exc
+
+    def _read_fence(self, raw: bytes) -> Optional[dict[str, Any]]:
+        """Authenticate the lifecycle marker; never expose its owner or prior head."""
+        try:
+            envelope = json.loads(raw)
+            if not isinstance(envelope, dict) or "sealedFence" not in envelope:
+                return None
+            if (
+                set(envelope) != {"version", "state", "seq", "sealedFence"}
+                or type(envelope["version"]) is not int
+                or envelope["version"] != 2
+                or envelope["state"] != "fenced"
+                or envelope["seq"] != "fenced"
+            ):
+                raise ValueError("shape")
+            fence = self._unseal(base64.b64decode(envelope["sealedFence"], validate=True))
+            if (
+                not isinstance(fence, dict)
+                or set(fence) != {"kind", "owner_id", "attempt_id", "prior_head"}
+                or fence["kind"] != "pod_log_erasure_fence"
+                or not self._valid_identity(fence["owner_id"])
+                or not self._valid_identity(fence["attempt_id"])
+                or (self._owner_id is not None and fence["owner_id"] != self._owner_id)
+            ):
+                raise ValueError("binding")
+            prior = fence["prior_head"]
+            if prior is not None:
+                if not isinstance(prior, dict) or set(prior) != {"seq", "key", "sha"}:
+                    raise ValueError("predecessor")
+                self._read_head(_canonical(prior))
+            return fence
+        except Exception:  # noqa: BLE001 - encrypted lifecycle metadata stays private
+            raise PodLogTampered("the log erasure fence did not verify") from None
+
+    @staticmethod
+    def _valid_identity(value: Any) -> bool:
+        return (
+            isinstance(value, str)
+            and 0 < len(value) <= 256
+            and value == value.strip()
+            and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+        )
+
+    async def require_open(self) -> None:
+        """Check ordinary read admission; this does not drain in-flight work."""
+        raw, _ = await self._store.get_with_generation(self.HEAD)
+        self._read_head(raw)
+
+    async def fence_for_erasure(self, *, owner_id: str, attempt_id: str) -> None:
+        """Close committed appends and ordinary replay on the existing head CAS.
+
+        Only a log configured for this owner can accept the attempt. The trusted
+        lifecycle caller still owns consent, incarnation and attempt authority;
+        this storage primitive does not authenticate a network request. There is
+        no unfreeze. It does not prove provider deletion or that orphan uploads
+        have drained, and must never by itself mark account erasure complete.
+        """
+        if (
+            not self._valid_identity(owner_id)
+            or owner_id != self._owner_id
+            or not self._valid_identity(attempt_id)
+        ):
+            raise PodLogFenced("log erasure authority unavailable")
+        for _ in range(self._max_retries):
+            raw, generation = await self._store.get_with_generation(self.HEAD)
+            previous_fence = self._read_fence(raw) if raw is not None else None
+            if previous_fence is not None:
+                if previous_fence["attempt_id"] != attempt_id:
+                    raise PodLogFenced("log erasure attempt does not match")
+                return
+            head = self._read_head(raw)
+            await self._replay_head(head)
+            payload = {
+                "kind": "pod_log_erasure_fence",
+                "owner_id": owner_id,
+                "attempt_id": attempt_id,
+                "prior_head": {key: head[key] for key in ("seq", "key", "sha")}
+                if head is not None
+                else None,
+            }
+            # Pre-validation readers evaluate int(head['seq']) and require
+            # key/sha. An invalid sequence and absent coordinates make those
+            # readers refuse; a flag beside valid coordinates would be ignored.
+            marker = _canonical(
+                {
+                    "version": 2,
+                    "state": "fenced",
+                    "seq": "fenced",
+                    "sealedFence": base64.b64encode(self._seal(payload)).decode("ascii"),
+                }
+            )
+            written = await self._store.put_if_generation(self.HEAD, marker, generation)
+            if written is None:
+                continue
+            observed, observed_generation = await self._store.get_with_generation(self.HEAD)
+            if observed != marker or observed_generation != written:
+                raise PodLogConflict("log erasure fence persistence unconfirmed")
+            self._read_fence(observed)
+            return
+        raise PodLogConflict("the log head kept moving during erasure fencing")
 
     # -- operations -------------------------------------------------------------------
 
@@ -456,6 +578,13 @@ class PodCommitLog:
         """Every record, oldest first, chain-verified. Raises on tampering."""
         head_bytes, _ = await self._store.get_with_generation(self.HEAD)
         head = self._read_head(head_bytes)
+        records = await self._replay_head(head)
+        # A fence may have won while chain I/O was in flight. Do not release a
+        # captured history after observing the durable closure.
+        await self.require_open()
+        return records
+
+    async def _replay_head(self, head: Optional[dict[str, Any]]) -> list[dict[str, Any]]:
         if head is None:
             return []
 

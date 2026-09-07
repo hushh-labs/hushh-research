@@ -15,6 +15,8 @@ The properties under test are the durability story itself:
 
 from __future__ import annotations
 
+import asyncio
+import base64
 import json
 import secrets
 import sqlite3
@@ -30,6 +32,8 @@ from hushh_mcp.services.pod_commit_log import (
     GcsObjectStore,
     LocalObjectStore,
     PodCommitLog,
+    PodLogConflict,
+    PodLogFenced,
     PodLogTampered,
 )
 from hushh_mcp.services.pod_pkm_store import PodPkmStore
@@ -43,6 +47,224 @@ from hushh_mcp.services.pod_storage import (
 from tests.pkm_conformance import oracle
 
 KEY = b"k" * 32
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("seed", [False, True])
+async def test_erasure_fence_survives_restart_and_blocks_ordinary_access(tmp_path, seed):
+    store = LocalObjectStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    if seed:
+        await log.append("synthetic", {"fact": "private fixture"})
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    marker, generation = await store.get_with_generation(log.HEAD)
+    assert b"synthetic-owner" not in marker
+    assert b"synthetic-attempt" not in marker
+    restarted = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await restarted.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    assert await store.get_with_generation(log.HEAD) == (marker, generation)
+    for reader in (restarted, PodCommitLog(store, KEY)):
+        with pytest.raises(PodLogFenced):
+            await reader.append("late", {})
+        with pytest.raises(PodLogFenced):
+            await reader.replay()
+        with pytest.raises(PodLogFenced):
+            await reader.require_open()
+    with pytest.raises(PodLogFenced):
+        await restarted.fence_for_erasure(owner_id="synthetic-owner", attempt_id="other")
+    with pytest.raises(PodLogFenced):
+        await restarted.fence_for_erasure(owner_id="foreign", attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await PodCommitLog(store, KEY).fence_for_erasure(
+            owner_id="synthetic-owner", attempt_id="synthetic-attempt"
+        )
+
+
+@pytest.mark.asyncio
+async def test_fence_authentication_cannot_be_replaced_with_valid_legacy_coordinates(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("synthetic", {})
+    old, _ = await store.get_with_generation(log.HEAD)
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    raw, generation = await store.get_with_generation(log.HEAD)
+    marker = json.loads(raw)
+    # Neither an unauthenticated flag nor coordinates added beside the marker
+    # can reopen ordinary replay or append.
+    marker.update(json.loads(old))
+    await store.put_if_generation(log.HEAD, json.dumps(marker).encode(), generation)
+    with pytest.raises(PodLogTampered):
+        await log.append("late", {})
+    with pytest.raises(PodLogTampered):
+        await log.replay()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("damage", ["ciphertext", "foreign_owner", "key"])
+async def test_fence_refuses_corrupt_or_foreign_authenticated_binding(tmp_path, damage):
+    store = LocalObjectStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    if damage == "ciphertext":
+        raw, generation = await store.get_with_generation(log.HEAD)
+        marker = json.loads(raw)
+        sealed = bytearray(base64.b64decode(marker["sealedFence"]))
+        sealed[-1] ^= 1
+        marker["sealedFence"] = base64.b64encode(sealed).decode()
+        await store.put_if_generation(log.HEAD, json.dumps(marker).encode(), generation)
+    elif damage == "foreign_owner":
+        log = PodCommitLog(store, KEY, owner_id="foreign")
+    else:
+        log = PodCommitLog(store, b"z" * 32, owner_id="synthetic-owner")
+    with pytest.raises(PodLogTampered):
+        await log.replay()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("first", ["append", "fence"])
+async def test_append_and_fence_share_one_atomic_publication_point(tmp_path, first):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class RacingStore(LocalObjectStore):
+        paused = False
+
+        async def put_if_generation(self, key, data, expected):
+            is_fence = key == PodCommitLog.HEAD and "sealedFence" in json.loads(data)
+            if key == PodCommitLog.HEAD and not self.paused and is_fence == (first == "fence"):
+                self.paused = True
+                entered.set()
+                await release.wait()
+            return await super().put_if_generation(key, data, expected)
+
+    store = RacingStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+
+    async def fence():
+        await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+
+    task = asyncio.create_task(log.append("synthetic", {}) if first == "append" else fence())
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        if first == "append":
+            await fence()
+        else:
+            await log.append("synthetic", {})
+    finally:
+        release.set()
+    if first == "append":
+        with pytest.raises(PodLogFenced):
+            await task
+    else:
+        await task
+    raw, _ = await store.get_with_generation(log.HEAD)
+    authenticated = log._read_fence(raw)
+    assert (
+        authenticated["prior_head"] is None
+        if first == "append"
+        else (authenticated["prior_head"]["seq"] == 1)
+    )
+    with pytest.raises(PodLogFenced):
+        await log.replay()
+    # A losing append already uploaded an unreferenced encrypted object. This
+    # receipt cannot be credited as all-writes-drained or complete erasure.
+    assert len(list((tmp_path / "fence" / "records").glob("*.bin"))) == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["lost_ack", "failed_readback", "mismatch"])
+async def test_unconfirmed_fence_is_reconciled_without_reopening(tmp_path, failure):
+    class UncertainStore(LocalObjectStore):
+        armed = True
+        written = False
+
+        async def put_if_generation(self, key, data, expected):
+            generation = await super().put_if_generation(key, data, expected)
+            if self.armed and key == PodCommitLog.HEAD:
+                self.written = True
+                if failure == "lost_ack":
+                    self.armed = False
+                    raise OSError("synthetic acknowledgement loss")
+            return generation
+
+        async def get_with_generation(self, key):
+            if self.armed and self.written and key == PodCommitLog.HEAD:
+                self.armed = False
+                if failure == "failed_readback":
+                    raise OSError("synthetic readback refusal")
+                if failure == "mismatch":
+                    return None, 0
+            return await super().get_with_generation(key)
+
+    store = UncertainStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    with pytest.raises((OSError, PodLogConflict)):
+        await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    restarted = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await restarted.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await restarted.replay()
+
+
+@pytest.mark.asyncio
+async def test_replay_started_before_fence_does_not_release_captured_history(tmp_path):
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    class PausingStore(LocalObjectStore):
+        armed = False
+
+        async def get(self, key):
+            if self.armed and key.startswith("records/"):
+                self.armed = False
+                entered.set()
+                await release.wait()
+            return await super().get(key)
+
+    store = PausingStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("synthetic", {})
+    store.armed = True
+    task = asyncio.create_task(log.replay())
+    await asyncio.wait_for(entered.wait(), 2)
+    try:
+        await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    finally:
+        release.set()
+    with pytest.raises(PodLogFenced):
+        await task
+
+
+@pytest.mark.asyncio
+async def test_fenced_pkm_cannot_read_mutate_or_rebuild_a_cached_index(tmp_path):
+    from unittest.mock import AsyncMock
+
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "fence")), KEY, owner_id="synthetic-owner")
+    engine = AsyncMock()
+    pkm = PodPkmStore(engine, log)
+    await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await pkm.get_domain_snapshot({"p_user_id": "synthetic-owner"})
+    with pytest.raises(PodLogFenced):
+        await pkm.commit_domain_mutation({"p_user_id": "synthetic-owner"})
+    with pytest.raises(PodLogFenced):
+        await PodPkmStore.rebuild(
+            log, str(tmp_path / "refused.sqlite3"), owner_user_id="synthetic-owner"
+        )
+    engine.get_domain_snapshot.assert_not_awaited()
+    engine.commit_domain_mutation.assert_not_awaited()
+    assert not (tmp_path / "refused.sqlite3").exists()
+
+
+@pytest.mark.asyncio
+async def test_fence_refuses_corrupt_prior_chain_without_replacing_authority(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "fence"))
+    log = PodCommitLog(store, KEY, owner_id="synthetic-owner")
+    await log.append("synthetic", {})
+    before = await store.get_with_generation(log.HEAD)
+    record_path = tmp_path / "fence" / json.loads(before[0])["key"]
+    record_path.write_bytes(b"synthetic-corrupt-record")
+    with pytest.raises(PodLogTampered):
+        await log.fence_for_erasure(owner_id="synthetic-owner", attempt_id="synthetic-attempt")
+    assert await store.get_with_generation(log.HEAD) == before
 
 
 @pytest.fixture()

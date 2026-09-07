@@ -243,6 +243,40 @@ async def test_a_denied_token_makes_the_turn_403_and_never_runs_it(turn_enabled)
     assert ran["yes"] is False
 
 
+async def test_fenced_grounding_cannot_degrade_into_an_ungrounded_provider_turn(
+    turn_enabled, monkeypatch
+):
+    from hushh_mcp.services import pod_pkm_resolver
+    from hushh_mcp.services.pod_commit_log import PodLogFenced
+
+    monkeypatch.setenv("HUSSH_ID", "synthetic-pod")
+
+    async def verifier(*args, **kwargs):
+        return ConsentVerdict(
+            valid=True, available=True, user_id="synthetic-owner", hushh_id="synthetic-pod"
+        )
+
+    async def fenced(*args, **kwargs):
+        raise PodLogFenced("synthetic storage closure")
+
+    async def forbidden_runner(**kwargs):
+        pytest.fail("fenced grounding reached provider execution")
+        yield None
+
+    monkeypatch.setattr(pod_pkm_resolver, "local_grounding", fenced)
+    with pytest.raises(HTTPException) as caught:
+        await pod_turn.run_pod_turn(
+            payload=pod_turn.PodTurnRequest(
+                message="synthetic", runtime_credential="synthetic-model-credential"
+            ),
+            consent_token="synthetic",
+            verifier=verifier,
+            stream_fn=forbidden_runner,
+        )
+    assert caught.value.status_code == 409
+    assert caught.value.detail == "pod storage is closed for erasure"
+
+
 def test_the_client_path_constant_matches_the_hub_route():
     """A mismatch here fails only in production, as a 404 the pod reads as a fault."""
     from api.routes.one import router as one_router

@@ -66,6 +66,7 @@ from fastapi import APIRouter, Body, Header, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
+from hushh_mcp.services.pod_commit_log import PodLogFenced
 
 logger = logging.getLogger(__name__)
 
@@ -250,8 +251,12 @@ async def run_pod_turn(
             # anything the request body carries, so a caller cannot steer this
             # pod into rebuilding somebody else's index by naming them.
             grounding = await local_grounding(user_id)
-        except Exception:  # noqa: BLE001 - grounding enhances a turn, never gates it
-            logger.warning("pod_turn.local_grounding_failed", exc_info=True)
+        except PodLogFenced:
+            raise HTTPException(
+                status_code=409, detail="pod storage is closed for erasure"
+            ) from None
+        except Exception:  # noqa: BLE001 - ordinary grounding availability may degrade
+            logger.warning("pod_turn.local_grounding_failed")
             grounding = None
 
     # The runner's SESSION (and therefore pod memory) is keyed by the AGENT's own

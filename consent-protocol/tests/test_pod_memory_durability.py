@@ -26,6 +26,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from hushh_mcp.services.pod_commit_log import (  # noqa: E402
     LocalObjectStore,
     PodCommitLog,
+    PodLogFenced,
     PodLogTampered,
 )
 from hushh_mcp.services.pod_memory_service import (  # noqa: E402
@@ -69,7 +70,7 @@ class _Session:
 
 
 def _log(tmp_path: Path, key: bytes = KEY) -> PodCommitLog:
-    return PodCommitLog(LocalObjectStore(str(tmp_path / "store")), key)
+    return PodCommitLog(LocalObjectStore(str(tmp_path / "store")), key, owner_id=OWNER)
 
 
 def test_memory_survives_the_death_of_the_pod(tmp_path: Path) -> None:
@@ -87,6 +88,61 @@ def test_memory_survives_the_death_of_the_pod(tmp_path: Path) -> None:
         assert [m.content.parts[0].text for m in hits.memories] == ["the guest room radiator leaks"]
 
     asyncio.run(run())
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("hydrated", [False, True])
+async def test_erasure_fence_blocks_cached_memory_and_provider_before_access(tmp_path, hydrated):
+    from unittest.mock import AsyncMock
+
+    log = _log(tmp_path)
+    seed = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    await seed.add_session_to_memory(_Session("the synthetic violet radiator"))
+    bank = type("Bank", (), {"search_memory": AsyncMock(), "add_session_to_memory": AsyncMock()})()
+    service = (
+        seed
+        if hydrated
+        else build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path))
+    )
+    service.bank = bank
+    await log.fence_for_erasure(owner_id=OWNER, attempt_id="synthetic-attempt")
+    with pytest.raises(PodLogFenced):
+        await service.search_memory(app_name="one", user_id=OWNER, query="violet")
+
+    class UnreadSession:
+        user_id = OWNER
+
+        @property
+        def events(self):
+            pytest.fail("fenced memory must refuse before inspecting events")
+
+    with pytest.raises(PodLogFenced):
+        await service.add_session_to_memory(UnreadSession())
+    bank.search_memory.assert_not_awaited()
+    bank.add_session_to_memory.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_fence_during_provider_recall_blocks_result_and_local_fallback(
+    tmp_path, provider_fails
+):
+    from types import SimpleNamespace
+
+    log = _log(tmp_path)
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=log)
+    await service.add_session_to_memory(_Session("the synthetic violet radiator"))
+
+    class Bank:
+        async def search_memory(self, **kwargs):
+            await log.fence_for_erasure(owner_id=OWNER, attempt_id="synthetic-attempt")
+            if provider_fails:
+                raise RuntimeError("synthetic unavailable provider")
+            return SimpleNamespace(memories=[SimpleNamespace(content="synthetic fact")])
+
+    service.bank = Bank()
+    with pytest.raises(PodLogFenced):
+        await service.search_memory(app_name="one", user_id=OWNER, query="violet")
 
 
 def test_without_a_log_memory_does_not_survive(tmp_path: Path) -> None:
@@ -113,6 +169,9 @@ def test_failed_append_never_exposes_uncommitted_memory(tmp_path: Path, fail_at:
 
         class FailingLog:
             calls = 0
+
+            async def require_open(self):
+                await durable.require_open()
 
             async def replay(self):
                 return await durable.replay()

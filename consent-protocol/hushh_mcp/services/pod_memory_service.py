@@ -548,6 +548,7 @@ def build_pod_memory_service(
             yesterday and call that a fresh start. ``PodMemoryError`` from a foreign or
             tampered record is exactly the signal that something is wrong with custody.
             """
+            await self._require_open_log()
             async with self._hydration_lock:
                 if self._hydrated:
                     return
@@ -560,6 +561,10 @@ def build_pod_memory_service(
                 loaded = store.hydrate(replayed)
                 self._hydrated = True
                 logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
+
+        async def _require_open_log(self) -> None:
+            if self.log is not None:
+                await self.log.require_open()
 
         def _require_owner(self, user_id: Any) -> None:
             if not isinstance(user_id, str) or user_id != self.hushh_id:
@@ -585,8 +590,10 @@ def build_pod_memory_service(
                 if rec is not None and self.log is not None:
                     await self.log.append(_MEMORY_RECORD_KIND, rec.as_payload(pod_key))
                 if rec is not None:
+                    await self._require_open_log()
                     store.hydrate([rec])
             if self.bank is not None:
+                await self._require_open_log()
                 try:
                     await self.bank.add_session_to_memory(session)
                 except Exception as exc:  # noqa: BLE001 - the sealed log already has it
@@ -606,6 +613,7 @@ def build_pod_memory_service(
                     )
                     memories = list(getattr(banked, "memories", None) or [])
                     if memories:
+                        await self._require_open_log()
                         logger.info(
                             "pod_memory.recall hushh_id=%s backend=memory_bank query_chars=%d hits=%d",
                             self.hushh_id,
@@ -620,6 +628,7 @@ def build_pod_memory_service(
                         type(exc).__name__,
                     )
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
+            await self._require_open_log()
             hits = store.search(hushh_id=user_id, query=query)
             # The observable recall signal. The north star accepts only an observed
             # recall TOOL CALL as proof the agent evolved; until this line, a live

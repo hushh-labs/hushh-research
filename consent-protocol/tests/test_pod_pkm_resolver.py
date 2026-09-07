@@ -25,7 +25,7 @@ import threading
 import pytest
 
 from hushh_mcp.services import pod_pkm_resolver as resolver
-from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog, PodLogFenced
 from hushh_mcp.services.pod_pkm_resolver import (
     PodPkmOwnerMismatch,
     rebuild_stats,
@@ -113,6 +113,46 @@ async def test_the_store_is_cached_rather_than_rebuilt_per_turn(tmp_path, monkey
     second = await resolve_pod_pkm_store("owner-a", log=log)
 
     assert first is second
+
+
+async def test_cached_grounding_refuses_erasure_before_opening_sqlite(tmp_path, monkeypatch):
+    import sqlite3
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
+    store = LocalObjectStore(str(tmp_path / "log"))
+    log = PodCommitLog(store, b"K" * 32, owner_id="synthetic-hushh-id")
+    await log.append(*_commit("owner-a"))
+    assert await resolver.local_grounding("owner-a", log=log) == "travel: travel summary"
+    await log.fence_for_erasure(owner_id="synthetic-hushh-id", attempt_id="synthetic-attempt")
+
+    def forbidden_connect(*args, **kwargs):
+        pytest.fail("fenced cached grounding opened SQLite")
+
+    monkeypatch.setattr(sqlite3, "connect", forbidden_connect)
+    with pytest.raises(PodLogFenced):
+        await resolver.local_grounding("owner-a", log=log)
+
+
+async def test_fence_during_rebuild_prevents_cached_readiness(tmp_path, monkeypatch):
+    from hushh_mcp.services.pod_pkm_store import PodPkmStore
+
+    monkeypatch.setenv("POD_PKM_SQLITE_PATH", str(tmp_path / "pkm.sqlite3"))
+    log = PodCommitLog(
+        LocalObjectStore(str(tmp_path / "log")), b"K" * 32, owner_id="synthetic-hushh-id"
+    )
+    await log.append(*_commit("owner-a"))
+    original = PodPkmStore.rebuild
+
+    async def rebuilt_then_fenced(*args, **kwargs):
+        rebuilt = await original(*args, **kwargs)
+        await log.fence_for_erasure(owner_id="synthetic-hushh-id", attempt_id="synthetic-attempt")
+        return rebuilt
+
+    monkeypatch.setattr(PodPkmStore, "rebuild", rebuilt_then_fenced)
+    with pytest.raises(PodLogFenced):
+        await resolve_pod_pkm_store("owner-a", log=log)
+    assert resolver._STORE is None
+    assert resolver.rebuild_stats() is None
 
 
 async def test_the_rebuild_cost_is_measured_not_estimated(tmp_path, monkeypatch):
@@ -249,13 +289,14 @@ async def test_storage_lookup_failure_never_logs_private_error(monkeypatch, capl
 async def test_index_read_failure_never_logs_private_error(monkeypatch, caplog):
     import sqlite3
     from types import SimpleNamespace
+    from unittest.mock import AsyncMock
 
     def unavailable(*args):
         raise RuntimeError("private-index-contents-sentinel")
 
     connection = SimpleNamespace(execute=unavailable, close=lambda: None)
     monkeypatch.setattr(sqlite3, "connect", lambda *args, **kwargs: connection)
-    monkeypatch.setattr(resolver, "_STORE", object())
+    monkeypatch.setattr(resolver, "_STORE", SimpleNamespace(require_open=AsyncMock()))
     monkeypatch.setattr(resolver, "_OWNER", "private-owner-sentinel")
     assert await resolver.local_grounding("private-owner-sentinel") is None
     assert "private-index-contents-sentinel" not in caplog.text

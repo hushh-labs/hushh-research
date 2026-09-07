@@ -49,6 +49,8 @@ from typing import Any, Optional
 from fastapi import APIRouter, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from hushh_mcp.services.pod_commit_log import PodCommitLog
+
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/pod/migration", tags=["pod-migration"])
@@ -151,6 +153,16 @@ def _commit_log() -> Any:
     return log
 
 
+async def _verified_replay(log: PodCommitLog) -> list[dict[str, Any]]:
+    try:
+        return await log.replay()
+    except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
+        logger.warning("pod_migration.log_unavailable")
+        raise HTTPException(
+            status_code=409, detail="this pod's log is unavailable for migration"
+        ) from None
+
+
 class ExportRequest(BaseModel):
     """Where this log is going, in the destination pod's own published terms."""
 
@@ -191,17 +203,8 @@ async def export_log(
         )
 
     log = _commit_log()
-    try:
-        # `replay` verifies the whole chain and raises on any defect, so a
-        # tampered or broken log is refused BEFORE anything is sealed. Exporting
-        # first and verifying later would be the wrong order: a bundle built
-        # from a broken chain is a broken chain someone now trusts.
-        records = await log.replay()
-    except Exception as exc:
-        logger.warning("pod_migration.replay_failed", exc_info=True)
-        raise HTTPException(
-            status_code=409, detail=f"this pod's log did not verify: {exc}"
-        ) from exc
+    # Verify the chain and refuse erasure-fenced history before sealing it.
+    records = await _verified_replay(log)
 
     head_sha = head_sha_of(records) or ""
     try:
@@ -262,7 +265,7 @@ async def import_log(
     own = pod_keypair()
     log = _commit_log()
 
-    existing = await log.replay()
+    existing = await _verified_replay(log)
     if existing:
         # A destination that already has history is a different and much more
         # dangerous situation than an empty one. Appending would interleave two

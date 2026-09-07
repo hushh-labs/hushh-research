@@ -247,5 +247,11 @@ def resolve_pod_storage() -> PodStorage:
         # (observed live: a CMEK bucket a BYOC pod never wrote to).
         # `resolve_pod_log_key` reads the env key for managed pods and unwraps
         # from the user's KMS for BYOC pods -- one call, both custody models.
-        return CommitLogPodStorage(PodCommitLog(store, resolve_pod_log_key()))
+        return CommitLogPodStorage(
+            PodCommitLog(
+                store,
+                resolve_pod_log_key(),
+                owner_id=(os.getenv("HUSSH_ID") or "").strip() or None,
+            )
+        )
     raise NotImplementedError(f"pod storage backend {selected!r} is not wired yet")
