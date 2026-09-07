@@ -487,8 +487,9 @@ class GcpRunClient:
 
         def observe() -> Optional[dict[str, Any]]:
             headers = self._headers()
+            request_timeout = remaining()
             response = requests.get(
-                url, headers=headers, timeout=remaining(), allow_redirects=False
+                url, headers=headers, timeout=request_timeout, allow_redirects=False
             )
             remaining()
             if response.status_code == 404:
@@ -507,11 +508,12 @@ class GcpRunClient:
         if not isinstance(etag, str) or not etag.strip():
             raise RuntimeError("Cloud Run deletion precondition unavailable")
         headers = self._headers()
+        request_timeout = remaining()
         response = requests.delete(
             url,
             headers=headers,
             params={"etag": etag},
-            timeout=remaining(),
+            timeout=request_timeout,
             allow_redirects=False,
         )
         if response.status_code not in (200, 404):
