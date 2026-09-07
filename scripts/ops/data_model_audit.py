@@ -4,10 +4,12 @@ from __future__ import annotations
 import argparse
 import fnmatch
 import json
+import os
 import re
-import subprocess
 import sys
 from collections import OrderedDict, defaultdict
+from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -269,7 +271,11 @@ def _scan_legacy_writes(legacy_tables: list[str]) -> list[dict[str, Any]]:
     candidates: list[Path] = []
     for root in RUNTIME_SCAN_ROOTS:
         if root.exists():
-            candidates.extend(path for path in root.rglob("*") if path.suffix in {".py", ".ts", ".tsx", ".js", ".mjs"})
+            candidates.extend(
+                path
+                for path in root.rglob("*")
+                if path.suffix in {".py", ".ts", ".tsx", ".js", ".mjs"}
+            )
     for path in sorted(candidates):
         if "__pycache__" in path.parts or ".next" in path.parts or "node_modules" in path.parts:
             continue
@@ -307,7 +313,9 @@ def _scan_legacy_writes(legacy_tables: list[str]) -> list[dict[str, Any]]:
     return findings
 
 
-def _family_summary(classified: OrderedDict[str, dict[str, Any]]) -> OrderedDict[str, dict[str, Any]]:
+def _family_summary(
+    classified: OrderedDict[str, dict[str, Any]],
+) -> OrderedDict[str, dict[str, Any]]:
     summary: OrderedDict[str, dict[str, Any]] = OrderedDict()
     grouped: dict[str, list[str]] = defaultdict(list)
     for table, item in classified.items():
@@ -322,39 +330,82 @@ def _family_summary(classified: OrderedDict[str, dict[str, Any]]) -> OrderedDict
     return summary
 
 
-def _live_stats(database_url: str | None) -> list[dict[str, Any]]:
-    if not database_url:
-        return []
+def _live_stats(database_url: str | None) -> dict[str, Any]:
+    observation: dict[str, Any] = {
+        "status": "not_requested",
+        "rows": [],
+        "scope": "25 largest public tables by size with catalog row estimates; not information-integrity or erasure proof",
+    }
+    if database_url is None:
+        return observation
+    observation.update(status="unavailable", observed_at=datetime.now(timezone.utc).isoformat())
+    if not database_url.strip():
+        return {**observation, "reason": "configuration_unavailable"}
+    # Static audits need no database driver. Live audits run in the existing
+    # backend uv environment; credentials never become a child process argument.
+    try:
+        import psycopg2
+    except ImportError:
+        return {**observation, "reason": "driver_unavailable"}
+
     query = """
-SELECT relname AS table_name,
+SELECT schemaname, relname AS table_name,
        n_live_tup::bigint AS estimated_rows,
-       pg_total_relation_size(relid)::bigint AS total_bytes
-FROM pg_stat_user_tables
-ORDER BY pg_total_relation_size(relid) DESC
+       pg_catalog.pg_total_relation_size(relid)::bigint AS total_bytes
+FROM pg_catalog.pg_stat_user_tables
+WHERE schemaname = 'public'
+ORDER BY pg_catalog.pg_total_relation_size(relid) DESC, relname
 LIMIT 25;
 """
+    failure_reason = "connection_unavailable"
     try:
-        result = subprocess.run(  # noqa: S603 - fixed psql argv; shell execution is disabled
-            ["psql", database_url, "-v", "ON_ERROR_STOP=1", "-At", "-F", "\t", "-c", query],
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return []
-    rows: list[dict[str, Any]] = []
-    for raw in result.stdout.splitlines():
-        parts = raw.split("\t")
-        if len(parts) != 3:
-            continue
-        rows.append(
-            {
-                "table": parts[0],
-                "estimated_rows": int(parts[1]),
-                "total_bytes": int(parts[2]),
-            }
-        )
-    return rows
+        with closing(
+            psycopg2.connect(
+                database_url,
+                connect_timeout=5,
+                application_name="hussh_data_model_audit",
+                options=(
+                    "-c default_transaction_read_only=on -c statement_timeout=10000 "
+                    "-c lock_timeout=1000 -c idle_in_transaction_session_timeout=15000 "
+                    "-c search_path=pg_catalog"
+                ),
+            )
+        ) as connection:
+            failure_reason = "query_unavailable"
+            connection.set_session(
+                readonly=True, isolation_level="REPEATABLE READ", autocommit=False
+            )
+            with connection.cursor() as cursor:
+                cursor.execute(query)
+                raw_rows = cursor.fetchall()
+            failure_reason = "invalid_result"
+            rows = []
+            for row in raw_rows:
+                if (
+                    len(row) != 4
+                    or row[0] != "public"
+                    or not isinstance(row[1], str)
+                    or not row[1]
+                    or any(type(value) is not int or value < 0 for value in row[2:])
+                ):
+                    raise ValueError("invalid catalog row")
+                rows.append(
+                    {
+                        "schema": row[0],
+                        "table": row[1],
+                        "estimated_rows": row[2],
+                        "total_bytes": row[3],
+                    }
+                )
+            if len(rows) > 25:
+                raise ValueError("catalog row limit exceeded")
+        return {**observation, "status": "verified", "rows": rows}
+    except Exception as error:  # noqa: BLE001 - never expose driver diagnostics or connection secrets
+        if getattr(error, "pgcode", None) == "57014":
+            failure_reason = "query_cancelled_or_timed_out"
+        elif getattr(error, "pgcode", None) == "55P03":
+            failure_reason = "lock_unavailable"
+        return {**observation, "reason": failure_reason}
 
 
 def build_report(database_url: str | None = None) -> tuple[dict[str, Any], int]:
@@ -366,11 +417,15 @@ def build_report(database_url: str | None = None) -> tuple[dict[str, Any], int]:
     duplicate_creates = {
         table: migrations for table, migrations in tables.items() if len(migrations) > 1
     }
+    live_observation = _live_stats(database_url)
     failures = []
+    if live_observation["status"] == "unavailable":
+        failures.append(f"live_observation_unavailable:{live_observation['reason']}")
     failures.extend(contract_errors)
     failures.extend(f"unclassified_table:{table}" for table in unclassified)
     failures.extend(
-        f"legacy_write:{item['table']}:{item['path']}:{item['line']}" for item in legacy_write_findings
+        f"legacy_write:{item['table']}:{item['path']}:{item['line']}"
+        for item in legacy_write_findings
     )
     report = OrderedDict(
         schema_version=1,
@@ -383,7 +438,8 @@ def build_report(database_url: str | None = None) -> tuple[dict[str, Any], int]:
         duplicate_create_table_occurrences=duplicate_creates,
         growth_watch_tables=contract.get("growth_watch_tables", []),
         legacy_write_findings=legacy_write_findings,
-        live_stats=_live_stats(database_url),
+        live_stats=live_observation.pop("rows"),
+        live_observation=live_observation,
         failures=failures,
     )
     return report, 1 if failures else 0
@@ -396,6 +452,7 @@ def _print_text(report: dict[str, Any]) -> None:
     print(f"- classified tables: {report['classified_table_count']}")
     print(f"- unclassified tables: {len(report['unclassified_tables'])}")
     print(f"- legacy write findings: {len(report['legacy_write_findings'])}")
+    print(f"- live observation: {report['live_observation']['status']}")
     print(f"- failures: {len(report['failures'])}")
     print("")
     print("Families")
@@ -428,13 +485,24 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Audit runtime DB data-plane contract coverage.")
     parser.add_argument("--json", action="store_true", help="Print JSON output.")
     parser.add_argument("--text", action="store_true", help="Print text output.")
-    parser.add_argument(
+    live_input = parser.add_mutually_exclusive_group()
+    live_input.add_argument(
         "--database-url",
         default=None,
-        help="Optional Postgres URL for read-only live table size/row estimates via psql.",
+        help="Legacy URL input (visible in process arguments); prefer --database-url-env.",
+    )
+    live_input.add_argument(
+        "--database-url-env",
+        metavar="ENV_NAME",
+        help="Read the live Postgres URL from an existing environment variable; never print its value.",
     )
     args = parser.parse_args()
-    report, code = build_report(database_url=args.database_url)
+    database_url = (
+        os.environ.get(args.database_url_env, "")
+        if args.database_url_env is not None
+        else args.database_url
+    )
+    report, code = build_report(database_url=database_url)
     if args.json:
         print(json.dumps(report, indent=2))
     else:

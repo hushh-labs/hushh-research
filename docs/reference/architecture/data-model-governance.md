@@ -184,6 +184,35 @@ Backend:
 
 ## Required Verification
 
+The default data-model audit is a static migration/contract and legacy-write
+scan. Its successful result does not verify a deployed database. Optional live
+statistics use the existing backend environment and an already resolved,
+authorized connection variable:
+
+```bash
+uv run --directory consent-protocol ../bin/hushh codex data-model-audit --database-url-env AUDIT_DATABASE_URL --json
+```
+
+Resolve credentials through the existing environment runbook in process memory;
+do not paste their values into shell commands or artifacts. The legacy
+`--database-url` flag remains compatible but exposes its argument to the shell
+and process listing. The env-name path avoids copying that value into child
+process arguments or reports.
+
+`live_observation` distinguishes `not_requested`, `verified`, and `unavailable`.
+A requested missing connection, driver failure, refused query, timeout, or
+malformed result fails the audit while preserving the static findings. A verified
+empty query is distinct from an unavailable query. Live statistics cover only the
+25 largest `public` tables and catalog row estimates. They do not establish a
+complete table inventory, schema/migration alignment, ownership, encryption,
+retention, deletion, or intended deployment identity. Record the revision and
+environment separately and keep the schema checks below.
+
+The connection is read-only, with connect, statement, lock, and idle-transaction
+timeouts. These bound individual operations, not total wall-clock time across
+multiple connection hosts. Closing the connection rolls back its read-only
+transaction; this audit does not run migrations or repair information.
+
 Run the smallest relevant bundle, and include the data-model audit for any table, migration, cache, or workflow-state change:
 
 ```bash
