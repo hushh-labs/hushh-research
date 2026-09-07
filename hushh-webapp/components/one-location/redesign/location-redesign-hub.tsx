@@ -52,6 +52,7 @@ import {
   type RequestRecipientStatus,
 } from "@/lib/one-location/request-recipient-status";
 import { SmsTextIcon } from "@/components/one-location/redesign/sms-text-icon";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import { isSmsTriggeredGrant } from "@/lib/one-location/notifications";
 import {
   formatLocationDurationLabel,
@@ -4103,13 +4104,13 @@ export function PeopleHub({
   const pendingRequestByOwnerId = useMemo(() => {
     const byUserId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || request.extendsGrantId) continue;
+      if (!isLocationRequestPending(request, vm.nowMs) || request.extendsGrantId) continue;
       if (!byUserId.has(request.ownerUserId)) {
         byUserId.set(request.ownerUserId, request);
       }
     }
     return byUserId;
-  }, [vm.requestedByMe]);
+  }, [vm.nowMs, vm.requestedByMe]);
 
   const [selectedPersonId, setSelectedPersonId] = useState<string | null>(null);
   const selectedPerson = useMemo(
@@ -5854,7 +5855,8 @@ function AskFlow({
   //
   // Coarse on purpose: these labels move in minutes, so a 30s tick keeps them
   // honest without re-rendering a list of people every second.
-  const [statusNowMs, setStatusNowMs] = useState(() => Date.now());
+  // Reuse the page clock, which refreshes on foreground as well as its timer.
+  const statusNowMs = vm.nowMs;
 
   /**
    * Every live grant with each owner, indexed once.
@@ -5963,34 +5965,11 @@ function AskFlow({
   const pendingNewRequestCount = useMemo(
     () =>
       vm.requestedByMe.filter(
-        (request) => request.status === "pending" && !request.extendsGrantId,      ).length,
-    [vm.requestedByMe],
+        (request) =>
+          isLocationRequestPending(request, statusNowMs) && !request.extendsGrantId,
+      ).length,
+    [statusNowMs, vm.requestedByMe],
   );
-
-  /**
-   * Whether anything on screen is actually measured against the clock.
-   *
-   * "Asked 6m ago" and "Sharing with you, 29 more min" go stale; "Ready for
-   * private sharing" does not. A roster of people you have never asked and who
-   * are not sharing has nothing that ages, and re-rendering it every 30 seconds
-   * is CPU spent to redraw identical text -- battery, on a phone.
-   */
-  const hasTimeRelativeRow = useMemo(
-    () =>
-      [...statusByRecipient.values()].some(
-        (status) =>
-          status.statusLabel !== undefined ||
-          status.pendingRequestId !== undefined ||
-          status.tone !== "ready",
-      ),
-    [statusByRecipient],
-  );
-
-  useEffect(() => {
-    if (!hasTimeRelativeRow) return;
-    const timer = window.setInterval(() => setStatusNowMs(Date.now()), 30_000);
-    return () => window.clearInterval(timer);
-  }, [hasTimeRelativeRow]);
 
   /**
    * The extension already waiting on each live grant, indexed once.
@@ -6002,13 +5981,13 @@ function AskFlow({
   const pendingExtensionByGrantId = useMemo(() => {
     const byGrantId = new globalThis.Map<string, OneLocationAccessRequest>();
     for (const request of vm.requestedByMe) {
-      if (request.status !== "pending" || !request.extendsGrantId) continue;
+      if (!isLocationRequestPending(request, statusNowMs) || !request.extendsGrantId) continue;
       if (!byGrantId.has(request.extendsGrantId)) {
         byGrantId.set(request.extendsGrantId, request);
       }
     }
     return byGrantId;
-  }, [vm.requestedByMe]);
+  }, [statusNowMs, vm.requestedByMe]);
 
   const isRequestFormValid = vm.selectedRequestOwnerIds.length > 0;
   const sendingRequest = vm.busy === "request";
