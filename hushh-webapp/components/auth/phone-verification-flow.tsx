@@ -385,7 +385,26 @@ export function PhoneVerificationFlow({
   // double-clicks.
   const phoneFlowInFlightRef = useRef(false);
 
+  // `step` read from an effect that must not re-run when it changes.
+  const stepRef = useRef(step);
   useEffect(() => {
+    stepRef.current = step;
+  }, [step]);
+
+  useEffect(() => {
+    // A sent code outranks a late identity read.
+    //
+    // This effect exists to re-seed the form when the owner's number changes.
+    // But `currentPhoneNumber` comes from the auth context, which resolves the
+    // verified number from the backend in the background, and that can land
+    // AFTER a code has been sent. Re-seeding then wipes `verificationCode` and
+    // moves `step` off "code" -- taking away the only screen that can consume
+    // the code the person is holding, with no way back except sending another.
+    //
+    // While a code is outstanding this screen owns its own state.
+    if (stepRef.current === "code") {
+      return;
+    }
     const nextFields = derivePhoneFields(currentPhoneNumber);
     setSelectedCountry(nextFields.countryValue);
     setLocalPhoneNumber(nextFields.localPhoneNumber);

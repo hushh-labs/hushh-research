@@ -53,9 +53,57 @@ struct OneCircleEntity: AppEntity, Identifiable, Hashable {
     }
 }
 
-/// A bounded, non-sensitive description of a destination inside One Location.
-/// The entity teaches Siri that "Location Agent" is content owned by One,
-/// rather than the name of another installed app.
+/// A fixed set of destinations inside Agent One Location, exposed to Siri
+/// as an AppEnum so one intent handles all navigation. Apple limits apps to
+/// ten App Shortcuts — using an enum means one slot covers all ten screens.
+@available(iOS 16.0, *)
+enum AgentOneDestination: String, AppEnum {
+    case location = "location"
+    case map = "map"
+    case activeShares = "active_shares"
+    case sharedWithMe = "shared_with_me"
+    case requestsToReview = "requests_to_review"
+    case settings = "settings"
+    case temporaryLink = "temporary_link"
+    case checkIn = "check_in"
+    case emergencySOS = "emergency_sos"
+    case emergencySMSContacts = "emergency_sms"
+
+    static let typeDisplayRepresentation: TypeDisplayRepresentation =
+        "Agent One Location Destination"
+    static let caseDisplayRepresentations: [Self: DisplayRepresentation] = [
+        .location: "Location Agent",
+        .map: "Location Map",
+        .activeShares: "Active Location Shares",
+        .sharedWithMe: "Locations Shared With Me",
+        .requestsToReview: "Location Requests",
+        .settings: "Location Settings",
+        .temporaryLink: "Temporary Location Link",
+        .checkIn: "Location Check In",
+        .emergencySOS: "Emergency SOS Review",
+        .emergencySMSContacts: "Emergency SMS Contacts",
+    ]
+
+    var actionID: OneSystemActionID {
+        switch self {
+        case .location: return .openLocation
+        case .map: return .openLocationMap
+        case .activeShares: return .openActiveShares
+        case .sharedWithMe: return .openSharedWithMe
+        case .requestsToReview: return .openRequestsToReview
+        case .settings: return .openLocationSettings
+        case .temporaryLink: return .openTemporaryLink
+        case .checkIn: return .openCheckIn
+        case .emergencySOS: return .openEmergencySOS
+        case .emergencySMSContacts: return .openSMSContacts
+        }
+    }
+}
+
+/// Thin query target backed by AgentOneDestination. The entity teaches Siri
+/// that "Location Agent" is content owned by One, rather than the name of
+/// another installed app. Display names come from the enum; this struct
+/// exists solely for EntityStringQuery resolution.
 @available(iOS 16.0, *)
 struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
     let id: String
@@ -64,123 +112,34 @@ struct OneLocationDestinationEntity: AppEntity, Identifiable, Hashable {
         "Agent One Location Destination"
     static let defaultQuery = OneLocationDestinationEntityQuery()
 
-    static let supportedActionIDs: [OneSystemActionID] = [
-        .openLocation,
-        .openLocationMap,
-        .openActiveShares,
-        .openSharedWithMe,
-        .openRequestsToReview,
-        .openLocationSettings,
-        .openTemporaryLink,
-        .openCheckIn,
-        .openEmergencySOS,
-        .openSMSContacts
-    ]
-
-    static let all: [Self] = supportedActionIDs.map {
+    static let all: [Self] = AgentOneDestination.allCases.map {
         Self(id: $0.rawValue)
     }
 
     var actionID: OneSystemActionID? {
-        guard
-            let candidate = OneSystemActionID(rawValue: id),
-            Self.supportedActionIDs.contains(candidate)
-        else { return nil }
-        return candidate
+        guard let destination = AgentOneDestination(rawValue: id) else { return nil }
+        return destination.actionID
     }
 
     var displayRepresentation: DisplayRepresentation {
-        switch actionID {
-        case .openLocation:
-            return makeDisplay(
-                title: "Location Agent",
-                synonyms: ["Agent One Location Agent", "One Location Agent", "Location Overview"]
-            )
-        case .openLocationMap:
-            return makeDisplay(
-                title: "Location Map",
-                synonyms: ["Agent One Location Map", "One Location Map", "Map"]
-            )
-        case .openActiveShares:
-            return makeDisplay(
-                title: "Active Location Shares",
-                synonyms: ["Active Shares", "Who Can See Me"]
-            )
-        case .openSharedWithMe:
-            return makeDisplay(
-                title: "Locations Shared With Me",
-                synonyms: ["Shared With Me", "People Sharing With Me"]
-            )
-        case .openRequestsToReview:
-            return makeDisplay(
-                title: "Location Requests",
-                synonyms: ["Pending Location Requests", "Requests to Review"]
-            )
-        case .openLocationSettings:
-            return makeDisplay(
-                title: "Location Settings",
-                synonyms: ["Location Privacy", "Location Privacy Settings"]
-            )
-        case .openTemporaryLink:
-            return makeDisplay(
-                title: "Temporary Location Link",
-                synonyms: ["Location Link", "Temporary Link"]
-            )
-        case .openCheckIn:
-            return makeDisplay(
-                title: "Location Check In",
-                synonyms: ["Check In", "Agent One Check In", "One Check In"]
-            )
-        case .openEmergencySOS:
-            return makeDisplay(
-                title: "Emergency SOS Review",
-                synonyms: ["SOS Review", "Emergency Screen"]
-            )
-        case .openSMSContacts:
-            return makeDisplay(
-                title: "Emergency SMS Contacts",
-                synonyms: ["SMS Contacts", "Emergency Contacts"]
-            )
-        default:
+        guard let destination = AgentOneDestination(rawValue: id) else {
             return "Agent One Location"
         }
-    }
-
-    private func makeDisplay(
-        title: LocalizedStringResource,
-        synonyms: [LocalizedStringResource]
-    ) -> DisplayRepresentation {
-        if #available(iOS 17.0, *) {
-            return .init(title: title, synonyms: synonyms)
-        }
-        return .init(title: title)
+        return DisplayRepresentation(title: AgentOneDestination.caseDisplayRepresentations[destination]?.title ?? "Agent One Location")
     }
 
     var searchableNames: [String] {
-        switch actionID {
-        case .openLocation:
-            return ["location agent", "one location agent", "location overview"]
-        case .openLocationMap:
-            return ["location map", "one location map", "map"]
-        case .openActiveShares:
-            return ["active location shares", "active shares", "who can see me"]
-        case .openSharedWithMe:
-            return ["locations shared with me", "shared with me", "people sharing with me"]
-        case .openRequestsToReview:
-            return ["location requests", "pending location requests", "requests to review"]
-        case .openLocationSettings:
-            return ["location settings", "location privacy", "privacy settings"]
-        case .openTemporaryLink:
-            return ["temporary location link", "location link", "temporary link"]
-        case .openCheckIn:
-            return ["location check in", "check in", "check-in"]
-        case .openEmergencySOS:
-            return ["emergency sos review", "sos review", "emergency screen"]
-        case .openSMSContacts:
-            return ["emergency sms contacts", "sms contacts", "emergency contacts"]
-        default:
-            return []
-        }
+        guard let destination = AgentOneDestination(rawValue: id) else { return [] }
+        // Derive searchable tokens from the display title. `title` is a
+        // LocalizedStringResource, not a String, so it has to be resolved
+        // before any string work -- .folding() on it does not compile.
+        guard let resource = AgentOneDestination.caseDisplayRepresentations[destination]?.title
+        else { return [] }
+        let normalized = String(localized: resource)
+            .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
+        return [normalized]
     }
 }
 
@@ -423,6 +382,22 @@ enum OneAppIntentActionRequestFactory {
         )
     }
 
+    /// `confirmedBySystem` is true here and nowhere else for this action.
+    /// It does not claim Siri showed a confirmation sheet; it records that the
+    /// gesture which reached this factory -- a press-and-hold on the Action
+    /// button, or a spoken phrase that explicitly says "send ... alert" -- is
+    /// itself the confirmation. The web side turns this flag into the
+    /// `confirmed` slot that `resolveTriggerSos` requires, so an invocation
+    /// arriving any other way still gets the tappable confirm card.
+    static func sendSaveMySoulAlert(note: String) -> OneAppIntentActionRequest {
+        let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
+        return .init(
+            actionID: .triggerSaveMySoul,
+            slots: trimmed.isEmpty ? [:] : ["note": trimmed],
+            confirmedBySystem: true
+        )
+    }
+
     static func open(_ actionID: OneSystemActionID) -> OneAppIntentActionRequest {
         .init(actionID: actionID, slots: [:], confirmedBySystem: false)
     }
@@ -439,7 +414,8 @@ private enum OneAppIntentActionExecutor {
             return "Agent One could not prepare that action."
         }
         guard let result = await OneSystemActionInvocationCoordinator.shared.waitForCompletionOrProgress(
-            id: invocation.id
+            id: invocation.id,
+            generation: invocation.generation
         ) else {
             return "Continue in Agent One to finish. Your request is waiting."
         }
@@ -707,6 +683,9 @@ struct OpenOneLocationDestinationIntent: OpenIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
+    // OpenIntent requires `target`. It had been removed while the conformance
+    // was left in place, which is a compile error, and it also meant every
+    // destination resolved to the Location home instead of the one asked for.
     @Parameter(
         title: "Destination",
         requestValueDialog: "Which Agent One Location destination?"
@@ -723,19 +702,6 @@ struct OpenOneLocationDestinationIntent: OpenIntent {
         }
         let summary = await OneAppIntentActionExecutor.run(
             OneAppIntentActionRequestFactory.open(actionID)
-        )
-        return .result(dialog: "\(summary)")
-    }
-}
-
-@available(iOS 16.0, *)
-struct OpenOneLocationIntent: OneLocationOpenIntent {
-    static let title: LocalizedStringResource = "Open Location Agent"
-    static let description = IntentDescription("Open the existing Agent One Location experience.")
-
-    func perform() async throws -> some IntentResult & ProvidesDialog {
-        let summary = await OneAppIntentActionExecutor.run(
-            OneAppIntentActionRequestFactory.open(.openLocation)
         )
         return .result(dialog: "\(summary)")
     }
@@ -849,11 +815,165 @@ struct OpenOneEmergencySOSIntent: OneLocationOpenIntent {
     }
 }
 
+/// Save My Soul, sent for real.
+///
+/// This is deliberately a separate intent from `OpenOneEmergencySOSIntent`
+/// rather than a branch inside it. App Intents expose no API for the
+/// invocation source -- there is no way to ask "was this the Action button, or
+/// a phrase someone said across the room" -- so an intent that sends, sends
+/// from every entry point it is reachable from. Splitting sending into its own
+/// intent is therefore the only place the distinction can live: the short,
+/// panicky, easily-misheard phrases ("SMS", "SOS") stay on the open intent
+/// where the worst case is a screen appearing, and only the long deliberate
+/// "send ... alert" phrases reach this one.
+///
+/// Being a registered App Shortcut is what makes it assignable to the Action
+/// button, where the press-and-hold is the confirming gesture.
+@available(iOS 16.0, *)
+struct SendSaveMySoulAlertIntent: AppIntent {
+    static let title: LocalizedStringResource = "Send Save My Soul Alert"
+    static let description = IntentDescription(
+        "Alert your Agent One emergency contacts right now and share your live location with them."
+    )
+    static let authenticationPolicy: IntentAuthenticationPolicy =
+        .requiresLocalDeviceAuthentication
+    static let openAppWhenRun = true
+
+    @available(iOS 26.0, *)
+    static let supportedModes: IntentModes = [.foreground(.immediate)]
+
+    /// Optional on purpose. A required parameter would make the Action button
+    /// stop and ask a question, which is the one thing this path must not do.
+    @Parameter(title: "Note for your contacts")
+    var note: String?
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Send my Save My Soul alert") {
+            \.$note
+        }
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        // No requestConfirmation() here, and that is the decision, not an
+        // omission: reaching this intent at all is already the deliberate act.
+        // The app-side guards still refuse and say why -- locked vault, an SOS
+        // already running, location permission off, or no contact ready to be
+        // alerted.
+        let summary = await OneAppIntentActionExecutor.run(
+            OneAppIntentActionRequestFactory.sendSaveMySoulAlert(note: note ?? "")
+        )
+        return .result(dialog: "\(summary)")
+    }
+}
+
+@available(iOS 16.0, *)
+struct OpenOneDestinationIntent: OneLocationOpenIntent {
+    static let title: LocalizedStringResource = "Open Agent One Location"
+    static let description = IntentDescription(
+        "Open a specific screen inside Agent One Location — for example, the map, active shares, settings, or emergency SOS."
+    )
+
+    @Parameter(title: "Destination")
+    var destination: AgentOneDestination
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Open \(\.$destination) in Agent One Location")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let summary = await OneAppIntentActionExecutor.run(
+            OneAppIntentActionRequestFactory.open(destination.actionID)
+        )
+        return .result(dialog: "\(summary)")
+    }
+}
+
+// MARK: - Free-text request capture intent
+
+@available(iOS 16.0, *)
+struct AskOneRequestIntent: AppIntent {
+    static let title: LocalizedStringResource = "Ask Agent One"
+    static let description = IntentDescription(
+        "Send a free-form request to Agent One for semantic interpretation and action execution."
+    )
+    static let authenticationPolicy: IntentAuthenticationPolicy =
+        .requiresLocalDeviceAuthentication
+    static let openAppWhenRun = true
+
+    @available(iOS 26.0, *)
+    static let supportedModes: IntentModes = [.foreground(.immediate)]
+
+    // Siri asks for this out loud, and that is the only supported shape.
+    //
+    // An App Shortcut phrase parameter must be an AppEnum or an AppEntity: an
+    // open String has no compile-time-known value set for Siri to match
+    // against. Interpolating `\(\.$requestText)` into `askOneRequestPhrases`
+    // is what made iOS reject the whole HusshOneAppShortcuts provider in
+    // build 99, so every shortcut -- including ones whose code never changed
+    // -- disappeared from the Home Screen and from Siri.
+    @Parameter(
+        title: "Request",
+        requestValueDialog: "What would you like Agent One to do?"
+    )
+    var requestText: String
+
+    static var parameterSummary: some ParameterSummary {
+        Summary("Ask Agent One to \(\.$requestText)")
+    }
+
+    func perform() async throws -> some IntentResult & ProvidesDialog {
+        let text = requestText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else {
+            return .result(dialog: "What would you like Agent One to do?")
+        }
+
+        let result = OneSystemRequestInvocationCoordinator.shared.captureRequest(text)
+        switch result {
+        case .captured:
+            return .result(dialog: "Your request is with Agent One. Continue in the app to complete it.")
+        case .ownerRequired:
+            return .result(dialog: "Sign in to Agent One to send a request from here.")
+        case .tooLarge:
+            return .result(dialog: "That request is too long. Try a shorter phrase.")
+        case .alreadyPending:
+            return .result(dialog: "Agent One is already handling a request. Complete or cancel it first.")
+        case .failure:
+            return .result(dialog: "I couldn't capture that request right now. Try again in the app.")
+        @unknown default:
+            return .result(dialog: "Continue in Agent One to complete your request.")
+        }
+    }
+}
+
 // MARK: - Zero-setup Siri phrases (Apple limits an app to ten App Shortcuts)
 
 @available(iOS 16.0, *)
 struct HusshOneAppShortcuts: AppShortcutsProvider {
     static var appShortcuts: [AppShortcut] {
+    // Every phrase list is written out in place, and the app name is the literal
+    // `\(.applicationName)` token. Neither may be hoisted into a named constant.
+    //
+    // `appintentsmetadataprocessor` extracts App Shortcuts at compile time by
+    // reading these expressions literally. It cannot follow a reference to a
+    // `static let`, so a hoisted phrase array reads as a shortcut with no
+    // phrases at all. That is a HALTING error: the processor exports no
+    // AppIntents metadata for the whole target, and the app ships with every
+    // App Shortcut missing -- not just the hoisted one.
+    //
+    // Build 99 hoisted both, and the Home Screen long-press menu came back
+    // empty. See R27 in .claude/skills/safe-changes/SKILL.md.
+        AppShortcut(
+            intent: AskOneRequestIntent(),
+            phrases: [
+                "Ask \(.applicationName) something",
+                "Ask \(.applicationName) a question",
+                "Ask \(.applicationName) for something",
+                "Make a request in \(.applicationName)",
+                "Send a request to \(.applicationName)",
+            ],
+            shortTitle: "Ask Agent One",
+            systemImageName: "bubble.left.and.bubble.right"
+        )
         AppShortcut(
             intent: ShareLocationWithOneIntent(),
             phrases: [
@@ -865,7 +985,7 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Use \(.applicationName) to share my location with \(\.$recipient)",
                 "Share my location to \(\.$recipient) using \(.applicationName)",
                 "Start sharing my location in \(.applicationName) with \(\.$recipient)",
-                "Give \(\.$recipient) access to my location through \(.applicationName)"
+                "Give \(\.$recipient) access to my location through \(.applicationName)",
             ],
             shortTitle: "Share Location",
             systemImageName: "location.fill"
@@ -879,27 +999,10 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Tell \(.applicationName) to request \(\.$person)'s location",
                 "Talk to \(.applicationName) and ask \(\.$person) for location",
                 "Use \(.applicationName) to request \(\.$person)'s location",
-                "Have \(.applicationName) ask \(\.$person) where they are"
+                "Have \(.applicationName) ask \(\.$person) where they are",
             ],
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
-        )
-        AppShortcut(
-            intent: StopLocationSharingWithOneIntent(),
-            phrases: [
-                "Stop sharing location with \(\.$person) in \(.applicationName) Location Agent",
-                "Stop my location in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to stop sharing location with \(\.$person)",
-                "Tell \(.applicationName) to stop sharing location with \(\.$person)",
-                "Talk to \(.applicationName) and stop sharing location with \(\.$person)",
-                "Ask \(.applicationName) to pause my location",
-                "Tell \(.applicationName) to pause my location",
-                "Talk to \(.applicationName) and pause my location",
-                "Cancel my location share with \(\.$person) in \(.applicationName)",
-                "Stop sharing my location to \(\.$person) using \(.applicationName)"
-            ],
-            shortTitle: "Stop Sharing",
-            systemImageName: "location.slash.fill"
         )
         AppShortcut(
             intent: SetOneLocationStateIntent(),
@@ -909,35 +1012,20 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Tell \(.applicationName) to turn Location \(\.$state)",
                 "Talk to \(.applicationName) and turn Location \(\.$state)",
                 "Turn location updates \(\.$state) in \(.applicationName)",
-                "Set \(.applicationName) Location to \(\.$state)"
+                "Set \(.applicationName) Location to \(\.$state)",
             ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
         )
         AppShortcut(
-            intent: CreateOneCircleIntent(),
+            intent: TalkToHusshOneIntent(),
             phrases: [
-                "Create a Circle in \(.applicationName) Location Agent",
-                "Make a new Circle in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to create a Circle",
-                "Tell \(.applicationName) to create a Circle",
-                "Talk to \(.applicationName) and create a Circle",
-                "Start a Circle in \(.applicationName)",
-                "Add a Circle in \(.applicationName)"
+                "Talk to \(.applicationName)",
+                "Speak to \(.applicationName)",
+                "Start a conversation with \(.applicationName)",
             ],
-            shortTitle: "Create Circle",
-            systemImageName: "person.3.fill"
-        )
-        AppShortcut(
-            intent: RenameOneCircleIntent(),
-            phrases: [
-                "Rename \(\.$circle) in \(.applicationName) Location Agent",
-                "Ask \(.applicationName) to rename \(\.$circle)",
-                "Tell \(.applicationName) to rename \(\.$circle)",
-                "Talk to \(.applicationName) and rename \(\.$circle)"
-            ],
-            shortTitle: "Rename Circle",
-            systemImageName: "pencil.circle.fill"
+            shortTitle: "Talk to Agent One",
+            systemImageName: "waveform.circle.fill"
         )
         AppShortcut(
             intent: CheckInWithOneIntent(),
@@ -948,11 +1036,40 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Tell \(.applicationName) to open Check In",
                 "Talk to \(.applicationName) and check in",
                 "Do an \(.applicationName) Check In",
-                "Start an \(.applicationName) Check In"
+                "Start an \(.applicationName) Check In",
             ],
             shortTitle: "Check In",
-            systemImageName: "checkmark.circle.fill"
+            systemImageName: "checkmark.circle"
         )
+        AppShortcut(
+            intent: CreateOneCircleIntent(),
+            phrases: [
+                "Create a Circle in \(.applicationName) Location Agent",
+                "Make a new Circle in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to create a Circle",
+                "Tell \(.applicationName) to create a Circle",
+                "Talk to \(.applicationName) and create a Circle",
+                "Start a Circle in \(.applicationName)",
+                "Add a Circle in \(.applicationName)",
+            ],
+            shortTitle: "Create Circle",
+            systemImageName: "person.2.circle"
+        )
+        // Save My Soul takes two of Apple's ten slots, and that is the point.
+        //
+        // All ten slots are now spoken for. Stop Sharing and Rename Circle are
+        // the two that do not fit: stopping is still reachable through Location
+        // On or Off and through the free-text handshake, and renaming through
+        // the handshake. Both intents remain defined and usable in the
+        // Shortcuts app. Open Destination came back because one slot buys ten
+        // destinations through its entity parameter.
+        //
+        // The two SOS entries are split rather than merged because App Intents
+        // expose no invocation source. One opens and can never alert anyone;
+        // the other sends and is worded so it cannot be reached by accident.
+        // Registration is also what puts them in the Action button picker,
+        // which only offers registered App Shortcuts -- assign "Send Save My
+        // Soul" there and the press-and-hold sends, with no second step.
         AppShortcut(
             intent: OpenOneLocationDestinationIntent(),
             phrases: [
@@ -960,20 +1077,36 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
                 "Show \(\.$target) in \(.applicationName)",
                 "Ask \(.applicationName) to open \(\.$target)",
                 "Tell \(.applicationName) to show \(\.$target)",
-                "Talk to \(.applicationName) and open \(\.$target)"
+                "Talk to \(.applicationName) and open \(\.$target)",
             ],
             shortTitle: "Open Agent One Location",
             systemImageName: "location.circle.fill"
         )
         AppShortcut(
-            intent: TalkToHusshOneIntent(),
+            intent: OpenOneEmergencySOSIntent(),
             phrases: [
-                "Talk to \(.applicationName)",
-                "Speak to \(.applicationName)",
-                "Start a conversation with \(.applicationName)"
+                "SMS in \(.applicationName)",
+                "Save my soul in \(.applicationName)",
+                "Open SMS in \(.applicationName)",
+                "Emergency in \(.applicationName)",
+                "Emergency SOS in \(.applicationName)",
+                "SOS in \(.applicationName)",
+                "Open emergency SOS in \(.applicationName)",
             ],
-            shortTitle: "Talk to Agent One",
-            systemImageName: "waveform.circle.fill"
+            shortTitle: "Save My Soul",
+            systemImageName: "sos"
+        )
+        AppShortcut(
+            intent: SendSaveMySoulAlertIntent(),
+            phrases: [
+                "Send my Save My Soul alert in \(.applicationName)",
+                "Send the Save My Soul alert in \(.applicationName)",
+                "Send my SMS alert in \(.applicationName)",
+                "Send my emergency alert in \(.applicationName)",
+                "Send an emergency alert in \(.applicationName)",
+            ],
+            shortTitle: "Send Save My Soul",
+            systemImageName: "exclamationmark.bubble.fill"
         )
     }
 

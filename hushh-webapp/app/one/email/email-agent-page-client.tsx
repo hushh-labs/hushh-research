@@ -1,9 +1,10 @@
 "use client";
 
 import { useCallback } from "react";
-import { CheckCircle2, Mail, MessageCircle } from "lucide-react";
+import { CheckCircle2, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import {
@@ -22,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { Button } from "@/lib/morphy-ux/button";
+import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 
 /**
@@ -79,8 +81,9 @@ export function EmailAgentPageClient() {
       return;
     }
     // Any queued handoff remains in the shared in-memory session for the
-    // legacy dedicated chat route too.
-    router.push(ROUTES.AGENT);
+    // legacy dedicated chat route too. Record this page as the origin so
+    // minimizing the full-page agent comes back here rather than One home.
+    router.push(agentRouteWithOrigin(ROUTES.EMAIL_AGENT));
   }, [
     agentPopover,
     createHandoff,
@@ -127,10 +130,9 @@ export function EmailAgentPageClient() {
                   </p>
                 </div>
               </div>
-              <Button type="button" onClick={openOneForDraft} className="w-full sm:w-auto">
-                <MessageCircle className="mr-2 h-4 w-4" />
+              <AskOneButton onClick={openOneForDraft}>
                 Try Email Agent with One
-              </Button>
+              </AskOneButton>
             </SurfaceInset>
           ) : (
             <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">

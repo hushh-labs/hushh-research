@@ -300,3 +300,61 @@ def test_preservation_evidence_requires_fresh_complete_status(tmp_path: Path):
     report.write_text(json.dumps(payload), encoding="utf-8")
     with pytest.raises(MigrationAuthorityError, match="must both be ok"):
         load_preservation_evidence(report)
+
+
+class AbortingConnection(FakeConnection):
+    """A connection that behaves like Postgres after a statement error.
+
+    Once a statement fails inside a transaction, every further command is
+    refused until the transaction ends. `pg_advisory_unlock` is a command, so
+    the cleanup in `apply_manifest_entries`' `finally` runs straight into it --
+    which is how six UAT deploys reported `InFailedSQLTransactionError` when
+    the real failure was a lock timeout. See R28 in the safe-changes ledger.
+    """
+
+    class InFailedSQLTransaction(RuntimeError):
+        pass
+
+    async def fetchval(self, sql: str, *args):
+        if self.in_transaction and "pg_advisory_unlock" in sql:
+            raise self.InFailedSQLTransaction(
+                "current transaction is aborted, commands ignored until end of transaction block"
+            )
+        return await super().fetchval(sql, *args)
+
+
+@pytest.mark.asyncio
+async def test_replay_failure_reports_the_migration_not_the_cleanup(tmp_path: Path, capsys):
+    entries = _entries(tmp_path)
+    conn = AbortingConnection()
+    conn.fail_sql = "SELECT 115"
+
+    with pytest.raises(RuntimeError) as excinfo:
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    # The migration's own error, not the advisory unlock's.
+    assert "synthetic migration failure" in str(excinfo.value)
+    assert not isinstance(excinfo.value, AbortingConnection.InFailedSQLTransaction)
+
+    # And it names which of the manifest's files stopped the run.
+    assert any("20260721_ABC_new.sql" in note for note in getattr(excinfo.value, "__notes__", []))
+    assert "MIGRATION FAILED: 20260721_ABC_new.sql" in capsys.readouterr().err
+
+    # The rollback ran even in replay mode, so the lock was actually released.
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_failure_log_never_quotes_the_database_message(tmp_path: Path, capsys):
+    """A Postgres error can carry row values; the log must not repeat them."""
+    entries = _entries(tmp_path)
+    conn = FakeConnection()
+    conn.fail_sql = "SELECT 115"
+
+    with pytest.raises(RuntimeError):
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    stderr = capsys.readouterr().err
+    assert "MIGRATION FAILED: 20260721_ABC_new.sql" in stderr
+    assert "synthetic migration failure" not in stderr
+    assert "RuntimeError" in stderr

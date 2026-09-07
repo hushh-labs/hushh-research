@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import {
   BarChart3,
   FileText,
@@ -13,7 +14,6 @@ import { SettingsGroup } from "@/components/app-ui/settings-ui";
 import { SectionLabel as AppSectionLabel } from "@/components/app-ui/typography";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
-import { RiaAiActionPill } from "@/components/ria/ui/ria-primitives";
 
 const AVAILABLE_SERVICES: { label: string; icon: LucideIcon }[] = [
   { label: "Portfolio Management", icon: BarChart3 },
@@ -308,9 +308,9 @@ export function OnboardingStepServices({
 
       <div className="space-y-3">
         <SectionLabel htmlFor="ria-bio">Short Bio</SectionLabel>
-        <RiaAiActionPill onClick={onDraftBio}>
+        <AskOneButton onClick={onDraftBio}>
           Ask One to draft a bio
-        </RiaAiActionPill>
+        </AskOneButton>
         {hasBio && !bioEditing ? (
           <button
             type="button"

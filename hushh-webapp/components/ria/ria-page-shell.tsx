@@ -50,6 +50,10 @@ export function RiaPageShell({
   // difference shows up on an iPad or any Capacitor window wider than a
   // phone, which is where "very wide, wrong container" was reported from.
   width = "agent",
+  // "page" for a screen inside RIA (an account, a request, one client's
+  // workspace); "agent" for a screen a person lands on, which wears the same
+  // hero header as Location -- a filled accent tile and the larger title.
+  titleRole = "page",
   className,
   headerClassName,
   contentClassName,
@@ -64,6 +68,7 @@ export function RiaPageShell({
   statusPanel?: ReactNode;
   children: ReactNode;
   width?: AppPageShellWidth;
+  titleRole?: "page" | "agent";
   className?: string;
   headerClassName?: string;
   contentClassName?: string;
@@ -98,8 +103,15 @@ export function RiaPageShell({
           title={title}
           description={description}
           actions={actions}
+          actionsInlineMobile={titleRole === "agent"}
           icon={icon}
           accent="ria"
+          titleRole={titleRole}
+          className={
+            titleRole === "agent"
+              ? "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
+              : undefined
+          }
         />
       </AppPageHeaderRegion>
 

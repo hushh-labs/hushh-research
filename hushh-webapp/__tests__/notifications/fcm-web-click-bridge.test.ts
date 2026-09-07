@@ -95,6 +95,57 @@ describe("web system-notification click bridge", () => {
     });
   });
 
+  it.each([
+    ["location_share_created", "/one/feed"],
+    ["location_access_approved", "/one/feed"],
+    ["location_share_created", "/one/location?section=shared"],
+    [
+      "location_access_approved",
+      "/one/location?grantId=old&requestId=old&section=people",
+    ],
+  ])(
+    "routes %s from worker URL %s to Shared with me and acknowledges the tap",
+    async (type, url) => {
+      await prepareFCMListeners();
+      const postMessage = vi.fn();
+      mocks.serviceWorkerMessageListener?.({
+        data: {
+          type: "hushh:fcm_notification_clicked",
+          click_id: "location-click",
+          url,
+          data: { type, request_id: "request-1", grant_id: "grant-1" },
+        },
+        source: { postMessage },
+      } as unknown as MessageEvent);
+      expect(
+        mocks.requestInternalAppNavigation,
+      ).toHaveBeenCalledExactlyOnceWith({
+        href: "/one/location?section=shared",
+        scroll: false,
+      });
+      expect(postMessage).toHaveBeenCalledWith({
+        type: "hushh:fcm_notification_click_ack",
+        click_id: "location-click",
+      });
+    },
+  );
+
+  it("does not accept an arbitrary Location URL without an incoming-share event", async () => {
+    await prepareFCMListeners();
+    mocks.serviceWorkerMessageListener?.({
+      data: {
+        type: "hushh:fcm_notification_clicked",
+        url: "/one/location?section=shared",
+        data: { type: "location_access_request" },
+      },
+      source: { postMessage: vi.fn() },
+    } as unknown as MessageEvent);
+    expect(mocks.requestInternalAppNavigation).toHaveBeenCalledWith({
+      href: "/one/feed",
+      scroll: false,
+    });
+  });
+
   it("does not ACK a visible-tab push until an authenticated consumer accepts it", async () => {
     await prepareFCMListeners();
     const postMessage = vi.fn();

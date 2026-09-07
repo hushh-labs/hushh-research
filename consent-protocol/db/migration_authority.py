@@ -14,6 +14,7 @@ import hashlib
 import json
 import os
 import re
+import sys
 import time
 from dataclasses import dataclass
 from enum import Enum
@@ -23,6 +24,9 @@ from typing import Any, Iterable
 _MIGRATION_ID_RE = re.compile(r"^(?P<id>[0-9]{8,}_[0-9A-Za-z]+|[0-9]{3,})_")
 _ADVISORY_LOCK_KEY = 0x485553534844424D  # "HUSSHDBM", within signed BIGINT.
 _ALLOWED_BASELINE_ENVIRONMENTS = {"uat", "test", "local", "development", "dev"}
+# Anything slower than this is named in the deploy log. Lock contention shows
+# up here first, as a migration that used to be instant and now is not.
+_SLOW_MIGRATION_MS = 1_000
 
 
 class MigrationAuthorityError(RuntimeError):
@@ -135,6 +139,22 @@ async def _database_identity_hash(conn: Any) -> str:
 def _sanitize_failure_class(exc: BaseException) -> str:
     name = type(exc).__name__
     return re.sub(r"[^A-Za-z0-9_.-]", "_", name)[:120] or "MigrationError"
+
+
+def _failure_signature(exc: BaseException) -> str:
+    """Identify a failure without quoting the database's message.
+
+    A Postgres error string can carry application data -- a unique violation
+    names the offending key and its value -- and this module does not log
+    application rows. The exception class and its SQLSTATE are enough to tell
+    a lock timeout (55P03) from a duplicate object (42710) from a syntax
+    error, which is the whole question an operator is asking.
+    """
+    sqlstate = getattr(exc, "sqlstate", None)
+    signature = _sanitize_failure_class(exc)
+    if isinstance(sqlstate, str) and sqlstate.isalnum():
+        signature = f"{signature} sqlstate={sqlstate}"
+    return signature
 
 
 async def _try_lock(conn: Any) -> None:
@@ -307,9 +327,26 @@ async def apply_manifest_entries(
                     await conn.execute(f"SET statement_timeout = '{entry.statement_timeout_ms}ms'")
                     await conn.execute(entry.sql)
             except Exception as exc:
+                duration_ms = round((time.perf_counter() - started) * 1000)
+                # Say which migration failed, and say it before anything else can
+                # go wrong. Nothing in this function named the entry, so six UAT
+                # deploys failed against a 173-file replay with no way to tell
+                # which file stopped it.
+                print(
+                    f"MIGRATION FAILED: {entry.filename} after {duration_ms}ms "
+                    f"[{_failure_signature(exc)}]",
+                    file=sys.stderr,
+                    flush=True,
+                )
+                # Return the connection to a usable state in EVERY mode. This
+                # used to be inside the `if` below, so a REPLAY failure left the
+                # transaction aborted and the `finally: await _unlock(conn)` at
+                # the end of this function then raised InFailedSQLTransactionError
+                # -- which replaced the real error in the traceback. The UAT
+                # workflow reported "current transaction is aborted" when the
+                # actual failure was "canceling statement due to lock timeout".
+                await _rollback_failed_transaction(conn)
                 if mode is not MigrationMode.REPLAY:
-                    await _rollback_failed_transaction(conn)
-                    duration_ms = round((time.perf_counter() - started) * 1000)
                     await _record_result(
                         conn,
                         entry=entry,
@@ -318,8 +355,15 @@ async def apply_manifest_entries(
                         deploy_sha=deploy_sha,
                         failure_class=_sanitize_failure_class(exc),
                     )
+                exc.add_note(f"while applying migration {entry.filename} ({duration_ms}ms)")
                 raise
             duration_ms = round((time.perf_counter() - started) * 1000)
+            if duration_ms >= _SLOW_MIGRATION_MS:
+                print(
+                    f"  slow migration: {entry.filename} took {duration_ms}ms",
+                    file=sys.stderr,
+                    flush=True,
+                )
             applied.append(entry.filename)
             if mode is not MigrationMode.REPLAY and not recorded_applied:
                 await _record_result(
@@ -339,7 +383,17 @@ async def apply_manifest_entries(
                 }
         return tuple(applied)
     finally:
-        await _unlock(conn)
+        # Releasing the advisory lock must never replace the error that brought
+        # us here. On an aborted connection this call itself raises, and that
+        # exception would propagate instead of the migration's own.
+        try:
+            await _unlock(conn)
+        except Exception as unlock_exc:  # noqa: BLE001 - diagnostic only
+            print(
+                f"advisory unlock failed [{_failure_signature(unlock_exc)}]",
+                file=sys.stderr,
+                flush=True,
+            )
 
 
 def load_preservation_evidence(path: Path) -> dict[str, Any]:

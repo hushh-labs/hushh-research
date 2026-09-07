@@ -52,6 +52,10 @@ dependencies = [
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
+    "sentence-transformers>=3.0,<4",
+    # Declared directly, not left transitive, so the CPU-only index pin in
+    # [tool.uv.sources] applies -- that pin only reaches direct dependencies.
+    "torch>=2,<3",
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",
@@ -93,6 +97,10 @@ build-backend = "setuptools.build_meta"
 [tool.uv]
 package = false
 
+# CPU-only torch. The default index resolves the CUDA build, which drags in
+# ~15 nvidia-* wheels plus triton, all gated on sys_platform == 'linux' -- which
+# is exactly the Cloud Run image. That is multiple GB of GPU runtime for a
+# service with no GPU, paid for on every cold start.
 [tool.ruff]
 # Python 3.13 - aligned with CI and Dockerfile
 target-version = "py313"

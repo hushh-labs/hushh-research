@@ -480,11 +480,12 @@ public class HushhAuthPlugin: CAPPlugin, CAPBridgedPlugin {
             outcome: "sign_out",
             clearEntityIndex: true
         )
-        
+        OneSystemRequestInvocationCoordinator.shared.cancelRequest()
+
         print("✅ [\(TAG)] Signed out")
         call.resolve()
     }
-    
+
     // MARK: - Get ID Token
     private func tokenRefreshRejection(for error: Error) -> TokenRefreshRejection {
         switch (error as NSError).code {

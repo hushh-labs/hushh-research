@@ -51,6 +51,14 @@ const PAGE_PADDING_PX = 16;
 const REGRESSED_SHELL_CLASSNAME =
   "motion-step-enter fixed inset-x-0 top-[64px] bottom-[115px] z-10 m-auto flex w-full max-w-[720px] flex-col items-center justify-center overflow-hidden px-4";
 
+/**
+ * The shell between that fix and this one: normal flow and a floor, but the
+ * floor was measured against the viewport rather than against the space the
+ * scroll root actually leaves. Kept so the test can show that delta too.
+ */
+const DOUBLE_RESERVED_SHELL_CLASSNAME =
+  "motion-step-enter flex min-h-[calc(100dvh-var(--top-shell-reserved-height,4rem)-var(--app-bottom-inset,2rem))] w-full flex-col items-center justify-center gap-4 pb-[calc(var(--app-bottom-inset)+1rem)]";
+
 async function buildStylesheet(candidates: string[]): Promise<string> {
   const webappRoot = process.cwd();
   const { compile } = (await import(
@@ -144,10 +152,33 @@ function screenMarkup(shellClassName: string) {
 </main>`;
 }
 
+/**
+ * The page does not live in a bare document: `app/providers.tsx` puts it in a
+ * scroll root that already reserves the chrome above and below it -- a spacer
+ * of `--app-top-content-offset` before the page, and the root's own
+ * `--app-bottom-content-clearance` of padding after it. This is that root,
+ * trimmed to those two reserves, because they are what a viewport-derived
+ * floor double-counts.
+ */
+function scrollRootMarkup(shellClassName: string) {
+  return `
+<div style="height:100vh;display:flex;flex-direction:column">
+  <div class="flex-1 overflow-y-auto min-h-0 pb-[var(--app-bottom-content-clearance)]" data-testid="scroll-root">
+    <div data-app-shell-top-spacer="true" aria-hidden></div>
+    <div style="padding:0 ${PAGE_PADDING_PX}px">${screenMarkup(shellClassName)}</div>
+  </div>
+</div>`;
+}
+
 const CANDIDATES = [
   ...CALENDAR_SETUP_SHELL_CLASSNAME.split(/\s+/),
   "gap-4",
   ...REGRESSED_SHELL_CLASSNAME.split(/\s+/),
+  ...DOUBLE_RESERVED_SHELL_CLASSNAME.split(/\s+/),
+  "flex-1",
+  "overflow-y-auto",
+  "min-h-0",
+  "pb-[var(--app-bottom-content-clearance)]",
   ...CALENDAR_SETUP_REGION_CLASSNAME.split(/\s+/),
   "app-page-shell",
   "app-page-header-region",
@@ -296,6 +327,48 @@ test.describe("Calendar setup shell", () => {
     // And it is balanced. Generous tolerance -- the header sits above the card
     // inside the same centred stack, so the two gaps are close, not identical.
     expect(Math.abs(above - below)).toBeLessThan(120);
+  });
+
+  test("leaves no dead scroll on a screen with room for the card", async ({
+    page,
+  }) => {
+    // The reported symptom: a screen showing one card still scrolls, into a
+    // band with nothing in it. The floor was `100dvh` minus the chrome, but
+    // the page never gets `100dvh` -- the scroll root spends
+    // `--app-top-content-offset` above it and `--app-bottom-content-clearance`
+    // below it first. Subtracting the chrome again made the floor taller than
+    // the space by exactly those two reserves.
+    await page.setViewportSize({ width: VIEWPORT_WIDTH, height: 900 });
+
+    const measure = async (shellClassName: string) => {
+      const url = await buildFixture(
+        "calendar-shell-scroll-root",
+        scrollRootMarkup(shellClassName),
+        CANDIDATES,
+      );
+      await page.goto(url);
+      await awaitProductFont(page);
+      return page.evaluate(() => {
+        const root = document.querySelector(
+          '[data-testid="scroll-root"]',
+        ) as HTMLElement;
+        return { scrollHeight: root.scrollHeight, clientHeight: root.clientHeight };
+      });
+    };
+
+    const fixed = await measure(CALENDAR_SETUP_SHELL_CLASSNAME);
+    expect(
+      fixed.scrollHeight,
+      "the page must not be taller than the space it is given",
+    ).toBeLessThanOrEqual(fixed.clientHeight + 1);
+
+    // And the shell it replaced did overflow, so this test is measuring the
+    // thing that was reported rather than an invariant that always held.
+    const before = await measure(DOUBLE_RESERVED_SHELL_CLASSNAME);
+    expect(
+      before.scrollHeight,
+      "the viewport-derived floor should overflow the same root",
+    ).toBeGreaterThan(before.clientHeight + 1);
   });
 
   test("the shell it replaced collapsed the card on a short viewport", async ({

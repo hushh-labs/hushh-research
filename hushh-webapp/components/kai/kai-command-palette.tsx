@@ -34,6 +34,8 @@ import {
   getKaiActionById,
   listKaiActionsForSurface,
   searchKaiActions,
+  searchKaiActionsAsync,
+  type KaiActionAvailability,
   type KaiActionDefinition,
 } from "@/lib/voice/kai-action-gateway";
 import { navigationActionForRoute } from "@/lib/voice/navigation-journey";
@@ -323,6 +325,17 @@ export function KaiCommandPalette({
   const [remoteSearchError, setRemoteSearchError] = useState<string | null>(
     null,
   );
+  // Carries `availability`: the gateway re-checks it locally for every semantic
+  // hit (evaluateKaiActionAvailability), and every consumer below reads it to
+  // decide whether a row is disabled. Dropping it here discarded that work.
+  const [semanticMatches, setSemanticMatches] = useState<
+    Array<{
+      action: KaiActionDefinition;
+      availability: KaiActionAvailability;
+      score: number;
+      semantic?: true;
+    }>
+  >([]);
 
   /**
    * Ticker rows belong to Finance, not to every screen in the app.
@@ -354,6 +367,46 @@ export function KaiCommandPalette({
     () => deriveFinanceTickerQuery(query, intent),
     [intent, query],
   );
+
+  useEffect(() => {
+    if (!open) {
+      setSemanticMatches([]);
+      return;
+    }
+    let cancelled = false;
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      setSemanticMatches([]);
+      return;
+    }
+
+    let controller: AbortController | undefined;
+
+    void (async () => {
+      controller = new AbortController();
+      try {
+        const results = await searchKaiActionsAsync({
+          query: trimmed,
+          appRuntimeState,
+          surfaceMetadata,
+          limit: 10,
+          debounceMs: 180,
+          signal: controller.signal,
+        });
+        if (!cancelled) {
+          setSemanticMatches(results);
+        }
+      } catch {
+        if (!cancelled) setSemanticMatches([]);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller?.abort();
+    };
+  }, [open, query, appRuntimeState, surfaceMetadata]);
 
   useEffect(() => {
     if (!open) return;
@@ -598,38 +651,49 @@ export function KaiCommandPalette({
         ? "Ticker universe unavailable. Check backend connectivity."
         : "No matching commands.";
 
-  const actionMatches = useMemo(
-    () =>
-      searchKaiActions({
-        query,
-        appRuntimeState,
-        surfaceMetadata,
-        limit: 24,
-      }).filter((entry) => {
-        // A typed query searches the whole app, so an action belonging to
-        // another screen stays in the results. What it must NOT do is sit
-        // there looking live and do nothing -- a local handler only runs while
-        // the screen that registered it is mounted, which is how "Answer
-        // Investment Horizon" came to be a dead row on Location. Those are
-        // kept only when something can actually walk the person there; see
-        // `resolveRunTarget`.
-        if (
-          isLocalHandlerAwayFromItsScreen(entry.action, currentScreen) &&
-          !navigationActionForAction(entry.action)
-        ) {
-          return false;
-        }
-        if (!capabilityState) return true;
-        return isDiscoverableCapability(
-          projectKaiActionCapability({
-            actionId: entry.action.action_id,
-            state: capabilityState,
-            surfaceMetadata,
-          }),
-        );
-      }),
-    [appRuntimeState, capabilityState, currentScreen, query, surfaceMetadata],
-  );
+  const actionMatches = useMemo(() => {
+    const local = searchKaiActions({
+      query,
+      appRuntimeState,
+      surfaceMetadata,
+      limit: 24,
+    });
+    const localIds = new Set(local.map((e) => e.action.action_id));
+    // `semantic: boolean`, not `true as const` / `false as const`: the literal
+    // types will not unify across concat, so TypeScript widens the element to
+    // their union and drops `availability`, which every consumer below reads.
+    const combined: Array<
+      (typeof local)[number] & { semantic: boolean }
+    > = [
+      ...semanticMatches
+        .filter((e) => !localIds.has(e.action.action_id))
+        .map((e) => ({ ...e, semantic: true })),
+      ...local.map((e) => ({ ...e, semantic: false })),
+    ];
+    return combined.filter((entry) => {
+      if (
+        isLocalHandlerAwayFromItsScreen(entry.action, currentScreen) &&
+        !navigationActionForAction(entry.action)
+      ) {
+        return false;
+      }
+      if (!capabilityState) return true;
+      return isDiscoverableCapability(
+        projectKaiActionCapability({
+          actionId: entry.action.action_id,
+          state: capabilityState,
+          surfaceMetadata,
+        }),
+      );
+    });
+  }, [
+    appRuntimeState,
+    capabilityState,
+    currentScreen,
+    query,
+    semanticMatches,
+    surfaceMetadata,
+  ]);
 
   /**
    * What the screen the person is looking at can actually do, read straight

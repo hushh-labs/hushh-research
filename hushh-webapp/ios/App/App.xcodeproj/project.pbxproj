@@ -34,6 +34,7 @@
 		A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */; };
 		A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */; };
 		A11C0A730000000000000014 /* OneSystemActionInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */; };
+		A11C0A730000000000000015 /* OneSystemRequestInvocationCoordinator.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */; };
 		A11C0A730000000000000022 /* OneVoiceInvocationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */; };
 		A11C0A730000000000000023 /* OneSystemActionInvocationCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A11C0A730000000000000024 /* OneSystemActionInvocationCoordinatorTests.swift */; };
 		A1B2C3D42F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */; };
@@ -105,6 +106,7 @@
 		A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinator.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000003 /* HushhVoiceInvocationPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = HushhVoiceInvocationPlugin.swift; path = Plugins/HushhVoiceInvocationPlugin.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemActionInvocationCoordinator.swift; sourceTree = "<group>"; };
+		A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemRequestInvocationCoordinator.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000021 /* OneVoiceInvocationCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneVoiceInvocationCoordinatorTests.swift; sourceTree = "<group>"; };
 		A11C0A730000000000000024 /* OneSystemActionInvocationCoordinatorTests.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = OneSystemActionInvocationCoordinatorTests.swift; sourceTree = "<group>"; };
 		A1B2C3D52F0E966A009FC3FD /* PersonalKnowledgeModelPlugin.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; name = PersonalKnowledgeModelPlugin.swift; path = Plugins/PersonalKnowledgeModelPlugin.swift; sourceTree = "<group>"; };
@@ -190,6 +192,7 @@
 				A11C0A740000000000000001 /* OneVoiceAppIntent.swift */,
 				A11C0A730000000000000002 /* OneVoiceInvocationCoordinator.swift */,
 				A11C0A730000000000000004 /* OneSystemActionInvocationCoordinator.swift */,
+				A11C0A730000000000000005 /* OneSystemRequestInvocationCoordinator.swift */,
 				504EC30B1FED79650016851F /* Main.storyboard */,
 				504EC30E1FED79650016851F /* Assets.xcassets */,
 				504EC3101FED79650016851F /* LaunchScreen.storyboard */,
@@ -442,6 +445,7 @@
 				A11C0A730000000000000012 /* OneVoiceInvocationCoordinator.swift in Sources */,
 				A11C0A730000000000000013 /* HushhVoiceInvocationPlugin.swift in Sources */,
 				A11C0A730000000000000014 /* OneSystemActionInvocationCoordinator.swift in Sources */,
+				A11C0A730000000000000015 /* OneSystemRequestInvocationCoordinator.swift in Sources */,
 				ABCDEF000000000000000002 /* HusshIMessageSessionStore.swift in Sources */,
 				D1F9F9122F0E966A009FC3FB /* KaiPlugin.swift in Sources */,
 				4DDFEE23E895EA15BE093A8C /* MyViewController.swift in Sources */,

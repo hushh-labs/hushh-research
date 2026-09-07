@@ -1,6 +1,6 @@
 "use client";
 
-import type { ReactNode } from "react";
+import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
 import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
@@ -119,16 +119,50 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
 };
 
+/**
+ * The agent hero's icon: a filled accent tile, not the outlined square a page
+ * header carries.
+ *
+ * Location drew this inline, so it was the only screen that had it, and the
+ * report was that RIA and Location "should be the same". It is the accent that
+ * makes a screen read as an agent's home rather than a page inside one, so it
+ * lives here with the header it belongs to and every `titleRole="agent"` header
+ * gets it from passing an `icon`.
+ */
+export function AgentHeaderIcon({
+  icon: IconComponent,
+  className,
+  ...props
+}: {
+  icon: LucideIcon;
+  className?: string;
+} & Omit<ComponentPropsWithoutRef<"span">, "children">) {
+  return (
+    <span
+      aria-hidden="true"
+      className={cn(
+        "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
+        className
+      )}
+      {...props}
+    >
+      <IconComponent className="h-6 w-6" strokeWidth={2} />
+    </span>
+  );
+}
+
 function HeaderLeading({
   icon,
   leading,
   iconClassName,
   iconSize,
+  titleRole,
 }: {
   icon?: LucideIcon;
   leading?: ReactNode;
   iconClassName: string;
   iconSize: "md" | "lg";
+  titleRole: "page" | "agent";
 }) {
   if (leading) {
     // Centred, not top-pinned. `self-start` aligned a 44px tile to the top of a
@@ -141,6 +175,16 @@ function HeaderLeading({
 
   if (!icon) {
     return null;
+  }
+
+  // An agent's home gets the filled tile, centred against its much larger
+  // title the same way a `leading` node is.
+  if (titleRole === "agent") {
+    return (
+      <div className="shrink-0 self-center">
+        <AgentHeaderIcon icon={icon} />
+      </div>
+    );
   }
 
   return (
@@ -192,6 +236,7 @@ export function PageHeader({
           <HeaderLeading
             icon={icon}
             leading={leading}
+            titleRole={titleRole}
             iconSize="lg"
             iconClassName={cn(
               "flex shrink-0 items-center justify-center",
@@ -302,6 +347,7 @@ export function SectionHeader({
           <HeaderLeading
             icon={icon}
             leading={leading}
+            titleRole="page"
             iconSize="md"
             iconClassName={cn(
               "flex h-[29px] w-[29px] shrink-0 items-center justify-center rounded-[7px]",
