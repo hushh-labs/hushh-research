@@ -8,6 +8,8 @@ teardown preserves retained resources until erasure is verified.
 
 from __future__ import annotations
 
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 
 from hushh_mcp.runtime_settings import get_core_security_settings
@@ -111,6 +113,29 @@ async def test_disabled_flag_refuses(monkeypatch):
             pod_public_key_b64=pod.public_key_b64,
             pod_key_id=pod.key_id,
         )
+
+
+async def test_tombstone_rejection_prevents_provider_and_grant_side_effects():
+    import asyncpg
+
+    registry, grant = FakeRegistry(), FakeGrant()
+    registry.upsert = AsyncMock(side_effect=asyncpg.CheckViolationError("account deleted"))
+    backend, substrate = Mock(), Mock()
+    service = PersonalAgentProvisioningService(
+        registry=registry, grant=grant, backend=backend, substrate=substrate
+    )
+    pod = _pod_key()
+    with pytest.raises(asyncpg.CheckViolationError):
+        await service.provision(
+            user_id=_UID,
+            phone_e164=_PHONE,
+            pod_public_key_b64=pod.public_key_b64,
+            pod_key_id=pod.key_id,
+        )
+    assert backend.mock_calls == []
+    assert substrate.mock_calls == []
+    assert grant.calls == []
+    assert grant.revokes == []
 
 
 async def test_provision_records_mapping():

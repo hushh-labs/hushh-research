@@ -33,25 +33,17 @@ class PersonalAgentDeprovisioningRequiredError(RuntimeError):
 # Live-catalog UID-bearing state that is not represented by the release migration
 # chain yet. Keep this list next to the erasure implementation so a contract test
 # can compare the governed catalog with the executable delete predicates.
-#: User-keyed tables account deletion deliberately KEEPS, and why. Anything that is
-#: neither deleted nor listed here is a leak, which is what the coverage guard asserts.
-#: A retained table must carry the fact that something existed, never its content.
+# User-keyed tables deliberately retained by the existing deletion contract.
+# The inventory check requires a reason; it does not prove that extensible metadata
+# is content-free or that every live table has been inventoried.
 ACCOUNT_ERASURE_RETAINED_TABLES: dict[str, str] = {
-    # The HusshID is derived from the phone number, so a recycled number would
-    # otherwise re-derive a prior owner's agent address. This tombstone is what makes
-    # the next owner rotate to a fresh generation. Measured 2026-09-04: a surviving
-    # registry row with no tombstone did exactly that and silently cost a real person
-    # their entire signup, with the API still reporting the agent as scheduled.
-    # Settlement receipts are accountability records, not user content: two existing
-    # deletion tests assert they survive both a reset and a full erase. That is
-    # a retention behavior, not proof their extensible metadata is content-free.
     "fabric_receipts": (
         "retained by the existing settlement accountability contract; purpose, fields "
         "and metadata still require content and retention review before erasure is certified"
     ),
     "personal_agent_deletion_tombstones": (
-        "erasure marker; holds no user content and is what stops a recycled phone "
-        "number from re-deriving a deleted owner's HusshID"
+        "existing external-resource cleanup marker; retains opaque agent coordinates "
+        "and status for recovery auditing, not proof of completed provider erasure"
     ),
 }
 
