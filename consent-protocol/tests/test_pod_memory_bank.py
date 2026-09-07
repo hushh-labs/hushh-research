@@ -374,6 +374,26 @@ class _RestHttp:
         return _Resp(self.status, {"name": "projects/p/locations/us-central1/operations/1"})
 
 
+def _ready_store(cfg=None, engine_id="91"):
+    cfg = cfg or _cfg()
+    store = _Store()
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(
+        {
+            "engineId": engine_id,
+            "project": cfg.project,
+            "location": cfg.location,
+            "displayName": cfg.display_name,
+        }
+    ).encode()
+    return store
+
+
+def _rest_service(**kwargs):
+    return mb.build_rest_memory_bank_service(
+        _cfg(), "91", store=_ready_store(), is_current=lambda: True, **kwargs
+    )
+
+
 class _Token:
     def get(self):
         return "t"
@@ -403,7 +423,7 @@ def _rest_session(*texts, user_id="ha1_test"):
 @pytest.mark.asyncio
 async def test_generate_carries_the_turn_and_never_the_carried_history() -> None:
     http = _RestHttp()
-    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    service = _rest_service(session=http, token=_Token())
     await service.add_session_to_memory(_rest_session("my dog is Biscuit", "Noted."))
     url, body = http.posts[0]
     assert url.endswith("/reasoningEngines/91/memories:generate")
@@ -428,7 +448,7 @@ async def test_retrieve_returns_facts_as_memory_entries() -> None:
             ]
         }
     )
-    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    service = _rest_service(session=http, token=_Token())
     out = await service.search_memory(app_name="one", user_id="ha1_test", query="dog")
     assert [m.content.parts[0].text for m in out.memories] == ["The dog is called Biscuit"]
     url, body = http.posts[0]
@@ -440,15 +460,16 @@ async def test_retrieve_returns_facts_as_memory_entries() -> None:
 @pytest.mark.asyncio
 async def test_a_refused_call_raises_and_is_visible_on_pod_info() -> None:
     http = _RestHttp(status=403)
-    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=_Token())
+    service = _rest_service(session=http, token=_Token())
     with pytest.raises(mb.MemoryBankUnavailable):
         await service.search_memory(app_name="one", user_id="ha1_test", query="dog")
     assert "memories:retrieve 403" in mb.memory_bank_status()["memoryBankError"]
 
 
-def test_the_resolver_builds_the_rest_service_without_the_aiplatform_package(monkeypatch) -> None:
-    _configure(monkeypatch)
-    mb._STATE["engine_id"] = "91"
+@pytest.mark.asyncio
+async def test_the_resolver_builds_the_rest_service_without_the_aiplatform_package(monkeypatch):
+    _configure(monkeypatch, POD_MEMORY_BANK_ENGINE_ID="91")
+    assert await mb.ensure_memory_bank(store=_Store()) == "91"
     service = mb.resolve_memory_bank_service()
     assert service is not None and service.engine_id_ == "91"
     assert mb.resolve_memory_bank_service() is service, "built once per process"
@@ -633,7 +654,7 @@ async def test_rest_memory_owner_guard_precedes_event_access_and_provider_auth(u
     foreign = ForeignSession()
     foreign.user_id = user_id
     http = _RestHttp()
-    service = mb.build_rest_memory_bank_service(_cfg(), "91", session=http, token=NeverToken())
+    service = _rest_service(session=http, token=NeverToken())
     with pytest.raises(mb.MemoryBankUnavailable, match="owner mismatch"):
         await service.add_session_to_memory(foreign)
     with pytest.raises(mb.MemoryBankUnavailable, match="owner mismatch"):
@@ -726,3 +747,141 @@ def test_duplicate_owned_engines_require_reconciliation():
     with pytest.raises(mb.MemoryBankUnavailable, match="multiple engines"):
         mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
     assert http.posts == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status", [None, "ready", "erasing", "erased", "unknown", [], {}, 1])
+async def test_unsupported_record_state_never_reopens_provider(monkeypatch, status):
+    _configure(monkeypatch)
+    store = _ready_store(mb.memory_bank_config())
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record["status"] = status
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("provider reached")
+    )
+    assert await mb.ensure_memory_bank(store=store) is None
+    assert mb.resolve_memory_bank_service() is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mutation", ["missing", "corrupt", "owner", "engine", "erasing", "denied"])
+async def test_captured_client_rechecks_record_before_events_or_provider(monkeypatch, mutation):
+    _configure(monkeypatch, POD_MEMORY_BANK_ENGINE_ID="91")
+    store = _Store()
+    assert await mb.ensure_memory_bank(store=store) == "91"
+    client = mb.resolve_memory_bank_service()
+    assert client is not None
+    # Do not re-run ensure or resolve: exercise a reference retained by a caller.
+    if mutation == "missing":
+        store.objects.clear()
+    elif mutation == "corrupt":
+        store.objects[mb.MEMORY_BANK_RECORD_KEY] = b"broken"
+    elif mutation == "denied":
+
+        async def denied(_key):
+            raise PermissionError("synthetic denied")
+
+        store.get = denied
+    else:
+        record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+        record[{"owner": "displayName", "engine": "engineId", "erasing": "status"}[mutation]] = {
+            "owner": "foreign",
+            "engine": "92",
+            "erasing": "erasing",
+        }[mutation]
+        store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+
+    class UntouchedSession:
+        user_id = "ha1_test"
+
+        @property
+        def events(self):
+            pytest.fail("must refuse before event inspection")
+
+    monkeypatch.setattr(mb._AdcToken, "get", lambda _self: pytest.fail("credentials reached"))
+    with pytest.raises((mb.MemoryBankUnavailable, ValueError, PermissionError)):
+        await client.add_session_to_memory(UntouchedSession())
+    with pytest.raises((mb.MemoryBankUnavailable, ValueError, PermissionError)):
+        await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("change", ["disabled", "failed_ensure", "replacement"])
+async def test_captured_client_cannot_survive_initialization_invalidation(monkeypatch, change):
+    _configure(monkeypatch, POD_MEMORY_BANK_ENGINE_ID="91")
+    store = _Store()
+    assert await mb.ensure_memory_bank(store=store) == "91"
+    client = mb.resolve_memory_bank_service()
+    if change == "disabled":
+        monkeypatch.setenv("POD_MEMORY_BACKEND", "commit_log")
+    elif change == "failed_ensure":
+        assert await mb.ensure_memory_bank() is None
+    else:
+        # Even identical engine coordinates from a different initialization store
+        # invalidate old references; clearing the service cache alone cannot.
+        assert await mb.ensure_memory_bank(store=_Store()) == "91"
+        assert mb.resolve_memory_bank_service() is not client
+    monkeypatch.setattr(mb._AdcToken, "get", lambda _self: pytest.fail("credentials reached"))
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("http_status", [200, 403])
+async def test_old_provider_completion_cannot_overwrite_new_initialization(
+    monkeypatch, http_status
+):
+    import asyncio
+
+    _configure(monkeypatch, POD_MEMORY_BANK_ENGINE_ID="91")
+    store = _Store()
+    assert await mb.ensure_memory_bank(store=store) == "91"
+    binding = mb._STATE["binding"]
+    loop = asyncio.get_running_loop()
+
+    async def replace_initialization():
+        assert await mb.ensure_memory_bank(store=_Store()) == "91"
+        mb._STATE["error"] = "replacement-diagnostic"
+
+    class ReplacingHttp(_RestHttp):
+        def post(self, *args, **kwargs):
+            # An old HTTP request settles after a different initialization. This
+            # runs in the same worker-thread boundary as the real REST request.
+            asyncio.run_coroutine_threadsafe(replace_initialization(), loop).result(timeout=5)
+            return super().post(*args, **kwargs)
+
+    client = mb.build_rest_memory_bank_service(
+        mb.memory_bank_config(),
+        "91",
+        store=store,
+        is_current=lambda: mb._STATE["binding"] is binding,
+        session=ReplacingHttp(status=http_status),
+        token=_Token(),
+    )
+    if http_status == 403:
+        with pytest.raises(mb.MemoryBankUnavailable):
+            await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    else:
+        await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert mb.memory_bank_status()["memoryBankError"] == "replacement-diagnostic"
+
+
+@pytest.mark.asyncio
+async def test_composite_retained_bank_cannot_bypass_record_admission(monkeypatch):
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    _configure(monkeypatch, POD_MEMORY_BANK_ENGINE_ID="91")
+    record_store = _Store()
+    assert await mb.ensure_memory_bank(store=record_store) == "91"
+    composite = build_pod_memory_service(
+        hushh_id="ha1_test", pod_key=b"k" * 32, bank=mb.resolve_memory_bank_service()
+    )
+    record_store.objects.clear()
+    monkeypatch.setattr(mb._AdcToken, "get", lambda _self: pytest.fail("credentials reached"))
+    await composite.add_session_to_memory(_rest_session("synthetic violet preference"))
+    recalled = await composite.search_memory(app_name="one", user_id="ha1_test", query="violet")
+    # This boundary blocks external provider access. Existing sealed-log fallback
+    # remains, so this is deliberately NOT an account-erasure assertion.
+    assert recalled.memories
+    assert mb.memory_bank_status()["memoryBankError"] == "MemoryBankUnavailable"

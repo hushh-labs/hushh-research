@@ -42,7 +42,7 @@ import logging
 import os
 import time
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -282,7 +282,7 @@ def _raise(exc: Exception) -> Any:
 
 # ---- process state ---------------------------------------------------------------
 
-_STATE: dict[str, Any] = {"engine_id": None, "error": None, "attempted": False}
+_STATE: dict[str, Any] = {"engine_id": None, "error": None, "attempted": False, "binding": None}
 _SERVICE: dict[str, Any] = {}
 
 
@@ -298,7 +298,7 @@ def memory_bank_status() -> dict[str, Any]:
 
 def reset_memory_bank_state() -> None:
     """Tests only."""
-    _STATE.update({"engine_id": None, "error": None, "attempted": False})
+    _STATE.update({"engine_id": None, "error": None, "attempted": False, "binding": None})
     _SERVICE.clear()
 
 
@@ -318,8 +318,12 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     expected = {"project": cfg.project, "location": cfg.location, "displayName": cfg.display_name}
     if not isinstance(record, dict) or any(record.get(k) != v for k, v in expected.items()):
         raise MemoryBankUnavailable("memory record owner or project mismatch")
-    if record.get("status") == "creating":
-        raise MemoryBankCreationPending("creation requires reconciliation")
+    if "status" in record:
+        if record["status"] == "creating":
+            raise MemoryBankCreationPending("creation requires reconciliation")
+        # Absence is the existing ready-record format. Unknown/future lifecycle
+        # states must never be interpreted as permission to reopen an engine.
+        raise MemoryBankUnavailable("unsupported memory record state")
     engine_id = record.get("engineId")
     if (
         not isinstance(engine_id, str)
@@ -375,6 +379,9 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
     """
     cfg = memory_bank_config()
     if cfg is None:
+        _STATE["binding"] = None
+        _STATE["engine_id"] = None
+        _SERVICE.clear()
         return None
     _STATE["attempted"] = True
     try:
@@ -405,8 +412,15 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
                 await _write_record(store, cfg, engine_id)
         if cfg.engine_id and cfg.engine_id != engine_id:
             raise MemoryBankUnavailable("configured engine conflicts with durable record")
-        if _STATE.get("engine_id") != engine_id:
+        binding = _STATE.get("binding")
+        if (
+            binding is None
+            or binding[0] != cfg
+            or binding[1] is not store
+            or binding[2] != engine_id
+        ):
             _SERVICE.clear()
+            _STATE["binding"] = (cfg, store, engine_id)
         _STATE["engine_id"] = engine_id
         _STATE["error"] = None
         logger.info(
@@ -418,6 +432,7 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         return engine_id
     except Exception as exc:  # noqa: BLE001 - memory must never take the pod down
         _STATE["engine_id"] = None
+        _STATE["binding"] = None
         _SERVICE.clear()
         _STATE["error"] = type(exc).__name__
         logger.warning("pod_memory_bank.unavailable reason=%s", _STATE["error"])
@@ -453,6 +468,8 @@ def build_rest_memory_bank_service(
     cfg: MemoryBankConfig,
     engine_id: str,
     *,
+    store: Any,
+    is_current: Callable[[], bool],
     session: Any = None,
     token: Any = None,
     top_k: int = 8,
@@ -484,6 +501,22 @@ def build_rest_memory_bank_service(
         if user_id != owner_id:
             raise MemoryBankUnavailable("memory owner mismatch")
 
+    async def require_record() -> None:
+        # A composite can retain this client after the resolver cache is cleared.
+        # Validate the captured binding on each operation, before inspecting event
+        # information or obtaining provider credentials. This is an admission
+        # check, not a distributed drain: an already admitted request can race a
+        # later record mutation, so account erasure remains contained upstream.
+        if not is_current():
+            raise MemoryBankUnavailable("memory initialization is no longer current")
+        try:
+            if await _read_record(store, cfg) != engine_id or not is_current():
+                raise MemoryBankUnavailable("memory record is no longer current")
+        except Exception as exc:  # noqa: BLE001 - sanitize storage failure details
+            if is_current():
+                _STATE["error"] = type(exc).__name__
+            raise MemoryBankUnavailable("memory record admission unavailable") from None
+
     http = session or requests.Session()
     bearer = token or _AdcToken()
     engine = f"{_base_url(cfg)}/reasoningEngines/{engine_id}"
@@ -497,6 +530,7 @@ def build_rest_memory_bank_service(
 
         async def add_session_to_memory(self, session: Any) -> None:
             require_owner(getattr(session, "user_id", None))
+            await require_record()
             events = []
             for event in getattr(session, "events", None) or []:
                 if str(getattr(event, "invocation_id", "") or "").startswith("history_"):
@@ -516,6 +550,7 @@ def build_rest_memory_bank_service(
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             require_owner(user_id)
+            await require_record()
             body = {
                 "scope": {"user_id": str(user_id or cfg.display_name)},
                 "similaritySearchParams": {"searchQuery": query, "topK": top_k},
@@ -541,9 +576,12 @@ def build_rest_memory_bank_service(
             response = http.post(f"{engine}/{verb}", headers=_headers(), json=body, timeout=30)
             if response.status_code not in (200, 201):
                 message = _api_error(response)
-                _STATE["error"] = f"{verb} {response.status_code}: {message}"
-                raise MemoryBankUnavailable(_STATE["error"])
-            _STATE["error"] = None
+                error = f"{verb} {response.status_code}: {message}"
+                if is_current():
+                    _STATE["error"] = error
+                raise MemoryBankUnavailable(error)
+            if is_current():
+                _STATE["error"] = None
             try:
                 return response.json() or {}
             except Exception:  # noqa: BLE001
@@ -560,12 +598,21 @@ def resolve_memory_bank_service() -> Optional[Any]:
     """
     cfg = memory_bank_config()
     engine_id = _STATE.get("engine_id")
-    if cfg is None or not engine_id:
+    binding = _STATE.get("binding")
+    if cfg is None or not engine_id or binding is None or binding[0] != cfg:
+        _STATE["binding"] = None
+        _STATE["engine_id"] = None
+        _SERVICE.clear()
         return None
     if "service" in _SERVICE:
         return _SERVICE["service"]
     try:
-        service = build_rest_memory_bank_service(cfg, str(engine_id))
+        service = build_rest_memory_bank_service(
+            cfg,
+            str(engine_id),
+            store=binding[1],
+            is_current=lambda: _STATE.get("binding") is binding and memory_bank_config() == cfg,
+        )
     except Exception as exc:  # noqa: BLE001
         _STATE["error"] = type(exc).__name__
         logger.warning("pod_memory_bank.service_failed reason=%s", _STATE["error"])
