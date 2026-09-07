@@ -341,3 +341,50 @@ def test_live_migration_inventory_has_no_prose_tables_and_keeps_dynamic_tables()
     assert "safety" not in tables
     assert "pkm_data" in tables
     assert "pkm_embeddings" in tables
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"table_families": [], "table_families": []}',
+        '{"table_families": [{"id": "first", "id": "second"}]}',
+        '{"table_families": [{"metadata": {"owner": "first", "owner": "second"}}]}',
+        '{"private-parser-sentinel":',
+        "[]",
+    ],
+)
+@pytest.mark.parametrize("json_output", [True, False])
+def test_invalid_contract_refuses_evidence_before_live_queries(
+    monkeypatch, tmp_path, capsys, payload, json_output
+):
+    path = tmp_path / "contract.json"
+    path.write_text(payload)
+    monkeypatch.setattr(data_model_audit, "CONTRACT_PATH", path)
+
+    def forbidden(*_args, **_kwargs):
+        raise AssertionError("invalid contract must fail before scanning or live access")
+
+    monkeypatch.setattr(data_model_audit, "_migration_tables", forbidden)
+    monkeypatch.setattr(data_model_audit, "_live_stats", forbidden)
+    monkeypatch.setattr(sys, "argv", ["audit", *(["--json"] if json_output else [])])
+    assert data_model_audit.main() == 1
+    output = capsys.readouterr().out
+    assert "private-parser-sentinel" not in output
+    if json_output:
+        assert json.loads(output) == {"status": "unavailable", "failures": ["contract_invalid"]}
+    else:
+        assert output.strip() == "Data-model audit unavailable: invalid contract."
+
+
+def test_equal_field_names_in_separate_family_objects_remain_valid(tmp_path):
+    path = tmp_path / "contract.json"
+    expected = {"table_families": [{"id": "first"}, {"id": "second"}]}
+    path.write_text(json.dumps(expected))
+    assert data_model_audit._load_json(path) == expected
+
+
+def test_authentication_ceremonies_and_message_feedback_are_distinct_families():
+    contract = data_model_audit._load_json(data_model_audit.CONTRACT_PATH)
+    families = {family["id"]: family for family in contract["table_families"]}
+    assert families["webauthn_ceremony_state"]["exact_tables"] == ["webauthn_challenges"]
+    assert families["one_agent_message_feedback"]["exact_tables"] == ["one_agent_message_feedback"]

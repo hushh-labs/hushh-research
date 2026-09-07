@@ -177,8 +177,26 @@ WHERE n.nspname = 'public' AND tn.nspname = 'pg_catalog'
     }
 
 
+class DataModelContractInvalid(ValueError):
+    pass
+
+
 def _load_json(path: Path) -> dict[str, Any]:
-    return json.loads(path.read_text(encoding="utf-8"))
+    def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+        result: dict[str, Any] = {}
+        for key, value in pairs:
+            if key in result:
+                raise ValueError("Duplicate object key in data-model contract")
+            result[key] = value
+        return result
+
+    try:
+        contract = json.loads(path.read_text(encoding="utf-8"), object_pairs_hook=unique_object)
+    except (OSError, ValueError):
+        raise DataModelContractInvalid("Data-model contract is unavailable or invalid") from None
+    if not isinstance(contract, dict):
+        raise DataModelContractInvalid("Data-model contract must be an object")
+    return contract
 
 
 def _rel(path: Path) -> str:
@@ -663,7 +681,16 @@ def main() -> int:
         if args.database_url_env is not None
         else args.database_url
     )
-    report, code = build_report(database_url=database_url, pkm_aggregates=args.pkm_aggregates)
+    try:
+        report, code = build_report(database_url=database_url, pkm_aggregates=args.pkm_aggregates)
+    except DataModelContractInvalid:
+        # An unreadable/ambiguous authored contract cannot earn classification or
+        # live evidence. Keep parser payloads and local diagnostics out of output.
+        if args.json:
+            print(json.dumps({"status": "unavailable", "failures": ["contract_invalid"]}))
+        else:
+            print("Data-model audit unavailable: invalid contract.")
+        return 1
     if args.json:
         print(json.dumps(report, indent=2))
     else:
