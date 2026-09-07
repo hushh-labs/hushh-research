@@ -428,6 +428,15 @@ Relay to browser:
 
 ## Auth and Consent Boundary
 
+- An absent bearer is anonymous. A supplied invalid or revoked bearer remains
+  an authentication failure; an unavailable verifier remains retryable failure.
+  Signed ticket consumption requires the shared nonce registry and refuses
+  admission if its acknowledgement is unavailable or the ticket expires while
+  waiting. A consumed nonce is never recovered through a process-local fallback.
+- Browser relay tickets, continuation handles, callbacks and queued reconnects
+  follow the validated auth-session owner generation. Account replacement
+  cancels the voice lease and clears continuation state. Stopping during pending
+  microphone permission releases a late stream without opening a new socket.
 - The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
   consent token in any URL.
 - A BYOK credential may exist only in the first TLS-protected
@@ -603,6 +612,13 @@ Onboarding contracts list both id sets in `reachability.screens` so
 execution by `action_id` is unaffected either way.
 
 ## Chat Runtime (parity path)
+
+Supplied Firebase or owner credentials are verified before runner selection.
+Invalid, revoked or unavailable credentials retain their verifier failure; they
+cannot downgrade to public intro. When both credentials are present they must
+identify the same owner. Intro accepts only public screen/timezone context, with
+no client tools, PKM projection or caller-supplied trusted state. Verified owner
+turns retain the existing full runner and scoped encrypted history.
 
 Typed private-agent chat (`api/routes/one/agent_chat.py`) accepts standard
 AG-UI runs, sends natural-language turns to One's ADK semantic head, and

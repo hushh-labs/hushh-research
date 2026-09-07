@@ -368,7 +368,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   async start(options?: OneVoiceTransportStartOptions): Promise<void> {
-    if (this.ws) return;
+    if (this.ws || this.closed) return;
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
@@ -409,17 +409,22 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     let relayUrl: string;
     try {
       relayUrl =
-        options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl());
+        options?.relayUrl || (await ApiService.getOneAdkLiveRelayUrl({
+          requireAuthenticated: options?.accessTier === "signed_locked" || options?.accessTier === "signed_unlocked",
+        }));
     } catch (error) {
+      if (this.closed) return;
       this.fail(
         error instanceof Error ? error.message : "Could not start One voice.",
       );
       return;
     }
 
+    if (this.closed) return;
     try {
       await this.openMicrophone();
     } catch (error) {
+      if (this.closed) return;
       this.fail(describeMicError(error));
       return;
     }
@@ -435,7 +440,7 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         "NotSupportedError",
       );
     }
-    this.mediaStream = await navigator.mediaDevices.getUserMedia({
+    const mediaStream = await navigator.mediaDevices.getUserMedia({
       audio: {
         channelCount: 1,
         echoCancellation: true,
@@ -443,21 +448,30 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
         autoGainControl: true,
       },
     });
+    // Permission can resolve after stop/account replacement. A late stream
+    // was never owned by stop(), so release it before constructing audio nodes.
+    if (this.closed) {
+      for (const track of mediaStream.getTracks()) track.stop();
+      return;
+    }
+    this.mediaStream = mediaStream;
     const AudioCtx =
       window.AudioContext ||
       (window as unknown as { webkitAudioContext: typeof AudioContext })
         .webkitAudioContext;
-    this.inputContext = new AudioCtx();
+    const inputContext = new AudioCtx();
+    this.inputContext = inputContext;
     // Some browsers create the context in a "suspended" state until a user
     // gesture resumes it; the conversation button click is that gesture.
-    if (this.inputContext.state === "suspended") {
-      await this.inputContext.resume().catch(() => undefined);
+    if (inputContext.state === "suspended") {
+      await inputContext.resume().catch(() => undefined);
     }
+    if (this.closed) return;
 
     // Modern, non-deprecated capture path: an AudioWorklet running off the main
     // thread posts fixed-size mono frames back to us. Falls back gracefully if
     // the worklet module cannot load.
-    await this.inputContext.audioWorklet.addModule(
+    await inputContext.audioWorklet.addModule(
       "/audio/gemini-live-capture.worklet.js",
     );
     if (this.closed) return;

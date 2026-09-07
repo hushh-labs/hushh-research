@@ -1261,3 +1261,80 @@ describe("ApiService.apiFetch", () => {
     expect(payload.identity?.source).toBe("uat_test_phone_claim");
   });
 });
+
+
+describe("voice relay authentication downgrade boundary", () => {
+  beforeEach(() => { vi.clearAllMocks(); publishValidatedAuthSessionOwner("synthetic-owner"); });
+  afterEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
+
+  it.each([false, true])("refuses a missing signed-in token before relay fetch (native=%s)", async (native) => {
+    capacitorMocks.isNativePlatform.mockReturnValue(native);
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(null);
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+    await expect(ApiService.createOneAdkRelaySession({ requireAuthenticated: true })).rejects.toMatchObject({ status: 401 });
+    expect(AuthService.getIdToken).toHaveBeenCalledWith(true);
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
+
+  it("refuses a known browser owner's token failure without disclosing provider text", async () => {
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue({ uid: "synthetic-owner" } as never);
+    vi.mocked(AuthService.getIdToken).mockRejectedValue(new Error("synthetic-private-provider-error"));
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+    await expect(ApiService.createOneAdkRelaySession()).rejects.toMatchObject({ status: 503, code: "AUTH_PROVIDER_UNAVAILABLE" });
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
+
+  it("preserves explicit anonymous voice when no user or token exists", async () => {
+    publishValidatedAuthSessionOwner(null);
+    capacitorMocks.isNativePlatform.mockReturnValue(false);
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(null);
+    const relayFetch = vi.spyOn(ApiService, "apiFetch").mockResolvedValue(jsonResponse({ tier: "intro" }));
+    await expect(ApiService.createOneAdkRelaySession()).resolves.toEqual({ tier: "intro" });
+    expect(relayFetch.mock.calls[0][1]?.headers).not.toHaveProperty("Authorization");
+  });
+  it("rejects delayed token resolution after an account switch before any relay request", async () => {
+    const token = deferred<string>();
+    vi.mocked(AuthService.getIdToken).mockReturnValue(token.promise);
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+    const request = ApiService.createOneAdkRelaySession({ requireAuthenticated: true });
+    publishValidatedAuthSessionOwner("replacement-owner");
+    token.resolve(makeUnsignedToken({ sub: "synthetic-owner" }));
+    await expect(request).rejects.toMatchObject({ status: 401 });
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
+
+  it("keeps terminal credential failures as 401 rather than provider outages", async () => {
+    vi.mocked(AuthService.getIdToken).mockRejectedValue({ code: "auth/user-disabled", message: "synthetic-private-error" });
+    const relayFetch = vi.spyOn(ApiService, "apiFetch");
+    await expect(ApiService.createOneAdkRelaySession({ requireAuthenticated: true })).rejects.toMatchObject({ status: 401 });
+    expect(relayFetch).not.toHaveBeenCalled();
+  });
+
+  it("rejects an anonymous relay response after sign-in and sign-out", async () => {
+    publishValidatedAuthSessionOwner(null);
+    vi.mocked(AuthService.getCurrentUser).mockReturnValue(null);
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(null);
+    const response = deferred<Response>();
+    const relayFetch = vi.spyOn(ApiService, "apiFetch").mockReturnValue(response.promise);
+    const pending = ApiService.createOneAdkRelaySession();
+    await vi.waitFor(() => expect(relayFetch).toHaveBeenCalledOnce());
+    publishValidatedAuthSessionOwner("owner-a");
+    publishValidatedAuthSessionOwner(null);
+    response.resolve(jsonResponse({ relay_ticket: "synthetic-ticket" }));
+    await expect(pending).rejects.toMatchObject({ status: 401 });
+  });
+  it("rejects a relay response that arrives after owner replacement", async () => {
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({ sub: "synthetic-owner" }));
+    const response = deferred<Response>();
+    const relayFetch = vi.spyOn(ApiService, "apiFetch").mockReturnValue(response.promise);
+    const request = ApiService.createOneAdkRelaySession({ requireAuthenticated: true });
+    await vi.waitFor(() => expect(relayFetch).toHaveBeenCalledOnce());
+    publishValidatedAuthSessionOwner("replacement-owner");
+    response.resolve(jsonResponse({ relay_ticket: "synthetic-ticket" }));
+    await expect(request).rejects.toMatchObject({ status: 401 });
+  });
+
+});
