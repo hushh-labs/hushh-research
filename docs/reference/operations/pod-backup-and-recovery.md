@@ -366,7 +366,16 @@ resolves the mutable source tag again:
   default 3). The hub's own `HUSSH_ONE_POD_IMAGE` is the fleet target, so the
   invariant is "hub at sha X, pods at sha X" a few passes after each deploy. A pod
   that fails three times on one image is left alone until the image moves again.
-- **Single-flight**: the reconcile loop runs in every gunicorn worker, so `upgrade_pod` first takes a lease (`claim_image_upgrade`, one conditional UPDATE on the row's `backend_metadata.upgradeLease`, ten-minute expiry); the loser skips with `in_progress`. Seen before the lease: two workers replaced the same pod thirty seconds apart and a copy failure was counted twice per pass.
+- **Upgrade admission and publication**: `upgrade_pod` claims an exact, unique lease
+  with one conditional UPDATE against the observed registry host and authority
+  fields. A competing claim skips with `in_progress`. Before calling the backend,
+  the service verifies that the same lease and stable host binding remain present.
+  Result publication requires that lease, the provisioned state, and the same stable
+  binding; a stale worker cannot publish completion or clear a successor's lease.
+  Metadata changes are merged, preserving concurrent heartbeat observations and
+  unrelated keys. The ten-minute expiry permits another claim; it does not cancel
+  or drain an already admitted provider operation. These registry checks do not
+  establish the Cloud Run service's unique incarnation or prove safe erasure.
 - **Operator hand**: `uv run python scripts/ops/pod_upgrade.py --list | --user-id <uid> | --all`
   from a hub environment. `--image <tag>` rolls a pod back to a tag that still exists.
 

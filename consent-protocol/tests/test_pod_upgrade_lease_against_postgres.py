@@ -1,42 +1,4 @@
-"""The single-flight upgrade lease, run against a real PostgreSQL.
-
-WHY THIS FILE EXISTS
-
-The lease is the only thing standing between two gunicorn workers and a double
-upgrade. The reconcile loop runs in every worker, and on 2026-09-02 both replaced the
-founder's pod within thirty seconds of each other and each counted the other's copy
-failure, so the three-attempt cap was reached in two passes.
-
-WHAT THE EXISTING TESTS DO AND DO NOT COVER, measured rather than assumed
-
-`test_the_registry_lease_is_one_conditional_write` and
-`test_the_lease_claim_parses_only_the_timestamp_half` pin the statement's TEXT against a
-fake `_Db`. They are stronger than they look: three defects were reintroduced here on
-purpose -- the historical `9fc41c180` cast, an invalid `json_set`, and an inverted
-staleness comparison -- and a substring test caught all three, because the pins cover
-most of the statement.
-
-What they cannot do is EXECUTE it, and that leaves two gaps.
-
-The statement is never checked against a live schema, so a column renamed by a migration
-would keep every pinned substring and break production. That is not hypothetical in this
-repo: `f2518d602` records a migration-contract test that sat five columns behind the real
-contract while staying green.
-
-And a text pin cannot say which text is RIGHT. When the inverted comparison was injected
-above, the substring test failed only because the characters changed -- it reports "the
-SQL is not what was written down", never "the lease boundary is now backwards". The
-honest response to that failure is to re-pin whatever is now written, which is exactly
-how a wrong statement becomes the new baseline. These tests fail only when the BEHAVIOUR
-changes, so they survive a legitimate rewrite and still assert the same property.
-
-WHAT MAKES THIS HONEST
-
-The statement under test is the SHIPPED one. `claim_image_upgrade` is called with a
-capturing client so the exact SQL and parameters the repository sends in production are
-what get executed here -- not a transcription that could drift from it the moment
-somebody edits the method.
-"""
+"""Actual PostgreSQL claim/publication checks for the existing image-upgrade lease."""
 
 from __future__ import annotations
 
@@ -82,13 +44,14 @@ class _CapturingClient:
         return _Empty()
 
 
-def _shipped_claim(target_image: str = _TARGET) -> tuple[str, dict]:
+def _shipped_claim(target_image: str, observed: dict) -> tuple[Optional[str], dict]:
     """The statement and binds `claim_image_upgrade` sends in production."""
     tap = _CapturingClient()
     repo = PersonalAgentRegistryRepo(client=tap)
-    asyncio.run(repo.claim_image_upgrade(user_id=_USER, target_image=target_image))
-    assert tap.sql and tap.params is not None, "the repository sent no statement"
-    return tap.sql, dict(tap.params)
+    asyncio.run(
+        repo.claim_image_upgrade(user_id=_USER, target_image=target_image, observed=observed)
+    )
+    return tap.sql, dict(tap.params or {})
 
 
 @pytest.fixture(scope="module")
@@ -104,6 +67,12 @@ def pg():
     try:
         server.start()
         server.apply_file(_REGISTRY_SCHEMA)
+        for name in (
+            "905_personal_agent_liveness.sql",
+            "906_personal_agent_user_cloud.sql",
+            "914_personal_agent_billing_space_id.sql",
+        ):
+            server.apply_file(_REGISTRY_SCHEMA.parent / name)
         yield server
     finally:
         postgres_harness.MIGRATIONS = original
@@ -141,9 +110,16 @@ def _row(pg, *, status: str = "provisioned", lease: Optional[str] = None) -> Non
 def _claim(engine, target_image: str = _TARGET) -> list:
     from sqlalchemy import text
 
-    sql, params = _shipped_claim(target_image)
     with engine.begin() as conn:
-        return list(conn.execute(text(sql), params))
+        observed = dict(
+            conn.execute(
+                text("SELECT * FROM personal_agent_registry WHERE user_id=:owner"), {"owner": _USER}
+            )
+            .mappings()
+            .one()
+        )
+        sql, params = _shipped_claim(target_image, observed)
+        return list(conn.execute(text(sql), params)) if sql is not None else []
 
 
 def test_the_shipped_claim_statement_is_accepted_by_postgres(pg, engine):
@@ -216,4 +192,159 @@ def test_the_claim_writes_the_lease_it_says_it_writes(pg, engine):
     value = stored[0][0]
     assert value and value.endswith(f"|{_TARGET}"), (
         "the lease value is the half the cooldown and the target check both read"
+    )
+
+
+@pytest.mark.asyncio
+async def test_expired_worker_cannot_publish_over_new_claim(pg, engine):
+    from db.db_client import DatabaseClient
+
+    stale = f"{(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()}|old|{_TARGET}"
+    _row(pg, lease=stale)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    observed = await repo.get(_USER)
+    lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
+    assert isinstance(lease, str) and lease != stale
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=stale,
+        previous_metadata={},
+        backend_metadata={"image": "old-worker"},
+    )
+    stored = pg.execute(
+        "SELECT backend_metadata FROM personal_agent_registry WHERE user_id=%s", (_USER,)
+    )[0][0]
+    assert stored == {"upgradeLease": lease}
+
+
+@pytest.mark.asyncio
+async def test_owner_claim_publishes_delta_without_dropping_new_heartbeat(pg, engine):
+    import json
+
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    observed = await repo.get(_USER)
+    lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
+    previous = {"image": "old", "observed": {"imageTag": "old"}, "upgrade": {"attempts": 1}}
+    current = {**previous, "observed": {"imageTag": "new"}, "extra": "keep", "upgradeLease": lease}
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=%s::jsonb WHERE user_id=%s",
+        (json.dumps(current), _USER),
+    )
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=previous,
+        backend_metadata={"image": "new"},
+        liveness_mode="economy",
+    )
+    row = pg.execute(
+        "SELECT backend_metadata, liveness_mode FROM personal_agent_registry WHERE user_id=%s",
+        (_USER,),
+    )[0]
+    assert row == ({"image": "new", "observed": {"imageTag": "new"}, "extra": "keep"}, "economy")
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=previous,
+        backend_metadata={"image": "replay"},
+    )
+
+
+@pytest.mark.asyncio
+async def test_lifecycle_transition_refuses_old_upgrade_publication(pg, engine):
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    observed = await repo.get(_USER)
+    lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
+    pg.execute("UPDATE personal_agent_registry SET status='migrating' WHERE user_id=%s", (_USER,))
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata={},
+        backend_metadata={"image": "old-worker"},
+    )
+    assert pg.execute(
+        "SELECT status, backend_metadata FROM personal_agent_registry WHERE user_id=%s", (_USER,)
+    )[0] == ("migrating", {"upgradeLease": lease})
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "changed_field",
+    [
+        "liveness_mode",
+        "project",
+        "region",
+        "service",
+        "url",
+        "runtime_service_account",
+        "tenancy",
+        "ingress",
+        "substrateReceipt",
+    ],
+)
+async def test_changed_host_refuses_claim_and_old_publication(pg, engine, changed_field):
+    import json
+
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    original = await repo.get(_USER)
+    pg.execute(
+        "UPDATE personal_agent_registry SET user_cloud_region='europe-west1' WHERE user_id=%s",
+        (_USER,),
+    )
+    assert (
+        await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=original)
+        is None
+    )
+    observed = await repo.get(_USER)
+    lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
+    assert lease
+    if changed_field == "liveness_mode":
+        pg.execute(
+            "UPDATE personal_agent_registry SET liveness_mode='economy' WHERE user_id=%s", (_USER,)
+        )
+    else:
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=backend_metadata || %s::jsonb WHERE user_id=%s",
+            (
+                json.dumps(
+                    {
+                        changed_field: {"owner": "replacement"}
+                        if changed_field == "substrateReceipt"
+                        else "replacement"
+                    }
+                ),
+                _USER,
+            ),
+        )
+    before = pg.execute(
+        "SELECT liveness_mode, backend_metadata FROM personal_agent_registry WHERE user_id=%s",
+        (_USER,),
+    )[0]
+    assert not await repo.record_image_upgrade(
+        user_id=_USER,
+        expected_lease=lease,
+        observed=observed,
+        previous_metadata={},
+        backend_metadata={"image": "stale"},
+        liveness_mode="warm",
+    )
+    assert (
+        pg.execute(
+            "SELECT liveness_mode, backend_metadata FROM personal_agent_registry WHERE user_id=%s",
+            (_USER,),
+        )[0]
+        == before
     )

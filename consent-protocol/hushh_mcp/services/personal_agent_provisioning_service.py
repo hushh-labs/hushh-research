@@ -247,9 +247,29 @@ class _Registry(Protocol):
         billing_space_id: Optional[str] = ...,
         backend_metadata: Optional[dict] = ...,
         attestation_ref: Optional[str] = ...,
+        liveness_mode: Optional[str] = ...,
+        deployment_target: Optional[str] = ...,
+        model_credential_mode: Optional[str] = ...,
     ) -> None: ...
 
     async def get(self, user_id: str) -> Optional[dict]: ...
+
+    async def fetch_upgrade_candidates(self, *, limit: int = ...) -> list[dict]: ...
+
+    async def claim_image_upgrade(
+        self, *, user_id: str, target_image: str, observed: Optional[dict]
+    ) -> Optional[str]: ...
+
+    async def record_image_upgrade(
+        self,
+        *,
+        user_id: str,
+        backend_metadata: dict,
+        expected_lease: str,
+        previous_metadata: dict,
+        observed: Optional[dict],
+        liveness_mode: Optional[str] = ...,
+    ) -> bool: ...
 
     # OPTIONAL. The fleet-cap denominator. Resolved defensively with ``getattr``
     # (see ``_fleet_cap_reached``) because registry adapters written before the
@@ -353,7 +373,7 @@ def set_by_newer_hub(row: Optional[dict], *, own_revision: Optional[str] = None)
 
 
 def _lease_is_fresh(value: Any) -> bool:
-    """``upgradeLease`` is ``<iso timestamp>|<target image>``; only the timestamp
+    """``upgradeLease`` starts with ``<iso timestamp>|``; only the timestamp
     decides freshness. Anything unparseable is treated as absent, never as a lock."""
     text = str(value or "")
     if not text:
@@ -922,7 +942,8 @@ class PersonalAgentProvisioningService:
                 return None
             from hushh_mcp.services.pod_key_collector import refresh_pod_key  # noqa: PLC0415
 
-            return await refresh_pod_key(row, service=self)
+            status = await refresh_pod_key(row, service=self)
+            return status if isinstance(status, str) else None
         except Exception as exc:  # noqa: BLE001 - the heartbeat path finishes what this could not
             logger.info("personal_agent.immediate_key_pull_deferred %s", type(exc).__name__)
             return None
@@ -1264,9 +1285,14 @@ class PersonalAgentProvisioningService:
             }
         # Single-flight across hub workers: the lease is one conditional write on
         # the row, and losing it means another worker is already moving this pod.
+        from hushh_mcp.services.personal_agent_registry_repo import upgrade_host_snapshot
+
+        requested_binding = upgrade_host_snapshot(row)
         claim = getattr(self._registry, "claim_image_upgrade", None)
-        if claim is not None and not await claim(user_id=user_id, target_image=current_image):
-            logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=in_progress", hushh_id)
+        if not callable(claim):
+            raise PersonalAgentUpgradeUnsupportedError("registry cannot fence image upgrades")
+        lease = await claim(user_id=user_id, target_image=current_image, observed=row)
+        if not isinstance(lease, str) or not lease:
             return {
                 "hushhId": hushh_id,
                 "status": "provisioned",
@@ -1275,11 +1301,38 @@ class PersonalAgentProvisioningService:
                 "image": running_image(row),
                 "previousImage": running_image(row),
             }
-        # Re-read AFTER the lease: the row above was read before the claim, and the
-        # other worker's failure marker may have landed in between (seen live
-        # 2026-09-03: the second worker judged the cooldown on a marker that was
-        # already forty seconds stale and stacked a second attempt anyway).
-        row = await self._registry.get(user_id) or row
+        row = await self._registry.get(user_id)
+        if (
+            row is None
+            or row.get("status") != "provisioned"
+            or (row.get("backend_metadata") or {}).get("upgradeLease") != lease
+        ):
+            raise RuntimeError("image upgrade authority changed before execution")
+        claimed_binding = upgrade_host_snapshot(row)
+        if (
+            requested_binding is None
+            or claimed_binding is None
+            or any(
+                claimed_binding[key] != value
+                for key, value in requested_binding.items()
+                if key not in {"updated_at", "backend_metadata"}
+            )
+        ):
+            raise RuntimeError("image upgrade host binding changed before execution")
+        claimed_metadata = dict(row.get("backend_metadata") or {})
+        claimed_row = row
+
+        async def publish_upgrade(**fields: Any) -> None:
+            published = await self._registry.record_image_upgrade(
+                user_id=user_id,
+                expected_lease=lease,
+                previous_metadata=claimed_metadata,
+                observed=claimed_row,
+                **fields,
+            )
+            if published is not True:
+                raise RuntimeError("image upgrade result publication lost authority")
+
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)
@@ -1292,7 +1345,7 @@ class PersonalAgentProvisioningService:
             # Winning the free lease then rolls the pod BACK to this draining
             # revision's older target -- a ~90s PUT and a restart on a live person's
             # agent, repeating every sweep.
-            await self._registry.record_image_upgrade(user_id=user_id, backend_metadata=old_meta)
+            await publish_upgrade(backend_metadata=old_meta)
             logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=superseded", hushh_id)
             return {
                 "hushhId": hushh_id,
@@ -1305,7 +1358,7 @@ class PersonalAgentProvisioningService:
         if _attempted_recently(old_meta.get("upgrade")):
             # Listed before another worker's attempt failed; do not stack a second
             # attempt on the same failure within the cooldown.
-            await self._registry.record_image_upgrade(user_id=user_id, backend_metadata=old_meta)
+            await publish_upgrade(backend_metadata=old_meta)
             logger.info("personal_agent.upgrade_skipped hushh_id=%s reason=cooldown", hushh_id)
             return {
                 "hushhId": hushh_id,
@@ -1337,9 +1390,9 @@ class PersonalAgentProvisioningService:
                 else 1
             )
             reason = user_safe_failure_reason(exc)
+            failure_recorded = False
             try:
-                await self._registry.record_image_upgrade(
-                    user_id=user_id,
+                await publish_upgrade(
                     backend_metadata={
                         **old_meta,
                         "upgrade": {
@@ -1350,17 +1403,19 @@ class PersonalAgentProvisioningService:
                         },
                     },
                 )
+                failure_recorded = True
             except Exception:
                 logger.exception("personal_agent.upgrade_marker_write_failed")
-            await pod_lifecycle_append(
-                user_id,
-                stage="authority_live",
-                registry_status="provisioned",
-                event="upgrade_failed",
-                hushh_id=hushh_id,
-                attempt=attempts,
-                reason=reason,
-            )
+            if failure_recorded:
+                await pod_lifecycle_append(
+                    user_id,
+                    stage="authority_live",
+                    registry_status="provisioned",
+                    event="upgrade_failed",
+                    hushh_id=hushh_id,
+                    attempt=attempts,
+                    reason=reason,
+                )
             logger.warning(
                 "personal_agent.upgrade_failed hushh_id=%s attempt=%s reason=%s",
                 hushh_id,
@@ -1385,8 +1440,7 @@ class PersonalAgentProvisioningService:
         # Who set it, so a draining older hub revision refuses to move it back.
         if hub_revision():
             new_meta["imageSetByRevision"] = hub_revision()
-        await self._registry.record_image_upgrade(
-            user_id=user_id,
+        await publish_upgrade(
             backend_metadata=new_meta,
             liveness_mode=new_meta.get("livenessMode"),
         )

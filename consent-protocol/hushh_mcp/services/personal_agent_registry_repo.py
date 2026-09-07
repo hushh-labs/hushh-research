@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -103,6 +104,65 @@ def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
             )
         }
     )
+
+
+_UPGRADE_HOST_METADATA_KEYS = (
+    "project",
+    "region",
+    "service",
+    "url",
+    "runtime_service_account",
+    "tenancy",
+    "ingress",
+    "substrateReceipt",
+)
+
+
+def upgrade_host_snapshot(row: Optional[dict]) -> Optional[dict]:
+    snapshot = registry_host_snapshot(row)
+    if row is None or snapshot is None:
+        return None
+    # Reuse the host authority projection and include the remaining PodSpec inputs.
+    snapshot.update(
+        {
+            key: row.get(key)
+            for key in (
+                "phone_e164_hash",
+                "pod_pubkey",
+                "pod_key_id",
+                "liveness_mode",
+            )
+        }
+    )
+    metadata = snapshot["backend_metadata"] or {}
+    snapshot["host_metadata"] = {key: metadata.get(key) for key in _UPGRADE_HOST_METADATA_KEYS}
+    return snapshot
+
+
+def _upgrade_snapshot_predicate(snapshot: dict, *, publishing: bool = False) -> tuple[str, dict]:
+    clauses, params = [], {}
+    for column, value in snapshot.items():
+        if publishing and column in {"updated_at", "backend_metadata"}:
+            continue  # Heartbeats may advance; metadata is merged separately.
+        parameter = f"observed_{column}"
+        expression = f":{parameter}"
+        if column == "host_metadata":
+            fields = ", ".join(
+                f"'{key}', backend_metadata->'{key}'" for key in _UPGRADE_HOST_METADATA_KEYS
+            )
+            clauses.append(
+                f"jsonb_build_object({fields}) IS NOT DISTINCT FROM CAST({expression} AS jsonb)"
+            )
+            params[parameter] = json.dumps(value)
+            continue
+        if column == "backend_metadata":
+            expression = f"CAST({expression} AS jsonb)"
+            value = json.dumps(value) if value is not None else None
+        elif column in {"updated_at", "user_cloud_authorized_at"}:
+            expression = f"CAST({expression} AS timestamptz)"
+        clauses.append(f"{column} IS NOT DISTINCT FROM {expression}")
+        params[parameter] = value
+    return " AND ".join(clauses), params
 
 
 class PersonalAgentRegistryRepo:
@@ -815,7 +875,9 @@ class PersonalAgentRegistryRepo:
         )
         return list(response.data or [])
 
-    async def claim_image_upgrade(self, *, user_id: str, target_image: str) -> bool:
+    async def claim_image_upgrade(
+        self, *, user_id: str, target_image: str, observed: Optional[dict]
+    ) -> Optional[str]:
         """Take the single-flight lease for moving THIS pod to ``target_image``.
 
         One conditional UPDATE, so two hub workers cannot both win: the reconcile
@@ -824,9 +886,19 @@ class PersonalAgentRegistryRepo:
         other pod's copy failure, so the three-attempt cap was reached in two
         passes. The lease is a timestamp inside ``backend_metadata`` (no new
         column), cleared by the terminal write on either outcome and expired
-        after ten minutes if a worker died holding it. True means "yours".
+        after ten minutes if a worker died holding it. The returned exact token
+        owns result publication; expiry does not drain an admitted provider call.
         """
+        snapshot = upgrade_host_snapshot(observed)
+        if (
+            snapshot is None
+            or snapshot["user_id"] != user_id
+            or snapshot["status"] != "provisioned"
+        ):
+            return None
+        predicate, observed_params = _upgrade_snapshot_predicate(snapshot)
         now = datetime.now(timezone.utc)
+        lease = f"{now.isoformat()}|{uuid.uuid4().hex}|{target_image}"
         result = self._db().execute_raw(
             """
             UPDATE personal_agent_registry
@@ -838,44 +910,85 @@ class PersonalAgentRegistryRepo:
                 )
             WHERE user_id = :user_id
               AND status = 'provisioned'
+              AND {predicate}
               AND (
                     backend_metadata->>'upgradeLease' IS NULL
                     OR CAST(split_part(backend_metadata->>'upgradeLease', '|', 1) AS timestamptz)
                        < CAST(:stale_before AS timestamptz)
                   )
             RETURNING user_id
-            """,
+            """.replace("{predicate}", predicate),
             {
+                **observed_params,
                 "user_id": user_id,
-                "lease": f"{now.isoformat()}|{target_image}",
+                "lease": lease,
                 "stale_before": (now - _UPGRADE_LEASE_TTL).isoformat(),
             },
         )
-        return bool(result.data)
+        return lease if result.data else None
 
     async def record_image_upgrade(
         self,
         *,
         user_id: str,
         backend_metadata: dict,
+        expected_lease: str,
+        previous_metadata: dict,
+        observed: Optional[dict],
         liveness_mode: Optional[str] = None,
-    ) -> None:
-        """Write what an image upgrade changed, and NOTHING it did not.
+    ) -> bool:
+        """Publish only the claiming worker's result, preserving unrelated metadata.
 
-        Deliberately not :meth:`upsert`: that path re-stamps ``provisioned_at`` for a
-        ``provisioned`` status (the pod was not provisioned again, it was moved) and
-        appends the ``authority_live`` funnel stage a second time, which would show
-        the person a journey that "completed" once per hub deploy. An upgrade keeps
-        the row's status, identity, key columns and cloud coordinates untouched by
-        construction, because this method cannot reach them.
+        The exact lease and provisioned state fence registry publication only.
+        They do not establish provider-incarnation ownership or drain old work.
         """
-        data: dict[str, Any] = {
-            "backend_metadata": backend_metadata,
-            "updated_at": datetime.now(timezone.utc).isoformat(),
+        if not isinstance(expected_lease, str) or not expected_lease:
+            return False
+        snapshot = upgrade_host_snapshot(observed)
+        if (
+            snapshot is None
+            or snapshot["user_id"] != user_id
+            or snapshot["status"] != "provisioned"
+        ):
+            return False
+        predicate, observed_params = _upgrade_snapshot_predicate(snapshot, publishing=True)
+        changes = {
+            key: value
+            for key, value in backend_metadata.items()
+            if key != "upgradeLease"
+            and (key not in previous_metadata or previous_metadata[key] != value)
         }
-        if liveness_mode:
-            data["liveness_mode"] = liveness_mode
-        self._db().table(_REGISTRY).update(data).eq("user_id", user_id).execute()
+        removed = {key: True for key in previous_metadata if key not in backend_metadata}
+        result = self._db().execute_raw(
+            """
+            UPDATE personal_agent_registry AS registry
+            SET backend_metadata = (
+                    SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{}'::jsonb)
+                    FROM jsonb_each(COALESCE(registry.backend_metadata, '{}'::jsonb)) AS item
+                    WHERE item.key <> 'upgradeLease'
+                      AND NOT (
+                          CAST(:removed AS jsonb) ? item.key
+                          AND CAST(:previous AS jsonb)->item.key IS NOT DISTINCT FROM item.value
+                      )
+                ) || CAST(:changes AS jsonb),
+                liveness_mode = COALESCE(:liveness_mode, liveness_mode),
+                updated_at = NOW()
+            WHERE user_id = :user_id AND status = 'provisioned'
+              AND backend_metadata->>'upgradeLease' = :expected_lease
+              AND {predicate}
+            RETURNING user_id
+            """.replace("{predicate}", predicate),
+            {
+                **observed_params,
+                "user_id": user_id,
+                "expected_lease": expected_lease,
+                "removed": json.dumps(removed),
+                "previous": json.dumps(previous_metadata),
+                "changes": json.dumps(changes),
+                "liveness_mode": liveness_mode,
+            },
+        )
+        return bool(result.data)
 
     async def count_active_pods(self, *, exclude_user_id: Optional[str] = None) -> int:
         """How many rows currently hold (or are standing up) a pod. The cap's denominator.

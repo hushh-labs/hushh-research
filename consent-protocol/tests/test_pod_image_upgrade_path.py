@@ -336,9 +336,15 @@ class FakeRegistry:
         self.claims: list[dict] = []
         self.claim_result = claim_result
 
-    async def claim_image_upgrade(self, *, user_id: str, target_image: str) -> bool:
+    async def claim_image_upgrade(
+        self, *, user_id: str, target_image: str, observed
+    ) -> Optional[str]:
         self.claims.append({"user_id": user_id, "target_image": target_image})
-        return self.claim_result
+        if not self.claim_result:
+            return None
+        lease = "synthetic-lease"
+        self.rows[user_id]["backend_metadata"]["upgradeLease"] = lease
+        return lease
 
     async def get(self, user_id: str) -> Optional[dict]:
         row = self.rows.get(user_id)
@@ -352,7 +358,18 @@ class FakeRegistry:
             :limit
         ]
 
-    async def record_image_upgrade(self, *, user_id, backend_metadata, liveness_mode=None):
+    async def record_image_upgrade(
+        self,
+        *,
+        user_id,
+        backend_metadata,
+        expected_lease,
+        previous_metadata,
+        observed,
+        liveness_mode=None,
+    ):
+        if self.rows[user_id]["backend_metadata"].get("upgradeLease") != expected_lease:
+            return False
         self.upgrade_writes.append(
             {
                 "user_id": user_id,
@@ -361,6 +378,7 @@ class FakeRegistry:
             }
         )
         self.rows[user_id]["backend_metadata"] = backend_metadata
+        return True
 
 
 class FakeUpgradingBackend:
@@ -779,39 +797,6 @@ async def test_candidates_skip_a_fresh_lease_and_reclaim_a_stale_one(service_env
     )
 
 
-@pytest.mark.asyncio
-async def test_the_registry_lease_is_one_conditional_write(monkeypatch):
-    """The lease must be atomic: one UPDATE guarded by the lease's own age, on a
-    provisioned row only, returning the row iff it was taken."""
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-    seen: dict = {}
-
-    class _Result:
-        data = [{"user_id": "uid-1"}]
-
-    class _Db:
-        def execute_raw(self, sql, params=None):
-            seen["sql"], seen["params"] = sql, params
-            return _Result()
-
-    repo = PersonalAgentRegistryRepo()
-    monkeypatch.setattr(repo, "_db", lambda: _Db())
-
-    assert await repo.claim_image_upgrade(user_id="uid-1", target_image=SOURCE_NEW) is True
-    sql = " ".join(seen["sql"].split())
-    assert sql.startswith("UPDATE personal_agent_registry SET backend_metadata = jsonb_set(")
-    assert "WHERE user_id = :user_id AND status = 'provisioned'" in sql
-    assert "backend_metadata->>'upgradeLease' IS NULL" in sql
-    assert "< CAST(:stale_before AS timestamptz)" in sql and sql.endswith("RETURNING user_id")
-    assert seen["params"]["user_id"] == "uid-1"
-    assert seen["params"]["lease"].endswith("|" + SOURCE_NEW)
-    assert seen["params"]["stale_before"] < seen["params"]["lease"].split("|")[0]
-
-    _Result.data = []
-    assert await repo.claim_image_upgrade(user_id="uid-1", target_image=SOURCE_NEW) is False
-
-
 # ---- an older hub never moves a pod backwards (2026-09-03) ---------------------------
 
 
@@ -862,18 +847,6 @@ async def test_candidates_exclude_pods_a_newer_hub_already_moved(monkeypatch, se
         current_image="gcr.io/p/consent-protocol-pod:dev-new"
     )
     assert [row["hushh_id"] for row in out] == ["ha1_plain"]
-
-
-def test_the_lease_claim_parses_only_the_timestamp_half() -> None:
-    """The lease is `<iso>|<target>`; casting the whole string to timestamptz raised
-    DatabaseExecutionError for the SECOND worker every time (seen live 2026-09-03)."""
-    import inspect
-
-    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
-
-    src = inspect.getsource(PersonalAgentRegistryRepo.claim_image_upgrade)
-    assert "split_part(backend_metadata->>'upgradeLease', '|', 1)" in src
-    assert "CAST(backend_metadata->>'upgradeLease' AS timestamptz)" not in src
 
 
 # ---- one failure, one attempt: the other worker waits (2026-09-03) ---------------------
@@ -964,7 +937,7 @@ async def test_the_cooldown_is_judged_on_the_row_as_it_is_after_the_lease(
     backend = FakeUpgradingBackend()
     service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
 
-    async def _claim(*, user_id, target_image):
+    async def _claim(*, user_id, target_image, observed):
         # Another worker just failed on this very image.
         registry.rows[user_id]["backend_metadata"]["upgrade"] = {
             "failedImage": target_image,
@@ -972,7 +945,8 @@ async def test_the_cooldown_is_judged_on_the_row_as_it_is_after_the_lease(
             "lastError": "temporary_issue",
             "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
         }
-        return True
+        registry.rows[user_id]["backend_metadata"]["upgradeLease"] = "synthetic-lease"
+        return "synthetic-lease"
 
     monkeypatch.setattr(registry, "claim_image_upgrade", _claim, raising=False)
     result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
@@ -1002,12 +976,13 @@ async def test_a_pod_a_newer_hub_already_moved_is_not_rolled_back(monkeypatch, s
     backend = FakeUpgradingBackend()
     service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
 
-    async def _claim(*, user_id, target_image):
+    async def _claim(*, user_id, target_image, observed):
         # Revision 00061 finished while this one was between its read and its claim.
         registry.rows[user_id]["backend_metadata"]["imageSetByRevision"] = (
             "consent-protocol-00061-xyz"
         )
-        return True
+        registry.rows[user_id]["backend_metadata"]["upgradeLease"] = "synthetic-lease"
+        return "synthetic-lease"
 
     monkeypatch.setattr(registry, "claim_image_upgrade", _claim, raising=False)
     result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
@@ -1282,3 +1257,50 @@ async def test_generation_rotates_past_a_hushh_id_another_user_already_holds(ser
     assert await service._next_free_generation(phone, user_id="the-new-person") == 1
     # The same owner is not a collision: provisioning is idempotent over its own row.
     assert await service._next_free_generation(phone, user_id="someone-else") == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_old_upgrade_completion_cannot_publish_a_new_claim(service_env, provider_fails):
+    pas, narrative = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+
+    class ReplacedLease(FakeUpgradingBackend):
+        async def upgrade(self, spec):
+            registry.rows["uid-1"]["backend_metadata"]["upgradeLease"] = "new-worker-lease"
+            return await super().upgrade(spec)
+
+    backend = ReplacedLease(
+        fail=RuntimeError("synthetic provider failed") if provider_fails else None
+    )
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+    with pytest.raises(RuntimeError):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    assert registry.upgrade_writes == []
+    assert registry.rows["uid-1"]["backend_metadata"]["upgradeLease"] == "new-worker-lease"
+    assert [entry["event"] for entry in narrative] == ["started"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("transition", ["missing", "changed_host", "changed_metadata"])
+async def test_changed_claimed_host_never_reaches_upgrade_provider(service_env, transition):
+    pas, narrative = service_env
+
+    class ChangedRegistry(FakeRegistry):
+        async def claim_image_upgrade(self, **fields):
+            lease = await super().claim_image_upgrade(**fields)
+            if transition == "missing":
+                self.rows.pop(fields["user_id"])
+            elif transition == "changed_metadata":
+                self.rows[fields["user_id"]]["backend_metadata"]["url"] = (
+                    "https://replacement.invalid"
+                )
+            else:
+                self.rows[fields["user_id"]]["user_cloud_region"] = "replacement-region"
+            return lease
+
+    registry, backend = ChangedRegistry({"uid-1": _row()}), FakeUpgradingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+    with pytest.raises(RuntimeError, match="changed before execution"):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    assert backend.specs == [] and narrative == []
