@@ -7,13 +7,28 @@
 #
 set -euo pipefail
 
+boot_deadline=$((SECONDS + 120))
+bounded_simctl() {
+  local remaining=$((boot_deadline - SECONDS))
+  [ "$remaining" -gt 0 ] || { echo "Simulator readiness timed out" >&2; return 1; }
+  python3 - "$remaining" "$@" <<'PYTHON'
+import subprocess, sys
+try:
+    result = subprocess.run(["xcrun", "simctl", *sys.argv[2:]], timeout=int(sys.argv[1]))
+except subprocess.TimeoutExpired:
+    print("Simulator readiness timed out", file=sys.stderr)
+    sys.exit(1)
+sys.exit(result.returncode)
+PYTHON
+}
+
 # --- config -----------------------------------------------------------------
 # Resolve the simulator instead of pinning a UDID: Xcode updates retire device
 # types, and a hardcoded UDID silently points at a simulator that no longer
 # exists (the failure surfaces late, after a full web build). Prefer an already
 # booted iPhone, else the newest available one.
 pick_simulator() {
-  xcrun simctl list devices available --json 2>/dev/null | python3 -c '
+  bounded_simctl list devices available --json 2>/dev/null | python3 -c '
 import json, sys
 data = json.load(sys.stdin).get("devices", {})
 phones = [d for runtime in data.values() for d in runtime if d.get("name", "").startswith("iPhone")]
@@ -46,14 +61,7 @@ die() { printf '\n\033[1;31m✗ %s\033[0m\n' "$1" >&2; exit 1; }
 
 # --- 1. Node 22 (required for cap sync) -------------------------------------
 say "Selecting Node 22"
-if ! node -v | grep -q '^v22'; then
-  # shellcheck disable=SC1090
-  if [ -s "$HOME/.nvm/nvm.sh" ]; then
-    source "$HOME/.nvm/nvm.sh"
-    nvm use 22 >/dev/null || die "nvm: Node 22 not installed (run: nvm install 22)"
-  fi
-fi
-node -v | grep -q '^v22' || die "Node 22 required, got $(node -v)"
+source "$SKILL_DIR/native-node22.sh"
 
 # --- 2. Selected backend reachable? ----------------------------------------------
 say "Checking selected backend is reachable"
@@ -90,8 +98,9 @@ npm run cap:sync:ios
 
 # --- 5. Boot the simulator ---------------------------------------------------
 say "Booting simulator $UDID"
+boot_deadline=$((SECONDS + 120))
 simulator_state() {
-  xcrun simctl list devices available --json | python3 -c '
+  bounded_simctl list devices available --json | python3 -c '
 import json, sys
 wanted = sys.argv[1]
 for devices in json.load(sys.stdin).get("devices", {}).values():
@@ -104,14 +113,10 @@ sys.exit(1)
 }
 state="$(simulator_state)" || die "Selected simulator is unavailable"
 if [ "$state" != "Booted" ]; then
-  xcrun simctl boot "$UDID" || die "Simulator boot request failed"
+  bounded_simctl boot "$UDID" || die "Simulator boot request failed"
 fi
 say "Waiting for simulator readiness in the background"
-boot_deadline=$((SECONDS + 120))
-until [ "$(simulator_state)" = "Booted" ]; do
-  [ "$SECONDS" -lt "$boot_deadline" ] || die "Simulator boot timed out"
-  sleep 2
-done
+bounded_simctl bootstatus "$UDID" -b || die "Simulator readiness failed"
 
 # --- 6. Build the app for the simulator -------------------------------------
 say "Building $SCHEME for iphonesimulator (DerivedData: $DERIVED_DATA)"
