@@ -381,13 +381,55 @@ class PodCommitLog:
         except Exception as exc:
             raise PodLogTampered("a log record failed authenticated decryption") from exc
 
+    @staticmethod
+    def _read_head(head_bytes: Optional[bytes]) -> Optional[dict[str, Any]]:
+        if head_bytes is None:
+            return None
+        try:
+            head = json.loads(head_bytes)
+            if not isinstance(head, dict):
+                raise ValueError("shape")
+            seq, key, digest = head.get("seq"), head.get("key"), head.get("sha")
+            if type(seq) is not int or seq < 1:
+                raise ValueError("sequence")
+            if (
+                not isinstance(key, str)
+                or not key.startswith("records/")
+                or any(part in ("", ".", "..") for part in key.split("/"))
+                or "\\" in key
+                or any(ord(character) < 32 or ord(character) == 127 for character in key)
+            ):
+                raise ValueError("record key")
+            if (
+                not isinstance(digest, str)
+                or len(digest) != 64
+                or any(character not in "0123456789abcdef" for character in digest)
+            ):
+                raise ValueError("digest")
+            return head
+        except (ValueError, TypeError, UnicodeError) as exc:
+            raise PodLogTampered("the log head is malformed") from exc
+
     # -- operations -------------------------------------------------------------------
 
     async def append(self, kind: str, payload: Any) -> dict[str, Any]:
         """Append one record. Linearized by the pointer CAS; retries lost races."""
         for _ in range(self._max_retries):
             head_bytes, generation = await self._store.get_with_generation(self.HEAD)
-            head = json.loads(head_bytes) if head_bytes else None
+            head = self._read_head(head_bytes)
+            if head is not None:
+                # Refuse a corrupt predecessor before publishing any successor.
+                blob = await self._store.get(head["key"])
+                if blob is None:
+                    raise PodLogTampered("the log head references a missing record")
+                predecessor = self._unseal(blob)
+                if (
+                    not isinstance(predecessor, dict)
+                    or type(predecessor.get("seq")) is not int
+                    or predecessor["seq"] != head["seq"]
+                    or predecessor.get("sha") != head["sha"]
+                ):
+                    raise PodLogTampered("the log head and predecessor disagree")
             seq = (int(head["seq"]) + 1) if head else 1
             prev_key = head["key"] if head else None
             prev_sha = head["sha"] if head else None
@@ -413,18 +455,26 @@ class PodCommitLog:
     async def replay(self) -> list[dict[str, Any]]:
         """Every record, oldest first, chain-verified. Raises on tampering."""
         head_bytes, _ = await self._store.get_with_generation(self.HEAD)
-        if not head_bytes:
+        head = self._read_head(head_bytes)
+        if head is None:
             return []
-        head = json.loads(head_bytes)
 
         records: list[dict[str, Any]] = []
         key: Optional[str] = head["key"]
         expected_sha: Optional[str] = head["sha"]
+        expected_seq = head["seq"]
         while key is not None:
             blob = await self._store.get(key)
             if blob is None:
                 raise PodLogTampered(f"the chain references a missing record: {key}")
             record = self._unseal(blob)
+            if (
+                not isinstance(record, dict)
+                or type(record.get("seq")) is not int
+                or record["seq"] != expected_seq
+            ):
+                raise PodLogTampered("the log head and record sequence disagree")
+            expected_seq -= 1
             recomputed = _record_sha(
                 record["seq"], record["kind"], record["payload"], record.get("prev_sha")
             )
@@ -434,6 +484,6 @@ class PodCommitLog:
             key = record.get("prev_key")
             expected_sha = record.get("prev_sha")
         records.reverse()
-        if [r["seq"] for r in records] != list(range(1, len(records) + 1)):
+        if expected_seq != 0 or [r["seq"] for r in records] != list(range(1, len(records) + 1)):
             raise PodLogTampered("the chain's sequence numbers are not contiguous")
         return records

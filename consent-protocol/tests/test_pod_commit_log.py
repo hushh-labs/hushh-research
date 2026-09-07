@@ -512,3 +512,53 @@ def test_local_store_syncs_new_root_directory_entries_in_order(tmp_path, monkeyp
     monkeypatch.setattr(LocalObjectStore, "_sync_directory", staticmethod(synced.append))
     LocalObjectStore(str(tmp_path / "parent" / "store"))
     assert synced == [tmp_path, tmp_path / "parent"]
+
+
+@pytest.mark.parametrize(
+    "head",
+    [
+        {"seq": 1, "key": None, "sha": None},
+        {"seq": True, "key": "records/example.bin", "sha": "a" * 64},
+        {"seq": 0, "key": "records/example.bin", "sha": "a" * 64},
+        {"seq": 1, "key": "../foreign.bin", "sha": "a" * 64},
+        {"seq": 1, "key": "records/\u0000bad.bin", "sha": "a" * 64},
+        {"seq": 1, "key": "records/\nbad.bin", "sha": "a" * 64},
+        {"seq": 1, "key": "records/example.bin", "sha": "invalid"},
+        [],
+    ],
+)
+async def test_malformed_head_refuses_recovery_and_append(tmp_path, head):
+    store = LocalObjectStore(str(tmp_path / "store"))
+    await store.put(PodCommitLog.HEAD, json.dumps(head).encode())
+    log = PodCommitLog(store, KEY)
+    with pytest.raises(PodLogTampered):
+        await log.replay()
+    with pytest.raises(PodLogTampered):
+        await log.append("synthetic", {})
+    assert not (tmp_path / "store" / "records").exists()
+
+
+async def test_head_sequence_must_match_the_authenticated_chain(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "store"))
+    log = PodCommitLog(store, KEY)
+    await log.append("synthetic", {})
+    raw, generation = await store.get_with_generation(log.HEAD)
+    head = json.loads(raw)
+    head["seq"] = 2
+    await store.put_if_generation(log.HEAD, json.dumps(head).encode(), generation)
+    with pytest.raises(PodLogTampered):
+        await log.replay()
+
+
+async def test_inconsistent_head_cannot_publish_a_successor(tmp_path):
+    store = LocalObjectStore(str(tmp_path / "store"))
+    log = PodCommitLog(store, KEY)
+    await log.append("synthetic", {})
+    raw, generation = await store.get_with_generation(log.HEAD)
+    head = json.loads(raw)
+    head["seq"] = 2
+    await store.put_if_generation(log.HEAD, json.dumps(head).encode(), generation)
+    before = sorted((tmp_path / "store" / "records").iterdir())
+    with pytest.raises(PodLogTampered):
+        await log.append("must-not-publish", {})
+    assert sorted((tmp_path / "store" / "records").iterdir()) == before
