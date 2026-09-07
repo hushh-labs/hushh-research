@@ -297,3 +297,19 @@ Native parity for authenticated flows now includes the verified phone mandate af
 Treat docs/runtime drift as a blocker. A route, native contract, or browser-sensitive flow is not parity-ready if the docs and audit registry do not describe it correctly.
 
 Native plugin drift is also a blocker. `cd hushh-webapp && npm run verify:capacitor:plugins` compares TypeScript `registerPlugin` contracts with iOS `CAPBridgedPlugin` metadata and Android `@CapacitorPlugin` / `@PluginMethod` declarations.
+
+### Selected-profile background rehearsals
+
+For an authorized disposable simulator cold audit, select the environment with
+`APP_RUNTIME_PROFILE=dev npm run ios:cold:audit`. The existing native profile
+resolver supplies build and sync configuration; absent dev configuration fails
+instead of borrowing UAT settings. With no profile selected, UAT remains the audit
+default. `NEXT_DIST_DIR` selects the same exported artifact directory used by
+Capacitor, including the generated flow manifest and runner.
+
+Keep `NATIVE_AUDIT_VISIBLE` unset and omit `--visible` for background operation.
+Simulator IPC calls in the route, UI and continuity runners have a 120-second
+per-command limit; this is a host failure bound, not a product latency target or
+an overall build deadline. Continuity waits for full boot readiness even when
+the device already reports Booted. Cold fixtures still do not prove continuity
+of a normal authenticated session.

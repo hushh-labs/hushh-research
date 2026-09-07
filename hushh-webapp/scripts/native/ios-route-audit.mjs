@@ -94,7 +94,7 @@ function resolveSimulatorDestination(deviceName) {
     const output = execFileSync(
       "xcrun",
       ["simctl", "list", "devices", "available", "--json"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, killSignal: "SIGKILL" }
     );
     const payload = JSON.parse(output);
     for (const devices of Object.values(payload.devices || {})) {
@@ -117,6 +117,8 @@ function run(cmd, args, options = {}) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // Bound simulator IPC without imposing this limit on Xcode builds.
+    ...(args[0] === "simctl" ? { timeout: 120_000, killSignal: "SIGKILL" } : {}),
     ...options,
   }).trim();
 }

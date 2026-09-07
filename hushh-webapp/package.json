@@ -79,7 +79,7 @@
     "android:release:playstore": "node ../scripts/release/dispatch-android-playstore.mjs",
     "ios:verify-archive-symbols": "./scripts/native/verify-ios-archive-symbols.sh",
     "android:run": "npm run cap:build && npm run cap:sync:android && npx cap run android",
-    "ios:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && npm run ios:prepare:uat && ./scripts/native/ios-test.sh",
+    "ios:test": "node ./scripts/native/assert-destructive-native-audit.mjs && node ./scripts/native/prepare-ios-ui-test-build.mjs && ./scripts/native/ios-test.sh",
     "ios:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run ios:test",
     "android:test": "node ./scripts/native/assert-destructive-native-audit.mjs && npm run sync:native-firebase-configs && node ./scripts/native/android-route-audit.mjs",
     "android:cold:audit": "HUSHH_ALLOW_DESTRUCTIVE_NATIVE_AUDIT=true npm run android:test",

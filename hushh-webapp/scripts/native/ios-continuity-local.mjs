@@ -20,6 +20,8 @@ function run(command, args, options = {}) {
   return execFileSync(command, args, {
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // Bound simulator IPC without imposing this limit on Xcode builds.
+    ...(args[0] === "simctl" ? { timeout: 120_000, killSignal: "SIGKILL" } : {}),
     ...options,
   }).trim();
 }
@@ -61,8 +63,8 @@ const DEVICE_ID = device.udid;
 try {
   if (device.state !== "Booted") {
     run("xcrun", ["simctl", "boot", DEVICE_ID]);
-    run("xcrun", ["simctl", "bootstatus", DEVICE_ID, "-b"]);
   }
+  run("xcrun", ["simctl", "bootstatus", DEVICE_ID, "-b"]);
   if (process.argv.includes("--visible")) {
     execFileSync("open", ["-a", "Simulator"], { stdio: "ignore" });
   }
