@@ -175,6 +175,7 @@ assertions:
         - consent-protocol/api/routes/one/pod_turn.py
         - consent-protocol/hushh_mcp/services/pod_memory_service.py
         - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
       observation_requirements:
         compute_replaced: {equals: true}
         learned_before_death: {equals: true}
@@ -365,6 +366,7 @@ assertions:
         - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
         - consent-protocol/hushh_mcp/services/pod_memory_bank.py
         - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
       observation_requirements:
         installed_image_changed: {equals: true}
         identity_preserved: {equals: true}
@@ -390,6 +392,7 @@ assertions:
         - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
         - consent-protocol/hushh_mcp/services/account_service.py
         - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
       observation_requirements:
         external_memory_erased: {equals: true}
         retained_storage_erased: {equals: true}
@@ -427,6 +430,7 @@ assertions:
         - consent-protocol/hushh_mcp/services/pod_memory_bank.py
         - consent-protocol/hushh_mcp/services/pod_memory_service.py
         - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
       observation_requirements:
         backend: {equals: memory_bank}
         owner_project_binding_verified: {equals: true}
