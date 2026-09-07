@@ -118,6 +118,13 @@ _LOOKUP_FAILED = UserCloud(
 )
 
 
+class _UnspecifiedRegistryRow:
+    pass
+
+
+_UNSPECIFIED_REGISTRY_ROW = _UnspecifiedRegistryRow()
+
+
 def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
     """Project a registry row onto the cloud facts. ``None`` when there is no row."""
     if not row:
@@ -132,8 +139,17 @@ def user_cloud_from_row(row: Optional[dict[str, Any]]) -> Optional[UserCloud]:
     )
 
 
-async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[UserCloud]:
+async def resolve_user_cloud(
+    user_id: str,
+    *,
+    repo: Any = None,
+    registry_row: dict[str, Any] | None | _UnspecifiedRegistryRow = _UNSPECIFIED_REGISTRY_ROW,
+) -> Optional[UserCloud]:
     """The person's cloud, or ``None`` when they have no registry row yet.
+
+    A supplied registry_row is an already observed snapshot; explicit None means
+    confirmed absence. Omission retains the usual registry read. Parked-cloud
+    precedence is identical in both cases; failed reads must not be supplied as None.
 
     Still never raises -- a raise would turn a read-only lookup into an outage on the
     phone-verify seam -- but an unreachable registry is no longer answered with the same
@@ -154,13 +170,17 @@ async def resolve_user_cloud(user_id: str, *, repo: Any = None) -> Optional[User
     if not str(user_id or "").strip():
         return None
     try:
-        if repo is None:
-            from hushh_mcp.services.personal_agent_registry_repo import (
-                PersonalAgentRegistryRepo,
-            )
+        if isinstance(registry_row, _UnspecifiedRegistryRow):
+            if repo is None:
+                from hushh_mcp.services.personal_agent_registry_repo import (
+                    PersonalAgentRegistryRepo,
+                )
 
-            repo = PersonalAgentRegistryRepo()
-        cloud = user_cloud_from_row(await repo.get(user_id))
+                repo = PersonalAgentRegistryRepo()
+            resolved_registry_row: dict[str, Any] | None = await repo.get(user_id)
+        else:
+            resolved_registry_row = registry_row
+        cloud = user_cloud_from_row(resolved_registry_row)
         if cloud is not None and cloud.deployment_target:
             # The row says where this person's agent lives -- their own cloud or
             # hushh's. Either way it is the answer, and a parked record must not

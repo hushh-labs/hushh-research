@@ -318,6 +318,14 @@ was not one when the target was a stateless fleet, which is exactly how it went 
    distinction. The **dev** project is the simulator. The **hosted** project is a
    production tier under the stated conditions, and it is measured as production —
    per-pod KMS custody, verified identity, real cost per person from a billing export.)*
+   Host-absence recovery now compares the registry snapshot captured before an
+   external probe. A confirmed absent host clears cloud authorization only through
+   a conditional update of that same stable lifecycle and host/authority snapshot.
+   Changed observations return retry guidance; unavailable persistence cannot earn
+   fresh-setup guidance. Managed selection preserves parked BYOC onboarding through
+   the existing cloud resolver and rechecks its resolved authority after probing.
+   These are optimistic observation checks, not durable compute-incarnation fencing,
+   a provisioning reservation, or complete external-memory erasure.
 6. **Migration is a first-class product surface.** A person who started on the hosted tier
    must be able to move their agent into their own project with one click, keeping the same
    HusshID and everything the agent has learned, with the re-seal happening inside the

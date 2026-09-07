@@ -23,6 +23,10 @@ from hushh_mcp.runtime_providers.factory import (
     build_runtime_client,
 )
 from hushh_mcp.services.ai_connection_gate import on_ai_connection_verified
+from hushh_mcp.services.personal_agent_registry_repo import (
+    PersonalAgentRegistryRepo,
+    registry_host_snapshot,
+)
 from hushh_mcp.services.user_cloud_service import resolve_user_cloud
 
 logger = logging.getLogger(__name__)
@@ -119,6 +123,26 @@ async def _managed_readiness() -> ManagedGeminiReadinessResponse:
     return await _probe_managed_gemini()
 
 
+def _cloud_status_unavailable() -> HTTPException:
+    return HTTPException(
+        status_code=503,
+        detail={
+            "code": "CLOUD_STATUS_UNAVAILABLE",
+            "message": "Cloud status is unavailable. Try again.",
+        },
+    )
+
+
+def _cloud_configuration_changed() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "CLOUD_CONFIGURATION_CHANGED",
+            "message": "Cloud setup changed. Refresh and try again.",
+        },
+    )
+
+
 @router.post("/managed/select", response_model=ManagedGeminiSelectionResponse)
 @limiter.limit(RateLimits.AGENT_CHAT)
 async def select_managed_gemini(
@@ -165,7 +189,14 @@ async def select_managed_gemini(
     minted a real token against their bootstrap account (a form cannot set it),
     and the first pod turn asserts ``runtimeMode=user_adc`` end-to-end.
     """
-    cloud = await resolve_user_cloud(firebase_uid)
+    repo = PersonalAgentRegistryRepo()
+    try:
+        observed = registry_host_snapshot(await repo.get(firebase_uid))
+    except Exception:  # noqa: BLE001 - read failure is not an absent registry row
+        raise _cloud_status_unavailable() from None
+    cloud = await resolve_user_cloud(firebase_uid, registry_row=observed)
+    if cloud is not None and cloud.lookup_failed:
+        raise _cloud_status_unavailable()
     if cloud is not None and cloud.is_user_owned and cloud.is_ready_to_provision:
         # Re-prove the project is still alive AT SCHEDULE TIME, not just once at save.
         # Authorization is sticky (user_cloud_authorized_at), so without this a user who
@@ -173,9 +204,6 @@ async def select_managed_gemini(
         # bootstrap SA is the one hushh was authorized to impersonate; a fresh probe of it
         # distinguishes a deleted project (GONE) from a revoked grant (FORBIDDEN) from a
         # transient blip (UNKNOWN, which must never strand a working agent).
-        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
-            PersonalAgentRegistryRepo,
-        )
         from hushh_mcp.services.user_gcp_bootstrap import (  # noqa: PLC0415
             probe_project_liveness,
         )
@@ -183,13 +211,25 @@ async def select_managed_gemini(
         bootstrap_sa = (cloud.bootstrap_sa or "").strip()
         if bootstrap_sa:
             liveness = await asyncio.to_thread(probe_project_liveness, bootstrap_sa=bootstrap_sa)
+            try:
+                current = registry_host_snapshot(await repo.get(firebase_uid))
+            except Exception:  # noqa: BLE001 - retain current authority on uncertainty
+                raise _cloud_status_unavailable() from None
+            current_cloud = await resolve_user_cloud(firebase_uid, registry_row=current)
+            if current_cloud is not None and current_cloud.lookup_failed:
+                raise _cloud_status_unavailable()
+            if current != observed or current_cloud != cloud:
+                raise _cloud_configuration_changed()
             if liveness.is_gone:
-                # Confirmed gone: unstick the authorization and route to reinit. Only a
-                # conclusive gone writes, mirroring pod_wake's confirmed-gone rule.
-                try:
-                    await PersonalAgentRegistryRepo().mark_needs_reinit(firebase_uid)
-                except Exception:  # noqa: BLE001 - the refusal must return regardless
-                    logger.warning("managed_select.mark_needs_reinit_failed")
+                # Parked onboarding authority may have no corresponding registry
+                # cloud. Never mark an unrelated/absent row from a parked probe.
+                if observed and observed.get("deployment_target"):
+                    try:
+                        recorded = await repo.mark_needs_reinit(firebase_uid, observed=observed)
+                    except Exception:  # noqa: BLE001 - no fresh-setup guidance from failed persistence
+                        raise _cloud_status_unavailable() from None
+                    if not recorded:
+                        raise _cloud_configuration_changed()
                 raise HTTPException(
                     status_code=409,
                     detail={

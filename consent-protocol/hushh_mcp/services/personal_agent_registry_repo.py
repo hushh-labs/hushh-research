@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from copy import deepcopy
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
 
@@ -70,6 +71,38 @@ _UPGRADE_LEASE_TTL = timedelta(minutes=10)
 # re-provisions to the SAME digest the dead pod already runs, so auto-retry would
 # converge on the same dead boot and flap the owner's surface connecting<->failed.
 REASON_HANDSHAKE_TIMEOUT = "handshake_timeout"
+
+
+def registry_host_snapshot(row: Optional[dict]) -> Optional[dict]:
+    """Copy the registry fields whose host/authority an external probe observes.
+
+    This is optimistic observation fencing, not a compute-incarnation lease.
+    Keep comparisons and the conditional writer on the same field contract.
+    """
+    if row is None:
+        return None
+    return deepcopy(
+        {
+            key: row.get(key)
+            for key in (
+                "user_id",
+                "hushh_id",
+                "status",
+                "updated_at",
+                "backend",
+                "external_agent_id",
+                "a2a_route",
+                "backend_metadata",
+                "billing_space_id",
+                "deployment_target",
+                "model_credential_mode",
+                "user_cloud_project",
+                "user_cloud_region",
+                "user_cloud_bootstrap_sa",
+                "user_cloud_authorized_at",
+            )
+        }
+    )
 
 
 class PersonalAgentRegistryRepo:
@@ -567,7 +600,7 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data or [])
 
-    async def mark_needs_reinit(self, user_id: str) -> bool:
+    async def mark_needs_reinit(self, user_id: str, *, observed: Optional[dict]) -> bool:
         """The recorded host is CONFIRMED gone (the user deleted the project/service).
 
         Two writes, together: flip status to ``needs_reinit`` AND clear
@@ -578,16 +611,36 @@ class PersonalAgentRegistryRepo:
         HusshID and the identity are untouched: reinit re-authorizes a project and
         adopts the same agent; it never re-mints. Only a CONFIRMED-gone verdict may
         call this -- a transient probe blip must not (pod_wake defaults to waking).
+        The pre-probe snapshot must still match. A newer authorization, host or
+        lifecycle transition wins; this writer never replaces it with an old verdict.
+        In-progress and suspended lifecycle states cannot be reinitialized here.
         """
         normalized = str(user_id or "").strip()
-        if not normalized:
+        snapshot = registry_host_snapshot(observed)
+        if (
+            not normalized
+            or snapshot is None
+            or snapshot["user_id"] != normalized
+            or not snapshot["updated_at"]
+            or snapshot["status"]
+            not in (
+                "pending",
+                "unprovisioned",
+                "provisioned",
+                "provisioning_failed",
+                "needs_reinit",
+            )
+        ):
             return False
         data = {
             "status": "needs_reinit",
             "user_cloud_authorized_at": None,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }
-        response = self._db().table(_REGISTRY).update(data).eq("user_id", normalized).execute()
+        query = self._db().table(_REGISTRY).update(data)
+        for key, value in snapshot.items():
+            query = query.is_(key, None) if value is None else query.eq(key, value)
+        response = query.execute()
         return bool(response.data or [])
 
     async def mark_provisioning_failed(

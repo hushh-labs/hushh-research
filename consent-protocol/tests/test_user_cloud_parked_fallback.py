@@ -67,3 +67,34 @@ async def test_the_gate_takes_the_own_cloud_rule_for_a_parked_cloud(monkeypatch)
     monkeypatch.setattr("hushh_mcp.runtime_settings.pod_managed_model_enabled", lambda: False)
     verdict = gate._pod_can_serve("hushh_managed_vertex", deployment_target="user_gcp")
     assert verdict.can_serve, verdict.reason
+
+
+@pytest.mark.parametrize("snapshot", [None, {"user_id": "uid-1", "status": "pending"}])
+async def test_supplied_registry_snapshot_keeps_parked_precedence_without_second_read(
+    monkeypatch, snapshot
+):
+    class UnavailableRepo:
+        async def get(self, _uid):
+            raise AssertionError("supplied snapshot must not trigger another registry read")
+
+    parked = mod.UserCloud(
+        "user_gcp", "user_adc", "synthetic-project", "us-central1", "sa@synthetic.invalid", True
+    )
+
+    async def parked_cloud(_uid):
+        return parked
+
+    monkeypatch.setattr(mod, "_parked_user_cloud", parked_cloud)
+    assert (
+        await mod.resolve_user_cloud("uid-1", repo=UnavailableRepo(), registry_row=snapshot)
+        == parked
+    )
+
+
+async def test_supplied_explicit_registry_cloud_never_reads_parked_authority(monkeypatch):
+    async def forbidden(_uid):
+        raise AssertionError("explicit registry target must win")
+
+    monkeypatch.setattr(mod, "_parked_user_cloud", forbidden)
+    cloud = await mod.resolve_user_cloud("uid-1", registry_row={"deployment_target": "gcp"})
+    assert cloud is not None and cloud.is_hosted

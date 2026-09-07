@@ -168,6 +168,17 @@ timestamps. An absent or concurrently deleted row returns the existing
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |
 | ------ | ---------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | POST   | `/api/one/runtime/gemini/validate` | Firebase Bearer | Run a bounded, non-persistent Gemini generation probe before encrypted BYOK storage; validates Google AI Studio or explicit Vertex project/location access and distinguishes invalid credentials, IAM, API-enablement, quota/rate-limit, billing, model, and temporary failures without logging or storing the credential |
+| POST | `/api/one/runtime/managed/select` | Firebase Bearer | Verify the selected runtime through the existing connection gate. BYOC probes use the owner's resolved bootstrap authority and compare the registry/cloud observation again before reporting or scheduling. |
+| POST | `/api/one/pod/wake` | Firebase Bearer | Wake the recorded owner pod. A confirmed absent host earns fresh-setup guidance only after a conditional registry transition matching the pre-probe snapshot. |
+
+Managed selection returns `409 CLOUD_CONFIGURATION_CHANGED` when the probed
+registry or resolved cloud changed, and `503 CLOUD_STATUS_UNAVAILABLE` when
+required registry observation or recovery persistence fails. Wake uses
+`409 POD_STATE_CHANGED` and `503 POD_STATUS_UNAVAILABLE` for those respective
+boundaries. These errors ask the caller to retry; they never claim that a stale
+probe proves the current host is gone. Existing successful response shapes remain
+unchanged. Parked BYOC setup can still resolve before a registry cloud exists;
+its probe cannot clear authorization on an unrelated registry row.
 
 `POST /db/vault/bootstrap-state` and `POST /db/vault/pre-vault-state` also
 carry the strict non-secret `oneRuntimeSetupChoice` setup enum. It is limited to

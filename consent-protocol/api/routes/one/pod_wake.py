@@ -27,7 +27,10 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from api.middleware import require_firebase_auth
 from api.middlewares.rate_limit import RateLimits, limiter
 from api.routes.one.pod_relay import _pod_url, _proxy_get, _require_enabled
-from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+from hushh_mcp.services.personal_agent_registry_repo import (
+    PersonalAgentRegistryRepo,
+    registry_host_snapshot,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -52,10 +55,12 @@ async def wake_pod(
     ``{"state": "waking", "etaMs": ...}`` -- the GET itself is what starts the
     cold instance, so by the time the client renders the estimate the boot is
     already under way. The lifecycle stream then reports presence off the pod's
-    own first heartbeat; this endpoint never writes anything anywhere.
+    own first heartbeat. A confirmed absent host conditionally records reinit
+    only while the registry still matches the observation that was probed.
     """
     _require_enabled()
-    row = await PersonalAgentRegistryRepo().get(user_id)
+    repo = PersonalAgentRegistryRepo()
+    row = registry_host_snapshot(await repo.get(user_id))
     url = _pod_url(row or {})
     if not url:
         # No host is not a wakeable state, and pretending otherwise would put a
@@ -79,23 +84,34 @@ async def wake_pod(
     # On a CONFIRMED gone (and only then) this endpoint makes ONE durable write:
     # it flips the row to needs_reinit and clears the sticky authorization, so a
     # later /managed/select cannot schedule a pod into the project the user
-    # deleted. That write is idempotent and best-effort -- the wake answer returns
-    # regardless. A cold/uncertain wake still writes nothing.
+    # deleted. The write must match the pre-probe snapshot before fresh setup is
+    # reported. A cold/uncertain wake still writes nothing.
     from hushh_mcp.runtime_settings import personal_agent_reachability_gate  # noqa: PLC0415
 
     if personal_agent_reachability_gate() and await _host_is_gone(row or {}):
-        logger.info("pod_wake.host_gone user_id_prefix=%s", user_id[:8])
-        # Durably record the confirmed-gone verdict: flip to needs_reinit and
-        # clear the sticky authorization, so a later /managed/select cannot
-        # schedule a pod into the dead project. Best-effort -- the wake answer
-        # must return regardless. Only this confirmed-gone branch may write it.
         try:
-            await PersonalAgentRegistryRepo().mark_needs_reinit(user_id)
-        except Exception as exc:  # noqa: BLE001 - the wake response must not depend on this
-            logger.warning("pod_wake.mark_needs_reinit_failed err=%s", type(exc).__name__)
+            recorded = await repo.mark_needs_reinit(user_id, observed=row)
+        except Exception:  # noqa: BLE001 - unavailable persistence cannot prove current state
+            logger.warning("pod_wake.mark_needs_reinit_failed")
+            raise HTTPException(
+                status_code=503,
+                detail={
+                    "code": "POD_STATUS_UNAVAILABLE",
+                    "message": "Agent status is unavailable. Try again.",
+                },
+            ) from None
+        if not recorded:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "POD_STATE_CHANGED",
+                    "message": "Agent status changed. Refresh and try again.",
+                },
+            )
+        logger.info("pod_wake.host_gone_recorded")
         return {"state": "gone", "needsFreshSetup": True, "etaMs": 0}
 
-    logger.info("pod_wake.waking user_id_prefix=%s probe_status=%s", user_id[:8], status)
+    logger.info("pod_wake.waking probe_status=%s", status)
     return {"state": "waking", "etaMs": WAKE_ETA_MS}
 
 

@@ -8,6 +8,7 @@ rebuild a working user's agent. These pin exactly that asymmetry.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -67,9 +68,9 @@ class _Reg:
         self.reinit_calls = []
 
     async def get(self, _uid):
-        return self._row
+        return deepcopy(self._row)
 
-    async def mark_needs_reinit(self, user_id):
+    async def mark_needs_reinit(self, user_id, *, observed):
         self.reinit_calls.append(user_id)
         return True
 
@@ -118,13 +119,14 @@ def test_cold_or_uncertain_wake_writes_nothing(monkeypatch):
     assert reg.reinit_calls == []
 
 
-def test_a_raising_reinit_write_still_returns_the_gone_answer(monkeypatch):
-    # The durable write is best-effort: the wake response must return regardless.
+def test_a_raising_reinit_write_returns_unavailable_without_fresh_setup(monkeypatch):
     class _RaisingReg(_Reg):
-        async def mark_needs_reinit(self, user_id):
+        async def mark_needs_reinit(self, user_id, *, observed):
             raise RuntimeError("registry down")
 
     reg = _RaisingReg({"external_agent_id": "one-pod-x", "hushh_id": "ha1_test"})
     client = _wake_client(monkeypatch, reg=reg, gone=True)
-    body = client.post("/api/one/pod/wake").json()
-    assert body == {"state": "gone", "needsFreshSetup": True, "etaMs": 0}
+    response = client.post("/api/one/pod/wake")
+    assert response.status_code == 503
+    assert response.json()["detail"]["code"] == "POD_STATUS_UNAVAILABLE"
+    assert "needsFreshSetup" not in response.text

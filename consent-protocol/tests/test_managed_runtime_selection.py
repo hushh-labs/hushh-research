@@ -20,6 +20,8 @@ Two properties carry the weight here:
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 from fastapi import HTTPException
 
@@ -31,6 +33,12 @@ def _no_cache(monkeypatch):
     """The readiness cache is module state. Left alone it leaks between tests and
     turns a probe assertion into a coin flip on ordering."""
     monkeypatch.setattr(runtime_route, "_managed_readiness_cache", None)
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: _Registry())
+
+    async def no_parked_cloud(_uid):
+        return None
+
+    monkeypatch.setattr("hushh_mcp.services.user_cloud_service._parked_user_cloud", no_parked_cloud)
 
 
 class _Gate:
@@ -212,7 +220,7 @@ async def test_a_proven_byoc_cloud_schedules_without_touching_the_fleet_probe(mo
     monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _not_ready())
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
 
-    async def _byoc_cloud(_uid):
+    async def _byoc_cloud(_uid, **_kwargs):
         return UserCloud(
             deployment_target="user_gcp",
             model_credential_mode="user_adc",
@@ -242,7 +250,7 @@ async def test_an_unauthorized_byoc_cloud_still_faces_the_fleet_probe(monkeypatc
     monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _not_ready())
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
 
-    async def _named_only(_uid):
+    async def _named_only(_uid, **_kwargs):
         return UserCloud(
             deployment_target="user_gcp",
             model_credential_mode="user_adc",
@@ -269,7 +277,7 @@ async def test_an_unauthorized_byoc_cloud_still_faces_the_fleet_probe(monkeypatc
 def _byoc(authorized=True):
     from hushh_mcp.services.user_cloud_service import UserCloud
 
-    async def _cloud(_uid):
+    async def _cloud(_uid, **_kwargs):
         return UserCloud(
             deployment_target="user_gcp",
             model_credential_mode="user_adc",
@@ -293,11 +301,30 @@ def _patch_liveness(monkeypatch, state):
     monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.probe_project_liveness", _probe)
 
 
+def _byoc_row():
+    return {
+        "user_id": "u1",
+        "hushh_id": "ha1_synthetic",
+        "status": "provisioned",
+        "updated_at": "2026-09-07T00:00:00+00:00",
+        "deployment_target": "user_gcp",
+        "model_credential_mode": "user_adc",
+        "user_cloud_project": "hussh-one-kt3d9x",
+        "user_cloud_region": "us-central1",
+        "user_cloud_bootstrap_sa": "one-bootstrap@hussh-one-kt3d9x.iam.gserviceaccount.com",
+        "user_cloud_authorized_at": "2026-09-06T00:00:00+00:00",
+    }
+
+
 class _Registry:
-    def __init__(self):
+    def __init__(self, row=None):
+        self.row = row
         self.reinit_calls: list[str] = []
 
-    async def mark_needs_reinit(self, user_id):
+    async def get(self, _uid):
+        return deepcopy(self.row)
+
+    async def mark_needs_reinit(self, user_id, *, observed):
         self.reinit_calls.append(user_id)
         return True
 
@@ -307,9 +334,10 @@ async def test_a_gone_project_refuses_and_marks_needs_reinit(monkeypatch):
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
     monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc())
     _patch_liveness(monkeypatch, "gone")
-    reg = _Registry()
+    reg = _Registry(_byoc_row())
     monkeypatch.setattr(
-        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        runtime_route,
+        "PersonalAgentRegistryRepo",
         lambda: reg,
     )
 
@@ -327,9 +355,10 @@ async def test_a_revoked_grant_refuses_but_does_not_unstick(monkeypatch):
     monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
     monkeypatch.setattr(runtime_route, "resolve_user_cloud", _byoc())
     _patch_liveness(monkeypatch, "forbidden")
-    reg = _Registry()
+    reg = _Registry(_byoc_row())
     monkeypatch.setattr(
-        "hushh_mcp.services.personal_agent_registry_repo.PersonalAgentRegistryRepo",
+        runtime_route,
+        "PersonalAgentRegistryRepo",
         lambda: reg,
     )
 
@@ -354,3 +383,139 @@ async def test_an_unknown_liveness_proceeds_never_strands(monkeypatch):
 
     assert result.status == "ready"
     assert gate.calls[0]["provider"] == "hushh_managed_vertex"
+
+
+@pytest.mark.parametrize("initial", [None, {"user_id": "u1", "status": "pending"}])
+@pytest.mark.parametrize("liveness", ["live", "gone"])
+async def test_parked_cloud_probe_never_marks_unrelated_registry_state(
+    monkeypatch, initial, liveness
+):
+    reg = _Registry(initial)
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: reg)
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    monkeypatch.setattr(runtime_route, "_probe_managed_gemini", _not_ready())
+    monkeypatch.setattr("hushh_mcp.services.user_cloud_service._parked_user_cloud", _byoc())
+    _patch_liveness(monkeypatch, liveness)
+    if liveness == "gone":
+        with pytest.raises(HTTPException) as exc:
+            await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+        assert exc.value.detail["code"] == "CLOUD_PROJECT_GONE"
+        assert gate.calls == []
+    else:
+        result = await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+        assert result.agentScheduled
+    assert reg.reinit_calls == []
+    assert reg.row == initial
+
+
+@pytest.mark.parametrize("liveness", ["gone", "live", "forbidden", "unknown"])
+@pytest.mark.parametrize("change", ["reauthorized", "migrating", "replaced", "deleted", "parked"])
+async def test_changed_cloud_during_external_probe_refuses_stale_guidance_and_scheduling(
+    monkeypatch, liveness, change
+):
+    import asyncio
+    import threading
+
+    from hushh_mcp.services.user_gcp_bootstrap import LivenessVerdict
+
+    reg = _Registry(None if change == "parked" else _byoc_row())
+    gate = _Gate()
+    entered, release = asyncio.Event(), threading.Event()
+    loop = asyncio.get_running_loop()
+    parked = [await _byoc()("u1")]
+
+    async def parked_cloud(_uid):
+        return parked[0]
+
+    def probe(**_kwargs):
+        loop.call_soon_threadsafe(entered.set)
+        if not release.wait(3):
+            raise AssertionError("test did not release the external probe")
+        return LivenessVerdict(liveness, 404 if liveness == "gone" else 200)
+
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: reg)
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    monkeypatch.setattr("hushh_mcp.services.user_cloud_service._parked_user_cloud", parked_cloud)
+    monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.probe_project_liveness", probe)
+    task = asyncio.create_task(runtime_route.select_managed_gemini(request=None, firebase_uid="u1"))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if change == "reauthorized":
+            reg.row["user_cloud_authorized_at"] = "2026-09-07T02:00:00+00:00"
+        elif change == "migrating":
+            reg.row["status"] = "migrating"
+        elif change == "replaced":
+            reg.row.update(
+                deployment_target="gcp", user_cloud_project=None, user_cloud_authorized_at=None
+            )
+        elif change == "deleted":
+            reg.row = None
+        else:
+            from dataclasses import replace
+
+            parked[0] = replace(
+                parked[0], project="new-owner-project", bootstrap_sa="new@project.invalid"
+            )
+        expected = deepcopy(reg.row)
+        release.set()
+        with pytest.raises(HTTPException) as exc:
+            await asyncio.wait_for(task, 2)
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "CLOUD_CONFIGURATION_CHANGED"
+        assert gate.calls == []
+        assert reg.reinit_calls == []
+        assert reg.row == expected
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.parametrize("failure_read", [1, 2])
+async def test_registry_unavailable_never_becomes_missing_cloud(monkeypatch, failure_read):
+    class UnavailableRegistry(_Registry):
+        reads = 0
+
+        async def get(self, uid):
+            self.reads += 1
+            if self.reads == failure_read:
+                raise RuntimeError("private database diagnostic")
+            return await super().get(uid)
+
+    reg = UnavailableRegistry(_byoc_row())
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: reg)
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    _patch_liveness(monkeypatch, "gone")
+    with pytest.raises(HTTPException) as exc:
+        await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+    assert exc.value.status_code == 503
+    assert exc.value.detail["code"] == "CLOUD_STATUS_UNAVAILABLE"
+    assert "private" not in str(exc.value.detail)
+    assert gate.calls == [] and reg.reinit_calls == []
+
+
+@pytest.mark.parametrize("write_failure", [False, True])
+async def test_gone_transition_cas_miss_or_failure_never_sends_fresh_setup(
+    monkeypatch, write_failure
+):
+    class RefusingRegistry(_Registry):
+        async def mark_needs_reinit(self, user_id, *, observed):
+            if write_failure:
+                raise RuntimeError("private database diagnostic")
+            return False
+
+    reg = RefusingRegistry(_byoc_row())
+    gate = _Gate()
+    monkeypatch.setattr(runtime_route, "PersonalAgentRegistryRepo", lambda: reg)
+    monkeypatch.setattr(runtime_route, "on_ai_connection_verified", gate)
+    _patch_liveness(monkeypatch, "gone")
+    with pytest.raises(HTTPException) as exc:
+        await runtime_route.select_managed_gemini(request=None, firebase_uid="u1")
+    assert exc.value.detail["code"] == (
+        "CLOUD_STATUS_UNAVAILABLE" if write_failure else "CLOUD_CONFIGURATION_CHANGED"
+    )
+    assert gate.calls == []
+    assert reg.row == _byoc_row()

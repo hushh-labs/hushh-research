@@ -8,6 +8,7 @@ is exercised without a database.
 
 from __future__ import annotations
 
+from copy import deepcopy
 from types import SimpleNamespace
 
 import pytest
@@ -53,6 +54,10 @@ class _Query:
         # exactly the shape of the status-scoped tombstone_exists bug.
         self._eqs.append((col, val))
         return self
+
+    def is_(self, col, val):
+        assert val is None
+        return self.eq(col, val)
 
     def _matches(self, row):
         return all(row.get(col) == val for col, val in self._eqs)
@@ -355,7 +360,7 @@ async def test_mark_needs_reinit_flips_status_and_clears_the_authorization():
     )
     assert (await repo.get(_UID))["user_cloud_authorized_at"]  # precondition: proven
 
-    wrote = await repo.mark_needs_reinit(_UID)
+    wrote = await repo.mark_needs_reinit(_UID, observed=deepcopy(await repo.get(_UID)))
 
     assert wrote is True
     row = await repo.get(_UID)
@@ -371,15 +376,15 @@ async def test_mark_needs_reinit_never_creates_a_row():
     """No recorded host, nothing to mark. It must not conjure a needs_reinit row for a
     user who never provisioned -- an UPDATE that matched nothing returns False."""
     repo, db = _repo_and_db()
-    wrote = await repo.mark_needs_reinit("nobody")
+    wrote = await repo.mark_needs_reinit("nobody", observed=None)
     assert wrote is False
     assert db.tables.get("personal_agent_registry", []) == []
 
 
 async def test_mark_needs_reinit_refuses_a_blank_user():
     repo, _ = _repo_and_db()
-    assert await repo.mark_needs_reinit("") is False
-    assert await repo.mark_needs_reinit("   ") is False
+    assert await repo.mark_needs_reinit("", observed=None) is False
+    assert await repo.mark_needs_reinit("   ", observed=None) is False
 
 
 async def test_a_named_but_unauthorized_cloud_is_recorded_without_the_proof():
@@ -576,3 +581,159 @@ async def test_switching_projects_with_fresh_proof_keeps_the_new_proof():
     row = await repo.get(_UID)
     assert row["user_cloud_project"] == "project-b"
     assert row["user_cloud_authorized_at"]
+
+
+@pytest.mark.parametrize(
+    ("field", "replacement"),
+    [
+        ("status", "suspended"),
+        ("status", "migrating"),
+        ("updated_at", "2026-09-07T01:00:00+00:00"),
+        ("user_cloud_authorized_at", "2026-09-07T02:00:00+00:00"),
+        ("user_cloud_project", "replacement-project"),
+        ("user_cloud_bootstrap_sa", "replacement@project.invalid"),
+        ("external_agent_id", "replacement-pod"),
+        ("backend_metadata", {"url": "https://replacement.invalid"}),
+        ("deployment_target", "gcp"),
+        ("hushh_id", "ha1_replacement"),
+    ],
+)
+async def test_stale_gone_observation_cannot_replace_newer_registry_state(field, replacement):
+    repo, db = _repo_and_db()
+    await _upsert(repo)
+    observed = deepcopy(await repo.get(_UID))
+    current = db.tables["personal_agent_registry"][0]
+    current[field] = replacement
+    expected = deepcopy(current)
+    assert await repo.mark_needs_reinit(_UID, observed=observed) is False
+    assert current == expected
+
+
+@pytest.mark.parametrize(
+    "status", ["suspended", "migrating", "provisioning", "connecting", "unknown"]
+)
+async def test_gone_observation_never_reinitializes_an_in_progress_or_inactive_state(status):
+    repo, _ = _repo_and_db()
+    await _upsert(repo, status=status)
+    observed = deepcopy(await repo.get(_UID))
+    assert await repo.mark_needs_reinit(_UID, observed=observed) is False
+    assert await repo.get(_UID) == observed
+
+
+async def test_gone_observation_cannot_recreate_a_deleted_registry_row():
+    repo, db = _repo_and_db()
+    await _upsert(repo)
+    observed = deepcopy(await repo.get(_UID))
+    db.tables["personal_agent_registry"].clear()
+    assert await repo.mark_needs_reinit(_UID, observed=observed) is False
+    assert await repo.get(_UID) is None
+
+
+async def test_gone_observation_requires_exact_owner_and_transition_timestamp():
+    repo, _ = _repo_and_db()
+    await _upsert(repo)
+    observed = deepcopy(await repo.get(_UID))
+    for invalid in ({**observed, "user_id": "foreign"}, {**observed, "updated_at": None}):
+        assert await repo.mark_needs_reinit(_UID, observed=invalid) is False
+    assert await repo.get(_UID) == observed
+
+
+@pytest.mark.parametrize("change", ["replacement", "reauthorized", "migrating", "deleted"])
+async def test_wake_rejects_a_gone_probe_completed_after_registry_changes(monkeypatch, change):
+    import asyncio
+
+    from fastapi import HTTPException
+
+    from api.routes.one import pod_wake
+
+    repo, db = _repo_and_db()
+    await _upsert(repo)
+    current = db.tables["personal_agent_registry"][0]
+    current.update(external_agent_id="old-host", backend_metadata={"url": "https://old.invalid"})
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def probe(_row):
+        entered.set()
+        await release.wait()
+        return True
+
+    async def health(*_args):
+        return 503, {}
+
+    monkeypatch.setattr(pod_wake, "PersonalAgentRegistryRepo", lambda: repo)
+    monkeypatch.setattr(pod_wake, "_require_enabled", lambda: None)
+    monkeypatch.setattr(pod_wake, "_proxy_get", health)
+    monkeypatch.setattr(pod_wake, "_host_is_gone", probe)
+    monkeypatch.setattr("hushh_mcp.runtime_settings.personal_agent_reachability_gate", lambda: True)
+    task = asyncio.create_task(pod_wake.wake_pod(request=None, user_id=_UID))
+    try:
+        await asyncio.wait_for(entered.wait(), 2)
+        if change == "replacement":
+            current.update(
+                external_agent_id="new-host", backend_metadata={"url": "https://new.invalid"}
+            )
+        elif change == "reauthorized":
+            current["user_cloud_authorized_at"] = "2026-09-07T02:00:00+00:00"
+        elif change == "migrating":
+            current["status"] = "migrating"
+        else:
+            db.tables["personal_agent_registry"].clear()
+        expected = deepcopy(db.tables["personal_agent_registry"])
+        release.set()
+        with pytest.raises(HTTPException) as exc:
+            await asyncio.wait_for(task, 2)
+        assert exc.value.status_code == 409
+        assert exc.value.detail["code"] == "POD_STATE_CHANGED"
+        assert "needsFreshSetup" not in exc.value.detail
+        assert db.tables["personal_agent_registry"] == expected
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_gone_snapshot_cas_executes_json_and_null_filters_through_table_query():
+    from sqlalchemy import create_engine, text
+
+    from db.db_client import TableQuery
+    from hushh_mcp.services.personal_agent_registry_repo import registry_host_snapshot
+
+    observed = registry_host_snapshot(
+        {
+            "user_id": _UID,
+            "hushh_id": "ha1_synthetic",
+            "status": "provisioned",
+            "updated_at": "2026-09-07T00:00:00+00:00",
+            "backend_metadata": {"url": "https://old.invalid", "nested": {"generation": 1}},
+            "user_cloud_authorized_at": "2026-09-06T00:00:00+00:00",
+        }
+    )
+    assert observed is not None
+    engine = create_engine("sqlite://")
+    client = SimpleNamespace(table=lambda name: TableQuery(name, engine))
+    repo = PersonalAgentRegistryRepo(client=client)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE personal_agent_registry ("
+                    + ", ".join(f'"{column}" TEXT' for column in observed)
+                    + ")"
+                )
+            )
+        client.table("personal_agent_registry").insert(observed).execute()
+        replacement = {"url": "https://new.invalid", "nested": {"generation": 2}}
+        client.table("personal_agent_registry").update({"backend_metadata": replacement}).eq(
+            "user_id", _UID
+        ).execute()
+        assert await repo.mark_needs_reinit(_UID, observed=observed) is False
+        assert (await repo.get(_UID))["status"] == "provisioned"
+        client.table("personal_agent_registry").update(
+            {"backend_metadata": observed["backend_metadata"]}
+        ).eq("user_id", _UID).execute()
+        assert await repo.mark_needs_reinit(_UID, observed=observed) is True
+        row = await repo.get(_UID)
+        assert row["status"] == "needs_reinit" and row["user_cloud_authorized_at"] is None
+    finally:
+        engine.dispose()
