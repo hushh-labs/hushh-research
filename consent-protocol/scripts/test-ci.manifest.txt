@@ -3,6 +3,7 @@
 tests/performance/test_market_cache_instrumentation.py
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_encrypted_blob_bounds.py
 tests/test_data_model_audit_script.py
 tests/test_data_model_audit_postgres.py
 tests/services/test_gmail_cache_retention.py
