@@ -2361,16 +2361,17 @@ export function LocationImmersiveMap({
    *
    * `markers` is exactly that -- it is built from grants where the viewer is
    * the recipient -- so this number is never affected by the viewer's own
-   * Ghost Mode, and the empty-state line under it says so, because "I turned
-   * on Ghost and now my map is empty" is the confusion the old two-pill row
-   * invited.
+   * Ghost Mode.
+   *
+   * There is no empty case here any more. The row this labels only renders
+   * while somebody is on the map, because its whole action is "fit them all"
+   * and an empty map has nothing to fit -- so the count is always >= 1 by the
+   * time this is read.
    */
   const incomingShareLabel =
-    markers.length === 0
-      ? "No one is sharing their location"
-      : markers.length === 1
-        ? "1 person sharing with you"
-        : `${markers.length} people sharing with you`;
+    markers.length === 1
+      ? "1 person sharing with you"
+      : `${markers.length} people sharing with you`;
 
   /** OUTGOING: people this account is sharing with. A different audience from
    *  the one above, and the reason the two get separate rows. */
@@ -2604,15 +2605,12 @@ export function LocationImmersiveMap({
     setSelected(null);
     setSearchQuery("");
     setTrayExpanded(false);
-    // Everyone was `disabled` whenever there was nothing to frame, and silent
-    // whenever the only thing to frame was you. Both are the same experience
-    // from the outside -- press it, nothing happens, no reason given -- and
-    // both are exactly the state a new account is in. That is the reported
+    // A backstop, not the empty state's answer. The row that calls this only
+    // renders while `markers` is non-empty, so the ordinary "no one shares
+    // with me" account never reaches here -- it has no control to press. What
+    // is left is the race: the last share ending between paint and tap. Still
+    // answer it rather than letting the press go silent, which is the reported
     // "everyone is not working on your map, why does it so?".
-    //
-    // So the control is never disabled, and it answers the question it was
-    // asked. `markers` is the incoming set: people who chose to share with this
-    // account. Your own pin is not "everyone".
     if (markers.length === 0) {
       toast.message("No one is sharing a live location with you yet.");
     }
@@ -3634,42 +3632,43 @@ export function LocationImmersiveMap({
                   data-testid="one-location-map-visibility"
                 >
                   {/* Incoming. Keeps the `show-everyone` id: this IS the old
-                    Everyone control, finally saying what it frames. */}
-                  <button
-                    type="button"
-                    className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
-                    data-testid="one-location-map-show-everyone"
-                    aria-label={
-                      markers.length > 0
-                        ? `${incomingShareLabel}. Fit them all on the map.`
-                        : incomingShareLabel
-                    }
-                    onClick={() => void showEveryone()}
-                  >
-                    <span
-                      className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
-                      aria-hidden="true"
+                    Everyone control, finally saying what it frames.
+
+                    Only while there is somebody to frame. With an empty map
+                    the row was a chevron and a tappable surface -- the shape
+                    UI uses for "there is more behind this" -- in front of a
+                    sentence saying there is nothing, and tapping it fit an
+                    empty set and moved nothing. The count it wants to show is
+                    already the reason to show it, so the absence of a count
+                    is the reason not to. */}
+                  {markers.length > 0 ? (
+                    <button
+                      type="button"
+                      className="flex min-h-[52px] w-full items-center gap-3 rounded-2xl bg-muted/70 px-3 py-2 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+                      data-testid="one-location-map-show-everyone"
+                      aria-label={`${incomingShareLabel}. Fit them all on the map.`}
+                      onClick={() => void showEveryone()}
                     >
-                      <UsersRound className="h-[18px] w-[18px]" />
-                    </span>
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {incomingShareLabel}
+                      <span
+                        className="grid h-9 w-9 shrink-0 place-items-center rounded-full bg-[var(--app-accent-surface)] text-[var(--app-accent-deep)] dark:text-[var(--app-accent-bright)]"
+                        aria-hidden="true"
+                      >
+                        <UsersRound className="h-[18px] w-[18px]" />
                       </span>
-                      {/* Only when it adds something the title cannot. The
-                        empty state has nothing to fit on the map, so it says
-                        nothing rather than restating the line above it. */}
-                      {markers.length > 0 ? (
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate text-sm font-medium">
+                          {incomingShareLabel}
+                        </span>
                         <span className="block truncate text-xs text-muted-foreground">
                           Tap to fit everyone on the map
                         </span>
-                      ) : null}
-                    </span>
-                    <ChevronDown
-                      className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
-                      aria-hidden="true"
-                    />
-                  </button>
+                      </span>
+                      <ChevronDown
+                        className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
+                        aria-hidden="true"
+                      />
+                    </button>
+                  ) : null}
 
                   {/* Outgoing. Hidden in demo, where the count is never fetched
                     and a number would be fiction. */}

@@ -758,10 +758,16 @@ describe("LocationImmersiveMap demo experience", () => {
     // subtitle reading "Sharing with 1", which is two true statements about
     // two different audiences stacked as though they were one.
     expect(screen.getByText("No one sharing yet")).toBeInTheDocument();
-    // The row below the header is where the audience is named in full.
+    // The incoming row is gone with the audience it counted. Its action is
+    // "fit them all on the map", so an empty map leaves it nothing to do --
+    // and a chevron in front of a sentence saying there is nothing reads as
+    // a way in to something that is not there.
     expect(
-      screen.getByText("No one is sharing their location"),
-    ).toBeInTheDocument();
+      screen.queryByTestId("one-location-map-show-everyone"),
+    ).not.toBeInTheDocument();
+    expect(
+      screen.queryByText("No one is sharing their location"),
+    ).not.toBeInTheDocument();
     expect(
       screen.queryByText("0 people sharing with you"),
     ).not.toBeInTheDocument();
@@ -2454,7 +2460,7 @@ describe("LocationImmersiveMap reported map defects", () => {
     expect(screen.getByTestId("one-location-map-locate")).toBeInTheDocument();
   });
 
-  it("answers Everyone instead of sitting disabled when no one shares with you", async () => {
+  it("offers no Everyone row at all when no one shares with you", async () => {
     serviceHarness.getState.mockResolvedValue({
       recipients: [],
       ownerGrants: [],
@@ -2466,19 +2472,13 @@ describe("LocationImmersiveMap reported map defects", () => {
 
     await renderReadyMap();
 
-    const everyone = screen.getByTestId("one-location-map-show-everyone");
-    // Never disabled: a disabled control gives no reason, and on a touch screen
-    // is indistinguishable from a broken one.
-    expect(everyone).not.toBeDisabled();
-
-    vi.mocked(toast.message).mockClear();
-    fireEvent.click(everyone);
-
-    await waitFor(() => {
-      expect(toast.message).toHaveBeenCalledWith(
-        "No one is sharing a live location with you yet.",
-      );
-    });
+    // The row framed people on the map, so with nobody on it the row had no
+    // action left -- and a chevron in front of "No one is sharing their
+    // location" reads as a way in to a list that does not exist. Absent beats
+    // present-and-inert: there is nothing to press and nothing to explain.
+    expect(
+      screen.queryByTestId("one-location-map-show-everyone"),
+    ).not.toBeInTheDocument();
   });
 
   it("frames the people who do share with you when Everyone is pressed", async () => {
