@@ -102,8 +102,7 @@ vi.mock("@/lib/navigation/routes", () => ({
     pathname === "/one/setup/finance",
   // The pod-provisioning pair (SETUP_NAVIGATION_ROUTES): cloud + AI access.
   isOneSetupNavigationRoute: (pathname: string) =>
-    pathname === "/one/setup/cloud" ||
-    pathname === "/one/setup/connections",
+    pathname === "/one/setup/cloud" || pathname === "/one/setup/connections",
 }));
 
 vi.mock("@/lib/services/pre-vault-user-state-service", () => ({
@@ -484,6 +483,34 @@ describe("OnboardingJourneyGuard", () => {
     fireEvent.click(screen.getByText("Try again"));
     view.unmount();
     vi.useRealTimers();
+  });
+
+  it("shows recovery when bootstrap never resolves and ignores late completion", async () => {
+    vi.useFakeTimers();
+    pathnameValue = "/one";
+    window.history.replaceState(null, "", "/one");
+    getCachedBootstrapStateMock.mockReturnValue(null);
+    const complete: Array<(value: { setupCompleted: boolean }) => void> = [];
+    bootstrapStateMock.mockImplementation(
+      () => new Promise((resolve) => complete.push(resolve)),
+    );
+    const view = render(
+      <OnboardingJourneyGuard>
+        <div>private home</div>
+      </OnboardingJourneyGuard>,
+    );
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(145_000);
+    });
+    expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+    expect(screen.getByText("Try again")).toBeTruthy();
+    expect(screen.queryByText("private home")).toBeNull();
+    await act(async () => {
+      complete.forEach((resolve) => resolve({ setupCompleted: true }));
+    });
+    expect(screen.getByText("Reconnect to continue securely")).toBeTruthy();
+    expect(screen.queryByText("private home")).toBeNull();
+    view.unmount();
   });
 
   it("preserves a query-bearing route in one idempotent setup redirect", async () => {

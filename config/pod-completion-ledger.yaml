@@ -75,12 +75,14 @@ assertions:
     requirement: First run
     statement: "The setup admission check cannot spin forever; a hang becomes a visible error."
     falsifiable: true
-    owner_action: "Add an upper bound to the guard's admission await, alongside its existing catch."
+    owner_action: "Preserve visible recovery and refusal of late admission after a stalled bootstrap."
     check:
-      kind: grep
-      path: hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
-      pattern: "ADMISSION_TIMEOUT_MS"
-      expect_present: true
+      kind: command
+      command: >-
+        cd hushh-webapp && npx --no-install vitest run
+        __tests__/components/onboarding-journey-guard.test.tsx
+        -t 'shows recovery when bootstrap never resolves and ignores late completion'
+      requires: [node, npm]
 
   - id: firstrun-fanout-within-pool
     requirement: First run
@@ -329,7 +331,7 @@ assertions:
 
   - id: economics-cost-attributable-per-pod
     requirement: Economics
-    statement: "Spend can be attributed to an individual agent."
+    statement: "Unit contracts bind opaque per-pod billing labels to matching registry attribution records; billing exports and provider spend require separate measurements."
     falsifiable: true
     owner_action: >-
       Assign billing_space_id on PodSpec at the provision sites. It must be an OPAQUE
@@ -406,7 +408,7 @@ assertions:
 
   - id: an-update-is-visible-at-login
     requirement: Lifecycle
-    statement: "The app can see that a newer agent build exists, is installing, or failed, from the pod's own report of what it runs."
+    statement: "Backend contracts expose available, installing and failed update state, preferring the pod's reported build; rendered journeys remain in the deployed upgrade receipt."
     falsifiable: true
     # The founder's rule: an upgrade is a software update when the person opens the
     # app. That starts with the installed version, which nothing exposed before.
@@ -416,15 +418,32 @@ assertions:
 
   - id: pod-memory-is-the-persons-own-memory-bank
     requirement: Learning loop
-    statement: "A BYOC pod's memory is Vertex AI Memory Bank in the person's project, created by the pod itself, with the sealed log underneath."
+    statement: "An explicitly enabled BYOC Memory Bank is created through pod-held authority in the owner's project and supports actual provider recall with the sealed log underneath."
     falsifiable: true
     check:
-      kind: pytest
-      target: tests/test_pod_memory_bank.py
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      observation_requirements:
+        backend: {equals: memory_bank}
+        owner_project_binding_verified: {equals: true}
+        pod_identity_created_engine: {equals: true}
+        provider_recall_verified: {equals: true}
+        sealed_log_fallback_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Memory Bank is explicitly enabled; the configuration default remains commit_log.
+        Scripted provider tests establish the adapter contract, not owner-cloud engine
+        creation or real recall. Extend the existing disposable lifecycle drill to
+        observe these facts without crediting sealed-log fallback as provider success.
 
   - id: only-the-pod-can-vouch-for-its-model
     requirement: Economics
-    statement: "The owner can ask their own pod whether their project reaches a model; no hub identity can answer for it."
+    statement: "Unit tests enforce owner-scoped diagnostic relay and classify provider responses; live generation and audio success are not established."
     falsifiable: true
     check:
       kind: pytest
@@ -432,7 +451,7 @@ assertions:
 
   - id: no-pod-is-billing-right-now
     requirement: Economics
-    statement: "No pod left over from a drill or proof is still costing money on dev."
+    statement: "The labelled Cloud Run pod fleet in hushh-pda-dev/us-central1 is empty; retained storage, Memory Bank and owner-project charges are outside this check."
     falsifiable: true
     owner_action: "Tear down what the session created, then re-run the fleet sweep."
     check:
