@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Capacitor } from "@capacitor/core";
 import type { ColumnDef } from "@tanstack/react-table";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import {
   Loader2,
   Lock,
@@ -29,8 +29,8 @@ import {
   GmailWorkspaceNavigation,
   type GmailWorkspace,
 } from "@/components/gmail/gmail-workspace-navigation";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
-import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { SurfaceInset, SurfaceStack } from "@/components/app-ui/surfaces";
 import { Progress } from "@/components/ui/progress";
@@ -50,6 +50,7 @@ import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { Button } from "@/lib/morphy-ux/button";
 import { morphyToast } from "@/lib/morphy-ux/morphy";
 import { useAuth } from "@/hooks/use-auth";
+import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 import {
   describeGmailReceiptScanProgress,
@@ -106,7 +107,6 @@ import {
   type VoiceSurfacePublisherRole,
 } from "@/lib/voice/voice-surface-metadata";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
-import { buildGmailAgentHandoffPrompt } from "@/lib/agent/email-agent-intro";
 import { HushhAuth } from "@/lib/capacitor";
 
 function formatDate(value?: string | null): string {
@@ -396,13 +396,12 @@ export default function GmailReceiptsPage({
   initialWorkspace = "overview",
 }: GmailReceiptsPageProps) {
   const router = useRouter();
+  // This component is hosted on both /one/gmail and /one/setup/gmail, so the
+  // origin handed to the agent has to be the live path, not a route constant.
+  const pathname = usePathname();
   const { user, loading } = useAuth();
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const agentPopover = useOptionalAgentPopover();
-  const createHandoff = useOneConversationSession(
-    (state) => state.createHandoff,
-  );
-
   const [receipts, setReceipts] = useState<ReceiptListItem[]>([]);
   const [page, setPage] = useState(1);
   const [hasMore, setHasMore] = useState(false);
@@ -422,7 +421,6 @@ export default function GmailReceiptsPage({
   const [receiptOnboardingState, setReceiptOnboardingState] = useState<
     "checking" | "show" | "complete"
   >(journeyVariant === "onboarding" ? "complete" : "checking");
-  const [showOneChatOnboarding, setShowOneChatOnboarding] = useState(false);
   const [gmailActionBusy, setGmailActionBusy] = useState<
     "connect" | "disconnect" | null
   >(null);
@@ -951,25 +949,22 @@ export default function GmailReceiptsPage({
     })();
   }, [gmailActionBusy, journeyVariant, refreshGmailStatus, user]);
 
-  const handleTryEmailAgent = useCallback(
-    (transcript = buildGmailAgentHandoffPrompt(
-      gmail.status?.google_email || user?.email || "",
-    )) => {
-      const createdAtMs = Date.now();
-      createHandoff({
-        id: `gmail-email-intro-${createdAtMs}`,
-        reason: "user_requested",
-        transcript,
-        createdAtMs,
-      });
-      if (agentPopover) {
-        agentPopover.openAgent();
-        return;
-      }
-      router.push(ROUTES.AGENT);
-    },
-    [agentPopover, createHandoff, gmail.status?.google_email, router, user?.email],
-  );
+  /**
+   * Opens One with an empty composer.
+   *
+   * This used to queue a demonstration prompt -- "explain all the features of
+   * the Gmail agent" -- so every press started One drafting a sample email
+   * about itself, and the card above it promised exactly that. Someone opening
+   * chat from their Gmail workspace is going somewhere to write a real email,
+   * so neither the promise nor the draft is made any more.
+   */
+  const handleOpenOneChat = useCallback(() => {
+    if (agentPopover) {
+      agentPopover.openAgent();
+      return;
+    }
+    router.push(agentRouteWithOrigin(pathname));
+  }, [agentPopover, pathname, router]);
 
   useLocalOnboardingActionHandler("setup.connect_gmail", () => {
     if (journeyVariant !== "onboarding") {
@@ -1933,53 +1928,16 @@ export default function GmailReceiptsPage({
                   <Sparkles className="h-5 w-5" />
                 </div>
                 <div className="space-y-1">
-                  <p className="font-medium text-foreground">Try One</p>
+                  <p className="font-medium text-foreground">Draft with One</p>
                   <p className="text-sm leading-6 text-muted-foreground">
-                    See the email tasks One can help with before opening chat.
+                    Ask One to write, reply to or follow up on an email. Every
+                    draft stays editable and needs your Send email click.
                   </p>
                 </div>
               </div>
-              <Button
-                type="button"
-                onClick={() => setShowOneChatOnboarding(true)}
-                className="w-full sm:w-auto"
-              >
-                <Sparkles className="mr-2 h-4 w-4" />
-                Try One
-              </Button>
-            </SurfaceInset>
-          ) : null}
-
-          {isConnected && workspace === "overview" && showOneChatOnboarding ? (
-            <SurfaceInset className="space-y-4 px-4 py-4 text-sm sm:px-5 sm:py-5">
-              <div className="space-y-1">
-                <p className="font-medium text-foreground">
-                  Start with a guided Gmail email
-                </p>
-                <p className="text-sm leading-6 text-muted-foreground">
-                  One will prepare an email to your connected Gmail address
-                  explaining what the Gmail agent can do. You review the draft
-                  before anything is sent.
-                </p>
-              </div>
-              <div className="flex flex-col gap-2 sm:flex-row">
-                <Button
-                  type="button"
-                  onClick={() => handleTryEmailAgent()}
-                  className="w-full sm:w-auto"
-                >
-                  <Sparkles className="mr-2 h-4 w-4" />
-                  Open One Chat
-                </Button>
-                <Button
-                  type="button"
-                  variant="muted"
-                  onClick={() => setShowOneChatOnboarding(false)}
-                  className="w-full sm:w-auto"
-                >
-                  Not now
-                </Button>
-              </div>
+              <AskOneButton onClick={handleOpenOneChat}>
+                Open One Chat
+              </AskOneButton>
             </SurfaceInset>
           ) : null}
 

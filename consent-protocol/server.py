@@ -72,6 +72,7 @@ def _require_database_on_startup() -> bool:
 # the predeploy schema gate only knows about tables named in the DB contract and
 # so cannot catch a guard entry that no longer has a table behind it.
 REQUIRED_RUNTIME_TABLES = (
+    "account_deletion_tombstones",
     "vault_keys",
     "vault_key_wrappers",
     "consent_audit",
@@ -899,6 +900,25 @@ async def startup_consent_revocation_worker() -> None:
         logger.warning(
             "startup.consent_revocation_worker_failed reason=%s",
             exc,
+        )
+
+
+@app.on_event("startup")
+async def startup_account_deletion_cleanup_worker() -> None:
+    """Retry durable Firebase identity cleanup intents after account erasure."""
+    try:
+        from hushh_mcp.services.account_deletion_lifecycle_service import (
+            start_account_deletion_cleanup_loop,
+        )
+
+        _track_startup_background_task(start_account_deletion_cleanup_loop())
+        logger.info("startup.account_deletion_cleanup_worker_registered interval_s=60")
+    except Exception as exc:
+        # The tombstone verifier and DB triggers remain authoritative even if
+        # this external cleanup aid cannot start.
+        logger.warning(
+            "startup.account_deletion_cleanup_worker_failed reason=%s",
+            type(exc).__name__,
         )
 
 

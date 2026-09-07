@@ -45,7 +45,7 @@ export type OneLocationContactSignalResult = {
   unmatchedContactCount: number;
   uncheckableContactCount: number;
   excludedSelfContactCount: number;
-  /** Readable contacts with at least one usable number beyond the 5k cap. */
+  /** Readable contacts with at least one usable number beyond the 10k cap. */
   lookupLimitedContactCount: number;
   lookupLimitExceeded: boolean;
   /** Readable contacts in a dispatched batch whose response was not received. */
@@ -102,6 +102,22 @@ async function assertContactsReadable(): Promise<void> {
   }
 }
 
+async function translateNativeReadPermissionFailure(error: unknown): Promise<never> {
+  try {
+    const permission = await HushhContacts.getPermissionState();
+    const failure = PERMISSION_FAILURES[permission.state];
+    if (failure) {
+      throw new OneLocationContactSyncError(failure, PERMISSION_MESSAGES[failure]);
+    }
+  } catch (permissionError) {
+    if (permissionError instanceof OneLocationContactSyncError) {
+      throw permissionError;
+    }
+    // Keep the original read error when the follow-up probe itself failed.
+  }
+  throw error;
+}
+
 function chunks<T>(items: T[], size: number): T[][] {
   const result: T[][] = [];
   for (let index = 0; index < items.length; index += size) {
@@ -156,7 +172,7 @@ export async function syncOneLocationContactSignals({
   resolveIdToken,
   accountPhoneNumber,
   resolveAccountPhoneNumber,
-  contactLimit = 5000,
+  contactLimit = 10_000,
   signal,
   source,
 }: {
@@ -188,13 +204,25 @@ export async function syncOneLocationContactSignals({
   // reports availability, so avoid any async bridge/auth work before select().
   if (!source && !isWeb()) await assertContactsReadable();
 
-  const lookupResult = await buildMarketplaceContactLookups({
-    limit: contactLimit,
-    accountPhoneNumber,
-    resolveAccountPhoneNumber,
-    signal,
-    ...(source ? { source } : {}),
-  });
+  const lookupResult = await (async () => {
+    try {
+      return await buildMarketplaceContactLookups({
+        limit: contactLimit,
+        accountPhoneNumber,
+        resolveAccountPhoneNumber,
+        signal,
+        ...(source ? { source } : {}),
+      });
+    } catch (error) {
+      // The first permission prompt happens inside readContacts(). If the user
+      // declines there, the preflight saw `prompt`; re-read the OS state so the
+      // caller can offer Settings on this first attempt, not only the next one.
+      if (!source && !isWeb()) {
+        return await translateNativeReadPermissionFailure(error);
+      }
+      throw error;
+    }
+  })();
   // Besides supplying the region, the transaction-scoped resolver asserts the
   // initiating account still owns this contact read. Recheck immediately on
   // both sides of token resolution so no batch can cross an account switch.
@@ -456,7 +484,7 @@ export function describeContactSyncOutcome(
         ? `${contactsLabel(result.unknownContactCount)} need confirmation and are not counted as unmatched or inviteable.`
         : null,
       result.uncheckedContactCount
-        ? `${contactsLabel(result.uncheckedContactCount)} were not checked yet.`
+        ? `${contactsLabel(result.uncheckedContactCount)} ${result.uncheckedContactCount === 1 ? "was" : "were"} not checked yet.`
         : null,
     ].filter(Boolean);
     return {
@@ -488,11 +516,13 @@ export function describeContactSyncOutcome(
       ? result.sourcePlatform === "web"
         ? "pick_more"
         : "open_settings"
-      : "sync_again";
+      : result.truncated
+        ? null
+        : "sync_again";
     return {
       title: `${contactsLabel(result.matchedUserIds.length)} matched in this partial sync`,
       description: result.uncheckedContactCount
-        ? `${contactsLabel(result.uncheckedContactCount)} were not checked yet.`
+        ? `${contactsLabel(result.uncheckedContactCount)} ${result.uncheckedContactCount === 1 ? "was" : "were"} not checked yet.`
         : "The contact source reported that this was not the full address book.",
       remedy,
     };
@@ -506,7 +536,7 @@ export function describeContactSyncOutcome(
       : "No eligible contacts matched";
   const details = [
     result.matchedUserIds.length === 0
-      ? "New matches require a verified phone and contact matching enabled. Existing connections may still appear."
+      ? "ONE users need an exact verified phone match and must remain visible in the Connect directory. Explicit opt-outs and previous disconnects stay protected."
       : null,
     result.requestRequiredCount
       ? result.requestRequiredCount === 1

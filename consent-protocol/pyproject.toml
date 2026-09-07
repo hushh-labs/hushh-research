@@ -52,6 +52,10 @@ dependencies = [
     "pytesseract>=0.3.10",
     "requests>=2.32.4",
     "rsa>=4.9",
+    "sentence-transformers==5.2.0",
+    "transformers==5.10.1",
+    # Keep runtime export resolvable from the default package index.
+    "torch>=2,<3",
     "slowapi>=0.1.9",
     "sqlalchemy>=2.0.0",
     "sse-starlette>=2.1.0",

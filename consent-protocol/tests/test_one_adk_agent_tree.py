@@ -28,6 +28,7 @@ from hushh_mcp.one_adk.action_tools import (
     _STATE_PENDING_DIRECTIVE,
     _STATE_PENDING_TOOL_TRACE,
     _STATE_SCREEN,
+    _STATE_TIMEZONE,
     _STATE_USER_ID,
     BACKEND_DIRECT_ACTION_IDS,
     BACKEND_DIRECT_WHEN_PERSON_NAMED_ACTION_IDS,
@@ -57,6 +58,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
+    STATE_TIMEZONE,
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     _intro_navigable,
@@ -124,6 +126,7 @@ class TestAgentTreeShape:
             "ask_email_agent",
             "ask_location_agent",
             "ask_consent_agent",
+            "get_current_time",
             "calendar_summary",
             "calendar_events",
             "calendar_availability",
@@ -666,12 +669,17 @@ class TestSpecialistTurn:
         assert "start_app_goal" in result["message"]
 
     @pytest.mark.asyncio
-    async def test_the_redirect_cannot_reroute_between_specialists(self):
-        """Words decide the LANE, never which specialist gets the request.
+    async def test_request_words_never_choose_the_specialist(self):
+        """Words never choose which specialist gets the request.
 
+        One's typed `target` selects the specialist; the sentence never does.
         `consent` must keep reaching Nav even when the words look like
         connections work, or this becomes exactly the word-sniffing subagent
         selection the typed-target design exists to prevent.
+
+        This outlived the journey redirect it was written alongside: with the
+        redirect gone, this is the repo's only guard that a request is routed
+        by One's selection rather than by its wording.
         """
         context = _tool_context({STATE_USER_ID: "u1", STATE_CONSENT_TOKEN: "tok"})
         with patch(
@@ -684,8 +692,8 @@ class TestSpecialistTurn:
                 target="consent",
             )
 
-        # agent_nav declares no authored action surfaces, so it is never
-        # redirected and never swapped for agent_connections.
+        # The typed target chose agent_nav. Nothing may swap it for
+        # agent_connections on the strength of the words "connect me with".
         assert specialist_turn.await_args.args[0] == "agent_nav"
 
     @pytest.mark.asyncio
@@ -928,6 +936,7 @@ class TestRunAppAction:
         assert _STATE_SCREEN == _tree.STATE_SCREEN
         assert _STATE_USER_ID == STATE_USER_ID
         assert _STATE_CONSENT_TOKEN == STATE_CONSENT_TOKEN
+        assert _STATE_TIMEZONE == STATE_TIMEZONE
 
     @pytest.mark.asyncio
     async def test_unknown_action_never_infers_a_fallback(self):

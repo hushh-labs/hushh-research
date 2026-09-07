@@ -19,6 +19,17 @@ import {
   setSessionItem,
 } from "@/lib/utils/session-storage";
 import { resolveSlowRequestTimeoutMs } from "@/lib/utils/request-timeouts";
+import { withDeadline } from "@/lib/utils/with-deadline";
+import {
+  AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE,
+  authSessionInvalidationCodeFromBackendPayload,
+  dispatchAuthSessionInvalidated,
+} from "@/lib/auth/session-invalidation";
+import {
+  type AuthSessionOwnerSnapshot,
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import type {
   GeneratedVaultProvisionResult,
   GeneratedVaultSupport,
@@ -429,12 +440,14 @@ export class VaultService {
   ): Promise<Error> {
     let message = fallbackMessage;
     let code: string | undefined;
+    let payload: unknown;
 
     try {
       const raw = await response.text();
       if (raw) {
         try {
           const parsed = JSON.parse(raw) as Record<string, unknown>;
+          payload = parsed;
           const detail =
             parsed?.detail && typeof parsed.detail === "object"
               ? (parsed.detail as Record<string, unknown>)
@@ -453,18 +466,117 @@ export class VaultService {
               ? detail.error
               : undefined,
           );
+          const detailMessage = this.normalizeNullableString(
+            detail && typeof detail.message === "string"
+              ? detail.message
+              : undefined,
+          );
+          const directMessage = this.normalizeNullableString(
+            typeof parsed.message === "string" ? parsed.message : undefined,
+          );
+          const terminalCode =
+            response.status === 401 &&
+            authSessionInvalidationCodeFromBackendPayload(parsed) ===
+              "account_not_found"
+              ? AUTH_ACCOUNT_NOT_FOUND_BACKEND_CODE
+              : undefined;
 
-          code = detailCode || directCode || undefined;
-          message = detailError || directError || message;
+          code = terminalCode || detailCode || directCode || undefined;
+          message =
+            detailMessage ||
+            detailError ||
+            directError ||
+            directMessage ||
+            message;
         } catch {
           message = raw;
+          payload = raw;
         }
       }
     } catch {
       // Ignore error body parse failures and keep fallback.
     }
 
-    return new Error(code ? `${message} [${code}]` : message);
+    return Object.assign(new Error(code ? `${message} [${code}]` : message), {
+      status: response.status,
+      code,
+      payload,
+    });
+  }
+
+  private static requestOwnerSnapshot(): AuthSessionOwnerSnapshot | null {
+    return snapshotValidatedAuthSessionOwner();
+  }
+
+  /**
+   * Account-not-found is terminal, unlike an offline/timeout failure. Clear
+   * every user-scoped vault hint before notifying AuthProvider so a stale
+   * bootstrap value can never win a later render. The notification itself is
+   * generation-bound: a delayed Account A response must not sign out Account B.
+   */
+  private static handleTerminalAccountFailure(params: {
+    error: unknown;
+    userId: string;
+    path: string;
+    requestOwner: AuthSessionOwnerSnapshot | null;
+    trustedNativeBridge?: boolean;
+  }): boolean {
+    const status =
+      params.error && typeof params.error === "object"
+        ? (params.error as { status?: unknown }).status
+        : undefined;
+    if (!params.trustedNativeBridge && status !== 401) {
+      return false;
+    }
+    if (
+      authSessionInvalidationCodeFromBackendPayload(params.error) !==
+      "account_not_found"
+    ) {
+      return false;
+    }
+
+    this.vaultStateCache.delete(params.userId);
+    this.vaultCheckInflight.delete(params.userId);
+    this.vaultStateInflight.delete(params.userId);
+    removeSessionItem(this.vaultCheckSessionKey(params.userId));
+    const cache = CacheService.getInstance();
+    cache.invalidate(CACHE_KEYS.VAULT_CHECK(params.userId));
+    cache.invalidate(CACHE_KEYS.PRE_VAULT_BOOTSTRAP(params.userId));
+
+    const owner = params.requestOwner;
+    if (
+      owner?.userId === params.userId &&
+      isValidatedAuthSessionOwnerCurrent(owner)
+    ) {
+      CacheSyncService.onVaultStateChanged(params.userId);
+      dispatchAuthSessionInvalidated({
+        code: "account_not_found",
+        path: params.path,
+        userId: params.userId,
+      });
+    }
+    return true;
+  }
+
+  private static async withAccountBoundary<T>(
+    userId: string,
+    path: string,
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    const requestOwner = snapshotValidatedAuthSessionOwner();
+    const trustedNativeBridge = Capacitor.isNativePlatform();
+    try {
+      return await operation();
+    } catch (error) {
+      this.handleTerminalAccountFailure({
+        error,
+        userId,
+        path,
+        requestOwner,
+        trustedNativeBridge,
+      });
+      throw error;
+    }
   }
 
   static getWrapperByMethod(
@@ -828,6 +940,7 @@ export class VaultService {
     }
 
     console.log("🔐 [VaultService] checkVault called for:", userId);
+    const requestOwner = this.requestOwnerSnapshot();
 
     const request = (async () => {
       let hasVault: boolean;
@@ -848,15 +961,19 @@ export class VaultService {
           if (!authToken) {
             throw new VaultAuthSessionNotReadyError();
           }
-          console.log(
-            "🔐 [VaultService] Got auth token:",
-            "yes",
-          );
+          console.log("🔐 [VaultService] Got auth token:", "yes");
           const result = await HushhVault.hasVault({ userId, authToken });
           console.log("🔐 [VaultService] hasVault result:", result);
           hasVault = result.exists;
         } catch (error) {
           console.error("❌ [VaultService] Native hasVault error:", error);
+          this.handleTerminalAccountFailure({
+            error,
+            userId,
+            path: "/db/vault/check",
+            requestOwner,
+            trustedNativeBridge: true,
+          });
           throw error;
         }
       } else {
@@ -888,6 +1005,17 @@ export class VaultService {
 
           let response = await fetchWithToken(authToken);
           if (response.status === 401) {
+            const unauthorizedError = await this.buildApiError(
+              response,
+              "Vault check failed: 401",
+            );
+            if (
+              authSessionInvalidationCodeFromBackendPayload(
+                unauthorizedError,
+              ) === "account_not_found"
+            ) {
+              throw unauthorizedError;
+            }
             // The token we sent may have just expired or not yet reflect a
             // freshly restored session. Force a refresh and retry exactly
             // once -- a second 401 after a forced refresh is a genuine auth
@@ -897,34 +1025,30 @@ export class VaultService {
             );
             if (refreshedToken) {
               response = await fetchWithToken(refreshedToken);
+            } else {
+              throw unauthorizedError;
             }
           }
           if (!response.ok) {
-            const payload = await response.json().catch(() => undefined);
-            const message =
-              typeof (payload as { error?: unknown } | undefined)?.error ===
-              "string"
-                ? (payload as { error: string }).error
-                : `Vault check failed: ${response.status}`;
-            const error = Object.assign(new Error(message), {
-              status: response.status,
-              code:
-                typeof (payload as { code?: unknown } | undefined)?.code ===
-                "string"
-                  ? (payload as { code: string }).code
-                  : undefined,
-              hint:
-                typeof (payload as { hint?: unknown } | undefined)?.hint ===
-                "string"
-                  ? (payload as { hint: string }).hint
-                  : undefined,
-            });
-            throw error;
+            throw await this.buildApiError(
+              response,
+              `Vault check failed: ${response.status}`,
+            );
           }
           const data = await response.json();
           hasVault = data.hasVault;
         } catch (error) {
           if (error instanceof VaultAuthSessionNotReadyError) {
+            throw error;
+          }
+          if (
+            this.handleTerminalAccountFailure({
+              error,
+              userId,
+              path: "/api/vault/check",
+              requestOwner,
+            })
+          ) {
             throw error;
           }
           const fallbackHasVault = await this.resolveVaultCheckFallback(userId);
@@ -974,7 +1098,7 @@ export class VaultService {
    */
   static peekVaultPresence(userId: string): boolean | null {
     const cached = CacheService.getInstance().get<boolean>(
-      CACHE_KEYS.VAULT_CHECK(userId)
+      CACHE_KEYS.VAULT_CHECK(userId),
     );
     if (cached !== null && cached !== undefined) {
       return cached;
@@ -1009,6 +1133,7 @@ export class VaultService {
     }
 
     console.log("🔐 [VaultService] getVaultState called for:", userId);
+    const requestOwner = this.requestOwnerSnapshot();
 
     const requestPromise = (async () => {
       if (Capacitor.isNativePlatform()) {
@@ -1052,6 +1177,13 @@ export class VaultService {
           }
         } catch (error) {
           console.error("❌ [VaultService] Native getVaultState error:", error);
+          this.handleTerminalAccountFailure({
+            error,
+            userId,
+            path: "/db/vault/get",
+            requestOwner,
+            trustedNativeBridge: true,
+          });
           throw error;
         }
       }
@@ -1063,19 +1195,19 @@ export class VaultService {
         headers["Authorization"] = `Bearer ${authToken}`;
       }
 
-      const response = await fetch(url, { headers });
+      const response = await fetch(url, {
+        headers,
+        signal: AbortSignal.timeout(resolveSlowRequestTimeoutMs(20_000)),
+      });
       if (!response.ok) {
-        const errorPayload = (await response
-          .json()
-          .catch(async () => ({
-            error: await response.text().catch(() => ""),
-          }))) as {
-          error?: string;
-          message?: string;
-        };
-        throw new Error(
-          errorPayload.error || errorPayload.message || "Failed to get vault",
-        );
+        const error = await this.buildApiError(response, "Failed to get vault");
+        this.handleTerminalAccountFailure({
+          error,
+          userId,
+          path: "/api/vault/get",
+          requestOwner,
+        });
+        throw error;
       }
       const payload = (await response.json()) as Partial<VaultState>;
       const wrapperProbe = (payload as { wrappers?: unknown }).wrappers;
@@ -1134,13 +1266,53 @@ export class VaultService {
     userId: string,
     vaultState: VaultState,
   ): Promise<void> {
-    const normalized = this.normalizeVaultState(vaultState);
-    this.assertVaultStateForSetup(normalized);
+    return this.withAccountBoundary(userId, "/api/vault/setup", async () => {
+      const normalized = this.normalizeVaultState(vaultState);
+      this.assertVaultStateForSetup(normalized);
 
-    if (Capacitor.isNativePlatform()) {
-      try {
-        const authToken = await this.getFirebaseToken();
-        const result = await HushhVault.setupVault({
+      if (Capacitor.isNativePlatform()) {
+        try {
+          const authToken = await this.getFirebaseToken();
+          const result = await HushhVault.setupVault({
+            userId,
+            vaultKeyHash: normalized.vaultKeyHash,
+            primaryMethod: normalized.primaryMethod,
+            primaryWrapperId: normalized.primaryWrapperId ?? "default",
+            recoveryEncryptedVaultKey: normalized.recoveryEncryptedVaultKey,
+            recoverySalt: normalized.recoverySalt,
+            recoveryIv: normalized.recoveryIv,
+            wrappers: normalized.wrappers,
+            authToken,
+          });
+          if (!result?.success) {
+            throw new Error("Native vault setup failed.");
+          }
+          this.invalidateVaultStateCache(userId);
+          CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
+          return;
+        } catch (error) {
+          console.error(
+            "❌ [VaultService] Native setupVaultState error:",
+            error,
+          );
+          throw error;
+        }
+      }
+
+      const url = this.getApiUrl("/api/vault/setup");
+      const authToken = await this.getFirebaseToken();
+      const headers: HeadersInit = {
+        "Content-Type": "application/json",
+        "x-hushh-client-version":
+          process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+      };
+      if (authToken) {
+        headers.Authorization = `Bearer ${authToken}`;
+      }
+      const response = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify({
           userId,
           vaultKeyHash: normalized.vaultKeyHash,
           primaryMethod: normalized.primaryMethod,
@@ -1149,49 +1321,17 @@ export class VaultService {
           recoverySalt: normalized.recoverySalt,
           recoveryIv: normalized.recoveryIv,
           wrappers: normalized.wrappers,
-          authToken,
-        });
-        if (!result?.success) {
-          throw new Error("Native vault setup failed.");
-        }
-        this.invalidateVaultStateCache(userId);
-        CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
-        return;
-      } catch (error) {
-        console.error("❌ [VaultService] Native setupVaultState error:", error);
-        throw error;
+        }),
+      });
+      if (!response.ok) {
+        throw await this.buildApiError(
+          response,
+          "Failed to setup vault state.",
+        );
       }
-    }
-
-    const url = this.getApiUrl("/api/vault/setup");
-    const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      "x-hushh-client-version":
-        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
-    };
-    if (authToken) {
-      headers.Authorization = `Bearer ${authToken}`;
-    }
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        userId,
-        vaultKeyHash: normalized.vaultKeyHash,
-        primaryMethod: normalized.primaryMethod,
-        primaryWrapperId: normalized.primaryWrapperId ?? "default",
-        recoveryEncryptedVaultKey: normalized.recoveryEncryptedVaultKey,
-        recoverySalt: normalized.recoverySalt,
-        recoveryIv: normalized.recoveryIv,
-        wrappers: normalized.wrappers,
-      }),
+      this.invalidateVaultStateCache(userId);
+      CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
     });
-    if (!response.ok) {
-      throw await this.buildApiError(response, "Failed to setup vault state.");
-    }
-    this.invalidateVaultStateCache(userId);
-    CacheSyncService.onVaultStateChanged(userId, { hasVault: true });
   }
 
   static async upsertVaultWrapper(params: {
@@ -1199,71 +1339,77 @@ export class VaultService {
     vaultKeyHash: string;
     wrapper: VaultWrapper;
   }): Promise<void> {
-    const wrapper = this.normalizeWrapper(params.wrapper);
-    if (!wrapper.encryptedVaultKey || !wrapper.salt || !wrapper.iv) {
-      throw new Error("Wrapper fields are required.");
-    }
+    return this.withAccountBoundary(
+      params.userId,
+      "/api/vault/wrapper/upsert",
+      async () => {
+        const wrapper = this.normalizeWrapper(params.wrapper);
+        if (!wrapper.encryptedVaultKey || !wrapper.salt || !wrapper.iv) {
+          throw new Error("Wrapper fields are required.");
+        }
 
-    if (Capacitor.isNativePlatform()) {
-      const authToken = await this.getFirebaseToken();
-      const result = await HushhVault.upsertVaultWrapper({
-        userId: params.userId,
-        vaultKeyHash: params.vaultKeyHash,
-        method: wrapper.method,
-        wrapperId: wrapper.wrapperId ?? "default",
-        encryptedVaultKey: wrapper.encryptedVaultKey,
-        salt: wrapper.salt,
-        iv: wrapper.iv,
-        passkeyCredentialId: wrapper.passkeyCredentialId,
-        passkeyPrfSalt: wrapper.passkeyPrfSalt,
-        passkeyRpId: wrapper.passkeyRpId,
-        passkeyProvider: wrapper.passkeyProvider,
-        passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
-        passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
-        authToken,
-      });
-      if (!result?.success) {
-        throw new Error("Native vault wrapper upsert failed.");
-      }
-      this.invalidateVaultStateCache(params.userId);
-      return;
-    }
+        if (Capacitor.isNativePlatform()) {
+          const authToken = await this.getFirebaseToken();
+          const result = await HushhVault.upsertVaultWrapper({
+            userId: params.userId,
+            vaultKeyHash: params.vaultKeyHash,
+            method: wrapper.method,
+            wrapperId: wrapper.wrapperId ?? "default",
+            encryptedVaultKey: wrapper.encryptedVaultKey,
+            salt: wrapper.salt,
+            iv: wrapper.iv,
+            passkeyCredentialId: wrapper.passkeyCredentialId,
+            passkeyPrfSalt: wrapper.passkeyPrfSalt,
+            passkeyRpId: wrapper.passkeyRpId,
+            passkeyProvider: wrapper.passkeyProvider,
+            passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
+            passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
+            authToken,
+          });
+          if (!result?.success) {
+            throw new Error("Native vault wrapper upsert failed.");
+          }
+          this.invalidateVaultStateCache(params.userId);
+          return;
+        }
 
-    const url = this.getApiUrl("/api/vault/wrapper/upsert");
-    const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      "x-hushh-client-version":
-        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
-    };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        const url = this.getApiUrl("/api/vault/wrapper/upsert");
+        const authToken = await this.getFirebaseToken();
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+          "x-hushh-client-version":
+            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        };
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        userId: params.userId,
-        vaultKeyHash: params.vaultKeyHash,
-        method: wrapper.method,
-        wrapperId: wrapper.wrapperId ?? "default",
-        encryptedVaultKey: wrapper.encryptedVaultKey,
-        salt: wrapper.salt,
-        iv: wrapper.iv,
-        passkeyCredentialId: wrapper.passkeyCredentialId,
-        passkeyPrfSalt: wrapper.passkeyPrfSalt,
-        passkeyRpId: wrapper.passkeyRpId,
-        passkeyProvider: wrapper.passkeyProvider,
-        passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
-        passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
-      }),
-    });
-    if (!response.ok) {
-      throw await this.buildApiError(
-        response,
-        "Failed to upsert vault wrapper.",
-      );
-    }
-    this.invalidateVaultStateCache(params.userId);
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            userId: params.userId,
+            vaultKeyHash: params.vaultKeyHash,
+            method: wrapper.method,
+            wrapperId: wrapper.wrapperId ?? "default",
+            encryptedVaultKey: wrapper.encryptedVaultKey,
+            salt: wrapper.salt,
+            iv: wrapper.iv,
+            passkeyCredentialId: wrapper.passkeyCredentialId,
+            passkeyPrfSalt: wrapper.passkeyPrfSalt,
+            passkeyRpId: wrapper.passkeyRpId,
+            passkeyProvider: wrapper.passkeyProvider,
+            passkeyDeviceLabel: wrapper.passkeyDeviceLabel,
+            passkeyLastUsedAt: wrapper.passkeyLastUsedAt,
+          }),
+        });
+        if (!response.ok) {
+          throw await this.buildApiError(
+            response,
+            "Failed to upsert vault wrapper.",
+          );
+        }
+        this.invalidateVaultStateCache(params.userId);
+      },
+    );
   }
 
   static async deleteVaultWrapper(params: {
@@ -1275,68 +1421,74 @@ export class VaultService {
     fallbackPrimaryMethod?: VaultMethod;
     fallbackPrimaryWrapperId?: string;
   }): Promise<void> {
-    const normalizedMethod = this.normalizeMethod(params.method);
-    const normalizedWrapperId =
-      this.normalizeNullableString(params.wrapperId) ?? "default";
-    const fallbackPrimaryMethod = this.normalizeMethod(
-      params.fallbackPrimaryMethod ?? "passphrase",
+    return this.withAccountBoundary(
+      params.userId,
+      "/api/vault/wrapper/delete",
+      async () => {
+        const normalizedMethod = this.normalizeMethod(params.method);
+        const normalizedWrapperId =
+          this.normalizeNullableString(params.wrapperId) ?? "default";
+        const fallbackPrimaryMethod = this.normalizeMethod(
+          params.fallbackPrimaryMethod ?? "passphrase",
+        );
+        const fallbackPrimaryWrapperId =
+          this.normalizeNullableString(params.fallbackPrimaryWrapperId) ??
+          "default";
+
+        if (normalizedMethod === "passphrase") {
+          throw new Error("Passphrase unlock cannot be removed.");
+        }
+
+        if (Capacitor.isNativePlatform()) {
+          const authToken = await this.getFirebaseToken();
+          const result = await HushhVault.deleteVaultWrapper({
+            userId: params.userId,
+            vaultKeyHash: params.vaultKeyHash,
+            method: normalizedMethod,
+            wrapperId: normalizedWrapperId,
+            fallbackPrimaryMethod,
+            fallbackPrimaryWrapperId,
+            authToken,
+            vaultOwnerToken: params.vaultOwnerToken,
+          });
+          if (!result?.success) {
+            throw new Error("Native vault wrapper removal failed.");
+          }
+          this.invalidateVaultStateCache(params.userId);
+          return;
+        }
+
+        const url = this.getApiUrl("/api/vault/wrapper/delete");
+        const authToken = await this.getFirebaseToken();
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+          "x-hushh-client-version":
+            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        };
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
+
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            userId: params.userId,
+            vaultKeyHash: params.vaultKeyHash,
+            method: normalizedMethod,
+            wrapperId: normalizedWrapperId,
+            fallbackPrimaryMethod,
+            fallbackPrimaryWrapperId,
+          }),
+        });
+        if (!response.ok) {
+          throw await this.buildApiError(
+            response,
+            "Failed to remove vault wrapper.",
+          );
+        }
+        this.invalidateVaultStateCache(params.userId);
+      },
     );
-    const fallbackPrimaryWrapperId =
-      this.normalizeNullableString(params.fallbackPrimaryWrapperId) ??
-      "default";
-
-    if (normalizedMethod === "passphrase") {
-      throw new Error("Passphrase unlock cannot be removed.");
-    }
-
-    if (Capacitor.isNativePlatform()) {
-      const authToken = await this.getFirebaseToken();
-      const result = await HushhVault.deleteVaultWrapper({
-        userId: params.userId,
-        vaultKeyHash: params.vaultKeyHash,
-        method: normalizedMethod,
-        wrapperId: normalizedWrapperId,
-        fallbackPrimaryMethod,
-        fallbackPrimaryWrapperId,
-        authToken,
-        vaultOwnerToken: params.vaultOwnerToken,
-      });
-      if (!result?.success) {
-        throw new Error("Native vault wrapper removal failed.");
-      }
-      this.invalidateVaultStateCache(params.userId);
-      return;
-    }
-
-    const url = this.getApiUrl("/api/vault/wrapper/delete");
-    const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      "x-hushh-client-version":
-        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
-    };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
-    headers["X-Hushh-Consent"] = `Bearer ${params.vaultOwnerToken}`;
-
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        userId: params.userId,
-        vaultKeyHash: params.vaultKeyHash,
-        method: normalizedMethod,
-        wrapperId: normalizedWrapperId,
-        fallbackPrimaryMethod,
-        fallbackPrimaryWrapperId,
-      }),
-    });
-    if (!response.ok) {
-      throw await this.buildApiError(
-        response,
-        "Failed to remove vault wrapper.",
-      );
-    }
-    this.invalidateVaultStateCache(params.userId);
   }
 
   static async setPrimaryVaultMethod(
@@ -1344,50 +1496,56 @@ export class VaultService {
     primaryMethod: VaultMethod,
     primaryWrapperId?: string,
   ): Promise<void> {
-    const normalizedMethod = this.normalizeMethod(primaryMethod);
-    const normalizedWrapperId =
-      this.normalizeNullableString(primaryWrapperId) ?? "default";
+    return this.withAccountBoundary(
+      userId,
+      "/api/vault/primary/set",
+      async () => {
+        const normalizedMethod = this.normalizeMethod(primaryMethod);
+        const normalizedWrapperId =
+          this.normalizeNullableString(primaryWrapperId) ?? "default";
 
-    if (Capacitor.isNativePlatform()) {
-      const authToken = await this.getFirebaseToken();
-      const result = await HushhVault.setPrimaryVaultMethod({
-        userId,
-        primaryMethod: normalizedMethod,
-        primaryWrapperId: normalizedWrapperId,
-        authToken,
-      });
-      if (!result?.success) {
-        throw new Error("Native primary vault method update failed.");
-      }
-      this.invalidateVaultStateCache(userId);
-      return;
-    }
+        if (Capacitor.isNativePlatform()) {
+          const authToken = await this.getFirebaseToken();
+          const result = await HushhVault.setPrimaryVaultMethod({
+            userId,
+            primaryMethod: normalizedMethod,
+            primaryWrapperId: normalizedWrapperId,
+            authToken,
+          });
+          if (!result?.success) {
+            throw new Error("Native primary vault method update failed.");
+          }
+          this.invalidateVaultStateCache(userId);
+          return;
+        }
 
-    const url = this.getApiUrl("/api/vault/primary/set");
-    const authToken = await this.getFirebaseToken();
-    const headers: HeadersInit = {
-      "Content-Type": "application/json",
-      "x-hushh-client-version":
-        process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
-    };
-    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+        const url = this.getApiUrl("/api/vault/primary/set");
+        const authToken = await this.getFirebaseToken();
+        const headers: HeadersInit = {
+          "Content-Type": "application/json",
+          "x-hushh-client-version":
+            process.env.NEXT_PUBLIC_CLIENT_VERSION || "2.0.0",
+        };
+        if (authToken) headers.Authorization = `Bearer ${authToken}`;
 
-    const response = await fetch(url, {
-      method: "POST",
-      headers,
-      body: JSON.stringify({
-        userId,
-        primaryMethod: normalizedMethod,
-        primaryWrapperId: normalizedWrapperId,
-      }),
-    });
-    if (!response.ok) {
-      throw await this.buildApiError(
-        response,
-        "Failed to set primary vault method.",
-      );
-    }
-    this.invalidateVaultStateCache(userId);
+        const response = await fetch(url, {
+          method: "POST",
+          headers,
+          body: JSON.stringify({
+            userId,
+            primaryMethod: normalizedMethod,
+            primaryWrapperId: normalizedWrapperId,
+          }),
+        });
+        if (!response.ok) {
+          throw await this.buildApiError(
+            response,
+            "Failed to set primary vault method.",
+          );
+        }
+        this.invalidateVaultStateCache(userId);
+      },
+    );
   }
 
   // ============================================================================
@@ -1480,7 +1638,10 @@ export class VaultService {
       // checks the Capacitor Firebase session before the app-owned keychain
       // fallback, which prevents fresh native users from racing the vault
       // bootstrap with an unauthenticated plugin call.
-      return (await AuthService.getIdToken()) || undefined;
+      return (
+        (await withDeadline(AuthService.getIdToken(), Date.now() + 8_000)) ||
+        undefined
+      );
     } catch (e) {
       console.warn("[VaultService] Failed to get Firebase token:", e);
     }

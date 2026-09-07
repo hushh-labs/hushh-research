@@ -57,7 +57,13 @@ Legacy/bootstrap SQL and one-off repair scripts here are not the release lane.
 - `../db/seeds/seed_investors.py`: local/UAT investor seed flow.
 - `reset_dev_user_data.py`: reset a developer/test user state.
 - `reset_finance_root_user.py`: reset the finance-root testing user.
-- `fix_partial_vault_rows.py`: targeted repair for partial vault rows.
+- `fix_partial_vault_rows.py`: inspection-only report for partial vault rows. Its
+  former root-row deletion mode is fail-closed because migration 201 treats a
+  `vault_keys` deletion as irreversible full-account erasure; repair live
+  accounts in place through an approved runbook.
+- `local_sync_email_reviewer_from_kai_user.py`: local reviewer mirroring keeps
+  `actor_profiles` and `vault_keys` roots in place and upserts them. Directly
+  deleting either root would tombstone the reviewer UID after migration 201.
 
 ### Backfills and Cleanup
 

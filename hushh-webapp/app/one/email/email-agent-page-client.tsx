@@ -1,12 +1,17 @@
 "use client";
 
 import { useCallback } from "react";
-import { CheckCircle2, Mail, MessageCircle } from "lucide-react";
+import { CheckCircle2, Mail } from "lucide-react";
 import { useRouter } from "next/navigation";
 
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
 import { useOneConversationSession } from "@/lib/agent/one-conversation-session";
-import { buildEmailAgentIntroPrompt } from "@/lib/agent/email-agent-intro";
+import {
+  buildEmailAgentIntroPrompt,
+  hasSeenEmailAgentIntro,
+  markEmailAgentIntroSeen,
+} from "@/lib/agent/email-agent-intro";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -18,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useAuth } from "@/hooks/use-auth";
 import { useGmailConnectorStatus } from "@/lib/profile/gmail-connector-store";
 import { Button } from "@/lib/morphy-ux/button";
+import { agentRouteWithOrigin } from "@/lib/navigation/agent-origin";
 import { ROUTES } from "@/lib/navigation/routes";
 
 /**
@@ -50,23 +56,41 @@ export function EmailAgentPageClient() {
       : "unavailable-valid";
 
   const openOneForDraft = useCallback(() => {
-    const createdAtMs = Date.now();
-    createHandoff({
-      id: `email-agent-prompt-${createdAtMs}`,
-      reason: "user_requested",
-      transcript: emailAgentIntroRecipient
-        ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
-        : "Please help me draft an email. I will review it before anything is sent.",
-      createdAtMs,
-    });
+    // The intro prompt asks One to compose a sample email about itself. That
+    // is a first-run demonstration, not what someone arriving to write a real
+    // email wants: queuing it on every open started a fresh sample draft each
+    // time, because every handoff carried a new id and so was never de-duped
+    // against the previous one. Queue it only until this user has seen it;
+    // afterwards the agent opens on an empty composer awaiting a real
+    // instruction.
+    const userId = user?.uid || null;
+    if (!hasSeenEmailAgentIntro(userId)) {
+      const createdAtMs = Date.now();
+      markEmailAgentIntroSeen(userId);
+      createHandoff({
+        id: `email-agent-prompt-${createdAtMs}`,
+        reason: "user_requested",
+        transcript: emailAgentIntroRecipient
+          ? buildEmailAgentIntroPrompt(emailAgentIntroRecipient)
+          : "Please help me draft an email. I will review it before anything is sent.",
+        createdAtMs,
+      });
+    }
     if (agentPopover) {
       agentPopover.openAgent();
       return;
     }
-    // The handoff remains in the shared in-memory session for the legacy
-    // dedicated chat route too.
-    router.push(ROUTES.AGENT);
-  }, [agentPopover, createHandoff, emailAgentIntroRecipient, router]);
+    // Any queued handoff remains in the shared in-memory session for the
+    // legacy dedicated chat route too. Record this page as the origin so
+    // minimizing the full-page agent comes back here rather than One home.
+    router.push(agentRouteWithOrigin(ROUTES.EMAIL_AGENT));
+  }, [
+    agentPopover,
+    createHandoff,
+    emailAgentIntroRecipient,
+    router,
+    user?.uid,
+  ]);
 
   return (
     <AppPageShell
@@ -106,10 +130,9 @@ export function EmailAgentPageClient() {
                   </p>
                 </div>
               </div>
-              <Button type="button" onClick={openOneForDraft} className="w-full sm:w-auto">
-                <MessageCircle className="mr-2 h-4 w-4" />
+              <AskOneButton onClick={openOneForDraft}>
                 Try Email Agent with One
-              </Button>
+              </AskOneButton>
             </SurfaceInset>
           ) : (
             <SurfaceInset className="space-y-4 px-4 py-5 sm:px-5">

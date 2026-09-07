@@ -28,7 +28,10 @@ from hushh_mcp.services.connection_graph_service import (
     lock_connection_graph_users,
 )
 from hushh_mcp.services.contact_sync_contract import (
-    CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_PREFERENCE_DEFAULT,
+    CONTACT_SYNC_PREFERENCE_ENABLED,
+    contact_sync_preference_state,
 )
 from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.requester_identity import label_from_identity_row
@@ -3526,19 +3529,17 @@ class ConnectionsService:
             revalidated_user_ids = sorted({str(row.get("user_id") or "") for row in identity_rows})
             profile_rows = self._execute_many(
                 """
-                SELECT user_id, contact_discoverable,
-                       contact_sync_consent_enabled_at,
-                       contact_sync_consent_rule_version,
-                       contact_sync_consent_contract_version
-                FROM actor_profiles
-                WHERE user_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
-                ORDER BY user_id
-                -- Circle membership flows deliberately lock profiles before
-                -- connections. Contact sync already holds existing connection
-                -- rows, so waiting here would invert that order and deadlock.
-                -- A busy profile is omitted and fails closed for new/revoked
-                -- pairs; an already-active relationship remains recognizable.
-                FOR UPDATE SKIP LOCKED
+                SELECT actor.user_id, actor.contact_discoverable,
+                       actor.contact_sync_consent_enabled_at,
+                       actor.contact_sync_consent_rule_version,
+                       actor.contact_sync_consent_contract_version,
+                       marketplace.is_discoverable AS marketplace_is_discoverable,
+                       marketplace.display_name AS marketplace_display_name
+                FROM actor_profiles actor
+                LEFT JOIN marketplace_public_profiles marketplace
+                  ON marketplace.user_id = actor.user_id
+                WHERE actor.user_id = ANY(CAST(:candidate_user_ids AS TEXT[]))
+                ORDER BY actor.user_id
                 """,
                 {"candidate_user_ids": revalidated_user_ids},
             )
@@ -3547,18 +3548,19 @@ class ConnectionsService:
             for row in identity_rows:
                 target_user_id = str(row.get("user_id") or "")
                 profile = profiles.get(target_user_id) or {}
+                preference_state = contact_sync_preference_state(
+                    discoverable=profile.get("contact_discoverable"),
+                    enabled_at=profile.get("contact_sync_consent_enabled_at"),
+                    rule_version=profile.get("contact_sync_consent_rule_version"),
+                    contract_version=profile.get("contact_sync_consent_contract_version"),
+                )
                 enriched = {
                     **row,
-                    "contact_discoverable": profile.get("contact_discoverable", False),
-                    "contact_sync_consent_enabled_at": profile.get(
-                        "contact_sync_consent_enabled_at"
+                    "contact_sync_preference_state": preference_state,
+                    "contact_sync_directory_visible": (
+                        profile.get("marketplace_is_discoverable") is not False
                     ),
-                    "contact_sync_consent_rule_version": int(
-                        profile.get("contact_sync_consent_rule_version") or 0
-                    ),
-                    "contact_sync_consent_contract_version": profile.get(
-                        "contact_sync_consent_contract_version"
-                    ),
+                    "marketplace_display_name": profile.get("marketplace_display_name"),
                 }
                 revalidated_rows_by_lookup.setdefault(str(row.get("lookup_id") or ""), []).append(
                     enriched
@@ -3583,76 +3585,54 @@ class ConnectionsService:
                     continue
                 existing = existing_by_target.get(target_user_id)
                 existing_status = str((existing or {}).get("status") or "")
-                has_current_contact_consent = bool(
-                    identity["contact_discoverable"]
-                    and identity["contact_sync_consent_enabled_at"] is not None
-                    and identity["contact_sync_consent_rule_version"] > 0
-                    and identity["contact_sync_consent_contract_version"]
-                    == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                has_directory_match_authority = bool(
+                    identity["contact_sync_directory_visible"]
+                    and identity["contact_sync_preference_state"]
+                    in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
                 )
+
+                directory_activation = {
+                    "target_user_id": target_user_id,
+                    "origin_metadata": {
+                        "authorization": "verified_phone_directory_match",
+                        "matchPolicyVersion": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                        "targetPreferenceState": identity["contact_sync_preference_state"],
+                    },
+                }
 
                 outcome = "auto_connected"
                 if existing_status == "active":
                     # The canonical graph already discloses this person to the
                     # requester. Recognizing their exact verified-phone proof
                     # does not create a relationship or widen target consent.
-                    # Only add contact provenance when the target currently
-                    # opted into that relationship source; otherwise a new
-                    # durable origin could outlive the source that made the
-                    # existing connection visible.
-                    if has_current_contact_consent:
-                        activations.append(
-                            {
-                                "target_user_id": target_user_id,
-                                "origin_metadata": {"authorization": "existing_connection_match"},
-                            }
-                        )
+                    # Add durable contact provenance only when the target is
+                    # currently eligible under the directory match policy.
+                    if has_directory_match_authority:
+                        activations.append(directory_activation)
                         activation_required_target_ids.add(target_user_id)
                     outcome = "already_connected"
-                elif not has_current_contact_consent:
-                    # A hidden/stale-consent target may be recognized only
-                    # through an already-active edge. New and revoked pairs
-                    # remain undisclosed and write nothing.
+                elif not has_directory_match_authority:
+                    # A directory-hidden, explicitly disabled, or malformed
+                    # target may be recognized only through an already-active
+                    # edge. New and revoked pairs remain undisclosed.
                     continue
                 elif existing_status == "revoked":
                     # A disconnect is an explicit suppression tombstone even
                     # for a pair that predated contact-sync provenance.
                     outcome = "suppressed"
                 else:
-                    # A match is emitted only after the target's current verified
-                    # phone and contact-discoverability setting are revalidated
-                    # under this transaction. Matching therefore materializes
-                    # the contact-sourced connection immediately. This remains
-                    # relationship metadata only: no location or information
-                    # capability is granted here.
-                    consent_enabled_at = identity["contact_sync_consent_enabled_at"]
-                    serialized_consent_enabled_at = (
-                        consent_enabled_at.isoformat()
-                        if hasattr(consent_enabled_at, "isoformat")
-                        else str(consent_enabled_at)
-                    )
-                    activations.append(
-                        {
-                            "target_user_id": target_user_id,
-                            "origin_metadata": {
-                                "authorization": "verified_phone_contact_match",
-                                "targetConsentEnabledAt": serialized_consent_enabled_at,
-                                "targetConsentRuleVersion": identity[
-                                    "contact_sync_consent_rule_version"
-                                ],
-                                "targetConsentContractVersion": identity[
-                                    "contact_sync_consent_contract_version"
-                                ],
-                            },
-                        }
-                    )
+                    # Matching materializes the social relationship only. It
+                    # does not activate a pending scope proposal or create a
+                    # location/information grant.
+                    activations.append(directory_activation)
                     activation_required_target_ids.add(target_user_id)
 
                 outcomes.append(
                     {
                         "lookupId": lookup_id,
                         "userId": target_user_id,
-                        "displayName": identity.get("display_name"),
+                        "displayName": identity.get("display_name")
+                        or identity.get("marketplace_display_name"),
                         "photoUrl": identity.get("custom_photo_url") or identity.get("photo_url"),
                         "outcome": outcome,
                     }

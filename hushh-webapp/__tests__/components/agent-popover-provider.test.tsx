@@ -1,3 +1,4 @@
+import type * as React from "react";
 import { act, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -8,10 +9,18 @@ import {
 
 const navigationMock = vi.hoisted(() => ({
   pathname: "/one/profile",
+  push: vi.fn(),
+  replace: vi.fn(),
+  back: vi.fn(),
 }));
 
 vi.mock("next/navigation", () => ({
   usePathname: () => navigationMock.pathname,
+  useRouter: () => ({
+    push: navigationMock.push,
+    replace: navigationMock.replace,
+    back: navigationMock.back,
+  }),
 }));
 
 vi.mock("@/hooks/use-auth", () => ({
@@ -24,14 +33,20 @@ vi.mock("@/components/agent/agent-chat-workspace", () => ({
   AgentChatWorkspace: ({
     isSurfaceClosing,
     onMinimize,
+    // The real workspace renders the popover's own window controls in its
+    // header. Rendering them here is what lets a test reach Minimize and
+    // Maximize -- the two controls #6134 asked about.
+    windowControls,
   }: {
     isSurfaceClosing?: boolean;
     onMinimize?: () => void;
+    windowControls?: React.ReactNode;
   }) => (
     <div data-testid="agent-chat-workspace" data-closing={isSurfaceClosing || undefined}>
       <textarea aria-label="Message One" />
+      {windowControls}
       <button type="button" onClick={onMinimize}>
-        Close One
+        Dismiss One
       </button>
     </div>
   ),
@@ -74,6 +89,9 @@ describe("AgentPopoverProvider surface ownership", () => {
 
   beforeEach(() => {
     navigationMock.pathname = "/login";
+    navigationMock.push.mockClear();
+    navigationMock.replace.mockClear();
+    navigationMock.back.mockClear();
     window.localStorage.clear();
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
@@ -181,7 +199,7 @@ describe("AgentPopoverProvider surface ownership", () => {
     composer.focus();
     expect(document.activeElement).toBe(composer);
 
-    fireEvent.click(screen.getByRole("button", { name: "Close One" }));
+    fireEvent.click(screen.getByRole("button", { name: "Dismiss One" }));
 
     expect(blur).toHaveBeenCalledOnce();
     expect(document.activeElement).not.toBe(composer);
@@ -196,5 +214,77 @@ describe("AgentPopoverProvider surface ownership", () => {
       "ease-[cubic-bezier(0.64,0,0.78,0)]",
     );
     expect(closingDialog.className).not.toContain("sm:ring-1");
+  });
+
+  /**
+   * The second half of #6134.
+   *
+   * The route half was real: the full-page `/agent` screen read
+   * `document.referrer`, which App Router never sets, so minimize always fell
+   * through to One home. The report also showed the URL bar reading
+   * `/one/gmail` with the chat maximized -- that is the POPOVER, whose window
+   * controls only move local state. If minimizing there had navigated too, it
+   * would have been a second, separate defect.
+   *
+   * It does not, and these two tests hold that: the popover never navigates,
+   * at either size. So a future "minimize took me to /one" from a popover
+   * surface is something else moving the page underneath it -- a guard, a
+   * redirect -- and not this control.
+   */
+  it("minimizes the popover without navigating away from the page", () => {
+    vi.useFakeTimers();
+    navigationMock.pathname = "/one/gmail";
+    render(
+      <AgentPopoverProvider>
+        <PopoverControl />
+      </AgentPopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open One" }));
+    act(() => vi.advanceTimersByTime(20));
+    fireEvent.click(screen.getByRole("button", { name: "Minimize One" }));
+
+    expect(screen.getByTestId("agent-popover-motion")).toHaveTextContent(
+      "closing",
+    );
+    expect(navigationMock.push).not.toHaveBeenCalled();
+    expect(navigationMock.replace).not.toHaveBeenCalled();
+    expect(navigationMock.back).not.toHaveBeenCalled();
+  });
+
+  it("changes size and minimizes from the window controls without navigating", () => {
+    // The state the report was filed from: maximized, URL still on the feature
+    // page. Size is a stored preference, not a route change -- so neither the
+    // toggle nor the minimize beside it may move the page.
+    vi.useFakeTimers();
+    navigationMock.pathname = "/one/gmail";
+    render(
+      <AgentPopoverProvider>
+        <PopoverControl />
+      </AgentPopoverProvider>,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open One" }));
+    act(() => vi.advanceTimersByTime(20));
+
+    // This viewport opens fullscreen, so the toggle offers Restore first.
+    const sizeToggle =
+      screen.queryByRole("button", { name: "Restore One" }) ??
+      screen.getByRole("button", { name: "Maximize One" });
+    fireEvent.click(sizeToggle);
+    expect(
+      screen.queryByRole("button", { name: "Maximize One" }) ??
+        screen.queryByRole("button", { name: "Restore One" }),
+    ).toBeInTheDocument();
+    expect(navigationMock.push).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Minimize One" }));
+
+    expect(screen.getByTestId("agent-popover-motion")).toHaveTextContent(
+      "closing",
+    );
+    expect(navigationMock.push).not.toHaveBeenCalled();
+    expect(navigationMock.replace).not.toHaveBeenCalled();
+    expect(navigationMock.back).not.toHaveBeenCalled();
   });
 });

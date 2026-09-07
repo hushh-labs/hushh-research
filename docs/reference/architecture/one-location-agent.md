@@ -27,6 +27,28 @@ The production direction is One-owned. Authenticated recipient-scoped live
 location remains ciphertext-only. Owner-created public location links are a
 separate, explicit, duration-bounded snapshot-sharing mode.
 
+## Contact Discovery And Results
+
+Connect, the Location People menu, and Location onboarding use the same bounded
+contact-matching pipeline and named results sheet. Exact verified-phone matches
+connect automatically under the visible Connect-directory default; explicit
+contact opt-out, marketplace hide, invalid preference evidence, and disconnect
+tombstones remain protected. The authoritative policy and private-information
+boundary are defined in [IAM Architecture](../iam/architecture.md#contact-sync-relationship-boundary).
+
+Results distinguish `Connected now`, `Already connected`, and `Kept disconnected`.
+The rolling-compatible `request_required` outcome retains its explicit request
+action. Partial reads and uncertain mutations remain visible with their limits;
+unconfirmed contacts never become invitation candidates. A cap-only result
+offers Done because repeating the same bounded scan cannot inspect overflow.
+
+The inline onboarding action, results retry, and Settings return share the
+Location page's in-flight guard. Settings recovery accepts granted or limited
+contact permission, resumes once, and updates both the inline state and named
+report. Finish stays available during the optional scan; if the user opens the
+Location hub before it settles, the page still presents the completed report.
+Opening a contact source always requires the user's contact-check action.
+
 ## Plaintext Boundary
 
 Plain coordinates are allowed only on:

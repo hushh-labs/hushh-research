@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildMarketplaceContactLookups } from "@/lib/marketplace/contact-matching";
 
 const readContactsMock = vi.fn();
+// Keep real WebCrypto coverage at the raised cap, including on shared CI workers.
+const LARGE_ADDRESS_BOOK_TEST_TIMEOUT_MS = 15_000;
 
 vi.mock("@/lib/capacitor", () => ({
   HushhContacts: {
@@ -12,7 +14,7 @@ vi.mock("@/lib/capacitor", () => ({
 
 /**
  * The injected-source cases. Google Contacts feeds the SAME pipeline as the
- * device address book — normalization, dedupe, mobile-first ordering, the 1000
+ * device address book — normalization, dedupe, mobile-first ordering, the lookup
  * cap and the hashing all have exactly one implementation, and these pin that
  * a second source does not get a second copy of any of it.
  */
@@ -236,11 +238,11 @@ describe("marketplace contact matching", () => {
     );
   });
 
-  it("caps unique lookups at 5000 and marks only overflow coverage incomplete", async () => {
+  it("caps unique lookups at 10,000 and marks only overflow coverage incomplete", async () => {
     readContactsMock.mockResolvedValue({
       sourcePlatform: "android",
       defaultRegion: "US",
-      contacts: Array.from({ length: 5001 }, (_, index) => ({
+      contacts: Array.from({ length: 10_001 }, (_, index) => ({
         id: `c${index}`,
         displayName: `Contact ${index}`,
         phoneNumbers: [`+1212${String(index).padStart(7, "0")}`],
@@ -249,15 +251,15 @@ describe("marketplace contact matching", () => {
 
     const result = await buildMarketplaceContactLookups();
 
-    expect(result.lookups).toHaveLength(5000);
+    expect(result.lookups).toHaveLength(10_000);
     expect(result.lookupLimitExceeded).toBe(true);
     expect(result.lookupLimitedContactCount).toBe(1);
     expect(result.contacts.filter((contact) => !contact.coverageComplete)).toHaveLength(1);
     expect(result.uncheckableContactCount).toBe(0);
-  });
+  }, LARGE_ADDRESS_BOOK_TEST_TIMEOUT_MS);
 
-  it("caps a 5,000-contact two-number book deterministically without returning E.164", async () => {
-    const contacts = Array.from({ length: 5000 }, (_, index) => ({
+  it("caps a 10,000-contact two-number book deterministically without returning E.164", async () => {
+    const contacts = Array.from({ length: 10_000 }, (_, index) => ({
       id: `contact-${index}`,
       displayName: `Contact ${index}`,
       phoneNumbers: [
@@ -272,22 +274,22 @@ describe("marketplace contact matching", () => {
     });
 
     const digestSpy = vi.spyOn(globalThis.crypto.subtle, "digest");
-    const first = await buildMarketplaceContactLookups({ limit: 5000 });
+    const first = await buildMarketplaceContactLookups({ limit: 10_000 });
 
-    expect(first.lookups).toHaveLength(5000);
+    expect(first.lookups).toHaveLength(10_000);
     expect(first.lookupLimitExceeded).toBe(true);
-    expect(digestSpy).toHaveBeenCalledTimes(5000);
-    expect(first.lookupLimitedContactCount).toBe(2500);
-    expect(first.contacts.slice(0, 2500).every((row) => row.coverageComplete)).toBe(true);
-    expect(first.contacts.slice(2500).every((row) => !row.coverageComplete)).toBe(true);
+    expect(digestSpy).toHaveBeenCalledTimes(10_000);
+    expect(first.lookupLimitedContactCount).toBe(5000);
+    expect(first.contacts.slice(0, 5000).every((row) => row.coverageComplete)).toBe(true);
+    expect(first.contacts.slice(5000).every((row) => !row.coverageComplete)).toBe(true);
     expect(first.contacts[0]?.lookupIds).toEqual(["lookup_1", "lookup_2"]);
-    expect(first.contacts[2499]?.lookupIds).toEqual([
-      "lookup_4999",
-      "lookup_5000",
+    expect(first.contacts[4999]?.lookupIds).toEqual([
+      "lookup_9999",
+      "lookup_10000",
     ]);
     expect(JSON.stringify(first)).not.toContain("+919");
     digestSpy.mockRestore();
-  });
+  }, LARGE_ADDRESS_BOOK_TEST_TIMEOUT_MS);
 
   it("propagates partial-access and truncation flags from the platform", async () => {
     readContactsMock.mockResolvedValue({

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
 from api.middleware import require_firebase_auth
+from hushh_mcp.services.contact_sync_contract import CONTACT_SYNC_MATCH_POLICY_VERSION
 from hushh_mcp.services.ria_iam_service import (
     IAMSchemaNotReadyError,
     RIAIAMPolicyError,
@@ -91,18 +92,22 @@ async def update_marketplace_opt_in(
 async def get_contact_discoverability(
     firebase_uid: str = Depends(require_firebase_auth),
 ):
-    """Combined consent for verified phone holders to find and auto-connect."""
+    """Effective verified-directory contact matching preference."""
     service = RIAIAMService()
     try:
         return await service.get_contact_discoverability(firebase_uid)
     except IAMSchemaNotReadyError:
-        # Fail closed until the versioned combined-consent schema is available.
+        # Missing schema is never interpreted as the directory-policy default.
         return {
             "user_id": firebase_uid,
             "contact_discoverable": False,
+            "stored_contact_discoverable": False,
             "contact_sync_consent_enabled_at": None,
             "contact_sync_consent_rule_version": 0,
             "contact_sync_consent_contract_version": None,
+            "contact_sync_preference_state": "invalid",
+            "contact_sync_match_policy_version": CONTACT_SYNC_MATCH_POLICY_VERSION,
+            "directory_visible": False,
             "iam_schema_ready": False,
         }
 

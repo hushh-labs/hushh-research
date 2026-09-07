@@ -104,29 +104,10 @@ function domainHeading(value: string): string {
   return cleaned.charAt(0).toUpperCase() + cleaned.slice(1);
 }
 
-/**
- * Split a flattened manifest label into the thing itself and where it sits.
- *
- * The backend builds these by title-casing an entire manifest path, so a single
- * field arrives as "Saved Places Locations Items Address". Read aloud that is a
- * sentence, not a label, and a list of fourteen of them is unreadable. The last
- * word is the field; everything before it is context that belongs underneath in
- * smaller type. Structural filler that means nothing to a person ("Items") is
- * dropped from the context line.
- */
-const CONTEXT_FILLER = new Set(["items", "item", "locations", "entries", "list"]);
-
-function splitScopeLabel(label: string): { title: string; context: string | null } {
-  const words = String(label || "").trim().split(/\s+/).filter(Boolean);
-  if (words.length === 0) return { title: "Information", context: null };
-  if (words.length === 1) return { title: words[0]!, context: null };
-
-  const title = words[words.length - 1]!;
-  const context = words
-    .slice(0, -1)
-    .filter((word) => !CONTEXT_FILLER.has(word.toLowerCase()))
-    .join(" ");
-  return { title, context: context || null };
+// Labels are authored information. Word boundaries do not identify a field
+// path: shortening "Employment status" to "status" changes its meaning.
+function scopeTitle(label: string): string {
+  return label.trim() || "Information";
 }
 
 function ScopeDiscoveryView({
@@ -177,7 +158,7 @@ function ScopeDiscoveryView({
               <ul className="divide-y divide-border/35">
                 {group.scopes.map((scope) => {
                   const sensitivity = sensitivityLabel(scope.sensitivity);
-                  const { title, context } = splitScopeLabel(scope.label);
+                  const title = scopeTitle(scope.label);
                   return (
                     <li key={scope.scopeRef} className="py-2.5 first:pt-2 last:pb-2">
                       <div className="flex items-start justify-between gap-3">
@@ -188,10 +169,6 @@ function ScopeDiscoveryView({
                           {scope.description ? (
                             <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
                               {scope.description}
-                            </p>
-                          ) : context ? (
-                            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">
-                              {context}
                             </p>
                           ) : null}
                         </div>

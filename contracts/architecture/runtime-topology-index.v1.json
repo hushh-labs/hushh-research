@@ -682,6 +682,17 @@
   ],
   "database_families": [
     {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "account_deletion_tombstones",
+        "account_identity_presence"
+      ],
+      "id": "account_deletion_lifecycle",
+      "lifecycle_status": "current",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "atomic full-account deletion, old-revision-compatible actor/vault root deletion triggers, Firebase bearer verification, catalog-installed tombstone guards for every public scalar user_id, role-prefixed *_user_id/user_<role>_id, firebase_uid, and *_firebase_uid reference, and an indexed hash-only account-state presence preflight"
+    },
+    {
       "data_class": "personal_metadata",
       "exact_tables": [
         "actor_profiles",
@@ -744,6 +755,7 @@
       "data_class": "audit_regulated",
       "exact_tables": [
         "consent_audit",
+        "consent_audit_receipts",
         "internal_access_events",
         "consent_scope_templates"
       ],
@@ -1067,6 +1079,8 @@
       "exact_tables": [
         "one_location_access_requests",
         "one_location_auto_approve_preferences",
+        "one_location_visibility_preferences",
+        "one_location_visibility_exclusions",
         "one_location_circle_invite_codes",
         "one_location_circle_invites",
         "one_location_envelopes",
@@ -1079,6 +1093,7 @@
         "one_location_public_invites",
         "one_location_recipient_keys",
         "one_location_referrals",
+        "kai_location_referrals",
         "one_location_sms_contacts",
         "one_location_share_grants",
         "one_location_sos_voice_preferences"
@@ -1157,6 +1172,19 @@
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
       "primary_access_path": "Vault-owner Wallet Profile controls create, edit, pause, resume, rotate, and revoke one card per account; the Apple Wallet pass and the public /c/{token} page resolve that card unauthenticated by SHA-256 hash of the presented share token, through the same projection builder the owner's preview-as-visitor uses"
+    },
+    {
+      "data_class": "workflow_state",
+      "exact_tables": [
+        "personal_agent_registry",
+        "byoc_setup_jobs",
+        "pod_lifecycle_events",
+        "personal_agent_deletion_tombstones"
+      ],
+      "id": "personal_agent_provisioning",
+      "lifecycle_status": "parked_flag_off_with_live_environment_drift",
+      "owner": "backend-runtime-governance",
+      "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
       "data_class": "personal_projection",
@@ -1330,7 +1358,7 @@
       "id": "two_way_connection_graph",
       "lifecycle_status": "current",
       "owner": "iam-consent-governance",
-      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync requires the target's explicit versioned combined find-and-auto-connect consent, revalidates the submitted digest against the current verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active."
+      "primary_access_path": "Two-way mutual connection graph. connection_requests holds the directional handshake; connections is the canonical pair projection; connection_origins is the durable source ledger for direct requests, legacy invites, imports, viewer-relative contact_sync provenance, and one or more named Circles. Contact sync uses the visible verified-phone Connect-directory default under contact_directory_auto_connect_v2, honors explicit contact opt-out and marketplace hide, revalidates each submitted digest against the current unique verified phone, and writes every eligible non-suppressed match as canonical graph projections transactionally. Policy writers and graph activation share a per-user database lock. Viewer-relative provenance records the directory policy and actual preference state without fabricating historical consent evidence. contact_sync_lookup_budgets is the Postgres-authoritative cross-instance abuse-budget seam; SlowAPI is only the outer request-count guard. Named Circle join/accept writes only named_circle origins. The canonical pair remains active while any origin is active."
     },
     {
       "data_class": "personal_encrypted",
@@ -5484,12 +5512,12 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7b411158545f57fe5160dca108311d50e9cb1b6fdadc8831d03fd1e07a27265d",
+    "action_gateway": "cc1d1375e7d3b218c35cea4a0574b89734759f136b736b0cee7b5774cb92d9e9",
     "agent_registry": "a95cf642313b982d945743ec063faf308ecd8f651b740e8d8a5db39786172463",
     "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
-    "data_plane": "d2706bc9683b88a5e34015bc6bc5fd6f0c1c90618342e62da7ff560f2bc8daf2",
+    "data_plane": "a9eab526c377cba31e895e1dd66cad1b365960a06eeb5598215dd041f2708588",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "b127138ec88718dfe15b0bbe87daf97cdffabaa4a453e03648c13a8e82f1d70a",
+    "one_specialist_tools": "532ba6704ef8d398517f58fadcdfc5247fcf59458e59e1bb1806894e88ffaa69",
     "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
     "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
     "surface_map": "5eeedfa18b35043f720e56514534d0496c93db0a8073ad5794ef84d2d0c584ef",
@@ -5506,6 +5534,6 @@
     "one_specialist_tools": 5,
     "physical_routes": 139,
     "semantic_routes": 14,
-    "table_families": 59
+    "table_families": 61
   }
 }

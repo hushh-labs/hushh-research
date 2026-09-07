@@ -102,6 +102,66 @@ describe("/api/account/[...path] proxy", () => {
       "http://backend.test/api/account/email-aliases?view=all"
     );
   });
+
+  it("preserves terminal session status bodies and recovery headers", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
+        }),
+        {
+          status: 423,
+          headers: {
+            "Cache-Control": "private, no-store",
+            "Content-Type": "application/json",
+            "Retry-After": "2",
+            "WWW-Authenticate": 'Bearer realm="account-session"',
+            "Set-Cookie": "must-not-cross=backend",
+          },
+        },
+      ),
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/session-status",
+      { headers: { Authorization: "Bearer firebase-token" } },
+    );
+
+    const response = await route.GET(request, {
+      params: Promise.resolve({ path: ["session-status"] }),
+    });
+
+    expect(response.status).toBe(423);
+    expect(await response.json()).toEqual({
+      detail: { code: "AUTH_ACCOUNT_DELETION_IN_PROGRESS" },
+    });
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+    expect(response.headers.get("Retry-After")).toBe("2");
+    expect(response.headers.get("WWW-Authenticate")).toBe(
+      'Bearer realm="account-session"',
+    );
+    expect(response.headers.get("Set-Cookie")).toBeNull();
+  });
+
+  it("does not turn an empty upstream response into a successful JSON object", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(null, {
+        status: 204,
+        headers: { "Cache-Control": "private, no-store" },
+      }),
+    );
+    const request = new NextRequest(
+      "http://localhost:3000/api/account/session-status",
+      { headers: { Authorization: "Bearer firebase-token" } },
+    );
+
+    const response = await route.GET(request, {
+      params: Promise.resolve({ path: ["session-status"] }),
+    });
+
+    expect(response.status).toBe(204);
+    expect(await response.text()).toBe("");
+    expect(response.headers.get("Cache-Control")).toBe("private, no-store");
+  });
     it("preserves forwarded account proxy query parameter ordering", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
       Response.json({ success: true, aliases: [] })

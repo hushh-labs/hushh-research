@@ -16,8 +16,8 @@ import {
  * this boundary so later contacts are never mislabeled as unmatched.
  */
 export const CONTACT_SYNC_BATCH_SIZE = 1000;
-/** Hard privacy/performance ceiling: at most five mutation requests per sync. */
-export const CONTACT_SYNC_MAX_LOOKUPS = 5000;
+/** Hard privacy/performance ceiling: at most ten bounded mutation requests. */
+export const CONTACT_SYNC_MAX_LOOKUPS = 10_000;
 const CONTACT_HASH_CHUNK_SIZE = 250;
 
 export type MarketplaceContactLookup = {
@@ -203,7 +203,7 @@ export async function buildMarketplaceContactLookups(options?: {
     selectedCandidates.map((candidate) => candidate.e164),
   );
   const hashes: string[] = [];
-  // WebCrypto work is bounded so a 5k address book does not enqueue thousands
+  // WebCrypto work is bounded so a large address book does not enqueue thousands
   // of native bridge operations at once.
   for (
     let index = 0;

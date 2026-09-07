@@ -112,20 +112,24 @@ Private data is always consent-gated and scoped.
 
 ### Contact-sync relationship boundary
 
-1. Contact sync has one combined, explicit setting: verified people who already
-   hold the account's verified phone number may find and automatically connect
-   with it. The setting defaults off and records the exact authored disclosure,
-   a server enablement timestamp, and a monotonic consent-rule version. Enabling
-   without `contact_find_auto_connect_v1` fails, so legacy default-on state or an
-   older findability-only client is not relationship consent.
-2. Every current, unambiguous verified-phone match that passes that setting is
-   connected immediately. A requester may also map an exact verified-phone
+1. Contact sync uses `contact_directory_auto_connect_v2`: a current, exact,
+   unambiguous verified-phone match to a visible ONE Connect-directory account
+   is eligible by default. A version-zero preference with no enablement evidence
+   means directory default, not explicit consent. A recorded contact opt-out,
+   `marketplace_public_profiles.is_discoverable=false`, or malformed preference
+   evidence blocks new-person discovery and automatic relationship creation.
+   Missing schema fails closed. Explicit re-enabling still requires
+   `contact_find_auto_connect_v1` and records its disclosure, server timestamp,
+   and monotonic rule version; directory defaults never fabricate that evidence.
+2. Every eligible match without a disconnect tombstone is connected immediately.
+   A requester may also map an exact verified-phone
    proof to a canonical relationship that is already active, because that
    person is already visible in the requester's ONE graph. When the target is
    not currently discoverable, this recognition adds no contact-sync origin or
    Trusted/Circle projection. An explicit disconnect tombstone remains dominant:
-   without current target consent, a revoked pair is not disclosed at all; with
-   current consent, it is reported only as suppressed. A later explicit
+   when the target is hidden or opted out, a revoked pair is not disclosed;
+   an otherwise directory-eligible revoked pair is reported only as suppressed.
+   A later explicit
    request/accept flow remains a separate user action.
 3. Contact-sync provenance may create only the canonical relationship, its
    source ledger, cancellation of redundant unscoped pending requests, and the
@@ -133,10 +137,17 @@ Private data is always consent-gated and scoped.
    explicit scope review. Contact sync never grants location, PKM,
    personal-information, consent-scope, Circle sharing, SMS, envelope, or
    capability access.
+   New provenance records `verified_phone_directory_match`, the match-policy
+   version, and the target preference state; historical v1 consent provenance
+   stays distinguishable. Neither path persists phone proof material.
 4. Disabling the setting prevents discovery by new people and automatic edge
    creation. It does not hide an exact contact mapping to an already-active
    relationship. Existing relationships remain visible and individually
    disconnectable so preference changes do not silently destroy a user's graph.
+   The mutation revalidates verified-phone ownership, directory visibility,
+   preference, and relationship state under transaction locks. Migration 200
+   makes all relevant policy-table writers share the same lock, including
+   concurrent creation of a previously absent preference/profile row.
 5. iOS/native and Google Contacts share one country-aware E.164 normalizer and
    bounded hash/batch pipeline. Explicit international numbers ignore regional
    hints. A country code stored without `+` overrides the region only when it

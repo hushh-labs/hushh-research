@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
@@ -52,6 +52,36 @@ function result(
 }
 
 describe("ContactSyncResultsSheet", () => {
+  it.each([false, true])(
+    "uses the onboarding overlay only for takeover=%s",
+    (takeover) => {
+      render(
+        <ContactSyncResultsSheet
+          open
+          takeover={takeover}
+          onOpenChange={vi.fn()}
+          result={result()}
+          syncing={false}
+          onSyncAgain={vi.fn()}
+          onInvite={vi.fn()}
+          onRequestConnection={vi.fn()}
+        />,
+      );
+
+      const sheet = screen.getByRole("dialog", { name: "Contact sync results" });
+      const overlay = document.querySelector('[data-slot="sheet-overlay"]');
+      if (takeover) {
+        expect(sheet).toHaveClass("z-[9101]");
+        expect(overlay).toHaveClass("z-[9100]");
+      } else {
+        // The app's Sheet primitive has always defaulted to non-modal. Keep
+        // normal Connect/Location interactions unchanged by the nested layer.
+        expect(sheet).toHaveClass("z-[712]");
+        expect(overlay).toBeNull();
+      }
+    },
+  );
+
   it("renders large matched sets progressively without making any identity unreachable", () => {
     const matches = Array.from({ length: 205 }, (_, index) => ({
       lookupId: `lookup_${index + 1}`,
@@ -113,7 +143,7 @@ describe("ContactSyncResultsSheet", () => {
     expect(screen.queryByText(/Local contact/i)).not.toBeInTheDocument();
   });
 
-  it("explains consent-safe eligibility when no account can be listed", () => {
+  it("explains directory eligibility and protected opt-outs when no account can be listed", () => {
     render(
       <ContactSyncResultsSheet
         open
@@ -133,9 +163,77 @@ describe("ContactSyncResultsSheet", () => {
     );
 
     expect(
-      screen.getByText(/Existing connections may still appear/i),
+      screen.getByText(/exact verified phone match.*Connect directory/i),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Explicit opt-outs and previous disconnects/),
     ).toBeInTheDocument();
   });
+
+  it("keeps newly connected, existing, and suppressed identities distinct", () => {
+    const identities = [
+      ["new", "Asha Rao", "auto_connected"],
+      ["existing", "Meena Shah", "already_connected"],
+      ["removed", "Ravi Kumar", "suppressed"],
+    ] as const;
+    const matches = identities.map(([userId, displayName, outcome]) => ({
+      lookupId: `lookup_${userId}`,
+      userId,
+      displayName,
+      photoUrl: null,
+      outcome,
+    }));
+    render(
+      <ContactSyncResultsSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result({ matches, alreadyConnectedCount: 1, suppressedCount: 1 })}
+        syncing={false}
+        onSyncAgain={vi.fn()}
+        onInvite={vi.fn()}
+        onRequestConnection={vi.fn()}
+      />,
+    );
+
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      const row = within(screen.getByText(name).closest("li")!);
+      expect(row.getByText(status)).toBeInTheDocument();
+      expect(row.queryByRole("button", { name: /request/i })).toBeNull();
+    }
+  });
+
+  it.each([
+    { limited: true, sourcePlatform: "ios" as const },
+    { limited: true, sourcePlatform: "web" as const },
+    { truncated: true, sourcePlatform: "google" as const },
+  ])(
+    "explains a partial $sourcePlatform read and retries from the named sheet",
+    (partial) => {
+      const onSyncAgain = vi.fn();
+      const props = {
+        open: true,
+        onOpenChange: vi.fn(),
+        result: result({ ...partial, partial: true }),
+        syncing: false,
+        onSyncAgain,
+        onInvite: vi.fn(),
+        onRequestConnection: vi.fn(),
+      };
+      const view = render(<ContactSyncResultsSheet {...props} />);
+
+      expect(
+        screen.getByText("Only part of your contact list was checked."),
+      ).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+      expect(onSyncAgain).toHaveBeenCalledTimes(1);
+      view.rerender(<ContactSyncResultsSheet {...props} syncing />);
+      expect(screen.getByRole("button", { name: "Sync again" })).toBeDisabled();
+    },
+  );
 
   it("wraps long matched identities instead of clipping them", () => {
     const longName =

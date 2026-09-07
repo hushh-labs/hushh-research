@@ -160,8 +160,8 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             )
             XCTAssertEqual(
                 HusshOneAppShortcuts.appShortcuts.count,
-                9,
-                "Nine focused shortcuts cover direct capabilities, destinations, and conversation."
+                10,
+                "All ten of Apple's App Shortcut slots are deliberately spoken for."
             )
         }
         if #available(iOS 26.0, *) {

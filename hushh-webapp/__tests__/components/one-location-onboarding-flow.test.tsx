@@ -1,4 +1,11 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { OneLocationOnboardingFlow } from "@/components/one-location/onboarding/one-location-onboarding-flow";
@@ -306,7 +313,7 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
       await screen.findByText("No eligible contacts matched."),
     ).toBeTruthy();
     expect(
-      screen.getByText(/Existing connections may still appear/),
+      screen.getByText(/exact verified phone match connect automatically/),
     ).toBeTruthy();
     expect(screen.getByText(/circle code above/)).toBeTruthy();
   });
@@ -328,6 +335,114 @@ describe("OneLocationOnboardingFlow combined Ready screen", () => {
     expect(
       screen.getByText(/Only part of your contact list was checked/),
     ).toBeTruthy();
+  });
+
+  it("preserves every connection outcome and partial warning when retrying", async () => {
+    const summary =
+      "2 contacts need confirmation and are not counted as unmatched or inviteable.";
+    const onSyncOnboardingContacts = vi.fn().mockResolvedValue({
+      status: "matched",
+      partial: true,
+      summary,
+      matches: [
+        {
+          userId: "new",
+          displayName: "Asha Rao",
+          connectionStatus: "auto_connected",
+        },
+        {
+          userId: "existing",
+          displayName: "Meena Shah",
+          connectionStatus: "already_connected",
+        },
+        {
+          userId: "removed",
+          displayName: "Ravi Kumar",
+          connectionStatus: "suppressed",
+        },
+      ],
+    });
+    const onAddOnboardingContact = vi.fn();
+    await renderReady({
+      contactsStepAvailable: true,
+      onSyncOnboardingContacts,
+      onAddOnboardingContact,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+
+    expect(await screen.findByText(summary)).toBeInTheDocument();
+    for (const [name, status] of [
+      ["Asha Rao", "Connected now"],
+      ["Meena Shah", "Already connected"],
+      ["Ravi Kumar", "Kept disconnected"],
+    ]) {
+      expect(
+        within(screen.getByText(name).closest("li")!).getByText(status),
+      ).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Request" })).toBeNull();
+    expect(onAddOnboardingContact).not.toHaveBeenCalled();
+    onSyncOnboardingContacts.mockResolvedValueOnce({
+      status: "none",
+      partial: false,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Sync again" }));
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(summary)).toBeNull();
+    expect(onSyncOnboardingContacts).toHaveBeenCalledTimes(2);
+  });
+
+  it("retries a device failure that does not require Settings", async () => {
+    const onSyncOnboardingContacts = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failed",
+        message: "Try the contact check again.",
+        canOpenSettings: false,
+      })
+      .mockResolvedValueOnce({ status: "none", partial: false });
+    await renderReady({ contactsSource: "device", onSyncOnboardingContacts });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Try again" }));
+    expect(
+      await screen.findByText("No eligible contacts matched."),
+    ).toBeInTheDocument();
+    expect(onSyncOnboardingContacts).toHaveBeenCalledTimes(2);
+  });
+
+  it("updates the inline results when Settings resumes the contact check", async () => {
+    const onOpenContactSettings = vi.fn();
+    const onSyncOnboardingContacts = vi
+      .fn()
+      .mockResolvedValueOnce({
+        status: "failed",
+        message: "Contacts access is off.",
+        canOpenSettings: true,
+      })
+      .mockResolvedValueOnce({
+        status: "matched",
+        matches: [
+          {
+            userId: "new",
+            displayName: "Asha Rao",
+            connectionStatus: "auto_connected",
+          },
+        ],
+      });
+    await renderReady({ onSyncOnboardingContacts, onOpenContactSettings });
+    fireEvent.click(screen.getByRole("button", { name: "Find contacts" }));
+    fireEvent.click(screen.getByRole("button", { name: "Check my contacts" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Open Settings" }));
+
+    await act(async () => onOpenContactSettings.mock.calls[0][0]());
+    expect(await screen.findByText("Asha Rao")).toBeInTheDocument();
+    expect(screen.getByText("Connected now")).toBeInTheDocument();
+    expect(screen.queryByText("Contacts access is off.")).toBeNull();
+    expect(onSyncOnboardingContacts).toHaveBeenCalledTimes(2);
   });
 
   it("shows contact denial recovery without blocking Finish", async () => {

@@ -16,10 +16,11 @@ import time
 from datetime import datetime, timezone
 from typing import Annotated, Any, AsyncGenerator, Callable, Dict, Optional
 
-from fastapi import APIRouter, Header, HTTPException, Path, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, Path, Query, Request
 from pydantic import BaseModel, Field
 from sse_starlette.sse import EventSourceResponse
 
+from api.middleware import require_vault_owner_token
 from api.middlewares.observability import get_request_id
 from api.routes.kai._streaming import (
     STOCK_ANALYZE_TIMEOUT_SECONDS,
@@ -30,8 +31,6 @@ from hushh_mcp.agents.kai.debate_engine import DebateEngine
 from hushh_mcp.agents.kai.fundamental_agent import FundamentalAgent, FundamentalInsight
 from hushh_mcp.agents.kai.sentiment_agent import SentimentAgent, SentimentInsight
 from hushh_mcp.agents.kai.valuation_agent import ValuationAgent, ValuationInsight
-from hushh_mcp.consent.token import validate_token_with_db
-from hushh_mcp.constants import ConsentScope
 from hushh_mcp.operons.kai.llm import (
     get_gemini_unavailable_reason,
     is_gemini_ready,
@@ -137,39 +136,30 @@ def _require_known_ticker_or_422(ticker: str) -> str:
     return ticker
 
 
-async def _require_vault_owner_token(
+def _require_stream_owner_token(
     *,
     user_id: str,
-    authorization: str | None,
+    token_data: dict,
 ) -> str:
-    if not authorization or not authorization.startswith("Bearer "):
-        raise HTTPException(
-            status_code=401,
-            detail="Missing consent token. Call /api/consent/owner-token first.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+    """Bind a canonically validated owner capability to the requested owner.
 
-    # Use removeprefix (not replace) so "Bearer " is stripped only from the start,
-    # preventing accidental token corruption when the token value itself contains
-    # the substring "Bearer ".
-    consent_token = authorization.removeprefix("Bearer ").strip()
-
-    # validate_token_with_db performs both the offline JWT check AND a DB-backed
-    # revocation lookup, matching the canonical pattern in api/middleware.py.
-    # validate_token (offline-only) was the previous, weaker check.
-    valid, reason, payload = await validate_token_with_db(consent_token, ConsentScope.VAULT_OWNER)
-
-    if not valid or not payload:
-        logger.warning("stream.token_invalid reason=%s", reason)
-        raise HTTPException(
-            status_code=401,
-            detail="Consent token validation failed.",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
-
-    if payload.user_id != user_id:
+    ``require_vault_owner_token`` is the authority for signature, scope,
+    revocation, and account-lifecycle checks. Keeping only the explicit owner
+    match here prevents this streaming module from growing a second auth path
+    that can drift from the typed 401/423/503 lifecycle contract.
+    """
+    if str(token_data.get("user_id") or "") != user_id:
         raise HTTPException(status_code=403, detail="Token user mismatch")
 
+    consent_token = str(token_data.get("token") or "").strip()
+    if not consent_token:
+        # Defensive only: the canonical dependency always returns the raw
+        # validated token. Never begin a downstream run without it.
+        raise HTTPException(
+            status_code=401,
+            detail="Token validation failed.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     return consent_token
 
 
@@ -2711,7 +2701,7 @@ async def analyze_stream(
     ticker: str = Query(min_length=1, max_length=_TICKER_RAW_MAX_LEN),
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     risk_profile: str = Query(default="balanced", max_length=_RISK_PROFILE_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     SSE endpoint for streaming Kai analysis.
@@ -2730,8 +2720,7 @@ async def analyze_stream(
     """
     ticker = _normalize_ticker_or_422(ticker)
 
-    # Auth uses validate_token_with_db inside _require_vault_owner_token().
-    consent_token = await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    consent_token = _require_stream_owner_token(user_id=user_id, token_data=token_data)
     # Membership gate runs after auth so unauthenticated callers cannot probe
     # which symbols exist.
     ticker = _require_known_ticker_or_422(ticker)
@@ -2763,7 +2752,7 @@ async def analyze_stream(
 async def analyze_stream_post(
     request: Request,
     body: StreamAnalyzeRequest,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """
     POST version of streaming analysis (allows context in body).
@@ -2771,10 +2760,9 @@ async def analyze_stream_post(
     """
     ticker = _normalize_ticker_or_422(body.ticker)
 
-    # Auth uses validate_token_with_db inside _require_vault_owner_token().
-    consent_token = await _require_vault_owner_token(
+    consent_token = _require_stream_owner_token(
         user_id=body.user_id,
-        authorization=authorization,
+        token_data=token_data,
     )
 
     if not body.run_id:
@@ -2853,14 +2841,14 @@ async def analyze_stream_post(
 @router.post("/analyze/run/start")
 async def analyze_run_start(
     body: StartAnalyzeRunRequest,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """Start or attach to a session-locked background analyze run."""
     ticker = _normalize_ticker_or_422(body.ticker)
 
-    consent_token = await _require_vault_owner_token(
+    consent_token = _require_stream_owner_token(
         user_id=body.user_id,
-        authorization=authorization,
+        token_data=token_data,
     )
     # Membership gate runs after auth so unauthenticated callers cannot probe
     # which symbols exist.
@@ -2908,13 +2896,13 @@ async def analyze_run_start(
 async def analyze_run_active(
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     debate_session_id: str = Query(min_length=1, max_length=_DEBATE_SESSION_ID_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """Get active run for a given user/session.
 
     Returns HTTP 200 with ``{"run": null}`` when no active run exists.
     """
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.get_active(user_id=user_id, debate_session_id=debate_session_id)
     return {"run": run.to_public_dict() if run else None}
 
@@ -2925,10 +2913,10 @@ async def analyze_run_stream(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
     cursor: Optional[int] = 0,
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """Replay buffered events (from cursor) and continue streaming live."""
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.get_run(run_id)
     if run is None or run.user_id != user_id:
         raise HTTPException(
@@ -2971,10 +2959,10 @@ async def analyze_run_stream(
 async def analyze_run_cancel(
     run_id: RunId,
     user_id: str = Query(min_length=1, max_length=_USER_ID_MAX_LEN),
-    authorization: Optional[str] = Header(None, description="Bearer VAULT_OWNER consent token"),
+    token_data: dict = Depends(require_vault_owner_token),
 ):
     """Cancel an active run."""
-    await _require_vault_owner_token(user_id=user_id, authorization=authorization)
+    _require_stream_owner_token(user_id=user_id, token_data=token_data)
     run = await _RUN_MANAGER.cancel_run(run_id=run_id, user_id=user_id)
     if run is None:
         raise HTTPException(

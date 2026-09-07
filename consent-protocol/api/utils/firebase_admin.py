@@ -20,6 +20,7 @@ from hushh_mcp.runtime_settings import (
 )
 
 DEFAULT_SERVICE_ACCOUNT_ENV = FIREBASE_ADMIN_CREDENTIALS_JSON_ENV
+FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS = 4
 
 
 def _load_service_account_from_env(var_name: str) -> Optional[dict[str, Any]]:
@@ -92,13 +93,19 @@ def ensure_firebase_admin() -> Tuple[bool, Optional[str]]:
     sa = _load_service_account_from_env(DEFAULT_SERVICE_ACCOUNT_ENV)
     if sa:
         cred = credentials.Certificate(sa)
-        app = firebase_admin.initialize_app(cred)
+        app = firebase_admin.initialize_app(
+            cred,
+            options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
+        )
         return True, _project_id_from_app(app, sa)
 
     # Fall back to ADC (Cloud Run / local gcloud)
     try:
         cred = credentials.ApplicationDefault()
-        app = firebase_admin.initialize_app(cred)
+        app = firebase_admin.initialize_app(
+            cred,
+            options={"httpTimeout": FIREBASE_ADMIN_HTTP_TIMEOUT_SECONDS},
+        )
         return True, _project_id_from_app(app)
     except Exception:
         # Not configured (caller decides whether to 500/401)

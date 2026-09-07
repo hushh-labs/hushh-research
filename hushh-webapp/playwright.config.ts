@@ -78,7 +78,7 @@ export default defineConfig({
       // fixture builds its own document, so neither of the two known WebKit
       // failures above can reach it.
       testMatch:
-        /(agent-surface-model-authority\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
+        /(account-session-recovery|agent-surface-model-authority\.layout|connect-sticky-header\.layout|circle-join-responsive-contract|circle-member-row\.layout|connect-circle-cta\.layout|one-location-requests-sent-row\.layout|one-location-duration-ladder\.layout|gemini-endpoint-fields\.layout|feed-needs-you-row\.layout|one-location-tab-strip\.layout|one-location-ready-panel\.layout|one-location-map-consent-panel\.layout|one-location-flow-action-footer\.layout|app-shell-top-clearance\.layout|app-shell-bottom-clearance\.layout|save-location-sheet\.layout|one-location-check-in-panel\.layout)\.spec\.ts/,
     },
     {
       name: "firefox",
@@ -91,12 +91,13 @@ export default defineConfig({
   ],
 
   /* Start the dev server automatically when running locally */
-  webServer: process.env.CI
-    ? undefined
-    : {
-        command: `npm run dev -- --port ${basePort}`,
-        url: baseURL,
-        reuseExistingServer: true,
-        timeout: 120_000,
-      },
+  webServer:
+    process.env.CI && process.env.PLAYWRIGHT_START_SERVER !== "1"
+      ? undefined
+      : {
+          command: `npm run dev -- --port ${basePort}`,
+          url: baseURL,
+          reuseExistingServer: true,
+          timeout: 120_000,
+        },
 });

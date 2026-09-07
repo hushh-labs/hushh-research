@@ -61,6 +61,30 @@ The vault key and VAULT_OWNER token remain memory-only. A normal background/resu
   comparison can turn a prerequisite route into a self-redirect loop that web
   development does not reproduce.
 
+## Resume Privacy Shield Contract
+
+- iOS and Android cover the native WebView before the app becomes inactive, so
+  stale authenticated or vault content cannot appear in an app-switcher
+  snapshot or the first resumed frame. Android also owns `FLAG_SECURE` while
+  the cover is visible.
+- Every inactive cycle receives a monotonically increasing, process-local
+  generation. The shared `AuthProvider` captures that generation, completes
+  the bounded account/session validation, and asks `HushhSessionPrivacy` to
+  release only that exact generation. A delayed acknowledgement from an older
+  cycle can never uncover a newer shield.
+- Resume itself never removes the cover. Native code accepts release only while
+  the app/activity is active and the requested generation is current. A
+  terminal account or session result keeps the cover in place through the
+  document replacement that returns the person to Login.
+- The cover is visual and accessible: iOS presents it as a modal accessibility
+  surface; Android hides the underlying WebView descendants from TalkBack and
+  restores the WebView's previous accessibility mode only after an accepted
+  release or activity teardown.
+- A fresh process starts unshielded because it has no prior WebView content to
+  expose. The normal auth/loading gates still withhold authenticated surfaces
+  during cold restoration; the shield is not authentication persistence and
+  never stores a credential, vault key, or account identifier.
+
 ## Native Test Safety Contract
 
 Native verification has four distinct kinds of evidence. They must never be

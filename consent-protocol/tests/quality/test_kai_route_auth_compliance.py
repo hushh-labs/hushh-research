@@ -32,12 +32,32 @@ KAI_AUTH_EXPECTATIONS = [
     (
         "api/routes/kai/stream.py",
         '@router.get("/analyze/stream"',
-        "validate_token_with_db",
+        "Depends(require_vault_owner_token)",
     ),
     (
         "api/routes/kai/stream.py",
         '@router.post("/analyze/stream"',
-        "validate_token_with_db",
+        "Depends(require_vault_owner_token)",
+    ),
+    (
+        "api/routes/kai/stream.py",
+        '@router.post("/analyze/run/start"',
+        "Depends(require_vault_owner_token)",
+    ),
+    (
+        "api/routes/kai/stream.py",
+        '@router.get("/analyze/run/active"',
+        "Depends(require_vault_owner_token)",
+    ),
+    (
+        "api/routes/kai/stream.py",
+        '@router.get("/analyze/run/{run_id}/stream"',
+        "Depends(require_vault_owner_token)",
+    ),
+    (
+        "api/routes/kai/stream.py",
+        '@router.post("/analyze/run/{run_id}/cancel"',
+        "Depends(require_vault_owner_token)",
     ),
     ("api/routes/kai/chat.py", '@router.post("/chat"', "require_vault_owner_token"),
     (

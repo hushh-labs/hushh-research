@@ -3,9 +3,9 @@ Regression tests for CWE-400 fixes in api/routes/kai/stream.py.
 
 CWE-400 -- Uncontrolled Resource Consumption:
   All four streaming/run handlers accepted unbounded string parameters that
-  could be exploited to trigger excessive allocation before auth logic runs.
-  This test suite verifies that FastAPI now enforces length constraints and
-  returns HTTP 422 for oversized inputs.
+  could be exploited to trigger excessive allocation in handler logic.
+  This test suite verifies that FastAPI enforces length constraints after
+  canonical auth and returns HTTP 422 for oversized authenticated inputs.
 
 Endpoints under test:
   GET  /api/kai/analyze/stream          ticker, user_id, risk_profile (Query)
@@ -22,6 +22,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from api.middleware import require_vault_owner_token
 from api.routes.kai import router as kai_router
 
 # ---------------------------------------------------------------------------
@@ -35,6 +36,22 @@ from api.routes.kai import router as kai_router
 def client() -> TestClient:
     app = FastAPI()
     app.include_router(kai_router)
+    return TestClient(app, raise_server_exceptions=False)
+
+
+@pytest.fixture
+def authorized_client() -> TestClient:
+    """Exercise field bounds after canonical auth, without a live DB or LLM.
+
+    FastAPI resolves dependencies before route-field validation. The separate
+    unauthenticated control client continues to prove the real auth boundary.
+    """
+    app = FastAPI()
+    app.include_router(kai_router)
+    app.dependency_overrides[require_vault_owner_token] = lambda: {
+        "user_id": _GOOD_USER_ID,
+        "token": "fixture-owner-capability",
+    }
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -73,7 +90,8 @@ def _auth_headers() -> dict[str, str]:
 
 
 class TestAnalyzeStreamQueryBounds:
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -84,7 +102,8 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_ticker_rejected_422(self, client: TestClient):
+    def test_oversized_ticker_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -95,7 +114,8 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_risk_profile_rejected_422(self, client: TestClient):
+    def test_oversized_risk_profile_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -107,8 +127,9 @@ class TestAnalyzeStreamQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_empty_ticker_rejected_422(self, client: TestClient):
+    def test_empty_ticker_rejected_422(self, authorized_client: TestClient):
         """min_length=1 means empty string is rejected."""
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/stream",
             params={
@@ -139,7 +160,8 @@ class TestAnalyzeStreamQueryBounds:
 
 
 class TestAnalyzeRunActiveQueryBounds:
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/run/active",
             params={
@@ -150,7 +172,8 @@ class TestAnalyzeRunActiveQueryBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_debate_session_id_rejected_422(self, client: TestClient):
+    def test_oversized_debate_session_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             "/api/kai/analyze/run/active",
             params={
@@ -191,7 +214,8 @@ class TestAnalyzeRunActiveQueryBounds:
 
 
 class TestAnalyzeRunStreamBounds:
-    def test_oversized_run_id_rejected_422(self, client: TestClient):
+    def test_oversized_run_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             f"/api/kai/analyze/run/{_LONG_RUN_ID}/stream",
             params={"user_id": _GOOD_USER_ID},
@@ -199,7 +223,8 @@ class TestAnalyzeRunStreamBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.get(
             f"/api/kai/analyze/run/{_GOOD_RUN_ID}/stream",
             params={"user_id": _LONG_STR_129},
@@ -231,7 +256,8 @@ class TestAnalyzeRunStreamBounds:
 
 
 class TestAnalyzeRunCancelBounds:
-    def test_oversized_run_id_rejected_422(self, client: TestClient):
+    def test_oversized_run_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.post(
             f"/api/kai/analyze/run/{_LONG_RUN_ID}/cancel",
             params={"user_id": _GOOD_USER_ID},
@@ -239,7 +265,8 @@ class TestAnalyzeRunCancelBounds:
         )
         assert resp.status_code == 422
 
-    def test_oversized_user_id_rejected_422(self, client: TestClient):
+    def test_oversized_user_id_rejected_422(self, authorized_client: TestClient):
+        client = authorized_client
         resp = client.post(
             f"/api/kai/analyze/run/{_GOOD_RUN_ID}/cancel",
             params={"user_id": _LONG_STR_129},

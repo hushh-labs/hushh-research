@@ -21,6 +21,10 @@ from sqlalchemy.engine import Connection
 
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+    CONTACT_SYNC_PREFERENCE_DEFAULT,
+    CONTACT_SYNC_PREFERENCE_ENABLED,
 )
 
 ORIGIN_DIRECT_REQUEST = "direct_request"
@@ -35,7 +39,7 @@ ORIGIN_LEGACY_INVITE = "legacy_invite"
 ORIGIN_IMPORT = "import"
 ORIGIN_CONTACT_SYNC = "contact_sync"
 
-_GRAPH_MUTATION_LOCK_NAMESPACE = 171
+_GRAPH_MUTATION_LOCK_NAMESPACE = CONTACT_SYNC_POLICY_LOCK_NAMESPACE
 
 ORIGIN_KINDS = frozenset(
     {
@@ -402,7 +406,11 @@ class ConnectionGraphService:
                 not target
                 or target == requester
                 or authorization
-                not in {"verified_phone_contact_match", "existing_connection_match"}
+                not in {
+                    "verified_phone_contact_match",
+                    "verified_phone_directory_match",
+                    "existing_connection_match",
+                }
             ):
                 raise ValueError("Invalid contact-sync activation.")
             safe_metadata: dict[str, Any] = {"authorization": authorization}
@@ -424,6 +432,21 @@ class ConnectionGraphService:
                         "targetConsentEnabledAt": enabled_at,
                         "targetConsentRuleVersion": rule_version,
                         "targetConsentContractVersion": contract_version,
+                    }
+                )
+            elif authorization == "verified_phone_directory_match":
+                match_policy_version = str(metadata.get("matchPolicyVersion") or "").strip()
+                preference_state = str(metadata.get("targetPreferenceState") or "").strip()
+                if (
+                    match_policy_version != CONTACT_SYNC_MATCH_POLICY_VERSION
+                    or preference_state
+                    not in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
+                ):
+                    raise ValueError("Invalid contact-sync directory policy evidence.")
+                safe_metadata.update(
+                    {
+                        "matchPolicyVersion": match_policy_version,
+                        "targetPreferenceState": preference_state,
                     }
                 )
             normalized[target] = json.dumps(safe_metadata, sort_keys=True, separators=(",", ":"))

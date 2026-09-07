@@ -24,6 +24,11 @@ from hushh_mcp.services.consent_request_links import (
 )
 from hushh_mcp.services.contact_sync_contract import (
     CONTACT_SYNC_CONSENT_CONTRACT_VERSION,
+    CONTACT_SYNC_MATCH_POLICY_VERSION,
+    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+    CONTACT_SYNC_PREFERENCE_DEFAULT,
+    CONTACT_SYNC_PREFERENCE_ENABLED,
+    contact_sync_preference_state,
 )
 from hushh_mcp.services.email_delivery_queue_service import get_email_delivery_queue_service
 from hushh_mcp.services.kai_invite_email_service import get_kai_invite_email_service
@@ -2651,31 +2656,46 @@ class RIAIAMService:
             await conn.close()
 
     async def get_contact_discoverability(self, user_id: str) -> dict[str, Any]:
-        """Report explicit combined consent to be found and auto-connected."""
+        """Report the effective directory contact-matching preference."""
         conn = await self._conn()
         try:
             await self._ensure_iam_schema_ready(conn)
             row = await conn.fetchrow(
                 """
-                SELECT contact_discoverable, contact_sync_consent_enabled_at,
-                       contact_sync_consent_rule_version,
-                       contact_sync_consent_contract_version
-                FROM actor_profiles
-                WHERE user_id = $1
+                SELECT actor.contact_discoverable,
+                       actor.contact_sync_consent_enabled_at,
+                       actor.contact_sync_consent_rule_version,
+                       actor.contact_sync_consent_contract_version,
+                       marketplace.is_discoverable AS marketplace_is_discoverable
+                FROM (SELECT $1::text AS user_id) requested
+                LEFT JOIN actor_profiles actor ON actor.user_id = requested.user_id
+                LEFT JOIN marketplace_public_profiles marketplace
+                  ON marketplace.user_id = requested.user_id
                 """,
                 user_id,
             )
+            preference_state = contact_sync_preference_state(
+                discoverable=None if row is None else row["contact_discoverable"],
+                enabled_at=(None if row is None else row["contact_sync_consent_enabled_at"]),
+                rule_version=(0 if row is None else row["contact_sync_consent_rule_version"]),
+                contract_version=(
+                    None if row is None else row["contact_sync_consent_contract_version"]
+                ),
+            )
+            directory_visible = bool(
+                row is not None and row["marketplace_is_discoverable"] is not False
+            )
             enabled = bool(
-                row is not None
-                and row["contact_discoverable"]
-                and row["contact_sync_consent_enabled_at"] is not None
-                and int(row["contact_sync_consent_rule_version"] or 0) > 0
-                and row["contact_sync_consent_contract_version"]
-                == CONTACT_SYNC_CONSENT_CONTRACT_VERSION
+                directory_visible
+                and preference_state
+                in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
             )
             return {
                 "user_id": user_id,
                 "contact_discoverable": enabled,
+                "stored_contact_discoverable": bool(
+                    row is not None and row["contact_discoverable"]
+                ),
                 "contact_sync_consent_enabled_at": (
                     None if row is None else row["contact_sync_consent_enabled_at"]
                 ),
@@ -2685,6 +2705,10 @@ class RIAIAMService:
                 "contact_sync_consent_contract_version": (
                     None if row is None else row["contact_sync_consent_contract_version"]
                 ),
+                "contact_sync_preference_state": preference_state,
+                "contact_sync_match_policy_version": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                "directory_visible": directory_visible,
+                "iam_schema_ready": True,
             }
         except (
             asyncpg.exceptions.UndefinedColumnError,
@@ -2712,6 +2736,15 @@ class RIAIAMService:
         conn = await self._conn()
         try:
             async with conn.transaction():
+                # Serialize this explicit preference with contact-sync graph
+                # creation for the same person. Migration 200 applies the same
+                # lock to every relevant policy-table writer, including rows
+                # created by other services.
+                await conn.execute(
+                    "SELECT pg_advisory_xact_lock(hashtextextended($1, $2))",
+                    user_id,
+                    CONTACT_SYNC_POLICY_LOCK_NAMESPACE,
+                )
                 await self._ensure_vault_user_row(conn, user_id)
                 await self._ensure_iam_schema_ready(conn)
                 row = await conn.fetchrow(
@@ -2759,9 +2792,31 @@ class RIAIAMService:
                 )
                 if row is None:
                     raise RuntimeError("Failed to update contact discoverability")
+                marketplace_row = await conn.fetchrow(
+                    """
+                    SELECT is_discoverable
+                    FROM marketplace_public_profiles
+                    WHERE user_id = $1
+                    """,
+                    user_id,
+                )
+                preference_state = contact_sync_preference_state(
+                    discoverable=row["contact_discoverable"],
+                    enabled_at=row["contact_sync_consent_enabled_at"],
+                    rule_version=row["contact_sync_consent_rule_version"],
+                    contract_version=row["contact_sync_consent_contract_version"],
+                )
+                directory_visible = bool(
+                    marketplace_row is None or marketplace_row["is_discoverable"] is not False
+                )
                 return {
                     "user_id": row["user_id"],
-                    "contact_discoverable": bool(row["contact_discoverable"]),
+                    "contact_discoverable": bool(
+                        directory_visible
+                        and preference_state
+                        in {CONTACT_SYNC_PREFERENCE_DEFAULT, CONTACT_SYNC_PREFERENCE_ENABLED}
+                    ),
+                    "stored_contact_discoverable": bool(row["contact_discoverable"]),
                     "contact_sync_consent_enabled_at": row["contact_sync_consent_enabled_at"],
                     "contact_sync_consent_rule_version": int(
                         row["contact_sync_consent_rule_version"] or 0
@@ -2769,6 +2824,10 @@ class RIAIAMService:
                     "contact_sync_consent_contract_version": row[
                         "contact_sync_consent_contract_version"
                     ],
+                    "contact_sync_preference_state": preference_state,
+                    "contact_sync_match_policy_version": CONTACT_SYNC_MATCH_POLICY_VERSION,
+                    "directory_visible": directory_visible,
+                    "iam_schema_ready": True,
                 }
         except (
             asyncpg.exceptions.UndefinedColumnError,
@@ -9148,8 +9207,18 @@ class RIAIAMService:
         matched rows only and never returning the digest or phone digits.
         """
 
+        if len(phone_lookups) > 1000:
+            # The HTTP contract and lookup-weighted abuse budget use this same
+            # batch boundary. Never silently slice here: doing so would turn a
+            # caller regression into an ordinary zero-match result, recreating
+            # the exact class of truncation bug this matcher replaces.
+            raise RIAIAMPolicyError(
+                "Contact matching accepts at most 1000 proofs per batch.",
+                status_code=422,
+            )
+
         normalized: list[tuple[str, str, str]] = []
-        for item in phone_lookups[:1000]:
+        for item in phone_lookups:
             lookup_id = str(item.get("lookup_id") or "").strip()
             digest = str(item.get("hash") or "").strip().lower()
             last4 = str(item.get("last4") or "").strip()
@@ -9217,13 +9286,7 @@ class RIAIAMService:
                 WHERE identity.match_count = 1
                   AND identity.user_id <> $1
                   AND (
-                    (
-                      actor.contact_discoverable = TRUE
-                      AND actor.contact_sync_consent_enabled_at IS NOT NULL
-                      AND actor.contact_sync_consent_rule_version > 0
-                      AND actor.contact_sync_consent_contract_version = $5
-                    )
-                    OR EXISTS (
+                    EXISTS (
                       -- Contact discoverability controls disclosure to new
                       -- people. It must not hide a relationship the requester
                       -- can already see in their canonical ONE graph.
@@ -9239,6 +9302,27 @@ class RIAIAMService:
                             AND existing_connection.user_a_id = identity.user_id
                           )
                         )
+                    )
+                    OR (
+                      -- New exact matches follow the same visibility boundary
+                      -- as the verified ONE Connect directory. A missing/default
+                      -- contact preference is eligible; a recorded opt-out or
+                      -- malformed positive-version decision fails closed.
+                      profile.is_discoverable IS DISTINCT FROM FALSE
+                      AND (
+                        actor.user_id IS NULL
+                        OR (
+                          COALESCE(actor.contact_sync_consent_rule_version, 0) = 0
+                          AND actor.contact_sync_consent_enabled_at IS NULL
+                          AND actor.contact_sync_consent_contract_version IS NULL
+                        )
+                        OR (
+                          actor.contact_discoverable = TRUE
+                          AND actor.contact_sync_consent_enabled_at IS NOT NULL
+                          AND actor.contact_sync_consent_rule_version > 0
+                          AND actor.contact_sync_consent_contract_version = $5
+                        )
+                      )
                     )
                   )
                 ORDER BY identity.lookup_id
@@ -9283,10 +9367,11 @@ class RIAIAMService:
             investors who opted in). This is the Connect deck's policy.
 
         ``one_network``
-            Any account that is phone verified and has explicitly enabled the
-            combined find-and-auto-connect setting. This is what One Location contact sync needs; the
-            marketplace policy returns nothing for ordinary users because
-            ``marketplace_public_profiles.is_discoverable`` defaults to FALSE.
+            Current verified ONE Connect-directory accounts that have not
+            explicitly disabled contact matching. A version-zero preference is
+            the directory default; malformed positive-version evidence fails
+            closed. Canonical contact sync uses the non-truncating exact matcher
+            above, while this scope remains for compatible read-only callers.
 
         Neither policy discloses a phone number. The caller proves it already
         holds the number by supplying its SHA-256 digest, and the server only
@@ -9335,22 +9420,51 @@ class RIAIAMService:
         candidate_row_cap = min(max(len(last4_values) * 50, 500), 50_000)
 
         if normalized_scope == "one_network":
-            # The combined setting is explicit and versioned. A missing profile
-            # row or a legacy default-TRUE row is not relationship consent.
+            # Mirror verified ONE directory visibility plus the explicit
+            # contact opt-out. Do not mistake default eligibility for authored
+            # target consent; graph provenance uses a separate policy marker.
             eligibility_join = """
                 LEFT JOIN marketplace_public_profiles mp
                   ON mp.user_id = aic.user_id
-                  AND mp.is_discoverable = TRUE
                 LEFT JOIN actor_profiles ap
                   ON ap.user_id = aic.user_id
                 LEFT JOIN ria_profiles rp
                   ON rp.user_id = aic.user_id
             """
             eligibility_predicate = """
-                  AND ap.contact_discoverable = TRUE
-                  AND ap.contact_sync_consent_enabled_at IS NOT NULL
-                  AND ap.contact_sync_consent_rule_version > 0
-                  AND ap.contact_sync_consent_contract_version = $4
+                  AND (
+                    EXISTS (
+                      SELECT 1
+                      FROM connections existing_connection
+                      WHERE existing_connection.status = 'active'
+                        AND (
+                          (
+                            existing_connection.user_a_id = $1
+                            AND existing_connection.user_b_id = aic.user_id
+                          ) OR (
+                            existing_connection.user_b_id = $1
+                            AND existing_connection.user_a_id = aic.user_id
+                          )
+                        )
+                    )
+                    OR (
+                      mp.is_discoverable IS DISTINCT FROM FALSE
+                      AND (
+                        ap.user_id IS NULL
+                        OR (
+                          COALESCE(ap.contact_sync_consent_rule_version, 0) = 0
+                          AND ap.contact_sync_consent_enabled_at IS NULL
+                          AND ap.contact_sync_consent_contract_version IS NULL
+                        )
+                        OR (
+                          ap.contact_discoverable = TRUE
+                          AND ap.contact_sync_consent_enabled_at IS NOT NULL
+                          AND ap.contact_sync_consent_rule_version > 0
+                          AND ap.contact_sync_consent_contract_version = $4
+                        )
+                      )
+                    )
+                  )
             """
             query_args: tuple[Any, ...] = (
                 user_id,

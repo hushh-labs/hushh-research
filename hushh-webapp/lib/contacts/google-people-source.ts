@@ -55,11 +55,54 @@ const READ_SOURCE = "READ_SOURCE_TYPE_CONTACT";
 const PAGE_SIZE = 1000;
 
 /**
- * Pages are bounded rather than followed to exhaustion. Five pages match the
+ * Pages are bounded rather than followed to exhaustion. Ten pages match the
  * contact-sync read budget; a larger account is reported as truncated and its
  * unreturned rows stay explicitly unchecked rather than being called unmatched.
  */
-const MAX_PAGES = 5;
+const MAX_PAGES = 10;
+export const GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS = 30_000;
+
+async function readPeoplePage(
+  url: string,
+  token: string,
+): Promise<PeopleConnectionsResponse> {
+  const controller = new AbortController();
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  const timeout = new Promise<never>((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller.abort();
+      reject(
+        new Error(
+          "Google Contacts took too long to respond. Check your connection and try again.",
+        ),
+      );
+    }, GOOGLE_PEOPLE_REQUEST_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([
+      (async () => {
+        const response = await fetch(url, {
+          cache: "no-store",
+          headers: { Authorization: `Bearer ${token}` },
+          signal: controller.signal,
+        });
+        if (!response.ok) {
+          throw new Error(
+            response.status === 401
+              ? "Google contact access expired. Connect again to keep going."
+              : response.status === 403
+                ? "Google Contacts access is unavailable for this app or account. Try again later."
+                : "Could not read your Google contacts. Try again in a moment.",
+          );
+        }
+        return (await response.json()) as PeopleConnectionsResponse;
+      })(),
+      timeout,
+    ]);
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
+  }
+}
 
 export type GoogleContactsAvailability = "connectable" | "unconfigured";
 
@@ -158,21 +201,7 @@ export function googlePeopleContactSource(
       // somebody's address book, and there is nowhere in this design to keep
       // one — nothing here is persisted.
 
-      const response = await fetch(url.toString(), {
-        cache: "no-store",
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        throw new Error(
-          response.status === 401
-            ? "Google contact access expired. Connect again to keep going."
-            : response.status === 403
-              ? "Google Contacts access is unavailable for this app or account. Try again later."
-              : "Could not read your Google contacts. Try again in a moment.",
-        );
-      }
-
-      const payload = (await response.json()) as PeopleConnectionsResponse;
+      const payload = await readPeoplePage(url.toString(), token);
       totalPeople = Number(payload.totalPeople || 0) || totalPeople;
 
       for (const person of payload.connections ?? []) {

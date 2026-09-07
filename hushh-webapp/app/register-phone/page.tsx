@@ -280,7 +280,20 @@ export function PhoneMandatePageContent() {
     { role: "route", routeKey: ROUTES.PHONE_MANDATE },
   );
 
-  if (loading || !user) {
+  // Gate on identity, never on `loading`.
+  //
+  // `loading` is not "the page is still booting" -- the web auth observer sets
+  // it true on every re-validation (lib/firebase/auth-context.tsx:1369), and
+  // starting Firebase phone verification is exactly the kind of event that
+  // triggers one. Returning a fullscreen loader here UNMOUNTS
+  // PhoneVerificationFlow, and its `step` lives in useState, so a person who
+  // had just been sent a code was silently put back on the phone form: the
+  // "Verification code sent" toast had already fired, and the OTP screen they
+  // needed was destroyed before they could type into it.
+  //
+  // A signed-out visitor still sees this loader -- `user` is null -- while the
+  // redirect at the top of this component sends them to /login.
+  if (!user) {
     return (
       <HushhLoader label="Loading phone verification..." variant="fullscreen" />
     );
@@ -383,6 +396,7 @@ export function PhoneMandatePageContent() {
           }}
         >
           <PhoneVerificationFlow
+            key={user.uid}
             mode="link"
             currentPhoneNumber={phoneNumber}
             startVerification={startPhoneVerification}

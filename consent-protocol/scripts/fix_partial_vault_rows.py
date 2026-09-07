@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Inspect and optionally clean invalid vault rows in development databases."""
+"""Inspect invalid vault rows without deleting account lifecycle roots."""
 
 from __future__ import annotations
 
@@ -95,7 +95,10 @@ async def main() -> None:
     parser.add_argument(
         "--delete-invalid",
         action="store_true",
-        help="Delete invalid vault rows (cascades to wrappers/PKM).",
+        help=(
+            "Retired after migration 201: direct vault-root deletion would "
+            "permanently tombstone a live account."
+        ),
     )
     parser.add_argument(
         "--confirm",
@@ -108,9 +111,13 @@ async def main() -> None:
         print("Refusing to run outside development/staging-safe environment.")
         sys.exit(3)
 
-    if args.delete_invalid and not args.confirm:
-        print("Refusing to delete without --confirm")
-        sys.exit(2)
+    if args.delete_invalid:
+        print(
+            "Refusing direct vault-root deletion: migration 201 treats it as "
+            "full account erasure. Use an approved in-place repair or the "
+            "authenticated account-deletion flow."
+        )
+        sys.exit(4)
 
     db_url = get_database_url()
     ssl_cfg = get_database_ssl()
@@ -120,20 +127,7 @@ async def main() -> None:
         invalid_rows = await _fetch_invalid_rows(conn)
         _print_invalid_rows(invalid_rows)
 
-        if not args.delete_invalid:
-            return
-
-        if not invalid_rows:
-            print("Nothing to delete.")
-            return
-
-        async with conn.transaction():
-            for row in invalid_rows:
-                await conn.execute(
-                    "DELETE FROM vault_keys WHERE user_id = $1",
-                    row.user_id,
-                )
-        print(f"Deleted {len(invalid_rows)} invalid vault row(s).")
+        return
     finally:
         await conn.close()
 

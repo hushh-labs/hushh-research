@@ -181,6 +181,16 @@ jobs:
           echo "deploy_backend=$DEPLOY_BACKEND" >> "$GITHUB_OUTPUT"
           echo "deploy_frontend=$DEPLOY_FRONTEND" >> "$GITHUB_OUTPUT"
 
+      - name: Block production migration 201 until lifecycle rollout controls exist
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ -f consent-protocol/db/migrations/201_account_deletion_tombstones.sql ]; then
+            echo "::error title=Production account-deletion boundary is not activated::Migration 201 requires the production deletion fence, pinned bridge revision, fresh Scheduler AttemptFinished evidence, and legacy revision drain before any backend deploy. Use the governed UAT rollout only until those production controls land."
+            exit 1
+          fi
+
       - name: Capture predeploy Cloud Run state
         id: predeploy-state
         shell: bash

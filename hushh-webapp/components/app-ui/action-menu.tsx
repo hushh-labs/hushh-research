@@ -55,6 +55,7 @@ export type ActionMenuItem = {
    *  rather than queued -- single-flight, visibly. */
   busy?: boolean;
   voiceControlId?: string;
+  voiceActionId?: string;
 };
 
 const ITEM_CLASSNAME =
@@ -65,6 +66,7 @@ export function ActionMenu({
   title,
   items,
   triggerIcon: TriggerIcon,
+  trigger: customTrigger,
   testId,
   contentClassName,
 }: {
@@ -73,7 +75,8 @@ export function ActionMenu({
   /** The sheet's heading on a phone. Defaults to `label`. */
   title?: string;
   items: ActionMenuItem[];
-  triggerIcon: LucideIcon;
+  triggerIcon?: LucideIcon;
+  trigger?: ReactNode;
   testId?: string;
   contentClassName?: string;
 }) {
@@ -85,7 +88,7 @@ export function ActionMenu({
     if (!open) setSheetPresentation(isMobile);
   }, [isMobile, open]);
 
-  const trigger = (
+  const trigger = customTrigger ?? (
     <Button
       type="button"
       size="icon"
@@ -94,7 +97,11 @@ export function ActionMenu({
       data-testid={testId}
       className="h-11 w-11 rounded-full text-[color:var(--app-accent)] hover:bg-[color:var(--app-neutral-fill)] hover:text-[color:var(--app-accent-hover)]"
     >
-      <TriggerIcon className="h-[21px] w-[21px]" aria-hidden="true" />
+      {TriggerIcon ? (
+        <TriggerIcon className="h-[21px] w-[21px]" aria-hidden="true" />
+      ) : (
+        label
+      )}
     </Button>
   );
 
@@ -124,6 +131,7 @@ export function ActionMenu({
                     disabled={item.disabled}
                     aria-busy={item.busy || undefined}
                     data-voice-control-id={item.voiceControlId}
+                    data-voice-action-id={item.voiceActionId}
                     data-testid={
                       testId ? `${testId}-item-${item.id}` : undefined
                     }
@@ -188,6 +196,7 @@ export function ActionMenu({
               disabled={item.disabled}
               aria-busy={item.busy || undefined}
               data-voice-control-id={item.voiceControlId}
+              data-voice-action-id={item.voiceActionId}
               data-testid={testId ? `${testId}-item-${item.id}` : undefined}
               onSelect={(event) => {
                 if (item.disabled) {

@@ -1,0 +1,35 @@
+# Build and push a backend image without creating a Cloud Run revision.
+#
+# UAT account-deletion releases use this split phase so the candidate bytes are
+# fixed before the database deletion fence and migration are applied. The later
+# deploy consumes the immutable digest produced here; it never rebuilds a
+# mutable tag across the schema/runtime compatibility boundary.
+steps:
+  - name: "gcr.io/cloud-builders/docker"
+    entrypoint: "bash"
+    args:
+      - "-c"
+      - |
+        set -euo pipefail
+        gcloud auth configure-docker gcr.io --quiet || true
+        docker buildx create --use --name hushh-builder --driver docker-container \
+          >/dev/null 2>&1 || docker buildx use hushh-builder
+        docker buildx build \
+          --cache-from=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache \
+          --cache-to=type=registry,ref=gcr.io/$PROJECT_ID/consent-protocol:buildcache,mode=max \
+          --tag gcr.io/$PROJECT_ID/consent-protocol:${_IMAGE_TAG} \
+          --file consent-protocol/Dockerfile \
+          --push \
+          consent-protocol
+    id: "build-backend-image"
+
+substitutions:
+  _IMAGE_TAG: manual-build
+
+options:
+  logging: CLOUD_LOGGING_ONLY
+  machineType: "E2_HIGHCPU_8"
+
+# A cold build has to seed the full backend dependency/cache graph and has
+# historically taken longer than Cloud Build's 10-minute default.
+timeout: "1800s"

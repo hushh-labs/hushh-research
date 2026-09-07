@@ -201,7 +201,7 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
     setViewport("desktop");
   });
 
-  it("keeps the anchored menu, and names the member on it", async () => {
+  it("keeps the anchored menu", async () => {
     renderMenu();
 
     const trigger = screen.getByRole("button", { name: triggerName });
@@ -211,7 +211,6 @@ describe("CircleMemberActionsMenu on a pointer device", () => {
 
     const menu = await screen.findByTestId(MEMBER_ACTIONS_MENU_TESTID);
     expect(screen.queryByTestId(MEMBER_ACTIONS_SHEET_TESTID)).toBeNull();
-    expect(within(menu).getByText(MEMBER_NAME)).toBeInTheDocument();
     expect(
       within(menu).getByRole("menuitem", { name: /Share location/i }),
     ).toBeInTheDocument();

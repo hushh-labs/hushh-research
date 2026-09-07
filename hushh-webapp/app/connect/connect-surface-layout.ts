@@ -33,7 +33,26 @@ export const CONNECT_WRAPPING_TEXT_CLASSNAME =
 export const CONNECT_WRAPPING_TITLE_ROW_CLASSNAME =
   "flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-0.5";
 
-/** Phones keep one natural page scroller. A bounded inner roster is useful on
- * larger screens, where wheel/trackpad input does not create a gesture trap. */
-export const CONNECT_DESKTOP_CONNECTION_LIST_CLASSNAME =
-  "sm:max-h-[320px] sm:overflow-y-auto sm:overscroll-contain sm:[-webkit-overflow-scrolling:touch]";
+/**
+ * The roster is bounded on every viewport, phones included.
+ *
+ * It was previously capped only from `sm` up, because an earlier phone cap (at
+ * 232px) let touch gestures get trapped in the inner scroller and let the fixed
+ * bottom chrome sit over whichever row owned the gesture. Leaving phones
+ * uncapped fixed those two problems by making the roster arbitrarily long
+ * instead, which is its own bug: a few hundred connections push the directory
+ * section below them out of reach.
+ *
+ * `overscroll-contain` is what makes the bound safe this time. It stops a
+ * scroll that reaches the roster's end from chaining into the page behind it,
+ * which is the gesture trap the original comment described; the finance
+ * holdings roster already relies on the same mitigation on phones. The cap is
+ * expressed against `dvh` so it shrinks with the visible viewport rather than
+ * measuring a phone as though its browser chrome were not there, which keeps
+ * the bottom of the list clear of the fixed bottom bars.
+ *
+ * The `min(42dvh, 18rem)` shape matches the RIA option lists, so the two read
+ * as the same control.
+ */
+export const CONNECT_CONNECTION_LIST_CLASSNAME =
+  "max-h-[min(42dvh,18rem)] overflow-y-auto overscroll-contain [-webkit-overflow-scrolling:touch]";
