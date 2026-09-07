@@ -55,7 +55,15 @@ def test_process_inventory_refuses_incomplete_or_malformed_output(output):
         cleanup.app_is_running(output)
 
 
-def _host(monkeypatch, *, inventory=ABSENT, inventory_code=0, terminate_code=0, timeout_at=None):
+def _host(
+    monkeypatch,
+    *,
+    inventory=ABSENT,
+    inventory_code=0,
+    terminate_code=0,
+    timeout_at=None,
+    state="Booted",
+):
     calls = []
     clock = [0.0]
     monkeypatch.setattr(cleanup.time, "monotonic", lambda: clock[0])
@@ -63,8 +71,24 @@ def _host(monkeypatch, *, inventory=ABSENT, inventory_code=0, terminate_code=0, 
 
     def run(argv, **kwargs):
         calls.append((argv, kwargs))
-        operation = "terminate" if argv[2] == "terminate" else "inventory"
+        operation = (
+            "state" if argv[2] == "list" else "terminate" if argv[2] == "terminate" else "inventory"
+        )
         assert 0 < kwargs["timeout"] <= 15
+        if operation == "state":
+            assert argv == ["xcrun", "simctl", "list", "devices", "--json"]
+            return SimpleNamespace(
+                returncode=0,
+                stdout=json.dumps(
+                    {
+                        "devices": {
+                            "runtime": [
+                                {"udid": DEVICE.upper(), "state": state},
+                            ]
+                        }
+                    }
+                ),
+            )
         assert argv[3] == DEVICE
         assert "booted" not in argv
         if timeout_at == operation:
@@ -118,6 +142,73 @@ def test_cleanup_refuses_implicit_or_invalid_target_before_any_host_call(monkeyp
     calls, _ = _host(monkeypatch)
     assert cleanup.cleanup(device)["reason"] == "explicit_simulator_uuid_required"
     assert not calls
+
+
+@pytest.mark.parametrize(
+    "state,expected",
+    [
+        ("Shutdown", "verified_app_absent"),
+        ("Booted", "unverified"),
+        ("Shutting Down", "unverified"),
+    ],
+)
+def test_cleanup_requires_fresh_exact_device_shutdown_before_accepting_failed_inventory(
+    monkeypatch, state, expected
+):
+    calls, clock = _host(monkeypatch, inventory_code=1, state=state)
+    result = cleanup.cleanup(DEVICE)
+    assert result["status"] == expected
+    assert calls[-1][0] == ["xcrun", "simctl", "list", "devices", "--json"]
+    assert clock[0] <= 20
+    if expected == "verified_app_absent":
+        assert result["evidence"] == "simulator_shutdown"
+    else:
+        assert result["reason"] == "process_inventory_refused"
+
+
+@pytest.mark.parametrize(
+    "inventory,code,timeout_at,reason",
+    [
+        ("", 0, None, "process_inventory_invalid"),
+        (ABSENT, 1, None, "process_inventory_refused"),
+        (ABSENT, 0, "inventory", "process_inventory_timed_out"),
+    ],
+)
+def test_cleanup_distinguishes_safe_inventory_failure_classes(
+    monkeypatch, inventory, code, timeout_at, reason
+):
+    _host(monkeypatch, inventory=inventory, inventory_code=code, timeout_at=timeout_at)
+    result = cleanup.cleanup(DEVICE)
+    assert result["status"] == "unverified"
+    assert result["reason"] == reason
+    assert result["simulator_state"] == "Booted"
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {},
+        {"devices": []},
+        {"devices": {"runtime": []}},
+        {"devices": {"runtime": [None]}},
+        {"devices": {"runtime": [{"udid": "foreign", "state": "Shutdown"}]}},
+        {"devices": {"runtime": [{"udid": DEVICE, "state": "Shutdown"}] * 2}},
+    ],
+)
+def test_shutdown_proof_rejects_missing_foreign_duplicate_or_malformed_inventory(
+    monkeypatch, payload
+):
+    monkeypatch.setattr(cleanup.time, "monotonic", lambda: 0)
+    monkeypatch.setattr(
+        cleanup.subprocess,
+        "run",
+        lambda *_args, **_kwargs: SimpleNamespace(returncode=0, stdout=json.dumps(payload)),
+    )
+    result = cleanup.inventory_unavailable(
+        DEVICE, 20, {"status": "unverified"}, "process_inventory_refused"
+    )
+    assert result["status"] == "unverified"
+    assert result["simulator_state"] == "unavailable"
 
 
 @pytest.mark.parametrize("host", ["ci", "cold-audit"])

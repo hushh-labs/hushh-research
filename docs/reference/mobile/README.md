@@ -104,7 +104,10 @@ substituted for one another:
 The anonymous account-recovery CI smoke leaves final termination to its host.
 `hushh-webapp/scripts/native/ios-simulator-cleanup.py` requires an explicit simulator UUID,
 bounds termination and process checks, and verifies absence of the exact app's
-launchd label. The existing cold-audit wrapper uses the same helper. Test failure
+launchd label or a freshly observed shutdown of that exact simulator. A failed
+inventory query records timeout, refusal, or invalid output separately; missing,
+duplicate, transitioning or unavailable device state cannot prove absence.
+The existing cold-audit wrapper uses the same helper. Test failure
 remains failure; successful assertions with unverified cleanup also fail. This
 proves app-process absence only, not cleanup of every WebKit child or XCTest
 runner. Direct invocations of that smoke must run the same host cleanup.

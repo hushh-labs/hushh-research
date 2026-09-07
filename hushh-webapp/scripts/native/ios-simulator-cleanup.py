@@ -35,6 +35,51 @@ def app_is_running(output: str) -> bool:
     return running
 
 
+def inventory_unavailable(
+    device: str, deadline: float, result: dict[str, object], reason: str
+) -> dict[str, object]:
+    """Record a distinct failure and independently inspect the selected device."""
+    observation = {**result, "reason": reason, "simulator_state": "unavailable"}
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return observation
+    try:
+        devices = subprocess.run(
+            ["xcrun", "simctl", "list", "devices", "--json"],
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=min(5, remaining),
+        )
+        if devices.returncode != 0 or len(devices.stdout) > 1_048_576:
+            return observation
+        payload = json.loads(devices.stdout)
+        groups = payload["devices"]
+        if not isinstance(groups, dict) or any(
+            not isinstance(group, list) for group in groups.values()
+        ):
+            return observation
+        entries = [entry for group in groups.values() for entry in group]
+        if any(not isinstance(entry, dict) for entry in entries):
+            return observation
+        matches = [entry for entry in entries if str(entry.get("udid", "")).lower() == device]
+        if len(matches) != 1:
+            return observation
+        state = matches[0].get("state")
+        if state == "Shutdown":
+            return {
+                **result,
+                "status": "verified_app_absent",
+                "evidence": "simulator_shutdown",
+                "simulator_state": "Shutdown",
+                "inventory_failure": reason,
+            }
+        observation["simulator_state"] = "Booted" if state == "Booted" else "unresolved"
+    except (OSError, subprocess.TimeoutExpired, ValueError, KeyError, TypeError):
+        pass
+    return observation
+
+
 def cleanup(device_id: str) -> dict[str, object]:
     result: dict[str, object] = {
         "status": "unverified",
@@ -72,14 +117,18 @@ def cleanup(device_id: str) -> dict[str, object]:
                 capture_output=True,
                 text=True,
                 check=False,
-                timeout=min(3, remaining),
+                timeout=min(10, remaining),
             )
             if inventory.returncode != 0:
-                return {**result, "reason": "process_inventory_unavailable"}
+                return inventory_unavailable(device, deadline, result, "process_inventory_refused")
             if not app_is_running(inventory.stdout):
-                return {**result, "status": "verified_app_absent"}
-        except (OSError, subprocess.TimeoutExpired, ValueError):
-            return {**result, "reason": "process_inventory_unavailable"}
+                return {**result, "status": "verified_app_absent", "evidence": "launchd_app_absent"}
+        except subprocess.TimeoutExpired:
+            return inventory_unavailable(device, deadline, result, "process_inventory_timed_out")
+        except OSError:
+            return inventory_unavailable(device, deadline, result, "process_inventory_unavailable")
+        except ValueError:
+            return inventory_unavailable(device, deadline, result, "process_inventory_invalid")
         time.sleep(min(0.2, max(0, deadline - time.monotonic())))
     return {**result, "reason": "app_still_running"}
 
