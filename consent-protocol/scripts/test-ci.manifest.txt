@@ -192,3 +192,7 @@ tests/services/test_action_retrieval.py
 tests/test_migration_authority.py
 
 tests/test_dev_release_classification.py
+
+tests/test_data_model_audit_postgres.py
+
+tests/test_data_model_audit_script.py

@@ -418,8 +418,8 @@
         "kai_receipt_memory_artifacts"
       ],
       "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
-      "retention_policy": "Short-lived sync and preview cache; durable memory requires explicit PKM write through consent/vault path.",
-      "deletion_behavior": "Delete on Gmail disconnect/account deletion; compact sync runs and preview artifacts.",
+      "retention_policy": "Required policy: short-lived sync and preview cache; durable memory requires explicit PKM write through the consent/vault path. A numeric sync-run cutoff is not yet specified. The report-only retention registration does not establish an executable reporter or automatic compaction.",
+      "deletion_behavior": "Required policy: delete on Gmail disconnect/account deletion and compact sync runs and preview artifacts. Current account cleanup explicitly deletes sync runs; disconnect cancels active runs and clears provider credentials but retains sync-run rows. Disconnect deletion and compaction remain implementation gaps.",
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
       "plaintext_posture": "provider_cache_metadata",
       "expected_row_growth": "high_provider_sync"
@@ -434,8 +434,8 @@
         "google_email_send_actions"
       ],
       "primary_access_path": "One owner-approved Gmail delivery prepare and final-send services",
-      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Terminal action metadata is retained only for bounded delivery-state reconciliation and compacted by the owner-approved delivery retention process.",
-      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse and terminal metadata is compacted without retaining email content.",
+      "retention_policy": "Prepared actions expire after ten minutes and are single-use. Required policy: retain terminal action metadata only for bounded delivery-state reconciliation, then compact it. A numeric terminal retention window and executable compaction process are not established by the current report-only registration.",
+      "deletion_behavior": "Cascade-delete with the account owner; expired prepared actions are marked expired before reuse. Terminal metadata compaction without email-content retention remains required policy, not verified current enforcement.",
       "trust_boundary": "Stores only action identifiers, user identifiers, HMACs of normalized envelopes and idempotency keys, recipient counts, lifecycle timestamps, Gmail message/thread identifiers, and safe error codes. It never stores recipient addresses, subject, body, OAuth tokens, vault credentials, PKM values, or One Email KYC mailbox information.",
       "plaintext_posture": "short_lived_hmac_and_delivery_metadata_only",
       "expected_row_growth": "low_per_user_action"

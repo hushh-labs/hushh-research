@@ -170,6 +170,53 @@ Backend:
 
 ## Required Verification
 
+The default data-model audit is a static migration/contract and legacy-write
+scan. Its successful result does not verify a deployed database. Optional live
+statistics use the existing backend environment and an already resolved,
+authorized connection variable:
+
+```bash
+uv run --directory consent-protocol ../bin/hushh codex data-model-audit --database-url-env AUDIT_DATABASE_URL --json
+```
+
+Resolve credentials through the existing environment runbook in process memory;
+do not paste their values into shell commands or artifacts. The legacy
+`--database-url` flag remains compatible but exposes its argument to the shell
+and process listing. The env-name path avoids copying that value into child
+process arguments or reports.
+
+`live_observation` distinguishes `not_requested`, `verified`, and `unavailable`.
+A requested missing connection, driver failure, refused query, timeout, or
+malformed result fails the audit while preserving the static findings. A verified
+empty query is distinct from an unavailable query. Live statistics cover only the
+25 largest `public` tables and catalog row estimates. They do not establish a
+complete table inventory, schema/migration alignment, ownership, encryption,
+retention, deletion, or intended deployment identity. Record the revision and
+environment separately and keep the schema checks below.
+
+The connection is read-only, with connect, statement, lock, and idle-transaction
+timeouts. These bound individual operations, not total wall-clock time across
+multiple connection hosts. Closing the connection rolls back its read-only
+transaction; this audit does not run migrations or repair information.
+
+Add `--pkm-aggregates` for five explicit structural observations: current envelope
+field presence and negative revisions; owner/domain key presence; blob/manifest
+association; archived-segment parent/envelope shape; and commit/revision scope
+consistency. These queries return counts only, after a real-table and column/type
+preflight. PostgreSQL's `row_security=off` rejects a query that would otherwise
+return RLS-filtered information; it does not grant access or bypass a policy.
+Insufficient privilege, missing schema, timeouts and malformed results remain
+unavailable. A verified query with positive findings fails the audit and never
+authorizes repair or deletion. `NULL` archived commit references are legitimate.
+
+These observations do not decrypt or validate ciphertext, establish valid owner
+identities or consent, measure retention, or prove erasure. An aggregate returns
+few rows but may scan an entire relation; statement/lock timeouts bound that work.
+The database rehearsal in `test_data_model_audit_postgres.py` creates and removes
+its own socket-only PostgreSQL cluster, with synthetic defects and a role whose
+reads would be filtered. A test host lacking server binaries records a skip;
+run it on a host with those binaries before crediting that rehearsal.
+
 Run the smallest relevant bundle, and include the data-model audit for any table, migration, cache, or workflow-state change:
 
 ```bash
