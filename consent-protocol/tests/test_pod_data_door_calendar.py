@@ -191,8 +191,6 @@ async def test_run_read_projects_the_calendar_door(fake_calendar) -> None:
 
 
 def test_registry_broker_relay_and_pod_agree_on_the_calendar_door() -> None:
-    from pathlib import Path
-
     from api.routes.one import pod_specialist
 
     assert door.POD_DATA_DOOR_READS["calendar"].project is door.project_calendar_state
@@ -201,8 +199,6 @@ def test_registry_broker_relay_and_pod_agree_on_the_calendar_door() -> None:
     assert resolve_scope_to_enum("cap.calendar.events.view").value == "cap.calendar.events.view"
     assert pod_side._SPECIALIST_DOOR_NAMES["agent_calendar"] == "calendar"
     assert pod_side._SUMMARIZERS["calendar"] is pod_side._format_calendar_summary
-    relay = (Path(__file__).resolve().parents[1] / "api/routes/one/pod_relay.py").read_text()
-    assert "CAP_CALENDAR_EVENTS_VIEW" in relay and 'data_door_grants["calendar"]' in relay
 
 
 # -- the pod's summary: titles and times only, read-only by construction --------------

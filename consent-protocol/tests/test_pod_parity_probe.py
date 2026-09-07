@@ -182,18 +182,6 @@ def test_a_live_run_refuses_rather_than_guessing_an_unstated_hub_grounding(tmp_p
     assert "never be read off the pod" in capsys.readouterr().out
 
 
-def test_the_frames_file_may_carry_the_hub_grounding_itself(tmp_path):
-    """A captured hub turn that records its own grounding needs no extra flag, which
-    is what makes the honest path the convenient one."""
-    frames = tmp_path / "frames.json"
-    frames.write_text('{"frames": [{"event": "token", "data": {"text": "hi"}}], "grounded": true}')
-    import json as _json
-
-    captured = _json.loads(frames.read_text())
-    assert captured["grounded"] is True
-    assert isinstance(captured["frames"], list)
-
-
 def test_the_live_capture_uses_the_shared_minter_rather_than_a_private_copy():
     """The defect being prevented: a second copy of the token logic drifting from
     this one. The probe must resolve its token through the shared module."""

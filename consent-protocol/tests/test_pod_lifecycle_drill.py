@@ -250,15 +250,6 @@ async def test_failed_compute_cleanup_is_not_reported_removed():
     assert "sensitive-provider-body" not in json.dumps(result)
 
 
-def test_the_live_turn_uses_the_shared_operator_minter():
-    """The bug this replaced: a private copy reading `_service_account_info`, an
-    attribute the operator credential does not carry, so every live turn crashed
-    wherever an explicit key was not exported."""
-    source = _DRILL.read_text(encoding="utf-8")
-    assert "operator_identity import mint_operator_id_token" in source
-    assert "_service_account_info" not in source
-
-
 def test_a_refused_pod_turn_never_discloses_response_body(monkeypatch):
     """HTTP status distinguishes failure stages without copying private bodies."""
     import requests
@@ -267,7 +258,13 @@ def test_a_refused_pod_turn_never_discloses_response_body(monkeypatch):
 
     # Patch the minter, not just the HTTP call: without this the test shells out
     # to a real gcloud and becomes both slow and dependent on who is logged in.
-    monkeypatch.setattr(operator_identity, "mint_operator_id_token", lambda _a: "test-token")
+    minted_audiences = []
+
+    def mint(audience):
+        minted_audiences.append(audience)
+        return "test-token"
+
+    monkeypatch.setattr(operator_identity, "mint_operator_id_token", mint)
 
     class _Resp:
         status_code = 403
@@ -279,6 +276,7 @@ def test_a_refused_pod_turn_never_discloses_response_body(monkeypatch):
     with pytest.raises(RuntimeError, match="pod turn HTTP 403") as failure:
         fleet._turn("https://pod.example", "hello")
     assert "consent refused" not in str(failure.value)
+    assert minted_audiences == ["https://pod.example"]
 
 
 class _FakeHandle:

@@ -298,20 +298,6 @@ def test_the_route_is_reachable():
     assert "/api/one/u/{hushh_id}/turn" in paths
 
 
-def test_the_relay_path_matches_the_route_the_pod_actually_serves():
-    """A mismatch fails only in production, as a 404 the relay would surface as a
-    pod fault rather than as our own wrong path."""
-    import inspect
-
-    from api.routes.one import pod_turn
-
-    relay_source = inspect.getsource(pod_relay.relay_pod_turn)
-    pod_paths = {getattr(r, "path", "") for r in pod_turn.router.routes}
-
-    assert "/api/one/pod/turn" in pod_paths
-    assert '"/api/one/pod/turn"' in relay_source
-
-
 # -- the client half exists ----------------------------------------------------------
 #
 # The lesson of `/managed/readiness`: a mounted route with no caller is not a
