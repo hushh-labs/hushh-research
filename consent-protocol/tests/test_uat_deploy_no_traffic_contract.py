@@ -155,7 +155,7 @@ def test_backend_vertex_advisory_probe_parses_pretty_json_verdict() -> None:
     assert 'sed -n \'s/.*"classification":"' not in backend_build
 
 
-def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None:
+def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only() -> None:
     backend_build = _read("deploy/backend.cloudbuild.yaml")
     uat_workflow = _read(".github/workflows/deploy-uat.yml")
     production_workflow = _read(".github/workflows/deploy-production.yml")
@@ -163,14 +163,15 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_bridge_only() -> None
     assert 'if [[ "${_DEPLOY_ENV}" == "dev" ]]; then' in backend_build
     assert 'genai_project_id="hushh-pda-uat"' in backend_build
     assert backend_build.count('case "${_DEPLOY_ENV}:${genai_project_id}" in') == 1
-    assert "dev:hushh-pda-uat|uat:hushh-gemini-bridge)" in backend_build
+    assert "dev:hushh-pda-uat|uat:hushh-vertex-personal54)" in backend_build
     assert "Cross-project managed Vertex target is not allowlisted." in backend_build
-    assert "##_GENAI_PROJECT_ID=hushh-gemini-bridge" in uat_workflow
+    assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
+    assert "hushh-gemini-bridge" not in uat_workflow
     assert "hushh-gemini-bridge" not in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
-    assert '"GOOGLE_CLOUD_PROJECT=${genai_project_id}"' in backend_build
-    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${genai_project_id}"') == 1
-    assert "GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
+    assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
+    assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1
+    assert "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}" in backend_build
     assert '_GENAI_PROJECT_ID: ""' in backend_build
 
 
