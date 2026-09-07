@@ -428,6 +428,15 @@ Relay to browser:
 
 ## Auth and Consent Boundary
 
+- An absent bearer is anonymous. A supplied invalid or revoked bearer remains
+  an authentication failure; an unavailable verifier remains retryable failure.
+  Signed ticket consumption requires the shared nonce registry and refuses
+  admission if its acknowledgement is unavailable or the ticket expires while
+  waiting. A consumed nonce is never recovered through a process-local fallback.
+- Browser relay tickets, continuation handles, callbacks and queued reconnects
+  follow the validated auth-session owner generation. Account replacement
+  cancels the voice lease and clears continuation state. Stopping during pending
+  microphone permission releases a late stream without opening a new socket.
 - The ws URL carries ONLY the opaque relay ticket. No hints, no bearer, no
   consent token in any URL.
 - A BYOK credential may exist only in the first TLS-protected

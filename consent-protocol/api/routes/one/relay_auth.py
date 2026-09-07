@@ -26,6 +26,7 @@ import time
 from datetime import datetime, timezone
 from typing import Literal, Optional
 
+from fastapi import HTTPException
 from fastapi.concurrency import run_in_threadpool
 
 from hushh_mcp.runtime_settings import get_core_security_settings
@@ -53,20 +54,19 @@ def one_voice_enabled() -> bool:
 
 
 async def resolve_optional_uid(authorization: Optional[str]) -> Optional[str]:
-    """Best-effort Firebase UID for tier selection + rate-limit bucketing.
+    """Anonymous only when no credential was supplied.
 
-    Never raises: a missing/invalid token simply means the anonymous tier.
-    Specialist tools still fail closed without a consent token, so the lower
-    tier only shapes conversation, never data access.
+    Invalid, revoked, malformed or unavailable authenticated identity keeps the
+    canonical verifier's failure contract; it must not mint an anonymous ticket.
     """
-    if not authorization or not authorization.startswith("Bearer "):
+    if authorization is None:
         return None
-    try:
-        from api.utils.firebase_auth import verify_firebase_bearer
+    from api.utils.firebase_auth import verify_firebase_bearer
 
-        return await run_in_threadpool(verify_firebase_bearer, authorization)
-    except Exception:  # noqa: BLE001 - optional auth, anonymous is acceptable
-        return None
+    uid = await run_in_threadpool(verify_firebase_bearer, authorization)
+    if not isinstance(uid, str) or not uid.strip():
+        raise HTTPException(status_code=401, detail="Invalid Firebase identity")
+    return uid
 
 
 def resolve_persona_tier(uid: Optional[str], requested_access_tier: Optional[str]) -> PersonaTier:
@@ -222,9 +222,8 @@ async def consume_relay_ticket_shared(
     Signed-ticket nonces register in Postgres (relay_ticket_nonces, migration
     084) via INSERT .. ON CONFLICT DO NOTHING: a conflicting insert means the
     ticket was already consumed on some worker/instance, so it is rejected.
-    The process-local registry stays as a fast pre-check and as the fallback
-    when the shared tier is unreachable (fail-open to per-process semantics,
-    matching the pre-shared behavior; tickets still expire in 60s).
+    The process-local registry is only a fast rejection check. If the shared
+    tier is unreachable, consumption fails closed across every instance.
 
     Scale-plane doctrine (AGENTS.md): Postgres now, Redis later. Redis swap =
     SETNX with TTL replacing _register_nonce_shared, contract unchanged.
@@ -247,15 +246,17 @@ async def consume_relay_ticket_shared(
     if not registered:
         return False, None, "anon_onboarding"
     _RELAY_TICKET_NONCES[nonce] = expires_at
+    if expires_at <= int(datetime.now(tz=timezone.utc).timestamp()):
+        return False, None, "anon_onboarding"
     return True, uid, tier
 
 
 async def _register_nonce_shared(nonce: str, expires_at: int) -> bool:
     """Register a nonce in the shared Postgres registry; False on replay.
 
-    On shared-tier failure, fall back to process-local registration so a DB
-    blip does not take voice down (the ticket is still HMAC-verified, expiry
-    bound to 60s, and single-use per process).
+    Shared-tier failure refuses consumption. Per-process fallback cannot prove
+    single use on another instance. The existing Postgres seam can later use
+    Redis SETNX with expiry without changing the consume contract.
     """
     try:
         from db.connection import get_pool
@@ -277,5 +278,5 @@ async def _register_nonce_shared(nonce: str, expires_at: int) -> bool:
                 now_epoch,
             )
         return result.endswith("1")
-    except Exception:  # noqa: BLE001 - degrade to per-process single-use
-        return nonce not in _RELAY_TICKET_NONCES
+    except Exception:  # noqa: BLE001 - unavailable authority never admits a ticket
+        return False
