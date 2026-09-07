@@ -418,10 +418,10 @@
         "kai_receipt_memory_artifacts"
       ],
       "primary_access_path": "user-consented Gmail receipt sync and receipt-memory preview services",
-      "retention_policy": "Required policy: short-lived sync and preview cache; durable memory requires explicit PKM write through the consent/vault path. A numeric sync-run cutoff is not yet specified. The report-only retention registration does not establish an executable reporter or automatic compaction.",
-      "deletion_behavior": "Required policy: delete on Gmail disconnect/account deletion and compact sync runs and preview artifacts. Current account cleanup explicitly deletes sync runs; disconnect cancels active runs and clears provider credentials but retains sync-run rows. Disconnect deletion and compaction remain implementation gaps.",
+      "retention_policy": "Terminal sync-run reads expire after 30 days from completed_at, with updated_at as a conservative fallback only for legacy terminal runs without completed_at. Preview reads expire seven days after created_at; cache updates and PKM-persist acknowledgement do not renew that window. Owner-scoped manual reporting and bounded compaction use scripts/ops/gmail_cache_retention.py; no automatic schedule exists. Physical expired rows can remain until an authorized maintenance run. Durable information requires explicit encrypted PKM write through the consent/vault path.",
+      "deletion_behavior": "Required policy: delete provider cache on Gmail disconnect/account deletion. Account cleanup explicitly deletes sync runs and preview artifacts; disconnect currently cancels active runs and clears provider credentials but retains cache rows. Manual compaction deletes only expired terminal sync runs and preview artifacts for one owner, preserving active runs and PKM. Disconnect cleanup and publication fencing remain implementation gaps.",
       "trust_boundary": "Encrypted OAuth tokens, receipt summaries, hashes, and preview artifacts; no raw mailbox memory.",
-      "plaintext_posture": "provider_cache_metadata",
+      "plaintext_posture": "encrypted_oauth_tokens_and_sensitive_derived_receipt_cache",
       "expected_row_growth": "high_provider_sync"
     },
     {

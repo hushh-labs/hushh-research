@@ -147,6 +147,53 @@ Provider-derived data becomes durable user memory only after a consented, encryp
 - Consent/audit and funding/trading records remain long-retention metadata when accountability or regulatory evidence requires it.
 - Reference data is not user-delete scoped and should be rebuildable.
 
+### Gmail cache maintenance
+
+Terminal sync-run metadata expires after **30 days** from `completed_at`. For
+legacy terminal rows without a completion timestamp, `updated_at` is the
+conservative fallback: an old request may have completed recently. A row without
+either timestamp remains unresolved and is not deleted. Queued/running runs are
+excluded. Preview artifacts expire **seven days** after `created_at`; subsequent
+updates or PKM persistence acknowledgement do not renew that period.
+
+These are engineering policy choices: one month supports incident investigation,
+while the richer, rebuildable preview has a shorter lifetime. They are not measured
+optimal values. Runtime readers refuse expired rows independently of physical
+compaction. Separately consented encrypted PKM remains authoritative and is untouched.
+
+Use the existing `data-model-audit` workflow for manual maintenance. Populate the
+following variables through the existing authorized credential/runbook path, keeping
+their values in process memory. The command accepts variable **names**, not secrets
+or owner identifiers in arguments:
+
+```bash
+uv run --project consent-protocol python scripts/ops/gmail_cache_retention.py \
+  --database-url-env GMAIL_RETENTION_DATABASE_URL \
+  --owner-id-env GMAIL_RETENTION_OWNER_ID
+```
+
+The default is a read-only report for exactly one explicit owner. After reviewing the
+bound environment and owner scope, add `--apply` to delete one batch per table;
+`--batch-limit` defaults to 200 and cannot exceed 1,000. Re-run and inspect aggregate
+remaining counts until the authorized scope is drained. Exit 0 means the observed
+scope had no expired or undated rows; exit 2 means remaining or unavailable scope;
+exit 1 means failure. A capped count is a lower bound. Locked rows remain visible in
+remaining observations, and errors roll back the batch. An uncertain commit never
+reports success; a repeated batch is idempotent.
+
+Every invocation uses one PostgreSQL transaction clock, explicit public tables,
+owner predicates, row locking, RLS-filter refusal, and statement/lock timeouts.
+`LIMIT` bounds returned/deleted rows, not scan cost. Existing owner-prefix indexes
+serve this deliberately owner-scoped tool; global cleanup is not supported. A
+large owner can hit the timeout and remains incomplete until query/index remediation.
+
+No schedule is added. Physical rows can remain after read expiry until manual
+maintenance runs. `scope_drained` describes READ COMMITTED observations across two
+cache families; it is not an atomic fleet snapshot, a fence against later writes, or
+provider/backup/account erasure evidence. Disconnect cleanup and stale-worker
+publication fencing are separate outstanding corrections. The report-only retention
+registry remains an inventory declaration, not proof that a scheduled job exists.
+
 ## Legacy Memory Rule
 
 Legacy tables such as `pkm_data`, `pkm_embeddings`, `world_model_*`, old chat tables, and old portfolio/world-model tables are migration surfaces only.
