@@ -42,6 +42,7 @@ import hashlib
 import json
 import os
 import secrets
+import tempfile
 import urllib.parse
 from pathlib import Path
 from typing import Any, Optional, Protocol
@@ -99,29 +100,126 @@ class ObjectStore(Protocol):
 
 
 class LocalObjectStore:
-    """Filesystem store for tests, dev, and single-node hardware (Puppy One).
+    """Single-machine object store with locked reads and recoverable file-pair CAS.
 
-    CAS is a generation sidecar guarded by an exclusive ``flock`` -- correct for
-    one machine, which is exactly the scope this store claims.
+    The existing bytes and integer .gen layout remains readable. A transient redo
+    journal makes interrupted pair updates recoverable; it carries the same bytes
+    supplied by the caller, which already owns encryption. All cooperating writers
+    and readers must use this implementation. This is not a distributed fence.
     """
+
+    _JOURNAL = ".pending-write.json"
 
     def __init__(self, root: str) -> None:
         self._root = Path(root)
-        self._root.mkdir(parents=True, exist_ok=True)
+        self._ensure_directory(self._root)
+
+    @staticmethod
+    def _sync_directory(directory: Path) -> None:
+        descriptor = os.open(directory, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+
+    def _ensure_directory(self, directory: Path) -> None:
+        missing = []
+        parent = directory
+        while not parent.exists():
+            missing.append(parent)
+            parent = parent.parent
+        for child in reversed(missing):
+            child.mkdir(exist_ok=True)
+            self._sync_directory(child.parent)
 
     def _path(self, key: str) -> Path:
         path = (self._root / key).resolve()
-        if self._root.resolve() not in path.parents and path != self._root.resolve():
+        if self._root.resolve() not in path.parents:
             raise ValueError("object key escapes the store root")
-        path.parent.mkdir(parents=True, exist_ok=True)
+        if path in {self._root.resolve() / ".lock", self._root.resolve() / self._JOURNAL}:
+            raise ValueError("object key is reserved by the store")
+        if path.name.endswith(".gen") or path.name.startswith(".object-write-"):
+            raise ValueError("object key is reserved by the store")
+        self._ensure_directory(path.parent)
         return path
+
+    def _atomic_write(self, path: Path, data: bytes) -> None:
+        descriptor, temporary = tempfile.mkstemp(prefix=".object-write-", dir=path.parent)
+        temporary_path = Path(temporary)
+        try:
+            with os.fdopen(descriptor, "wb") as handle:
+                handle.write(data)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.replace(temporary_path, path)
+            self._sync_directory(path.parent)
+        finally:
+            temporary_path.unlink(missing_ok=True)
+
+    @staticmethod
+    def _read_pair(path: Path) -> tuple[Optional[bytes], int]:
+        generation_path = path.with_suffix(path.suffix + ".gen")
+        if not path.exists():
+            if generation_path.exists():
+                raise PodLogTampered("object generation exists without content")
+            return None, 0
+        try:
+            generation = int(generation_path.read_text()) if generation_path.exists() else 1
+        except (ValueError, OSError):
+            raise PodLogTampered("object generation is unreadable") from None
+        if generation < 1:
+            raise PodLogTampered("object generation is invalid")
+        return path.read_bytes(), generation
+
+    def _recover_pending_write(self) -> None:
+        journal = self._root / self._JOURNAL
+        if not journal.exists():
+            return
+        try:
+            record = json.loads(journal.read_bytes())
+            if not isinstance(record, dict) or record.get("version") != 1:
+                raise ValueError("unsupported journal")
+            key, expected, generation = record["key"], record["expected"], record["generation"]
+            if not isinstance(key, str) or type(expected) is not int or type(generation) is not int:
+                raise ValueError("invalid journal identity")
+            if expected < 0 or generation != expected + 1:
+                raise ValueError("invalid journal generation")
+            data = base64.b64decode(record["data"], validate=True)
+            if hashlib.sha256(data).hexdigest() != record["new_sha256"]:
+                raise ValueError("invalid journal content")
+            old_digest = record["old_sha256"]
+            if expected == 0:
+                if old_digest is not None:
+                    raise ValueError("invalid absent-object digest")
+            elif not isinstance(old_digest, str) or len(old_digest) != 64:
+                raise ValueError("invalid old digest")
+            path = self._path(key)
+            current, current_generation = self._read_pair(path)
+            current_digest = hashlib.sha256(current).hexdigest() if current is not None else None
+            # Content is replaced before its generation. Accept only the old pair,
+            # that specific interrupted pair, or the completed new pair.
+            old_or_interrupted = current_generation == expected and current_digest in {
+                old_digest,
+                record["new_sha256"],
+            }
+            # A newly created object without .gen has legacy generation 1.
+            new_pair = current_generation == generation and current_digest == record["new_sha256"]
+            if not (old_or_interrupted or new_pair):
+                raise ValueError("journal does not match current object")
+        except Exception:  # noqa: BLE001 - preserve corrupt journal and do not expose object bytes
+            raise PodLogTampered("pending object write cannot be safely recovered") from None
+        self._atomic_write(path, data)
+        self._atomic_write(path.with_suffix(path.suffix + ".gen"), str(generation).encode())
+        journal.unlink()
+        self._sync_directory(self._root)
 
     @contextlib.contextmanager
     def _lock(self):
         lock_path = self._root / ".lock"
-        with open(lock_path, "w", encoding="utf-8") as handle:  # noqa: PTH123
+        with open(lock_path, "a", encoding="utf-8") as handle:  # noqa: PTH123
             fcntl.flock(handle, fcntl.LOCK_EX)
             try:
+                self._recover_pending_write()
                 yield
             finally:
                 fcntl.flock(handle, fcntl.LOCK_UN)
@@ -131,33 +229,36 @@ class LocalObjectStore:
         return data
 
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
-        path = self._path(key)
-        generation_path = path.with_suffix(path.suffix + ".gen")
-        if not path.exists():
-            return None, 0
-        generation = int(generation_path.read_text()) if generation_path.exists() else 1
-        return path.read_bytes(), generation
+        with self._lock():
+            return self._read_pair(self._path(key))
+
+    def _commit_pair(self, key: str, data: bytes, current: Optional[bytes], generation: int) -> int:
+        record = {
+            "version": 1,
+            "key": key,
+            "expected": generation,
+            "generation": generation + 1,
+            "old_sha256": hashlib.sha256(current).hexdigest() if current is not None else None,
+            "new_sha256": hashlib.sha256(data).hexdigest(),
+            "data": base64.b64encode(data).decode("ascii"),
+        }
+        self._atomic_write(self._root / self._JOURNAL, json.dumps(record).encode())
+        self._recover_pending_write()
+        return generation + 1
 
     async def put(self, key: str, data: bytes) -> None:
-        path = self._path(key)
         with self._lock():
-            if path.exists():
+            current, generation = self._read_pair(self._path(key))
+            if generation:
                 raise FileExistsError(f"record object already exists: {key}")
-            path.write_bytes(data)
+            self._commit_pair(key, data, current, generation)
 
     async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
-        path = self._path(key)
-        generation_path = path.with_suffix(path.suffix + ".gen")
         with self._lock():
-            current = 0
-            if path.exists():
-                current = int(generation_path.read_text()) if generation_path.exists() else 1
-            if current != expected:
+            current, generation = self._read_pair(self._path(key))
+            if generation != expected:
                 return None
-            path.write_bytes(data)
-            new_generation = current + 1
-            generation_path.write_text(str(new_generation))
-            return new_generation
+            return self._commit_pair(key, data, current, generation)
 
 
 class GcsObjectStore:

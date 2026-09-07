@@ -18,6 +18,8 @@ from __future__ import annotations
 import json
 import secrets
 import sqlite3
+import subprocess
+import sys
 from pathlib import Path
 from typing import Any, Optional
 
@@ -395,3 +397,118 @@ async def test_a_rebuild_must_say_whose_index_it_is_building(tmp_path: Path):
 
     with pytest.raises(TypeError):
         await PodPkmStore.rebuild(log, str(tmp_path / "x.sqlite3"))  # type: ignore[call-arg]
+
+
+@pytest.mark.asyncio
+async def test_local_store_interrupted_generation_write_never_returns_torn_pair(
+    tmp_path, monkeypatch
+):
+    root = tmp_path / "recoverable-store"
+    store = LocalObjectStore(str(root))
+    assert await store.put_if_generation("head.json", b"old", 0) == 1
+    original = store._atomic_write
+
+    def interrupt_generation(path, data):
+        if path.name == "head.json.gen":
+            raise OSError("synthetic interrupted generation write")
+        return original(path, data)
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(store, "_atomic_write", interrupt_generation)
+        with pytest.raises(OSError):
+            await store.put_if_generation("head.json", b"new", 1)
+    recovered = await LocalObjectStore(str(root)).get_with_generation("head.json")
+    assert recovered in [(b"old", 1), (b"new", 2)]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("phase", ["before_journal", "journal", "content", "generation", "unlink"])
+async def test_local_store_process_restart_recovers_each_publication_boundary(tmp_path, phase):
+    root = tmp_path / "crash-store"
+    store = LocalObjectStore(str(root))
+    assert await store.put_if_generation("head.json", b"old", 0) == 1
+    script = r"""
+import asyncio, os, sys
+from pathlib import Path
+from hushh_mcp.services.pod_commit_log import LocalObjectStore
+root, phase = sys.argv[1:]
+store = LocalObjectStore(root)
+atomic = store._atomic_write
+replace = os.replace
+unlink = Path.unlink
+
+def crash_before_publication(source, target):
+    if phase == "before_journal" and Path(target).name == store._JOURNAL:
+        os._exit(73)
+    return replace(source, target)
+
+def crash_after_publication(path, data):
+    atomic(path, data)
+    names = {"journal": store._JOURNAL, "content": "head.json", "generation": "head.json.gen"}
+    if names.get(phase) == path.name:
+        os._exit(73)
+
+def crash_after_unlink(path, *args, **kwargs):
+    result = unlink(path, *args, **kwargs)
+    if phase == "unlink" and path.name == store._JOURNAL:
+        os._exit(73)
+    return result
+
+os.replace = crash_before_publication
+store._atomic_write = crash_after_publication
+Path.unlink = crash_after_unlink
+asyncio.run(store.put_if_generation("head.json", b"new", 1))
+"""
+    process = subprocess.run(  # noqa: S603 - fixed interpreter/script and pytest-owned temp path
+        [sys.executable, "-c", script, str(root), phase],
+        cwd=Path(__file__).resolve().parents[1],
+        capture_output=True,
+        timeout=20,
+    )
+    assert process.returncode == 73
+    reopened = LocalObjectStore(str(root))
+    expected = (b"old", 1) if phase == "before_journal" else (b"new", 2)
+    assert await reopened.get_with_generation("head.json") == expected
+    assert not (root / LocalObjectStore._JOURNAL).exists()
+    assert await reopened.put_if_generation("head.json", b"stale", 0) is None
+
+
+@pytest.mark.asyncio
+async def test_local_store_legacy_and_unchanged_bytes_keep_monotonic_generation(tmp_path):
+    (tmp_path / "head.json").write_bytes(b"legacy")
+    store = LocalObjectStore(str(tmp_path))
+    assert await store.get_with_generation("head.json") == (b"legacy", 1)
+    assert await store.put_if_generation("head.json", b"legacy", 1) == 2
+    assert await LocalObjectStore(str(tmp_path)).get_with_generation("head.json") == (b"legacy", 2)
+    assert await store.put_if_generation("head.json", b"stale", 1) is None
+
+
+@pytest.mark.asyncio
+async def test_corrupt_local_journal_fails_closed_without_discarding_it(tmp_path):
+    store = LocalObjectStore(str(tmp_path))
+    await store.put_if_generation("head.json", b"old", 0)
+    journal = tmp_path / LocalObjectStore._JOURNAL
+    journal.write_bytes(b"not-json")
+    with pytest.raises(PodLogTampered, match="cannot be safely recovered"):
+        await LocalObjectStore(str(tmp_path)).get("head.json")
+    assert journal.read_bytes() == b"not-json"
+    assert (tmp_path / "head.json").read_bytes() == b"old"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "key", ["head.json.gen", ".lock", ".pending-write.json", "records/.object-write-temp"]
+)
+async def test_local_store_reserves_internal_metadata_keys(tmp_path, key):
+    store = LocalObjectStore(str(tmp_path))
+    with pytest.raises(ValueError, match="reserved"):
+        await store.put_if_generation(key, b"synthetic", 0)
+    with pytest.raises(ValueError, match="reserved"):
+        await store.get(key)
+
+
+def test_local_store_syncs_new_root_directory_entries_in_order(tmp_path, monkeypatch):
+    synced = []
+    monkeypatch.setattr(LocalObjectStore, "_sync_directory", staticmethod(synced.append))
+    LocalObjectStore(str(tmp_path / "parent" / "store"))
+    assert synced == [tmp_path, tmp_path / "parent"]
