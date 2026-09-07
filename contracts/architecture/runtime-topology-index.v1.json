@@ -5580,7 +5580,7 @@
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
     "action_gateway": "6a1345eed1cf39233bd4d8267ceb0ad44b9f739d90648ec4c75ee39338d0e1f6",
-    "agent_registry": "f156d5bafaed15fb693542d68f5c933094b0d518a3f4c6f063e4c5da03cc0b9f",
+    "agent_registry": "512034daf9e4876dd5c2d9ad37594c5d5c0578dae4ddd4e8b68fb6bc064a7f87",
     "cache_manifest": "3e667d561723697d04d5c4b49faf24b66a87a63b39fd1c7a026b1b1d4d52a979",
     "data_plane": "c1d399c74a31db898b96b8887ae03ce7f4785a56c299a8239dac0b5861601da9",
     "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
