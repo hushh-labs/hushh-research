@@ -560,12 +560,12 @@ def build_pod_memory_service(
                 self._hydrated = True
                 logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
 
-        def _require_owner(self, user_id: str) -> None:
-            if user_id not in ("", self.hushh_id):
+        def _require_owner(self, user_id: Any) -> None:
+            if not isinstance(user_id, str) or user_id != self.hushh_id:
                 raise PodMemoryError("Memory owner does not match this pod")
 
         async def add_session_to_memory(self, session: Any) -> None:
-            self._require_owner(str(getattr(session, "user_id", "") or ""))
+            self._require_owner(getattr(session, "user_id", None))
             await self._ensure_hydrated()
             for event in getattr(session, "events", None) or []:
                 # Browser-carried history turns are seeded into the session with an
@@ -619,9 +619,7 @@ def build_pod_memory_service(
                         type(exc).__name__,
                     )
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
-            hits = store.search(
-                hushh_id=self.hushh_id if user_id in ("", self.hushh_id) else user_id, query=query
-            )
+            hits = store.search(hushh_id=user_id, query=query)
             # The observable recall signal. The north star accepts only an observed
             # recall TOOL CALL as proof the agent evolved; until this line, a live
             # `load_memory` call left no trace anywhere, so the proof was

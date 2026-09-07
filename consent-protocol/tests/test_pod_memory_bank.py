@@ -242,7 +242,7 @@ class _Bank:
         return SimpleNamespace(memories=list(self.hits))
 
 
-def _session(*texts):
+def _session(*texts, user_id="ha1_x"):
     from google.genai import types as genai_types
 
     events = [
@@ -253,7 +253,7 @@ def _session(*texts):
         )
         for i, t in enumerate(texts)
     ]
-    return SimpleNamespace(events=events)
+    return SimpleNamespace(events=events, user_id=user_id)
 
 
 @pytest.mark.asyncio
@@ -543,7 +543,8 @@ def test_done_with_no_engine_name_fails_without_polling_a_finished_operation() -
 
 
 @pytest.mark.asyncio
-async def test_foreign_owner_cannot_hydrate_or_call_memory_provider() -> None:
+@pytest.mark.parametrize("user_id", ["ha1_other", "", None, 123, False])
+async def test_foreign_owner_cannot_hydrate_or_call_memory_provider(user_id) -> None:
     from unittest.mock import AsyncMock
 
     from hushh_mcp.services.pod_memory_service import PodMemoryError, build_pod_memory_service
@@ -552,9 +553,9 @@ async def test_foreign_owner_cannot_hydrate_or_call_memory_provider() -> None:
     log = SimpleNamespace(replay=AsyncMock(return_value=[]), append=AsyncMock())
     service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank, log=log)
     with pytest.raises(PodMemoryError):
-        await service.search_memory(app_name="one", user_id="ha1_other", query="private")
+        await service.search_memory(app_name="one", user_id=user_id, query="private")
     session = _session("foreign information")
-    session.user_id = "ha1_other"
+    session.user_id = user_id
     with pytest.raises(PodMemoryError):
         await service.add_session_to_memory(session)
     log.replay.assert_not_awaited()
@@ -575,7 +576,7 @@ async def test_provider_error_content_is_not_logged(caplog) -> None:
         add_session_to_memory=AsyncMock(side_effect=RuntimeError(marker)),
     )
     service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, bank=bank)
-    await service.add_session_to_memory(_session("a remembered preference"))
+    await service.add_session_to_memory(_session("a remembered preference", user_id="ha1_owner"))
     found = await service.search_memory(app_name="one", user_id="ha1_owner", query="preference")
     assert found.memories
     assert marker not in caplog.text
@@ -885,3 +886,24 @@ async def test_composite_retained_bank_cannot_bypass_record_admission(monkeypatc
     # remains, so this is deliberately NOT an account-erasure assertion.
     assert recalled.memories
     assert mb.memory_bank_status()["memoryBankError"] == "MemoryBankUnavailable"
+
+
+@pytest.mark.asyncio
+async def test_missing_session_owner_refuses_before_event_inspection():
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_memory_service import PodMemoryError, build_pod_memory_service
+
+    class UnidentifiedSession:
+        @property
+        def events(self):
+            pytest.fail("must verify owner before event inspection")
+
+    log = SimpleNamespace(replay=AsyncMock(), append=AsyncMock())
+    bank = _Bank()
+    service = build_pod_memory_service(hushh_id="ha1_owner", pod_key=b"k" * 32, log=log, bank=bank)
+    with pytest.raises(PodMemoryError):
+        await service.add_session_to_memory(UnidentifiedSession())
+    log.replay.assert_not_awaited()
+    log.append.assert_not_awaited()
+    assert bank.added == 0

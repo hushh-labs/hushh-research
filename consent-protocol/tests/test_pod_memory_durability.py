@@ -62,6 +62,8 @@ class _Part:
 
 
 class _Session:
+    user_id = OWNER
+
     def __init__(self, *texts: str) -> None:
         self.events = [_Event(t) for t in texts]
 

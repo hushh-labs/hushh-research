@@ -106,6 +106,8 @@ class _FakeEvent:
 
 
 class _FakeSession:
+    user_id = _OWNER
+
     def __init__(self, events):
         self.events = events
 
