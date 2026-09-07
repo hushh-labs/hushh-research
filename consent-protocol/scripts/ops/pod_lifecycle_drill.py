@@ -47,8 +47,8 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 
 # --------------------------------------------------------------------------- #
-# The horizon. Each fact carries one keyword found in no other fact, so a hit is
-# recall, not luck -- the same discipline pod_evolution_gcs_probe.py uses.
+# Synthetic records use distinct retrieval queries. The oracle compares the
+# returned record, never the query keyword already disclosed to the provider.
 # --------------------------------------------------------------------------- #
 
 HORIZON: list[tuple[str, str]] = [
@@ -91,8 +91,8 @@ class LifecycleFleet(Protocol):
 
     async def identity(self, pod_url: str) -> dict[str, Any]:
         """What the pod says its identity is: at least ``podKeyId`` and
-        ``podKeyDurable``. Optional -- a fleet that cannot report identity simply
-        omits this and the drill records identity as unchecked rather than failing."""
+        ``podKeyDurable``. Missing identity remains unchecked and prevents a
+        whole-drill pass."""
         ...
 
 
@@ -113,6 +113,7 @@ class DrillResult:
     identity_before: str | None = None
     identity_after: str | None = None
     identity_durable: bool | None = None
+    identity_durable_before: bool | None = None
 
     @property
     def identity_checked(self) -> bool:
@@ -131,6 +132,7 @@ class DrillResult:
             and self.identity_before is not None
             and self.identity_before == self.identity_after
             and self.identity_durable is True
+            and self.identity_durable_before is True
         )
 
     @property
@@ -143,9 +145,8 @@ class DrillResult:
             and self.recalled == self.horizon_size
             and self.negative_control_clean
         )
-        # Identity is only allowed to be silent, never allowed to be wrong: a fleet
-        # that reports identity at all must have preserved it.
-        return memory_ok and (self.identity_preserved if self.identity_checked else True)
+        # Missing identity evidence is incomplete, never a whole-drill pass.
+        return memory_ok and self.identity_preserved
 
     def to_dict(self) -> dict[str, Any]:
         return {**asdict(self), "passed": self.passed}
@@ -163,6 +164,8 @@ async def run_drill(
     horizon: list[tuple[str, str]] = HORIZON,
     absent_keyword: str = ABSENT_KEYWORD,
 ) -> DrillResult:
+    if not horizon:
+        raise ValueError("Lifecycle drill requires at least one synthetic fact")
     stages: list[str] = []
 
     url = await fleet.provision(hushh_id)  # 0 -> 1
@@ -175,12 +178,13 @@ async def run_drill(
     # It must know a fact BEFORE the kill, or a failed recall afterwards is
     # ambiguous between "teaching failed" and "death lost it" -- and the drill
     # exists to catch the second, so it has to rule out the first.
-    first_kw, first_fact = horizon[0]
-    pre = await fleet.recall(url, first_kw)
-    learned_before_death = _hit(first_kw, first_fact, pre)
+    learned_before_death = True
+    for keyword, fact in horizon:
+        pre = await fleet.recall(url, keyword)
+        learned_before_death = _hit(keyword, fact, pre) and learned_before_death
     stages.append(f"learned_before_death={learned_before_death}")
 
-    identity_before = await _identity_key(fleet, url)
+    identity_before, identity_durable_before = await _identity(fleet, url)
     if identity_before is not None:
         stages.append(f"identity before death={identity_before}")
 
@@ -204,7 +208,7 @@ async def run_drill(
     stages.append(f"recalled {recalled}/{len(horizon)} across the death")
 
     absent = await fleet.recall(url, absent_keyword)
-    negative_control_clean = not any(absent_keyword.lower() in r.lower() for r in absent)
+    negative_control_clean = absent == []
     stages.append(f"negative_control_clean={negative_control_clean}")
 
     return DrillResult(
@@ -216,6 +220,7 @@ async def run_drill(
         identity_before=identity_before,
         identity_after=identity_after,
         identity_durable=identity_durable,
+        identity_durable_before=identity_durable_before,
     )
 
 
@@ -227,26 +232,33 @@ async def _identity(fleet: Any, pod_url: str) -> tuple[str | None, bool | None]:
     if reader is None:
         return None, None
     try:
-        payload = await reader(pod_url) or {}
-    except Exception as exc:  # noqa: BLE001
-        print(f"[drill] identity read failed: {type(exc).__name__}: {exc}")
+        payload = await reader(pod_url)
+    except Exception:  # noqa: BLE001
+        print("[drill] identity read unavailable")
+        return None, None
+    if not isinstance(payload, dict):
         return None, None
     key_id = payload.get("podKeyId") or payload.get("podPublicKey")
     durable = payload.get("podKeyDurable")
-    return (str(key_id) if key_id else None), (bool(durable) if durable is not None else None)
-
-
-async def _identity_key(fleet: Any, pod_url: str) -> str | None:
-    key_id, _durable = await _identity(fleet, pod_url)
-    return key_id
+    return (
+        key_id.strip() if isinstance(key_id, str) and key_id.strip() else None,
+        durable if isinstance(durable, bool) else None,
+    )
 
 
 def _hit(keyword: str, fact: str, recalled: list[str]) -> bool:
-    """A fact is recalled when the pod surfaced text carrying its unique keyword.
-    Keyword rather than exact-string so a live LLM may paraphrase the fact and
-    still count, while a never-taught keyword still cannot match."""
-    needle = keyword.lower()
-    return any(needle in r.lower() for r in recalled)
+    """Conservative verbatim recovery oracle; query echo cannot prove recall.
+
+    This measures recovery of the taught synthetic record, not paraphrase or
+    semantic quality. An independent semantic evaluation remains required.
+    """
+    del keyword  # Compatibility with the existing fleet/orchestration seam.
+    return (
+        isinstance(recalled, list)
+        and len(recalled) == 1
+        and isinstance(recalled[0], str)
+        and " ".join(fact.casefold().split()) == " ".join(recalled[0].casefold().split())
+    )
 
 
 def render_report(result: DrillResult) -> str:
@@ -401,8 +413,11 @@ class GcpFleet:
             self._consent_token = str(token)
 
     async def cleanup_owner(self) -> None:
-        """Revoke the grant and drop the throwaway registry row. Best effort: a
-        stranded row is an operational cost, never a reason to fail a green run."""
+        """Attempt grant revocation; registry and durable resources are retained.
+
+        This is not complete cleanup evidence. Live disposal and ownership
+        verification remain required before using this producer operationally.
+        """
         if not self._owner_bound:
             return
         try:
@@ -462,8 +477,14 @@ class GcpFleet:
         await asyncio.to_thread(self._turn, pod_url, f"Please remember this: {fact}")
 
     async def recall(self, pod_url: str, keyword: str) -> list[str]:
-        answer = await asyncio.to_thread(self._turn, pod_url, f"What do you know about {keyword}?")
-        return [answer]
+        answer = await asyncio.to_thread(
+            self._turn,
+            pod_url,
+            f"Recall the exact record I asked you to remember about {keyword}. "
+            "Return only that record verbatim, without commentary. "
+            "If no such record is available, return exactly NO_RECORDED_FACT.",
+        )
+        return [] if answer.strip() == "NO_RECORDED_FACT" else [answer]
 
     async def kill(self, hushh_id: str) -> None:
         name = self._service_names.get(hushh_id)
@@ -488,7 +509,7 @@ class GcpFleet:
                 timeout=45,
             )
             if resp.status_code != 200:
-                raise RuntimeError(f"identity read HTTP {resp.status_code}: {resp.text[:160]}")
+                raise RuntimeError(f"identity read HTTP {resp.status_code}")
             return dict(resp.json() or {})
 
         return await asyncio.to_thread(_get)
@@ -505,7 +526,7 @@ class GcpFleet:
                 await asyncio.to_thread(self._run_client().delete_service, name)
                 removed.append(name)
             except Exception as exc:  # noqa: BLE001 -- teardown must never raise
-                print(f"[drill] teardown of {name} skipped (may already be gone): {exc}")
+                print(f"[drill] service teardown incomplete: {type(exc).__name__}")
         return removed
 
     def _turn(self, pod_url: str, message: str) -> str:
@@ -524,11 +545,8 @@ class GcpFleet:
             timeout=120,
         )
         if resp.status_code != 200:
-            # A refusal here is the drill's most common real failure, and its body
-            # carries the only useful sentence (a 403 consent refusal reads nothing
-            # like a 502 model error). Losing it turns a diagnosable run into "the
-            # pod said no".
-            raise RuntimeError(f"pod turn HTTP {resp.status_code}: {resp.text[:200]}")
+            # Provider bodies can contain owner information; retain only status.
+            raise RuntimeError(f"pod turn HTTP {resp.status_code}")
         body = resp.json() or {}
         return str(body.get("text") or "")
 

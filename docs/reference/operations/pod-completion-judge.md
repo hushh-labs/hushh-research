@@ -162,3 +162,18 @@ Requests are counted by identity until completion, including duplicate URLs.
 Browser API concurrency is not database occupancy. First-run state is not proof
 that the account was freshly created; creation and database-pool assertions
 remain unearned until independently measured. No fixture is reset by this driver.
+
+### Lifecycle producer evidence boundary
+
+The lifecycle drill compares each returned synthetic record with the taught
+record after whitespace and case normalization. Echoing a query keyword,
+returning a wrong value, or adding contradictory text cannot prove recall.
+Every record is checked before compute replacement. Both identity reads must
+return the same nonempty key identifier and a literal true durability flag.
+Missing or malformed identity never produces a whole-drill pass.
+
+This conservative oracle measures verbatim answer recovery, not paraphrase
+quality, provenance, receipted recall-tool execution, revocation or cost. The live
+fleet's disposable-resource ownership and verified cleanup remain incomplete;
+its current teardown attempt is not an erasure receipt. Do not use this producer
+to delete an existing owner's compute.

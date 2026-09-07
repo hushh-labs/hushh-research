@@ -52,7 +52,7 @@ async def test_the_negative_control_catches_a_pod_that_hallucinates_a_never_taug
     class _LeaksAbsent(drill.InMemoryFleet):
         async def recall(self, pod_url, keyword):
             base = await super().recall(pod_url, keyword)
-            return base + [f"I recall something about {keyword}"]
+            return base if base else [f"I recall something about {keyword}"]
 
     result = await drill.run_drill(_LeaksAbsent(), hushh_id="HA1HALLUCINATE")
     # Every taught fact still recalls, and it learned before death -- so the ONLY
@@ -132,9 +132,8 @@ def test_an_identity_that_is_equal_but_not_durable_is_not_preserved():
     assert not result.passed
 
 
-def test_a_fleet_that_cannot_report_identity_leaves_it_unchecked_rather_than_failing():
-    """Identity may be silent, never wrong: a fleet with no identity surface still
-    proves the memory half rather than going red for a check it cannot run."""
+def test_a_fleet_that_cannot_report_identity_cannot_pass():
+    """Memory-only evidence cannot establish the whole lifecycle assertion."""
     result = drill.DrillResult(
         horizon_size=1,
         learned_before_death=True,
@@ -142,7 +141,7 @@ def test_a_fleet_that_cannot_report_identity_leaves_it_unchecked_rather_than_fai
         negative_control_clean=True,
     )
     assert not result.identity_checked
-    assert result.passed
+    assert not result.passed
 
 
 def test_the_live_fleet_reads_the_pods_own_durability_claim():
@@ -198,9 +197,8 @@ def test_the_live_turn_uses_the_shared_operator_minter():
     assert "_service_account_info" not in source
 
 
-def test_a_refused_pod_turn_keeps_the_pod_s_own_words(monkeypatch):
-    """A 403 consent refusal and a 502 model error need different fixes; collapsing
-    them into an empty answer throws away the only sentence that says which."""
+def test_a_refused_pod_turn_never_discloses_response_body(monkeypatch):
+    """HTTP status distinguishes failure stages without copying private bodies."""
     import requests
 
     from hushh_mcp.services import operator_identity
@@ -216,8 +214,9 @@ def test_a_refused_pod_turn_keeps_the_pod_s_own_words(monkeypatch):
     monkeypatch.setattr(requests, "post", lambda *a, **k: _Resp())
 
     fleet = drill.GcpFleet(project="p", region="r", consent_token="grant")  # noqa: S106
-    with pytest.raises(RuntimeError, match="consent refused"):
+    with pytest.raises(RuntimeError, match="pod turn HTTP 403") as failure:
         fleet._turn("https://pod.example", "hello")
+    assert "consent refused" not in str(failure.value)
 
 
 class _FakeHandle:
@@ -243,8 +242,61 @@ def test_the_report_and_json_round_trip():
         recalled=6,
         negative_control_clean=True,
         stages=["provisioned", "taught 6 facts"],
+        identity_before="synthetic-key",
+        identity_after="synthetic-key",
+        identity_durable=True,
+        identity_durable_before=True,
     )
     text = drill.render_report(result)
     assert "POD LIFECYCLE DRILL" in text
     assert "PASS" in text
     assert result.to_dict()["passed"] is True
+
+
+@pytest.mark.parametrize(
+    "reply",
+    [
+        "radiator",
+        "I know nothing about radiator",
+        "the radiator is fine",
+        "the guest room radiator leaks when it rains but that is false",
+    ],
+)
+def test_query_echo_and_wrong_facts_do_not_prove_recall(reply):
+    keyword, fact = drill.HORIZON[0]
+    assert not drill._hit(keyword, fact, [reply])
+
+
+@pytest.mark.parametrize("durable", ["false", "true", 1, None, False])
+async def test_malformed_or_false_identity_durability_cannot_pass(durable):
+    class Fleet(drill.InMemoryFleet):
+        async def identity(self, url):
+            return {"podKeyId": "synthetic-key", "podKeyDurable": durable}
+
+    assert not (await drill.run_drill(Fleet(), hushh_id="SYNTHETIC")).passed
+
+
+async def test_identity_outage_does_not_pass_or_print_private_error(capsys):
+    class Fleet(drill.InMemoryFleet):
+        async def identity(self, url):
+            raise RuntimeError("synthetic-private-error")
+
+    assert not (await drill.run_drill(Fleet(), hushh_id="SYNTHETIC")).passed
+    assert "synthetic-private-error" not in capsys.readouterr().out
+
+
+async def test_predeath_ephemeral_identity_cannot_pass_after_durable_rebuild():
+    class Fleet(drill.InMemoryFleet):
+        async def identity(self, url):
+            return {"podKeyId": "synthetic-key", "podKeyDurable": self._counter > 1}
+
+    assert not (await drill.run_drill(Fleet(), hushh_id="SYNTHETIC")).passed
+
+
+async def test_absent_fact_hallucination_without_query_keyword_is_rejected():
+    class Fleet(drill.InMemoryFleet):
+        async def recall(self, url, keyword):
+            value = await super().recall(url, keyword)
+            return value or ["the missing record says something invented"]
+
+    assert not (await drill.run_drill(Fleet(), hushh_id="SYNTHETIC")).passed
