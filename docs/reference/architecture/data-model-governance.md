@@ -135,6 +135,14 @@ Provider-derived data becomes durable user memory only after a consented, encryp
 
 ### Gmail cache maintenance
 
+Gmail token refresh binds its result to the observed active connection's encrypted
+refresh-token envelope and token timestamp. A delayed success or failure cannot
+overwrite a disconnect, reconnect or competing refresh; it returns a retryable 409.
+Revoked connections refuse credential decryption. Provider error details are omitted
+from refresh failures and stored reauthorization diagnostics. This fences refresh
+persistence only: already admitted provider calls, disconnect ordering, receipt and
+preview publication still require separate lifecycle handling.
+
 Terminal sync-run metadata expires after **30 days** from `completed_at`. For
 legacy terminal rows without a completion timestamp, `updated_at` is the
 conservative fallback: an old request may have completed recently. A row without

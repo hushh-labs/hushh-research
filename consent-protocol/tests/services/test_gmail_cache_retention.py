@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import json
+import traceback
 from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,7 +18,7 @@ from sqlalchemy.exc import DBAPIError
 
 from db.db_client import DatabaseClient
 from hushh_mcp.services.gmail_cache_retention import maintain_gmail_cache
-from hushh_mcp.services.gmail_receipts_service import GmailReceiptsService
+from hushh_mcp.services.gmail_receipts_service import GmailApiError, GmailReceiptsService
 from hushh_mcp.services.receipt_memory_service import ReceiptMemoryArtifactService
 from tests.test_data_model_audit_postgres import isolated_postgres as isolated_postgres
 
@@ -370,3 +372,144 @@ def test_statement_timeout_rolls_back_slow_deletion(engine):
         maintain_gmail_cache(engine, user_id="owner-a", apply=True)
     assert error.value.orig.pgcode == "57014"
     assert _ids(engine, "runs") == ["slow-delete"]
+
+
+@pytest.fixture
+def connected_gmail(engine, monkeypatch):
+    source = (ROOT / "consent-protocol/db/legacy/init_legacy_schema.sql").read_text()
+    start = source.index("CREATE TABLE IF NOT EXISTS kai_gmail_connections (")
+    end = source.index("\n);", start) + 4
+    with engine.begin() as conn:
+        conn.execute(text(source[start:end]))
+        conn.execute(
+            text("""
+            INSERT INTO kai_gmail_connections
+                (user_id, status, refresh_token_ciphertext, refresh_token_iv,
+                 refresh_token_tag, token_updated_at, connected_at)
+            VALUES ('owner-a', 'connected', 'initial-refresh', 'initial-iv', 'initial-tag',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP),
+                   ('owner-b', 'connected', 'foreign-refresh', 'foreign-iv', 'foreign-tag',
+                    CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        """)
+        )
+    service = GmailReceiptsService()
+    service._db = DatabaseClient(engine=engine)
+    # Only cryptography and the external provider are substituted. All authority
+    # reads and conditional writes execute the production SQL on PostgreSQL.
+    monkeypatch.setattr(service, "_decrypt_token", lambda ciphertext, *args: ciphertext)
+    monkeypatch.setattr(
+        service,
+        "_encrypt_token",
+        lambda token: {"ciphertext": "sealed-" + token, "iv": "next-iv", "tag": "next-tag"},
+    )
+    return service
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+@pytest.mark.parametrize("transition", ["disconnect", "reconnect", "concurrent_refresh"])
+async def test_late_refresh_result_cannot_overwrite_changed_connection(
+    engine, connected_gmail, monkeypatch, provider_fails, transition
+):
+    started, release = asyncio.Event(), asyncio.Event()
+
+    async def refresh(**kwargs):
+        started.set()
+        await release.wait()
+        if provider_fails:
+            raise GmailApiError("synthetic old grant refused", status_code=401)
+        return {"access_token": "late-access", "refresh_token": "late-refresh"}
+
+    monkeypatch.setattr(connected_gmail, "_refresh_access_token", refresh)
+    task = asyncio.create_task(connected_gmail._ensure_access_token(user_id="owner-a"))
+    try:
+        await asyncio.wait_for(started.wait(), timeout=5)
+        with engine.begin() as conn:
+            if transition == "disconnect":
+                conn.execute(
+                    text("""
+                    UPDATE kai_gmail_connections SET status='disconnected', revoked=TRUE,
+                      refresh_token_ciphertext=NULL, refresh_token_iv=NULL, refresh_token_tag=NULL,
+                      access_token_ciphertext=NULL, token_updated_at=CURRENT_TIMESTAMP
+                    WHERE user_id='owner-a'
+                """)
+                )
+            elif transition == "reconnect":
+                # Preserve timestamps deliberately: the changed encrypted envelope
+                # must still invalidate old work, even with a clock collision.
+                conn.execute(
+                    text("""
+                    UPDATE kai_gmail_connections SET refresh_token_ciphertext='replacement-refresh',
+                      refresh_token_iv='replacement-iv', refresh_token_tag='replacement-tag',
+                      access_token_ciphertext='replacement-access'
+                    WHERE user_id='owner-a'
+                """)
+                )
+            else:
+                conn.execute(
+                    text("""
+                    UPDATE kai_gmail_connections SET token_updated_at=CURRENT_TIMESTAMP,
+                      access_token_ciphertext='replacement-access'
+                    WHERE user_id='owner-a'
+                """)
+                )
+        before = connected_gmail._fetch_connection_row(user_id="owner-a")
+        release.set()
+        with pytest.raises(GmailApiError) as error:
+            await asyncio.wait_for(task, timeout=5)
+        assert error.value.status_code == 409
+        assert "synthetic old grant refused" not in "".join(traceback.format_exception(error.value))
+        assert connected_gmail._fetch_connection_row(user_id="owner-a") == before
+        assert (
+            connected_gmail._fetch_connection_row(user_id="owner-b")["refresh_token_ciphertext"]
+            == "foreign-refresh"
+        )
+    finally:
+        release.set()
+        if not task.done():
+            task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_current_refresh_persists_success_or_requires_reauth(
+    connected_gmail, monkeypatch, provider_fails
+):
+    async def refresh(**kwargs):
+        if provider_fails:
+            raise GmailApiError("synthetic current grant refused", status_code=401)
+        return {"access_token": "new-access", "refresh_token": "new-refresh"}
+
+    monkeypatch.setattr(connected_gmail, "_refresh_access_token", refresh)
+    if provider_fails:
+        with pytest.raises(GmailApiError) as error:
+            await connected_gmail._ensure_access_token(user_id="owner-a")
+        assert error.value.status_code == 401
+        assert "synthetic current grant refused" not in "".join(
+            traceback.format_exception(error.value)
+        )
+        row = connected_gmail._fetch_connection_row(user_id="owner-a")
+        assert row["status"] == "error" and row["revoked"] is True
+        assert row["last_sync_error"] == "Gmail token refresh failed. Reconnect Gmail to continue."
+    else:
+        token, row = await connected_gmail._ensure_access_token(user_id="owner-a")
+        assert token == "new-access"
+        assert row == connected_gmail._fetch_connection_row(user_id="owner-a")
+        assert row["access_token_ciphertext"] == "sealed-new-access"
+        assert row["refresh_token_ciphertext"] == "sealed-new-refresh"
+        assert row["status"] == "connected" and row["revoked"] is False
+
+
+@pytest.mark.asyncio
+async def test_revoked_connection_refuses_before_decryption(engine, connected_gmail, monkeypatch):
+    with engine.begin() as conn:
+        conn.execute(text("UPDATE kai_gmail_connections SET revoked=TRUE WHERE user_id='owner-a'"))
+
+    def forbidden(*args):
+        pytest.fail("revoked connection reached credential decryption")
+
+    monkeypatch.setattr(connected_gmail, "_decrypt_token", forbidden)
+    with pytest.raises(GmailApiError) as error:
+        await connected_gmail._ensure_access_token(user_id="owner-a")
+    assert error.value.status_code == 400
