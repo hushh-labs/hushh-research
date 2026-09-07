@@ -2,7 +2,7 @@
 
 Third-party dependency inventory for the hushh-research monorepo.
 
-This file is generated from repo lockfiles, the installed Python environment, and the governed imported-resource inventory.
+This file is generated from repo lockfiles, exact-version installed license evidence, the installed Python environment, and the governed imported-resource inventory.
 Regenerate it with `python3 scripts/licenses/generate_third_party_notices.py`.
 
 ## Frontend npm packages
@@ -25,14 +25,13 @@ Package count: 1260
 - `CC0-1.0`: 1
 - `ISC`: 76
 - `LGPL-3.0-or-later`: 10
-- `MIT`: 905
+- `MIT`: 907
 - `MIT AND ISC`: 1
 - `MIT OR SEE LICENSE IN FEEL-FREE.md`: 1
 - `MIT-0`: 1
 - `MPL-2.0`: 13
 - `Python-2.0`: 1
 - `Standard 'no charge' license: https://gsap.com/standard-license.`: 1
-- `UNKNOWN`: 2
 - `Unlicense`: 2
 
 ### Package inventory
@@ -912,7 +911,7 @@ Package count: 1260
 - `katex/commander` `8.3.0` — MIT
 - `kdbush` `4.1.0` — ISC
 - `keyv` `4.5.4` — MIT
-- `khroma` `2.1.0` — UNKNOWN
+- `khroma` `2.1.0` — MIT
 - `kleur` `4.1.5` — MIT
 - `language-subtag-registry` `0.3.23` — CC0-1.0
 - `language-tags` `1.0.9` — MIT
@@ -931,7 +930,7 @@ Package count: 1260
 - `lightningcss-linux-x64-musl` `1.32.0` — MPL-2.0
 - `lightningcss-win32-arm64-msvc` `1.32.0` — MPL-2.0
 - `lightningcss-win32-x64-msvc` `1.32.0` — MPL-2.0
-- `limiter` `1.1.5` — UNKNOWN
+- `limiter` `1.1.5` — MIT
 - `lit` `3.3.2` — BSD-3-Clause
 - `lit-element` `4.2.2` — BSD-3-Clause
 - `lit-html` `3.3.2` — BSD-3-Clause
@@ -1309,7 +1308,7 @@ Package count: 178
 - `Apache Software License`: 30
 - `Apache Software License; BSD License`: 1
 - `Apache Software License; MIT License`: 1
-- `Apache-2.0`: 23
+- `Apache-2.0`: 24
 - `Apache-2.0 AND MIT`: 1
 - `Apache-2.0 OR BSD-2-Clause`: 1
 - `Apache-2.0 OR BSD-3-Clause`: 1
@@ -1322,7 +1321,7 @@ Package count: 178
 - `GNU Lesser General Public License v3 (LGPLv3)`: 1
 - `GNU Library or Lesser General Public License (LGPL)`: 1
 - `LGPL-2.1-only`: 1
-- `MIT`: 45
+- `MIT`: 46
 - `MIT License`: 27
 - `MIT-CMU`: 1
 - `Mozilla Public License 2.0 (MPL 2.0)`: 2
@@ -1330,7 +1329,7 @@ Package count: 178
 - `MPL-2.0 AND MIT`: 1
 - `PSF-2.0`: 1
 - `Python Software Foundation License`: 2
-- `UNKNOWN`: 3
+- `UNKNOWN`: 1
 
 ### Package inventory
 
@@ -1383,7 +1382,7 @@ Package count: 178
 - `google-cloud-firestore` `2.27.0` — Apache Software License
 - `google-cloud-storage` `3.10.1` — Apache Software License
 - `google-cloud-trace` `1.19.0` — Apache Software License
-- `google-crc32c` `1.8.0` — UNKNOWN
+- `google-crc32c` `1.8.0` — Apache-2.0
 - `google-genai` `2.10.0` — Apache-2.0
 - `google-resumable-media` `2.8.2` — Apache Software License
 - `googleapis-common-protos` `1.74.0` — Apache Software License
@@ -1447,7 +1446,7 @@ Package count: 178
 - `pathspec` `1.0.4` — Mozilla Public License 2.0 (MPL 2.0)
 - `pdfminer.six` `20260107` — MIT
 - `pdfplumber` `0.11.10` — MIT License
-- `peewee` `4.0.4` — UNKNOWN
+- `peewee` `4.0.4` — MIT
 - `phonenumbers` `9.0.28` — Apache-2.0
 - `pillow` `12.3.0` — MIT-CMU
 - `platformdirs` `4.9.6` — MIT
