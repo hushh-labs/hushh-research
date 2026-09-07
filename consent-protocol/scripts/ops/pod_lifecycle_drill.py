@@ -28,9 +28,9 @@ negative control -- against an in-memory fleet that models the one property that
 matters (durable state is keyed by the owner and survives the service's death).
 It asserts the sequence is sound AND that a fleet which LOSES state on kill fails
 the drill, because an oracle that cannot fail proves nothing. No cloud, runnable
-in CI. ``--live`` runs the identical sequence against real Cloud Run and real GCS
-and costs real money for the minutes a pod is up, so it is the operator/scheduled
-half.
+in CI. ``--live`` currently refuses before acquiring resources: its adapter
+does not yet establish exclusive disposable ownership and verified cleanup.
+This is an incomplete live assertion, not an operational success.
 """
 
 from __future__ import annotations
@@ -592,7 +592,9 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--dry-run", action="store_true", help="run the offline orchestration check")
     ap.add_argument(
-        "--live", action="store_true", help="run against real Cloud Run + GCS (costs $)"
+        "--live",
+        action="store_true",
+        help="request live proof (currently blocked pending ownership/cleanup)",
     )
     ap.add_argument("--project", help="GCP project for the live drill")
     ap.add_argument("--region", default="us-central1")
@@ -602,7 +604,7 @@ def main() -> int:
         help="throwaway owner user_id to bind to the pod (the drill mints its own "
         "pkm.read grant unless --consent-token is supplied)",
     )
-    ap.add_argument("--consent-token", help="pkm.read grant for the live pod turns")
+    ap.add_argument("--consent-token", help="legacy compatibility input; live execution is blocked")
     ap.add_argument("--report-path", help="write the drill result JSON here (for CI artifacts)")
     args = ap.parse_args()
 
@@ -614,29 +616,20 @@ def main() -> int:
             )
         return code
 
-    if not args.project or not args.owner or not (args.user_id or args.consent_token):
-        print("live drill needs --project, --owner, and one of --user-id / --consent-token")
-        return 2
-
-    fleet = GcpFleet(
-        project=args.project,
-        region=args.region,
-        consent_token=args.consent_token or "",
-        user_id=args.user_id or "",
-    )
-    try:
-        result = asyncio.run(run_drill(fleet, hushh_id=args.owner))
-        print(render_report(result))
-        if args.report_path:
-            Path(args.report_path).write_text(json.dumps(result.to_dict(), indent=2))
-        return 0 if result.passed else 1
-    finally:
-        # Everything this run created comes down, in the order that cannot strand
-        # a billed resource: the pod first, then the owner it was bound to.
-        removed = asyncio.run(fleet.teardown())
-        if removed:
-            print(f"[drill] tore down {len(removed)} service(s): {', '.join(removed)}")
-        asyncio.run(fleet.cleanup_owner())
+    # The current live adapter can adopt an existing service, mutate an existing
+    # owner, and report success before disposal. Do not invoke it until the
+    # existing registry/client lifecycle proves attempt-bound ownership and
+    # complete cleanup. Retain the adapter for that migration and offline tests.
+    report = {
+        "mode": "live",
+        "passed": False,
+        "executed": False,
+        "reason": "disposable_ownership_and_cleanup_unverified",
+    }
+    print(json.dumps(report, sort_keys=True))
+    if args.report_path:
+        Path(args.report_path).write_text(json.dumps(report, indent=2))
+    return 2
 
 
 if __name__ == "__main__":

@@ -118,3 +118,14 @@ Existing pod receipt checks prove only the declared date window and a tracked re
 path. They do not establish that the current revision passed a live drill. A release audit
 must re-earn runtime evidence against its exact candidate and record image and environment;
 source tests, dated receipts and simulator results must remain distinguishable.
+
+### Live lifecycle producer admission
+
+`pod_lifecycle_drill.py --live` currently returns incomplete before acquiring
+cloud resources or consent authority. Its retained `GcpFleet` adapter is a
+migration surface, not an approved disposable-resource runner: existing-owner
+upsert, service adoption on conflict, name-only deletion and pre-cleanup reporting
+must be replaced through the existing registry, Cloud Run client and lifecycle
+services. Re-enabling requires exclusive attempt/incarnation ownership and
+verified cleanup, including durable external erasure. The existing dry-run and
+its schedule continue to test the oracle only; no new schedule is added.

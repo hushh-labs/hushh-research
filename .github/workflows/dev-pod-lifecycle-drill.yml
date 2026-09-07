@@ -17,16 +17,12 @@ name: Dev Pod Lifecycle Drill
 # branch, which is its source of record; `main` deliberately does not carry the
 # pod harness, so only the drill script and this workflow are promoted there.
 #
-# THE LIVE DOUBLE-CYCLE IS DELIBERATELY NOT A CI JOB.
-# Running the identical sequence against real Cloud Run + real GCS is the
-# operator path: `pod_lifecycle_drill.py --live --project hushh-pda-dev
-# --owner <throwaway HusshID> --consent-token <minted pkm.read grant>`. It is
-# excluded here for the same reason `pod_evolution_gcs_probe.py` is an operator
-# check and not a CI test: it creates real per-user pods (minutes of billed
-# compute in a shared, costed project) and needs a consent token minted at
-# runtime for the drill owner, which a CI runner has no safe way to mint. The
-# drill tears down every service it provisions, pass or fail, but the decision
-# to spend money on a live run stays a human's.
+# THE LIVE DOUBLE-CYCLE IS INCOMPLETE.
+# The CLI refuses --live before cloud, registry or grant access because its
+# retained adapter can adopt existing resources and does not prove complete
+# disposal before reporting. Re-enabling requires atomic disposable ownership,
+# incarnation-bound compute cleanup and durable erasure receipts. This offline
+# workflow proves only orchestration; it must never count as live lifecycle proof.
 #
 # NOTE ON ACTIVATION: GitHub fires `schedule:` and shows `workflow_dispatch` only
 # for workflows on the repository's DEFAULT branch. A promoted copy of this

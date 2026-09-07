@@ -11,6 +11,7 @@ These pin the orchestration AND that a state-losing lifecycle fails it.
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 from pathlib import Path
 
@@ -300,3 +301,59 @@ async def test_absent_fact_hallucination_without_query_keyword_is_rejected():
             return value or ["the missing record says something invented"]
 
     assert not (await drill.run_drill(Fleet(), hushh_id="SYNTHETIC")).passed
+
+
+@pytest.mark.parametrize("extra_args", [[], ["--dry-run"]])
+def test_live_cli_refuses_before_resource_or_authority_access(
+    monkeypatch, tmp_path, capsys, extra_args
+):
+    def forbidden(*args, **kwargs):
+        pytest.fail("blocked live drill touched resource or consent authority")
+
+    monkeypatch.setattr(drill, "GcpFleet", forbidden)
+    monkeypatch.setattr(drill, "run_drill", forbidden)
+    report_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            "pod_lifecycle_drill.py",
+            "--live",
+            "--project",
+            "synthetic-project",
+            "--owner",
+            "synthetic-owner",
+            "--user-id",
+            "synthetic-user",
+            "--consent-token",
+            "synthetic-private-token",
+            "--report-path",
+            str(report_path),
+            *extra_args,
+        ],
+    )
+    assert drill.main() == 2
+    report = json.loads(report_path.read_text())
+    assert report == {
+        "mode": "live",
+        "passed": False,
+        "executed": False,
+        "reason": "disposable_ownership_and_cleanup_unverified",
+    }
+    captured = capsys.readouterr()
+    assert json.loads(captured.out) == report
+    assert not captured.err
+    assert "synthetic" not in report_path.read_text()
+
+
+def test_dry_run_cli_still_executes_oracle_without_live_fleet(monkeypatch, tmp_path):
+    def forbidden(*args, **kwargs):
+        pytest.fail("dry run constructed a live fleet")
+
+    monkeypatch.setattr(drill, "GcpFleet", forbidden)
+    report_path = tmp_path / "receipt.json"
+    monkeypatch.setattr(
+        sys, "argv", ["pod_lifecycle_drill.py", "--dry-run", "--report-path", str(report_path)]
+    )
+    assert drill.main() == 0
+    assert json.loads(report_path.read_text()) == {"mode": "dry-run", "passed": True}
