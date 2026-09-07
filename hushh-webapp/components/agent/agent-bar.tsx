@@ -116,12 +116,9 @@ import type {
 } from "@/lib/agent/agent-voice-state";
 import { redactSensitiveVoiceTranscript } from "@/lib/voice/voice-sensitive-redaction";
 
-type PrewarmedGeminiRelay = {
-  relayUrl: string;
-  expiresAtMs: number;
-  snapshotId: string;
-  accessTier: string;
-};
+import { canReusePrewarmedRelay, type PrewarmedGeminiRelay } from "@/lib/voice/prewarmed-relay";
+import { currentVoiceContinuationHandle, isVoiceSessionOwnerCurrent, snapshotVoiceSessionOwner, type VoiceContinuation, type VoiceSessionOwner } from "@/lib/voice/voice-session-owner";
+import { snapshotAuthSessionGeneration } from "@/lib/auth/session-owner";
 
 type PendingVoiceConfirmation = {
   directiveId: string;
@@ -577,8 +574,10 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // just before the client instance carrying it is torn down. Consumed by
   // the next start() -- manual retry or automatic reconnect alike -- so the
   // provider continues the SAME conversation instead of starting fresh.
-  const lastResumptionHandleRef = useRef<string | null>(null);
-  const pendingResumptionHandleRef = useRef<string | null>(null);
+  const lastResumptionHandleRef = useRef<VoiceContinuation | null>(null);
+  const pendingResumptionHandleRef = useRef<VoiceContinuation | null>(null);
+  const activeVoiceOwnerRef = useRef<VoiceSessionOwner | null>(null);
+  const pendingRetryOwnerRef = useRef<VoiceSessionOwner | null>(null);
   // Deliberately conservative: at most ONE automatic reconnect for the whole
   // life of this bar, not one per failure. A provider that keeps failing the
   // same resumed conversation must never be able to loop silently -- a
@@ -1394,7 +1393,9 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
         voiceLeaseRef.current?.release("transport_closed");
         voiceLeaseRef.current = null;
         activeRuntimeModeRef.current = null;
-        lastResumptionHandleRef.current = event.resumptionHandle ?? null;
+        const owner = activeVoiceOwnerRef.current;
+        lastResumptionHandleRef.current = owner && isVoiceSessionOwnerCurrent(owner)
+          ? { owner, handle: event.resumptionHandle ?? null } : null;
         if (erroredRef.current) {
           // A resumable failure gets one automatic attempt to pick the same
           // conversation back up before this becomes something the person
@@ -1403,6 +1404,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
           if (lastErrorResumableRef.current && !autoReconnectedRef.current) {
             autoReconnectedRef.current = true;
             pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+            pendingRetryOwnerRef.current = owner;
             erroredRef.current = false;
             lastErrorResumableRef.current = false;
             // Not just skipped this time -- startConversation's own guard
@@ -1462,20 +1464,38 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     actionAbortControllerRef.current?.abort();
     appInteractionCoordinator.cancelActiveActionRuns("Action cancelled when the voice session ended");
     clearVoiceIdleTimer();
+    clearJourneyGrant("session_closed");
     erroredRef.current = false;
     abandonPendingConfirmation(
       "session_cancelled",
       "The confirmation was cancelled when the voice session ended.",
     );
-    liveClientRef.current?.stop();
-    liveClientRef.current = null;
     voiceLeaseRef.current?.release("voice_session_stopped");
     voiceLeaseRef.current = null;
+    liveClientRef.current?.stop();
+    liveClientRef.current = null;
     activeRuntimeModeRef.current = null;
+    activeVoiceOwnerRef.current = null;
+    lastResumptionHandleRef.current = null;
+    pendingResumptionHandleRef.current = null;
+    pendingRetryOwnerRef.current = null;
+    lastErrorResumableRef.current = false;
     prewarmedRelayRef.current = null;
     setConversationActive(false);
     resetVoice();
-  }, [abandonPendingConfirmation, clearVoiceIdleTimer, resetVoice]);
+  }, [abandonPendingConfirmation, clearVoiceIdleTimer, clearJourneyGrant, resetVoice]);
+
+  const previousVoiceOwnerRef = useRef(user?.uid ?? null);
+  useEffect(() => {
+    const ownerUserId = user?.uid ?? null;
+    if (previousVoiceOwnerRef.current !== ownerUserId) {
+      previousVoiceOwnerRef.current = ownerUserId;
+      prewarmedRelayRef.current = null;
+      stopConversation();
+      autoReconnectedRef.current = false;
+      setRetryNonce(0);
+    }
+  }, [user?.uid, stopConversation]);
 
   const runDeadEndRemedy = useCallback(() => {
     if (!deadEndRemedyAction || deadEndRemedyBusy) return;
@@ -1754,17 +1774,29 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     if (isSiriRequest) {
       externalStartRequestRef.current = externalRequest ?? null;
     }
+    const sessionOwner = snapshotVoiceSessionOwner(user?.uid ?? null);
+    if (!isVoiceSessionOwnerCurrent(sessionOwner)) {
+      setVoiceStatus("error", "Sign-in is still being verified. Please retry.");
+      finishExternalStart("failed");
+      return;
+    }
     const lease = appInteractionCoordinator.acquireVoiceLease({
       owner: "one_live",
       onRevoked: () => stopConversationRef.current(),
     });
     voiceLeaseRef.current = lease;
+    activeVoiceOwnerRef.current = sessionOwner;
     const runtimeConnection = await resolveGeminiRuntimeConnection({
       userId: user?.uid,
       vaultKey,
       vaultOwnerToken,
     });
     if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+      return;
+    }
+    if (!isVoiceSessionOwnerCurrent(sessionOwner)) {
+      stopConversation();
+      finishExternalStart("failed");
       return;
     }
     if (runtimeConnection.mode === "byok" && !runtimeConnection.credential) {
@@ -1791,18 +1823,12 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     scheduleVoiceIdleTimer();
     const context = runtime?.oneVoiceContextSnapshot ?? null;
     const prewarmedRelay = prewarmedRelayRef.current;
-    // The prewarmed ticket is context-free (context rides in app_context
-    // frames after connect), so only tier match and freshness gate reuse.
-    const relayUrl =
-      prewarmedRelay &&
-      prewarmedRelay.accessTier === runtime?.tier &&
-      prewarmedRelay.expiresAtMs > Date.now()
-        ? prewarmedRelay.relayUrl
-        : null;
+    const relayUrl = canReusePrewarmedRelay(prewarmedRelay, runtime?.tier, user?.uid ?? null)
+      ? prewarmedRelay.relayUrl : null;
     prewarmedRelayRef.current = null;
     const client = createRealtimeVoiceTransport({
       onEvent: (event) => {
-        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id) {
+        if (!lease.isCurrent() || voiceLeaseRef.current?.id !== lease.id || !isVoiceSessionOwnerCurrent(sessionOwner)) {
           return;
         }
         handleTransportEventRef.current(event);
@@ -1818,7 +1844,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     // ended, not to whatever the person starts after it. Reading it here
     // and clearing it in the same breath means an ordinary, unrelated later
     // start never accidentally inherits a stale one.
-    const resumptionHandle = pendingResumptionHandleRef.current;
+    const resumptionHandle = currentVoiceContinuationHandle(pendingResumptionHandleRef.current);
     pendingResumptionHandleRef.current = null;
     void client.start({
       context,
@@ -1867,13 +1893,23 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
   // choosing to retry by hand is a fresh decision, not a continuation of
   // whatever already failed once automatically.
   const retryConversation = useCallback(() => {
-    pendingResumptionHandleRef.current = lastResumptionHandleRef.current;
+    const continuation = lastResumptionHandleRef.current;
+    const owner = snapshotVoiceSessionOwner(user?.uid ?? null);
     autoReconnectedRef.current = false;
     stopConversation();
+    if (!isVoiceSessionOwnerCurrent(owner)) return;
+    pendingResumptionHandleRef.current = continuation;
+    pendingRetryOwnerRef.current = owner;
     setRetryNonce((current) => current + 1);
-  }, [stopConversation]);
+  }, [stopConversation, user?.uid]);
   useEffect(() => {
     if (retryNonce === 0) return;
+    const owner = pendingRetryOwnerRef.current;
+    pendingRetryOwnerRef.current = null;
+    if (!owner || !isVoiceSessionOwnerCurrent(owner)) {
+      pendingResumptionHandleRef.current = null;
+      return;
+    }
     startConversationRef.current();
     // Only a fresh retry request should re-fire this -- startConversationRef
     // is a ref, kept current by the effect above, and reading .current here
@@ -1985,6 +2021,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
     }
 
     const controller = new AbortController();
+    const ownerSnapshot = snapshotAuthSessionGeneration();
     const timer = window.setTimeout(() => {
       // The snapshot identity churns on every navigation and cache event, so
       // this effect re-fires constantly. The ticket is context-free (context
@@ -1992,27 +2029,31 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       // never mint concurrently, and back off after a rate limit instead of
       // hammering the relay endpoint on every snapshot change.
       const existing = prewarmedRelayRef.current;
-      if (
-        existing &&
-        existing.accessTier === accessTier &&
-        existing.expiresAtMs > Date.now()
-      ) {
+      if (canReusePrewarmedRelay(existing, accessTier, user?.uid ?? null)) {
         return;
       }
       if (relayMintInFlightRef.current) return;
       if (Date.now() < relayMintCooldownUntilRef.current) return;
       relayMintInFlightRef.current = true;
-      void ApiService.getOneAdkLiveRelayUrl({ signal: controller.signal })
+      void ApiService.getOneAdkLiveRelayUrl({
+        signal: controller.signal,
+        requireAuthenticated: accessTier === "signed_locked" || accessTier === "signed_unlocked",
+      })
         .then((relayUrl) => {
           relayMintInFlightRef.current = false;
           relayMintBackoffMsRef.current = 5_000;
           if (controller.signal.aborted) return;
-          prewarmedRelayRef.current = {
+          const candidate: PrewarmedGeminiRelay = {
             relayUrl,
             expiresAtMs: Date.now() + 45_000,
             snapshotId: context.snapshot_id,
             accessTier,
+            ownerUserId: user?.uid ?? null,
+            ownerSnapshot,
           };
+          if (canReusePrewarmedRelay(candidate, accessTier, user?.uid ?? null)) {
+            prewarmedRelayRef.current = candidate;
+          }
         })
         .catch((error: unknown) => {
           relayMintInFlightRef.current = false;
@@ -2038,7 +2079,7 @@ export function AgentBar({ layout = "fixed" }: { layout?: "fixed" | "slot" }) {
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier]);
+  }, [conversationActive, runtime?.oneVoiceContextSnapshot, runtime?.tier, user?.uid]);
 
   useEffect(() => {
     if (typeof document === "undefined") return;

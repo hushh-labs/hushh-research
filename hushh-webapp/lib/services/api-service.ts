@@ -72,6 +72,7 @@ import {
   type AuthSessionOwnerSnapshot,
   isValidatedAuthSessionOwnerCurrent,
   snapshotValidatedAuthSessionOwner,
+  snapshotAuthSessionGeneration,
 } from "@/lib/auth/session-owner";
 
 const AUTH_REFRESH_RETRY_HEADER = "X-Hushh-Auth-Refresh-Retry";
@@ -3348,13 +3349,46 @@ export class ApiService {
 
   static async createOneAdkRelaySession(data?: {
     signal?: AbortSignal;
+    requireAuthenticated?: boolean;
   }): Promise<{
     relay_ticket: string;
     expires_at: number;
     model: string;
     tier: string;
   }> {
-    const firebaseIdToken = await this.getFirebaseToken();
+    const owner = snapshotValidatedAuthSessionOwner();
+    const generation = snapshotAuthSessionGeneration();
+    const requireAuthenticated = data?.requireAuthenticated === true || Boolean(owner || AuthService.getCurrentUser());
+    const ownerIsCurrent = () => Boolean(
+      generation && isValidatedAuthSessionOwnerCurrent(generation) &&
+      (owner || AuthService.getCurrentUser() === null),
+    );
+    let firebaseIdToken: string | undefined;
+    if (requireAuthenticated) {
+      if (!owner) {
+        throw Object.assign(new Error("Sign-in is still being verified. Please retry."), { status: 401 });
+      }
+      try {
+        firebaseIdToken = await AuthService.getIdToken(true) || undefined;
+      } catch (error) {
+        const code = authSessionInvalidationCodeFromFirebaseError(error);
+        if (code && ownerIsCurrent()) {
+          dispatchAuthSessionInvalidated({ code, path: "/api/one/adk/relay-session", userId: owner.userId });
+        }
+        throw Object.assign(new Error(code ? "Sign in again to start voice." : "Sign-in could not be verified for voice. Please retry."), {
+          status: code ? 401 : 503,
+          code: code || "AUTH_PROVIDER_UNAVAILABLE",
+        });
+      }
+      if (!firebaseIdToken || decodeFirebaseTokenSubject(firebaseIdToken) !== owner.userId) {
+        throw Object.assign(new Error("Sign in again to start voice."), { status: 401 });
+      }
+    } else {
+      firebaseIdToken = await this.getFirebaseToken();
+    }
+    if (!ownerIsCurrent()) {
+      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+    }
     const response = await ApiService.apiFetch("/api/one/adk/relay-session", {
       method: "POST",
       headers: {
@@ -3373,7 +3407,11 @@ export class ApiService {
       error.status = response.status;
       throw error;
     }
-    return response.json();
+    const relaySession = await response.json();
+    if (!ownerIsCurrent()) {
+      throw Object.assign(new Error("The signed-in account changed. Start voice again."), { status: 401 });
+    }
+    return relaySession;
   }
 
   /**
@@ -3460,6 +3498,7 @@ export class ApiService {
    */
   static async getOneAdkLiveRelayUrl(data?: {
     signal?: AbortSignal;
+    requireAuthenticated?: boolean;
   }): Promise<string> {
     const backend = resolveRuntimeBackendUrl();
     // Apply the same Android-emulator localhost rewrite the HTTP layer uses.

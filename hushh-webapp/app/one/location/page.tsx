@@ -151,6 +151,7 @@ import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matchin
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import {
   isPublishableAge,
@@ -3389,9 +3390,9 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === auth.userId && request.status === "pending",
+          request.ownerUserId === auth.userId && isLocationRequestPending(request, nowMs),
       ),
-    [auth.userId, state?.requests],
+    [auth.userId, nowMs, state?.requests],
   );
   // Warm the shared position while the user is still reading the request.
   //

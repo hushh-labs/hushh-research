@@ -184,3 +184,8 @@ tests/test_one_location_nearby_presence_routes.py
 tests/services/test_one_location_nearby_presence_service.py
 tests/test_one_location_nearby_point_contract_migration.py
 tests/test_one_location_nearby_check_in_preferences_migration.py
+
+tests/test_one_relay_identity.py
+tests/test_relay_ticket_nonces.py
+tests/test_one_agent_chat_ingress.py
+tests/test_one_adk_agent_tree.py
