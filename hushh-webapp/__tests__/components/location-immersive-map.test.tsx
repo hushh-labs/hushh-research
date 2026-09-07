@@ -757,8 +757,10 @@ describe("LocationImmersiveMap demo experience", () => {
     // Named audience. The header used to read "No one sharing yet" over a
     // subtitle reading "Sharing with 1", which is two true statements about
     // two different audiences stacked as though they were one.
+    expect(screen.getByText("No one sharing yet")).toBeInTheDocument();
+    // The row below the header is where the audience is named in full.
     expect(
-      screen.getByText("No one sharing with you yet"),
+      screen.getByText("No one is sharing their location"),
     ).toBeInTheDocument();
     expect(
       screen.queryByText("0 people sharing with you"),
@@ -2157,12 +2159,11 @@ describe("LocationImmersiveMap reported map defects", () => {
     const ghost = screen.getByTestId("one-location-map-ghost-toggle");
     expect(ghost).toHaveAttribute("role", "switch");
     expect(ghost).toHaveAttribute("data-state", "checked");
-    // The rule, stated under the switch that used to break it.
+    // The switch is the whole control now: a name and an on/off state, with
+    // no paragraph under it restating what the two rows above already say.
     expect(
-      screen.getByText(
-        "Hidden from general visibility. The 2 people you share with privately still see you.",
-      ),
-    ).toBeInTheDocument();
+      screen.getByTestId("one-location-map-ghost"),
+    ).toHaveTextContent(/^Ghost Mode$/);
 
     // Check-in is still here and still one tap away -- it is just no longer
     // the loudest thing on a sheet that is not about it.

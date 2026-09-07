@@ -400,6 +400,7 @@ async def test_full_account_deletion_covers_account_owned_tables(monkeypatch):
 def _mapped_result(row):
     result = MagicMock()
     result.mappings.return_value.first.return_value = row
+    result.first.return_value = row
     return result
 
 
@@ -438,6 +439,7 @@ def test_personal_agent_cleanup_blocks_provisioned_registry_and_byoc_without_par
             }
         ),
         _mapped_result({"present": True}),
+        _mapped_result(None),
         _mapped_result(None),
     ]
 
@@ -544,6 +546,7 @@ def test_personal_agent_cleanup_is_a_noop_when_live_drift_tables_are_absent(monk
         "byoc_setup_jobs": True,
         "pod_lifecycle_events": True,
         "personal_agent_registry": True,
+        "pod_migration_jobs": True,
         "personal_agent_external_resources_absent": True,
     }
 
@@ -555,6 +558,7 @@ def test_personal_agent_cleanup_fails_closed_for_orphaned_byoc_job(monkeypatch):
     conn.execute.side_effect = [
         _mapped_result(None),
         _mapped_result({"job": {"job_id": "job-123", "project_id": "project-123"}}),
+        _mapped_result(None),
         _mapped_result(None),
     ]
 
@@ -613,6 +617,7 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
         _mapped_result(None),
         _mapped_result(None),
         _mapped_result((True,)),
+        _mapped_result(None),
     ]
 
     with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
@@ -628,12 +633,14 @@ def test_personal_agent_cleanup_fails_closed_when_deprovision_is_already_pending
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("resource_table", ["personal_agent_registry", "pod_migration_jobs"])
 async def test_full_account_delete_returns_stable_external_resource_block_without_deletes(
     monkeypatch,
+    resource_table,
 ):
     service = AccountService()
     conn = MagicMock()
-    present = {"personal_agent_registry"}
+    present = {resource_table}
     monkeypatch.setattr(
         service,
         "_table_exists",
@@ -885,6 +892,8 @@ async def test_reset_account_clears_data_but_keeps_account_spine(monkeypatch):
 
     # The account spine survives a reset: no DELETE touches identity or vault.
     spine_fragments = [
+        "DELETE FROM pod_migration_jobs",
+        "DELETE FROM webauthn_credentials",
         "DELETE FROM actor_profiles",
         "DELETE FROM actor_identity_cache",
         "DELETE FROM actor_verified_email_aliases",
@@ -1285,6 +1294,8 @@ async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatc
     assert demote_index < delete_index
     # Reset keeps sign-in: the identity/vault spine is never deleted.
     spine_fragments = [
+        "DELETE FROM pod_migration_jobs",
+        "DELETE FROM webauthn_credentials",
         "DELETE FROM actor_profiles",
         "DELETE FROM vault_keys",
         "DELETE FROM vault_key_wrappers",

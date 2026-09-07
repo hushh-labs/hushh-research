@@ -4,6 +4,7 @@ import hashlib
 import importlib.util
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -16,6 +17,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "deploy-uat.yml"
 SERVING_STATE_SCRIPT = ROOT / "scripts" / "ci" / "resolve-cloud-run-serving-state.py"
 SCHEDULER_ATTEMPT_SCRIPT = ROOT / "scripts" / "ci" / "verify-cloud-scheduler-attempt.py"
+SCHEDULER_SETUP_SCRIPT = ROOT / "deploy" / "account-deletion" / "setup_cleanup_scheduler.sh"
 CLOUD_RUN_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_run"
 CLOUD_SCHEDULER_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "cloud_scheduler"
 
@@ -239,6 +241,157 @@ def test_uat_activation_retires_legacy_revisions_before_removing_fence() -> None
     assert activation_run.index("gcloud run revisions delete") < activation_run.index(
         "remove_release_fence.sql"
     )
+
+
+def test_uat_scheduler_service_account_id_is_valid_and_consistent() -> None:
+    workflow = yaml.safe_load(WORKFLOW_PATH.read_text(encoding="utf-8"))
+    scheduler_account_id = workflow["env"]["ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID"]
+    deploy_run = str(_step("Deploy backend using Cloud Build").get("run") or "")
+    activation = _step("Activate tombstone-aware account deletion")
+    activation_run = str(activation.get("run") or "")
+    scheduler_setup = SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")
+
+    assert 6 <= len(scheduler_account_id) <= 30
+    assert re.fullmatch(r"[a-z][a-z0-9-]*[a-z0-9]", scheduler_account_id)
+    assert activation["env"]["SCHEDULER_SERVICE_ACCOUNT_NAME"] == (
+        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}"
+    )
+    assert (
+        "_ACCOUNT_DELETION_CLEANUP_SERVICE_ACCOUNT_EMAIL="
+        "${{ env.ACCOUNT_DELETION_SCHEDULER_SERVICE_ACCOUNT_ID }}@"
+        "${{ env.GCP_PROJECT_ID }}.iam.gserviceaccount.com"
+    ) in deploy_run
+    assert "expected_service_account_email" in activation_run
+    assert f"SCHEDULER_SERVICE_ACCOUNT_NAME:-{scheduler_account_id}" in scheduler_setup
+    assert "iam service-accounts add-iam-policy-binding" not in scheduler_setup
+    assert "roles/iam.serviceAccountTokenCreator" not in scheduler_setup
+
+
+def test_scheduler_setup_does_not_require_service_account_policy_admin(
+    tmp_path: Path,
+) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BACKEND_URL": "https://api.uat.example.com",
+            "PROJECT_ID": "example-uat-project",
+            "SCHEDULER_SERVICE_ACCOUNT_NAME": "account-deletion-cleanup",
+        }
+    )
+    calls = tmp_path / "gcloud-calls"
+    guards = f'''gcloud() {{
+      printf '%s\\n' "$*" >> "{calls.as_posix()}"
+      case "$1 $2 $3" in
+        "iam service-accounts describe") return 0 ;;
+        "scheduler jobs describe")
+          printf '%s\\t%s\\t%s\\t%s\\t%s\\t%s\\n' \\
+            'ENABLED' '*/2 * * * *' \\
+            'https://api.uat.example.com/api/account/deletion-cleanup/drain?limit=10' \\
+            'POST' \\
+            'account-deletion-cleanup@example-uat-project.iam.gserviceaccount.com' \\
+            'https://api.uat.example.com'
+          return 0
+          ;;
+        "scheduler jobs update") return 0 ;;
+        *) echo "UNEXPECTED_GCLOUD_COMMAND: $*" >&2; return 96 ;;
+      esac
+    }}
+'''
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the scheduler behavior test"
+
+    result = subprocess.run(  # noqa: S603 - trusted script with guarded cloud commands
+        [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    output = result.stdout + result.stderr
+    assert result.returncode == 0, output
+    assert "Configured and verified Cloud Scheduler job" in result.stdout
+    assert "UNEXPECTED_GCLOUD_COMMAND" not in output
+    assert "add-iam-policy-binding" not in calls.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize(
+    "invalid_id",
+    [
+        "short",
+        "a" * 31,
+        "Account-deletion-cleanup",
+        "account_deletion_cleanup",
+        "1account-deletion-cleanup",
+        "account-deletion-cleanup-",
+        "account-deletion-cleanup-scheduler",
+    ],
+)
+def test_scheduler_setup_rejects_invalid_account_id_before_gcloud(
+    tmp_path: Path, invalid_id: str
+) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BACKEND_URL": "https://api.uat.example.com",
+            "PROJECT_ID": "example-uat-project",
+            "SCHEDULER_SERVICE_ACCOUNT_NAME": invalid_id,
+        }
+    )
+    marker = tmp_path / "gcloud-called"
+    guards = f'gcloud() {{ : > "{marker.as_posix()}"; return 0; }};\n'
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the scheduler behavior test"
+
+    result = subprocess.run(  # noqa: S603 - trusted script with fixed test environment
+        [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "must be a valid 6-30 character Google service-account ID" in result.stderr
+    assert not marker.exists()
+
+
+def test_scheduler_setup_rejects_mismatched_explicit_email_before_gcloud(
+    tmp_path: Path,
+) -> None:
+    environment = os.environ.copy()
+    environment.update(
+        {
+            "BACKEND_URL": "https://api.uat.example.com",
+            "PROJECT_ID": "example-uat-project",
+            "SCHEDULER_SERVICE_ACCOUNT_NAME": "account-deletion-cleanup",
+            "SCHEDULER_SERVICE_ACCOUNT_EMAIL": (
+                "different-account@example-uat-project.iam.gserviceaccount.com"
+            ),
+        }
+    )
+    marker = tmp_path / "gcloud-called"
+    guards = f'gcloud() {{ : > "{marker.as_posix()}"; return 0; }};\n'
+    bash = shutil.which("bash")
+    assert bash is not None, "Bash is required for the scheduler behavior test"
+
+    result = subprocess.run(  # noqa: S603 - trusted script with fixed test environment
+        [bash, "-c", guards + SCHEDULER_SETUP_SCRIPT.read_text(encoding="utf-8")],
+        cwd=ROOT,
+        env=environment,
+        capture_output=True,
+        text=True,
+        timeout=10,
+        check=False,
+    )
+
+    assert result.returncode == 1
+    assert "must match SCHEDULER_SERVICE_ACCOUNT_NAME and PROJECT_ID" in result.stderr
+    assert not marker.exists()
 
 
 def test_pre_v201_backend_rollback_requires_fence_and_empty_tombstones() -> None:

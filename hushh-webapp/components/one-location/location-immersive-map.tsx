@@ -2347,10 +2347,11 @@ export function LocationImmersiveMap({
     }
     return markers.length > 0
       ? `${markers.length} on your map`
-      : // "No one sharing yet" beside a subtitle reading "Sharing with 1" was
-        // the reported contradiction. Naming the audience resolves it without
-        // making the row any longer.
-        "No one sharing with you yet";
+      : // The subtitle that made this read as a contradiction ("Sharing with
+        // 1" under "No one sharing yet") is gone, and the row below states
+        // the incoming audience in full -- so the header stays the shorter of
+        // the two rather than printing that sentence twice on one screen.
+        "No one sharing yet";
   }, [markers.length, nearbyAttendees.length, nearbyPresenceState.presence]);
 
   // Only when it adds something the title cannot. Restating the title in
@@ -2366,7 +2367,7 @@ export function LocationImmersiveMap({
    */
   const incomingShareLabel =
     markers.length === 0
-      ? "No one sharing with you"
+      ? "No one is sharing their location"
       : markers.length === 1
         ? "1 person sharing with you"
         : `${markers.length} people sharing with you`;
@@ -2376,7 +2377,7 @@ export function LocationImmersiveMap({
   const privateShareLabel = !privateShareCountKnown
     ? "Private sharing"
     : privateShareCount === 0
-      ? "Not sharing with anyone privately"
+      ? "Not sharing with anyone"
       : privateShareCount === 1
         ? "Private sharing with 1 person"
         : `Private sharing with ${privateShareCount} people`;
@@ -2402,34 +2403,15 @@ export function LocationImmersiveMap({
   const privateShareHint = !privateShareCountKnown
     ? "Checking your active shares…"
     : privateShareCount > 0
-      ? // The lifetime, because it is the thing a person actually wonders
-        // about a share they started days ago -- and because it is now true
-        // without an asterisk: Ghost Mode no longer ends it early.
-        "Runs until you stop it or it expires"
-      : "Start one from Location to appear on their map";
+      ? // Nothing. The row expands to the names, which is what a person opens
+        // it for; a line about the lifetime of a share they can see listed
+        // was one more sentence to read past.
+        null
+      : "Start a share to appear on their map";
 
   /** Anything other than an explicit "visible" is treated as hidden, so an
    *  unrecognised value from an older server errs toward privacy. */
   const isGhostMode = preferences.presenceMode !== "foreground_private";
-
-  /**
-   * The rule, stated where it is switched.
-   *
-   * The old control said "Ghost Mode is on. Nobody sees you on their map",
-   * which was true only because Ghost was silently cancelling private shares
-   * the person had deliberately started. With that gone, the sentence has to
-   * name the audience it does not touch -- and it sits directly under the
-   * count of that audience, so the two lines are read together.
-   */
-  const ghostModeExplainer = isGhostMode
-    ? privateShareCount > 0
-      ? `Hidden from general visibility. The ${
-          privateShareCount === 1 ? "person" : `${privateShareCount} people`
-        } you share with privately still see you.`
-      : "Hidden from general visibility."
-    : privateShareCount > 0
-      ? "Not hidden from anyone. Private sharing is separate either way."
-      : "Not hidden from anyone.";
 
   /** Check-in is a separate one-time share, and this is the one place that
    *  decides whether it has a control on this sheet at all. */
@@ -2954,9 +2936,7 @@ export function LocationImmersiveMap({
               >
                 <UsersRound className="h-4 w-4 shrink-0" />
                 <span className="truncate">
-                  {nearbyPresenceState.presence
-                    ? "Checked in"
-                    : "Check in nearby"}
+                  {nearbyPresenceState.presence ? "Checked in" : "Check in"}
                 </span>
               </ShellActionSurface>
             ) : null}
@@ -3586,7 +3566,7 @@ export function LocationImmersiveMap({
                           : // The header already says no one is sharing. This
                             // line spends itself on the part the header cannot:
                             // what it takes to appear here.
-                            "Pins appear once they share with maps on."}
+                            "Pins appear when someone shares."}
                       </p>
                     ) : null}
                   </div>
@@ -3676,11 +3656,14 @@ export function LocationImmersiveMap({
                       <span className="block truncate text-sm font-medium">
                         {incomingShareLabel}
                       </span>
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {markers.length > 0
-                          ? "Tap to fit everyone on the map"
-                          : "Ghost Mode never hides them from you"}
-                      </span>
+                      {/* Only when it adds something the title cannot. The
+                        empty state has nothing to fit on the map, so it says
+                        nothing rather than restating the line above it. */}
+                      {markers.length > 0 ? (
+                        <span className="block truncate text-xs text-muted-foreground">
+                          Tap to fit everyone on the map
+                        </span>
+                      ) : null}
                     </span>
                     <ChevronDown
                       className="h-4 w-4 shrink-0 -rotate-90 text-muted-foreground"
@@ -3713,9 +3696,11 @@ export function LocationImmersiveMap({
                           <span className="block truncate text-sm font-medium">
                             {privateShareLabel}
                           </span>
-                          <span className="block truncate text-xs text-muted-foreground">
-                            {privateShareHint}
-                          </span>
+                          {privateShareHint ? (
+                            <span className="block truncate text-xs text-muted-foreground">
+                              {privateShareHint}
+                            </span>
+                          ) : null}
                         </span>
                         {privateShareCount > 0 ? (
                           <ChevronDown
@@ -3784,15 +3769,10 @@ export function LocationImmersiveMap({
                       )}
                     </span>
                     <label
-                      className="min-w-0 flex-1 cursor-pointer"
+                      className="min-w-0 flex-1 cursor-pointer text-sm font-medium"
                       htmlFor="one-location-map-ghost-toggle"
                     >
-                      <span className="block text-sm font-medium">
-                        Ghost Mode
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        {ghostModeExplainer}
-                      </span>
+                      Ghost Mode
                     </label>
                     <Switch
                       id="one-location-map-ghost-toggle"
@@ -3858,7 +3838,7 @@ export function LocationImmersiveMap({
                         <span className="truncate">
                           {nearbyPresenceState.presence
                             ? "Checked in"
-                            : "Check in nearby"}
+                            : "Check in"}
                         </span>
                       </Button>
                     ) : null}
