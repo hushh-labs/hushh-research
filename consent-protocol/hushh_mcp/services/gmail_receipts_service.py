@@ -1193,8 +1193,25 @@ class GmailReceiptsService:
             return 0
         return int(result[0].get("total") or 0)
 
-    def _mark_connection_needs_reauth(self, *, user_id: str, message: str) -> None:
-        self.db.execute_raw(
+    @staticmethod
+    def _refresh_observation(row: dict[str, Any]) -> dict[str, Any]:
+        # This is a conservative observation fence, not a dedicated generation.
+        # Reconnect and ordinary refresh both change the encrypted envelope and
+        # token timestamp. A stale result must not overwrite either one.
+        return {
+            "observed_" + name: row.get(name)
+            for name in (
+                "token_updated_at",
+                "refresh_token_ciphertext",
+                "refresh_token_iv",
+                "refresh_token_tag",
+            )
+        }
+
+    def _mark_connection_needs_reauth(
+        self, *, user_id: str, message: str, observed: dict[str, Any]
+    ) -> None:
+        result = self.db.execute_raw(
             """
             UPDATE kai_gmail_connections
             SET status = 'error',
@@ -1209,9 +1226,19 @@ class GmailReceiptsService:
                 status_refreshed_at = NOW(),
                 updated_at = NOW()
             WHERE user_id = :user_id
+              AND status = 'connected' AND revoked = FALSE
+              AND token_updated_at IS NOT DISTINCT FROM :observed_token_updated_at
+              AND refresh_token_ciphertext IS NOT DISTINCT FROM :observed_refresh_token_ciphertext
+              AND refresh_token_iv IS NOT DISTINCT FROM :observed_refresh_token_iv
+              AND refresh_token_tag IS NOT DISTINCT FROM :observed_refresh_token_tag
+            RETURNING user_id
             """,
-            {"user_id": user_id, "message": message},
+            {"user_id": user_id, "message": message, **observed},
         )
+        if not result.data:
+            raise GmailApiError(
+                "Gmail connection changed. Retry the request.", status_code=409
+            ) from None
 
     def _update_watch_snapshot(
         self,
@@ -1767,9 +1794,10 @@ class GmailReceiptsService:
         if not row:
             raise GmailApiError("Gmail is not connected for this user", status_code=404)
 
-        if _clean_text(row.get("status")) != "connected":
+        if _clean_text(row.get("status")) != "connected" or _to_bool(row.get("revoked"), False):
             raise GmailApiError("Gmail connection is not active", status_code=400)
 
+        observed = self._refresh_observation(row)
         access_token = self._decrypt_token(
             row.get("access_token_ciphertext"),
             row.get("access_token_iv"),
@@ -1791,6 +1819,7 @@ class GmailReceiptsService:
                 self._mark_connection_needs_reauth,
                 user_id=user_id,
                 message=message,
+                observed=observed,
             )
             raise GmailApiError(message, status_code=401)
 
@@ -1798,17 +1827,18 @@ class GmailReceiptsService:
             refreshed = await self._refresh_access_token(refresh_token=refresh_token)
         except GmailApiError as exc:
             if exc.status_code in {400, 401, 403, 404, 502}:
-                message = (
-                    _clean_text(exc.message)
-                    or "Gmail token refresh failed. Reconnect Gmail to continue."
-                )
+                message = "Gmail token refresh failed. Reconnect Gmail to continue."
                 await asyncio.to_thread(
                     self._mark_connection_needs_reauth,
                     user_id=user_id,
                     message=message,
+                    observed=observed,
                 )
-                raise GmailApiError(message, status_code=401, payload=exc.payload) from exc
-            raise
+                raise GmailApiError(message, status_code=401) from None
+            raise GmailApiError(
+                "Gmail token refresh is unavailable. Retry the request.",
+                status_code=exc.status_code,
+            ) from None
         next_access = _clean_text(refreshed.get("access_token"))
         next_expires = int(refreshed.get("expires_in") or 3600)
         next_refresh = _clean_text(refreshed.get("refresh_token")) or refresh_token
@@ -1818,6 +1848,7 @@ class GmailReceiptsService:
                 self._mark_connection_needs_reauth,
                 user_id=user_id,
                 message=message,
+                observed=observed,
             )
             raise GmailApiError(message, status_code=401)
 
@@ -1825,7 +1856,7 @@ class GmailReceiptsService:
         refresh_env = self._encrypt_token(next_refresh)
         expires_value = _utcnow() + timedelta(seconds=max(60, next_expires))
 
-        await self._execute_raw_async(
+        result = await self._execute_raw_async(
             """
             UPDATE kai_gmail_connections
             SET access_token_ciphertext = :access_token_ciphertext,
@@ -1839,9 +1870,16 @@ class GmailReceiptsService:
                 status_refreshed_at = NOW(),
                 updated_at = NOW()
             WHERE user_id = :user_id
+              AND status = 'connected' AND revoked = FALSE
+              AND token_updated_at IS NOT DISTINCT FROM :observed_token_updated_at
+              AND refresh_token_ciphertext IS NOT DISTINCT FROM :observed_refresh_token_ciphertext
+              AND refresh_token_iv IS NOT DISTINCT FROM :observed_refresh_token_iv
+              AND refresh_token_tag IS NOT DISTINCT FROM :observed_refresh_token_tag
+            RETURNING *
             """,
             {
                 "user_id": user_id,
+                **observed,
                 "access_token_ciphertext": access_env["ciphertext"],
                 "access_token_iv": access_env["iv"],
                 "access_token_tag": access_env["tag"],
@@ -1852,9 +1890,11 @@ class GmailReceiptsService:
             },
         )
 
-        latest = await asyncio.to_thread(self._fetch_connection_row, user_id=user_id)
-        latest = latest or row
-        return next_access, latest
+        if not result.data:
+            raise GmailApiError(
+                "Gmail connection changed. Retry the request.", status_code=409
+            ) from None
+        return next_access, result.data[0]
 
     def _build_receipt_query(
         self, *, query_since: datetime, query_before: datetime | None = None
