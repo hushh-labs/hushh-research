@@ -538,7 +538,7 @@ def test_done_with_no_engine_name_fails_without_polling_a_finished_operation() -
     )
     with pytest.raises(mb.MemoryBankUnavailable) as caught:
         mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, sleep=lambda _s: None)
-    assert "without an engine name" in str(caught.value)
+    assert "without a valid engine resource" in str(caught.value)
     assert [g for g in http.gets if "/operations/" in g] == []
 
 
@@ -907,3 +907,147 @@ async def test_missing_session_owner_refuses_before_event_inspection():
     log.replay.assert_not_awaited()
     log.append.assert_not_awaited()
     assert bank.added == 0
+
+
+@pytest.mark.parametrize("polled", [False, True])
+def test_completed_create_requires_resource_not_allocated_operation_id(polled):
+    name = "projects/p/locations/us-central1/reasoningEngines/91/operations/1"
+    completed = {"done": True, "name": name}
+    http = _Http(
+        _Resp(200, {"reasoningEngines": []}),
+        _Resp(200, {"name": name} if polled else completed),
+        polls=[_Resp(200, completed)] if polled else [],
+    )
+    with pytest.raises(mb.MemoryBankUnavailable, match="valid engine resource"):
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, sleep=lambda _: None)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verb", ["generate", "retrieve"])
+@pytest.mark.parametrize("payload", [None, [], "private-provider-marker", False])
+async def test_success_http_requires_json_object(verb, payload):
+    class InvalidHttp:
+        def post(self, *args, **kwargs):
+            return _Resp(200, payload)
+
+    service = _rest_service(session=InvalidHttp(), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable) as caught:
+        if verb == "generate":
+            await service.add_session_to_memory(_rest_session("synthetic fact"))
+        else:
+            await service.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert "private-provider-marker" not in str(caught.value)
+    assert mb._STATE["error"]
+    assert "private-provider-marker" not in mb._STATE["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("verb", ["generate", "retrieve"])
+async def test_success_http_invalid_json_is_not_empty_success(verb):
+    class InvalidResponse:
+        status_code = 200
+
+        def json(self):
+            raise ValueError("private-provider-marker")
+
+    class InvalidHttp:
+        def post(self, *args, **kwargs):
+            return InvalidResponse()
+
+    service = _rest_service(session=InvalidHttp(), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable, match="invalid JSON") as caught:
+        if verb == "generate":
+            await service.add_session_to_memory(_rest_session("synthetic fact"))
+        else:
+            await service.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert "private-provider-marker" not in str(caught.value)
+    assert "private-provider-marker" not in mb._STATE["error"]
+
+
+@pytest.mark.asyncio
+async def test_immediate_generation_operation_error_is_sanitized():
+    class FailedOperation:
+        def post(self, *args, **kwargs):
+            return _Resp(200, {"done": True, "error": {"message": "private-provider-marker"}})
+
+    service = _rest_service(session=FailedOperation(), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable, match="operation failed") as caught:
+        await service.add_session_to_memory(_rest_session("synthetic fact"))
+    assert "private-provider-marker" not in str(caught.value)
+    assert "private-provider-marker" not in mb._STATE["error"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "entries", [None, {}, [None], [{"memory": {"fact": {"private": "marker"}}}]]
+)
+async def test_malformed_retrieval_entries_never_become_facts(entries):
+    service = _rest_service(session=_RestHttp({"retrievedMemories": entries}), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable, match="retrieval response invalid"):
+        await service.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+
+
+@pytest.mark.parametrize(
+    "payload", [None, [], {"reasoningEngines": None}, {"reasoningEngines": [None]}]
+)
+def test_malformed_inventory_never_authorizes_creation(payload):
+    http = _Http(_Resp(200, payload))
+    with pytest.raises(mb.MemoryBankUnavailable):
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
+    assert http.posts == []
+
+
+@pytest.mark.asyncio
+async def test_provider_transport_failure_is_sanitized():
+    class BrokenHttp:
+        def post(self, *args, **kwargs):
+            raise TimeoutError("private-provider-marker")
+
+    service = _rest_service(session=BrokenHttp(), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable, match="request unavailable") as caught:
+        await service.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert "private-provider-marker" not in str(caught.value)
+    assert "private-provider-marker" not in mb._STATE["error"]
+
+
+@pytest.mark.parametrize("error", [{}, {"message": "private-provider-marker"}])
+def test_success_http_inventory_error_never_authorizes_creation(error):
+    http = _Http(_Resp(200, {"error": error}))
+    with pytest.raises(mb.MemoryBankUnavailable, match="inventory operation failed") as caught:
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN)
+    assert http.posts == []
+    assert "private-provider-marker" not in str(caught.value)
+
+
+def test_poll_explicit_empty_error_never_establishes_readiness():
+    name = "projects/p/locations/us-central1/reasoningEngines/91"
+    http = _Http(
+        _Resp(200, {"reasoningEngines": []}),
+        _Resp(200, {"name": name + "/operations/1"}),
+        polls=[_Resp(200, {"done": True, "error": {}, "response": {"name": name}})],
+    )
+    with pytest.raises(mb.MemoryBankUnavailable, match="create operation failed"):
+        mb.find_or_create_engine(_cfg(), session=http, token=_TOKEN, sleep=lambda _: None)
+
+
+def test_completed_engine_accepts_provider_project_number_alias_without_rerouting():
+    cfg = _cfg()
+    assert (
+        mb._completed_engine_id(
+            {"response": {"name": "projects/123456/locations/us-central1/reasoningEngines/91"}}, cfg
+        )
+        == "91"
+    )
+    assert cfg.project == "p"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("payload", [{}, {"name": None}, {"name": "operations/1", "done": "true"}])
+async def test_generation_requires_valid_acknowledgement(payload):
+    class InvalidAck:
+        def post(self, *args, **kwargs):
+            return _Resp(200, payload)
+
+    service = _rest_service(session=InvalidAck(), token=_Token())
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await service.add_session_to_memory(_rest_session("synthetic fact"))

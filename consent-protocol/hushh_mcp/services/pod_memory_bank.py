@@ -114,6 +114,36 @@ def _engine_id_from_name(name: str) -> Optional[str]:
         return None
 
 
+def _completed_engine_id(operation: dict[str, Any], cfg: MemoryBankConfig) -> str:
+    response = operation.get("response")
+    name = response.get("name") if isinstance(response, dict) else None
+    parts = name.split("/") if isinstance(name, str) else []
+    # Only a returned engine resource establishes completion. An operation path
+    # contains an allocated ID but does not prove an engine exists. Requests and
+    # the durable record retain cfg.project; a provider name cannot reroute them.
+    if (
+        len(parts) != 6
+        or parts[0] != "projects"
+        or not parts[1]
+        or parts[2] != "locations"
+        or parts[3] != cfg.location
+        or parts[4] != "reasoningEngines"
+        or not parts[5]
+    ):
+        raise MemoryBankUnavailable("create finished without a valid engine resource")
+    return parts[5]
+
+
+def _json_object(response: Any) -> dict[str, Any]:
+    try:
+        payload = response.json()
+    except Exception:  # noqa: BLE001 - provider bodies are never diagnostic text
+        raise MemoryBankUnavailable("memory provider returned invalid JSON") from None
+    if not isinstance(payload, dict):
+        raise MemoryBankUnavailable("memory provider returned invalid response shape")
+    return payload
+
+
 def _adc_token() -> str:
     import google.auth  # noqa: PLC0415
     from google.auth.transport.requests import Request  # noqa: PLC0415
@@ -183,8 +213,13 @@ def find_or_create_engine(
         )
         if listing.status_code != 200:
             raise MemoryBankUnavailable(f"list {listing.status_code}: {_api_error(listing)}")
-        body = listing.json() or {}
-        for engine in body.get("reasoningEngines") or []:
+        body = _json_object(listing)
+        if body.get("error") is not None:
+            raise MemoryBankUnavailable("engine inventory operation failed")
+        engines = body.get("reasoningEngines", [])
+        if not isinstance(engines, list) or any(not isinstance(item, dict) for item in engines):
+            raise MemoryBankUnavailable("engine inventory response invalid")
+        for engine in engines:
             if engine.get("displayName") == cfg.display_name:
                 found = _engine_id_from_name(engine.get("name", ""))
                 if not found:
@@ -222,19 +257,11 @@ def find_or_create_engine(
             )
     elif created.status_code not in (200, 201):
         raise MemoryBankUnavailable(f"create {created.status_code}: {_api_error(created)}")
-    operation = created.json() or {}
-    engine_id = _engine_id_from_name(
-        ((operation.get("response") or {}).get("name")) or operation.get("name", "")
-    )
-    if operation.get("done"):
-        if operation.get("error"):
-            raise MemoryBankUnavailable("create operation failed")
-        if engine_id:
-            return engine_id
-        # Done, no error, and no name to read. Polling a completed operation cannot
-        # change any of that, so say so here rather than sleeping first and reaching
-        # the same verdict one round later.
-        raise MemoryBankUnavailable("create finished without an engine name")
+    operation = _json_object(created)
+    if operation.get("error") is not None:
+        raise MemoryBankUnavailable("create operation failed")
+    if operation.get("done") is True:
+        return _completed_engine_id(operation, cfg)
     op_name = str(operation.get("name") or "")
     deadline = time.monotonic() + wait_seconds
     while op_name and time.monotonic() < deadline:
@@ -246,14 +273,12 @@ def find_or_create_engine(
         )
         if polled.status_code != 200:
             continue
-        body = polled.json() or {}
-        if not body.get("done"):
-            continue
-        if body.get("error"):
+        body = _json_object(polled)
+        if body.get("error") is not None:
             raise MemoryBankUnavailable("create operation failed")
-        return (
-            _engine_id_from_name((body.get("response") or {}).get("name", "")) or engine_id or ""
-        ) or _raise(MemoryBankUnavailable("create finished without an engine name"))
+        if body.get("done") is not True:
+            continue
+        return _completed_engine_id(body, cfg)
     # Reaching here means the loop ran to the deadline WITHOUT the operation ever
     # reporting done. A slow create and a failing one are indistinguishable at that
     # point, and this used to pick "slow" and return the id parsed from the create
@@ -274,10 +299,6 @@ def find_or_create_engine(
     # it by display name and adopts it. Until then the sealed commit log keeps
     # answering underneath, which is what it is for.
     raise MemoryBankUnavailable("create timed out")
-
-
-def _raise(exc: Exception) -> Any:
-    raise exc
 
 
 # ---- process state ---------------------------------------------------------------
@@ -483,7 +504,8 @@ def build_rest_memory_bank_service(
     The two calls the service makes are plain REST -- ``memories:generate`` after a
     turn and ``memories:retrieve`` on recall -- so this is the same behaviour on the
     pod's own identity with no new dependency. Generation is a long-running
-    operation the pod does not wait on; recall is synchronous and bounded.
+    operation the pod does not wait on; submission is not completion evidence.
+    Recall is synchronous and bounded.
     """
     import requests  # type: ignore[import-untyped]  # noqa: PLC0415
     from google.adk.memory.base_memory_service import (  # noqa: PLC0415
@@ -573,19 +595,44 @@ def build_rest_memory_bank_service(
             return SearchMemoryResponse(memories=memories)
 
         def _post(self, verb: str, body: dict[str, Any]) -> dict[str, Any]:
-            response = http.post(f"{engine}/{verb}", headers=_headers(), json=body, timeout=30)
+            try:
+                response = http.post(f"{engine}/{verb}", headers=_headers(), json=body, timeout=30)
+            except Exception:  # noqa: BLE001 - transport/auth exceptions may contain private context
+                error = "memory provider request unavailable"
+                if is_current():
+                    _STATE["error"] = error
+                raise MemoryBankUnavailable(error) from None
             if response.status_code not in (200, 201):
                 message = _api_error(response)
                 error = f"{verb} {response.status_code}: {message}"
                 if is_current():
                     _STATE["error"] = error
                 raise MemoryBankUnavailable(error)
+            try:
+                payload = _json_object(response)
+                if payload.get("error") is not None:
+                    raise MemoryBankUnavailable("memory provider operation failed")
+                if verb == "memories:generate":
+                    if not isinstance(payload.get("name"), str) or not payload["name"]:
+                        raise MemoryBankUnavailable("memory generation acknowledgement unavailable")
+                    if "done" in payload and not isinstance(payload["done"], bool):
+                        raise MemoryBankUnavailable("memory generation status invalid")
+                else:
+                    entries = payload.get("retrievedMemories", [])
+                    if not isinstance(entries, list) or any(
+                        not isinstance(item, dict)
+                        or not isinstance(item.get("memory"), dict)
+                        or not isinstance(item["memory"].get("fact"), str)
+                        for item in entries
+                    ):
+                        raise MemoryBankUnavailable("memory retrieval response invalid")
+            except MemoryBankUnavailable as exc:
+                if is_current():
+                    _STATE["error"] = str(exc)
+                raise
             if is_current():
                 _STATE["error"] = None
-            try:
-                return response.json() or {}
-            except Exception:  # noqa: BLE001
-                return {}
+            return payload
 
     return _RestMemoryBankService()
 
