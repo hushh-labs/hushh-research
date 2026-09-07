@@ -224,6 +224,27 @@ def test_ledger_ids_are_unique():
     assert len(ids) == len(set(ids)), "duplicate assertion ids make the report ambiguous"
 
 
+def test_ci_installs_pinned_frontend_tools_before_running_behavioral_assertions():
+    """The first-run assertion must execute the locked Vitest, not fetch a latest release."""
+    workflows = _LEDGER.parents[1] / ".github" / "workflows"
+    workflow = yaml.safe_load((workflows / "pod-completion-judge.yml").read_text())
+    ci = yaml.safe_load((workflows / "ci.yml").read_text())
+    steps = workflow["jobs"]["did-we-finish-it"]["steps"]
+    judge_index = next(i for i, step in enumerate(steps) if step.get("id") == "judge")
+    setup_index = next(
+        i for i, step in enumerate(steps) if step.get("uses", "").startswith("actions/setup-node@")
+    )
+    install_index = next(
+        i
+        for i, step in enumerate(steps)
+        if step.get("working-directory") == "hushh-webapp" and step.get("run") == "npm ci"
+    )
+    assert setup_index < install_index < judge_index
+    assert str(steps[setup_index]["with"]["node-version"]) == ci["env"]["NODE_VERSION"]
+    assert steps[setup_index]["with"]["cache-dependency-path"] == "hushh-webapp/package-lock.json"
+    assert not steps[install_index].get("continue-on-error", False)
+
+
 @pytest.mark.parametrize("kind", sorted(judge_mod.CHECKS))
 def test_every_check_kind_has_a_runner(kind):
     assert callable(judge_mod.CHECKS[kind])

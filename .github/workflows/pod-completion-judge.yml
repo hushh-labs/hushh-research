@@ -33,9 +33,16 @@ on:
   # a check is caught by the same job that would have reported it.
   pull_request:
     paths:
+      - ".github/workflows/pod-completion-judge.yml"
       - "config/pod-completion-ledger.yaml"
       - "consent-protocol/scripts/ops/pod_completion_judge.py"
       - "consent-protocol/tests/test_pod_completion_judge.py"
+      - "hushh-webapp/package.json"
+      - "hushh-webapp/package-lock.json"
+      - "hushh-webapp/vitest.config.ts"
+      - "hushh-webapp/__tests__/setup.ts"
+      - "hushh-webapp/__tests__/components/onboarding-journey-guard.test.tsx"
+      - "hushh-webapp/components/onboarding/onboarding-journey-guard.tsx"
 
 permissions:
   contents: read
@@ -65,6 +72,17 @@ jobs:
           # Run this FIRST. A judge whose own guard is broken can report anything,
           # so the verdict below is only worth reading once this passes.
           uv run pytest tests/test_pod_completion_judge.py -q
+
+      - name: Set up Node for frontend behavioral assertions
+        uses: actions/setup-node@v6
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install pinned frontend test dependencies
+        working-directory: hushh-webapp
+        run: npm ci
 
       - name: Ask the question
         id: judge
