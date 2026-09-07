@@ -264,7 +264,7 @@ def _validate_receipt_artifact(item: dict[str, Any], verified: Any) -> tuple[boo
         completed = datetime.fromisoformat(receipt["completed_at"].replace("Z", "+00:00"))
         if (
             completed.tzinfo is None
-            or completed.date() != verified
+            or completed.astimezone(timezone.utc).date() != verified
             or completed > datetime.now(timezone.utc)
         ):
             raise ValueError("receipt execution timestamp is invalid")
@@ -369,7 +369,7 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
     ledger independently declares the target, invalidation scope and required
     observations; historical prose never counts as operational evidence.
     """
-    from datetime import date, timedelta  # noqa: PLC0415
+    from datetime import date, datetime, timedelta, timezone  # noqa: PLC0415
 
     raw = str(item.get("verified_on") or "").strip()
     if not raw:
@@ -400,7 +400,7 @@ def check_receipt(item: dict[str, Any], _timeout: int) -> tuple[str, str]:
         expires = verified + timedelta(days=window)
     except OverflowError:
         return FAIL, "receipt expiry is outside the supported date range"
-    today = date.today()
+    today = datetime.now(timezone.utc).date()
     if verified > today:
         return FAIL, "receipt is future-dated; proof cannot precede its execution"
     if today > expires:

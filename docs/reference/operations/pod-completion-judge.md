@@ -87,8 +87,10 @@ read, a `check`, and `falsifiable`. Check kinds:
 | `receipt` | a dated proof from a live run that no CI runner can do | the artifact is absent, stale, mismatched, or its source/observations no longer satisfy the ledger |
 | `manual` | genuinely nothing else fits | never; it is UNKNOWN by construction, which is why it is last |
 
-Prefer `pytest` and `command` over `grep`, and `grep` over `receipt`. Reach for `manual` only when
-nothing else fits, and never leave one in the ledger unblocked.
+Choose the check that proves the statement. Unit tests prove modeled behavior;
+source patterns prove only source presence. Neither establishes live recovery,
+provider success, erasure, or scheduled execution. Those assertions require
+measured receipts. Reach for `manual` only when nothing else fits.
 
 **Why `manual` is close to banned.** `check_manual` returns UNKNOWN unconditionally, so an item
 that stays `manual` makes the scheduled nag red on every run for all time, and a nag that is
@@ -102,7 +104,8 @@ existing `receipt` check accepts a tracked, sanitized JSON `artifact` and its
 `artifact_sha256`. The artifact has `version: 1`, matching `assertion_id`,
 `result: "pass"`, integer `exit_code: 0`, timezone-aware `completed_at`, a resolvable
 40-character `source_commit`, `source_sha256` mapping and measured `observations`.
-The timestamp must agree with `verified_on` and remain inside `expires_after_days`.
+The timestamp, normalized to UTC, must agree with `verified_on`; freshness uses
+the UTC calendar date and `expires_after_days`, independently of the host timezone.
 
 The ledger declares `source_paths`, including the producer and relevant runtime
 scope, and `observation_requirements` independently of the artifact. Every source

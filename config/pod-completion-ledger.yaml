@@ -38,6 +38,9 @@ assertions:
       # Expected target and artifact digest are filled only from a fresh verified run.
       source_paths:
         - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
         - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
         - hushh-webapp/app/one/setup/page.tsx
         - hushh-webapp/app/one/setup/cloud/page.tsx
@@ -46,7 +49,8 @@ assertions:
         hubRendered: {equals: true}
         reached: {equals: true}
         actual_tile_click: {equals: true}
-        fresh_owner: {equals: true}
+        first_run_state: {equals: true}
+        account_creation_proven: {equals: true}
       reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
       expires_after_days: 14
       pending: >-
@@ -96,6 +100,9 @@ assertions:
       # Expected target and artifact digest are filled only from a fresh verified run.
       source_paths:
         - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
         - hushh-webapp/lib/auth/use-session-chrome-suppression.ts
         - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
         - hushh-webapp/app/api/vault/bootstrap-state/route.ts
@@ -116,7 +123,7 @@ assertions:
   # ---------------------------------------------------------------- the seven
   - id: identity-durable-across-restart
     requirement: Identity
-    statement: "A pod keeps the same identity key across a genuine restart, and says so durably."
+    statement: "The offline lifecycle model detects identity loss and requires a durable identity report when identity is checked."
     falsifiable: true
     check:
       kind: pytest
@@ -159,8 +166,26 @@ assertions:
     statement: "An agent recalls what it was taught after its compute is destroyed and rebuilt."
     falsifiable: true
     check:
-      kind: pytest
-      target: tests/test_pod_lifecycle_drill.py
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+      observation_requirements:
+        compute_replaced: {equals: true}
+        learned_before_death: {equals: true}
+        all_taught_facts_recalled: {equals: true}
+        negative_control_clean: {equals: true}
+        identity_preserved: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Run the existing --live drill on disposable synthetic resources and retain
+        sanitized revision-bound measurements. The in-memory --dry-run and unit
+        tests prove the oracle, not compute replacement or provider recall.
 
   - id: lifecycle-drill-can-fail
     requirement: Persistence
@@ -331,22 +356,53 @@ assertions:
       (PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED, PERSONAL_AGENT_UPGRADE_BATCH) moves the
       fleet after each hub deploy. `scripts/ops/pod_upgrade.py` is the operator hand.
     check:
-      # Names a test that does NOT exist yet, on purpose. `manual` here would report
-      # UNKNOWN forever; a missing pytest target FAILS, which is the accurate word
-      # for "nobody has built this", and it turns green the day somebody does.
-      kind: pytest
-      target: tests/test_pod_image_upgrade_path.py
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_upgrade.py
+        - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+      observation_requirements:
+        installed_image_changed: {equals: true}
+        identity_preserved: {equals: true}
+        learned_before_upgrade: {equals: true}
+        recalled_after_upgrade: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_upgrade.py
+      expires_after_days: 14
+      pending: >-
+        Upgrade implementation tests pass, but mock clients cannot prove recall
+        after a real image replacement. Extend the existing operator rehearsal to
+        measure both sides; the upgrade command alone is not a recall receipt.
 
   - id: teardown-deletes-what-it-claims-to
     requirement: Economics
-    statement: "Teardown actually removes the pod, and says so when it cannot."
+    statement: "Owner teardown erases retained agent resources before removing its authority and reports incomplete deletion truthfully."
     falsifiable: true
-    # This is the half that the fleet sweep below cannot see. An empty fleet is
-    # equally consistent with "teardown works" and "nothing was ever created", so
-    # the sweep alone was a check that passed for the wrong reason.
     check:
-      kind: pytest
-      target: tests/test_byoc_substrate_teardown_is_loud.py
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
+        - consent-protocol/hushh_mcp/services/account_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+      observation_requirements:
+        external_memory_erased: {equals: true}
+        retained_storage_erased: {equals: true}
+        compute_removed: {equals: true}
+        retry_state_durable: {equals: true}
+        deleted_information_not_recalled: {equals: true}
+        restoration_cannot_resurrect: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Owner teardown currently refuses retained external resources to preserve
+        erasure authority. Complete the existing lifecycle contract and extend its
+        disposable drill with erasure/retry/restore measurements. Its current
+        compute-only recovery cycle and an empty fleet do not prove erasure.
 
   - id: an-update-is-visible-at-login
     requirement: Lifecycle
@@ -394,13 +450,28 @@ assertions:
 
   - id: the-drill-runs-on-a-schedule
     requirement: Learning loop
-    statement: "The lifecycle drill runs on a cadence, not only when someone remembers."
+    statement: "The existing weekly offline lifecycle-orchestration job has a fresh successful scheduled execution for the audited source."
     falsifiable: true
     check:
-      kind: grep
-      path: .github/workflows/dev-pod-lifecycle-drill.yml
-      pattern: "schedule:"
-      expect_present: true
+      kind: receipt
+      required_target_mode: local
+      source_paths:
+        - .github/workflows/dev-pod-lifecycle-drill.yml
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      observation_requirements:
+        event: {equals: schedule}
+        head_branch: {equals: main}
+        conclusion: {equals: success}
+        mode: {equals: dry-run}
+        report_verified: {equals: true}
+      reproduce: .github/workflows/dev-pod-lifecycle-drill.yml
+      expires_after_days: 14
+      pending: >-
+        This is the existing Monday 07:23 UTC offline job, not a live cloud drill.
+        Run 33406975413 succeeded on 2026-08-31 at main revision
+        04b3deb51bc5a55b74a1e54f4e76005bdf671e87. Its workflow and drill source
+        differ from this tree, so it remains historical evidence. Reconcile the
+        common source and verify a fresh scheduled report; add no new schedule.
 
   - id: the-judge-itself-can-fail
     requirement: Learning loop

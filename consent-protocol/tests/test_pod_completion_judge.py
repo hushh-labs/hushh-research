@@ -287,7 +287,7 @@ def test_controls_pass_against_the_real_runners():
 def _receipt(**over):
     check = {
         "kind": "receipt",
-        "verified_on": _dt.date.today().isoformat(),
+        "verified_on": _dt.datetime.now(_dt.timezone.utc).date().isoformat(),
         "expires_after_days": 30,
         "reproduce": "config/pod-completion-ledger.yaml",  # any tracked path
     }
@@ -305,7 +305,7 @@ def test_a_stale_receipt_fails_rather_than_going_unknown():
     """A proof with an expiry is the whole point. If it decayed to UNKNOWN the
     judge would report 'we could not look' for something anyone can re-run, and
     'run it again' is actionable in a way that a blind spot is not."""
-    old = (_dt.date.today() - _dt.timedelta(days=31)).isoformat()
+    old = (_dt.datetime.now(_dt.timezone.utc).date() - _dt.timedelta(days=31)).isoformat()
     report = judge_mod.judge([_receipt(verified_on=old, expires_after_days=30)])
     assert [v.status for v in report.verdicts] == [judge_mod.FAIL]
     assert "re-run" in report.verdicts[0].detail
@@ -360,7 +360,7 @@ def test_the_shipped_ledger_can_still_reach_yes():
 
 
 def test_future_dated_receipt_cannot_pass():
-    future = (_dt.date.today() + _dt.timedelta(days=1)).isoformat()
+    future = (_dt.datetime.now(_dt.timezone.utc).date() + _dt.timedelta(days=1)).isoformat()
     report = judge_mod.judge([_receipt(verified_on=future)])
     assert not report.finished
     assert "future-dated" in report.failing[0].detail
@@ -551,3 +551,12 @@ def test_malformed_receipt_fails_without_crashing(structured_receipt, raw):
     (root / "receipt.json").write_bytes(raw)
     check["artifact_sha256"] = hashlib.sha256(raw).hexdigest()
     assert judge_mod.judge([item]).failing
+
+
+def test_receipt_timestamp_date_is_normalized_to_utc(structured_receipt):
+    artifact, check, write, _root = structured_receipt
+    yesterday = _dt.datetime.now(_dt.timezone.utc).date() - _dt.timedelta(days=1)
+    instant = _dt.datetime.combine(yesterday, _dt.time(0, 30), _dt.timezone.utc)
+    artifact["completed_at"] = instant.astimezone(_dt.timezone(_dt.timedelta(hours=-7))).isoformat()
+    check["verified_on"] = yesterday.isoformat()
+    assert judge_mod.judge([write()]).finished
