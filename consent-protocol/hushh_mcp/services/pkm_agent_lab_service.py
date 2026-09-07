@@ -430,7 +430,7 @@ _AGENT_CONTRACT_TIMEOUT_SECONDS = max(
     # Protected UAT evidence showed valid Gemini 3.5 Flash responses regularly
     # arriving after eight seconds. Ten seconds avoids cancelling healthy tail
     # responses and then paying for a duplicate retry.
-    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "10") or "10"),
+    float(os.getenv("PKM_AGENT_LAB_AGENT_TIMEOUT_SECONDS", "30") or "30"),
 )
 # One retry absorbs transient provider tail latency without introducing another
 # runtime configuration surface or extending the shared preview deadline.
@@ -444,7 +444,7 @@ _PREVIEW_TOTAL_BUDGET_SECONDS = max(
     # The graph is bounded but sequential after segmentation. Five additional
     # seconds absorb one provider-tail response without making fallback the
     # normal path for otherwise valid memory decisions.
-    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "35") or "35"),
+    float(os.getenv("PKM_AGENT_LAB_PREVIEW_BUDGET_SECONDS", "45") or "45"),
 )
 _PREVIEW_CACHE: OrderedDict[str, tuple[float, dict[str, Any]]] = OrderedDict()
 _PREVIEW_INFLIGHT: dict[str, asyncio.Task[dict[str, Any]]] = {}

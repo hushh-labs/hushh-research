@@ -254,7 +254,13 @@ cleanup() {
   fi
   cleanup_proxy_credentials
 }
-trap cleanup EXIT INT TERM
+if [ "${HUSHH_SUPERVISED_RUNTIME:-}" = "1" ]; then
+  # run_local_fast.sh owns signal ordering; preserve its ignored SIGINT
+  # disposition so the proxy remains available while backend requests drain.
+  trap cleanup EXIT TERM
+else
+  trap cleanup EXIT INT TERM
+fi
 
 DB_HOST="$(read_env_value "$BACKEND_ENV_FILE" 'DB_HOST')"
 DB_PORT="$(read_env_value "$BACKEND_ENV_FILE" 'DB_PORT')"
