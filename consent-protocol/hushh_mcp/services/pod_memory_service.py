@@ -28,8 +28,9 @@ INVARIANTS (each asserted by a test in ``tests/test_pod_memory_service.py``)
 ---------------------------------------------------------------------------
 1. Memory never crosses a pod boundary. Every record is namespaced by ``hushh_id``; a
    lookup for a different owner returns nothing, and a mismatched owner raises.
-2. Only ciphertext leaves this process. Text is handed to the storage backend already
-   sealed; the backend receives an opaque blob, never plaintext.
+2. The commit-log storage backend receives already sealed ciphertext. The optional
+   owner-project Memory Bank processes event text and recall queries under pod-held
+   authority, as described in Retrieval and Custody above.
 3. Flag-off is inert. With ``POD_AGENT_MEMORY_ENABLED`` unset the service is never
    constructed and the runner keeps ``memory_service=None`` — today's exact behaviour.
 4. Recall is explicit. Search is invoked by a tool call, so it can be receipted through

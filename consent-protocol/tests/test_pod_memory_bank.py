@@ -366,7 +366,15 @@ class _RestHttp:
         self.status = status
         self.posts: list[tuple[str, dict]] = []
 
-    def post(self, url, headers=None, json=None, timeout=None):
+    def get(self, url, **kwargs):
+        resource = url.split("/v1beta1/", 1)[1]
+        body = {"name": resource}
+        if "/operations/" in resource:
+            body.update({"done": True, "response": {}})
+        return _Resp(200, body)
+
+    def post(self, url, headers=None, json=None, timeout=None, allow_redirects=False):
+        assert allow_redirects is False
         self.posts.append((url, json))
         assert headers["Authorization"].startswith("Bearer ")
         if url.endswith("memories:retrieve"):
@@ -389,6 +397,9 @@ def _ready_store(cfg=None, engine_id="91"):
 
 
 def _rest_service(**kwargs):
+    http = kwargs.get("session")
+    if http is not None and not hasattr(http, "get"):
+        http.get = _RestHttp().get
     return mb.build_rest_memory_bank_service(
         _cfg(), "91", store=_ready_store(), is_current=lambda: True, **kwargs
     )
@@ -1051,3 +1062,371 @@ async def test_generation_requires_valid_acknowledgement(payload):
     service = _rest_service(session=InvalidAck(), token=_Token())
     with pytest.raises(mb.MemoryBankUnavailable):
         await service.add_session_to_memory(_rest_session("synthetic fact"))
+
+
+# Durable generation tracking is operational metadata, never another memory store.
+def _tracked_service(store, http):
+    return mb.build_rest_memory_bank_service(
+        _cfg(), "91", store=store, is_current=lambda: True, session=http, token=_Token()
+    )
+
+
+def _slot(store):
+    return json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY]).get("generationOperation")
+
+
+async def test_generation_reservation_precedes_provider_and_retains_only_metadata():
+    store = _ready_store()
+
+    class Http(_RestHttp):
+        def post(self, *args, **kwargs):
+            assert _slot(store)["phase"] == "submitting"
+            return super().post(*args, **kwargs)
+
+    http = Http()
+    await _tracked_service(store, http).add_session_to_memory(
+        _rest_session("synthetic-private-fact")
+    )
+    assert _slot(store)["phase"] == "pending"
+    assert "synthetic-private-fact" not in store.objects[mb.MEMORY_BANK_RECORD_KEY].decode()
+    assert len(http.posts) == 1
+
+
+async def test_simultaneous_generation_reservations_issue_only_one_post():
+    import asyncio
+
+    class RacingStore(_Store):
+        def __init__(self):
+            super().__init__()
+            self.arrivals = 0
+            self.release = asyncio.Event()
+
+        async def put_if_generation(self, key, data, expected):
+            if json.loads(data).get("generationOperation", {}).get("phase") == "submitting":
+                self.arrivals += 1
+                if self.arrivals == 2:
+                    self.release.set()
+                await asyncio.wait_for(self.release.wait(), 2)
+            return await super().put_if_generation(key, data, expected)
+
+    store = RacingStore()
+    store.objects.update(_ready_store().objects)
+    http = _RestHttp()
+    results = await asyncio.gather(
+        *[
+            _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+            for _ in range(2)
+        ],
+        return_exceptions=True,
+    )
+    assert sum(result is None for result in results) == 1
+    assert sum(isinstance(result, mb.MemoryBankUnavailable) for result in results) == 1
+    assert len(http.posts) == 1
+
+
+async def test_crash_after_reservation_before_post_cannot_be_blindly_retried():
+    import asyncio
+
+    class CrashStore(_Store):
+        async def put_if_generation(self, key, data, expected):
+            await super().put_if_generation(key, data, expected)
+            raise asyncio.CancelledError()
+
+    store = CrashStore()
+    store.objects.update(_ready_store().objects)
+    http = _RestHttp()
+    with pytest.raises(asyncio.CancelledError):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+    assert _slot(store)["phase"] == "submitting"
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("retry"))
+    assert http.posts == []
+
+
+async def test_lost_provider_acknowledgement_remains_unresolved_after_restart():
+    class LostAck(_RestHttp):
+        def post(self, *args, **kwargs):
+            super().post(*args, **kwargs)
+            raise TimeoutError("synthetic-private-error")
+
+    store, http = _ready_store(), LostAck()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("fact"))
+    assert _slot(store)["phase"] == "submitting"
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("retry"))
+    assert len(http.posts) == 1
+    assert "synthetic-private-error" not in store.objects[mb.MEMORY_BANK_RECORD_KEY].decode()
+
+
+async def test_pending_generation_survives_restart_without_blocking_retrieval():
+    class Pending(_RestHttp):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if "/operations/" in url:
+                return _Resp(200, {"name": response.json()["name"], "done": False})
+            return response
+
+    store, http = _ready_store(), Pending()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    attempt = _slot(store)["attempt"]
+    restarted = _tracked_service(store, http)
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await restarted.add_session_to_memory(_rest_session("second"))
+    assert _slot(store)["attempt"] == attempt
+    await restarted.search_memory(app_name="one", user_id="ha1_test", query="first")
+    assert len([url for url, _ in http.posts if url.endswith("memories:generate")]) == 1
+
+
+@pytest.mark.parametrize("failed", [False, True])
+async def test_terminal_generation_is_reconciled_before_next_submission(failed):
+    class Terminal(_RestHttp):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if failed and "/operations/" in url:
+                return _Resp(
+                    200,
+                    {
+                        "name": response.json()["name"],
+                        "done": True,
+                        "error": {"code": 7, "message": "synthetic-private-error"},
+                    },
+                )
+            return response
+
+    store, http = _ready_store(), Terminal()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    if failed:
+        with pytest.raises(mb.MemoryBankUnavailable, match="operation failed"):
+            await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+        assert _slot(store) is None
+        assert len(http.posts) == 1
+    else:
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+        assert len(http.posts) == 2
+    assert "synthetic-private-error" not in store.objects[mb.MEMORY_BANK_RECORD_KEY].decode()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        [],
+        {},
+        {"name": "operations/evil"},
+        {"name": "projects/p/locations/us-central1/operations/1", "done": True, "response": []},
+    ],
+)
+async def test_malformed_generation_reconciliation_retains_pending_slot(payload):
+    class Malformed(_RestHttp):
+        def get(self, url, **kwargs):
+            return _Resp(200, payload) if "/operations/" in url else super().get(url, **kwargs)
+
+    store, http = _ready_store(), Malformed()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    before = _slot(store)
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    assert _slot(store) == before
+    assert len(http.posts) == 1
+
+
+async def test_erasing_state_wins_over_late_generation_reconciliation():
+    store = _ready_store()
+
+    class Erasing(_RestHttp):
+        def get(self, url, **kwargs):
+            if "/operations/" in url:
+                record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+                record["status"] = "erasing"
+                store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+                store.generations[mb.MEMORY_BANK_RECORD_KEY] += 1
+            return super().get(url, **kwargs)
+
+    http = Erasing()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "erasing"
+    assert _slot(store)["phase"] == "pending"
+    assert len(http.posts) == 1
+
+
+@pytest.mark.parametrize(
+    "error", [{}, {"code": 0}, {"code": True}, {"code": "7"}, {"code": -1}, {"code": 17}, None]
+)
+async def test_invalid_terminal_error_never_releases_generation_slot(error):
+    class InvalidError(_RestHttp):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if "/operations/" in url:
+                return _Resp(200, {"name": response.json()["name"], "done": True, "error": error})
+            return response
+
+    store, http = _ready_store(), InvalidError()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    before = _slot(store)
+    with pytest.raises(mb.MemoryBankUnavailable, match="result invalid"):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    assert _slot(store) == before
+    assert len(http.posts) == 1
+
+
+@pytest.mark.parametrize("fields", [{"generationOperation": None}, {"generationProtocol": 1}])
+async def test_legacy_record_with_generation_fields_refuses_provider_access(fields):
+    store, http = _ready_store(), _RestHttp()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps({**record, **fields}).encode()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    assert http.posts == []
+
+
+@pytest.mark.parametrize(
+    "fields",
+    [
+        {"generationProtocol": 1},
+        {"generationOperation": {"attempt": "a" * 32, "phase": "submitting"}},
+    ],
+)
+async def test_mixed_creation_record_cannot_discover_or_discard_generation(monkeypatch, fields):
+    _configure(monkeypatch)
+    cfg = mb.memory_bank_config()
+    store = _ready_store(cfg)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record.pop("engineId")
+    raw = json.dumps({**record, "status": "creating", **fields}).encode()
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = raw
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("must not discover")
+    )
+    assert await mb.ensure_memory_bank(store=store) is None
+    assert store.objects[mb.MEMORY_BANK_RECORD_KEY] == raw
+    assert mb.memory_bank_status() == {"memoryBankError": "MemoryBankUnavailable"}
+
+
+async def test_lost_durable_acknowledgement_does_not_resubmit_after_restart():
+    class LostWrite(_Store):
+        async def put_if_generation(self, key, data, expected):
+            if json.loads(data).get("generationOperation", {}).get("phase") == "pending":
+                raise OSError("synthetic-private-path")
+            return await super().put_if_generation(key, data, expected)
+
+    store, http = LostWrite(), _RestHttp()
+    store.objects.update(_ready_store().objects)
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    assert _slot(store)["phase"] == "submitting"
+    with pytest.raises(mb.MemoryBankGenerationPending):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    assert len(http.posts) == 1
+
+
+async def test_another_operation_in_same_project_cannot_complete_reservation():
+    class OtherOperation(_RestHttp):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            if "/operations/" in url:
+                return _Resp(
+                    200,
+                    {**response.json(), "name": "projects/p/locations/us-central1/operations/2"},
+                )
+            return response
+
+    store, http = _ready_store(), OtherOperation()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    before = _slot(store)
+    with pytest.raises(mb.MemoryBankUnavailable, match="response mismatch"):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    assert _slot(store) == before
+    assert len(http.posts) == 1
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "projects/123/locations/us-central1/reasoningEngines/other",
+        "projects/123/locations/other/reasoningEngines/91",
+        "projects/../locations/us-central1/reasoningEngines/91",
+        None,
+    ],
+)
+async def test_invalid_engine_readback_cannot_authorize_generation(name):
+    class InvalidEngine(_RestHttp):
+        def get(self, url, **kwargs):
+            return _Resp(200, {"name": name})
+
+    store, http = _ready_store(), InvalidEngine()
+    with pytest.raises(mb.MemoryBankUnavailable, match="engine identity"):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    assert http.posts == []
+    assert _slot(store) is None
+
+
+@pytest.mark.parametrize(
+    "project,location,engine",
+    [
+        ("foreign", "us-central1", "91"),
+        ("p", "europe-west1", "91"),
+        ("p", "us-central1", "different"),
+    ],
+)
+async def test_foreign_operation_identity_never_becomes_a_poll_target(project, location, engine):
+    class Foreign(_RestHttp):
+        def post(self, *args, **kwargs):
+            super().post(*args, **kwargs)
+            return _Resp(
+                200,
+                {
+                    "name": f"projects/{project}/locations/{location}/reasoningEngines/{engine}/operations/1"
+                },
+            )
+
+    store, http = _ready_store(), Foreign()
+    with pytest.raises(mb.MemoryBankUnavailable, match="operation identity"):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    assert _slot(store)["phase"] == "submitting"
+
+
+async def test_numeric_project_alias_requires_configured_engine_readback():
+    class Numeric(_RestHttp):
+        def get(self, url, **kwargs):
+            assert "/projects/p/" in url
+            return _Resp(200, {"name": "projects/123/locations/us-central1/reasoningEngines/91"})
+
+        def post(self, *args, **kwargs):
+            super().post(*args, **kwargs)
+            return _Resp(200, {"name": "projects/123/locations/us-central1/operations/1"})
+
+    store, http = _ready_store(), Numeric()
+    await _tracked_service(store, http).add_session_to_memory(_rest_session("first"))
+    assert _slot(store)["operation"] == "projects/p/locations/us-central1/operations/1"
+
+
+async def test_busy_provider_preserves_second_composite_turn_in_durable_log(tmp_path):
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+    from hushh_mcp.services.pod_memory_service import build_pod_memory_service
+
+    class Pending(_RestHttp):
+        def get(self, url, **kwargs):
+            response = super().get(url, **kwargs)
+            return (
+                _Resp(200, {"name": response.json()["name"], "done": False})
+                if "/operations/" in url
+                else response
+            )
+
+    store, http, key = _ready_store(), Pending(), b"k" * 32
+    log = PodCommitLog(LocalObjectStore(str(tmp_path / "log")), key)
+    service = build_pod_memory_service(
+        hushh_id="ha1_test", pod_key=key, log=log, bank=_tracked_service(store, http)
+    )
+    await service.add_session_to_memory(_rest_session("synthetic radiator fact"))
+    await service.add_session_to_memory(_rest_session("synthetic sailboat fact"))
+    rebuilt = build_pod_memory_service(
+        hushh_id="ha1_test",
+        pod_key=key,
+        log=PodCommitLog(LocalObjectStore(str(tmp_path / "log")), key),
+    )
+    response = await rebuilt.search_memory(app_name="one", user_id="ha1_test", query="sailboat")
+    assert [m.content.parts[0].text for m in response.memories] == ["synthetic sailboat fact"]
+    assert len(http.posts) == 1

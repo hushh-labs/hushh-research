@@ -479,11 +479,12 @@ Bank is the first non-lexical retrieval in the system.
   `google-cloud-aiplatform`, which pins `google-genai<2` and cannot share a graph with ADK
   2.x (`pyproject.toml` keeps the `gcp` extra out on purpose; the founder's pod created its
   engine and then hit `ImportError`, 2026-09-03). `build_rest_memory_bank_service` makes the
-  two calls directly (`memories:generate` after a turn, not awaited; `memories:retrieve` on
-  recall) on the pod's ADC. Startup/resolution failures populate `memoryBankError`;
+  generation and recall calls directly on the pod's ADC. Generation acknowledgement
+  and subsequent operation lookup are tracked durably as described below;
+  `memories:retrieve` remains synchronous. Startup/resolution failures populate `memoryBankError`;
   runtime bank failures are logged by exception type and fall back to the sealed log.
-- **Composite, log underneath.** `build_pod_memory_service(bank=...)` writes every turn to
-  the sealed log **and** the bank; `search_memory` asks the bank first and falls back to
+- **Composite, log underneath.** `build_pod_memory_service(bank=...)` commits each event to
+  the sealed log before attempting the bank; `search_memory` asks the bank first and falls back to
   the log. `load_memory` stays bound and observable (`pod_memory.recall
   backend=memory_bank|commit_log`); `preload_memory` stays off. A bank failure is logged
   and never fails a turn.
@@ -536,6 +537,43 @@ recovery coordinates, not live provider health or completed external erasure.
 The REST memory adapter independently checks the session/recall owner before examining
 events or requesting provider credentials. This reinforces the existing pod turn gate;
 it does not replace consent or turn authorization.
+
+### Durable generation acknowledgement (2026-09-06)
+
+The existing `memory_bank.json` now tracks one generation attempt through
+`submitting` and `pending`, alongside its owner/project/region/engine binding. It
+contains only operational metadata. Before submission the adapter reserves the slot
+with compare and swap and confirms the durable write. A lost provider response,
+process cancellation or unconfirmed acknowledgement write leaves the reservation
+intact across restart. It must not be cleared merely to retry.
+
+A later turn polls the recorded operation. Only an exact operation identity and a
+valid terminal result release its slot; malformed responses, denied lookups and
+nonterminal results remain incomplete. A terminal failure clears the completed
+attempt but reports failure; it does not submit that turn again. Concurrent writers
+and late completion cannot overwrite a newer record generation or lifecycle state.
+
+Generation returns an asynchronous operation under the provider's
+[generation contract](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1beta1/projects.locations.reasoningEngines.memories/generate).
+The generic [operation lookup](https://docs.cloud.google.com/gemini-enterprise-agent-platform/reference/rest/v1beta1/operations/get)
+does not require an engine segment in the name. The adapter associates the operation
+with the engine through the acknowledgement to its own configured-engine POST, then
+requires that exact identity on polls. It accepts project/region operations or
+operations explicitly nested under that same engine; other shapes fail closed.
+An authenticated GET of the configured engine establishes its project-number alias.
+All requests retain the configured regional host and disable redirects. These are
+contract and synthetic-test checks; a live provider receipt is still required.
+
+While generation is busy or unresolved, later turns remain in the sealed log and
+explicit recall remains available. This is not a queue: skipped bank submissions
+are not automatically backfilled. Retrieval availability does not prove generation
+health. Error/status reporting retains exception classes rather than private text.
+
+**Rollback constraint:** use a generation-aware recovery image once the record has
+`status: ready` and `generationProtocol: 1`. Older images may ignore these fields or
+refuse the record. Never remove an unresolved slot or downgrade to bypass it. This
+tracking is a prerequisite for draining writes before erasure; it does not implement
+provider deletion, an erasure fence, restore protection or completed account deletion.
 
 ## Only the pod can vouch for its model (2026-09-03)
 

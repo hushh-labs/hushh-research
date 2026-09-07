@@ -24,8 +24,9 @@ Fail-safe, and loud about it
 ----------------------------
 Every failure here degrades to the sealed commit log -- the durable record of record
 -- and is visible on ``/pod/info`` (``memoryBankError``) rather than swallowed. The
-composite service in :mod:`pod_memory_service` writes every turn to BOTH, so a Memory
-Bank outage loses recall quality, never memory.
+composite service in :mod:`pod_memory_service` commits each event to the sealed log
+before attempting the bank. Busy or unavailable generation falls back to that log;
+there is no automatic backfill of turns skipped by the bank.
 
 External erasure is not complete. The bootstrap token cannot delete the engine;
 account deletion therefore refuses an unverified external-resource cascade. A
@@ -41,6 +42,7 @@ import json
 import logging
 import os
 import time
+import uuid
 from dataclasses import dataclass
 from typing import Any, Callable, Optional
 
@@ -60,6 +62,10 @@ class MemoryBankUnavailable(RuntimeError):
 
 class MemoryBankCreationPending(MemoryBankUnavailable):
     """A durable creation intent exists; reconciliation must never create again."""
+
+
+class MemoryBankGenerationPending(MemoryBankUnavailable):
+    """An earlier provider mutation has not established terminal completion."""
 
 
 @dataclass(frozen=True)
@@ -103,6 +109,10 @@ def _base_url(cfg: MemoryBankConfig) -> str:
         f"https://{cfg.location}-aiplatform.googleapis.com/v1beta1/"
         f"projects/{cfg.project}/locations/{cfg.location}"
     )
+
+
+def _resource_segment(value: str) -> bool:
+    return bool(value) and all(c.isascii() and (c.isalnum() or c in "-_") for c in value)
 
 
 def _engine_id_from_name(name: str) -> Optional[str]:
@@ -339,12 +349,24 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     expected = {"project": cfg.project, "location": cfg.location, "displayName": cfg.display_name}
     if not isinstance(record, dict) or any(record.get(k) != v for k, v in expected.items()):
         raise MemoryBankUnavailable("memory record owner or project mismatch")
+    if "status" not in record and (
+        "generationProtocol" in record or "generationOperation" in record
+    ):
+        raise MemoryBankUnavailable("unsupported memory record version")
     if "status" in record:
         if record["status"] == "creating":
+            if "generationProtocol" in record or "generationOperation" in record:
+                raise MemoryBankUnavailable("inconsistent memory creation record")
             raise MemoryBankCreationPending("creation requires reconciliation")
         # Absence is the existing ready-record format. Unknown/future lifecycle
         # states must never be interpreted as permission to reopen an engine.
-        raise MemoryBankUnavailable("unsupported memory record state")
+        if (
+            record["status"] != "ready"
+            or type(record.get("generationProtocol")) is not int
+            or record["generationProtocol"] != 1
+        ):
+            raise MemoryBankUnavailable("unsupported memory record state")
+    _generation_slot(record)
     engine_id = record.get("engineId")
     if (
         not isinstance(engine_id, str)
@@ -353,6 +375,28 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     ):
         raise MemoryBankUnavailable("invalid memory engine record")
     return engine_id
+
+
+def _generation_slot(record: dict[str, Any]) -> Optional[dict[str, Any]]:
+    slot = record.get("generationOperation")
+    if slot is None:
+        return None
+    if (
+        not isinstance(slot, dict)
+        or set(slot) - {"attempt", "phase", "operation"}
+        or not isinstance(slot.get("attempt"), str)
+        or len(slot["attempt"]) != 32
+        or any(c not in "0123456789abcdef" for c in slot["attempt"])
+        or slot.get("phase") not in ("submitting", "pending")
+    ):
+        raise MemoryBankUnavailable("invalid generation reservation")
+    if slot["phase"] == "submitting" and "operation" in slot:
+        raise MemoryBankUnavailable("invalid generation reservation")
+    if slot["phase"] == "pending" and (
+        not isinstance(slot.get("operation"), str) or not slot["operation"]
+    ):
+        raise MemoryBankUnavailable("invalid generation acknowledgement")
+    return slot
 
 
 async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
@@ -501,11 +545,13 @@ def build_rest_memory_bank_service(
     which pins ``google-genai<2`` and cannot live in the same graph as ADK 2.x
     (``pyproject.toml`` keeps the ``gcp`` extra out on purpose; seen live 2026-09-03
     as ``ImportError`` on the founder's pod after the engine had been created).
-    The two calls the service makes are plain REST -- ``memories:generate`` after a
-    turn and ``memories:retrieve`` on recall -- so this is the same behaviour on the
+    Generation and recall use plain REST -- ``memories:generate`` after a
+    turn and ``memories:retrieve`` on recall -- so this retains the adapter on the
     pod's own identity with no new dependency. Generation is a long-running
-    operation the pod does not wait on; submission is not completion evidence.
-    Recall is synchronous and bounded.
+    operation tracked in the existing durable record; submission is not completion
+    evidence. One outstanding mutation is permitted. Later turns stay in the
+    sealed log while the slot is pending; this is not queued eventual indexing.
+    Recall is synchronous and remains available while generation is pending.
     """
     import requests  # type: ignore[import-untyped]  # noqa: PLC0415
     from google.adk.memory.base_memory_service import (  # noqa: PLC0415
@@ -549,6 +595,147 @@ def build_rest_memory_bank_service(
 
     class _RestMemoryBankService(BaseMemoryService):
         engine_id_ = engine_id
+        _provider_project: Optional[str] = None
+
+        def _get(self, resource: str) -> dict[str, Any]:
+            try:
+                response = http.get(
+                    f"https://{cfg.location}-aiplatform.googleapis.com/v1beta1/{resource}",
+                    headers=_headers(),
+                    timeout=30,
+                    allow_redirects=False,
+                )
+            except Exception:  # noqa: BLE001 - never retain provider/credential error text
+                raise MemoryBankUnavailable("memory operation lookup unavailable") from None
+            if response.status_code != 200:
+                raise MemoryBankUnavailable(_api_error(response))
+            return _json_object(response)
+
+        async def _resolve_provider_project(self) -> str:
+            if self._provider_project is None:
+                # GET the configured engine, never a provider-supplied address.
+                # Its canonical name proves the project-ID/number equivalence
+                # needed when the subsequent LRO uses a numeric project name.
+                body = await asyncio.to_thread(
+                    self._get,
+                    f"projects/{cfg.project}/locations/{cfg.location}/reasoningEngines/{engine_id}",
+                )
+                name = body.get("name")
+                parts = name.split("/") if isinstance(name, str) else []
+                if (
+                    body.get("error") is not None
+                    or len(parts) != 6
+                    or parts[0] != "projects"
+                    or not _resource_segment(parts[1])
+                    or parts[2:] != ["locations", cfg.location, "reasoningEngines", engine_id]
+                ):
+                    raise MemoryBankUnavailable("memory engine identity unavailable")
+                self._provider_project = parts[1]
+            return self._provider_project
+
+        def _operation_path(self, name: Any) -> str:
+            # The generic Operation contract does not require the engine in its
+            # name. Association is established only by the acknowledgement from
+            # our POST to the configured engine, then stored in the owner-bound
+            # record. A poll must return that exact stored operation; a matching
+            # project/region alone is never enough to adopt another operation.
+            parts = name.split("/") if isinstance(name, str) else []
+            if (
+                len(parts) not in {6, 8}
+                or parts[:1] != ["projects"]
+                or parts[1] not in {cfg.project, self._provider_project}
+                or parts[2:4] != ["locations", cfg.location]
+                or parts[-2] != "operations"
+                or not _resource_segment(parts[-1])
+                or (len(parts) == 8 and parts[4:6] != ["reasoningEngines", engine_id])
+            ):
+                raise MemoryBankUnavailable("memory operation identity unavailable")
+            # Keep routing on the configured project even when the response used
+            # its independently verified numeric alias.
+            parts[1] = cfg.project
+            return "/".join(parts)
+
+        async def _record_state(self) -> tuple[dict[str, Any], int]:
+            await require_record()
+            raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+            if _decode_record(raw, cfg) != engine_id or not is_current():
+                raise MemoryBankUnavailable("memory generation admission changed")
+            return json.loads(raw), generation
+
+        async def _save_state(self, record: dict[str, Any], generation: int) -> int:
+            if not is_current():
+                raise MemoryBankUnavailable("memory generation admission changed")
+            payload = json.dumps(record, sort_keys=True).encode()
+            updated = await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, generation)
+            if updated is None or await store.get(MEMORY_BANK_RECORD_KEY) != payload:
+                raise MemoryBankUnavailable("memory generation persistence unconfirmed")
+            if not is_current():
+                raise MemoryBankUnavailable("memory generation admission changed")
+            return updated
+
+        async def _finish_operation(
+            self, record: dict[str, Any], generation: int, payload: dict[str, Any]
+        ) -> tuple[dict[str, Any], int]:
+            if payload.get("done") is not True:
+                raise MemoryBankGenerationPending("memory generation still pending")
+            failed = "error" in payload
+            if failed:
+                error = payload["error"]
+                if (
+                    not isinstance(error, dict)
+                    or type(error.get("code")) is not int
+                    or not 1 <= error["code"] <= 16
+                    or "response" in payload
+                ):
+                    raise MemoryBankUnavailable("memory operation result invalid")
+            elif not isinstance(payload.get("response"), dict):
+                raise MemoryBankUnavailable("memory operation result unavailable")
+            record = {**record, "generationOperation": None}
+            generation = await self._save_state(record, generation)
+            if failed:
+                raise MemoryBankUnavailable("memory generation operation failed")
+            return record, generation
+
+        async def _generate(self, body: dict[str, Any]) -> None:
+            await require_record()
+            await self._resolve_provider_project()
+            record, generation = await self._record_state()
+            slot = _generation_slot(record)
+            if slot:
+                if slot["phase"] == "submitting":
+                    # No timeout, restart or empty inventory can prove an
+                    # unacknowledged POST will not materialize later.
+                    raise MemoryBankGenerationPending(
+                        "memory generation acknowledgement unresolved"
+                    )
+                operation = self._operation_path(slot["operation"])
+                payload = await asyncio.to_thread(self._get, operation)
+                if self._operation_path(payload.get("name")) != operation:
+                    raise MemoryBankUnavailable("memory operation response mismatch")
+                record, generation = await self._finish_operation(record, generation, payload)
+            record = {
+                **record,
+                "status": "ready",
+                "generationProtocol": 1,
+                "generationOperation": {"attempt": uuid.uuid4().hex, "phase": "submitting"},
+            }
+            generation = await self._save_state(record, generation)
+            # The durable reservation remains if submission, cancellation or its
+            # acknowledgement fails. It also prevents simultaneous boots/writers
+            # from issuing another mutation against this engine.
+            payload = await asyncio.to_thread(self._post, "memories:generate", body)
+            operation = self._operation_path(payload.get("name"))
+            record = {
+                **record,
+                "generationOperation": {
+                    **record["generationOperation"],
+                    "phase": "pending",
+                    "operation": operation,
+                },
+            }
+            generation = await self._save_state(record, generation)
+            if payload.get("done") is True:
+                await self._finish_operation(record, generation, payload)
 
         async def add_session_to_memory(self, session: Any) -> None:
             require_owner(getattr(session, "user_id", None))
@@ -568,7 +755,14 @@ def build_rest_memory_bank_service(
                 "directContentsSource": {"events": events},
                 "scope": {"user_id": str(getattr(session, "user_id", "") or cfg.display_name)},
             }
-            await asyncio.to_thread(self._post, "memories:generate", body)
+            try:
+                await self._generate(body)
+            except Exception as exc:  # noqa: BLE001 - durable store failures may disclose paths
+                if is_current():
+                    _STATE["error"] = type(exc).__name__
+                if isinstance(exc, MemoryBankUnavailable):
+                    raise
+                raise MemoryBankUnavailable("memory generation tracking unavailable") from None
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             require_owner(user_id)
@@ -596,7 +790,13 @@ def build_rest_memory_bank_service(
 
         def _post(self, verb: str, body: dict[str, Any]) -> dict[str, Any]:
             try:
-                response = http.post(f"{engine}/{verb}", headers=_headers(), json=body, timeout=30)
+                response = http.post(
+                    f"{engine}/{verb}",
+                    headers=_headers(),
+                    json=body,
+                    timeout=30,
+                    allow_redirects=False,
+                )
             except Exception:  # noqa: BLE001 - transport/auth exceptions may contain private context
                 error = "memory provider request unavailable"
                 if is_current():
@@ -610,9 +810,11 @@ def build_rest_memory_bank_service(
                 raise MemoryBankUnavailable(error)
             try:
                 payload = _json_object(response)
-                if payload.get("error") is not None:
+                if payload.get("error") is not None and verb != "memories:generate":
                     raise MemoryBankUnavailable("memory provider operation failed")
                 if verb == "memories:generate":
+                    if payload.get("error") is not None and not payload.get("name"):
+                        raise MemoryBankUnavailable("memory provider operation failed")
                     if not isinstance(payload.get("name"), str) or not payload["name"]:
                         raise MemoryBankUnavailable("memory generation acknowledgement unavailable")
                     if "done" in payload and not isinstance(payload["done"], bool):
