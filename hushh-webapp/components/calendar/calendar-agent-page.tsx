@@ -1,15 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  CalendarDays,
-  CheckCircle2,
-  Loader2,
-  MessageCircle,
-} from "lucide-react";
+import { CalendarDays, CheckCircle2, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useOptionalAgentPopover } from "@/components/agent/agent-popover-provider";
+import { AskOneButton } from "@/components/agent/ask-one-button";
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -284,14 +280,15 @@ export function CalendarAgentPage({
 
                 {/* Actions */}
                 <div className="flex flex-col items-center gap-2.5 w-full pt-1">
-                  <Button
+                  <AskOneButton
                     disabled={busy || !agentPopover}
                     onClick={() => openChat("Summarize my calendar events")}
-                    className="w-full justify-center"
+                    // Full width at every size: this card is a centred column,
+                    // not a page whose actions sit inline.
+                    className="sm:w-full"
                   >
-                    <MessageCircle className="size-4" aria-hidden />
                     Try Calendar Agent with One
-                  </Button>
+                  </AskOneButton>
                   <button
                     type="button"
                     className="text-xs font-medium text-muted-foreground transition-colors hover:text-destructive focus-visible:outline-none"

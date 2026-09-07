@@ -679,7 +679,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 "[Session start - not user speech] This is a NEW visitor who is "
                 "just arriving to get set up. You are One, their private agent: "
                 "the relationship layer where they own their context, grant "
-                "consent, and summon specialists (like Kai for finance) to get "
+                "consent, and summon specialists to get "
                 "things done. Greet them warmly in one short sentence, welcome "
                 "them in for the first time, and gently invite them to begin "
                 "getting set up. Do NOT greet them as if they were returning (no "
