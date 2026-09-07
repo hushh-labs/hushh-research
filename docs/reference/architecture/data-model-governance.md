@@ -213,6 +213,24 @@ timeouts. These bound individual operations, not total wall-clock time across
 multiple connection hosts. Closing the connection rolls back its read-only
 transaction; this audit does not run migrations or repair information.
 
+Add `--pkm-aggregates` for five explicit structural observations: current envelope
+field presence and negative revisions; owner/domain key presence; blob/manifest
+association; archived-segment parent/envelope shape; and commit/revision scope
+consistency. These queries return counts only, after a real-table and column/type
+preflight. PostgreSQL's `row_security=off` rejects a query that would otherwise
+return RLS-filtered information; it does not grant access or bypass a policy.
+Insufficient privilege, missing schema, timeouts and malformed results remain
+unavailable. A verified query with positive findings fails the audit and never
+authorizes repair or deletion. `NULL` archived commit references are legitimate.
+
+These observations do not decrypt or validate ciphertext, establish valid owner
+identities or consent, measure retention, or prove erasure. An aggregate returns
+few rows but may scan an entire relation; statement/lock timeouts bound that work.
+The database rehearsal in `test_data_model_audit_postgres.py` creates and removes
+its own socket-only PostgreSQL cluster, with synthetic defects and a role whose
+reads would be filtered. A test host lacking server binaries records a skip;
+run it on a host with those binaries before crediting that rehearsal.
+
 Run the smallest relevant bundle, and include the data-model audit for any table, migration, cache, or workflow-state change:
 
 ```bash

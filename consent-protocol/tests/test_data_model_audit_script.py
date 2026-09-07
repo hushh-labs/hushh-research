@@ -188,6 +188,111 @@ def test_cli_environment_reference_never_emits_connection_value(monkeypatch, cap
         assert not calls
 
 
+class _PkmCursor:
+    def __init__(self, *, schema=None, results=None):
+        self.commands = []
+        self.results = iter(
+            [
+                schema
+                if schema is not None
+                else [
+                    (table, column, "int4" if kind == "integer" else kind)
+                    for table, columns in data_model_audit.PKM_PROBE_COLUMNS.items()
+                    for column, kind in columns.items()
+                ],
+                *(
+                    results
+                    if results is not None
+                    else [[(0,) * len(metrics)] for _, metrics, _ in data_model_audit.PKM_PROBES]
+                ),
+            ]
+        )
+
+    def execute(self, *args):
+        self.commands.append(args)
+
+    def fetchall(self):
+        return next(self.results)
+
+
+def test_pkm_aggregates_require_unfiltered_reads_and_distinguish_measured_empty():
+    cursor = _PkmCursor()
+    result = data_model_audit._pkm_structure(cursor)
+    assert cursor.commands[0] == ("SET LOCAL row_security = off",)
+    assert "c.relkind IN ('r', 'p')" in cursor.commands[1][0]
+    assert result["status"] == "verified"
+    assert len(result["checks"]) == 5
+    assert result["findings"] == []
+
+
+@pytest.mark.parametrize("schema", [[], [("pkm_blobs", "ciphertext", "bytea")]])
+def test_pkm_missing_or_incompatible_schema_prevents_all_content_queries(schema):
+    cursor = _PkmCursor(schema=schema)
+    with pytest.raises(data_model_audit.PkmProbeSchemaUnavailable):
+        data_model_audit._pkm_structure(cursor)
+    assert len(cursor.commands) == 2
+
+
+@pytest.mark.parametrize(
+    "rows", [[], [(1, 0)], [(1, True, 0)], [(1, -1, 0)], [(1, 2, 0)], [(1, 0, 0), (1, 0, 0)]]
+)
+def test_pkm_malformed_aggregate_cannot_publish_a_partial_success(rows):
+    cursor = _PkmCursor(results=[rows])
+    with pytest.raises(ValueError):
+        data_model_audit._pkm_structure(cursor)
+
+
+def test_pkm_findings_fail_report_without_exposing_records(monkeypatch):
+    cursor = _PkmCursor(results=[[(2, 1, 1)], [(12, 2)], [(2, 2)], [(2, 1, 1)], [(5, 1, 2)]])
+    observation = data_model_audit._pkm_structure(cursor)
+    monkeypatch.setattr(
+        data_model_audit,
+        "_live_stats",
+        lambda *_args, **_kwargs: {
+            "status": "verified",
+            "rows": [],
+            "pkm_structure": observation,
+        },
+    )
+    report, code = data_model_audit.build_report(pkm_aggregates=True)
+    assert code == 1
+    assert "pkm_structure:commit_references:cross_scope_reference" in report["failures"]
+    assert len(observation["findings"]) == 8
+
+
+def test_requested_pkm_aggregates_without_connection_are_unavailable():
+    result = data_model_audit._live_stats(None, pkm_aggregates=True)
+    assert result["status"] == "unavailable"
+    assert result["pkm_structure"]["status"] == "unavailable"
+
+
+def test_pkm_rls_or_privilege_refusal_never_publishes_zero_counts(monkeypatch):
+    calls = _fake_live_connection(monkeypatch, rows=[])
+
+    def denied(_cursor):
+        raise RuntimeError("private-rls-owner-sentinel")
+
+    monkeypatch.setattr(data_model_audit, "_pkm_structure", denied)
+    result = data_model_audit._live_stats("synthetic-private-dsn", pkm_aggregates=True)
+    assert result["status"] == "unavailable"
+    assert result["pkm_structure"] == {"status": "unavailable"}
+    assert "private" not in json.dumps(result)
+    assert calls[-1] == ("connection_closed",)
+
+
+def test_final_pkm_probe_failure_discards_earlier_counts_and_catalog(monkeypatch):
+    calls = _fake_live_connection(monkeypatch, rows=[("public", "pkm_blobs", 1, 4096)])
+    cursor = _PkmCursor(results=[[(2, 1, 1)], [(12, 2)], [(2, 2)], [(2, 1, 1)], [(5, True, 2)]])
+    inspect = data_model_audit._pkm_structure
+    monkeypatch.setattr(data_model_audit, "_pkm_structure", lambda _cursor: inspect(cursor))
+    result = data_model_audit._live_stats("synthetic-private-dsn", pkm_aggregates=True)
+    assert len(cursor.commands) == 7
+    assert result["status"] == "unavailable"
+    assert result["rows"] == []
+    assert result["pkm_structure"] == {"status": "unavailable"}
+    assert calls[-1] == ("connection_closed",)
+
+
 def _table_events(sql: str) -> list[tuple[str | None, str | None]]:
     code = data_model_audit._strip_sql_comments_and_literals(sql)
     return [

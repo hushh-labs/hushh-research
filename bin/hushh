@@ -123,7 +123,7 @@ Usage:
   ./bin/hushh codex list-workflows [--json|--text] [--verbose]
   ./bin/hushh codex pre-pr [--include-advisory] [--report-path <path>] [--json|--text]
   ./bin/hushh codex ci-status [--pr <number>|--branch <name>] [--watch] [--interval <seconds>] [--timeout <seconds>] [--json|--text]
-  ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--json|--text]
+  ./bin/hushh codex data-model-audit [--database-url-env <env-name>] [--pkm-aggregates] [--json|--text]
   ./bin/hushh codex audit [--json|--text]
   ./bin/hushh codex rca --surface <uat|runtime|ci> [--project <gcp-project>] [--region <region>] [--backend-service <name>] [--frontend-service <name>] [--backend-url <url>] [--frontend-url <url>] [--report-path <path>] [--json|--text]
 EOF

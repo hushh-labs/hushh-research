@@ -36,6 +36,146 @@ DYNAMIC_SQL_PREFIX_RE = re.compile(
 SQL_WRITE_TEMPLATE = r"\b(?:INSERT\s+INTO|UPDATE)\s+(?:public\.)?{table}\b"
 DB_WRITE_TEMPLATE = r"\.table\(\s*['\"]{table}['\"]\s*\)\s*\.(?:insert|upsert|update)\b"
 
+PKM_PROBE_COLUMNS = {
+    "pkm_blobs": {
+        "user_id": "text",
+        "domain": "text",
+        "ciphertext": "text",
+        "iv": "text",
+        "tag": "text",
+        "content_revision": "integer",
+        "manifest_revision": "integer",
+    },
+    "pkm_manifests": {"user_id": "text", "domain": "text"},
+    "pkm_domain_revisions": {"revision_id": "uuid", "user_id": "text", "domain": "text"},
+    "pkm_domain_revision_segments": {
+        "revision_id": "uuid",
+        "ciphertext": "text",
+        "iv": "text",
+        "tag": "text",
+    },
+    "pkm_domain_commits": {"user_id": "text", "domain": "text", "archived_revision_id": "uuid"},
+}
+PKM_PROBES = (
+    (
+        "current_envelopes",
+        ("total", "incomplete_envelopes", "negative_revisions"),
+        """
+SELECT count(*), count(*) FILTER (WHERE
+ nullif(btrim(ciphertext), '') IS NULL OR nullif(btrim(iv), '') IS NULL OR nullif(btrim(tag), '') IS NULL),
+ count(*) FILTER (WHERE content_revision < 0 OR manifest_revision < 0)
+FROM public.pkm_blobs
+""",
+    ),
+    (
+        "scope_keys",
+        ("total", "incomplete_scope_keys"),
+        """
+WITH scopes AS (
+ SELECT user_id, domain FROM public.pkm_blobs
+ UNION ALL SELECT user_id, domain FROM public.pkm_manifests
+ UNION ALL SELECT user_id, domain FROM public.pkm_domain_revisions
+ UNION ALL SELECT user_id, domain FROM public.pkm_domain_commits
+)
+SELECT count(*), count(*) FILTER (WHERE
+ nullif(btrim(user_id), '') IS NULL OR nullif(btrim(domain), '') IS NULL)
+FROM scopes
+""",
+    ),
+    (
+        "blob_manifests",
+        ("total", "missing_manifest"),
+        """
+SELECT count(*), count(*) FILTER (WHERE NOT EXISTS (
+ SELECT 1 FROM public.pkm_manifests m WHERE m.user_id = b.user_id AND m.domain = b.domain))
+FROM public.pkm_blobs b
+""",
+    ),
+    (
+        "archived_segments",
+        ("total", "missing_parent", "incomplete_envelopes"),
+        """
+SELECT count(*), count(*) FILTER (WHERE NOT EXISTS (
+ SELECT 1 FROM public.pkm_domain_revisions r WHERE r.revision_id = s.revision_id)),
+ count(*) FILTER (WHERE nullif(btrim(s.ciphertext), '') IS NULL OR
+ nullif(btrim(s.iv), '') IS NULL OR nullif(btrim(s.tag), '') IS NULL)
+FROM public.pkm_domain_revision_segments s
+""",
+    ),
+    (
+        "commit_references",
+        ("total", "missing_parent", "cross_scope_reference"),
+        """
+SELECT count(*), count(*) FILTER (WHERE c.archived_revision_id IS NOT NULL AND NOT EXISTS (
+ SELECT 1 FROM public.pkm_domain_revisions r WHERE r.revision_id = c.archived_revision_id)),
+ count(*) FILTER (WHERE EXISTS (
+ SELECT 1 FROM public.pkm_domain_revisions r WHERE r.revision_id = c.archived_revision_id
+ AND (c.user_id IS DISTINCT FROM r.user_id OR c.domain IS DISTINCT FROM r.domain)))
+FROM public.pkm_domain_commits c
+""",
+    ),
+)
+
+
+class PkmProbeSchemaUnavailable(ValueError):
+    """Required real-table columns/types were not observed."""
+
+
+def _pkm_structure(cursor: Any) -> dict[str, Any]:
+    # row_security=off does not bypass RLS. PostgreSQL refuses a read that would
+    # otherwise be filtered, preventing partial owner-visible counts from
+    # masquerading as global evidence. No policy or privilege is changed.
+    cursor.execute("SET LOCAL row_security = off")
+    cursor.execute(
+        """
+SELECT c.relname, a.attname, t.typname
+FROM pg_catalog.pg_class c
+JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid
+JOIN pg_catalog.pg_type t ON t.oid = a.atttypid
+JOIN pg_catalog.pg_namespace tn ON tn.oid = t.typnamespace
+WHERE n.nspname = 'public' AND tn.nspname = 'pg_catalog'
+ AND c.relkind IN ('r', 'p') AND a.attnum > 0 AND NOT a.attisdropped
+ AND c.relname = ANY(%s)
+""",
+        (list(PKM_PROBE_COLUMNS),),
+    )
+    observed = {(table, column): kind for table, column, kind in cursor.fetchall()}
+    allowed_types = {
+        "text": {"text", "varchar", "bpchar"},
+        "integer": {"int2", "int4", "int8"},
+        "uuid": {"uuid"},
+    }
+    for table, columns in PKM_PROBE_COLUMNS.items():
+        for column, family in columns.items():
+            if observed.get((table, column)) not in allowed_types[family]:
+                raise PkmProbeSchemaUnavailable("PKM probe schema unavailable")
+    checks = []
+    findings = []
+    for name, metrics, query in PKM_PROBES:
+        cursor.execute(query)
+        rows = cursor.fetchall()
+        if len(rows) != 1 or len(rows[0]) != len(metrics):
+            raise ValueError("invalid aggregate result")
+        values = rows[0]
+        if any(type(value) is not int or value < 0 for value in values) or any(
+            value > values[0] for value in values[1:]
+        ):
+            raise ValueError("invalid aggregate count")
+        counts = dict(zip(metrics, values, strict=True))
+        checks.append({"check": name, "counts": counts})
+        findings.extend(
+            {"check": name, "metric": metric, "count": counts[metric]}
+            for metric in metrics[1:]
+            if counts[metric]
+        )
+    return {
+        "status": "verified",
+        "scope": "structural PKM aggregates only; no decryption, identity validity, authorization, retention, or erasure proof",
+        "checks": checks,
+        "findings": findings,
+    }
+
 
 def _load_json(path: Path) -> dict[str, Any]:
     return json.loads(path.read_text(encoding="utf-8"))
@@ -330,16 +470,17 @@ def _family_summary(
     return summary
 
 
-def _live_stats(database_url: str | None) -> dict[str, Any]:
+def _live_stats(database_url: str | None, *, pkm_aggregates: bool = False) -> dict[str, Any]:
     observation: dict[str, Any] = {
         "status": "not_requested",
         "rows": [],
+        "pkm_structure": {"status": "unavailable" if pkm_aggregates else "not_requested"},
         "scope": "25 largest public tables by size with catalog row estimates; not information-integrity or erasure proof",
     }
-    if database_url is None:
+    if database_url is None and not pkm_aggregates:
         return observation
     observation.update(status="unavailable", observed_at=datetime.now(timezone.utc).isoformat())
-    if not database_url.strip():
+    if not database_url or not database_url.strip():
         return {**observation, "reason": "configuration_unavailable"}
     # Static audits need no database driver. Live audits run in the existing
     # backend uv environment; credentials never become a child process argument.
@@ -399,16 +540,26 @@ LIMIT 25;
                 )
             if len(rows) > 25:
                 raise ValueError("catalog row limit exceeded")
-        return {**observation, "status": "verified", "rows": rows}
+            if pkm_aggregates:
+                failure_reason = "pkm_query_unavailable"
+                with connection.cursor() as cursor:
+                    pkm_structure = _pkm_structure(cursor)
+            else:
+                pkm_structure = {"status": "not_requested"}
+        return {**observation, "status": "verified", "rows": rows, "pkm_structure": pkm_structure}
     except Exception as error:  # noqa: BLE001 - never expose driver diagnostics or connection secrets
-        if getattr(error, "pgcode", None) == "57014":
+        if isinstance(error, PkmProbeSchemaUnavailable):
+            failure_reason = "pkm_schema_unavailable"
+        elif getattr(error, "pgcode", None) == "57014":
             failure_reason = "query_cancelled_or_timed_out"
         elif getattr(error, "pgcode", None) == "55P03":
             failure_reason = "lock_unavailable"
         return {**observation, "reason": failure_reason}
 
 
-def build_report(database_url: str | None = None) -> tuple[dict[str, Any], int]:
+def build_report(
+    database_url: str | None = None, *, pkm_aggregates: bool = False
+) -> tuple[dict[str, Any], int]:
     contract = _load_json(CONTRACT_PATH)
     tables = _migration_tables()
     classified, unclassified = _table_classification(tables, contract)
@@ -417,10 +568,14 @@ def build_report(database_url: str | None = None) -> tuple[dict[str, Any], int]:
     duplicate_creates = {
         table: migrations for table, migrations in tables.items() if len(migrations) > 1
     }
-    live_observation = _live_stats(database_url)
+    live_observation = _live_stats(database_url, pkm_aggregates=pkm_aggregates)
     failures = []
     if live_observation["status"] == "unavailable":
         failures.append(f"live_observation_unavailable:{live_observation['reason']}")
+    failures.extend(
+        f"pkm_structure:{finding['check']}:{finding['metric']}"
+        for finding in live_observation["pkm_structure"].get("findings", [])
+    )
     failures.extend(contract_errors)
     failures.extend(f"unclassified_table:{table}" for table in unclassified)
     failures.extend(
@@ -453,6 +608,7 @@ def _print_text(report: dict[str, Any]) -> None:
     print(f"- unclassified tables: {len(report['unclassified_tables'])}")
     print(f"- legacy write findings: {len(report['legacy_write_findings'])}")
     print(f"- live observation: {report['live_observation']['status']}")
+    print(f"- PKM structural observation: {report['live_observation']['pkm_structure']['status']}")
     print(f"- failures: {len(report['failures'])}")
     print("")
     print("Families")
@@ -496,13 +652,18 @@ def main() -> int:
         metavar="ENV_NAME",
         help="Read the live Postgres URL from an existing environment variable; never print its value.",
     )
+    parser.add_argument(
+        "--pkm-aggregates",
+        action="store_true",
+        help="Opt in to bounded, read-only PKM structural aggregate queries; requires live connection input.",
+    )
     args = parser.parse_args()
     database_url = (
         os.environ.get(args.database_url_env, "")
         if args.database_url_env is not None
         else args.database_url
     )
-    report, code = build_report(database_url=database_url)
+    report, code = build_report(database_url=database_url, pkm_aggregates=args.pkm_aggregates)
     if args.json:
         print(json.dumps(report, indent=2))
     else:
