@@ -103,8 +103,14 @@ substituted for one another:
 
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
-and a pinned id fails only after a full build. Interactive runs resolve a
-concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+and a pinned id fails only after a full build. Simulator launches resolve a
+concrete device at launch time. The compatibility command
+`APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
+`.codex/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+native environment resolver. It keeps Simulator in the background, bounds boot
+readiness to 120 seconds, and verifies the bundled backend before installation.
+Its historical default remains UAT; select dev explicitly for private-branch work.
+Authenticated rehearsal follows the reviewer workflow and is separate from launch proof.
 A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its

@@ -76,8 +76,8 @@
       "sha256": "c3cb916bba5d6298d2c52194e461581f75aab5da33f5f551a0259b43dfc92242"
     },
     ".claude/skills/run-ios-sim/SKILL.md": {
-      "classification": "legacy_adapter_pending_migration",
-      "sha256": "77317bdb31688b2e57dadc1315d9dc6f6611236ba14677497e3d7e592c03ef68"
+      "classification": "owner_alias",
+      "sha256": "a7b92a837fd4540a7be1847b786f351783c49e9733acdf3b2713a44932afe767"
     },
     ".claude/skills/safe-changes/SKILL.md": {
       "classification": "owner_alias",

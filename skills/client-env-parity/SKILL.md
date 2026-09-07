@@ -125,26 +125,21 @@ lookup — this key deliberately has no classic Geocoding API), and `routes`.
 
 ## Verifying a native build for real
 
-A green workflow does not prove a credential landed in the app. Grep the built bundle:
+A green workflow does not prove the intended configuration landed in the app.
+Use `.codex/skills/mobile-native/SKILL.md` for the selected-profile build, native
+Firebase sync, and bundled backend/project verification. Reuse the existing
+native environment resolver; do not manually copy another lane's Firebase file
+or pass credential values through command arguments.
 
-```bash
-KEY="$(gcloud secrets versions access latest \
-  --secret=NEXT_PUBLIC_GOOGLE_MAPS_BROWSER_API_KEY --project=hushh-pda-uat)"
-grep -rlF "$KEY" hushh-webapp/ios/App/App/public/ || echo "NOT IN THE BUILD"
-```
+The `run-ios-sim` compatibility entrypoint launches in the background and verifies
+the built backend before installation. Select `APP_RUNTIME_PROFILE=dev` for
+private-branch dev validation; its historical default is UAT.
 
-To run it on a simulator use the `run-ios-sim` skill. Two things that will bite:
-
-- `ios/App/App/GoogleService-Info.plist` is gitignored, so a local build fails with
-  `Build input file cannot be found`. Fetch it the way the release workflow does, then
-  **delete it again** when finished:
-  ```bash
-  gcloud secrets versions access latest --secret=IOS_GOOGLESERVICE_INFO_PLIST_B64 \
-    --project=hushh-pda-uat | openssl base64 -d -A > hushh-webapp/ios/App/App/GoogleService-Info.plist
-  ```
-- The app is auth + vault gated. An agent can prove the build, the launch, the backend,
-  and the absence of key errors in the log — it cannot reach a gated screen. Say so
-  plainly instead of implying a screen was seen.
+For authenticated screens, follow
+`.codex/skills/reviewer-app-testing/SKILL.md`. The canonical reviewer harness can
+perform authorized authentication and continuity checks while keeping credentials
+in memory. Build/launch proof, authenticated journeys and actual provider success
+remain separate evidence.
 
 ---
 
@@ -155,7 +150,7 @@ Do not report a client credential as fixed on the strength of the secret existin
 - the value is present in each lane that needs it (`check.sh`);
 - the key accepts each origin and service (`check-key-origins.sh`);
 - the key still rejects an unknown origin (the 403 above);
-- the value is physically inside the built bundle (the grep above);
+- the selected native configuration is verified in the built bundle;
 - for a native change, that the next build is what carries it — Capacitor has no
   over-the-air update, so a merged fix reaches a tester only through a new build.
 
