@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
+
 from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
 
 _UID = "firebase_uid_test_123"
@@ -131,6 +133,50 @@ async def test_upsert_then_get():
 async def test_get_missing_returns_none():
     repo, _ = _repo_and_db()
     assert await repo.get("nobody") is None
+
+
+async def test_fleet_inventory_reads_beyond_one_thousand_without_liveness_filter():
+    from sqlalchemy import create_engine, text
+
+    from db.db_client import TableQuery
+
+    engine = create_engine("sqlite://")
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE personal_agent_registry (hushh_id TEXT, status TEXT, "
+                    "backend TEXT, external_agent_id TEXT, backend_metadata TEXT, phone_e164_hash TEXT)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO personal_agent_registry VALUES (:owner, :status, 'gcp', 'pod', '{}', 'private')"
+                ),
+                [
+                    {"owner": f"synthetic-{n}", "status": "migrating" if n == 1000 else "suspended"}
+                    for n in range(1001)
+                ],
+            )
+        client = SimpleNamespace(table=lambda name: TableQuery(name, engine))
+        rows = await PersonalAgentRegistryRepo(client=client).fetch_fleet_inventory()
+        assert len(rows) == 1001
+        assert any(
+            row["hushh_id"] == "synthetic-1000" and row["status"] == "migrating" for row in rows
+        )
+        assert all("phone_e164_hash" not in row for row in rows)
+    finally:
+        engine.dispose()
+
+
+@pytest.mark.parametrize("payload", [None, {}, "unavailable"])
+async def test_fleet_inventory_rejects_unavailable_result(payload):
+    query = SimpleNamespace()
+    query.select = lambda *args: query
+    query.execute = lambda: SimpleNamespace(data=payload)
+    client = SimpleNamespace(table=lambda name: query)
+    with pytest.raises(ValueError, match="inventory unavailable"):
+        await PersonalAgentRegistryRepo(client=client).fetch_fleet_inventory()
 
 
 async def test_upsert_is_idempotent_by_user():

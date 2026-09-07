@@ -266,7 +266,7 @@ def test_list_services_unwraps_items_and_passes_the_label_selector(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def _get(url, headers=None, params=None, timeout=None):
+    def _get(url, headers=None, params=None, timeout=None, allow_redirects=False):
         captured["url"] = url
         captured["params"] = params
         return _Ok()
@@ -296,7 +296,7 @@ def test_list_services_no_selector_sends_no_params(monkeypatch):
         def raise_for_status(self):
             return None
 
-    def _get(url, headers=None, params=None, timeout=None):
+    def _get(url, headers=None, params=None, timeout=None, allow_redirects=False):
         captured["params"] = params
         return _Empty()
 
@@ -405,3 +405,133 @@ def test_a_service_with_no_generation_is_judged_on_the_condition_alone():
     ready, _ = run.wait_ready("one-pod-x", timeout_s=5.0, interval_s=0)
     assert ready is True
     assert run.polls == 1
+
+
+class _InventoryResponse:
+    status_code = 200
+
+    def __init__(self, body, error=None):
+        self.body = body
+        self.error = error
+
+    def raise_for_status(self):
+        if self.error:
+            raise self.error
+
+    def json(self):
+        return self.body
+
+
+def test_service_inventory_reads_all_pages_with_same_filter(monkeypatch):
+    import requests
+
+    pages = iter(
+        [
+            {"items": [{"metadata": {"name": "first"}}], "metadata": {"continue": "opaque-next"}},
+            {"items": [{"metadata": {"name": "second"}}]},
+        ]
+    )
+    calls = []
+
+    def get(url, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        calls.append((url, kwargs["params"]))
+        return _InventoryResponse(next(pages))
+
+    monkeypatch.setattr(requests, "get", get)
+    result = _client_no_net().list_services("app=hushh-one-pod")
+    assert [row["metadata"]["name"] for row in result] == ["first", "second"]
+    assert calls[0][0] == calls[1][0]
+    assert calls[1][1] == {"labelSelector": "app=hushh-one-pod", "continue": "opaque-next"}
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        [],
+        None,
+        {"error": {}},
+        {"items": {}},
+        {"items": [None]},
+        {"metadata": []},
+        {"metadata": {"continue": 7}},
+        {"unreachable": ["synthetic-region"]},
+    ],
+)
+def test_malformed_service_inventory_never_reports_empty_fleet(monkeypatch, body):
+    import requests
+
+    monkeypatch.setattr(requests, "get", lambda *_a, **_k: _InventoryResponse(body))
+    with pytest.raises(RuntimeError, match="inventory"):
+        _client_no_net().list_services()
+
+
+def test_service_inventory_later_page_failure_never_returns_partial_fleet(monkeypatch):
+    import requests
+
+    responses = iter(
+        [
+            _InventoryResponse(
+                {"items": [{"metadata": {"name": "first"}}], "metadata": {"continue": "next"}}
+            ),
+            _InventoryResponse({}, error=RuntimeError("synthetic denied")),
+        ]
+    )
+    monkeypatch.setattr(requests, "get", lambda *_a, **_k: next(responses))
+    with pytest.raises(RuntimeError, match="synthetic denied"):
+        _client_no_net().list_services()
+
+
+def test_service_inventory_repeated_continuation_refuses_partial_result(monkeypatch):
+    import requests
+
+    calls = []
+
+    def get(*_a, **_k):
+        calls.append(True)
+        return _InventoryResponse({"metadata": {"continue": "same"}})
+
+    monkeypatch.setattr(requests, "get", get)
+    with pytest.raises(RuntimeError, match="repeated"):
+        _client_no_net().list_services()
+    assert len(calls) == 2
+
+
+def test_service_inventory_page_bound_refuses_partial_result(monkeypatch):
+    import requests
+
+    from hushh_mcp.services import gcp_run_client
+
+    calls = []
+
+    def get(*_a, **_k):
+        calls.append(True)
+        return _InventoryResponse({"metadata": {"continue": str(len(calls))}})
+
+    monkeypatch.setattr(gcp_run_client, "_MAX_SERVICE_LIST_PAGES", 2)
+    monkeypatch.setattr(requests, "get", get)
+    with pytest.raises(RuntimeError, match="page bound"):
+        _client_no_net().list_services()
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("status", [201, 204, 302, 304, 307])
+def test_unexpected_status_cannot_be_an_empty_inventory(monkeypatch, status):
+    import requests
+
+    response = _InventoryResponse({})
+    response.status_code = status
+    monkeypatch.setattr(requests, "get", lambda *_a, **_k: response)
+    with pytest.raises(RuntimeError, match="status invalid"):
+        _client_no_net().list_services()
+
+
+@pytest.mark.parametrize(
+    "item", [{}, {"metadata": {}}, {"metadata": {"name": None}}, {"metadata": {"name": " "}}]
+)
+def test_unidentified_service_cannot_be_discarded_as_absence(monkeypatch, item):
+    import requests
+
+    monkeypatch.setattr(requests, "get", lambda *_a, **_k: _InventoryResponse({"items": [item]}))
+    with pytest.raises(RuntimeError, match="incomplete"):
+        _client_no_net().list_services()

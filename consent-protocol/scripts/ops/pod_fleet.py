@@ -28,19 +28,11 @@ import json
 import sys
 from typing import Any, Optional
 
-import requests
-
 sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parents[2]))
 
-from hushh_mcp.services.gcp_run_client import load_operator_credentials  # noqa: E402
+from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: E402
 
 POD_LABEL = "app=hussh-one-pod"
-
-
-def _session(credentials: Any) -> requests.Session:
-    from google.auth.transport.requests import AuthorizedSession
-
-    return AuthorizedSession(credentials)
 
 
 def _condition(obj: dict[str, Any], name: str) -> Optional[str]:
@@ -78,17 +70,7 @@ def main() -> int:
     args = ap.parse_args()
 
     try:
-        creds = load_operator_credentials()
-        s = _session(creds)
-        base = (
-            f"https://{args.region}-run.googleapis.com/apis/serving.knative.dev/v1"
-            f"/namespaces/{args.project}"
-        )
-        r = s.get(f"{base}/services", params={"labelSelector": POD_LABEL}, timeout=120)
-        if not r.ok:
-            print(f"Fleet unavailable: HTTP {r.status_code}")
-            return 77
-        services = r.json().get("items") or []
+        services = GcpRunClient(project=args.project, region=args.region).list_services(POD_LABEL)
     except Exception as exc:
         print(f"Fleet unavailable: {type(exc).__name__}")
         return 77

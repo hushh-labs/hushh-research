@@ -623,6 +623,24 @@ class PersonalAgentRegistryRepo:
         )
         return True
 
+    async def fetch_fleet_inventory(self) -> list[dict]:
+        """Complete host-claim snapshot for the report-only fleet reconciler.
+
+        This is deliberately separate from bounded liveness probes: migrating and
+        inactive rows can still own compute. The SQL-backed client applies no
+        implicit limit, so one SELECT sees one database snapshot without paging
+        races. Cloud inventory is a separate observation, not an atomic join.
+        """
+        response = (
+            self._db()
+            .table(_REGISTRY)
+            .select("hushh_id", "status", "backend", "external_agent_id", "backend_metadata")
+            .execute()
+        )
+        if not isinstance(response.data, list):
+            raise ValueError("Fleet registry inventory unavailable")
+        return response.data
+
     async def fetch_liveness_candidates(self, *, limit: int = 200) -> list[dict]:
         """Rows that own (or are standing up) a host, for the liveness sweep to judge.
 

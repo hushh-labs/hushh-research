@@ -21,7 +21,7 @@ from typing import Any
 #: Registry statuses that SHOULD own a live host. A row in one of these with no
 #: service in the fleet is a lying row (Direction A); a live service that no row in
 #: one of these states claims is an orphan (Direction B).
-ACTIVE_STATUSES = frozenset({"provisioning", "connecting", "provisioned"})
+ACTIVE_STATUSES = frozenset({"provisioning", "connecting", "provisioned", "migrating"})
 
 
 def _expected_service(hushh_id: str) -> str:
@@ -33,7 +33,11 @@ def _expected_service(hushh_id: str) -> str:
 
 
 def classify_fleet_registry_mismatch(
-    *, fleet_service_names: Any, registry_rows: Any
+    *,
+    fleet_service_names: Any,
+    registry_rows: Any,
+    project: str | None = None,
+    region: str | None = None,
 ) -> dict[str, list[dict[str, Any]]]:
     """Given the live fleet's service names and the registry rows, return the two
     abandonment directions. Pure: no I/O, no flags, no side effects.
@@ -43,6 +47,10 @@ def classify_fleet_registry_mismatch(
     Direction B -- a live/billing service that NO active row maps to: the orphan
     only a fleet-first join can see. A candidate for reclaim.
     """
+    if project is not None or region is not None:
+        return _classify_scoped_inventory(fleet_service_names, registry_rows, project, region)
+    # Compatibility for offline callers without deployment coordinates. The live
+    # report always supplies scope and uses recorded service identities below.
     fleet = {str(n).strip() for n in (fleet_service_names or []) if str(n).strip()}
     claimed: dict[str, dict[str, Any]] = {}
     direction_a: list[dict[str, Any]] = []
@@ -68,6 +76,89 @@ def classify_fleet_registry_mismatch(
         if svc not in claimed
     ]
     return {"direction_a": direction_a, "direction_b": direction_b}
+
+
+def _classify_scoped_inventory(
+    fleet_names: Any,
+    rows: Any,
+    project: str | None,
+    region: str | None,
+) -> dict[str, list[dict[str, Any]]]:
+    """Report candidates only; unresolved claims suppress orphan conclusions."""
+    from hushh_mcp.services.compute_backend import (  # noqa: PLC0415
+        BACKEND_ANYPOINT,
+        BACKEND_GCP,
+        BACKEND_NULL,
+        BACKEND_USER_GCP,
+    )
+
+    def text(value: Any) -> str:
+        return value.strip() if isinstance(value, str) else ""
+
+    if not text(project) or not text(region):
+        raise ValueError("Fleet project and region are required")
+    if not isinstance(fleet_names, list) or any(not text(name) for name in fleet_names):
+        raise ValueError("Fleet service inventory unavailable")
+    if not isinstance(rows, list) or any(not isinstance(row, dict) for row in rows):
+        raise ValueError("Fleet registry inventory unavailable")
+    fleet = {text(name) for name in fleet_names}
+    claimed: dict[str, dict[str, Any]] = {}
+    result: dict[str, list[dict[str, Any]]] = {
+        "direction_a": [],
+        "direction_b": [],
+        "inactive_claims": [],
+        "unresolved": [],
+    }
+    for row in rows:
+        backend, status = text(row.get("backend")), text(row.get("status"))
+        metadata = row.get("backend_metadata")
+        external = text(row.get("external_agent_id"))
+        if backend == BACKEND_ANYPOINT:
+            continue
+        if (
+            backend in ("", BACKEND_NULL)
+            and not external
+            and not metadata
+            and status not in ACTIVE_STATUSES
+        ):
+            continue
+        reason = ""
+        if backend not in (BACKEND_GCP, BACKEND_USER_GCP):
+            reason = "unresolved_backend"
+        elif (
+            not isinstance(metadata, dict)
+            or not text(metadata.get("project"))
+            or not text(metadata.get("region"))
+        ):
+            reason = "unresolved_coordinates"
+        elif text(metadata["project"]) != text(project) or text(metadata["region"]) != text(region):
+            continue
+        if reason:
+            result["unresolved"].append({"reason": reason})
+            continue
+        if "service" in metadata and not text(metadata["service"]):
+            result["unresolved"].append({"reason": "invalid_host_claim"})
+            continue
+        service = text(metadata.get("service")) or external
+        owner = text(row.get("hushh_id"))
+        if not service or not owner or not status or (external and external != service):
+            result["unresolved"].append({"reason": "invalid_host_claim"})
+            continue
+        if service in claimed:
+            result["unresolved"].append({"reason": "duplicate_host_claim", "service": service})
+            continue
+        claim = {"service": service, "hushh_id": owner, "status": status}
+        claimed[service] = claim
+        if service not in fleet and status in ACTIVE_STATUSES:
+            result["direction_a"].append({"reason": "row_active_no_service", **claim})
+        elif service in fleet and status not in ACTIVE_STATUSES:
+            result["inactive_claims"].append({"reason": "inactive_row_has_service", **claim})
+    if not result["unresolved"]:
+        result["direction_b"] = [
+            {"reason": "service_no_registry_claim", "service": name}
+            for name in sorted(fleet - claimed.keys())
+        ]
+    return result
 
 
 async def reclaim_orphan(

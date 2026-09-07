@@ -124,6 +124,27 @@ path. They do not establish that the current revision passed a live drill. A rel
 must re-earn runtime evidence against its exact candidate and record image and environment;
 source tests, dated receipts and simulator results must remain distinguishable.
 
+### Fleet inventory evidence
+
+`pod_fleet.py --assert-empty` and `pod_reconcile.py` use the existing Cloud Run
+client's complete paginated inventory. Redirects, malformed records, unreachable
+locations, repeated continuation tokens and later-page failures are unavailable
+evidence; they cannot establish an empty fleet. The assertion returns 0 only for
+a complete empty observation, 1 for observed pods, and 77 when unavailable.
+
+The report-only reconciler reads host claims in one unrestricted registry SELECT,
+separate from the bounded liveness sweep. It joins recorded service identifiers
+within the requested project and region. Migrating rows retain their host claims;
+inactive rows with a live host are reported separately from unclaimed services.
+Missing coordinates and conflicting claims produce an incomplete report (exit 2)
+and suppress orphan conclusions. The legacy unscoped pure classifier remains
+available for offline callers and now also recognizes migrating rows.
+
+Cloud inventory and the registry snapshot are separate observations. Their
+mismatches are review candidates, never authority to delete, adopt or retry a
+resource. Neither an empty fleet nor a successful report proves provider-memory,
+object-version, key or backup erasure.
+
 ### Live lifecycle producer admission
 
 `pod_lifecycle_drill.py --live` currently returns incomplete before acquiring

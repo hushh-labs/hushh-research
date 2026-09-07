@@ -24,6 +24,7 @@ logger = logging.getLogger(__name__)
 _SA_KEY_ENV = "GCP_DEPLOY_SA_KEY_B64"
 _SCOPES = ["https://www.googleapis.com/auth/cloud-platform"]
 _INVOKER_ROLE = "roles/run.invoker"
+_MAX_SERVICE_LIST_PAGES = 1000
 
 
 def load_operator_credentials(sa_key_b64: Optional[str] = None) -> Any:
@@ -357,12 +358,52 @@ class GcpRunClient:
         """
         import requests  # type: ignore[import-untyped]
 
-        params = {"labelSelector": label_selector} if label_selector else None
-        r = requests.get(
-            f"{self._base}/services", headers=self._headers(), params=params, timeout=30
-        )
-        r.raise_for_status()
-        return list((r.json() or {}).get("items") or [])
+        services: list[dict[str, Any]] = []
+        continuation = ""
+        seen_tokens: set[str] = set()
+        for _ in range(_MAX_SERVICE_LIST_PAGES):
+            params = {"labelSelector": label_selector} if label_selector else {}
+            if continuation:
+                params["continue"] = continuation
+            r = requests.get(
+                f"{self._base}/services",
+                headers=self._headers(),
+                params=params or None,
+                timeout=30,
+                allow_redirects=False,
+            )
+            r.raise_for_status()
+            if r.status_code != 200:
+                raise RuntimeError("Cloud Run service inventory status invalid")
+            body = r.json()
+            if not isinstance(body, dict) or "error" in body:
+                raise RuntimeError("Cloud Run service inventory response invalid")
+            items = body.get("items", [])
+            metadata = body.get("metadata", {})
+            if (
+                not isinstance(items, list)
+                or any(
+                    not isinstance(item, dict)
+                    or not isinstance(item.get("metadata"), dict)
+                    or not isinstance(item["metadata"].get("name"), str)
+                    or not item["metadata"]["name"].strip()
+                    for item in items
+                )
+                or not isinstance(metadata, dict)
+                or body.get("unreachable")
+            ):
+                raise RuntimeError("Cloud Run service inventory incomplete")
+            continuation = metadata.get("continue", "")
+            if not isinstance(continuation, str):
+                raise RuntimeError("Cloud Run service inventory continuation invalid")
+            services.extend(items)
+            if not continuation:
+                return services
+            if continuation in seen_tokens:
+                raise RuntimeError("Cloud Run service inventory continuation repeated")
+            seen_tokens.add(continuation)
+        # Never return a partial fleet: callers use absence for reconciliation.
+        raise RuntimeError("Cloud Run service inventory page bound exceeded")
 
     def delete_service(self, name: str) -> None:
         import requests  # type: ignore[import-untyped]
