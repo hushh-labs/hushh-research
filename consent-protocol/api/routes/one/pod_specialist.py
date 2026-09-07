@@ -57,6 +57,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.one.pod_identity_auth import verify_pod_identity
 from hushh_mcp.runtime_settings import personal_agent_enabled, pod_data_door_enabled
+from hushh_mcp.services.pod_access_audit import (
+    PodAccessUnavailable,
+    resolve_serving_owner_hushh_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +147,10 @@ async def broker_specialist_read(
     # The binding that makes this safe: the scope's owner must be the person this
     # pod IS. The pod asserted its HusshID with a Google-signed token; the owner's
     # HusshID comes from the hub-issued scope. A mismatch is A's scope on B's pod.
-    owner_hushh_id = await _hushh_id_for(owner_id, registry=registry)
+    try:
+        owner_hushh_id = await resolve_serving_owner_hushh_id(owner_id, registry=registry)
+    except PodAccessUnavailable:
+        raise HTTPException(status_code=503, detail="consent authority is unavailable") from None
     if not owner_hushh_id or owner_hushh_id != asserted:
         logger.warning("pod_specialist.owner_binding_refused pod=%s name=%s", asserted, name)
         # Same 403 shape as an invalid scope: do not reveal whether the mismatch
@@ -171,28 +178,6 @@ async def broker_specialist_read(
 
     logger.info("pod_specialist.read pod=%s name=%s", asserted, name)
     return {"name": name, "state": projection}
-
-
-async def _hushh_id_for(user_id: str, *, registry: Any = None) -> str:
-    """The HusshID registered to this user, or empty when it cannot be resolved.
-
-    Empty resolves to a refused binding above -- fail closed, never fall through
-    to a read on an unbound owner. Same resolver ``pod_consent`` uses."""
-    if not user_id:
-        return ""
-    repo = registry
-    if repo is None:
-        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
-            PersonalAgentRegistryRepo,
-        )
-
-        repo = PersonalAgentRegistryRepo()
-    try:
-        row = await repo.get(user_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("pod_specialist.hushh_id_lookup_failed %s", type(exc).__name__)
-        return ""
-    return str((row or {}).get("hushh_id") or "")
 
 
 async def _run(check: Any, token: str, scope: str):

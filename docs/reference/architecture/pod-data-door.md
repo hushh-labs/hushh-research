@@ -1,7 +1,8 @@
 # The pod data door — how a keyless pod reads a DB-backed specialist
 
-A per-person pod holds **no database credential and no OAuth token** — that zero-role
-identity is the whole isolation story. So a specialist that needs the owner's stored
+A private pod holds **no hub database credential or hub-held connector OAuth token**.
+BYOC pods can hold authority in their owner's project, including Memory Bank access;
+that does not grant access to the hub's specialist stores. A specialist that needs the owner's stored
 state (location shares, inbox, calendar, brokerage connections) cannot read it
 in-pod; without the door it reports `runtime_unavailable`. **`runtime_unavailable`
 is the honest state _before_ a specialist's door is opened, never the destination.**
@@ -50,6 +51,20 @@ flowchart TB
    it and binds its owner to the pod's HusshID (A's scope on B's pod is refused).
 4. **The gate is the GRANT's presence, not a second flag.** No grant couriered → the
    specialist falls through to `runtime_unavailable` (today's behaviour, untouched).
+
+### Current serving-owner admission (2026-09-06)
+
+The consent verifier and specialist broker reuse the serving-owner policy in
+`pod_access_audit.py`. A valid token must resolve to a `provisioned` registry row
+with a nonempty HusshID matching the calling pod. Missing, migrating, suspended,
+failed and unknown states refuse admission before retrieval or provider execution.
+Registry failures return `503` unavailable; a foreign binding returns no owner
+details. The pod still checks the returned binding independently.
+
+This is admission-time enforcement. It does not drain an already admitted turn,
+prove that a replacement using the same HusshID/service account is a new
+incarnation, or strengthen the managed tier's shared service-account identity.
+Those remain lifecycle and identity work; a status check cannot substitute for them.
 
 ## Status (2026-09-02)
 

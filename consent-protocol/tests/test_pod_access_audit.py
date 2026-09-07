@@ -184,3 +184,17 @@ async def test_scope_case_insensitive_read():
     svc = PodAccessAuditService(registry=FakeRegistry(_provisioned_row()), ledger=ledger)
     out = await svc.authorize_owner_read(user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="PKM.READ")
     assert out["authorized"] is True
+
+
+@pytest.mark.parametrize("hushh_id", [None, "", "   "])
+async def test_missing_registry_identity_is_denied_and_receipted(hushh_id):
+    ledger = FakeLedger()
+    service = PodAccessAuditService(
+        registry=FakeRegistry(_provisioned_row(hushh_id=hushh_id)), ledger=ledger
+    )
+    with pytest.raises(PodAccessDenied):
+        await service.authorize_owner_read(
+            user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="pkm.read", hushh_id=_HUSHH
+        )
+    assert ledger.events[0]["metadata"]["decision"] == "deny"
+    assert "hushh_id_unavailable" in ledger.events[0]["metadata"]["reasons"]

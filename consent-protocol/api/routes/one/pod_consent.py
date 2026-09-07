@@ -56,6 +56,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from api.routes.one.pod_identity_auth import verify_pod_identity
 from hushh_mcp.runtime_settings import personal_agent_enabled
+from hushh_mcp.services.pod_access_audit import (
+    PodAccessUnavailable,
+    resolve_serving_owner_hushh_id,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,12 @@ async def verify_consent_for_pod(
         return {"valid": False, "reason": "consent is not valid"}
 
     user_id = getattr(parsed, "user_id", "") or ""
+    try:
+        owner_hushh_id = await resolve_serving_owner_hushh_id(user_id, registry=registry)
+    except PodAccessUnavailable:
+        raise HTTPException(status_code=503, detail="consent authority is unavailable") from None
+    if not owner_hushh_id or owner_hushh_id != asserted:
+        return {"valid": False, "reason": "consent is not valid"}
     # The HusshID this user's agent actually is. The pod compares it against its
     # OWN HUSSH_ID and refuses a mismatch -- see pod_turn._validate_consent.
     #
@@ -119,34 +129,10 @@ async def verify_consent_for_pod(
     return {
         "valid": True,
         "userId": user_id,
-        "hushhId": await _hushh_id_for(user_id, registry=registry),
+        "hushhId": owner_hushh_id,
         "scope": str(getattr(parsed, "scope", "") or ""),
         "agentId": getattr(parsed, "agent_id", "") or "",
     }
-
-
-async def _hushh_id_for(user_id: str, *, registry: Any = None) -> str:
-    """The HusshID registered to this user, or empty when it cannot be resolved.
-
-    Empty is NOT treated as "any pod may serve them" by the caller -- the pod
-    refuses on a mismatch AND on an unresolvable binding, because an unknown owner
-    is exactly the case where serving anyway would be the bug.
-    """
-    if not user_id:
-        return ""
-    repo = registry
-    if repo is None:
-        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
-            PersonalAgentRegistryRepo,
-        )
-
-        repo = PersonalAgentRegistryRepo()
-    try:
-        row = await repo.get(user_id)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("pod_consent.hushh_id_lookup_failed %s", type(exc).__name__)
-        return ""
-    return str((row or {}).get("hushh_id") or "")
 
 
 async def _run(check: Any, token: str, scope: Optional[str]):

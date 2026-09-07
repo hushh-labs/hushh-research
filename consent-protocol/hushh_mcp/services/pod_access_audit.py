@@ -51,6 +51,47 @@ class PodAccessDenied(PermissionError):
     """The caller is not the verified owner of this pod (fail-closed)."""
 
 
+class PodAccessUnavailable(RuntimeError):
+    """Current pod ownership cannot be checked; this is not a consent denial."""
+
+
+def _owner_binding_denials(row: Any, hushh_id: Optional[str]) -> list[str]:
+    """One serving-owner policy for audited relays, pod turns and specialists."""
+    if not isinstance(row, dict):
+        return ["no_registry_row"]
+    reasons: list[str] = []
+    if row.get("status") != STATUS_PROVISIONED:
+        reasons.append("pod_not_provisioned")
+    recorded = row.get("hushh_id")
+    if not isinstance(recorded, str) or not recorded.strip():
+        reasons.append("hushh_id_unavailable")
+    elif hushh_id is not None and hushh_id != recorded:
+        reasons.append("hushh_id_mismatch")
+    return reasons
+
+
+async def resolve_serving_owner_hushh_id(user_id: str, *, registry: Any = None) -> str:
+    """Resolve current serving ownership after token validation; never cache it.
+
+    Missing/inactive rows return no binding. Registry failure remains unavailable.
+    This is an admission check, not an in-flight drain or incarnation proof.
+    """
+    if not isinstance(user_id, str) or not user_id.strip():
+        return ""
+    if registry is None:
+        from hushh_mcp.services.personal_agent_registry_repo import (  # noqa: PLC0415
+            PersonalAgentRegistryRepo,
+        )
+
+        registry = PersonalAgentRegistryRepo()
+    try:
+        row = await registry.get(user_id)
+    except Exception as exc:  # noqa: BLE001 - never disclose database details
+        logger.warning("pod_access.binding_unavailable err=%s", type(exc).__name__)
+        raise PodAccessUnavailable("pod ownership unavailable") from None
+    return "" if _owner_binding_denials(row, None) else row["hushh_id"]
+
+
 class _Registry(Protocol):
     async def get(self, user_id: str) -> Optional[dict]: ...
 
@@ -138,19 +179,10 @@ class PodAccessAuditService:
             reasons.append("agent_id_not_pod")
         if not _is_read_scope(scope):
             reasons.append("scope_not_read")
-        if row is None:
-            reasons.append("no_registry_row")
-        else:
-            if str(row.get("status")) != STATUS_PROVISIONED:
-                reasons.append("pod_not_provisioned")
-            row_hushh = row.get("hushh_id")
-            # A supplied HusshID must match the owner's row: a token minted for one
-            # owner can never be redirected to read another owner's pod.
-            if hushh_id is not None and row_hushh is not None and hushh_id != row_hushh:
-                reasons.append("hushh_id_mismatch")
+        reasons.extend(_owner_binding_denials(row, hushh_id))
 
         allowed = not reasons
-        resolved_hushh = (row or {}).get("hushh_id")
+        resolved_hushh = row.get("hushh_id") if isinstance(row, dict) else None
         await self._receipt(
             user_id=user_id,
             scope=scope,

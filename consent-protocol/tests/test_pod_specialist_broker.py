@@ -62,11 +62,11 @@ def _validator(user_id="u-owner", scope="cap.location.live.view", valid=True):
     return _check
 
 
-def _registry(mapping):
+def _registry(mapping, status="provisioned"):
     class _Repo:
         async def get(self, user_id):
             hushh = mapping.get(user_id)
-            return {"hushh_id": hushh} if hushh else None
+            return {"hushh_id": hushh, "status": status} if hushh else None
 
     return _Repo()
 
@@ -224,4 +224,55 @@ async def test_an_unresolvable_owner_binding_fails_closed(flags_on, monkeypatch)
             reader=_reader(seen),
         )
     assert exc.value.status_code == 403
+    assert seen == {}
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "migrating",
+        "suspended",
+        "provisioning",
+        "connecting",
+        "provisioning_failed",
+        "needs_reinit",
+        "reaped",
+        "erasing",
+        "unknown",
+        None,
+    ],
+)
+async def test_nonserving_owner_never_reaches_specialist_reader(flags_on, monkeypatch, status):
+    _identity(monkeypatch, "hushh-owner")
+    seen = {}
+    with pytest.raises(broker.HTTPException) as exc:
+        await _call(
+            monkeypatch,
+            hushh_id="hushh-owner",
+            validator=_validator(),
+            registry=_registry({"u-owner": "hushh-owner"}, status=status),
+            reader=_reader(seen),
+        )
+    assert exc.value.status_code == 403
+    assert seen == {}
+
+
+async def test_registry_failure_is_unavailable_and_never_reaches_reader(flags_on, monkeypatch):
+    _identity(monkeypatch, "hushh-owner")
+
+    class Broken:
+        async def get(self, _user_id):
+            raise RuntimeError("synthetic-private-database-address")
+
+    seen = {}
+    with pytest.raises(broker.HTTPException) as exc:
+        await _call(
+            monkeypatch,
+            hushh_id="hushh-owner",
+            validator=_validator(),
+            registry=Broken(),
+            reader=_reader(seen),
+        )
+    assert exc.value.status_code == 503
+    assert exc.value.detail == "consent authority is unavailable"
     assert seen == {}

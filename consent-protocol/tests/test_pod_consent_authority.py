@@ -38,6 +38,15 @@ class _Parsed:
         self.agent_id = agent_id
 
 
+class _Registry:
+    def __init__(self, status="provisioned", hushh_id="hushh-abc"):
+        self.status = status
+        self.hushh_id = hushh_id
+
+    async def get(self, user_id):
+        return {"user_id": user_id, "hushh_id": self.hushh_id, "status": self.status}
+
+
 @pytest.fixture
 def hub_enabled(monkeypatch):
     monkeypatch.setattr(pod_consent, "personal_agent_enabled", lambda: True)
@@ -56,7 +65,11 @@ async def test_the_hub_answers_valid_for_a_live_token(hub_enabled):
         return True, "ok", _Parsed()
 
     result = await verify_consent_for_pod(
-        _Request(), "Bearer t", PodConsentVerifyRequest(token="tok"), validator=_validator
+        _Request(),
+        "Bearer t",
+        PodConsentVerifyRequest(token="tok"),
+        validator=_validator,
+        registry=_Registry(),
     )
     assert result["valid"] is True
     assert result["userId"] == "u1"
@@ -345,10 +358,6 @@ async def test_the_hub_returns_the_owner_binding(hub_enabled):
     """The pod cannot resolve user -> HusshID; only the hub can, so only the hub
     can supply the binding the pod enforces."""
 
-    class _Repo:
-        async def get(self, _user_id):
-            return {"hushh_id": "hushh-owner-1"}
-
     def _validator(_token, expected_scope=None):
         return True, "ok", _Parsed()
 
@@ -357,12 +366,12 @@ async def test_the_hub_returns_the_owner_binding(hub_enabled):
         "Bearer t",
         PodConsentVerifyRequest(token="tok"),
         validator=_validator,
-        registry=_Repo(),
+        registry=_Registry(),
     )
-    assert result["hushhId"] == "hushh-owner-1"
+    assert result["hushhId"] == "hushh-abc"
 
 
-async def test_an_unresolvable_binding_returns_empty_not_a_guess(hub_enabled):
+async def test_an_unresolvable_binding_reports_authority_unavailable(hub_enabled):
     class _Broken:
         async def get(self, _user_id):
             raise RuntimeError("registry down")
@@ -370,12 +379,75 @@ async def test_an_unresolvable_binding_returns_empty_not_a_guess(hub_enabled):
     def _validator(_token, expected_scope=None):
         return True, "ok", _Parsed()
 
+    with pytest.raises(HTTPException) as exc:
+        await verify_consent_for_pod(
+            _Request(),
+            "Bearer t",
+            PodConsentVerifyRequest(token="tok"),
+            validator=_validator,
+            registry=_Broken(),
+        )
+    assert exc.value.status_code == 503
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        "migrating",
+        "suspended",
+        "provisioning",
+        "connecting",
+        "provisioning_failed",
+        "needs_reinit",
+        "reaped",
+        "erasing",
+        "unknown",
+        None,
+    ],
+)
+async def test_nonserving_owner_never_reaches_grounding_or_provider(
+    hub_enabled, turn_enabled, monkeypatch, status
+):
+    monkeypatch.setenv("HUSSH_ID", "hushh-abc")
+
+    async def verifier(token, expected_scope=""):
+        result = await verify_consent_for_pod(
+            _Request(),
+            "Bearer t",
+            PodConsentVerifyRequest(token=token, expectedScope=expected_scope),
+            validator=lambda *_a, **_k: (True, "ok", _Parsed()),
+            registry=_Registry(status=status),
+        )
+        assert result == {"valid": False, "reason": "consent is not valid"}
+        return ConsentVerdict(valid=False, available=True)
+
+    async def forbidden_grounding(*_a, **_k):
+        pytest.fail("inactive pod reached retrieval")
+
+    async def forbidden_runner(**_k):
+        pytest.fail("inactive pod reached provider")
+        yield None
+
+    from hushh_mcp.services import pod_pkm_resolver
+
+    monkeypatch.setattr(pod_pkm_resolver, "local_grounding", forbidden_grounding)
+    with pytest.raises(HTTPException) as exc:
+        await pod_turn.run_pod_turn(
+            payload=pod_turn.PodTurnRequest(message="synthetic"),
+            consent_token="tok",
+            verifier=verifier,
+            stream_fn=forbidden_runner,
+        )
+    assert exc.value.status_code == 403
+
+
+@pytest.mark.parametrize("hushh_id", ["other-pod", "", None])
+async def test_foreign_or_absent_binding_returns_no_owner_information(hub_enabled, hushh_id):
     result = await verify_consent_for_pod(
         _Request(),
         "Bearer t",
         PodConsentVerifyRequest(token="tok"),
-        validator=_validator,
-        registry=_Broken(),
+        validator=lambda *_a, **_k: (True, "ok", _Parsed()),
+        registry=_Registry(hushh_id=hushh_id),
     )
-    # Empty, and the POD refuses on empty. Never a fabricated binding.
-    assert result["hushhId"] == ""
+    assert result == {"valid": False, "reason": "consent is not valid"}
