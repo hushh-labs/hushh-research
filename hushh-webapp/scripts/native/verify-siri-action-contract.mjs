@@ -111,8 +111,8 @@ function verifyShortcutPhrases(source) {
       `App Shortcuts exceed Apple's limit of 10, found ${shortcutCount}`,
     );
   }
-  if (shortcutCount !== 9) {
-    throw new Error(`Expected 9 App Shortcuts, found ${shortcutCount}`);
+  if (shortcutCount !== 10) {
+    throw new Error(`Expected 10 App Shortcuts, found ${shortcutCount}`);
   }
   // Both halves of Save My Soul must hold a slot. Registration is the only
   // thing that puts a shortcut in the Action button picker, and the picker is
@@ -135,12 +135,12 @@ function verifyShortcutPhrases(source) {
   }
   // Phrases interpolate the `agentOne` constant, not a literal
   // \(.applicationName). Matching the wrong form silently passes.
-  for (const phrase of ['"SMS in \\(agentOne)"', '"Save my soul in \\(agentOne)"']) {
+  for (const phrase of ['"SMS in \\(.applicationName)"', '"Save my soul in \\(.applicationName)"']) {
     if (!source.includes(phrase)) {
       throw new Error(`Emergency SOS must keep its ${phrase} phrase`);
     }
   }
-  if (source.includes('"Ask \\(agentOne)"')) {
+  if (source.includes('"Ask \\(.applicationName)"')) {
     throw new Error("Bare Ask Agent One must not advertise the conversation intent");
   }
   // These assert the phrases the app actually ships.
@@ -151,26 +151,35 @@ function verifyShortcutPhrases(source) {
   // first and this loop never ran. Treat a failure here as real drift.
   const requiredFragments = [
     // Conversation entry stays explicit, and a bare "Ask" must not claim it.
-    '"Talk to \\(agentOne)"',
-    '"Start a conversation with \\(agentOne)"',
-    // Free-text handshake into semantic routing.
-    '"Ask \\(agentOne) with \\(\\.$requestText)"',
+    '"Talk to \\(.applicationName)"',
+    '"Start a conversation with \\(.applicationName)"',
+    // Free-text handshake into semantic routing. Deliberately NO
+    // \(\.$requestText) slot: `requestText` is a plain String, and a String
+    // phrase slot makes iOS reject the whole provider so every shortcut
+    // disappears. This list required that illegal form until build 99 shipped
+    // it and the Home Screen came back empty. Siri collects the text through
+    // the parameter's requestValueDialog instead.
+    '"Ask \\(.applicationName) something"',
+    '"Make a request in \\(.applicationName)"',
     // Location sharing, including the parameterised recipient form.
-    '"Share my location with \\(\\.$recipient) in \\(agentOne) Location Agent"',
-    '"Ask \\(agentOne) to share my location',
+    '"Share my location with \\(\\.$recipient) in \\(.applicationName) Location Agent"',
+    '"Ask \\(.applicationName) to share my location',
     // Circles. No \(\.$name) slot -- an open string slot has no value set for
     // Siri to match, so naming a Circle out loud goes through the handshake.
-    '"Create a Circle in \\(agentOne) Location Agent"',
-    '"Start a Circle in \\(agentOne)"',
+    '"Create a Circle in \\(.applicationName) Location Agent"',
+    '"Start a Circle in \\(.applicationName)"',
+    // One slot, ten destinations, through an AppEntity target.
+    '"Open \\(.applicationName) \\(\\.$target)"',
+    '"Show \\(\\.$target) in \\(.applicationName)"',
     // Check-in.
-    '"Check in with \\(agentOne) Location Agent"',
-    '"Open \\(agentOne) Location Check In"',
+    '"Check in with \\(.applicationName) Location Agent"',
+    '"Open \\(.applicationName) Location Check In"',
     // Save My Soul: the in-product name and its abbreviation must both work.
-    '"SMS in \\(agentOne)"',
-    '"Save my soul in \\(agentOne)"',
-    '"Emergency SOS in \\(agentOne)"',
+    '"SMS in \\(.applicationName)"',
+    '"Save my soul in \\(.applicationName)"',
+    '"Emergency SOS in \\(.applicationName)"',
     // ...and the sending half needs an unmistakable phrase of its own.
-    '"Send my Save My Soul alert in \\(agentOne)"',
+    '"Send my Save My Soul alert in \\(.applicationName)"',
   ];
 
   const missing = requiredFragments.filter((fragment) => !source.includes(fragment));
@@ -181,7 +190,7 @@ function verifyShortcutPhrases(source) {
   // These are aliases of location.sos_default, which honours the person's own
   // "In an emergency" preference. On an intent that only ever opens, they
   // would silently override that choice for anyone who set it to send.
-  for (const phrase of ['"I need help in \\(agentOne)"', '"Help me in \\(agentOne)"']) {
+  for (const phrase of ['"I need help in \\(.applicationName)"', '"Help me in \\(.applicationName)"']) {
     if (source.includes(phrase)) {
       throw new Error(
         `${phrase} belongs to location.sos_default, not to an open-only intent`,
@@ -191,41 +200,146 @@ function verifyShortcutPhrases(source) {
 }
 
 /**
- * App Shortcut phrases must actually be able to compile.
+ * App Shortcut phrases must be extractable, not merely compilable.
  *
- * AppShortcutPhrase's StringInterpolation declares exactly two overloads -- an
- * AppShortcutPhraseToken and a parameter KeyPath. There is no String overload,
- * and AppShortcut(phrases:) takes [AppShortcutPhrase<Intent>], not [String].
- * Both rules were broken at once on this branch: `agentOne` was declared as the
- * String ".applicationName" and six phrase families were typed [String], so the
- * target could never have built. Nothing caught it, because a Swift *parse*
- * succeeds on all of it and no CI job had run on the branch.
+ * `appintentsmetadataprocessor` reads these expressions literally at compile
+ * time. It cannot follow a reference to a `static let`, so hoisting a phrase
+ * array out of `AppShortcut(phrases:)` makes the processor see a shortcut with
+ * zero phrases -- a HALTING error that exports no AppIntents metadata for the
+ * entire target. The app then ships with every App Shortcut missing.
+ *
+ * Build 99 hoisted every phrase family into `static let ...Phrases` and the app
+ * name into `static let agentOne: AppShortcutPhraseToken`, and the Home Screen
+ * long-press menu came back empty. Proven on Xcode 26.6: inline literals write
+ * Metadata.appintents; hoisting either the arrays or the token halts export.
  */
 function verifyPhraseTypes(source) {
-  const tokenDecl = /private static let agentOne:\s*AppShortcutPhraseToken\s*=\s*\.applicationName/;
-  if (!tokenDecl.test(source)) {
-    throw new Error(
-      "agentOne must be `private static let agentOne: AppShortcutPhraseToken = .applicationName` -- " +
-        "a String cannot be interpolated into an AppShortcutPhrase and will not compile",
-    );
-  }
-  const stringTyped = [
-    ...source.matchAll(/static let (\w*[Pp]hrases):\s*\[String\]/g),
+  const hoistedFamily = [
+    ...source.matchAll(/static let (\w*[Pp]hrases)\s*:\s*\[AppShortcutPhrase</g),
   ].map((match) => match[1]);
-  if (stringTyped.length > 0) {
+  if (hoistedFamily.length > 0) {
     throw new Error(
-      `Phrase families must be typed [AppShortcutPhrase<Intent>], not [String]: ${stringTyped.join(", ")}`,
+      `Phrase arrays must be written inline inside AppShortcut(phrases: [...]), not hoisted ` +
+        `into a named constant: ${hoistedFamily.join(", ")}. appintentsmetadataprocessor ` +
+        `cannot follow the reference, reads the shortcut as phrase-less, and then exports NO ` +
+        `AppIntents metadata for the whole target -- every App Shortcut in the app disappears.`,
     );
   }
-  // Every registered shortcut must pass a phrase array, never an inline literal
-  // that would dodge the typing rule above.
-  const phraseArrays = [
-    ...source.matchAll(/static let (\w*[Pp]hrases):\s*\[AppShortcutPhrase<(\w+)>\]/g),
-  ];
-  if (phraseArrays.length < 9) {
+
+  if (/static let agentOne\s*:\s*AppShortcutPhraseToken/.test(source)) {
     throw new Error(
-      `Expected at least 9 typed phrase families, found ${phraseArrays.length}`,
+      "The app-name token must be the literal \\(.applicationName) inside each phrase, not a " +
+        "hoisted `static let agentOne`. A hoisted token is not const-evaluable either, and " +
+        "halts AppIntents metadata export for the whole target.",
     );
+  }
+
+  const inline = [
+    ...source.matchAll(/AppShortcut\(\s*intent:\s*(\w+)\(\),\s*phrases:\s*(\[|\w+)/g),
+  ];
+  if (inline.length === 0) {
+    throw new Error("Could not parse any AppShortcut registration");
+  }
+  for (const [, intent, opener] of inline) {
+    if (opener !== "[") {
+      throw new Error(
+        `${intent} passes phrases by reference (\`${opener}\`). It must be an inline array literal.`,
+      );
+    }
+  }
+}
+
+/**
+ * The rule build 99 broke, and the reason every App Shortcut vanished at once.
+ *
+ * A parameter interpolated into an App Shortcut phrase must be an AppEnum or an
+ * AppEntity. Those carry a value set Siri can match spoken words against. A
+ * plain String does not, and iOS rejects the WHOLE AppShortcutsProvider when it
+ * ingests one -- not merely the offending shortcut. Build 99 shipped
+ * `\(\.$requestText)` bound to a String, and the Home Screen long-press menu
+ * came back with no shortcuts at all, including ones whose code never changed.
+ *
+ * Nothing else catches this. appintentsmetadataprocessor wrote
+ * Metadata.appintents for that build with no error, CI was green, and the
+ * failure only appears on a device.
+ *
+ * Free-form text is still reachable: take it through the parameter's own
+ * `requestValueDialog`, which costs one extra Siri turn and is supported.
+ */
+/**
+ * Parse the inline phrase arrays out of each AppShortcut(...) registration,
+ * keyed by intent. The phrases deliberately have no constant name: hoisting
+ * them into one is what halted metadata export and emptied the Home Screen.
+ */
+function parseShortcutFamilies(source) {
+  const families = new Map();
+  const pattern =
+    /AppShortcut\(\s*intent:\s*(\w+)\(\),\s*phrases:\s*\[([\s\S]*?)\n\s*\],\s*shortTitle:\s*"([^"]+)"/g;
+  for (const match of source.matchAll(pattern)) {
+    const [, intent, body, shortTitle] = match;
+    const phrases = [...body.matchAll(/^\s*"([^"\n]*)",?\s*$/gm)].map((m) => m[1]);
+    families.set(intent, { shortTitle, phrases });
+  }
+  if (families.size === 0) {
+    throw new Error("Could not parse any inline Siri phrase family");
+  }
+  return families;
+}
+
+function verifyPhraseSlotTypes(source) {
+  const slottable = new Set(
+    [
+      ...source.matchAll(
+        /\b(?:struct|enum)\s+(\w+)\s*:[^{\n]*\bApp(?:Entity|Enum)\b/g,
+      ),
+    ].map((match) => match[1]),
+  );
+  if (slottable.size === 0) {
+    throw new Error(
+      "Found no AppEntity/AppEnum type to validate phrase slots against",
+    );
+  }
+
+  for (const [intent, { phrases }] of parseShortcutFamilies(source)) {
+    const family = `${intent} phrases`;
+    const slots = new Set(
+      phrases.flatMap((phrase) => [
+        ...phrase.matchAll(/\\\(\\\.\$(\w+)\)/g),
+      ].map((match) => match[1])),
+    );
+    if (slots.size === 0) continue;
+
+    const start = source.search(new RegExp(`\\bstruct\\s+${intent}\\s*:`));
+    if (start === -1) {
+      throw new Error(`${family} names intent ${intent}, which is not declared`);
+    }
+    // Top-level declarations sit at column 0; the @available attributes inside
+    // a struct body are indented, so this slices exactly one type.
+    const rest = source.slice(start + 1);
+    const end = rest.search(/\n@available\(/);
+    const block = end === -1 ? rest : rest.slice(0, end);
+
+    for (const slot of slots) {
+      const declared = block.match(
+        new RegExp(`\\bvar\\s+${slot}\\s*:\\s*(\\w+)`),
+      );
+      if (!declared) {
+        throw new Error(
+          `${family} binds \\(\\.$${slot}), but ${intent} declares no such parameter`,
+        );
+      }
+      const type = declared[1];
+      if (!slottable.has(type)) {
+        throw new Error(
+          `${family} binds \\(\\.$${slot}), typed \`${type}\` on ${intent}. ` +
+            "An App Shortcut phrase parameter must be an AppEnum or an AppEntity. " +
+            "iOS rejects the entire AppShortcutsProvider when it ingests any other " +
+            "type, so EVERY shortcut in the app disappears from Siri and from the " +
+            "Home Screen long-press menu. Take the value through the parameter's " +
+            "requestValueDialog instead of a phrase slot.",
+        );
+      }
+    }
   }
 }
 
@@ -240,31 +354,22 @@ function verifyPhraseTypes(source) {
  * and actually execute on every CI job rather than only on a macOS runner.
  */
 function verifyPhraseCorpus(source) {
-  const families = new Map();
-  const pattern =
-    /static let (\w*[Pp]hrases):\s*\[AppShortcutPhrase<(\w+)>\]\s*=\s*\[([\s\S]*?)\n    \]/g;
-  for (const match of source.matchAll(pattern)) {
-    const [, name, intent, body] = match;
-    const phrases = [...body.matchAll(/^\s*"([^"\n]*)",?\s*$/gm)].map((m) => m[1]);
-    families.set(name, { intent, phrases });
-  }
-  if (families.size === 0) {
-    throw new Error("Could not parse any Siri phrase family");
-  }
+  const families = parseShortcutFamilies(source);
 
   // Minimum breadth per family. Apple's similarity index generalises beyond the
   // exact strings, but it needs distinct anchors to generalise *from*; a family
   // thinned to one or two phrases stops matching paraphrases.
   const minimums = {
-    shareLocationPhrases: 8,
-    askForLocationPhrases: 6,
-    locationStatePhrases: 6,
-    checkInPhrases: 4,
-    createCirclePhrases: 4,
-    talkToAgentOnePhrases: 3,
-    askOneRequestPhrases: 3,
-    emergencySOSPhrases: 5,
-    sendSaveMySoulPhrases: 4,
+    ShareLocationWithOneIntent: 8,
+    AskForLocationWithOneIntent: 6,
+    SetOneLocationStateIntent: 6,
+    CheckInWithOneIntent: 4,
+    CreateOneCircleIntent: 4,
+    TalkToHusshOneIntent: 3,
+    AskOneRequestIntent: 3,
+    OpenOneLocationDestinationIntent: 5,
+    OpenOneEmergencySOSIntent: 5,
+    SendSaveMySoulAlertIntent: 4,
   };
 
   for (const [name, { phrases }] of families) {
@@ -279,7 +384,7 @@ function verifyPhraseCorpus(source) {
     for (const phrase of phrases) {
       // The app-name token, in every phrase. It is what wins Siri's domain
       // arbitration against system apps, and what survives localisation.
-      if (!phrase.includes("\\(agentOne)")) {
+      if (!phrase.includes("\\(.applicationName)")) {
         throw new Error(
           `Every Siri phrase must carry the app-name token; ${name} has: "${phrase}"`,
         );
@@ -298,7 +403,7 @@ function verifyPhraseCorpus(source) {
   }
 
   // Recipients are always a resolved slot, never a name baked into a phrase.
-  const nameSlotted = ["shareLocationPhrases", "askForLocationPhrases"];
+  const nameSlotted = ["ShareLocationWithOneIntent", "AskForLocationWithOneIntent"];
   for (const name of nameSlotted) {
     const family = families.get(name);
     if (!family) throw new Error(`Missing phrase family ${name}`);
@@ -314,7 +419,7 @@ function verifyPhraseCorpus(source) {
   // Location on/off must bind its state slot in every phrase. `state` is
   // non-optional with no default, so an unbound phrase makes Siri stop and ask
   // "On or Off?" instead of acting.
-  for (const phrase of families.get("locationStatePhrases")?.phrases ?? []) {
+  for (const phrase of families.get("SetOneLocationStateIntent")?.phrases ?? []) {
     if (!/\\\(\\\.\$state\)/.test(phrase)) {
       throw new Error(
         `Every Location On or Off phrase must bind the state slot; "${phrase}" does not`,
@@ -527,8 +632,18 @@ assertEqualSets(
   parseTypescriptActionIds(read(typescriptBridgePath)),
   exposedIds,
 );
-verifyShortcutPhrases(read(swiftIntentsPath));
+// Slot types first, deliberately. This is the invariant whose violation
+// deregisters every shortcut at once, and ordering it behind the phrase-fragment
+// assertions is how it would go unchecked: an earlier throw means later
+// assertions never run, which is exactly how this verifier passed vacuously once
+// before.
+// Shape first, then slot types, then the phrase corpus. Both structural checks
+// must precede the fragment assertions: an earlier throw means later assertions
+// never run, which is how this verifier passed vacuously once before -- and how
+// it went on passing while build 99 shipped with no App Shortcuts at all.
 verifyPhraseTypes(read(swiftIntentsPath));
+verifyPhraseSlotTypes(read(swiftIntentsPath));
+verifyShortcutPhrases(read(swiftIntentsPath));
 verifyPhraseCorpus(read(swiftIntentsPath));
 verifyEnvelopeSeparation(read(swiftIntentsPath));
 verifySaveMySoulSeparation(read(swiftIntentsPath));

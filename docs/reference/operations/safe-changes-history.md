@@ -952,6 +952,237 @@ The first must match your intent file-for-file. The second should be empty on a 
 you are about to commit from. Any rule appearing in the third is protecting this branch
 and nothing else.
 
+## Incoming main incident history — 2026-09-07
+
+Upstream identifiers are prefixed with Main because this branch already has its own R24. These are historical incident accounts, not current release authority. Verify commands against the current workflow; package resolution alone does not prove an image build, and NOT VALID still enforces new writes.
+
+### Main R24 — A dependency pinned to a private index cannot travel through `requirements.txt`
+
+**Incident (2026-09-07, adding sentence-transformers for semantic retrieval).** To
+keep ~2.5 GB of nvidia CUDA wheels out of a GPU-less Cloud Run image, torch was
+pinned to PyTorch's CPU index in `pyproject.toml` with `[[tool.uv.index]]` +
+`[tool.uv.sources]`. `uv lock` then recorded `torch==2.14.0+cpu`, and
+`uv export` wrote that pin into `requirements.txt` **without any index
+directive** — it does not carry index configuration into the generated file. A
+`+cpu` local version exists only on PyTorch's index, never on PyPI, so the
+Docker build could not resolve it. UAT failed at "Build and pin backend image",
+before deploying anything.
+
+It cannot be repaired at the install command either. `--extra-index-url` fails
+because that index mirrors much of PyPI and uv's first-index strategy then
+refuses the PyPI versions it shadows. `[tool.uv.sources]` and `explicit = true`
+apply in uv **project** mode, not in pip mode against a requirements file.
+
+**Rule.** If the Dockerfile installs from `requirements.txt`, every dependency
+must be resolvable from the indexes that file can reach — which is PyPI alone.
+A per-package index needs project-mode install (`COPY pyproject.toml uv.lock` +
+`uv sync --frozen`), or it does not belong in the lock at all.
+
+**Check.** Resolve for the deploy target, not for your Mac:
+
+```bash
+cd consent-protocol
+uv pip install --dry-run \
+  --python-platform x86_64-unknown-linux-gnu --python-version 3.13 \
+  -r requirements.txt | tail -3
+# "Resolved N packages" = the image will build.
+# "No solution found" = the next UAT deploy dies before it ships anything.
+grep -nE '\+[a-z]+( |$)|^--(extra-)?index-url' requirements.txt
+# A local version (+cpu, +cu121) with no index directive is the trap.
+```
+
+### Main R25 — In replay mode, every migration must be replay-safe against *today's* data
+
+**Incident (2026-09-07, unblocking UAT).** UAT runs
+`db/migrate.py --migration-mode replay`, which re-executes **every** migration
+body in order on **every** deploy. Migration 138 re-adds
+`connection_origins_origin_kind_check` with the vocabulary as it stood then —
+before 175 added `contact_sync`. The moment UAT held its first `contact_sync`
+row, replaying 138 began failing with *"check constraint ... is violated by
+some row"*, and every deploy of every commit stopped there. The 03:18 run
+passed only because no such row existed yet.
+
+A migration is not a historical record here. It is code that runs again tonight,
+against data that did not exist when it was written.
+
+**Rule.** Any migration that narrows a constraint, adds a NOT NULL, or asserts
+a vocabulary must tolerate rows a later migration legitimises. Add the
+constraint `NOT VALID` when the migration's intent is "change what future rows
+do" — its own comment usually says so. Let the later migration validate the
+full set. Never widen an old migration to name a value that did not exist yet.
+
+**Check.** Find every migration that re-adds a constraint a later one changes:
+
+```bash
+cd consent-protocol
+for c in $(grep -rhoE 'ADD CONSTRAINT [a-z_]+' db/migrations/*.sql \
+           | awk '{print $3}' | sort | uniq -d); do
+  echo "== $c"
+  grep -ln "ADD CONSTRAINT $c" db/migrations/*.sql | sort
+done
+# Two or more files for one constraint name = every earlier one re-runs on
+# replay with its older, narrower rule. Each must be NOT VALID or provably
+# no narrower than the final one.
+```
+
+### Main R26 — UAT replays migrations against a live database; it fails by time of day, not by commit
+
+**Incident (2026-09-07, after R25 was fixed.)** With the constraint violation
+gone, the deploy got further and then died on
+`LockNotAvailableError: canceling statement due to lock timeout`. Replay takes
+`ACCESS EXCLUSIVE` locks across the whole migration history while UAT is
+serving traffic, and `lock_timeout_ms` defaults to **5 seconds**
+(`db/migration_authority.py:56`). Two consecutive retries failed identically,
+so it is contention, not a transient blip.
+
+The deploy history makes the pattern plain — successes cluster at 00:56, 06:05
+and 11:17; failures at 21:04, 21:59, 14:46, 15:33, 16:22, 16:28. The same
+commit deploys at night and fails in the evening.
+
+**Rule.** Do not read a UAT failure as "my change broke it" until the lane
+itself is ruled out. Check whether the failure is the same step failing for
+everyone, and whether recent successes cluster in quiet hours. A retry is
+evidence only when it changes the outcome; two identical failures mean stop
+retrying and fix the lane.
+
+**Check.** Before blaming a commit, look at the lane:
+
+```bash
+gh run list --repo hushh-labs/hushh-research --workflow deploy-uat.yml \
+  --limit 15 --json conclusion,createdAt,headSha \
+  --jq '.[] | "\(.createdAt[11:16]) \(.conclusion // "running") \(.headSha[0:9])"'
+# Many SHAs failing, and successes clustered in off-hours, means the lane is
+# the problem. One SHA failing while neighbours pass means the commit is.
+```
+
+The durable fix is `ledger` mode — pending migrations only, after a verified
+baseline — which `db/migrate.py` already supports and which exists precisely
+for this. It needs a one-time baseline established against the UAT database
+(`db/migrate.py --establish-baseline`), so it requires database access.
+### Main R27 — Hoisting an App Shortcut phrase array deletes every shortcut in the app
+
+**Incident (2026-09-07, iOS TestFlight build 99 — merge `a4a95a1e4`, PR #6559).** Long-pressing
+the app icon showed no App Shortcuts at all, only the system items, and `TalkToHusshOneIntent`
+stopped working despite being **byte-identical to build 98**. The PR had refactored every phrase
+list out of its `AppShortcut(...)` call into a named constant — `phrases: shareLocationPhrases`
+where build 98 wrote the phrases in place — and the app name likewise into
+`private static let agentOne: AppShortcutPhraseToken = .applicationName`.
+
+`appintentsmetadataprocessor` extracts App Shortcuts at **compile time** by reading those
+expressions literally. It cannot follow a reference to a `static let`. It saw ten shortcuts with
+zero phrases and stopped:
+
+```
+OneVoiceAppIntent.swift:1113: warning: App Shortcuts should have at least one phrase
+error: At least one halting error produced during export. No AppIntents metadata have been
+exported and this target is not usable with AppIntents until errors are resolved.
+```
+
+No metadata means **no App Shortcuts of any kind** — including ones whose code never changed.
+
+Proven on this repo, Xcode 26.6, one file swapped between otherwise identical builds:
+
+| provider shape | `Metadata.appintents` |
+| --- | --- |
+| build 99 as shipped (arrays hoisted + token hoisted) | **not written** — halting error |
+| arrays inline, token still hoisted | **not written** — halting error |
+| arrays hoisted, token inline | **not written** — halting error |
+| both inline (build 98's shape) | **written**, 10 shortcuts, 61 phrases |
+
+Both hoistings must be undone; neither alone is sufficient. The table above was produced locally
+on Xcode 26.6; the shipped CI ran 26.3 and *did* write a metadata file, so no log line looked
+wrong — "Writing Metadata.appintents" in a log is not evidence that the shortcuts are in it.
+
+Corrected 2026-09-07: do not read that as a version mismatch between CI and the release. All three
+iOS lanes pin the same Xcode — `ci.yml:424`, `ship-ios-testflight.yml:121` and
+`release-ios-appstore.yml:135` are each `xcode-version: "26.3"` — so build 99 was cut by the same
+compiler CI used. The reason CI stayed green is simpler and worth naming plainly: **nothing
+checked.** `xcodebuild` exits 0 even when `appintentsmetadataprocessor` halts. The fix is the
+assertion, not a version bump. Verified on the merge run, reading the built binary on 26.3:
+`OK: 10 App Shortcuts, 61 phrases, compiled into the binary.`
+
+Separately and secondarily: that PR also bound `\(\.$requestText)`, a plain `String`, into a
+phrase. Apple allows only `AppEnum` and `AppEntity` phrase parameters. That is a real violation
+worth fixing, but it is **not** what emptied the menu.
+
+**Rule.** Phrase arrays and the `\(.applicationName)` token are written inline inside
+`AppShortcut(phrases: [...])`, never hoisted into a named constant, no matter how much tidier
+hoisting looks. Every phrase parameter is an `AppEnum` or `AppEntity`; free text goes through the
+parameter's `requestValueDialog`. Order both structural checks BEFORE the phrase-fragment
+assertions — an earlier throw means later assertions never run, which is how this verifier passed
+while the app shipped with nothing.
+
+**Check.** Both guards must fail on the real bug. Hoist while keeping every phrase intact, so the
+fragment assertions still pass and only the shape guard can fire:
+
+```bash
+cd hushh-webapp && node scripts/native/verify-siri-action-contract.mjs   # green first
+# then hoist one family into a `static let ...Phrases` and re-run:
+#   Error: Phrase arrays must be written inline ... not hoisted into a named constant
+# and add "Ask \(.applicationName) with \(\.$requestText)" as an extra phrase:
+#   Error: ... binds \(\.$requestText), typed `String` ...
+```
+
+A green contract still is not a registered shortcut. Only a build proves it:
+
+```bash
+xcodebuild -project ios/App/App.xcodeproj -scheme App -configuration Debug \
+  -destination 'generic/platform=iOS Simulator' -derivedDataPath /tmp/dd \
+  CODE_SIGNING_ALLOWED=NO build 2>&1 | grep -E "halting error|Writing Metadata.appintents"
+python3 -c "
+import json;d=json.load(open('/tmp/dd/Build/Products/Debug-iphonesimulator/App.app/Metadata.appintents/extract.actionsdata'))
+[print(s['shortTitle']['key'], len(s.get('phraseTemplates') or [])) for s in d['autoShortcuts']]"
+```
+
+Expect ten rows with non-zero phrase counts. Zero rows, or a row with zero phrases, is the bug.
+
+
+### Main R28 — An error handler that runs on a broken connection will report itself instead of the failure
+
+**Incident (2026-09-07, six consecutive UAT deploys.)** Every one failed at
+"Apply UAT DB migrations behind account deletion fence" with
+`asyncpg.exceptions.InFailedSQLTransactionError: current transaction is aborted`.
+That was never the failure. The real one, four frames up the chained traceback,
+was `LockNotAvailableError: canceling statement due to lock timeout`.
+
+`apply_manifest_entries` rolled the failed transaction back only when
+`mode is not MigrationMode.REPLAY` — and UAT runs in `replay`. So a replay
+failure left the connection aborted, and the function's own
+`finally: await _unlock(conn)` then issued `SELECT pg_advisory_unlock($1)` on
+that dead connection. Its exception propagated **in place of** the migration's.
+The cleanup step overwrote the diagnosis.
+
+It compounded with a second gap: nothing in that function ever named
+`entry.filename`. UAT replays 173 migrations per deploy, so the log said a
+migration failed and gave no way to learn which one. Six deploys produced six
+identical, useless tracebacks.
+
+**Rule.** Cleanup in a `finally` — unlock, close, release, flush — must not be
+able to replace the exception that brought you there. Wrap it and swallow its
+own failure. Any loop applying a batch of units must name the unit in the error;
+"something in this batch failed" is not a diagnosis. And when an error path is
+gated on a mode, check whether the *cleanup* it also skips is needed in every
+mode. Diagnostics must not quote the database's message — a Postgres error can
+carry row values (a unique violation names the key and its value) — so report
+the exception class and its SQLSTATE instead.
+
+**Check.**
+```bash
+cd ~/Desktop/husshOne/consent-protocol
+# The unlock must be guarded, and the rollback must not be inside the mode gate.
+python3 - <<'PY'
+import re, pathlib
+s = pathlib.Path("db/migration_authority.py").read_text()
+tail = s.split("async def apply_manifest_entries")[1].split("    finally:")[1]
+print("unlock guarded:", "try:" in tail and "_unlock(conn)" in tail)
+blk = re.search(r"except Exception as exc:(.*?)\n                raise", s, re.S).group(1)
+print("rollback before mode gate:",
+      blk.index("_rollback_failed_transaction") < blk.index("if mode is not"))
+print("failure names the file:", "entry.filename" in blk)
+PY
+```
+All three must print `True`.
+
 ## Adding a rule
 
 Every mistake found becomes a rule. Fix the **cause**, not the symptom, then add

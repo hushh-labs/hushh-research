@@ -903,7 +903,18 @@ struct AskOneRequestIntent: AppIntent {
     @available(iOS 26.0, *)
     static let supportedModes: IntentModes = [.foreground(.immediate)]
 
-    @Parameter(title: "Request")
+    // Siri asks for this out loud, and that is the only supported shape.
+    //
+    // An App Shortcut phrase parameter must be an AppEnum or an AppEntity: an
+    // open String has no compile-time-known value set for Siri to match
+    // against. Interpolating `\(\.$requestText)` into `askOneRequestPhrases`
+    // is what made iOS reject the whole HusshOneAppShortcuts provider in
+    // build 99, so every shortcut -- including ones whose code never changed
+    // -- disappeared from the Home Screen and from Siri.
+    @Parameter(
+        title: "Request",
+        requestValueDialog: "What would you like Agent One to do?"
+    )
     var requestText: String
 
     static var parameterSummary: some ParameterSummary {
@@ -938,197 +949,120 @@ struct AskOneRequestIntent: AppIntent {
 
 @available(iOS 16.0, *)
 struct HusshOneAppShortcuts: AppShortcutsProvider {
-    // The app-name token, not the words "Agent One".
-    //
-    // This must be `AppShortcutPhraseToken`, never a String. AppShortcutPhrase's
-    // StringInterpolation declares exactly two overloads -- one for this token
-    // and one for a parameter KeyPath -- so interpolating a String does not
-    // compile at all. It was `= ".applicationName"` (a String literal) until
-    // this merge, which is why nothing on this branch had ever built.
-    //
-    // The token is also what wins Siri's domain arbitration and what survives
-    // localisation, so a literal "Agent One" in a phrase is a bug even where it
-    // would compile.
-    private static let agentOne: AppShortcutPhraseToken = .applicationName
-
-    // MARK: - Share Location phrase family
-    //
-    // Nine semantically distinct anchors teach Siri that every reasonable way
-    // of asking to share one's location resolves to the same intent. Apple's
-    // similarity index generalises beyond these exact strings; diversity here
-    // is what seeds it. No phrase hardcodes a person name -- the recipient is
-    // always the `\.$recipient` slot, which resolves against contacts *and*
-    // Circles via OneShareRecipientEntity.
-
-    private static let shareLocationPhrases: [AppShortcutPhrase<ShareLocationWithOneIntent>] = [
-        "Share my location with \(\.$recipient) in \(agentOne) Location Agent",
-        "Let \(\.$recipient) see my location with \(agentOne)",
-        "Ask \(agentOne) to share my location with \(\.$recipient)",
-        "Tell \(agentOne) to share my location with \(\.$recipient)",
-        "Talk to \(agentOne) and share my location with \(\.$recipient)",
-        "Use \(agentOne) to share my location with \(\.$recipient)",
-        "Share my location to \(\.$recipient) using \(agentOne)",
-        "Start sharing my location in \(agentOne) with \(\.$recipient)",
-        "Give \(\.$recipient) access to my location through \(agentOne)",
-    ]
-
-    // MARK: - Ask for Location phrase family
-
-    private static let askForLocationPhrases: [AppShortcutPhrase<AskForLocationWithOneIntent>] = [
-        "Ask \(\.$person) for location in \(agentOne) Location Agent",
-        "Request \(\.$person)'s location with \(agentOne)",
-        "Ask \(agentOne) to ask \(\.$person) for location",
-        "Tell \(agentOne) to request \(\.$person)'s location",
-        "Talk to \(agentOne) and ask \(\.$person) for location",
-        "Use \(agentOne) to request \(\.$person)'s location",
-        "Have \(agentOne) ask \(\.$person) where they are",
-    ]
-
-    // MARK: - Location On / Off phrase family
-    //
-    // Every phrase here binds `\.$state`. `state` is a non-optional parameter
-    // with no default, so an unbound phrase makes Siri stop and ask "On or
-    // Off?" instead of acting -- which defeats the point of a one-shot phrase.
-
-    private static let locationStatePhrases: [AppShortcutPhrase<SetOneLocationStateIntent>] = [
-        "Turn \(agentOne) Location \(\.$state)",
-        "Ask \(agentOne) to turn Location \(\.$state)",
-        "Tell \(agentOne) to turn Location \(\.$state)",
-        "Talk to \(agentOne) and turn Location \(\.$state)",
-        "Turn location updates \(\.$state) in \(agentOne)",
-        "Set \(agentOne) Location to \(\.$state)",
-    ]
-
-    // MARK: - Talk to Agent One phrase family
-
-    private static let talkToAgentOnePhrases: [AppShortcutPhrase<TalkToHusshOneIntent>] = [
-        "Talk to \(agentOne)",
-        "Speak to \(agentOne)",
-        "Start a conversation with \(agentOne)",
-    ]
-
-    // MARK: - Check In phrase family
-
-    private static let checkInPhrases: [AppShortcutPhrase<CheckInWithOneIntent>] = [
-        "Check in with \(agentOne) Location Agent",
-        "Open \(agentOne) Location Check In",
-        "Ask \(agentOne) to check in",
-        "Tell \(agentOne) to open Check In",
-        "Talk to \(agentOne) and check in",
-        "Do an \(agentOne) Check In",
-        "Start an \(agentOne) Check In",
-    ]
-
-    // MARK: - Create Circle phrase family
-    //
-    // No `\.$name` slot. `name` is a plain String, and an open string slot in a
-    // phrase has no compile-time-known value set for Siri to match against, so
-    // it degrades the whole family. Naming a Circle out loud goes through the
-    // free-text handshake instead, which is what semantic routing is for.
-
-    private static let createCirclePhrases: [AppShortcutPhrase<CreateOneCircleIntent>] = [
-        "Create a Circle in \(agentOne) Location Agent",
-        "Make a new Circle in \(agentOne) Location Agent",
-        "Ask \(agentOne) to create a Circle",
-        "Tell \(agentOne) to create a Circle",
-        "Talk to \(agentOne) and create a Circle",
-        "Start a Circle in \(agentOne)",
-        "Add a Circle in \(agentOne)",
-    ]
-
-    // MARK: - The free-text handshake
-
-    private static let askOneRequestPhrases: [AppShortcutPhrase<AskOneRequestIntent>] = [
-        "Ask \(agentOne) with \(\.$requestText)",
-        "Ask \(agentOne) to \(\.$requestText)",
-        "Use \(agentOne) to \(\.$requestText)",
-        "Tell \(agentOne) to \(\.$requestText)",
-    ]
-
-    /// Save My Soul, the screen. Deliberately the widest phrase set here: this
-    /// is the one a person may need while panicking, in the dark, or in a
-    /// second language. "SMS" is the in-product abbreviation of Save My Soul --
-    /// no text message is involved -- so both forms are taught.
-    ///
-    /// Every phrase in this family OPENS the screen and sends nothing. That is
-    /// what makes it safe to keep them short and easily misheard. "Help me" and
-    /// "I need help" are not here: they are real aliases of
-    /// `location.sos_default`, which honours the person's own Voice Settings
-    /// choice between opening and sending, and this intent always just opens.
-    /// Putting them here would have silently overridden that preference.
-    static let emergencySOSPhrases: [AppShortcutPhrase<OpenOneEmergencySOSIntent>] = [
-        "SMS in \(agentOne)",
-        "Save my soul in \(agentOne)",
-        "Open SMS in \(agentOne)",
-        "Emergency in \(agentOne)",
-        "Emergency SOS in \(agentOne)",
-        "SOS in \(agentOne)",
-        "Open emergency SOS in \(agentOne)",
-    ]
-
-    /// The sending counterpart. Every phrase carries an explicit "send", and
-    /// none is short enough to arrive by accident from a television or an
-    /// overheard conversation. This is the shortcut meant for the Action
-    /// button.
-    static let sendSaveMySoulPhrases: [AppShortcutPhrase<SendSaveMySoulAlertIntent>] = [
-        "Send my Save My Soul alert in \(agentOne)",
-        "Send the Save My Soul alert in \(agentOne)",
-        "Send my SMS alert in \(agentOne)",
-        "Send my emergency alert in \(agentOne)",
-        "Send an emergency alert in \(agentOne)",
-    ]
-
     static var appShortcuts: [AppShortcut] {
+    // Every phrase list is written out in place, and the app name is the literal
+    // `\(.applicationName)` token. Neither may be hoisted into a named constant.
+    //
+    // `appintentsmetadataprocessor` extracts App Shortcuts at compile time by
+    // reading these expressions literally. It cannot follow a reference to a
+    // `static let`, so a hoisted phrase array reads as a shortcut with no
+    // phrases at all. That is a HALTING error: the processor exports no
+    // AppIntents metadata for the whole target, and the app ships with every
+    // App Shortcut missing -- not just the hoisted one.
+    //
+    // Build 99 hoisted both, and the Home Screen long-press menu came back
+    // empty. See R27 in .claude/skills/safe-changes/SKILL.md.
         AppShortcut(
             intent: AskOneRequestIntent(),
-            phrases: askOneRequestPhrases,
+            phrases: [
+                "Ask \(.applicationName) something",
+                "Ask \(.applicationName) a question",
+                "Ask \(.applicationName) for something",
+                "Make a request in \(.applicationName)",
+                "Send a request to \(.applicationName)",
+            ],
             shortTitle: "Ask Agent One",
             systemImageName: "bubble.left.and.bubble.right"
         )
         AppShortcut(
             intent: ShareLocationWithOneIntent(),
-            phrases: shareLocationPhrases,
+            phrases: [
+                "Share my location with \(\.$recipient) in \(.applicationName) Location Agent",
+                "Let \(\.$recipient) see my location with \(.applicationName)",
+                "Ask \(.applicationName) to share my location with \(\.$recipient)",
+                "Tell \(.applicationName) to share my location with \(\.$recipient)",
+                "Talk to \(.applicationName) and share my location with \(\.$recipient)",
+                "Use \(.applicationName) to share my location with \(\.$recipient)",
+                "Share my location to \(\.$recipient) using \(.applicationName)",
+                "Start sharing my location in \(.applicationName) with \(\.$recipient)",
+                "Give \(\.$recipient) access to my location through \(.applicationName)",
+            ],
             shortTitle: "Share Location",
             systemImageName: "location.fill"
         )
         AppShortcut(
             intent: AskForLocationWithOneIntent(),
-            phrases: askForLocationPhrases,
+            phrases: [
+                "Ask \(\.$person) for location in \(.applicationName) Location Agent",
+                "Request \(\.$person)'s location with \(.applicationName)",
+                "Ask \(.applicationName) to ask \(\.$person) for location",
+                "Tell \(.applicationName) to request \(\.$person)'s location",
+                "Talk to \(.applicationName) and ask \(\.$person) for location",
+                "Use \(.applicationName) to request \(\.$person)'s location",
+                "Have \(.applicationName) ask \(\.$person) where they are",
+            ],
             shortTitle: "Ask for Location",
             systemImageName: "location.magnifyingglass"
         )
         AppShortcut(
             intent: SetOneLocationStateIntent(),
-            phrases: locationStatePhrases,
+            phrases: [
+                "Turn \(.applicationName) Location \(\.$state)",
+                "Ask \(.applicationName) to turn Location \(\.$state)",
+                "Tell \(.applicationName) to turn Location \(\.$state)",
+                "Talk to \(.applicationName) and turn Location \(\.$state)",
+                "Turn location updates \(\.$state) in \(.applicationName)",
+                "Set \(.applicationName) Location to \(\.$state)",
+            ],
             shortTitle: "Location On or Off",
             systemImageName: "location.circle"
         )
         AppShortcut(
             intent: TalkToHusshOneIntent(),
-            phrases: talkToAgentOnePhrases,
+            phrases: [
+                "Talk to \(.applicationName)",
+                "Speak to \(.applicationName)",
+                "Start a conversation with \(.applicationName)",
+            ],
             shortTitle: "Talk to Agent One",
             systemImageName: "waveform.circle.fill"
         )
         AppShortcut(
             intent: CheckInWithOneIntent(),
-            phrases: checkInPhrases,
+            phrases: [
+                "Check in with \(.applicationName) Location Agent",
+                "Open \(.applicationName) Location Check In",
+                "Ask \(.applicationName) to check in",
+                "Tell \(.applicationName) to open Check In",
+                "Talk to \(.applicationName) and check in",
+                "Do an \(.applicationName) Check In",
+                "Start an \(.applicationName) Check In",
+            ],
             shortTitle: "Check In",
             systemImageName: "checkmark.circle"
         )
         AppShortcut(
             intent: CreateOneCircleIntent(),
-            phrases: createCirclePhrases,
+            phrases: [
+                "Create a Circle in \(.applicationName) Location Agent",
+                "Make a new Circle in \(.applicationName) Location Agent",
+                "Ask \(.applicationName) to create a Circle",
+                "Tell \(.applicationName) to create a Circle",
+                "Talk to \(.applicationName) and create a Circle",
+                "Start a Circle in \(.applicationName)",
+                "Add a Circle in \(.applicationName)",
+            ],
             shortTitle: "Create Circle",
             systemImageName: "person.2.circle"
         )
         // Save My Soul takes two of Apple's ten slots, and that is the point.
         //
-        // The list above is the Location feature set a person actually asks for
-        // out loud. Stop Sharing, Rename Circle and Open Destination were
-        // dropped to make room: stopping is still reachable through Location On
-        // or Off, and renaming and every open* destination through the
-        // free-text handshake. All three intents remain defined and usable in
-        // the Shortcuts app.
+        // All ten slots are now spoken for. Stop Sharing and Rename Circle are
+        // the two that do not fit: stopping is still reachable through Location
+        // On or Off and through the free-text handshake, and renaming through
+        // the handshake. Both intents remain defined and usable in the
+        // Shortcuts app. Open Destination came back because one slot buys ten
+        // destinations through its entity parameter.
         //
         // The two SOS entries are split rather than merged because App Intents
         // expose no invocation source. One opens and can never alert anyone;
@@ -1137,14 +1071,40 @@ struct HusshOneAppShortcuts: AppShortcutsProvider {
         // which only offers registered App Shortcuts -- assign "Send Save My
         // Soul" there and the press-and-hold sends, with no second step.
         AppShortcut(
+            intent: OpenOneLocationDestinationIntent(),
+            phrases: [
+                "Open \(.applicationName) \(\.$target)",
+                "Show \(\.$target) in \(.applicationName)",
+                "Ask \(.applicationName) to open \(\.$target)",
+                "Tell \(.applicationName) to show \(\.$target)",
+                "Talk to \(.applicationName) and open \(\.$target)",
+            ],
+            shortTitle: "Open Agent One Location",
+            systemImageName: "location.circle.fill"
+        )
+        AppShortcut(
             intent: OpenOneEmergencySOSIntent(),
-            phrases: emergencySOSPhrases,
+            phrases: [
+                "SMS in \(.applicationName)",
+                "Save my soul in \(.applicationName)",
+                "Open SMS in \(.applicationName)",
+                "Emergency in \(.applicationName)",
+                "Emergency SOS in \(.applicationName)",
+                "SOS in \(.applicationName)",
+                "Open emergency SOS in \(.applicationName)",
+            ],
             shortTitle: "Save My Soul",
             systemImageName: "sos"
         )
         AppShortcut(
             intent: SendSaveMySoulAlertIntent(),
-            phrases: sendSaveMySoulPhrases,
+            phrases: [
+                "Send my Save My Soul alert in \(.applicationName)",
+                "Send the Save My Soul alert in \(.applicationName)",
+                "Send my SMS alert in \(.applicationName)",
+                "Send my emergency alert in \(.applicationName)",
+                "Send an emergency alert in \(.applicationName)",
+            ],
             shortTitle: "Send Save My Soul",
             systemImageName: "exclamationmark.bubble.fill"
         )

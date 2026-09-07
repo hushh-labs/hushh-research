@@ -93,11 +93,11 @@ function isTransientFetchFailure(error: unknown): boolean {
 }
 
 type ConsentOpenAcknowledgementResult =
-  | "acknowledged"
-  | "retryable_failure"
-  | "permanent_failure";
+  "acknowledged" | "retryable_failure" | "permanent_failure";
 
-const CONSENT_OPEN_ACK_RETRY_DELAYS_MS = [1_000, 3_000, 10_000, 30_000] as const;
+const CONSENT_OPEN_ACK_RETRY_DELAYS_MS = [
+  1_000, 3_000, 10_000, 30_000,
+] as const;
 
 function isRetryableConsentOpenStatus(status: number): boolean {
   return status === 408 || status === 425 || status === 429 || status >= 500;
@@ -373,6 +373,34 @@ function shouldPrioritizeConsentHydration(pathname: string): boolean {
   if (!normalized) return false;
   return normalized.startsWith("/one/profile") || normalized.startsWith("/ria");
 }
+
+/** An SSE fetch that failed with a status worth keeping. */
+class ConsentSseError extends Error {
+  readonly status: number;
+
+  constructor(message: string, status: number) {
+    super(message);
+    this.name = "ConsentSseError";
+    this.status = status;
+  }
+}
+
+/**
+ * Statuses that will not change on their own.
+ *
+ * 410 is the live one: consent SSE is deliberately off in production and the
+ * backend answers `CONSENT_SSE_DISABLED` every single time. 401 is absent on
+ * purpose -- a token can refresh -- as are 408, 429 and every 5xx.
+ */
+const PERMANENT_SSE_STATUSES = new Set([400, 403, 404, 410, 501]);
+
+function isPermanentSseStatus(status: number): boolean {
+  return PERMANENT_SSE_STATUSES.has(status);
+}
+
+/** 3s, 6s, 12s, 24s, 48s, then stop. */
+const MAX_SSE_RECONNECT_ATTEMPTS = 5;
+const MAX_SSE_RECONNECT_DELAY_MS = 60_000;
 
 function shouldPrioritizeConsentRealtime(pathname: string): boolean {
   const normalized = String(pathname || "")
@@ -1049,6 +1077,7 @@ export function ConsentNotificationProvider({
     if (!initStatus || initStatus === "push_active") return;
 
     let cancelled = false;
+    let reconnectAttempt = 0;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let idleHandle: number | null = null;
     let delayedConnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1063,6 +1092,7 @@ export function ConsentNotificationProvider({
     }
 
     const connect = async () => {
+      let connectedAt: number | null = null;
       try {
         const idToken = await user.getIdToken();
         console.info("[NotificationProvider] Opening consent SSE fallback...");
@@ -1079,11 +1109,20 @@ export function ConsentNotificationProvider({
         );
 
         if (!response.ok || !response.body) {
-          const detail = await response.text().catch(() => "");
-          throw new Error(detail || `consent_sse_${response.status}`);
+          // Do not expose a server response body in UI state or diagnostics.
+          // Keep the status. It is the only thing that distinguishes "try
+          // again in a moment" from "this endpoint is switched off". The body
+          // is always non-empty here, so the `consent_sse_${status}` fallback
+          // never fired and the status was being thrown away entirely.
+          throw new ConsentSseError(
+            `consent_sse_${response.status}`,
+            response.status,
+          );
         }
 
         if (cancelled) return;
+
+        connectedAt = Date.now();
 
         setDeliveryMode(
           initStatus === "push_blocked"
@@ -1145,18 +1184,59 @@ export function ConsentNotificationProvider({
         if (cancelled || abortController.signal.aborted) return;
         console.warn(
           "[NotificationProvider] Consent SSE fallback failed:",
-          error,
+          error instanceof ConsentSseError ? error.status : "unavailable",
         );
         setDeliveryMode("inbox_only");
         setDeliveryDetail(
-          error instanceof Error ? error.message : "consent_sse_failed",
+          error instanceof ConsentSseError
+            ? `consent_sse_${error.status}`
+            : "consent_sse_failed",
         );
-        reconnectTimer = globalThis.setTimeout(
-          () => {
-            void connect();
-          },
-          prioritizeRealtime ? 3000 : 6000,
+
+        // A permanent refusal is an answer, not a blip. Consent SSE is off in
+        // production by design (the backend returns 410 with
+        // CONSENT_SSE_DISABLED and tells us to use FCM instead), and it will
+        // return exactly that to attempt one and attempt ten thousand alike.
+        // Reconnecting on a fixed 3s timer turned a settled configuration into
+        // an endless request storm: two Cloud Run invocations, one logged
+        // backend error and one failed api_request_completed metric every
+        // three seconds, per open tab, for as long as the tab stayed open.
+        if (
+          error instanceof ConsentSseError &&
+          isPermanentSseStatus(error.status)
+        ) {
+          console.info(
+            `[NotificationProvider] Consent SSE unavailable (${error.status}); staying on inbox delivery.`,
+          );
+          return;
+        }
+
+        // Everything else may genuinely be transient, so keep trying -- but
+        // back off, and give up rather than retry forever.
+        // HTTP 200 alone is not recovery: an immediately closed stream must
+        // consume the retry budget. Reset after a full maximum-backoff window
+        // of connected time, allowing established streams to recover later.
+        if (
+          connectedAt !== null &&
+          Date.now() - connectedAt >= MAX_SSE_RECONNECT_DELAY_MS
+        ) {
+          reconnectAttempt = 0;
+        }
+        reconnectAttempt += 1;
+        if (reconnectAttempt > MAX_SSE_RECONNECT_ATTEMPTS) {
+          console.warn(
+            "[NotificationProvider] Consent SSE gave up after " +
+              `${MAX_SSE_RECONNECT_ATTEMPTS} attempts; staying on inbox delivery.`,
+          );
+          return;
+        }
+        const delay = Math.min(
+          3000 * 2 ** (reconnectAttempt - 1),
+          MAX_SSE_RECONNECT_DELAY_MS,
         );
+        reconnectTimer = globalThis.setTimeout(() => {
+          void connect();
+        }, delay);
       }
     };
 
@@ -1233,9 +1313,9 @@ export function ConsentNotificationProvider({
   useEffect(() => {
     if (!user || !isVaultUnlocked || pathname !== ROUTES.ONE_FEED) return;
     if (!notificationRequestId && !notificationBundleId) return;
-    const acknowledgementId =
-      `${user.uid}::${notificationBundleId}::${notificationRequestId}`;
-    if (acknowledgedNotificationOpenIdsRef.current.has(acknowledgementId)) return;
+    const acknowledgementId = `${user.uid}::${notificationBundleId}::${notificationRequestId}`;
+    if (acknowledgedNotificationOpenIdsRef.current.has(acknowledgementId))
+      return;
 
     let cancelled = false;
     let retryTimer: ReturnType<typeof globalThis.setTimeout> | null = null;
@@ -1465,8 +1545,9 @@ export function ConsentNotificationProvider({
 
       if (msgType === "consent_request") {
         const consent = parsedConsent!;
-        const isNewPendingRequest =
-          !knownPendingConsentIdsRef.current.has(consent.id);
+        const isNewPendingRequest = !knownPendingConsentIdsRef.current.has(
+          consent.id,
+        );
         knownPendingConsentIdsRef.current.add(consent.id);
 
         // A remote request changes the canonical Consent Center even while its
