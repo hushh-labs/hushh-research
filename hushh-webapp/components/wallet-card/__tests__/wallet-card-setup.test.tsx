@@ -105,8 +105,8 @@ describe("WalletCardSetup", () => {
     fireEvent.change(linkedinInput, {
       target: { value: "https://www.linkedin.com/in/ankit" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "Email" }));
-    fireEvent.click(screen.getByRole("button", { name: "LinkedIn" }));
+    fireEvent.click(screen.getByRole("tab", { name: "Email" }));
+    fireEvent.click(screen.getByRole("tab", { name: "LinkedIn" }));
 
     expect(screen.getByLabelText("LinkedIn profile")).toHaveValue(
       "https://www.linkedin.com/in/ankit",

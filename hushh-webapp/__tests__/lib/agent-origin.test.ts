@@ -52,8 +52,38 @@ describe("readAgentOrigin", () => {
     expect(readAgentOrigin("?from=one%2Femail")).toBeNull();
   });
 
+  it.each([
+    "/\t/evil.example",
+    "/\n/evil.example",
+    "/\r/evil.example",
+    "/\\evil.example",
+  ])("rejects parser-normalized external origin %j", (candidate) => {
+    expect(
+      readAgentOrigin(`?from=${encodeURIComponent(candidate)}`),
+    ).toBeNull();
+    expect(agentRouteWithOrigin(candidate)).toBe(ROUTES.AGENT);
+  });
+
+  it.each(["/agent/", "/one/../agent", "/one/%2e%2e/agent"])(
+    "rejects normalized self origin %s",
+    (candidate) =>
+      expect(
+        readAgentOrigin(`?from=${encodeURIComponent(candidate)}`),
+      ).toBeNull(),
+  );
+
+  it("normalizes safe internal paths while preserving query and fragment", () => {
+    expect(
+      readAgentOrigin(
+        `?from=${encodeURIComponent("/one/../one/email?tab=drafts#latest")}`,
+      ),
+    ).toBe("/one/email?tab=drafts#latest");
+  });
+
   it("refuses the agent route itself so minimize cannot loop", () => {
-    expect(readAgentOrigin(`?from=${encodeURIComponent(ROUTES.AGENT)}`)).toBeNull();
+    expect(
+      readAgentOrigin(`?from=${encodeURIComponent(ROUTES.AGENT)}`),
+    ).toBeNull();
     expect(readAgentOrigin("?from=%2Fagent%3Ffrom%3D%2Fagent")).toBeNull();
   });
 });

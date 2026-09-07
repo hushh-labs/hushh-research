@@ -93,7 +93,7 @@ def test_kai_finance_context_does_not_categorically_refuse_stock_analysis():
         portfolio_ready=True,
     )
     text = compose_voice_instructions(ctx)
-    assert "Kai finance capability is in scope" in text
+    assert "Finance capability is in scope" in text
     assert "Do not say you are unable to provide stock analysis" in text
     assert "analysis.start" in text
     assert "vault/cache posture is ready" in text
