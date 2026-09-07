@@ -90,10 +90,11 @@ jobs:
         working-directory: consent-protocol
         run: |
           set -uo pipefail
+          verdict=0
           uv run python scripts/ops/pod_completion_judge.py \
             --report-path "$RUNNER_TEMP/pod-completion.json" \
-            --fail-on-unfinished | tee "$RUNNER_TEMP/pod-completion.txt"
-          echo "verdict=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+            --fail-on-unfinished | tee "$RUNNER_TEMP/pod-completion.txt" || verdict=$?
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
       - name: Put the answer in the run summary
         if: always()

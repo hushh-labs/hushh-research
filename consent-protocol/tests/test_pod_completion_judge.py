@@ -245,6 +245,40 @@ def test_ci_installs_pinned_frontend_tools_before_running_behavioral_assertions(
     assert not steps[install_index].get("continue-on-error", False)
 
 
+@pytest.mark.parametrize("verdict", [0, 1, 77])
+def test_ci_publishes_verdict_with_github_bash_errexit(tmp_path, verdict):
+    """An unfinished judge must reach GITHUB_OUTPUT under the runner's `bash -e`."""
+    import os
+    import subprocess
+
+    workflow = yaml.safe_load(
+        (_LEDGER.parents[1] / ".github/workflows/pod-completion-judge.yml").read_text()
+    )
+    steps = workflow["jobs"]["did-we-finish-it"]["steps"]
+    command = next(step["run"] for step in steps if step.get("id") == "judge")
+    shim = tmp_path / "uv"
+    shim.write_text(f"#!/bin/sh\necho 'Synthetic verdict'\nexit {verdict}\n")
+    shim.chmod(0o700)
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "--noprofile", "--norc", "-eo", "pipefail"],
+        input=command,
+        env={
+            **os.environ,
+            "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+            "RUNNER_TEMP": str(tmp_path),
+            "GITHUB_OUTPUT": str(output),
+        },
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    assert output.read_text() == f"verdict={verdict}\n"
+    assert (tmp_path / "pod-completion.txt").read_text() == "Synthetic verdict\n"
+    assert steps[-1]["if"] == "steps.judge.outputs.verdict != '0'"
+
+
 @pytest.mark.parametrize("kind", sorted(judge_mod.CHECKS))
 def test_every_check_kind_has_a_runner(kind):
     assert callable(judge_mod.CHECKS[kind])
