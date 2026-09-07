@@ -51,5 +51,7 @@ semantics.
 The destructive UAT route audits prove cold-start parity. `npm run
 ios:continuity:local` and `npm run android:continuity:local` are separate,
 non-destructive interactive sessions for same-process route, vault, and voice
-continuity. The iOS command is pinned to the iPhone 14 Plus simulator and
-never installs, uninstalls, clears, or resets the app.
+continuity. The iOS command selects an available iPhone simulator (or the requested
+`IOS_TEST_DEVICE_UDID` / `IOS_TEST_DEVICE_NAME`) and stays headless by default.
+Use `-- --visible` only when a desktop window is requested. It never installs,
+uninstalls, clears, or resets the app.

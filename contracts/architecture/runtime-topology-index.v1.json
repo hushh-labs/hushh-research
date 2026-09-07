@@ -62,7 +62,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_connected_systems_agent"
       }
     },
@@ -95,7 +95,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_consent_agent"
       }
     },
@@ -128,7 +128,7 @@
       },
       "wiring": {
         "a2a_scope": null,
-        "in_process_dispatch": false,
+        "in_process_dispatch": true,
         "one_specialist_tool": "ask_email_agent"
       }
     },
@@ -719,6 +719,16 @@
       "primary_access_path": "AG-UI Agent One text chat, encrypted ADK session restore, encrypted legacy chat history restore, and LLM context assembly"
     },
     {
+      "data_class": "reference",
+      "exact_tables": [
+        "agent_prompt_versions"
+      ],
+      "id": "agent_prompt_registry",
+      "lifecycle_status": "dev_only",
+      "owner": "backend-agents-operons",
+      "primary_access_path": "agent prompt-sync read path (GET /api/one/agent-prompt), flag-off"
+    },
+    {
       "data_class": "audit_regulated",
       "exact_tables": [
         "connected_system_audit_events"
@@ -750,6 +760,16 @@
       "lifecycle_status": "customer0",
       "owner": "iam-consent-governance",
       "primary_access_path": "Profile Connected Systems and Agent CRM proposal approval flows, including encrypted-fields request envelopes and local-owner approval"
+    },
+    {
+      "data_class": "audit_regulated",
+      "exact_tables": [
+        "consent_audit_receipts"
+      ],
+      "id": "consent_audit_receipts",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "tamper-evident hash-chained mirror of the primary consent_audit ledger (NIST 800-53 AU-9/AU-10); written fail-safe behind CONSENT_AUDIT_CHAIN_ENABLED, verified via ConsentAuditChainService.verify_chain"
     },
     {
       "data_class": "audit_regulated",
@@ -1187,6 +1207,17 @@
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design"
     },
     {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "personal_agent_registry",
+        "personal_agent_deletion_tombstones"
+      ],
+      "id": "personal_agent_registry",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "per-user sovereign-agent provisioning/deprovision and status services (flag-off, PERSONAL_AGENT_ENABLED)"
+    },
+    {
       "data_class": "personal_projection",
       "exact_tables": [
         "pkm_default_available_projections"
@@ -1370,6 +1401,16 @@
       "lifecycle_status": "current",
       "owner": "vault-pkm-governance",
       "primary_access_path": "vault setup, unlock-status, wrapper selection, and account deletion services"
+    },
+    {
+      "data_class": "personal_metadata",
+      "exact_tables": [
+        "webauthn_credentials"
+      ],
+      "id": "webauthn_authenticators",
+      "lifecycle_status": "dev_only",
+      "owner": "iam-consent-governance",
+      "primary_access_path": "server-side WebAuthn/FIDO2 registration and authentication ceremony (flag-off, WEBAUTHN_ENABLED; migration parked)"
     }
   ],
   "database_retirements": [
@@ -2381,7 +2422,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-one-calendar",
       "page_file": "app/one/calendar/page.tsx",
       "pathname": "/one/calendar",
       "route_mode": "standard",
@@ -3861,7 +3902,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-one-calendar",
       "page_file": "app/one/profile/google/oauth/return/page.tsx",
       "pathname": "/one/profile/google/oauth/return",
       "route_mode": "redirect",
@@ -4492,6 +4533,7 @@
         "action_ids": [
           "setup.hub_master_ack",
           "setup.open_calendar",
+          "setup.open_cloud",
           "setup.open_connected_systems",
           "setup.open_connections",
           "setup.open_email",
@@ -4552,7 +4594,7 @@
       },
       "implementation_override": null,
       "lifecycle": "canonical",
-      "native_surface_id": null,
+      "native_surface_id": "native-route-one-setup-calendar",
       "page_file": "app/one/setup/calendar/page.tsx",
       "pathname": "/one/setup/calendar",
       "route_mode": "standard",
@@ -4565,6 +4607,31 @@
         ],
         "delegate_agent_ids": [],
         "playbook_id": "route.one.setup.calendar"
+      }
+    },
+    {
+      "alias": null,
+      "api_dependencies": [],
+      "cache": {
+        "policy": "memory-only",
+        "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+        "resource_classes": [
+          "unknown"
+        ]
+      },
+      "implementation_override": null,
+      "lifecycle": "canonical",
+      "native_surface_id": "native-route-one-setup-cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "pathname": "/one/setup/cloud",
+      "route_mode": "standard",
+      "semantic_routes": [],
+      "voice": {
+        "action_ids": [
+          "setup.finish_cloud"
+        ],
+        "delegate_agent_ids": [],
+        "playbook_id": "route.one.setup.cloud"
       }
     },
     {
@@ -5512,28 +5579,28 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "7b411158545f57fe5160dca108311d50e9cb1b6fdadc8831d03fd1e07a27265d",
-    "agent_registry": "bbb216914b5071e301b0a923fcd61695c9260691f56097a482510b1229ff6112",
-    "cache_manifest": "c7a177decdb319d8a8b673ae16f6acdad5aedee5fc98329d2d58470e1726b4e8",
-    "data_plane": "a9eab526c377cba31e895e1dd66cad1b365960a06eeb5598215dd041f2708588",
-    "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
+    "action_gateway": "6a1345eed1cf39233bd4d8267ceb0ad44b9f739d90648ec4c75ee39338d0e1f6",
+    "agent_registry": "512034daf9e4876dd5c2d9ad37594c5d5c0578dae4ddd4e8b68fb6bc064a7f87",
+    "cache_manifest": "3e667d561723697d04d5c4b49faf24b66a87a63b39fd1c7a026b1b1d4d52a979",
+    "data_plane": "c1d399c74a31db898b96b8887ae03ce7f4785a56c299a8239dac0b5861601da9",
+    "in_process_dispatch": "a921011a2127245cae09bc9375cec4d22d0e3b00d31a4f1146daedbc1d379c8a",
     "one_specialist_tools": "86efcd9ea24fa81138662169930b584b738c39e19d7f24e926d6cd45b506b31b",
-    "route_index": "e6408b8d2cc074a7ea1c5ae916ffee357ce41d8007d4631002bb46c87e460399",
-    "route_layout": "b66933c7083fd755f1a8e4a16262996fc7ae6124a4c550725bfdc7144332355f",
-    "surface_map": "f5fffd96f19e2c2e949c47840a815f87c0fa0936eff7a50cc9c7a180590ba7b3",
+    "route_index": "e12d62d46cf6f51df235c9d433d3c869a1fd50ad375efffc26003d96609b2089",
+    "route_layout": "20cc86e43dce62e3826a12cd07116f28f173a16e1fc241d8c08983bc434ea68f",
+    "surface_map": "063a9775dfacf1c45a2c1ace5f6a1e54de94b3a72a0e084fef3991408d407a3e",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 211,
+    "actions": 213,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,
-    "in_process_specialists": 3,
+    "in_process_specialists": 6,
     "one_specialist_tools": 5,
-    "physical_routes": 139,
+    "physical_routes": 140,
     "semantic_routes": 14,
-    "table_families": 61
+    "table_families": 65
   }
 }

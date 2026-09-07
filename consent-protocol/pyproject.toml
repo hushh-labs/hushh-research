@@ -11,7 +11,11 @@ dependencies = [
     "ag-ui-adk==0.7.0",
     "ag-ui-protocol==0.1.21",
     "asyncpg>=0.29.0",
-    "cryptography>=44.0.0",
+    # Floor raised for the PKCS#7 EnvelopedData Bleichenbacher advisory: below 50.0.0
+    # the decryption path leaks an oracle through distinguishable errors and timing.
+    # The lock pins an exact version; this floor is what stops a fresh resolution
+    # from quietly landing back on a vulnerable one.
+    "cryptography>=50.0.0",
     "defusedxml>=0.7.1",
     "fastapi>=0.115.0",
     "firebase-admin==7.1.0",
@@ -60,6 +64,7 @@ dependencies = [
     "yfinance>=0.2.36",
     "phonenumbers>=9.0.28",
     "pycountry>=26.2.16",
+    "webauthn>=3.0.0",
     "redis==5.3.1",
     "cachetools==7.1.7",
 ]

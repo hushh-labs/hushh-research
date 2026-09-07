@@ -6,7 +6,7 @@ import {
   readJsonObject,
 } from "@/app/api/_utils/json-body";
 import { validateFirebaseToken } from "@/lib/auth/validate";
-import { isDevelopment, logSecurityEvent } from "@/lib/config";
+import { devAuthBypassAllowed, logSecurityEvent } from "@/lib/config";
 
 export const dynamic = "force-dynamic";
 
@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
     const authHeader = request.headers.get("Authorization");
     if (authHeader) {
       const validation = await validateFirebaseToken(authHeader);
-      if (!validation.valid && !isDevelopment()) {
+      if (!validation.valid && !devAuthBypassAllowed()) {
         return NextResponse.json(
           { error: "Authentication failed", code: "AUTH_INVALID" },
           { status: 401 },

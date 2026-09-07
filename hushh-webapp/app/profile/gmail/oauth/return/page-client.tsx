@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 
+import { ApiService } from "@/lib/services/api-service";
+
 import {
   AppPageContentRegion,
   AppPageShell,
@@ -227,6 +229,44 @@ export default function ProfileGmailOAuthReturnPageClient({
 
     const code = liveCode || initialCode;
     const state = liveState || initialState;
+    // The one-click cloud setup borrows this ALREADY-REGISTERED return door
+    // (OAuth clients cannot be edited by API, and this is the URI the client
+    // provably accepts for this origin). The byoc state prefix keeps the two
+    // flows unmistakable; nothing Gmail-shaped runs for it.
+    if (state && state.startsWith("byoc.")) {
+      if (!user?.uid || !code) {
+        router.replace("/one/setup/cloud");
+        return;
+      }
+      void ApiService.completeByocAuthorize({ code, state })
+        .then(() => {
+          // The completion is a background JOB now: this resolved in about a
+          // second with a claim ticket, and the cloud page renders the live
+          // stage checklist from the status route. Nothing to wait for here.
+          router.replace(ROUTES.ONE_SETUP_CLOUD);
+        })
+        .catch((byocError: unknown) => {
+          const raw =
+            byocError instanceof Error &&
+            byocError.message &&
+            byocError.message !== "BYOC_AUTHORIZE_FAILED"
+              ? byocError.message
+              : "";
+          // A transport timeout is not a server verdict: the completion keeps
+          // running server-side and usually lands moments later. Say that,
+          // instead of leaking "Request timed out after 60000ms" into the
+          // alert (audit finding, 2026-08-21).
+          const reason = /timed out|timeout/i.test(raw)
+            ? "This is taking longer than expected, and your cloud may still be " +
+              "finishing in the background. Wait a moment, then press Continue " +
+              "again; if it already finished, the setup list will show it."
+            : raw || "We could not finish setting up your cloud. Try again.";
+          router.replace(
+            `/one/setup/cloud?authorize_error=${encodeURIComponent(reason)}`,
+          );
+        });
+      return;
+    }
     if (!code || !state) {
       setStage("error");
       setError(
@@ -429,9 +469,11 @@ export default function ProfileGmailOAuthReturnPageClient({
         <AppPageContentRegion className="flex min-h-[60vh] items-center justify-center">
           <HushhLoader
             label={
-              stage === "redirecting"
-                ? "Opening Gmail…"
-                : "Connecting your Gmail…"
+              (searchParams.get("state") || initialState || "").startsWith("byoc.")
+                ? "Setting up your cloud. This can take a few minutes…"
+                : stage === "redirecting"
+                  ? "Opening Gmail…"
+                  : "Connecting your Gmail…"
             }
           />
         </AppPageContentRegion>

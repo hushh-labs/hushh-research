@@ -23,7 +23,7 @@ Within the seven-layer platform architecture, mobile is the main Layer 6 and Lay
 Native checks have two deliberately separate lanes:
 
 - `npm run ios:cold:audit` and `npm run android:cold:audit` are destructive fixture audits. They reset app state and use a reviewer fixture to prove cold-start route behavior. They do not prove retained route, authenticated session, or the memory-only vault across background/resume.
-- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive, visible same-session rehearsals. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
+- `npm run ios:continuity:local` and `npm run android:continuity:local` are non-destructive same-session rehearsals. The iOS runner stays headless by default; use `npm run ios:continuity:local -- --visible` only when a desktop window is requested. They require an already-installed, normally unlocked app and never install, clear, terminate, or inject reviewer credentials. Use them for rapid interaction, background/resume, and voice-ownership checks.
 
 The vault key and VAULT_OWNER token remain memory-only. A normal background/resume preserves a valid in-memory session; an actual WebView/process restart requires the normal unlock path. The app shell is the single native lifecycle collector; vault, auth, and notification consumers subscribe to its lifecycle signal rather than registering competing Capacitor listeners.
 
@@ -103,8 +103,14 @@ substituted for one another:
 
 Build commands use the portable `generic/platform=iOS Simulator` destination
 rather than a pinned simulator UDID, because Xcode updates retire device types
-and a pinned id fails only after a full build. Interactive runs resolve a
-concrete simulator at launch time (see `.claude/skills/run-ios-sim/launch.sh`).
+and a pinned id fails only after a full build. Simulator launches resolve a
+concrete device at launch time. The compatibility command
+`APP_RUNTIME_PROFILE=dev .claude/skills/run-ios-sim/launch.sh [UDID]` delegates to
+`.codex/skills/mobile-native/scripts/launch-ios-simulator.sh` through the canonical
+native environment resolver. It keeps Simulator in the background, bounds boot
+readiness to 120 seconds, and verifies the bundled backend before installation.
+Its historical default remains UAT; select dev explicitly for private-branch work.
+Authenticated rehearsal follows the reviewer workflow and is separate from launch proof.
 A cold runner has a 45-second internal
 bootstrap deadline; on expiry it writes a sanitized terminal timeout result and
 stops its interval. No audit may leave a `runui` bootstrap polling after its

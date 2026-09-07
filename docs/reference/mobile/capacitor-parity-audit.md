@@ -44,7 +44,42 @@ Intentional destructive cold-start audit:
 cd hushh-webapp && npm run verify:capacitor:cold:audit
 ```
 
-The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a visible, non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device.
+The cold audit resets native app state and signs in the governed reviewer fixture. It is route/parity evidence only, never vault or route-continuity evidence. For a non-destructive same-session rehearsal, start the already-installed app with `npm run ios:continuity:local` or `npm run android:continuity:local`, then drive the specified interactions in the device. iOS stays headless by default; append `-- --visible` only when a desktop window is requested.
+
+### Build profile and reviewer transport
+
+Select `APP_RUNTIME_PROFILE=dev` for dev audit builds. The native runners and
+build wrapper use `scripts/env/runtime_profile_lib.sh` for profile aliases,
+source filenames and runtime semantics. Dev uses its own resources while
+retaining the `uat` runtime environment. Explicit process values take precedence
+over the selected profile; a saved iOS overlay cannot fill another profile's
+missing identity. Missing required identity fails before building or resetting
+an app. Canonical optional public keys are explicitly empty when absent, so
+Next.js and Capacitor cannot fill them from an unrelated active profile.
+Unselected native release commands retain their saved overlay behavior.
+
+Reviewer passphrases and owner identifiers must never be launch arguments,
+intent extras, URLs or files. iOS simulator launches use the supported
+`SIMCTL_CHILD_` environment transport; XCTest uses `launchEnvironment`. Native
+consumption requires a debug build and explicit test mode. Android uses one
+bounded credential frame over a filesystem socket inside the app's private
+cache directory. The receiver checks the caller UID before reading and removes
+the socket before scheduling the existing bootstrap. `adb shell -T run-as`
+carries the frame through stdin; `exec-out` is unsuitable for this bidirectional
+exchange. The socket filename contains only a random launch identifier and
+stores no credential bytes. Timeout, cancellation and activity-generation
+guards prevent a stale receiver from starting another activity's bootstrap.
+
+Synthetic transport checks are separate from authenticated journey evidence:
+`NativeSupportTests`, `NativeAuditCredentialsTest`,
+`NativeAuditCredentialReceiverTest`, and the native script tests cover their
+respective boundaries. The receiver's host-transport test requires an explicit
+`nativeAuditHostRunId` instrumentation argument and a matching synthetic stdin
+frame from `deliverAndroidAuditCredentials`; its default skip is not a passed
+host transport check. Record instrumentation result contents, not only adb's
+exit code. After a process-killed rehearsal, remove only that run's empty socket
+artifact and verify cleanup. Never persist real credential payloads or raw
+subprocess exception objects in audit receipts.
 
 ## Route Classification Policy
 
@@ -59,15 +94,18 @@ Current policy keeps the full visible app surface in scope, including:
 - `/developers`
 - public/auth content routes
 
-Calendar is intentionally web-only until the app has a native browser/deep-link
-OAuth return handoff. `/one/calendar` and `/one/setup/calendar` must remain
-explicit exclusions rather than presenting a native Google authorization flow
-that cannot complete.
+Calendar uses the system browser and the existing owner-bound backend OAuth
+exchange. Its workspace, setup page, and canonical Google return route are
+required native checks. The return adapter waits for native authentication,
+deduplicates callbacks, and requires an explicit restart after process death
+loses the initiating Calendar attempt. BYOC retains its separate completion path.
+Unit tests and app-link declarations do not prove installed association or live
+Google success; those remain required release evidence.
 
 Current inventory policy:
 
-- 103 routes are native-required and must pass on iOS and Android: 98
-  functional routes and 5 callback routes.
+- Native-required routes must pass on iOS and Android. Derive coverage and counts
+  from `hushh-webapp/native-route-inventory.json`.
 - 17 routes are explicit exclusions: `/blog`, `/blog/[slug]`, `/circle/join`,
   `/developers`, `/kai/optimize`, `/oauth/authorize`, `/one/calendar`,
   `/one/kai/optimize`, `/one/location/check-in/hotel`, `/one/profile/google/oauth/return`,
@@ -232,12 +270,15 @@ Native parity for authenticated flows now includes the verified phone mandate af
   `HushhVoiceInvocation` bridge exposes metadata-only pending/claim/complete
   handoff methods on iOS; Android and web return unsupported/no pending
   invocation and do not create a parallel assistant integration.
-- One Location Agent requires foreground-only location parity:
+- One Location Agent requires foreground location parity:
   `NSLocationWhenInUseUsageDescription` on iOS,
   `android.permission.ACCESS_FINE_LOCATION` / `ACCESS_COARSE_LOCATION` on
   Android, and the `HushhLocation` plugin on web, iOS, and Android.
-- One Location Agent v1 must not add iOS background location mode or Android
-  background location permission.
+- Background sharing has native publishers on iOS and Android with explicit
+  background permission. Android uses a visible foreground service with a stop
+  action. Credentials and pending ciphertext stay in memory; process death
+  requires a new owner-authorized session. Compilation, synthetic execution,
+  and live background/provider success remain distinct evidence requirements.
 - `/one/kai/funding-trade` is part of the native route inventory because voice/action parity can
   land users on the funding trade surface.
 - `/one/location` is part of the native route inventory because live location is
@@ -256,3 +297,19 @@ Native parity for authenticated flows now includes the verified phone mandate af
 Treat docs/runtime drift as a blocker. A route, native contract, or browser-sensitive flow is not parity-ready if the docs and audit registry do not describe it correctly.
 
 Native plugin drift is also a blocker. `cd hushh-webapp && npm run verify:capacitor:plugins` compares TypeScript `registerPlugin` contracts with iOS `CAPBridgedPlugin` metadata and Android `@CapacitorPlugin` / `@PluginMethod` declarations.
+
+### Selected-profile background rehearsals
+
+For an authorized disposable simulator cold audit, select the environment with
+`APP_RUNTIME_PROFILE=dev npm run ios:cold:audit`. The existing native profile
+resolver supplies build and sync configuration; absent dev configuration fails
+instead of borrowing UAT settings. With no profile selected, UAT remains the audit
+default. `NEXT_DIST_DIR` selects the same exported artifact directory used by
+Capacitor, including the generated flow manifest and runner.
+
+Keep `NATIVE_AUDIT_VISIBLE` unset and omit `--visible` for background operation.
+Simulator IPC calls in the route, UI and continuity runners have a 120-second
+per-command limit; this is a host failure bound, not a product latency target or
+an overall build deadline. Continuity waits for full boot readiness even when
+the device already reports Booted. Cold fixtures still do not prove continuity
+of a normal authenticated session.

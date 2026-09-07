@@ -1,12 +1,12 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { verifyPrebuiltNativeEnvironment, applyNativeAuditBuildEnvironment } from "./native-build-environment.mjs";
 import os from "node:os";
 import path from "node:path";
 import { execFileSync, execSync } from "node:child_process";
 import {
   defaultReviewerIdentityEnvFiles,
-  parseEnvFile,
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
@@ -83,7 +83,7 @@ function resolveSimulatorDestination(deviceName) {
     const output = execFileSync(
       "xcrun",
       ["simctl", "list", "devices", "available", "--json"],
-      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }
+      { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], timeout: 120_000, killSignal: "SIGKILL" }
     );
     const payload = JSON.parse(output);
     for (const devices of Object.values(payload.devices || {})) {
@@ -105,6 +105,8 @@ function run(cmd, args, options = {}) {
     cwd: repoRoot,
     encoding: "utf8",
     stdio: ["ignore", "pipe", "pipe"],
+    // Bound simulator IPC without imposing this limit on Xcode builds.
+    ...(args[0] === "simctl" ? { timeout: 120_000, killSignal: "SIGKILL" } : {}),
     ...options,
   }).trim();
 }
@@ -117,47 +119,8 @@ function tryRun(cmd, args) {
   }
 }
 
-function applyEnvValues(values = {}) {
-  for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== "") {
-      process.env[key] = value;
-    }
-  }
-}
-
 function ensureNativeTestBuildEnv() {
-  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
-  const uatValues = parseEnvFile(uatEnvPath);
-  const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
-
-  if (!backendUrl || /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)) {
-    throw new Error(
-      "native iOS UI interaction audit requires UAT NEXT_PUBLIC_BACKEND_URL (.env.uat.local)."
-    );
-  }
-
-  applyEnvValues({
-    APP_RUNTIME_PROFILE: uatValues.APP_RUNTIME_PROFILE || "uat",
-    NEXT_PUBLIC_APP_ENV: uatValues.NEXT_PUBLIC_APP_ENV || "uat",
-    NEXT_PUBLIC_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
-    NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_IOS_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN: uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET: uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
-      uatValues.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    NEXT_PUBLIC_FIREBASE_APP_ID: uatValues.NEXT_PUBLIC_FIREBASE_APP_ID,
-    NEXT_PUBLIC_FIREBASE_VAPID_KEY: uatValues.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID: uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    NEXT_PUBLIC_OBSERVABILITY_ENABLED: uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
-    NEXT_PUBLIC_OBSERVABILITY_DEBUG: uatValues.NEXT_PUBLIC_OBSERVABILITY_DEBUG,
-    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE: uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
-  });
-
-  console.log(`==> native test backend: ${backendUrl}`);
+  applyNativeAuditBuildEnvironment(repoRoot);
 }
 
 function buildApp() {
@@ -203,6 +166,8 @@ function buildApp() {
 }
 
 function verifyPrebuiltApp() {
+  applyNativeAuditBuildEnvironment(repoRoot);
+  verifyPrebuiltNativeEnvironment({ appPath, env: process.env });
   if (!fs.existsSync(appPath)) {
     throw new Error(`prebuilt iOS app is missing: ${appPath}`);
   }
@@ -225,7 +190,9 @@ function ensureSimulatorBooted() {
   if (!destinationDeviceId) return;
   tryRun("xcrun", ["simctl", "boot", destinationDeviceId]);
   run("xcrun", ["simctl", "bootstatus", destinationDeviceId, "-b"]);
-  tryRun("open", ["-a", "Simulator"]);
+  if (process.env.NATIVE_AUDIT_VISIBLE === "true") {
+    tryRun("open", ["-a", "Simulator"]);
+  }
 }
 
 function parseStatus(raw) {
@@ -279,12 +246,14 @@ function launchUiInteractionAudit() {
     "true",
     "-UITestUiFlowRunId",
     uiFlowRunId,
-    "-UITestVaultPassphrase",
-    reviewerVaultPassphrase,
-    "-UITestExpectedUserId",
-    reviewerUid,
   ];
-  run("xcrun", args);
+  run("xcrun", args, {
+    env: {
+      ...process.env,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_VAULT_PASSPHRASE: reviewerVaultPassphrase,
+      SIMCTL_CHILD_HUSHH_UI_TEST_REVIEWER_UID: reviewerUid,
+    },
+  });
   auditAppLaunched = true;
 }
 

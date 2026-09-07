@@ -1,6 +1,32 @@
-# Hussh Codex Operating Rules
+# Hussh Coding Agent Operating Rules
 
-These repo-level instructions supplement the active Codex system/developer instructions. Follow the more specific instruction when there is a conflict.
+These repo-level instructions apply to every coding agent and supplement the active host's system/developer instructions. Higher-priority host instructions and the user's current authorization take precedence; within repository guidance, follow the more specific applicable contract.
+
+## Read this first — how the pieces map together
+
+This file is the **initial source context** for every agent on every platform. Read it before
+routing, before designing, before writing. Everything else in the repo either inherits it by
+pointer or refines it; nothing overrides it except a rule that is genuinely more specific.
+
+| Where | What lives there |
+|---|---|
+| `AGENTS.md` (this file) | The binding kernel — craft, architecture, routing, delegation, authority, and hard rules |
+| `skills/` | Canonical platform-neutral **skills**. Platform folders hold thin bridges that point here, never copies |
+| `agents/` | Canonical authored **subagent** lanes (`*.toml`). `.claude/agents/*.md` is generated from these and verified byte-for-byte in CI |
+| `.codex/skills/`, `.codex/workflows/` | The governed **routing brain** — manifests with owned paths, required reads, verification bundles, risk tags |
+| `docs/future/personal-agent/` | The live **architecture of record** for Private Agent One, including the parity matrix and divergence register |
+| `docs/project_context_map.md` | Orientation: which platform layer maps to which repo anchor |
+| `CLAUDE.md` | Claude-Code-specific operating context; it never contradicts this file |
+| `docs/reference/architecture/runtime-topology-maintenance.md` | Recurring revision-bound audit cadence and existing workflow composition |
+
+**Anti-drift rule.** When this kernel and an architecture document disagree, that is a
+**defect**, not a tolerable difference — and it must be closed in the same change that
+discovers it, in whichever direction is true. Doctrine that silently lags the architecture of
+record is worse than no doctrine, because agents keep enforcing a rule the system has already
+outgrown. This exact failure occurred once already: `ARCHITECTURE.md` §7a moved the pod to a
+persisted, per-pod-key-encrypted working copy on 2026-07-21, and the Agent Architecture
+Doctrine below still said agents hold "no memory of its own" eight days later, so every agent
+reading the kernel enforced a superseded rule. Treat a disagreement as a stop-and-fix.
 
 ## Project-Wide Principal Craft Kernel
 
@@ -83,12 +109,17 @@ Full playbook in `.codex/skills/repo-operations/references/branch-runtime-ops.md
 
 These are the durable architecture principles for every Hussh product agent (One, Kai, Nav, KYC, and future specialists). They govern how agents are built, delegated to, and scaled. Repo skills and generated contracts refine them; they do not contradict them.
 
-1. Dumb agents by default. A Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). If an agent needs protected information, it arrives through a consent-gated channel; the agent never reaches out around the trust boundary.
+1. Agent statefulness is decided by runtime topology, not by a blanket rule. Isolation — an agent must never reach another owner's information — is permanent and non-negotiable. Statelessness was only ever a *consequence* of shared multi-tenancy, never a security property in its own right, and the two must not be conflated.
+   - **Shared multi-tenant runtime — dumb by default.** In the hub (`consent-protocol` serving every user from one process), a Hussh agent is a system prompt plus declared hands and tools. It holds no ambient knowledge, no privileged information access, and no memory of its own. All context flows IN per turn through consented state (session state keys, A2A task payloads, scoped encrypted exports). Memory here would be cross-tenant leakage, so this half of the rule does not move.
+   - **Per-user pod — an intelligent private agent that holds its own memory.** Private Agent One runs on the owner's own compute, in a pod bound to exactly one owner, holding its own X25519 keypair and its own encrypted store. There, isolation is achieved by topology and cryptography rather than by amnesia, so memory is both safe and the thing that makes the agent genuinely personal. This is the model already committed in `docs/future/personal-agent/ARCHITECTURE.md` §7a (founder directive, 2026-07-21), which refines the earlier "ephemeral / no PKM persisted" language into the three-replica cloud-backup ⇄ pod-cache ⇄ device model while keeping zero-knowledge intact. It is now governed by `docs/reference/architecture/private-agent-north-star.md` (founder directive, 2026-08-06) — the single architectural source of truth for the Private Agent workstream, which makes persistence a named requirement and deployment-agnosticism a hard test. Cite it by pointer; never restate it.
+   - **Two different substances, one authority each.** PKM is the *information* authority — the zero-knowledge vault, the system of record for what the owner knows and holds. Pod memory is the *agent-experience* layer — conversation history, learned preferences, working context, the accumulated sense of how to serve this particular owner well. Memory is not a second copy of PKM and must never become one, so the Bacterial Gate's prohibition on a second source of truth is preserved.
+   - **Invariants pod memory must not break** (each already enforced in code; cite by pointer, never restate): Hushh never holds the pod private key (`consent-protocol/hushh_mcp/services/pod_connector_keypair_service.py`, public keys only); no plaintext private data at rest (migration `069_drop_kai_location_plaintext.sql`); exports carry no legacy key material (migration `062_consent_exports_export_key_guard.sql`, DB `CHECK`); the backend stores only ciphertext it cannot read (`api/routes/pkm_routes_shared.py`); no plaintext PII in logs (`hushh_mcp/consent/pii_sanitizer.py`); every pod read is owner-gated and receipted (`hushh_mcp/services/pod_access_audit.py`).
+   - **Memory-specific rules.** Memory never crosses a pod boundary — one pod, one owner, one key. Memory is encrypted under the pod's own key, so the control plane can neither read nor reconstruct it. Memory is inspectable and exportable by its owner and is destroyed with the account through the existing teardown and tombstone path. Recall is an explicit, receipted tool call, never ambient context.
 2. Delegation is a wrapped function of current behavior. When One delegates to a specialist, the delegation wraps the existing dispatch contract without breaking it: same task in, same result out, with consent authority attached per hop. Delegation authority per hop is a scoped encrypted export whose domain is dynamic, identified by the structure agent, never a broad standing grant. Google ADK's Task API (available in ADK 2.x) is the preferred substrate for structured agent-to-agent delegation when this contract crosses process or network boundaries; do not hand-build a parallel delegation envelope.
-3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) use the wiki WRITE operations to upgrade stale articles as part of shipping the change that made them stale. Keeping the wiki current is part of the definition of done, not a follow-up.
+3. Founder Wiki freshness contract. The Founder Wiki (authenticated MCP at `https://mcp.hushh.ai/mcp`) is a north-star evidence lane, and it can lag the repo. Agents doing product or docs work must (a) refresh the wiki MCP tool before reading, (b) treat stale wiki articles as `current_state_vs_north_star_drift`, and (c) reconcile affected articles as part of the authorized change. Read-only audits do not grant publishing authority. When wiki maintenance is authorized in the current session, update the smallest verified section and read it back; otherwise record the exact drift and proposed correction. Never publish private evidence or promote a future proposal to current truth.
 4. Scale-plane doctrine: Postgres now, Redis later. Cross-instance shared state (rate limits, one-time nonces, revocation fan-out, durable agent sessions) is Postgres-backed today because Postgres is the platform's only shared tier. Every such mechanism must be written behind a seam that can swap to Redis/Memorystore Pub/Sub later without contract changes, and each new mechanism notes its Redis upgrade path in code comments or the owning doc.
 5. No second decision-maker. Each interaction surface has exactly one routing authority (the generated action manifest for voice/chat; the owning workflow for engineering lanes). New intelligence slots below One as a specialist; it never becomes a parallel top-level router.
-6. Product agents and engineering agents are separate namespaces. `.codex/agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
+6. Product agents and engineering agents are separate namespaces. `agents` contains read-only engineering evidence lanes; `consent-protocol/hushh_mcp/agents` contains runtime product agents. Never make one impersonate or generate the other.
 7. `AgentManifestV2` YAML is the sole authored product-agent source. Generated registries, cards, action identifiers, surface metadata, and hierarchy projections must be reproducible from it; parallel Python manifests and prompt copies are prohibited.
 8. Use ADK `chat`, `task`, and `single_turn` modes inside one runtime, official A2A Tasks across process or deployment boundaries, and MCP for consented tools and encrypted resources. Invocation authority, information authority, and action authority remain separate at every hop.
 9. Intelligence owns semantic assessment. The active route and top authored interaction layer bound that assessment; deterministic policy may validate, normalize, reject, and enforce authority, but it must not replace agent meaning with keyword or regex classification, infer DOM controls, or substitute a different action.
@@ -97,7 +128,7 @@ These are the durable architecture principles for every Hussh product agent (One
 
 Before accepting a premise, drafting a reply, proposing a plan, patching code, reviewing a PR, or merging work, run a quick repo-backed premise check.
 
-This applies to every non-trivial Codex task in this repo. The goal is to prevent drift where Codex agrees with a user or contributor claim that the repo already contradicts.
+This applies to every non-trivial coding-agent task in this repo. The goal is to prevent drift where an agent agrees with a user or contributor claim that the repo already contradicts.
 
 The canonical shared contract lives at `.codex/skills/codex-skill-authoring/references/truth-first-operating-kernel.md`. Use that file as the source of truth for claim labels, evidence order, domain probes, and agent handoff shape.
 
@@ -132,7 +163,7 @@ Default response shape for repo-backed Q&A:
 4. `What not to build`
 5. `Smallest acceptable next PR`
 
-For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts Codex can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
+For non-trivial planning, questions must be research-backed instead of bare choices. Before asking, state the `Current truth`, `Recommended path`, `Risk if accepted blindly`, and the exact `Decision needed`; put the recommended option first. Do not ask the user to discover facts a coding agent can verify from repo, GitHub, CI, docs, runtime logs, or generated contracts.
 
 ### Natural Planning Questions
 
@@ -146,13 +177,86 @@ ask only when a user-owned decision or new authority is genuinely required.
 Never manufacture checkpoints or ask the user to rediscover facts the repo can
 prove.
 
-Do not write as if the project is blank. Hussh already has many shipped contracts. Codex must actively find and reuse them.
+Do not write as if the project is blank. Hussh already has many shipped contracts. Coding agents must actively find and reuse them.
+
+## Canonical skill center
+
+`skills/` at the repository root is the **single source of truth for platform-neutral
+skills**. A skill lives there once. Every AI platform — Claude Code, Codex, or anything
+adopted later — reaches it through a thin **bridge** inside that platform's own directory.
+
+**Bridges carry routing metadata; the canonical file carries behaviour.** Instructions are
+never copied into a platform folder. Two copies of an instruction file drift the moment one
+is edited, and that drift is invisible: nothing fails, the platforms simply start behaving
+differently. Centralising behaviour makes the divergence impossible rather than merely
+discouraged.
+
+### The contract
+
+```
+skills/<skill-name>/SKILL.md    # required: YAML frontmatter (name, description) + body
+skills/<skill-name>/references/ # optional supporting docs
+skills/<skill-name>/scripts/    # optional executable helpers
+```
+
+`name` must equal the directory name. Write `description` to carry both explicit trigger
+phrases and the situations the skill owns, so a platform matching on keywords and one
+matching on intent both resolve it.
+
+### Building a bridge for any platform
+
+1. **Copy the canonical frontmatter verbatim** into a skill file in the platform's own
+   directory. This is the only permitted duplication — it is that platform's index entry,
+   not behaviour. Where a platform's manifest format differs, translate the frontmatter into
+   that shape.
+2. **The bridge body points at the canonical path and stops.** It must not restate the
+   skill; its first instruction is to read `skills/<skill-name>/SKILL.md` and follow it.
+3. **Never edit a bridge to change behaviour.** Edit the canonical file; every platform
+   picks the change up on its next invocation with no sync step.
+
+Reference implementation: `.claude/skills/verify-before-claim/SKILL.md`. The contract that
+must hold is only this — **discovery may be platform-specific; behaviour must be canonical.**
+
+### Canonical subagent center
+
+`agents/` at the repository root is the **single source of truth for subagent definitions**.
+Authored `*.toml` lanes live there. Derive the fleet inventory from those files rather than maintaining a count in prose.
+
+Subagents use a **stronger** guarantee than the skill bridge: platform copies are
+**generated, not pointed at**. `.claude/agents/*.md` is a mirror produced by
+`.codex/skills/agent-orchestration-governance/scripts/sync_claude_agents.py --write`, and
+`--check` runs in the governance gate so a stale or orphaned mirror fails CI. Generation
+cannot drift the way a hand-maintained copy can; a bridge relies on the agent following a
+pointer, whereas a generated mirror is verified byte-for-byte by a gate.
+
+**Never hand-edit a file under `.claude/agents/`.** Every one carries a generated-from
+header. Edit `agents/<lane>.toml`, re-run the sync with `--write`, and commit both.
+
+To add a platform: write a generator that reads `agents/*.toml` and emits that platform's
+subagent format, then wire its `--check` equivalent into the governance gate. Do not
+introduce a second authored copy — the `.toml` stays the only place a lane is defined.
+
+Seven scripts resolve the authored directory (`sync_claude_agents.py`,
+`agent_orchestration_check.py`, `delegation_router.py`, `agent_fleet_audit.py`,
+`skill_lint.py`, `skill_fleet_audit.py`, `truth_first_smoke.py`). Each holds a single path
+constant; if the directory ever moves again, all seven and the skill/workflow manifests that
+declare it as an owned path must move together, and the governance gate will name any that
+were missed.
+
+### Boundary with `.codex/skills/`
+
+`.codex/skills/` is not "Codex's copy" of anything. It is the governed routing brain: each
+skill carries a `skill.json` declaring `owned_paths`, `required_reads`, `required_commands`,
+`verification_bundles`, and `risk_tags`, validated by `skill_lint.py` and the orchestration
+checks, with manifests that reference `.codex/skills/...` paths directly. It stays where it
+is and remains the routing source of truth described in the next section. Skills carrying a
+governed manifest do not move; skills that are pure practice belong in `skills/`.
 
 ## Project-Wide Routing Gate
 
 Operate with a router mentality on every non-trivial request. Before writing code, answering, or delegating, detect intent and route to the owning contract first. Guessing the lane is the largest accuracy leak in this repo, so routing precedes implementation and precedes delegation.
 
-The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `.codex/agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
+The routing source of truth is the `.codex/` tree, composed exactly the way `./bin/hushh codex route-task` and the `codex-bridge` skill compose it: `workflow` then `owner_skill` plus `default_spoke`, unioned across `required_reads`, `required_commands`, `handoff_chain`, `verification_bundle`, and `risk_tags`. Skills are owners and spokes, workflows compose owner plus spoke, and `agents/*` are advisory delegation lanes, never the first winner. Those agent definitions are mirrored into runnable Claude Code subagents under `.claude/agents/` by `sync_claude_agents.py`; the TOML stays the only authored copy.
 
 When you need to know *where* something lives rather than *which lane owns it*, start at [docs/project_context_map.md](docs/project_context_map.md): it maps the seven platform layers to their real repo anchors and states the four non-negotiables. This file governs behavior; that file governs orientation.
 
@@ -194,7 +298,7 @@ Routing accuracy rules:
 
 At the start of every non-trivial request, run a quick delegation suitability checkpoint as the second half of the routing pass above, before choosing a local-only path. Routing picks the lane; this checkpoint decides whether that lane runs in the parent session or in a read-only subagent.
 
-This applies to every non-trivial Codex task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
+This applies to every non-trivial coding-agent task in this repo, not only PR governance. Repo workflows inherit a global read-only evidence-lane policy unless a workflow explicitly opts out. For high-stakes PR governance, RCA, release readiness, security/consent review, cross-surface runtime work, schema/migration review, docs/founder-language work, voice/action-runtime work, analytics/observability work, mobile/native work, or frontend/backend contract work, use read-only evidence subagents when the suitability checkpoint passes. This is not optional ceremony: if a specialist agent can materially reduce drift or hallucination without blocking the parent, spawn it and record the lane.
 
 Detection uses the same delegation-router command as step 5 of the Routing Gate above; do not run it twice.
 
@@ -250,7 +354,7 @@ For browser tests that depend on an unlocked vault, decrypted information, or a 
 
 ## Project-Wide Branch Discipline Gate (HARD RULE)
 
-This is a hard, non-negotiable rule for every Codex/agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
+This is a hard, non-negotiable rule for every coding-agent task in this repo. It exists because agents have repeatedly drifted: auto-creating branches, leaving the developer parked on a stray branch, and leaving temp branches uncleaned. Do not repeat this.
 
 1. Record the developer's active branch at the start of any branch, CI, PR, merge, deploy, or validation work, and treat it as the branch you MUST return to.
 2. NEVER create a new branch for follow-up, continuation, "phase N", "it felt cleaner", or ship-convenience reasons without either (a) an explicit user request for a new branch, or (b) a genuine isolation need (an isolated `main` hotfix, or unrelated unsafe in-flight work). When in doubt, continue on the existing development branch and cherry-pick across named existing branches.

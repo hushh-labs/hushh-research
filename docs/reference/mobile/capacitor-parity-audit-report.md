@@ -5,7 +5,7 @@
 
 Canonical visual owner: [Mobile Index](README.md). Use that map for the top-down system view; this page is the narrower detail beneath it.
 
-Status as of: May 25, 2026
+Status as of: September 5, 2026
 
 Founder-language note: this report is evidence for `Separation of Duties`, not a new architecture concept. It tracks whether the mobile delivery boundary stays aligned with the shared platform contract.
 
@@ -13,7 +13,7 @@ Founder-language note: this report is evidence for `Separation of Duties`, not a
 
 Current status: cold route-parity gate implemented. The dated simulator/emulator reports below are historical cold-start evidence; they are not proof of normal-session vault or route continuity.
 
-Fresh route evidence:
+Historical route evidence (not current release proof):
 
 - iOS simulator: `native-ios-parity-report.json`, generated `2026-05-25T06:27:59.825Z`, destination `platform=iOS Simulator,id=9C5B1D61-028C-474A-BDFC-523BACC3B02C`, 36 audited / 36 passed / 0 failed.
 - Android emulator: `native-android-parity-report.json`, generated `2026-05-25T06:34:59.304Z`, device `emulator-5554`, 36 audited / 36 passed / 0 failed.
@@ -35,7 +35,13 @@ Continuity is separately rehearsed against an already-installed normal session w
 
 Current tracked evidence blockers:
 
-- None.
+- `verify:capacitor:reports` fails against the current 103-route inventory on the
+  audited local revision. The tracked iOS report declares 91 audited routes but has
+  only 13 results, including a failed `/register-phone`; Android has 76 results.
+- Updated simulator/emulator runs are required to establish route parity. Static
+  plugin checks and historical May results do not replace those runs.
+- iOS background location sharing exists; Android explicitly reports it unavailable.
+  Treat this as a behavioral gap, not proof of full native parity.
 
 The repo now hard-fails when:
 

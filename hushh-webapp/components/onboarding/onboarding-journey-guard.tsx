@@ -11,6 +11,7 @@ import {
   buildOneSetupRoute,
   isCapabilityOnboardingRoute,
   isOnboardingAdmissionExemptRoute,
+  isOneSetupNavigationRoute,
   isOneSetupRoute,
   isOneSetupSurfaceRoute,
   normalizeStaticExportPathname,
@@ -27,10 +28,56 @@ const SETUP_REDIRECT_RETRY_MS = 1200;
 const SETUP_REDIRECT_FAILURE_MS = 2400;
 const SETUP_BOOTSTRAP_RETRY_MS = 300;
 
+/**
+ * The upper bound on the admission check.
+ *
+ * The catch below handles a bootstrap read that REJECTS. It cannot help with one
+ * that simply never returns, and that is the case a first-run person actually
+ * hits: the first paint fans out fourteen database-backed routes against a pool
+ * of four, so calls queue behind an acquire timeout rather than failing. Measured
+ * 2026-08-28, one load produced ten pool-acquire timeouts and a single call that
+ * took 125 seconds. Without a bound here the person sits on "Checking setup..."
+ * with no error and no way forward, which is how this shipped unnoticed: nothing
+ * crashed.
+ *
+ * Slightly longer than the server's own 60s acquire deadline, so a request that
+ * is merely slow still wins and only a genuine hang trips this.
+ */
+const SETUP_ADMISSION_TIMEOUT_MS = 70_000;
+
 function waitForBootstrapRetry(): Promise<void> {
   return new Promise((resolve) =>
     setTimeout(resolve, SETUP_BOOTSTRAP_RETRY_MS),
   );
+}
+
+class SetupAdmissionTimeout extends Error {
+  constructor() {
+    super("Setup admission check timed out");
+    this.name = "SetupAdmissionTimeout";
+  }
+}
+
+/**
+ * Resolve with the work, or reject once the bound elapses. Rejecting routes a
+ * hang into the existing catch, which already clears the loader and offers a
+ * retry, so a stall becomes a visible, recoverable state instead of a forever
+ * spinner.
+ */
+function withAdmissionTimeout<T>(work: Promise<T>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new SetupAdmissionTimeout()), SETUP_ADMISSION_TIMEOUT_MS);
+    work.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timer);
+        reject(error);
+      },
+    );
+  });
 }
 
 function hasExplicitIncompleteSetup(state: PreVaultUserState): boolean {
@@ -143,8 +190,19 @@ export function OnboardingJourneyGuard({
   const isPostRootFinanceSetup =
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE ||
     normalizedGuardPathname === ROUTES.ONE_SETUP_FINANCE_IMPORT;
+  // The pod-provisioning surfaces (the cloud step and the AI-access step, i.e.
+  // SETUP_NAVIGATION_ROUTES) configure the root private agent but are not one-time
+  // onboarding capabilities: their own definition is that they "must be admitted by
+  // the root journey." A setup-complete owner whose private agent is still reserved
+  // must be able to reach /one/setup/cloud to provision their pod, exactly as Finance
+  // stays a valid bounded entry after root completion. Without this a root-resolved
+  // owner is ejected to ONE_HOME and can never provision — the 0-to-1 blocker.
+  const isPodProvisioningSurface = isOneSetupNavigationRoute(pathname);
   const shouldEjectSetupSurface = Boolean(
-    setupSurface && setupDismissed && !isPostRootFinanceSetup,
+    setupSurface &&
+      setupDismissed &&
+      !isPostRootFinanceSetup &&
+      !isPodProvisioningSurface,
   );
 
   useEffect(() => {
@@ -240,16 +298,18 @@ export function OnboardingJourneyGuard({
         let state = cachedState;
         if (!state) {
           try {
-            state = await PreVaultUserStateService.bootstrapState(userId);
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId),
+            );
           } catch {
             // Native auth restoration and cross-tab web auth can publish the
             // user before the token provider or proxy is ready. Retry once
             // with a forced read; never create an unbounded setup loop.
             await waitForBootstrapRetry();
             if (cancelled) return;
-            state = await PreVaultUserStateService.bootstrapState(userId, {
-              force: true,
-            });
+            state = await withAdmissionTimeout(
+              PreVaultUserStateService.bootstrapState(userId, { force: true }),
+            );
           }
         }
         if (cancelled) return;

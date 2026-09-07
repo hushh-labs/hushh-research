@@ -2346,8 +2346,17 @@
       },
       "native": {
         "route": "/one/calendar",
-        "classification": "excluded-web-only",
-        "reason": "GAP, not a permanent exclusion. Calendar is a first-class One agent and should have a native surface; it does not have one yet. Excluding it hides that. Revisit before the next native release."
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fcalendar",
+        "expectedMarker": "native-route-one-calendar",
+        "expectedRoute": "/one/calendar",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
       },
       "shell": {
         "app_page_shell": false,
@@ -5499,8 +5508,17 @@
       },
       "native": {
         "route": "/one/profile/google/oauth/return",
-        "classification": "excluded-web-only",
-        "reason": "OAuth return leg. It exists to receive a system-browser redirect and hand control back; there is nothing for a native surface to render."
+        "classification": "native-required-callback",
+        "initialRoute": "/login?redirect=%2Fone%2Fprofile%2Fgoogle%2Foauth%2Freturn",
+        "expectedMarker": "native-route-one-calendar",
+        "expectedRoute": "/one/calendar",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
       },
       "shell": {
         "app_page_shell": false,
@@ -7079,8 +7097,9 @@
           "screen": "one_setup_hub",
           "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
           "proactivity": "on_entry",
-          "primary_action_id": "setup.open_connections",
+          "primary_action_id": "setup.open_cloud",
           "happy_path_action_ids": [
+            "setup.open_cloud",
             "setup.open_connections",
             "setup.open_gmail",
             "setup.open_calendar",
@@ -7088,7 +7107,6 @@
             "setup.open_email",
             "setup.open_finance",
             "setup.open_ria",
-            "setup.open_connected_systems",
             "setup.hub_master_ack"
           ],
           "required_inputs": [],
@@ -7227,8 +7245,17 @@
       },
       "native": {
         "route": "/one/setup/calendar",
-        "classification": "excluded-web-only",
-        "reason": "GAP, not a permanent exclusion. This is the Calendar agent's setup step and inherits the same gap as /one/calendar. Revisit alongside it."
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcalendar",
+        "expectedMarker": "native-route-one-setup-calendar",
+        "expectedRoute": "/one/setup/calendar",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded",
+          "empty-valid",
+          "unavailable-valid"
+        ]
       },
       "shell": {
         "app_page_shell": false,
@@ -7261,6 +7288,75 @@
       "thread_and_consent_contract": {
         "oauth_connection": "Google refresh tokens remain server-encrypted; setup receives only connection status and an authorization URL."
       }
+    },
+    {
+      "route": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "physical_page_exists": true,
+      "route_contract": {
+        "mode": "standard",
+        "exemption_reason": null,
+        "shell_verification_file": "components/connections/byoc-cloud-setup-page.tsx",
+        "shell_verification_includes": [
+          "AppPageShell",
+          "AppPageHeaderRegion",
+          "AppPageContentRegion",
+          "PageHeader"
+        ],
+        "interaction_layer_policy": {
+          "allowed_families": []
+        },
+        "voice_playbook": {
+          "playbook_id": "route.one.setup.cloud",
+          "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+          "screen": "one_setup_cloud",
+          "entry_cue": "Name the project your agent will live in, then run the one-line grant we give you.",
+          "proactivity": "on_entry",
+          "primary_action_id": "setup.finish_cloud",
+          "happy_path_action_ids": [
+            "setup.finish_cloud"
+          ],
+          "required_inputs": [],
+          "recoveries": {
+            "blocked": "Explain the current guard and retain the goal.",
+            "cancelled": "Respect the cancellation and retain a safe next step.",
+            "failed": "Acknowledge the failure without claiming completion.",
+            "timeout": "Retain the goal and offer one safe retry.",
+            "callback_error": "Return to the verified callback recovery path without claiming success.",
+            "route_mismatch": "Use the verified current route and its generated actions only."
+          },
+          "completion_boundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+          "next_route": "/one/setup",
+          "return_policy": "return_to_hub",
+          "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+        }
+      },
+      "native": {
+        "route": "/one/setup/cloud",
+        "classification": "native-required-functional",
+        "initialRoute": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+        "expectedMarker": "native-route-one-setup-cloud",
+        "expectedRoute": "/one/setup/cloud",
+        "autoReviewerLogin": true,
+        "expectedAuth": "authenticated",
+        "allowedDataStates": [
+          "loaded"
+        ]
+      },
+      "shell": {
+        "app_page_shell": false,
+        "page_header": false,
+        "settings_ui": false,
+        "shared_loader": false,
+        "back_button_pattern": "shared-shell"
+      },
+      "voice_action_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "voice_action_contract_ids": [
+        "setup.finish_cloud"
+      ],
+      "api_dependencies": [],
+      "native_plugin_dependencies": [],
+      "thread_and_consent_contract": null
     },
     {
       "route": "/one/setup/connected-systems",
@@ -9468,5 +9564,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e950dbb56729e1da6bd2f2c943549f793a1fc3e4c596ebe72ad83a5c6a14d3b2"
+  "content_sha256": "748dddd553ba049cb55927bf714188c6dac3b4b34cd3cad178cdb0bc0510dfa7"
 }

@@ -10,15 +10,15 @@
     "cache_reference": "../docs/reference/architecture/cache-coherence.md"
   },
   "summary": {
-    "total_screens": 139,
-    "physical_page_count": 139,
-    "route_contract_count": 139,
-    "surface_map_count": 139,
+    "total_screens": 140,
+    "physical_page_count": 140,
+    "route_contract_count": 140,
+    "surface_map_count": 140,
     "class_counts": {
       "public/static": 2,
       "realtime/SSE": 1,
       "redirect/alias": 45,
-      "vault-backed": 53,
+      "vault-backed": 54,
       "hidden flow": 17,
       "auth/pre-vault": 6,
       "RIA/provider": 9,
@@ -3074,7 +3074,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fpkm%2Frecent",
+      "reviewer_fixture": "/one/pkm/recent",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -3091,6 +3091,7 @@
         "native_beacon": false
       },
       "findings": [
+        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -3518,7 +3519,7 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": false
@@ -4641,7 +4642,7 @@
         "cache_sync": false,
         "resource_wrapper": true,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": true,
         "sse_or_streaming": false,
         "native_beacon": true
@@ -4734,6 +4735,49 @@
       "findings": [
         "no local cache primitive detected in page/contract source"
       ]
+    },
+    {
+      "route": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "route_contract_mode": "standard",
+      "screen_class": "vault-backed",
+      "cache_policy": "memory-only",
+      "cache_keys": [],
+      "resource_classes": [
+        "unknown"
+      ],
+      "sensitivity_class": "app-metadata",
+      "ttl_class": "CACHE_TTL.MEDIUM",
+      "warm_source": "Route-local resource loader",
+      "refresh_trigger": "stale-aware background refresh; explicit user refresh may force",
+      "mutation_invalidator": "CacheSyncService user/session invalidation",
+      "best_available_ux_path": [
+        "fresh memory",
+        "cold loader"
+      ],
+      "readiness_kpis": [
+        "route_readiness_completed",
+        "cache_resource_resolved",
+        "route_refresh_completed"
+      ],
+      "realtime_policy": "not realtime",
+      "reviewer_fixture": "/login?redirect=%2Fone%2Fsetup%2Fcloud",
+      "surface_map_present": true,
+      "route_contract_present": true,
+      "evidence": {
+        "cache_service": false,
+        "use_stale_resource": false,
+        "device_cache": false,
+        "secure_cache": false,
+        "cache_sync": false,
+        "resource_wrapper": true,
+        "direct_fetch": false,
+        "api_service": true,
+        "hushh_loader": false,
+        "sse_or_streaming": false,
+        "native_beacon": false
+      },
+      "findings": []
     },
     {
       "route": "/one/setup/connected-systems",
@@ -5158,7 +5202,7 @@
         "route_refresh_completed"
       ],
       "realtime_policy": "not realtime",
-      "reviewer_fixture": "/login?redirect=%2Fone%2Fcards",
+      "reviewer_fixture": "/one/wallet",
       "surface_map_present": true,
       "route_contract_present": true,
       "evidence": {
@@ -5175,6 +5219,7 @@
         "native_beacon": false
       },
       "findings": [
+        "review native route beacon coverage",
         "no local cache primitive detected in page/contract source"
       ]
     },
@@ -5431,7 +5476,7 @@
         "cache_sync": false,
         "resource_wrapper": false,
         "direct_fetch": false,
-        "api_service": false,
+        "api_service": true,
         "hushh_loader": false,
         "sse_or_streaming": false,
         "native_beacon": false
@@ -6216,5 +6261,5 @@
       ]
     }
   ],
-  "content_sha256": "8c371c16d5b19a341103d2bb936624de7bd7b35de1a8de0aee06a7dff63dd009"
+  "content_sha256": "a4fca5dc20b40f4bd7fdafeaba92447c1a69e74859b54e2b9717b1b98169abd9"
 }

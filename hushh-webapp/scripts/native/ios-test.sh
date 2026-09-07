@@ -23,7 +23,7 @@ try {
   const output = execFileSync(
     "xcrun",
     ["simctl", "list", "devices", "available", "--json"],
-    { encoding: "utf8" }
+    { encoding: "utf8", timeout: 120_000, killSignal: "SIGKILL" }
   );
   const payload = JSON.parse(output);
   for (const devices of Object.values(payload.devices || {})) {
@@ -53,7 +53,13 @@ COMMON_FLAGS=(
 cleanup_native_test_app() {
   if [[ "$DESTINATION" == *",id="* ]]; then
     local device_id="${DESTINATION##*,id=}"
-    xcrun simctl terminate "$device_id" com.hushh.app >/dev/null 2>&1 || true
+    python3 - "$device_id" <<'PYTHON' >/dev/null 2>&1 || true
+import subprocess, sys
+try:
+    subprocess.run(["xcrun", "simctl", "terminate", sys.argv[1], "com.hushh.app"], timeout=15)
+except subprocess.TimeoutExpired:
+    sys.exit(1)
+PYTHON
   fi
 }
 

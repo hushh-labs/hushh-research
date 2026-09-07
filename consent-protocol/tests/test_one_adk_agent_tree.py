@@ -858,15 +858,16 @@ class TestOpenScreen:
 
     @pytest.mark.asyncio
     async def test_normalizes_screen_names(self):
+        # Normalization must not depend on deployment-specific CRM enablement.
         state: dict = {}
-        result = await open_screen("Connected Systems", _tool_context(state))
+        result = await open_screen("Personal Data", _tool_context(state))
         assert result["status"] == "ok"
-        assert result["route"] == APP_ROUTES["connected_systems"]
-        assert state[f"{STATE_PENDING_DIRECTIVE}:connected_systems"] == {
+        assert result["route"] == APP_ROUTES["personal_data"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:personal_data"] == {
             "kind": "navigate",
             "payload": {
-                "route": APP_ROUTES["connected_systems"],
-                "screen": "connected_systems",
+                "route": APP_ROUTES["personal_data"],
+                "screen": "personal_data",
             },
         }
 
@@ -5227,3 +5228,34 @@ def test_the_actions_people_ask_for_by_name_carry_their_own_journey():
         "These are asked for by name from any screen and would need One to "
         f"chain a navigation itself, which is where it breaks: {missing}"
     )
+
+
+class TestPublicLiveRuntime:
+    def test_reuses_restricted_intro_without_full_runner_or_owner_memory(self, monkeypatch):
+        monkeypatch.setattr(_tree, "_build_one_live_model", lambda: "synthetic-live-model")
+        monkeypatch.setattr(
+            _tree,
+            "get_one_runner",
+            lambda: pytest.fail("public intro cannot use full shared runner"),
+        )
+        monkeypatch.setenv("ONE_DB_SESSIONS_ENABLED", "true")
+        runner = _tree.build_one_live_runner(
+            runtime_mode="hushh_managed_vertex", public_intro_only=True
+        )
+        assert runner.agent.name == "one_intro"
+        assert runner.agent.model == "synthetic-live-model"
+        assert {tool.__name__ for tool in runner.agent.tools} == {
+            "run_intro_navigation_action",
+            "list_intro_navigation_actions",
+        }
+        assert runner.agent.sub_agents == []
+        from google.adk.sessions import InMemorySessionService
+
+        assert isinstance(runner.session_service, InMemorySessionService)
+        assert runner.memory_service is None
+
+    def test_public_intro_cannot_carry_byok_authority(self):
+        with pytest.raises(ValueError, match="runtime_bootstrap_invalid"):
+            _tree.build_one_live_runner(
+                runtime_mode="byok", runtime_credential="synthetic-private", public_intro_only=True
+            )

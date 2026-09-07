@@ -1,0 +1,189 @@
+{
+  "schema_version": 1,
+  "reviewed_on": "2026-09-05",
+  "note": "Structural classification only; pending review is not a completion assertion. Canonical twins and governed manifests are derived separately. Hashes detect edits requiring reclassification.",
+  "sources": {
+    ".claude/skills/access-explained/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "f638d88988628486e09cd0dd666b6efa8c12e63ef24d0099436b615f257de321"
+    },
+    ".claude/skills/codex-bridge/SKILL.md": {
+      "classification": "host_adapter",
+      "sha256": "6359f5e256462a7357d85c26f519165301df5b9c9af1414ac02dcf33f99be6be"
+    },
+    ".claude/skills/deploy-uat/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "29f522be3cc06614d1d3f76dc6473fe2365648d3ad9fb3315c3244aa3a50a4ee"
+    },
+    ".claude/skills/design-taste-frontend/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "8abcd20959a5f19d9dd01154677d3643f76593bb6a0f0cbd0c709032248a8a6c"
+    },
+    ".claude/skills/design-taste-frontend-v1/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "c4a3f88e06eb0ce18a639b766951178eb7a3d9f803d68ec64b3dc5e04f8d4b71"
+    },
+    ".claude/skills/full-output-enforcement/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "d5a226a89da6e7a2974a090e245c304ed41d94a645753457fee53772b217a16c"
+    },
+    ".claude/skills/gcp-access/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "85433bfe99894743f6b26ec69042a1faf76100961f908a26cc96533c47694291"
+    },
+    ".claude/skills/gpt-taste/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "4e73eaf11001427f58bc52c5e764cfc73412faf237feb3ed49ae1f16cb5dbe91"
+    },
+    ".claude/skills/high-end-visual-design/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "bcba128755921be702e0e6989d8eef04826d458740f7344e52a70169c0e3d448"
+    },
+    ".claude/skills/hushh-research-ship/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "bb6e649af17c7678f7c03d18356f79a6672d02ac526a6bc1847c5c496d291e85"
+    },
+    ".claude/skills/image-to-code/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "8c9d4076e4caff3eb3d102a5a648314408ce12f85da7d796717c81814f9d9023"
+    },
+    ".claude/skills/impeccable/SKILL.md": {
+      "classification": "imported_dependency_pending_review",
+      "sha256": "a1ea82ce80f4db6f53757a84fc37b639fdc2354ca25e54a30ab6d45dcf944628"
+    },
+    ".claude/skills/location-header-system/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "d4f525c0e4971d5152a9412e12f28b08e60d40caefdab6a4c68621a6e03948ca"
+    },
+    ".claude/skills/minimalist-ui/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "782eb6dab35a91d39d9db26a265956210558699db9e3b78042228dcfece16a23"
+    },
+    ".claude/skills/mobile-bug-log/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "29f7c667d561650bbe52af957d27141041fa942c9c84d150671458a233a58d70"
+    },
+    ".claude/skills/morphy-pdf/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "1900decf45bf2bbd88c6aa07015455276c47ec79907e7db55db4d201596e4473"
+    },
+    ".claude/skills/redesign-existing-projects/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "1b8e4e8c98b1b14a55fe9866905572c2a93708beb6dc85472de23ecb076e96c2"
+    },
+    ".claude/skills/release-ios-appstore/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "c3cb916bba5d6298d2c52194e461581f75aab5da33f5f551a0259b43dfc92242"
+    },
+    ".claude/skills/run-ios-sim/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "a7b92a837fd4540a7be1847b786f351783c49e9733acdf3b2713a44932afe767"
+    },
+    ".claude/skills/safe-changes/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "ad4e77e207c32d04faee810f7cbc816fcc06ab9e12ac5a64d9e2b05deed1ebd9"
+    },
+    ".claude/skills/senior-engineering/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "c7a2eda237923f77e32ea162b9ef5bcaaf3c0a815e940f9e3c47e51e2843dff4"
+    },
+    ".claude/skills/ship-discipline/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "121f024561cbe996e3ee74bfcbad54dbfa64e1b8baa238eaf672b86f6f218622"
+    },
+    ".claude/skills/ship-ios-testflight/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "986a6c889e723bfca4c5fbd6131e5b876b2c0cd0eff4461ab259f244ca7622ad"
+    },
+    ".claude/skills/ship-testflight/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "69927817639b98df8d1804f21c948216961f8e5fa3931b9e0dee170b461fe474"
+    },
+    ".claude/skills/ship-without-actions/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "f851e9f337cd2684d1a85492ee4809625fe7ee31486cc4a319b0da6262786512"
+    },
+    ".claude/skills/wire-voice-action/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "5cfed1e3853b8747d9e61860da1a5bdca879cfd1a88b8c0563b2162fa133c609"
+    },
+    ".claude/skills/wire-voice-navigation/SKILL.md": {
+      "classification": "owner_alias",
+      "sha256": "2e3583325dd731c4877d15b63217f2d0450026f082eb63384608c63acc849a93"
+    }
+  },
+  "imported_agents": {
+    ".claude/skills/impeccable/agents/impeccable_asset_producer.toml": "327e6f53d377ebe297748a603777d496b08be0e77565dd62a4ae26cf632af244",
+    ".claude/skills/impeccable/agents/impeccable_documenter.toml": "d5922228b571900e21a47855d7de9e081c2246fc9cec6c6235b1a6da31098896",
+    ".claude/skills/impeccable/agents/impeccable_finish_reviewer.toml": "f09f9d44730ab6b3942620242e64e3197d7dc06ecb40da83cd20dfcffc480dbd",
+    ".claude/skills/impeccable/agents/impeccable_manual_edit_applier.toml": "7c519ed4a94aa01677b741afa9ae56c71d3b9bc19f48f4166d87b1e4579613ed"
+  },
+  "imports": {
+    "impeccable": {
+      "import_commit": "f844e6b66",
+      "declared_version": "4.0.4",
+      "license_verification": "upstream LICENSE and NOTICE.md retained byte-for-byte from the exact matching revision",
+      "disposition": "retain pinned original executable paths and nested imported agents; do not promote imported writers or activate bypassing host subprocesses through the governed evidence fleet",
+      "source": "https://github.com/pbakaus/impeccable",
+      "upstream_commit": "ae5e95101a6979e7f7973a4ff57680b3c7adc1ec",
+      "upstream_path": ".agents/skills/impeccable",
+      "imported_tree": "cb64801c3c3ee2e00324ce6f5ded1e1100326155",
+      "provenance_verification": "all 152 original imported files match the upstream Git tree exactly",
+      "license": "Apache-2.0; upstream NOTICE identifies MIT-derived platform references",
+      "license_file": ".claude/skills/impeccable/LICENSE",
+      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "execution_review": {
+        "nested_authored_agents": 4,
+        "discovery_metadata": "agents/openai.yaml",
+        "host_bypass_entrypoint": "scripts/live-copy-edit-agent.mjs",
+        "host_bypass_flags": [
+          "--dangerously-bypass-approvals-and-sandbox",
+          "--permission-mode bypassPermissions"
+        ],
+        "relocation_requires": [
+          "preserve the full relative resource graph",
+          "reconcile installed hook and shortcut paths without invoking imported installers",
+          "validate dependency-backed detector modes independently"
+        ]
+      },
+      "dependency_review": {
+        "bundle_local_manifest_or_lock": false,
+        "optional_dynamic_dependencies": [
+          "htmlparser2",
+          "css-select",
+          "css-tree",
+          "domutils",
+          "puppeteer",
+          "@babel/parser",
+          "svelte/compiler"
+        ],
+        "coverage_boundary": "missing parser dependencies can downgrade detection; fallback success is not equivalent coverage"
+      }
+    },
+    "impeccable/modern-screenshot": {
+      "package": "modern-screenshot",
+      "version": "4.7.0",
+      "registry_tarball": "https://registry.npmjs.org/modern-screenshot/-/modern-screenshot-4.7.0.tgz",
+      "registry_integrity": "sha512-9YxN+ddPSMMlhylOv25VHzXrl9u67QRxoh7+SEewGtgUw7t6hHTrjptSDJUSne9oG4Xk/h2cwG15nIt4Hc9ujg==",
+      "vendored_sha256": "bb36665889124a0b6e15f16045265737449c3bdcf2712cdb08af3cfa01563e2b",
+      "matching_path": "package/dist/index.js",
+      "declared_version": "4.7.0",
+      "license": "MIT",
+      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/modern-screenshot.txt",
+      "source": "https://github.com/qq15725/modern-screenshot",
+      "local_path": ".claude/skills/impeccable/scripts/modern-screenshot.umd.js",
+      "provenance_verification": "vendored bytes match package/dist/index.js in the published npm 4.7.0 tarball exactly"
+    },
+    "impeccable/platform-design-skills": {
+      "source": "https://raw.githubusercontent.com/ehmo/platform-design-skills/baff03e456864470db3ba8acebc41a003cbfa541/LICENSE",
+      "upstream_commit": "baff03e456864470db3ba8acebc41a003cbfa541",
+      "sha256": "1126322e2cc8d165adc4c792eeb195717de2bcc7b39be1ce77959d78e87ef685",
+      "scope": "upstream original license for references attributed in Impeccable NOTICE; no exact derivative-source revision inferred",
+      "declared_version": "derived references; original revision not recorded by importer",
+      "license": "MIT",
+      "license_file": ".claude/skills/impeccable/THIRD_PARTY_LICENSES/platform-design-skills.txt",
+      "notice_file": ".claude/skills/impeccable/NOTICE.md",
+      "provenance_verification": "derivation attributed by pinned Impeccable upstream NOTICE; original permission text retained from pinned upstream license commit"
+    }
+  }
+}

@@ -12,7 +12,7 @@
  * For web/cloud deployment, use the existing API routes instead.
  */
 
-import { registerPlugin } from "@capacitor/core";
+import { registerPlugin, type PluginListenerHandle } from "@capacitor/core";
 
 import type {
   // Consent types
@@ -622,91 +622,6 @@ export const HushhSettingsNative = registerPlugin<HushhSettingsPlugin>(
   },
 );
 
-// ==================== HushhDatabasePlugin ====================
-// Local SQLite/IndexedDB storage
-
-export interface HushhDatabasePlugin {
-  initialize(): Promise<{ success: boolean }>;
-  hasVault(options: { userId: string }): Promise<{ exists: boolean }>;
-  storeVaultKey(options: {
-    userId: string;
-    authMethod: string;
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
-    recoveryEncryptedVaultKey: string;
-    recoverySalt: string;
-    recoveryIv: string;
-  }): Promise<{ success: boolean }>;
-  getVaultKey(options: { userId: string }): Promise<{
-    encryptedVaultKey: string;
-    salt: string;
-    iv: string;
-    recoveryEncryptedVaultKey: string;
-    recoverySalt: string;
-    recoveryIv: string;
-  }>;
-  close(): Promise<{ success: boolean }>;
-}
-
-export const HushhDatabase = registerPlugin<HushhDatabasePlugin>(
-  "HushhDatabase",
-  {
-    web: () =>
-      import("./plugins/database-web").then((m) => new m.HushhDatabaseWeb()),
-  },
-);
-
-// ==================== HushhAgentPlugin ====================
-// Local agent runtime
-
-export interface AgentResponse {
-  response: string;
-  sessionState?: Record<string, unknown>;
-  collectedData?: Record<string, unknown>;
-  isComplete: boolean;
-  needsConsent: boolean;
-  consentScope?: string;
-  uiType?: "buttons" | "checkbox" | "text";
-  options?: string[];
-  allowCustom?: boolean;
-  allowNone?: boolean;
-  consentToken?: string;
-  consentIssuedAt?: number;
-  consentExpiresAt?: number;
-}
-
-export interface AgentInfo {
-  id: string;
-  name: string;
-  port: number;
-  available: boolean;
-}
-
-export interface HushhAgentPlugin {
-  handleMessage(options: {
-    message: string;
-    userId: string;
-    agentId?: string;
-    sessionState?: Record<string, unknown>;
-  }): Promise<AgentResponse>;
-  classifyIntent(options: { message: string }): Promise<{
-    hasDelegate: boolean;
-    targetAgent: string;
-    targetPort?: number;
-    domain: string;
-  }>;
-  getAgentInfo(): Promise<{
-    agents: AgentInfo[];
-    version: string;
-    protocolVersion: string;
-  }>;
-}
-
-export const HushhAgent = registerPlugin<HushhAgentPlugin>("HushhAgent", {
-  web: () => import("./plugins/agent-web").then((m) => new m.HushhAgentWeb()),
-});
-
 // ==================== HushhSyncPlugin ====================
 // Handles local-cloud data synchronization
 
@@ -813,6 +728,7 @@ export type HushhLocationPermissionState = {
 };
 
 export type BackgroundShareGrant = {
+  expiresAtMs?: number;
   grantId: string;
   recipientKeyId: string;
   recipientPublicKeyJwk: JsonWebKey;
@@ -829,7 +745,7 @@ export type BackgroundShareSession = {
 export interface HushhLocationPlugin {
   getPermissionState(): Promise<HushhLocationPermissionState>;
   requestLocationPermission(): Promise<HushhLocationPermissionState>;
-  /** iOS: prompt for the "Always Allow" upgrade. No-op elsewhere. */
+  /** Request background authorization; Android opens the owner's app settings. */
   requestAlwaysAuthorization(): Promise<HushhLocationPermissionState>;
   openAppSettings(): Promise<{
     opened: boolean;
@@ -874,8 +790,8 @@ export interface HushhLocationPlugin {
   /** Stop a `watchPosition` subscription started with the returned id. */
   clearWatch(options: { id: string }): Promise<void>;
   /**
-   * Start native background publishing for the given share session. iOS only:
-   * requires Always authorization. Returns { started:false, reason } when
+   * Start native background publishing for the given share session on iOS/Android.
+   * Requires background authorization. Returns { started:false, reason } when
    * unavailable (web, missing permission). Foreground JS keeps publishing too;
    * native takes over while the app is backgrounded.
    */
@@ -884,6 +800,7 @@ export interface HushhLocationPlugin {
   ): Promise<{ started: boolean; reason?: string }>;
   /** Stop native background publishing. Safe to call when not started. */
   stopBackgroundShare(): Promise<void>;
+  addListener(eventName: "backgroundShareStopped", listener: () => void): Promise<PluginListenerHandle>;
 }
 
 

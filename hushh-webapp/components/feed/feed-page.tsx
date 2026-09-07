@@ -25,6 +25,7 @@ import { useStaleResource } from "@/lib/cache/use-stale-resource";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { CACHE_KEYS } from "@/lib/services/cache-service";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
 import { FeedRow } from "@/components/feed/feed-row";
 import { FeedActionableRow } from "@/components/feed/feed-actionable-row";
 import { useFeedActionables } from "@/lib/feed/use-feed-actionables";
@@ -253,6 +254,14 @@ function FeedPageSession({
       });
     },
   });
+
+  // While the person's agent is being built, follow it. The backend writes a
+  // feed row at every transition, and until now the list never went back to
+  // look -- so the one time the Feed had something new to say on its own was
+  // the one time it stayed still. The hook stops on its own once the
+  // deployment settles, and its transition dispatches ride the same
+  // FEED_STATE_CHANGED event `useFeedLiveRefresh` below already listens for.
+  useAgentDeploymentFollow({ enabled: Boolean(user?.uid), userId: user?.uid ?? null });
 
   // Keep the open list live. `force` is required: without it a cache entry that
   // is still inside its TTL short-circuits the load, which is exactly how the

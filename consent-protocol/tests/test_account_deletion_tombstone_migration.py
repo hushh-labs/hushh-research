@@ -726,9 +726,70 @@ async def _run_stale_writer_barrier_rehearsal(database_url: str) -> None:
         except BaseException:
             await reparent_deletion_tx.rollback()
             raise
+        await _assert_pod_admission_deletion_fence(deletion_conn, writer_conn)
     finally:
         await writer_conn.close()
         await deletion_conn.close()
+
+
+async def _assert_pod_admission_deletion_fence(deletion_conn, writer_conn) -> None:
+    """Actual parked schemas inherit migration 201's dynamic admission fence."""
+    import asyncpg
+
+    for filename in ("900_personal_agent_registry.sql", "911_pod_migration_jobs.sql"):
+        await deletion_conn.execute((ROOT / "db/migrations/parked" / filename).read_text())
+    admissions = {
+        "personal_agent_registry": (
+            "INSERT INTO personal_agent_registry(user_id, hushh_id) VALUES($1, $1)"
+        ),
+        "pod_migration_jobs": (
+            "INSERT INTO pod_migration_jobs(user_id, job_id, hushh_id, target_project) "
+            "VALUES($1, $1, $1, 'synthetic-project')"
+        ),
+    }
+    for table, insert in admissions.items():
+        for upsert in (False, True):
+            for commit in (False, True):
+                uid = f"synthetic_fence_{table}_{upsert}_{commit}"
+                await deletion_conn.execute("INSERT INTO actor_profiles(user_id) VALUES($1)", uid)
+                tx = deletion_conn.transaction()
+                await tx.start()
+                task = None
+                try:
+                    await deletion_conn.execute("DELETE FROM actor_profiles WHERE user_id=$1", uid)
+                    sql = insert
+                    if upsert:
+                        sql += " ON CONFLICT(user_id) DO UPDATE SET status=EXCLUDED.status"
+                    task = asyncio.create_task(writer_conn.execute(sql, uid))
+                    waited = False
+                    for _ in range(100):
+                        waited = await deletion_conn.fetchval(
+                            "SELECT wait_event='advisory' FROM pg_stat_activity WHERE pid=$1",
+                            writer_conn.get_server_pid(),
+                        )
+                        if waited:
+                            break
+                        await asyncio.sleep(0.01)
+                    assert waited and not task.done(), (table, upsert, commit)
+                except BaseException:
+                    await tx.rollback()
+                    if task:
+                        task.cancel()
+                        await asyncio.gather(task, return_exceptions=True)
+                    raise
+                if commit:
+                    await tx.commit()
+                    with pytest.raises(asyncpg.CheckViolationError) as rejected:
+                        await asyncio.wait_for(task, timeout=5)
+                    assert rejected.value.sqlstate == "23514"
+                else:
+                    await tx.rollback()
+                    await asyncio.wait_for(task, timeout=5)
+                # Table names come only from the literal map above.
+                count = await deletion_conn.fetchval(
+                    f"SELECT count(*) FROM {table} WHERE user_id=$1", uid
+                )
+                assert count == (0 if commit else 1)
 
 
 @pytest.mark.db

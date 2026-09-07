@@ -31,6 +31,8 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_APP_NAME,
     STATE_CONSENT_TOKEN,
     STATE_CONVERSATION_ID,
+    STATE_DATA_DOOR_GRANTS,
+    STATE_GROUNDING_REASON,
     STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
@@ -49,7 +51,7 @@ from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 logger = logging.getLogger(__name__)
 
-OneTextEventKind = Literal["token", "thought", "source", "directive", "boundary"]
+OneTextEventKind = Literal["token", "thought", "source", "directive", "specialist", "boundary"]
 _FIRST_EVENT_TIMEOUT_SECONDS = 20.0
 _BETWEEN_EVENT_TIMEOUT_SECONDS = 30.0
 _TOTAL_TURN_TIMEOUT_SECONDS = 90.0
@@ -72,11 +74,33 @@ class OneTextSource:
 
 
 @dataclass(frozen=True)
+class OneTextSpecialistOutcome:
+    """WHICH specialist ran, and WHAT it decided. A source says "consulted"; this
+    says "and here is what came back", which is the difference between knowing a
+    door was knocked on and knowing whether it opened.
+
+    It exists because the parity ruler could not see specialists at all. The hub
+    emits a ``specialist_status`` SSE frame and the oracle reads it; the pod
+    returned nothing of the kind, so ``observe_pod`` saw an empty specialist
+    tuple on every real turn and no live run could ever certify a re-homing --
+    the measurement was structurally incapable of registering the thing it was
+    built to measure.
+
+    Shape, never content: an agent id and a state word. No text, no arguments,
+    no payload.
+    """
+
+    agent_id: str
+    status: str
+
+
+@dataclass(frozen=True)
 class OneTextStreamEvent:
     kind: OneTextEventKind
     text: str = ""
     directive: OneTextDirective | None = None
     source: OneTextSource | None = None
+    specialist: OneTextSpecialistOutcome | None = None
 
 
 class OneTextEmptyResponseError(RuntimeError):
@@ -140,6 +164,34 @@ def _runtime_model(
             vertex_project=runtime_vertex_project,
             vertex_location=runtime_vertex_location,
         )
+    if runtime_mode == "user_adc":
+        # The person's OWN Vertex, reached from their OWN pod's service account in
+        # their OWN project. A named third member of this set, never a fallthrough.
+        #
+        # It reaches the same builder as the managed branch on purpose: what differs
+        # is not how the client is built but WHOSE identity ambient ADC resolves to.
+        # Inside a BYOC pod `GOOGLE_CLOUD_PROJECT` is the person's project and the
+        # runtime identity is their pod's service account, so
+        # `ManagedGeminiRuntimeBinding.from_environment()` already resolves to them.
+        # A second builder doing the same work is the drift `factory.py` argues
+        # against.
+        #
+        # The NAME is the point. Reporting `hushh_managed_vertex` in a BYOC pod's log
+        # line would be a false statement about who paid for the turn, and that line
+        # is the evidence the tier is sold on.
+        if credential:
+            raise ValueError("user ADC cannot be constructed from an API key")
+        return build_managed_gemini_adk_model(model, vertex_location=managed_location)
+    if runtime_mode != "hushh_managed_vertex":
+        # Closed set, and closed is the point. hussh's own Vertex identity used to
+        # be the DEFAULT branch: any mode string that was not exactly "byok" landed
+        # here. That is how a vocabulary drift between two files turned into "route
+        # this person's prompts and their grounded holdings through hussh's
+        # identity, billed to hussh" rather than into an error.
+        #
+        # A credential mode nobody recognises must refuse, never fall back to the
+        # most privileged option available.
+        raise ValueError(f"One text runtime mode is not recognised: {runtime_mode!r}")
     if credential:
         # Mirror the existing managed Agent Chat transport: Vertex mode with
         # the platform-managed key, held only by this turn-local model object.
@@ -234,6 +286,48 @@ def _event_sources(event: Any) -> list[OneTextSource]:
     return sources
 
 
+def _event_specialists(event: Any) -> list[OneTextSpecialistOutcome]:
+    """Read specialist OUTCOMES off the tool responses One received this turn.
+
+    `_specialist_turn` already returns `{"status": ..., "availability": {...}}`
+    from every one of its branches -- ready, refused, blocked, or served through
+    the data door -- so the outcome is present in the event stream and was simply
+    never read. The agent id comes from `availability.specialist_id`, which the
+    availability resolver stamps, and falls back to the tool-name map so a
+    response that predates the availability payload is still observed rather than
+    silently dropped.
+
+    An unmapped tool with a `status` is deliberately NOT reported: app-action
+    tools return statuses too, and counting those as specialists would inflate
+    the ruler's reading, which is a worse failure than under-reporting because it
+    would look like progress.
+    """
+    if str(getattr(event, "author", "") or "") != "one":
+        return []
+    get_responses = getattr(event, "get_function_responses", None)
+    if not callable(get_responses):
+        return []
+    outcomes: list[OneTextSpecialistOutcome] = []
+    for reply in get_responses() or []:
+        response = getattr(reply, "response", None)
+        if not isinstance(response, dict):
+            continue
+        status = str(response.get("status") or "").strip()
+        if not status:
+            continue
+        availability = response.get("availability")
+        agent_id = ""
+        if isinstance(availability, dict):
+            agent_id = str(availability.get("specialist_id") or "").strip()
+        if not agent_id:
+            mapped = _SPECIALIST_TOOL_SOURCES.get(str(getattr(reply, "name", "") or ""))
+            agent_id = mapped[0] if mapped else ""
+        if not agent_id:
+            continue
+        outcomes.append(OneTextSpecialistOutcome(agent_id=agent_id, status=status))
+    return outcomes
+
+
 def _directive_from_value(value: Any) -> OneTextDirective | None:
     if not isinstance(value, dict):
         return None
@@ -305,6 +399,7 @@ def _directive_fingerprint(directive: OneTextDirective) -> str:
 async def _stream_one_text_turn_once(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -312,6 +407,7 @@ async def _stream_one_text_turn_once(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
@@ -319,6 +415,7 @@ async def _stream_one_text_turn_once(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
     managed_location: str | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run one typed turn in one endpoint and expose replay boundaries."""
@@ -329,8 +426,18 @@ async def _stream_one_text_turn_once(
     clean_conversation_id = str(conversation_id or "").strip()
     if not clean_user_id or not clean_conversation_id:
         raise ValueError("One text session identity is missing")
+    # The SESSION key, distinct from the person's uid. A single-owner pod's memory
+    # is owner-scoped to its HusshID, and ADK hands the session's user_id to
+    # `search_memory` -- so a pod session keyed by the person's Firebase uid trips
+    # the memory isolation guard on the first recall (observed live, 2026-08-25:
+    # "pod memory is owner-scoped: this pod serves 'ha1_…', asked for 'NH2O…'").
+    # The pod therefore keys its sessions by the AGENT's identity while
+    # STATE_USER_ID keeps carrying the person's uid to tools. Hub callers pass
+    # nothing and keep the person-keyed session exactly as before.
+    session_key = str(session_owner_id or "").strip() or clean_user_id
 
     session_service = InMemorySessionService()
+    memory_service = _resolve_pod_memory_service()
     runner = Runner(
         app_name=ONE_APP_NAME,
         agent=build_one_text_agent(
@@ -345,11 +452,23 @@ async def _stream_one_text_turn_once(
             )
         ),
         session_service=session_service,
+        # The pod's ONLY turn path runs through here, and this argument was absent --
+        # so `resolve_pod_memory_service` had no caller inside a pod at all. Its only
+        # other caller is `get_one_runner`, reached from `adk_live`, which
+        # `pod_server` does not mount. The sealed commit log, the per-owner key, the
+        # hydrate-on-first-use replay were all real and all reachable by nothing: a pod
+        # wrote no memory and recalled none, while every part of the machinery for it
+        # passed its tests.
+        #
+        # Unconditional on purpose. `resolve_pod_memory_service` checks `pod_mode()`
+        # first and returns None in the hub, which is exactly today's hub behaviour --
+        # so this changes the pod and provably nothing else.
+        memory_service=memory_service,
     )
     sanitized_context = dict(screen_context or {})
     session = await session_service.create_session(
         app_name=ONE_APP_NAME,
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=f"chat_{uuid.uuid4().hex}",
         state={
             STATE_USER_ID: clean_user_id,
@@ -359,6 +478,14 @@ async def _stream_one_text_turn_once(
             STATE_SCREEN: str(sanitized_context.get("screen") or "").strip()[:64],
             STATE_VOICE_CONTEXT: sanitized_context,
             STATE_PKM_CONTEXT: str(pkm_context or "").strip()[:20000],
+            # Only meaningful when the projection is empty; the instruction reads it
+            # solely on that branch. Carried rather than recomputed because the
+            # grounding service is the only thing that knows WHY.
+            STATE_GROUNDING_REASON: str(grounding_reason or "").strip()[:200],
+            # The couriered per-specialist read scopes, threaded exactly like the
+            # consent token: state-only, so a DB-backed specialist reads through
+            # the hub broker and the model never sees the tokens themselves.
+            STATE_DATA_DOOR_GRANTS: dict(data_door_grants or {}),
         },
     )
 
@@ -385,7 +512,7 @@ async def _stream_one_text_turn_once(
     started_at = time.perf_counter()
     first_visible_at: float | None = None
     source = runner.run_async(
-        user_id=clean_user_id,
+        user_id=session_key,
         session_id=session.id,
         new_message=new_message,
         run_config=RunConfig(streaming_mode=StreamingMode.SSE),
@@ -410,6 +537,9 @@ async def _stream_one_text_turn_once(
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
 
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
+
         text = _event_text(event)
         if not text:
             continue
@@ -431,6 +561,35 @@ async def _stream_one_text_turn_once(
         raise OneTextEmptyResponseError(
             "One text runtime completed without visible text or a directive"
         )
+
+    # COMMIT THE TURN TO MEMORY. Without this the whole persistence stack was
+    # reachable by nothing.
+    #
+    # `memory_service` was already resolved and handed to the Runner, and that was
+    # mistaken for working memory -- including by me. ADK does NOT auto-populate a
+    # memory service; something has to write to it. Nothing did. So the sealed commit
+    # log, the per-owner derived key and the hydrate-on-first-use replay were all real,
+    # all tested, and a pod forgot everything anyway.
+    #
+    # Deliberately AFTER the empty-response guard: a turn that produced nothing
+    # visible is not an interaction worth remembering, and writing it would fill an
+    # owner's log with failures that never reached them.
+    #
+    # Failure here degrades to a memoryless turn, never a failed one. The person
+    # already has their answer by this point -- raising now would take a delivered
+    # answer away to report a bookkeeping problem.
+    if memory_service is not None:
+        try:
+            await memory_service.add_session_to_memory(
+                await session_service.get_session(
+                    app_name=ONE_APP_NAME,
+                    user_id=session_key,
+                    session_id=session.id,
+                )
+            )
+        except Exception:  # noqa: BLE001 - see above: the answer is already delivered
+            logger.warning("one_text_turn.memory_write_failed", exc_info=True)
+
     logger.info(
         "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",
         runtime_model,
@@ -440,9 +599,28 @@ async def _stream_one_text_turn_once(
     )
 
 
+def _resolve_pod_memory_service():
+    """The pod's memory service, or None everywhere else.
+
+    Fail-safe by construction: a pod that cannot resolve its memory must still answer,
+    so any failure here degrades to a memoryless turn rather than a failed one. The
+    resolver already fails safe internally; this guards the import as well.
+    """
+    try:
+        from hushh_mcp.services.pod_memory_service import (  # noqa: PLC0415
+            resolve_pod_memory_service,
+        )
+
+        return resolve_pod_memory_service()
+    except Exception:  # noqa: BLE001 -- never block a turn on memory
+        logger.exception("one_text.pod_memory_unavailable")
+        return None
+
+
 async def stream_one_text_turn(
     *,
     user_id: str,
+    session_owner_id: str | None = None,
     consent_token: str,
     conversation_id: str,
     message: str,
@@ -450,6 +628,7 @@ async def stream_one_text_turn(
     timezone: str | None,
     screen_context: dict[str, Any] | None,
     pkm_context: str | None,
+    grounding_reason: str | None = None,
     runtime_provider: str,
     runtime_model: str,
     runtime_mode: str,
@@ -457,6 +636,7 @@ async def stream_one_text_turn(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    data_door_grants: dict[str, str] | None = None,
 ) -> AsyncGenerator[OneTextStreamEvent, None]:
     """Run One with same-model regional failover before any observable event."""
     locations: tuple[str | None, ...] = (None,)
@@ -470,6 +650,7 @@ async def stream_one_text_turn(
         try:
             async for event in _stream_one_text_turn_once(
                 user_id=user_id,
+                session_owner_id=session_owner_id,
                 consent_token=consent_token,
                 conversation_id=conversation_id,
                 message=message,
@@ -477,6 +658,7 @@ async def stream_one_text_turn(
                 timezone=timezone,
                 screen_context=screen_context,
                 pkm_context=pkm_context,
+                grounding_reason=grounding_reason,
                 runtime_provider=runtime_provider,
                 runtime_model=runtime_model,
                 runtime_mode=runtime_mode,
@@ -484,6 +666,7 @@ async def stream_one_text_turn(
                 runtime_credential_transport=runtime_credential_transport,
                 runtime_vertex_project=runtime_vertex_project,
                 runtime_vertex_location=runtime_vertex_location,
+                data_door_grants=data_door_grants,
                 managed_location=location,
             ):
                 if event.kind == "boundary":
@@ -580,6 +763,9 @@ async def stream_one_intro_text_turn(
 
         for text_source in _event_sources(event):
             yield OneTextStreamEvent(kind="source", source=text_source)
+
+        for outcome in _event_specialists(event):
+            yield OneTextStreamEvent(kind="specialist", specialist=outcome)
 
         text = _event_text(event)
         if not text:

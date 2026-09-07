@@ -662,3 +662,40 @@ describe("PuppyMachineSheet scheduled work", () => {
     ).toBeInTheDocument();
   });
 });
+
+describe("PuppyMachineSheet with a long schedule", () => {
+  it("keeps the header pinned and scrolls the body, forty jobs deep", async () => {
+    setViewport("desktop");
+    mount({
+      configured: true,
+      reachable: true,
+      agent: { model: "m", on_device: true, on_device_gate: true },
+      machine: { ram_used_pct: 41.2 },
+      jobs: { enabled: 40 },
+    } as never);
+    mocks.fetchPuppyJobs.mockResolvedValue({
+      configured: true,
+      reachable: true,
+      message: null,
+      jobs: Array.from({ length: 40 }, (_, i) => ({
+        id: `job-${i}`,
+        name: `Job ${String(i).padStart(2, "0")}`,
+        schedule: "*/15 * * * *",
+        paused: i % 7 === 0,
+        nextRunAt: null,
+        lastStatus: i === 21 ? "error" : "ok",
+        lastError: i === 21 ? "boom" : null,
+        failureStreak: i === 21 ? 3 : 0,
+      })),
+    } as never);
+    fireEvent.click(await screen.findByRole("button", { name: /this machine/i }));
+    const body = await screen.findByTestId("puppy-machine-body");
+    expect(body.className).toContain("overflow-y-auto");
+    const content = body.closest('[data-slot="dialog-content"]');
+    expect(content?.className).toContain("overflow-hidden");
+    const list = await screen.findByTestId("puppy-job-list");
+    expect(list.querySelectorAll("li").length).toBe(40);
+    // The failing job reads first, however late the gateway listed it.
+    expect(list.querySelector("li")?.textContent).toContain("Job 21");
+  });
+});

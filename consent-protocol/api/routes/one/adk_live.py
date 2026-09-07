@@ -314,11 +314,12 @@ async def _receive_runtime_bootstrap(
         raise ValueError("runtime_bootstrap_required") from None
     if not isinstance(message, dict) or message.get("type") != "runtime_bootstrap":
         raise ValueError("runtime_bootstrap_required")
-    # A resumption handle from a previous socket for this same person. It is
-    # an opaque provider token, not a credential and not model context: it
-    # only lets a dropped conversation continue instead of starting over.
+    # A provider continuation can recover earlier conversation content. An
+    # anonymous ticket cannot prove ownership of a prior signed-in session.
+    # Public reconnects therefore start fresh; pod Live must bind resumptions
+    # to its verified owner before accepting them.
     resumption_handle = str(message.get("resumption_handle") or "").strip()
-    if len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
+    if not uid or len(resumption_handle) > _RESUMPTION_HANDLE_CAP:
         resumption_handle = ""
     # A person's Voice Settings pick. Validated against the same curated
     # allowlist the picker itself offers -- an unrecognized value (a stale
@@ -432,11 +433,21 @@ class _InitialGreetingGate:
         return True
 
 
+# Only public onboarding may execute here. The pod has no Live adapter yet;
+# a signed-in ticket must never become a personal session on shared compute.
+VOICE_CELL_HUB_REASON = "Public onboarding voice runs on the shared hub."
+_PRIVATE_VOICE_UNAVAILABLE = (
+    "Private-agent voice is unavailable. Use your private agent's typed chat."
+)
+
+
 class OneAdkRelaySessionResponse(BaseModel):
     relay_ticket: str = Field(..., max_length=4096)
     expires_at: int = Field(..., ge=0)
     model: str = Field(default="adk", max_length=128)
     tier: str = Field(..., max_length=16)
+    cell: Literal["hub", "pod"] = Field(default="hub")
+    cell_reason: Optional[str] = Field(default=None, max_length=200)
 
 
 @router.post("/relay-session", response_model=OneAdkRelaySessionResponse)
@@ -452,12 +463,23 @@ async def create_one_adk_relay_session(
             detail="One voice is not enabled.",
         )
     uid = await resolve_optional_uid(authorization)
+    if uid:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "code": "AGENT_NOT_READY",
+                "status": "unavailable",
+                "message": _PRIVATE_VOICE_UNAVAILABLE,
+            },
+        )
     persona_tier = resolve_persona_tier(uid, None)
     ticket, expires_at = issue_relay_ticket(uid, persona_tier)
     return OneAdkRelaySessionResponse(
         relay_ticket=ticket,
         expires_at=expires_at,
         tier="full" if uid else "intro",
+        cell="hub",
+        cell_reason=VOICE_CELL_HUB_REASON,
     )
 
 
@@ -513,10 +535,16 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     # keeps a runaway loop from opening sessions faster than a person could
     # ever use them, not a session-count cap that would also punish someone
     # legitimately signed in on two devices.
-    accepted, uid, _persona_tier = await consume_relay_ticket_shared(relay_ticket)
+    accepted, uid, persona_tier = await consume_relay_ticket_shared(relay_ticket)
     if not accepted:
         logger.info("one_adk_live_relay_ticket_rejected")
         await _close_quietly(websocket, code=1008, reason="Voice relay ticket is expired.")
+        return
+    # Also reject tickets minted by an older image before accepting bootstrap
+    # credentials, context or audio. An active pod does not make this hub loop
+    # owner-isolated; this guard is removed only when the pod runs Live itself.
+    if uid or persona_tier in {"signed_locked", "signed_unlocked"}:
+        await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
         return
 
     try:
@@ -535,6 +563,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             runtime_credential_transport=runtime_credential_transport,
             runtime_vertex_project=runtime_vertex_project,
             runtime_vertex_location=runtime_vertex_location,
+            public_intro_only=True,
         )
     except (ValueError, RuntimeError) as exc:
         # Safe class-only close reasons. Never reflect the credential or a raw
@@ -544,7 +573,18 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         # developer_api transport and cannot start without the Hussh-managed
         # live key, so close cleanly instead of crashing the websocket.
         reason = str(exc)
-        logger.info("one_adk_live_runtime_bootstrap_rejected reason=%s", reason)
+        safe_reason = (
+            reason
+            if reason
+            in {
+                "byok_live_unsupported",
+                "managed_live_key_missing",
+                "runtime_bootstrap_required",
+                "runtime_bootstrap_invalid",
+            }
+            else "runtime_configuration_unavailable"
+        )
+        logger.info("one_adk_live_runtime_bootstrap_rejected reason=%s", safe_reason)
         if reason == "byok_live_unsupported":
             await _close_quietly(
                 websocket, code=1008, reason="BYOK Live is unavailable. Use managed Gemini."
@@ -670,8 +710,8 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 "them in for the first time, and gently invite them to begin "
                 "getting set up. Do NOT greet them as if they were returning (no "
                 "'welcome back', no 'back again'). If a screen is known, call "
-                "list_app_actions for the current screen first and name the one "
-                "next thing they can do here; ask for what you need in the same "
+                "list_intro_navigation_actions first and propose only permitted "
+                "public navigation. Authentication happens in the app; ask for the next choice in the same "
                 "breath. Do not list capabilities and do not ask more than one "
                 "light question. If their next reply is a short challenge or "
                 "follow-up such as 'so what?' or 'why?', answer the value "
@@ -876,6 +916,23 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 context_payload = message.get("appContext")
                 if not isinstance(context_payload, dict):
                     context_payload = {}
+                # Public onboarding never accepts a later privilege upgrade.
+                # Reject before appending state or publishing model context.
+                if any(
+                    context_payload.get(key) not in (None, "")
+                    for key in (
+                        "consent_token",
+                        "pkmContext",
+                        "pkm_context",
+                        "runtime_credential",
+                        "runtimeCredential",
+                        "data_door_grants",
+                    )
+                ):
+                    await _close_quietly(
+                        websocket, code=1008, reason="Public voice cannot accept private context."
+                    )
+                    return
                 context_id = _bounded_text(
                     message.get("contextId") or context_payload.get("context_id"), 128
                 )
@@ -884,9 +941,6 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # must be persisted through append_event (state_delta), never
                 # by mutating session.state directly.
                 state_delta: dict[str, Any] = {}
-                if "consent_token" in context_payload:
-                    consent_token = context_payload.get("consent_token")
-                    state_delta[STATE_CONSENT_TOKEN] = _bounded_text(consent_token, 4096)
                 timezone_name = context_payload.get("timezone")
                 if isinstance(timezone_name, str) and timezone_name.strip():
                     state_delta[STATE_TIMEZONE] = timezone_name.strip()[:64]
@@ -902,14 +956,10 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 # Publish the live view they actually read from.
                 publish_live_voice_context(session_id, sanitized_context)
                 canonical_screen = sanitized_context.get("screen")
-                # What the browser actually claimed vs what the index resolved.
-                # A journey waiting on a screen can only be debugged from the
-                # inputs: a stale publisher and a mis-resolved query look
-                # identical downstream, and both surface only as "settling".
+                # Log only the resolved catalog screen. A caller-controlled
+                # path or query can carry private information or credentials.
                 logger.info(
-                    "one_adk_live_context_received family=%s query=%s -> screen=%s",
-                    _bounded_text(context_payload.get("route_family"), 64),
-                    _bounded_text(context_payload.get("route_query"), 64),
+                    "one_adk_live_context_received screen=%s",
                     canonical_screen,
                 )
                 if isinstance(canonical_screen, str) and canonical_screen:
@@ -1549,7 +1599,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             await _pump_live_events()
         except ValueError as tool_error:
             close_reason = "unknown_tool_call"
-            logger.warning("one_adk_live_unknown_tool_call error=%s", str(tool_error)[:160])
+            logger.warning("one_adk_live_unknown_tool_call error=%s", type(tool_error).__name__)
             await websocket.send_text(
                 _safe_json_dumps(
                     {"sessionEnded": {"reason": "unknown_tool_call", "resumable": True}}
@@ -1571,7 +1621,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
             logger.warning(
                 "one_adk_live_runtime_failed classification=%s error=%s",
                 classification,
-                str(runtime_error)[:160],
+                type(runtime_error).__name__,
             )
             # A wire reason code, not user copy. The browser maps it to plain
             # language -- provider names and status codes never reach a person.
@@ -1892,7 +1942,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     up = asyncio.create_task(pump_browser_to_queue())
     down = asyncio.create_task(pump_events_to_browser())
     try:
-        done, pending = await asyncio.wait({up, down}, return_when=asyncio.FIRST_EXCEPTION)
+        done, pending = await asyncio.wait({up, down}, return_when=asyncio.FIRST_COMPLETED)
         for task in done:
             task_error = task.exception()
             if task_error is None:
@@ -1963,6 +2013,9 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         issued_directive_gc_tasks.clear()
         if greeting_task is not None:
             greeting_task.cancel()
+        await asyncio.gather(
+            up, down, *([greeting_task] if greeting_task else []), return_exceptions=True
+        )
         queue.close()
         # Same lifetime as the session itself: the published live context is
         # per-socket, so it must not outlive the socket that owns it.

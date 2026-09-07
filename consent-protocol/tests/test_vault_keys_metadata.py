@@ -1258,3 +1258,45 @@ async def test_get_vault_state_returns_none_for_placeholder():
 
     result = await service.get_vault_state("user-ghost")
     assert result is None
+
+
+def test_millisecond_fields_survive_normalization() -> None:
+    """Every ms field on /api/vault/bootstrap-state was null, and nothing said so.
+
+    `_normalize_int_ms_or_none` was `if value is None: return None` and then the function
+    ended -- its `try: return int(value)` body had been spliced into the NEXT function,
+    *after* that function's `return`, where it was unreachable. So the normalizer answered
+    None for every non-None input: firstLoginAt, lastLoginAt, setupCompletedAt,
+    navSetup*At, setupCapabilitiesUpdatedAt, onboardingJourneyUpdatedAt, createdAt and
+    updatedAt all serialized as null.
+
+    The quiet consequence is the one worth guarding: `expectedOnboardingJourneyUpdatedAt`
+    optimistic concurrency compares against that value, so it was comparing against null
+    and could not detect a stale journey at all.
+
+    Broken on purpose: delete the `try` body from `_normalize_int_ms_or_none` and the
+    first assertion fails.
+    """
+    normalize = VaultKeysService._normalize_int_ms_or_none
+
+    assert normalize(1699999999999) == 1699999999999
+    assert normalize("1699999999999") == 1699999999999
+    assert normalize(1699999999999.0) == 1699999999999
+
+    # Absent stays absent, and unparseable is not a silent zero.
+    assert normalize(None) is None
+    assert normalize("not-a-timestamp") is None
+    assert normalize([]) is None
+
+
+def test_runtime_setup_choice_normalizer_has_no_unreachable_tail() -> None:
+    """The sibling function that the ms body had been spliced into still answers.
+
+    Broken on purpose: return an unvalidated value and the last assertion fails.
+    """
+    normalize = VaultKeysService._normalize_one_runtime_setup_choice
+
+    assert normalize("hushh_managed_vertex") == "hushh_managed_vertex"
+    assert normalize(" byok_pending_vault ") == "byok_pending_vault"
+    assert normalize(None) is None
+    assert normalize("not_a_choice") is None

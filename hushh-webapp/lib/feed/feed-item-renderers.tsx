@@ -1,9 +1,11 @@
 import type { LucideIcon } from "lucide-react";
 import {
+  AlertTriangle,
   Database,
   MapPin,
   Newspaper,
   ShieldCheck,
+  Sparkles,
   TrendingUp,
   UserRound,
   Users,
@@ -190,6 +192,114 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: "Consent revoked",
         description: scope ? `${scope} was revoked.` : "A consent was revoked.",
         href: buildConsentCenterHref("previous"),
+      };
+    /**
+     * Personal agent lifecycle. Provisioning is fire-and-forget in the backend
+     * and invisible everywhere else, so these rows are the only place a person
+     * watches their own private agent being created. They ride the `consent`
+     * source domain (the agent's authority is a standing consent grant, and
+     * feed_events.source_domain is CHECK-constrained), so the domain label is
+     * overridden here rather than reading "Consent".
+     */
+    case "personal_agent_reserved":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is on the way",
+        description: "We reserved your own private agent. Nothing for you to do.",
+        href: null,
+      };
+    case "personal_agent_provisioning":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Setting up your private agent",
+        description: "Your private agent is being set up in the background.",
+        href: null,
+      };
+    // The longest wait in the whole journey, and until now the only one with no
+    // renderer at all — so the backend wrote `personal_agent_connecting` and the
+    // feed answered "Something happened in your account." The minutes a person
+    // spends most anxious about whether this worked had the worst copy in the app.
+    //
+    // What is actually true at this point: the person's own compute exists and is
+    // starting up, and it is handing over its key so nothing but their agent can
+    // read their records. Said plainly, because that IS the product.
+    case "personal_agent_connecting":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is starting up",
+        description:
+          "Your own private compute is running. It is handing over its key so only your agent can read your records.",
+        href: null,
+      };
+    case "personal_agent_ready":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is ready",
+        description: "It is set up and ready whenever you are.",
+        href: ROUTES.AGENT,
+      };
+    case "personal_agent_updated":
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent was updated",
+        description: "It is running the newest build, in your own private space.",
+        href: ROUTES.AGENT,
+      };
+    case "personal_agent_failed": {
+      // The backend only ever writes a closed vocabulary of user-safe reason
+      // codes here — never an exception message — so an unknown code falls back
+      // to the plain line rather than rendering anything raw.
+      const reason = metadataString(item.metadata, "reason");
+      return {
+        icon: AlertTriangle,
+        domainLabel: "Private agent",
+        label: "Your private agent is not ready yet",
+        description:
+          reason === "invalid_details"
+            ? "Some details did not check out, so setup could not finish."
+            : "We could not finish setting it up yet. Nothing was lost.",
+        href: null,
+      };
+    }
+    case "personal_agent_provisioning_capped":
+      // The fleet cap is our constraint, not a mistake the person made, so this
+      // reads as a queue rather than a failure.
+      //
+      // It used to end "starts automatically", and that was not true. A capped row
+      // is left at `pending` on purpose (the cap is checked before the first
+      // registry write), and the reconcile sweep retries only `provisioning` and
+      // `failed`. Adding `pending` to that sweep would be worse than the wrong
+      // sentence: `pending` is ALSO the state of someone who verified a phone and
+      // never connected an AI key, so the sweep would start building agents for
+      // people with no model to run them — the exact behaviour the AI-connection
+      // gate exists to remove.
+      //
+      // So the copy says what is actually true and gives the person the one action
+      // that genuinely restarts it. A capped-row retry is worth building; promising
+      // it before it exists is not.
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is in the queue",
+        description:
+          "We are at capacity right now. Your place is saved — check your AI connection again shortly to start it.",
+        href: ROUTES.PROFILE_PREFERENCES_GEMINI,
+      };
+    case "personal_agent_reaped":
+      // Only the compute is torn down; the registry row and identity survive, and
+      // the next thing the person does re-provisions it. Saying "deleted" would be
+      // false, and saying nothing would make the next cold start look like a fault.
+      return {
+        icon: Sparkles,
+        domainLabel: "Private agent",
+        label: "Your private agent is resting",
+        description: "It was idle for a while, so we powered it down. It wakes when you need it.",
+        href: ROUTES.AGENT,
       };
     // Location events use a person-first layout: the title is the counterparty's
     // name (falling back to "Location" only when no name is resolvable), and the

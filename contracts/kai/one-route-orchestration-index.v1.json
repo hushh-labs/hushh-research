@@ -1474,7 +1474,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-calendar"
     },
     {
       "route_pattern": "/one/connect",
@@ -3855,7 +3855,7 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "none",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-calendar"
     },
     {
       "route_pattern": "/one/profile/integrations",
@@ -4947,8 +4947,9 @@
         "screen": "one_setup_hub",
         "entry_cue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
         "proactivity": "on_entry",
-        "primary_action_id": "setup.open_connections",
+        "primary_action_id": "setup.open_cloud",
         "happy_path_action_ids": [
+          "setup.open_cloud",
           "setup.open_connections",
           "setup.open_gmail",
           "setup.open_calendar",
@@ -4956,7 +4957,6 @@
           "setup.open_email",
           "setup.open_finance",
           "setup.open_ria",
-          "setup.open_connected_systems",
           "setup.hub_master_ack"
         ],
         "required_inputs": [],
@@ -4981,6 +4981,7 @@
       "action_ids": [
         "setup.hub_master_ack",
         "setup.open_calendar",
+        "setup.open_cloud",
         "setup.open_connected_systems",
         "setup.open_connections",
         "setup.open_email",
@@ -5089,7 +5090,54 @@
         "allowed_delegate_agent_ids": []
       },
       "trust_boundary": "auth",
-      "native_surface_id": null
+      "native_surface_id": "native-route-one-setup-calendar"
+    },
+    {
+      "route_pattern": "/one/setup/cloud",
+      "page_file": "app/one/setup/cloud/page.tsx",
+      "route_mode": "standard",
+      "orchestration_class": "interactive",
+      "instruction_id": "route.one.setup.cloud",
+      "context_policy": "publish",
+      "voice_playbook": {
+        "playbook_id": "route.one.setup.cloud",
+        "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+        "screen": "one_setup_cloud",
+        "entry_cue": "Name the project your agent will live in, then run the one-line grant we give you.",
+        "proactivity": "on_entry",
+        "primary_action_id": "setup.finish_cloud",
+        "happy_path_action_ids": [
+          "setup.finish_cloud"
+        ],
+        "required_inputs": [],
+        "recoveries": {
+          "blocked": "Explain the current guard and retain the goal.",
+          "cancelled": "Respect the cancellation and retain a safe next step.",
+          "failed": "Acknowledge the failure without claiming completion.",
+          "timeout": "Retain the goal and offer one safe retry.",
+          "callback_error": "Return to the verified callback recovery path without claiming success.",
+          "route_mismatch": "Use the verified current route and its generated actions only."
+        },
+        "completion_boundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
+        "next_route": "/one/setup",
+        "return_policy": "return_to_hub",
+        "out_of_scope_behavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+      },
+      "interaction_layer_policy": {
+        "allowed_families": []
+      },
+      "canonical_screen": "one_setup_cloud",
+      "voice_contract_file": "app/one/setup/cloud/page.voice-action-contract.json",
+      "action_ids": [
+        "setup.finish_cloud"
+      ],
+      "action_coverage": "inherited",
+      "delegation_policy": {
+        "mode": "no_delegation",
+        "allowed_delegate_agent_ids": []
+      },
+      "trust_boundary": "auth",
+      "native_surface_id": "native-route-one-setup-cloud"
     },
     {
       "route_pattern": "/one/setup/connected-systems",

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from dataclasses import dataclass, field
 from functools import lru_cache
@@ -23,6 +24,11 @@ load_dotenv(_REPO_ROOT / ".env.local", override=False)
 
 APP_SIGNING_KEY_ENV = "APP_SIGNING_KEY"
 VAULT_DATA_KEY_ENV = "VAULT_DATA_KEY"
+# KMS envelope resolution (SC-12/SC-28): the DEKs above may instead be supplied as
+# KMS-wrapped ciphertext + a KEK resource, unwrapped once at startup. Off by default.
+APP_SIGNING_KEY_CIPHERTEXT_ENV = "APP_SIGNING_KEY_CIPHERTEXT"
+VAULT_DATA_KEY_CIPHERTEXT_ENV = "VAULT_DATA_KEY_CIPHERTEXT"
+KMS_KEK_RESOURCE_ENV = "KMS_KEK_RESOURCE"
 # Connector-credential encryption password (PBKDF2 input) for the MuleSoft
 # PBKDF2-AES256-CBC scheme. Separate trust domain from VAULT_DATA_KEY (user
 # data). Falls back to VAULT_DATA_KEY until a dedicated key is provisioned.
@@ -394,11 +400,563 @@ def get_omnigateway_transport_headers(
     return tuple(headers)
 
 
-def crm_registry_db_enabled() -> bool:
-    """Feature flag: resolve Connected Systems from the DB-backed enterprise CRM
-    registry (decrypting credentials with VAULT_DATA_KEY) instead of the
-    hardcoded in-code definition. Defaults off until cutover."""
-    return _bool_from_value(_clean_env("CRM_REGISTRY_DB_ENABLED"), default=False)
+def personal_agent_enabled() -> bool:
+    """Kill-switch feature flag for the per-user personal-information agent.
+
+    Master off-switch for the entire Phase 0 personal-agent surface (registry,
+    HusshID minting, standing pkm.read issuance, pod keypair, prompt sync).
+    Defaults OFF: nothing in that surface activates until this is explicitly
+    turned on, and flipping it back to off disables the surface with no
+    redeploy."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_ENABLED"), default=False)
+
+
+def pod_directive_transport_enabled() -> bool:
+    """Let the hub relay authorize and return an in-pod agent's directives.
+
+    OFF by default. When off, the relay forwards the pod's text answer and
+    ignores the ``directives`` the pod now always includes -- today's behaviour,
+    exactly. When on, the relay supersedes the prior directive, re-validates each
+    action against the gateway, issues a single-use ledger entry, and returns the
+    resulting frames so the browser can render the card or launch the Debate.
+
+    The switch is on the RELAY, not the pod, deliberately: the pod only ever
+    PROPOSES intent (inert without an authorizer), and authorization is a hub
+    responsibility because the ledger is DB-backed and the pod holds no database
+    credential. Flipping this off is an instant, total rollback of app-driving
+    from a pod turn."""
+    return _bool_from_value(_clean_env("POD_DIRECTIVE_TRANSPORT_ENABLED"), default=False)
+
+
+def pod_lifecycle_log_enabled() -> bool:
+    """Append provisioning narrative to ``pod_lifecycle_events`` (migration 907).
+
+    Defaults OFF because the table is a parked dev-only migration: with the flag
+    up but the table absent every append would log a swallowed failure on every
+    lifecycle transition, which is noise describing configuration rather than
+    fault. The writer is fail-safe either way -- this flag only decides whether
+    it tries. The READ side does not consult this flag at all -- by design, not
+    omission: the endpoints treat an absent or empty table as an empty narrative
+    and serve the snapshot from the registry row, so a half-enabled deployment
+    degrades to snapshot-only with no second flag to keep in sync."""
+    return _bool_from_value(_clean_env("POD_LIFECYCLE_LOG_ENABLED"), default=False)
+
+
+def personal_agent_autoprovision_enabled() -> bool:
+    """Fire a user's pod automatically once their phone is verified.
+
+    OFF, the phone-verify seam stops where it always has: a ``pending`` registry
+    row reserving the user's HusshID, and a pod only when the owner-authorized
+    ``POST /api/one/personal-agent/provision`` is called. ON, that same seam
+    continues straight through to :meth:`provision`, so every verified signup
+    gets a host with no further interaction.
+
+    Separate from ``PERSONAL_AGENT_ENABLED`` on purpose, and defaults OFF. The
+    master flag opens the surface; this one decides whether verifying a phone
+    *spends money*. A pod is a real billable host, and "every signup provisions"
+    is exactly the shape that turns a load test into a bill -- so it must be a
+    deliberate, separately-revocable act. ``PERSONAL_AGENT_MAX_PODS`` remains the
+    ceiling underneath it, and is what actually bounds the spend.
+
+    Intended for the dev environment while the flow is being proven end to end."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_AUTOPROVISION_ENABLED"), default=False)
+
+
+def user_gcp_substrate_apply_enabled() -> bool:
+    """Let the BYOC bootstrap CREATE resources in a user's own GCP project.
+
+    OFF (the default) the ensurer still runs and still renders the full plan, but
+    ``UserGcpBootstrap.apply`` stays in dry-run and nothing is created. That is the
+    honest inert state: the plan and its resource identifiers are inspectable and
+    diffable before anyone points them at a real person's cloud.
+
+    Separate from ``HUSSH_USER_GCP_LIVE`` deliberately, because the two authorise
+    different things. This one creates DURABLE infrastructure in someone else's project
+    -- a KMS key, a CMEK bucket, a service account and its IAM -- which outlives any pod
+    and which hushh cannot remove unilaterally. ``HUSSH_USER_GCP_LIVE`` merely creates a
+    Cloud Run service on substrate that already exists. One switch for both would mean
+    the first person to enable pod provisioning had silently also authorised permanent
+    resource creation in their cloud.
+
+    Consulted only when the person's ``deployment_target`` is the BYOC backend; every
+    other target resolves to the no-substrate ensurer and never reaches this."""
+    return _bool_from_value(_clean_env("HUSSH_USER_GCP_SUBSTRATE_APPLY"), default=False)
+
+
+def personal_agent_backend() -> str:
+    """Selected compute backend for the per-user agent (see ``compute_backend``).
+
+    The provider abstraction's selector: which host stands a user's agent up.
+    Empty/unset (the default) resolves to the inert ``NullBackend`` -- so even with
+    the kill-switch on, nothing calls out to a real host until a backend is both
+    implemented and explicitly named here. Reserved values ('gcp', 'anypoint')
+    land with their milestones (docs/future/personal-agent/ROADMAP.md M4/M7)."""
+    return (_clean_env("PERSONAL_AGENT_BACKEND") or "").strip().lower()
+
+
+# Dev-team-sized fleet ceiling. Deliberately small: every signed-in user gets a
+# pod (founder decision), so the ceiling -- not an eligibility allowlist -- is the
+# cost containment. See docs/future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md B3.
+_PERSONAL_AGENT_MAX_PODS_DEFAULT = 50
+
+
+def personal_agent_max_pods() -> int:
+    """Hard ceiling on how many personal-agent pods may exist at once.
+
+    A pod is a real, billable host once ``PERSONAL_AGENT_BACKEND`` names a live
+    backend, and every signed-in user gets one, so a runaway test loop is a
+    runaway bill. Provisioning checks this BEFORE asking a backend to stand a host
+    up; at the ceiling the registry row is left untouched (``pending``) and a
+    ``personal_agent_provisioning_capped`` feed row is written instead of raising,
+    because provisioning is fire-and-forget and an exception there would be an
+    invisible, unretried break.
+
+    Defaults to 50. Unset, blank, non-numeric, and non-positive all FAIL SAFE back
+    to that default rather than to "unlimited": a typo in the environment must
+    never silently remove the ceiling. There is deliberately no unlimited value --
+    to raise the ceiling, raise the number.
+
+    THE NUMBER ABOVE THIS ONE, AND WHY IT IS A TRIGGER
+    --------------------------------------------------
+    This is a row count in our own registry. The platform number underneath it was
+    read from the authority rather than from documentation:
+
+        Cloud Run "Services", unit 1/{project}/{region}
+        effectiveLimit = 1000, defaultLimit = 1000   (hushh-pda-dev, 2026-08-06)
+
+    ``effectiveLimit == defaultLimit`` means no increase has ever been granted on
+    that project. That is a **sharding trigger, not a wall**: the operator identity
+    can measure consumption and provision additional GCP projects on the fly, so
+    hussh-managed capacity grows by standing up the next project before a region
+    fills. On Bring-Your-Own-Compute the service lives in the user's own project
+    and the number is theirs, not ours.
+
+    What it means for THIS setting: keep it at or below the per-project number the
+    provisioner is currently filling. Setting it past 1000 for one project would
+    pass our own check and then fail at Cloud Run -- after the registry row exists
+    and after the person has been told their agent is being built, which is the
+    least useful place for a limit to surface."""
+    value = _int_from_value(_clean_env("PERSONAL_AGENT_MAX_PODS"), _PERSONAL_AGENT_MAX_PODS_DEFAULT)
+    return value if value > 0 else _PERSONAL_AGENT_MAX_PODS_DEFAULT
+
+
+# 7 days. Long enough that a developer who steps away for a week keeps a warm pod,
+# short enough that an abandoned pod is not billed indefinitely.
+_POD_IDLE_REAP_HOURS_DEFAULT = 168
+
+
+def pod_idle_reap_hours() -> int:
+    """Hours of inactivity after which a provisioned pod's HOST is torn down.
+
+    Fleet hygiene for the reconcile sweep
+    (``personal_agent_reconcile_worker``). Reaping removes only the compute --
+    the registry row, the HusshID, and the A2A address all survive, so the agent
+    re-provisions on the owner's next activity. Nothing is lost; a cold start is
+    paid instead of an idle warm floor.
+
+    Defaults to 168 (7 days). Unset, blank, non-numeric, and non-positive all FAIL
+    SAFE back to that default: a bad value must never collapse the threshold to
+    zero and reap a live fleet."""
+    value = _int_from_value(_clean_env("HUSSH_POD_IDLE_REAP_HOURS"), _POD_IDLE_REAP_HOURS_DEFAULT)
+    return value if value > 0 else _POD_IDLE_REAP_HOURS_DEFAULT
+
+
+# A warm pod is a PAID always-on instance, so its silence is a fault and should be
+# noticed in minutes, not hours. 300s tolerates several missed 60s heartbeats plus a
+# revision roll, which is the difference between "we are deploying" and "it is down".
+_POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT = 60
+_POD_WARM_STALE_SECONDS_DEFAULT = 300
+
+
+def pod_heartbeat_interval_seconds() -> int:
+    """How often a pod reports in to the hub.
+
+    Read by the POD, not the hub. The hub's staleness threshold
+    (:func:`pod_warm_stale_seconds`) must stay comfortably above this or every
+    normal gap between beats reads as a fault; the default pair leaves room for
+    four consecutive misses.
+
+    Fails safe to 60 on unset/blank/non-numeric/non-positive. A zero here would be a
+    tight loop hammering the hub from every pod in the fleet at once."""
+    value = _int_from_value(
+        _clean_env("HUSSH_POD_HEARTBEAT_INTERVAL_SECONDS"),
+        _POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT,
+    )
+    return value if value > 0 else _POD_HEARTBEAT_INTERVAL_SECONDS_DEFAULT
+
+
+def pod_warm_stale_seconds() -> int:
+    """Silence after which a WARM pod is considered stale and worth probing.
+
+    Applies to ``liveness_mode='warm'`` rows only. An economy (scale-to-zero) pod is
+    SUPPOSED to be silent when idle, so this threshold is meaningless for it and the
+    evaluator never applies it there -- see ``pod_liveness_service``.
+
+    Fails safe to 300 on unset/blank/non-numeric/non-positive. A zero would mark the
+    entire warm fleet stale on the first pass and trigger a fleet-wide probe."""
+    value = _int_from_value(
+        _clean_env("HUSSH_POD_WARM_STALE_SECONDS"), _POD_WARM_STALE_SECONDS_DEFAULT
+    )
+    return value if value > 0 else _POD_WARM_STALE_SECONDS_DEFAULT
+
+
+def pod_native_grounding_enabled() -> bool:
+    """Let a pod ground its agent from its OWN records instead of a client blob.
+
+    Default **OFF**. Grounding is client-mediated today: the browser holds the vault
+    key, decrypts holdings locally and posts them back per turn, so the hub never
+    holds the key. That is a real zero-knowledge property, and switching sources
+    changes what the agent is told -- which is not a change to make implicitly.
+
+    The reason to turn it on is that the current path requires a browser with an
+    unlocked vault, so a pod-hosted agent, the iOS shell, an A2A call and any
+    proactive turn all reach the model knowing nothing about the person they serve.
+    See ``pkm_grounding_service`` for the ephemeral-key refusal this switch implies."""
+    return _bool_from_value(_clean_env("HUSSH_POD_NATIVE_GROUNDING_ENABLED"), default=False)
+
+
+def provision_on_ai_connection() -> bool:
+    """Provision a user's agent when their AI connection verifies, not when they log in.
+
+    Default **ON**, because it is the correct trigger and the old one was actively
+    wasteful: firing off phone-verify put a billable, warm, heartbeating Cloud Run
+    service behind an event that says nothing about whether the agent could ever
+    think. A user who verified a phone and never connected a model got a pod that
+    answered nothing, forever, at full price.
+
+    It is still inert until ``PERSONAL_AGENT_ENABLED`` is on, so flipping this alone
+    provisions nothing. Set it to false only to fall back to the legacy phone-verify
+    trigger -- the two are mutually exclusive by construction (see
+    ``actor_identity_service.schedule_provision_personal_agent``), because running
+    both would race two provisions for one user."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_PROVISION_ON_AI_CONNECTION"), default=True)
+
+
+def pod_managed_model_enabled() -> bool:
+    """Allow a pod to serve a turn on the FLEET's model identity instead of the owner's.
+
+    Default **OFF**, and the default is the product position rather than caution.
+    "Own your AI. Own your data. Own your compute." is not marketing here -- an agent
+    that quietly bills its thinking to a shared account owns none of the three, and
+    one heavy user would spend a pool everyone depends on.
+
+    It also costs the isolation story. The pod service account holds ZERO project
+    roles, which is precisely what makes a compromised pod uninteresting. Serving
+    turns from a fleet Vertex identity means granting ``aiplatform.user`` to every
+    pod in the fleet, spending that property permanently.
+
+    So a pod uses the OWNER'S key, supplied per turn and never stored. Turning this
+    on is a deliberate choice for a cohort that has no key of their own, not a
+    fallback a pod reaches for on its own."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MANAGED_MODEL_ENABLED"), default=False)
+
+
+def pod_user_adc_enabled() -> bool:
+    """Let a pod serve a turn on the OWNER'S OWN Vertex, in the owner's own project.
+
+    Distinct from :func:`pod_managed_model_enabled`, and the distinction is the whole
+    architecture. That flag spends hushh's fleet identity on someone's behalf; this one
+    spends nothing of hushh's at all. Inside a BYOC pod the ambient credential IS the
+    person's -- their project, their quota, their bill, their pod's own service account
+    -- so this is what "own your AI, own your compute" actually resolves to once their
+    cloud exists.
+
+    Default **OFF** because it is only true where it is rendered, and it is rendered by
+    ``UserGcpBackend`` alone. A hushh-managed pod that read this as on would reach for
+    ambient ADC in HUSHH's project, which is the fleet identity by another name and
+    exactly what the managed flag exists to gate. So this is set per pod at render time,
+    never propagated from the hub's own environment.
+
+    Read at turn time rather than baked into the image so revoking a person's Vertex
+    access takes effect on their next turn rather than their next deploy."""
+    return _bool_from_value(_clean_env("HUSSH_POD_USER_ADC_ENABLED"), default=False)
+
+
+def pod_turn_enabled() -> bool:
+    """Let a POD serve an Agent One turn from its own process.
+
+    Default **OFF**, and this is the switch that first makes a pod run the agent at
+    all -- until it, no module mounted in a pod imported ``hushh_mcp.one_adk``, so a
+    pod was a well-isolated shell with no agent in it.
+
+    Checked together with ``pod_mode()``: on the hub the route must be absent, not
+    merely disabled, because the hub already has a turn route and a second
+    implementation of the same contract is free to drift from it."""
+    return _bool_from_value(_clean_env("HUSSH_POD_TURN_ENABLED"), default=False)
+
+
+def pod_autoheal_enabled() -> bool:
+    """Kill-switch for auto-healing an unreachable pod by replacing its service.
+
+    Default **OFF**, and independently of ``PERSONAL_AGENT_RECONCILE_ENABLED``,
+    because healing MUTATES a live host: it rolls a new revision under someone's
+    running agent. Detection and reporting are safe to run long before anyone is
+    willing to let the fleet restart itself, so the two are separate switches and
+    liveness evaluation stays useful with this off."""
+    return _bool_from_value(_clean_env("HUSSH_POD_AUTOHEAL_ENABLED"), default=False)
+
+
+def personal_agent_reconcile_enabled() -> bool:
+    """Kill-switch for the personal-agent reconcile sweep (retry stalls, reap idle).
+
+    Default **OFF**: the worker is never scheduled, and even an already-running
+    loop goes inert on the next pass, so flipping this back to off stops the sweep
+    with no redeploy. It is a second, independent switch on top of
+    ``PERSONAL_AGENT_ENABLED`` because the sweep DELETES compute (idle reaping) --
+    a destructive-to-hosts action that must be turned on deliberately, separately
+    from turning the personal-agent surface on."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_RECONCILE_ENABLED"), default=False)
+
+
+def personal_agent_upgrade_sweep_enabled() -> bool:
+    """Kill-switch for the pod IMAGE UPGRADE sweep inside the reconcile worker.
+
+    Default **OFF**, and a third switch on top of ``PERSONAL_AGENT_ENABLED`` and
+    ``PERSONAL_AGENT_RECONCILE_ENABLED``: the sweep REPLACES running pods' revisions
+    across the fleet whenever the hub's ``HUSSH_ONE_POD_IMAGE`` moves, which is a
+    fleet-wide rollout and must be turned on deliberately per lane. Off, the worker
+    never reads a candidate and never calls an upgrade, so a hub deploy leaves every
+    running pod exactly as it was (the pre-2026-09-02 behaviour, now a choice rather
+    than a gap)."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED"), default=False)
+
+
+_PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT = 3
+
+
+def personal_agent_upgrade_batch() -> int:
+    """How many pods ONE reconcile pass may move to the current image.
+
+    Small on purpose: an upgrade restarts a person's pod, and a bad image that
+    passes its own startup probe is only found by the first few people it reaches.
+    A pass every five minutes at the default therefore rolls a fleet gradually and
+    leaves a window to flip the sweep off before it reaches everyone."""
+    raw = _clean_env("PERSONAL_AGENT_UPGRADE_BATCH")
+    try:
+        value = int(raw) if raw else _PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT
+    except ValueError:
+        value = _PERSONAL_AGENT_UPGRADE_BATCH_DEFAULT
+    return max(1, value)
+
+
+# Failed-pod count /health/ready tolerates before it calls the fleet degraded.
+# Small on purpose: at dev fleet sizes (see _PERSONAL_AGENT_MAX_PODS_DEFAULT) a
+# handful of wedged pods is already a signal, and the check is reported-only, so a
+# false positive costs one string in a health body and never a rotation change.
+_POD_FLEET_FAILED_THRESHOLD_DEFAULT = 5
+
+
+def pod_fleet_health_signal_enabled() -> bool:
+    """Kill-switch for the pod-fleet signal inside ``GET /health/ready``.
+
+    Default **OFF**: the readiness body stays exactly what it is today --
+    ``database`` and ``firebase_admin``, nothing else -- and the probe never reads
+    the personal-agent registry. When **ON**, readiness ALSO reports a ``pod_fleet``
+    check counting the per-user pods the fleet failed to stand up, so a broken fleet
+    shows up in the check operators already watch instead of needing its own
+    dashboard.
+
+    The signal is observability only: reported, **never gating**. A fleet-wide pod
+    failure must not simultaneously pull every control-plane instance out of
+    rotation -- that turns a partial failure into a total one. ``api/routes/health.py``
+    holds the fail-safe contract.
+
+    Deliberately independent of ``PERSONAL_AGENT_ENABLED``: freezing new provisioning
+    does not make the pods that are already broken stop mattering."""
+    return _bool_from_value(_clean_env("POD_FLEET_HEALTH_SIGNAL_ENABLED"), default=False)
+
+
+def pod_fleet_failed_threshold() -> int:
+    """Failed-pod count ``/health/ready`` tolerates before it reports ``degraded``.
+
+    Read only when ``pod_fleet_health_signal_enabled`` is on. A count at or below
+    this reports ``ok``; strictly above it reports ``degraded``. ``0`` is a valid
+    setting (report on the very first failure), which is why this fails safe on
+    negative rather than on non-positive. Unset, blank, non-numeric, and negative
+    all fall back to the default, so a typo cannot make the signal fire on every
+    probe."""
+    value = _int_from_value(
+        _clean_env("POD_FLEET_FAILED_THRESHOLD"), _POD_FLEET_FAILED_THRESHOLD_DEFAULT
+    )
+    return value if value >= 0 else _POD_FLEET_FAILED_THRESHOLD_DEFAULT
+
+
+def one_db_sessions_enabled() -> bool:
+    """Feature flag: durable ADK ``DatabaseSessionService`` for One's runners.
+
+    Default **OFF** -> ``InMemorySessionService`` (today's behavior: One's voice
+    and text sessions are process-local, so a mid-conversation reconnect that
+    lands on another worker starts with zero context). When **ON**, One's managed
+    voice and text runners resolve a durable ``DatabaseSessionService`` on the
+    existing Postgres so sessions survive worker changes -- the documented
+    ``get_one_runner`` scale seam. Fail-safe: if the DB session service cannot be
+    built the runner falls back to in-memory, so the live runtime degrades to
+    today's behavior rather than failing to start. Gate the rollout on the
+    voice-session write-load measurement the runner docstring calls for."""
+    return _bool_from_value(_clean_env("ONE_DB_SESSIONS_ENABLED"), default=False)
+
+
+def webauthn_enabled() -> bool:
+    """Kill-switch for the server-side WebAuthn/FIDO2 ceremony (M14).
+
+    Default **OFF**: the register/authenticate endpoints return 404 and no
+    credential is verified or stored. When on, hussh performs real, server-verified
+    passkey + hardware-key (Titan/YubiKey) ceremonies. Independent of the existing
+    client-side vault-unlock PRF flow, which is unaffected either way."""
+    return _bool_from_value(_clean_env("WEBAUTHN_ENABLED"), default=False)
+
+
+def webauthn_mds_enabled() -> bool:
+    """Kill-switch for FIDO Metadata Service (MDS) attestation verification (IA-2).
+
+    Default **OFF**: a hardware key + user verification stays the honest
+    ``AAL3-candidate``. When **ON**, an authenticator whose AAGUID is MDS-verified
+    (FIDO-certified + uncompromised) elevates to real **AAL3**. Requires a
+    provisioned, verified MDS extract at ``WEBAUTHN_MDS_BLOB_PATH``. See
+    docs/reference/webauthn-aal3-mds.md."""
+    return _bool_from_value(_clean_env("WEBAUTHN_MDS_ENABLED"), default=False)
+
+
+def a2a_agent_card_enabled() -> bool:
+    """Feature flag: serve the conformant A2A discovery card at
+    ``/.well-known/agent-card.json``.
+
+    Default **OFF** -> the standard well-known path returns 404 (today's contract).
+    When **ON**, Agent One publishes a conformant A2A v1 AgentCard for external
+    discovery / marketplace listing. Honest: the card declares the current HTTP+JSON
+    invocation-preview transport via a capability extension, not full A2A v1 Tasks.
+    See docs/reference/a2a-agent-card.md."""
+    return _bool_from_value(_clean_env("A2A_AGENT_CARD_ENABLED"), default=False)
+
+
+def pod_hub_identity_auth_enabled() -> bool:
+    """Feature flag: let the hub accept a POD's Google ID token on the internal
+    prompt-sync route, instead of a ``cap.agent.prompt.sync`` consent token.
+
+    Default **OFF**, and the default is the security position rather than caution.
+    Every pod runs as the SAME service account -- that is what lets that account hold
+    no project roles -- so an ID token proves "a hussh pod is calling", never WHICH
+    user's pod. Acceptance therefore rests on the pod's own asserted ``HUSSH_ID``,
+    which is trustworthy exactly as far as the pod is. That matches the ``logical``
+    tier's stated trust level and does NOT meet the bar for real users: turning this on
+    where pods hold real holdings would let one compromised pod read another user's
+    prompt. Cryptographic per-pod identity is the attested ``dedicated`` tier (M5).
+
+    See ``docs/future/personal-agent/POD-HUB-DATA-PATH.md``.
+    """
+    return _bool_from_value(_clean_env("POD_HUB_IDENTITY_AUTH_ENABLED"), default=False)
+
+
+def pod_hub_allowed_service_account() -> str:
+    """The one service-account email whose ID tokens the hub will accept from a pod."""
+    return _clean_env("POD_HUB_ALLOWED_SERVICE_ACCOUNT")
+
+
+def pod_hub_expected_audience() -> str:
+    """The audience a pod's ID token MUST carry for the hub to accept it.
+
+    A pod mints its token audience-bound to the hub's base URL
+    (``pod_hub_client._identity_token``), which is what stops that token being
+    replayed against any other service. The hub has to check the other half: an
+    unverified ``aud`` means a token the pod SA minted for a completely different
+    audience is accepted here, and the whole decision collapses onto the email
+    claim alone.
+
+    Falls back to ``HUSSH_HUB_BASE_URL`` -- which is not a guess but the SAME
+    value, read from the same variable, that the pod normalises to build its
+    audience. Two independently-configured copies of one address is a silent
+    divergence: set one and forget the other and every pod->hub call 401s with
+    nothing in either log explaining why. Deriving both from one variable makes
+    that failure unrepresentable.
+
+    The override remains for the case the fallback cannot serve: a hub reached
+    through a load balancer or custom domain, where the address a pod dials is
+    not the address this service knows itself by.
+
+    Neither set means REFUSE -- guessing an audience is the same as not checking
+    one."""
+    explicit = _clean_env("POD_HUB_EXPECTED_AUDIENCE")
+    if explicit:
+        return explicit.rstrip("/")
+    # rstrip("/") mirrors pod_hub_client.hub_base_url() exactly. A trailing slash
+    # on one side only would fail every verification while both values LOOK equal
+    # in a console listing.
+    return _clean_env("HUSSH_HUB_BASE_URL").rstrip("/")
+
+
+def pod_mode() -> bool:
+    """Whether this process is a per-user personal-agent **pod** (not the fleet hub).
+
+    Default **OFF** -> today's behavior: the process runs every fleet-wide
+    background worker (the consent NOTIFY->FCM listener, the Gmail catch-up/watch
+    renewal loop, and the consent-revocation sweep). Those workers are singletons
+    of the shared control plane; a per-user pod must NOT run them, or a fleet of
+    pods would each duplicate pushes, watch renewals, and revocation sweeps against
+    shared state.
+
+    When **ON** (``HUSSH_POD_MODE=1``, set by the pod deploy config), the process
+    still serves the full agent runtime + HTTP surface (Agent One orchestrating its
+    specialists, the A2A endpoint, health) and keeps its own DB pool + in-memory
+    warmups, but SKIPS the fleet-wide workers. This is the runtime half of the pod
+    architecture (the deploy half is ``GcpBackend.render_deploy_config``)."""
+    return _bool_from_value(_clean_env("HUSSH_POD_MODE"), default=False)
+
+
+def pod_agent_memory_enabled() -> bool:
+    """Kill-switch for per-pod agent memory (AGENTS.md, Agent Architecture Doctrine 1).
+
+    Default **OFF**: every ADK ``Runner`` is built with ``memory_service=None``, exactly as
+    today, and the agent remembers nothing between turns beyond session state.
+
+    When **ON** *and* the process is a pod (``HUSSH_POD_MODE``), Private Agent One gets its
+    own ``PodMemoryService`` — conversation, learned preference, and working context sealed
+    under the pod's own key and scoped to the single owner that pod serves. It is never
+    enabled in the shared multi-tenant hub: memory there would be cross-tenant leakage,
+    which is why the doctrine keeps the hub dumb by default and why
+    ``resolve_pod_memory_service`` checks ``pod_mode()`` before this flag.
+
+    Memory is the agent-experience layer, not an information authority: PKM remains the
+    zero-knowledge system of record. See docs/future/personal-agent/ARCHITECTURE.md §7a."""
+    return _bool_from_value(_clean_env("POD_AGENT_MEMORY_ENABLED"), default=False)
+
+
+def consent_audit_chain_enabled() -> bool:
+    """Kill-switch for the tamper-evident consent-audit receipt chain (AU-9/AU-10).
+
+    Default **OFF**: consent events are written to ``consent_audit`` exactly as
+    today; no receipt chain is computed or stored, and the write path is
+    byte-for-byte unchanged. When **ON**, every consent event (grant/deny/revoke/
+    request) is ALSO mirrored, fail-safe, into an append-only per-subject
+    hash-chained + HMAC-signed ledger (``consent_audit_receipts``, migration 904)
+    that ``verify_chain`` can replay to detect any dropped, reordered, or tampered
+    event -- the FedRAMP-High / NIST 800-53 AU-9 (audit protection) + AU-10
+    (non-repudiation) posture. The mirror never blocks the operational consent
+    write: a chain-append failure is logged for reconcile and shows up as a gap
+    ``verify_chain`` flags, rather than failing the consent event."""
+    return _bool_from_value(_clean_env("CONSENT_AUDIT_CHAIN_ENABLED"), default=False)
+
+
+def kms_key_resolution_enabled() -> bool:
+    """Feature flag: resolve APP_SIGNING_KEY / VAULT_DATA_KEY by KMS envelope-
+    decryption (SC-12/SC-28) instead of a plaintext env var.
+
+    Default **OFF** -> the plaintext env var, byte-for-byte as today. When **ON**,
+    each DEK is stored only as KMS-wrapped ciphertext (`*_CIPHERTEXT`) and unwrapped
+    once at startup via the KEK named in `KMS_KEK_RESOURCE`; the hot path
+    (HMAC/AES on the in-memory DEK) is unchanged. Enabling also requires the
+    `google-cloud-kms` dependency (lazy-imported). See
+    docs/reference/kms-key-custody.md."""
+    return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_ENABLED"), default=False)
+
+
+def kms_key_resolution_strict() -> bool:
+    """Fail-closed toggle for KMS key resolution.
+
+    Default **OFF** (fail-safe, dev): on a KMS misconfiguration or unwrap failure
+    the resolver falls back to the plaintext env var with a warning, so enabling
+    the flag cannot brick startup. When **ON** (production): startup fails closed
+    rather than run on a fallback key."""
+    return _bool_from_value(_clean_env("KMS_KEY_RESOLUTION_STRICT"), default=False)
 
 
 def kai_analyze_durable_run_store_enabled() -> bool:
@@ -443,17 +1001,55 @@ def get_wallet_pass_settings() -> WalletPassSettings:
 
 @lru_cache(maxsize=1)
 def get_core_security_settings() -> CoreSecuritySettings:
-    app_signing_key = _clean_env(APP_SIGNING_KEY_ENV)
+    # KMS envelope resolution (SC-12 / SC-28): unwrap each DEK from KMS-wrapped
+    # ciphertext when enabled; otherwise the plaintext env var, unchanged.
+    from hushh_mcp.kms_key_resolver import resolve_key
+
+    _kms_enabled = kms_key_resolution_enabled()
+    _kms_strict = kms_key_resolution_strict()
+    _kek = _clean_env(KMS_KEK_RESOURCE_ENV)
+
+    app_signing_key = resolve_key(
+        label=APP_SIGNING_KEY_ENV,
+        plaintext=_clean_env(APP_SIGNING_KEY_ENV),
+        wrapped_b64=_clean_env(APP_SIGNING_KEY_CIPHERTEXT_ENV),
+        kek_resource=_kek,
+        enabled=_kms_enabled,
+        strict=_kms_strict,
+    )
     if not app_signing_key or len(app_signing_key) < 32:
         raise ValueError(
             f"❌ {APP_SIGNING_KEY_ENV} must be set in .env and at least 32 characters long"
         )
 
-    vault_data_key = _clean_env(VAULT_DATA_KEY_ENV)
+    vault_data_key = resolve_key(
+        label=VAULT_DATA_KEY_ENV,
+        plaintext=_clean_env(VAULT_DATA_KEY_ENV),
+        wrapped_b64=_clean_env(VAULT_DATA_KEY_CIPHERTEXT_ENV),
+        kek_resource=_kek,
+        enabled=_kms_enabled,
+        strict=_kms_strict,
+    )
     if not vault_data_key or len(vault_data_key) != 64:
-        raise ValueError(
-            f"❌ {VAULT_DATA_KEY_ENV} must be a 64-character hex string (256-bit AES key)"
-        )
+        if pod_mode():
+            # A pod mounts a bounded router allowlist and performs NO vault crypto:
+            # every consumer of this key (agent chat, CRM connector secrets, the
+            # nearby-presence HKDF) is hub-only. Requiring the key here anyway forced
+            # every pod to be handed a vault key it never uses -- one more secret per
+            # pod whose only function was satisfying an eager validator. In pod mode
+            # the key is therefore allowed to be absent. It resolves to "" so any
+            # accidental use fails LOUDLY at the call site (bytes.fromhex("") yields
+            # an empty key every AEAD/HKDF constructor rejects), never silently with
+            # a weak key. The hub path below is unchanged and still refuses to boot.
+            logging.getLogger(__name__).info(
+                "core_security.vault_data_key_absent pod_mode=1 -- vault crypto is "
+                "unavailable in this process by design"
+            )
+            vault_data_key = ""
+        else:
+            raise ValueError(
+                f"❌ {VAULT_DATA_KEY_ENV} must be a 64-character hex string (256-bit AES key)"
+            )
 
     return CoreSecuritySettings(
         app_signing_key=app_signing_key,
@@ -541,3 +1137,77 @@ def clear_runtime_settings_caches() -> None:
 
 
 hydrate_runtime_environment()
+
+
+def pod_data_door_enabled() -> bool:
+    """Let a keyless pod READ an owner's DB-backed specialist state through the hub.
+
+    OFF by default, and the default is the security position. When off, a pod's
+    DB-backed specialist (location first) returns ``runtime_unavailable`` exactly
+    as today, because the pod holds no database credential and never will. When
+    on, the pod turn couriers a per-turn, tightly-scoped grant to the hub broker,
+    which runs the read on the owner's own project and returns a fail-closed
+    PROJECTION (never the owner's wrapped private key, never raw coordinates).
+
+    The door is READ-only by construction: the broker registry
+    (``hushh_mcp.services.pod_data_door.POD_DATA_DOOR_READS``) maps a name to a
+    read method and holds no write path at all. Writes stay on the directive
+    transport -- the pod proposes, the browser executes on the owner's session --
+    so this flag can never widen a pod's authority to MUTATE anything. Flipping
+    it off is an instant, total rollback to the DB-wall behaviour."""
+    return _bool_from_value(_clean_env("POD_DATA_DOOR_ENABLED"), default=False)
+
+
+def personal_agent_delete_order_v2() -> bool:
+    """Delete an account by deprovisioning the POD FIRST, then the data cascade,
+    then the registry-row delete LAST.
+
+    OFF by default. The legacy order runs the data cascade first and tears the pod
+    down last -- which means a delete that 500s mid-cascade can leave a live,
+    billing pod, and it forced ``revoke=False`` (the cascade had already wiped
+    consent_audit). V2 inverts it: revoke the standing read and tear the host down
+    while the row still names WHERE the pod lives, then run the cascade, then delete
+    the recovery-anchor row last (so a mid-delete failure leaves a row that can
+    still be recovered or re-deleted, not a half-deleted account). Flag-gated so the
+    legacy path stays the instant fallback."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_DELETE_ORDER_V2"), default=False)
+
+
+def personal_agent_reachability_gate() -> bool:
+    """Let the wake path distinguish a GONE pod (service deleted) from a COLD one.
+
+    OFF by default. When off, any non-200 health probe reports ``waking`` -- correct
+    for a scaled-to-zero economy pod, but a pod whose Cloud Run service was DELETED
+    then reports ``waking`` forever and the returning user hangs. When on, a non-200
+    probe triggers one bounded backend check: only a confirmed ``gone`` (the service
+    is truly absent) returns a fresh-setup signal; a transient probe error defaults
+    to ``waking``, never a spurious fresh setup that would change the user's agent
+    identity. Flag-gated so the extra backend call is opt-in."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_REACHABILITY_GATE"), default=False)
+
+
+def personal_agent_fleet_reclaim_enabled() -> bool:
+    """The DESTRUCTIVE arm of fleet reconciliation: delete a billing Cloud Run
+    service that no active registry row claims -- in a possibly customer-owned
+    project.
+
+    OFF by default, and this default is a hard safety boundary, not caution:
+    deleting compute in someone else's cloud is a founder decision, never an
+    automated default. With this off the reconciler is REPORT-ONLY -- it names
+    orphans, deletes nothing. The classification core does not even consult this;
+    only the reclaim call does, so a report run can never destroy anything."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_FLEET_RECLAIM_ENABLED"), default=False)
+
+
+def personal_agent_substrate_teardown_enabled() -> bool:
+    """Let deprovision DELETE the BYOC substrate (KMS key, bucket, SA, Pub/Sub,
+    scheduler) in the user's own project.
+
+    OFF by default, and the default is an absolute safety boundary: this destroys
+    the user's SEALED HOLDINGS (the CMEK bucket + KMS key) in a customer-owned
+    project, and that is irreversible -- a KMS key cannot be un-destroyed. It is a
+    founder decision, never an automated default. With this off, deprovision plans
+    the teardown and logs what it WOULD delete, and deletes nothing. Even when on,
+    the executor still requires an explicit dry_run=False -- two independent guards
+    before a single resource is destroyed."""
+    return _bool_from_value(_clean_env("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED"), default=False)

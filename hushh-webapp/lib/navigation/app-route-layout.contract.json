@@ -84,8 +84,9 @@
       "screen": "one_setup_hub",
       "entryCue": "Choose something to set up, or say ‘finish setup’ when you are ready.",
       "proactivity": "on_entry",
-      "primaryActionId": "setup.open_connections",
+      "primaryActionId": "setup.open_cloud",
       "happyPathActionIds": [
+        "setup.open_cloud",
         "setup.open_connections",
         "setup.open_gmail",
         "setup.open_calendar",
@@ -93,7 +94,6 @@
         "setup.open_email",
         "setup.open_finance",
         "setup.open_ria",
-        "setup.open_connected_systems",
         "setup.hub_master_ack"
       ],
       "requiredInputs": [],
@@ -2165,6 +2165,43 @@
         "routeMismatch": "Use the verified current route and its generated actions only."
       },
       "completionBoundary": "CRM setup finishes only after an active CRM record binding and hub settlement.",
+      "nextRoute": "/one/setup",
+      "returnPolicy": "return_to_hub",
+      "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."
+    }
+  },
+  {
+    "route": "/one/setup/cloud",
+    "mode": "standard",
+    "shellVerification": {
+      "file": "components/connections/byoc-cloud-setup-page.tsx",
+      "includes": [
+        "AppPageShell",
+        "AppPageHeaderRegion",
+        "AppPageContentRegion",
+        "PageHeader"
+      ]
+    },
+    "voicePlaybook": {
+      "playbookId": "route.one.setup.cloud",
+      "purpose": "Name and authorize the person's own Google Cloud project so their private agent can be built there, before any AI-access choice is made.",
+      "screen": "one_setup_cloud",
+      "entryCue": "Name the project your agent will live in, then run the one-line grant we give you.",
+      "proactivity": "on_entry",
+      "primaryActionId": "setup.finish_cloud",
+      "happyPathActionIds": [
+        "setup.finish_cloud"
+      ],
+      "requiredInputs": [],
+      "recoveries": {
+        "blocked": "Explain the current guard and retain the goal.",
+        "cancelled": "Respect the cancellation and retain a safe next step.",
+        "failed": "Acknowledge the failure without claiming completion.",
+        "timeout": "Retain the goal and offer one safe retry.",
+        "callbackError": "Return to the verified callback recovery path without claiming success.",
+        "routeMismatch": "Use the verified current route and its generated actions only."
+      },
+      "completionBoundary": "Setup records the project and the proven grant only. No credential is ever held: authorization is re-proven per operation with a short-lived impersonated token.",
       "nextRoute": "/one/setup",
       "returnPolicy": "return_to_hub",
       "outOfScopeBehavior": "Answer naturally, ask at most one clarifying question, and never invent a control."

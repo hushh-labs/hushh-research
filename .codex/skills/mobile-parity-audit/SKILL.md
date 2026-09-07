@@ -74,5 +74,6 @@ cd hushh-webapp && xcodebuild -project ios/App/App.xcodeproj -scheme App -sdk ip
 
 Run `npm run ios:cold:audit`, `npm run android:cold:audit`, or the UI cold-audit
 equivalent only when the task explicitly authorizes a reset. Run
-`ios:continuity:local` or `android:continuity:local` only for an intentional,
-visible normal-session rehearsal.
+`ios:continuity:local` or `android:continuity:local` only for an intentional
+normal-session rehearsal. Keep agent-driven simulations headless. Use the explicit
+visible opt-in only when the user requests a desktop window.

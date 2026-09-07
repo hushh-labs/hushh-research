@@ -914,6 +914,13 @@ def _parse_phone_test_numbers(raw: str) -> set[str]:
     }
 
 
+#: The North American reserved fictitious range (+1 555 0100 -- +1 555 0199).
+#: A simulation allowlist may contain NOTHING else, so a dev lane can never claim
+#: a routable number that belongs to a real person. The UAT and production lanes
+#: are unaffected: they are operator-curated and predate this.
+_SIMULATION_PHONE_PREFIX = "+1555010"
+
+
 def _configured_uat_phone_test_numbers() -> set[str]:
     raw = _clean_env("HUSHH_UAT_PHONE_TEST_NUMBERS") or _clean_env("UAT_PHONE_TEST_NUMBERS")
     return _parse_phone_test_numbers(raw)
@@ -923,13 +930,92 @@ def _configured_prod_phone_test_numbers() -> set[str]:
     return _parse_phone_test_numbers(_clean_env("HUSHH_PROD_PHONE_TEST_NUMBERS"))
 
 
+def _configured_dev_phone_test_numbers() -> set[str]:
+    """The simulation lane's allowlist, or empty when simulation is not permitted.
+
+    This exists because the dev hub deliberately runs with the **uat** runtime
+    identity for behaviour parity, so `_runtime_environment()` reads `uat` on a
+    dev box and `uat` on real UAT and cannot separate them. Until this lane
+    existed, dev reached the bypass only by being indistinguishable from UAT --
+    which is precisely the confusion `dev_simulation_guard` was written to end.
+
+    The guard reads the DEPLOY LANE, which is written per-lane by the deploy
+    workflow and stays honest, and it denies when unconfigured. So this branch is
+    reachable on a dev deployment and on a developer's box that opted in, and
+    nowhere else.
+    """
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    if not simulation_permitted():
+        return set()
+    numbers = _parse_phone_test_numbers(_clean_env("HUSHH_DEV_PHONE_TEST_NUMBERS"))
+    # Fail loud rather than silently narrowing: an operator who put a real number
+    # in a simulation allowlist has made a mistake worth stopping on.
+    outside = {n for n in numbers if not n.startswith(_SIMULATION_PHONE_PREFIX)}
+    if outside:
+        raise RuntimeError(
+            "HUSHH_DEV_PHONE_TEST_NUMBERS may only contain reserved fictitious "
+            f"numbers ({_SIMULATION_PHONE_PREFIX}xx); refused {sorted(outside)}"
+        )
+    return numbers
+
+
 def _configured_phone_test_numbers() -> set[str]:
     environment = _runtime_environment()
+    dev_numbers = _configured_dev_phone_test_numbers()
+    if dev_numbers:
+        # The simulation lane also honours the operator-curated UAT allowlist.
+        # Dev ran on that allowlist for as long as its runtime identified as
+        # `uat`; the 2026-08-07 dev-identity change silently dropped it, which
+        # stranded the numbers people actually use there (founder-reported,
+        # 2026-08-21: the standing +1 989 898 9894 / 000000 pair stopped
+        # working on dev). The reserved +1 555 0100-0199 range stays the only
+        # thing HUSHH_DEV_PHONE_TEST_NUMBERS itself may carry — that guard is
+        # untouched — and a uat-sourced number keeps its fixed UAT code on
+        # confirm, so merging widens which numbers are claimable in the lane
+        # without relaxing how they are claimed.
+        return dev_numbers | _configured_uat_phone_test_numbers()
     if environment == "uat":
         return _configured_uat_phone_test_numbers()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
         return _configured_prod_phone_test_numbers()
     return set()
+
+
+def _configured_dev_phone_test_code() -> str:
+    from hushh_mcp.services.dev_simulation_guard import simulation_permitted
+
+    return _clean_env("HUSHH_DEV_PHONE_TEST_CODE") if simulation_permitted() else ""
+
+
+def _dev_phone_code_is_optional() -> bool:
+    """In the simulation lane with no code configured, the OTP step is skipped.
+
+    The dev deployment is meant to behave like localhost: it must not block
+    end-to-end testing behind a code somebody has to go and set. Requiring one
+    meant a manual `gcloud run services update` after **every** dev deploy, since
+    the deploy uses `--set-env-vars` and replaces the whole environment — a step
+    that would be forgotten, and whose absence looks exactly like a broken lane.
+
+    So no code configured means no code checked. This is a real relaxation and it
+    is bounded on three sides, all of which must hold at once:
+
+      * `simulation_permitted()` — an explicit opt-in AND a deploy lane naming a
+        development environment. `uat`, `staging` and `production` are refused
+        outright, and absence of configuration denies.
+      * the allowlist — the code may be skipped ONLY for the reserved fictitious
+        range (+1 555 0100-0199), so no real person's number is claimable
+        without a code. Operator-curated UAT numbers are also claimable in the
+        lane (see `_configured_phone_test_numbers`), but they keep their fixed
+        UAT code on confirm — the relaxation never extends to them.
+      * the challenge — `_is_valid_uat_phone_test_verification_id` still has to
+        pass, so the confirm call must follow a start call for the same number.
+
+    Setting `HUSHH_DEV_PHONE_TEST_CODE` turns the code check back on without any
+    other change, which is the escape hatch if dev ever needs to rehearse the
+    real OTP flow.
+    """
+    return bool(_configured_dev_phone_test_numbers()) and not _configured_dev_phone_test_code()
 
 
 def _configured_uat_phone_test_code() -> str:
@@ -946,6 +1032,9 @@ def _configured_prod_phone_test_challenge_secret() -> str:
 
 def _configured_phone_test_code() -> str:
     environment = _runtime_environment()
+    dev_code = _configured_dev_phone_test_code()
+    if dev_code:
+        return dev_code
     if environment == "uat":
         return _configured_uat_phone_test_code()
     if environment == "production" and _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED"):
@@ -955,13 +1044,32 @@ def _configured_phone_test_code() -> str:
 
 def _phone_test_enabled() -> bool:
     if _runtime_environment() == "production":
+        # The simulation lane is never reachable here: `simulation_permitted()`
+        # refuses `production` outright, so the dev resolvers return empty and
+        # this branch is the only answer production can give.
         return bool(
             _is_truthy_env("HUSHH_PROD_PHONE_TEST_ENABLED")
             and _configured_prod_phone_test_numbers()
             and _configured_prod_phone_test_code()
             and _configured_prod_phone_test_challenge_secret()
         )
+    if _dev_phone_code_is_optional():
+        return True
     return bool(_configured_phone_test_numbers() and _configured_phone_test_code())
+
+
+def _phone_test_expected_code(phone_number: str) -> tuple[str, bool]:
+    """The (expected_code, code_optional) claim semantics for one allowlisted number.
+
+    The two allowlists keep their own semantics when merged on dev: the code may
+    be skipped ONLY for the reserved fictitious range, and an operator-curated
+    UAT number keeps its fixed UAT code even inside the simulation lane.
+    """
+    dev_reserved = phone_number in _configured_dev_phone_test_numbers()
+    configured = _configured_phone_test_code()
+    expected = configured if dev_reserved else (_configured_uat_phone_test_code() or configured)
+    optional = _dev_phone_code_is_optional() and dev_reserved
+    return expected, optional
 
 
 def _phone_test_challenge_key() -> str:
@@ -1095,6 +1203,220 @@ async def _delete_firebase_auth_user(
             type(exc).__name__,
         )
     return cast(str, cleanup_attempt.outcome)
+
+
+_SUBSTRATE_TOMBSTONE_STATUS = "substrate_torn_down"
+# Status-scoped reclaim marker for a PARTIAL substrate teardown: it names the survivors
+# but never short-circuits a retry (the idempotency guard checks only the status above).
+_SUBSTRATE_INCOMPLETE_STATUS = "substrate_teardown_incomplete"
+
+
+async def _byoc_anchor_without_row(registry: Any, user_id: str) -> dict[str, Any] | None:
+    """Rebuild the BYOC coordinates for a person whose registry row is already gone.
+
+    Sources, both of which outlive the row: ``byoc_setup_jobs`` (user -> project; it is
+    deleted only after this teardown runs) and the ``deprovision_requested`` tombstone
+    that names that project (hushh_id, region, bootstrap account). Returns ``None`` when
+    either is missing, which is the pre-existing "nothing BYOC to tear down" answer.
+    Never raises.
+    """
+    try:
+        from hushh_mcp.services.byoc_setup_job_service import (  # noqa: PLC0415
+            ByocSetupJobRepo,
+        )
+
+        job = await ByocSetupJobRepo().get(user_id)
+        project = str((job or {}).get("project_id") or "").strip()
+        if not project:
+            return None
+        finder = getattr(registry, "latest_tombstone_for_project", None)
+        if finder is None:
+            return None
+        tomb = await finder(project, status="deprovision_requested")
+        hushh_id = str((tomb or {}).get("hushh_id") or "").strip()
+        if not tomb or not hushh_id:
+            logger.warning(
+                "personal_agent.substrate_anchor_missing user=%s project=%s -- "
+                "setup job names a project but no deprovision tombstone does",
+                user_id,
+                project,
+            )
+            return None
+        meta = tomb.get("metadata") or {}
+        bootstrap_sa = str(meta.get("user_cloud_bootstrap_sa") or "").strip()
+        derived = False
+        if not bootstrap_sa:
+            # Tombstones written before the bootstrap account was recorded: fall back to
+            # the conventional name. A wrong guess fails loudly at token mint and lands
+            # in the incomplete marker; it never reads as a clean erase.
+            bootstrap_sa = f"one-bootstrap@{project}.iam.gserviceaccount.com"
+            derived = True
+        logger.info(
+            "personal_agent.substrate_anchor_from_tombstone user=%s project=%s "
+            "hushh_id=%s derived_bootstrap=%s",
+            user_id,
+            project,
+            hushh_id,
+            derived,
+        )
+        return {
+            "deployment_target": "user_gcp",
+            "user_cloud_project": project,
+            "hushh_id": hushh_id,
+            "user_cloud_region": str(meta.get("user_cloud_region") or "").strip() or "us-central1",
+            "user_cloud_bootstrap_sa": bootstrap_sa,
+        }
+    except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
+        logger.warning(
+            "personal_agent.substrate_anchor_failed user=%s err=%s", user_id, type(exc).__name__
+        )
+        return None
+
+
+async def _teardown_byoc_substrate(
+    registry: Any, user_id: str, *, row: Any = None
+) -> dict[str, Any] | None:
+    """Remove what hushh created inside the person's OWN project. Their project
+    itself is theirs and is never touched. Returns a summary dict, or None when
+    there is nothing BYOC about this row. Never raises.
+
+    Accepts a PRE-FETCHED ``row`` because it now runs AFTER deprovision, and on the
+    legacy path deprovision deletes the row -- a re-read would return None and silently
+    skip the whole teardown. The caller captures the row before deprovision and passes
+    it here."""
+    try:
+        row = row if row is not None else await registry.get(user_id)
+        if not row or str(row.get("deployment_target") or "") != "user_gcp":
+            # A pod deleted from the UI earlier has already dropped its registry row.
+            # The person's project still holds what the authorize step built (an
+            # admin-role bootstrap account, a keyring, an artifact repo), so recover
+            # the anchor from their setup job + the deprovision tombstone instead of
+            # silently skipping the teardown.
+            row = await _byoc_anchor_without_row(registry, user_id)
+            if row is None:
+                return None
+        project = str(row.get("user_cloud_project") or "").strip()
+        hushh_id = str(row.get("hushh_id") or "").strip()
+        if not project or not hushh_id:
+            return None
+        region = str(row.get("user_cloud_region") or "").strip() or "us-central1"
+        bootstrap_sa = str(row.get("user_cloud_bootstrap_sa") or "").strip()
+        if not bootstrap_sa:
+            return {"executed": False, "reason": "no bootstrap account on the row"}
+
+        # Idempotency: a retried account deletion must not re-mint a token and re-run a
+        # teardown whose resources are already destroyed. The substrate tombstone is the
+        # durable "already done" marker, distinct from deprovision's own tombstone (hence
+        # the status scope).
+        if await registry.tombstone_exists(hushh_id, status=_SUBSTRATE_TOMBSTONE_STATUS):
+            return {"executed": False, "reason": "already_torn_down"}
+
+        import asyncio  # noqa: PLC0415
+
+        from hushh_mcp.services.byoc_substrate_teardown import (
+            build_gcp_deleter,
+            execute_teardown,
+            plan_teardown,
+            substrate_resources,
+        )
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_sa)
+        # bootstrap_sa comes from the row, not derived: it is the account the person
+        # actually granted, and the revoke has to name that one to end hushh's access.
+        actions = plan_teardown(substrate_resources(hushh_id, project, bootstrap_sa=bootstrap_sa))
+        summary = await execute_teardown(
+            actions,
+            deleter=build_gcp_deleter(token=token, project=project, region=region),
+            dry_run=False,
+        )
+        failed = list(summary.get("failed") or [])
+        logger.info(
+            "personal_agent.substrate_teardown user=%s project=%s executed=%s actions=%s failed=%d",
+            user_id,
+            project,
+            summary.get("executed"),
+            len(summary.get("planned") or []),
+            len(failed),
+        )
+        # Record the substrate-orphan tombstone ONLY when a real teardown ran (both guards
+        # were open) AND every resource is confirmed gone. Withholding it on a partial run
+        # means a retried deletion re-runs the whole plan, and each already-gone resource
+        # resolves as 404-ok, so retry re-attempts exactly the survivors. With the flag
+        # off, execute_teardown returns executed=False, nothing was deleted, and no
+        # tombstone is written -- so the marker never lies. Best-effort inside the same
+        # try: a tombstone failure must never block account deletion.
+        if summary.get("executed") and not failed:
+            await registry.tombstone(
+                hushh_id=hushh_id,
+                external_agent_id=None,
+                status=_SUBSTRATE_TOMBSTONE_STATUS,
+                metadata={
+                    "project": project,
+                    "region": region,
+                    "resources": [a.get("id") for a in actions],
+                },
+            )
+        out: dict[str, Any] = {"executed": bool(summary.get("executed")), "actions": len(actions)}
+        if summary.get("executed") and failed:
+            trimmed = [
+                {"type": f.get("type"), "id": f.get("id"), "reason": f.get("reason")}
+                for f in failed
+            ]
+            logger.error(
+                "personal_agent.substrate_teardown_INCOMPLETE user=%s project=%s failed=%d",
+                user_id,
+                project,
+                len(failed),
+            )
+            # The reclaim marker sits in its OWN try/except: a DB hiccup on this insert
+            # must never route to the generic handler and drop the failed subset from
+            # the summary -- preserving that subset is the whole point.
+            try:
+                await registry.tombstone(
+                    hushh_id=hushh_id,
+                    external_agent_id=None,
+                    status=_SUBSTRATE_INCOMPLETE_STATUS,
+                    metadata={"project": project, "region": region, "failed": trimmed},
+                )
+            except Exception:  # noqa: BLE001 - the marker is best-effort; the summary is not
+                logger.warning("personal_agent.substrate_incomplete_marker_failed user=%s", user_id)
+            out["incomplete"] = True
+            out["failed"] = trimmed
+        return out
+    except Exception as exc:  # noqa: BLE001 - deletion must complete regardless
+        logger.warning(
+            "personal_agent.substrate_teardown_failed user=%s err=%s",
+            user_id,
+            type(exc).__name__,
+        )
+        # Conservative: an exception mid-teardown can never read as clean erase, even
+        # when it fired before anything BYOC was confirmed. Over-report, never under.
+        return {"executed": False, "reason": type(exc).__name__, "incomplete": True}
+
+
+def _surface_substrate_teardown(details: dict, pa: Any, user_id: str) -> None:
+    """Surface a PARTIAL substrate teardown into the deletion response, loudly.
+
+    The compute result can be clean while resources survive in the person's own
+    project, so the incomplete flag must fire from the substrate summary too --
+    on BOTH delete-order paths."""
+    sub = pa.get("substrate_teardown") if isinstance(pa, dict) else None
+    if not (isinstance(sub, dict) and sub.get("incomplete")):
+        return
+    details["personal_agent_teardown_incomplete"] = True
+    if sub.get("failed"):
+        details["substrate_teardown_failed"] = sub["failed"]
+    logger.error(
+        "Account deletion completed but %d substrate resource(s) survive in the "
+        "person's project for user=%s (named in the substrate_teardown_incomplete "
+        "tombstone, reclaimable)",
+        len(sub.get("failed") or []),
+        user_id,
+    )
+
+    # byoc_setup_jobs cleanup moved to _deprovision_personal_agent so it runs on
+    # BOTH the V2 and legacy delete paths (this finalize is V2-only).
 
 
 def _firebase_user_provider_ids(user_record: Any) -> set[str]:
@@ -1305,7 +1627,6 @@ async def confirm_uat_test_phone_verification(
 ):
     """Persist an environment-gated fixed-code phone verification claim."""
     phone_number = _normalize_phone_number(payload.phone_number)
-    configured_code = _configured_phone_test_code()
 
     if not _phone_test_enabled() or phone_number not in _configured_phone_test_numbers():
         raise HTTPException(
@@ -1325,7 +1646,15 @@ async def confirm_uat_test_phone_verification(
             },
         )
 
-    if not secrets.compare_digest(str(payload.verification_code or "").strip(), configured_code):
+    # The simulation lane may run without a code at all — see
+    # `_dev_phone_code_is_optional`. That relaxation is scoped to the RESERVED
+    # fictitious range only; `_phone_test_expected_code` keeps each allowlist's
+    # own claim semantics when they are merged on dev. The allowlist and the
+    # challenge above still had to pass either way.
+    expected_code, code_optional = _phone_test_expected_code(phone_number)
+    if not code_optional and not secrets.compare_digest(
+        str(payload.verification_code or "").strip(), expected_code
+    ):
         raise HTTPException(
             status_code=401,
             detail={
@@ -1376,6 +1705,12 @@ async def delete_account(
     target = payload.target if payload else "both"
     logger.warning("⚠️ DELETE ACCOUNT REQUESTED for user %s target=%s", user_id, target)
     service = AccountService()
+
+    # The service's transactional external-resource guard must run before any
+    # destructive operation. Pod teardown is not proof of Memory Bank erasure;
+    # destroying it first can strand the only credentials able to finish deletion.
+    # Until incarnation-bound external erasure receipts exist, retained resources
+    # return the existing recoverable 409 and keep their recovery authority intact.
     result = await service.delete_account(user_id, target=target)
 
     if not result["success"]:
@@ -1398,6 +1733,8 @@ async def delete_account(
             details = {}
         firebase_auth_status = await _delete_firebase_auth_user(user_id)
         details["firebase_auth_user"] = firebase_auth_status
+        # The service proved external resources absent before committing deletion.
+        # Do not attempt cloud teardown after discarding account authority.
         # Fail-loud on Firebase identity cleanup: the encrypted account is already
         # gone, so we keep the 200, but expose whether the remaining identity was
         # safely quarantined or still needs urgent operator cleanup.

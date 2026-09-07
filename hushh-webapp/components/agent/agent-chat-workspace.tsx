@@ -94,6 +94,8 @@ import {
   type AgentVisibleStreamEvent,
   type AgentVisibleStreamStatus,
 } from "@/components/agent/agent-turn-stream-panel";
+import { useAgentDeploymentFollow } from "@/lib/feed/use-agent-deployment-follow";
+import { useProactiveAgentWake } from "@/lib/feed/use-proactive-agent-wake";
 import { describeSelection } from "@/lib/agent/describe-selection";
 import type { AgentStructuredExperience } from "@/lib/agent/agui-structured-experiences";
 import {
@@ -151,13 +153,15 @@ import {
 import {
   deleteAgentChatConversation,
   renameAgentChatConversation,
-  streamAgentChat,
+  runAgentChatTurn,
+  agentTurnAvailabilityMessage,
   streamAgentIntro,
   type AgentChatConversation,
   type AgentChatMessage as StoredAgentChatMessage,
   type AgentChatToolEvent,
   type SpecialistDirectiveEvent,
   type AgentSource,
+  type TurnCell,
   getAgentChatFeedback,
   setAgentChatFeedback,
 } from "@/lib/services/agent-chat-client";
@@ -180,6 +184,8 @@ import {
 } from "@/lib/consent/use-consent-actions";
 import { useOneLocationConsentActions } from "@/lib/consent/use-one-location-consent-actions";
 import { useVault } from "@/lib/vault/vault-context";
+import { ApiService } from "@/lib/services/api-service";
+import { classifyAgentRecovery } from "@/lib/feed/agent-recovery";
 import {
   appInteractionCoordinator,
   useActiveActionRun,
@@ -190,6 +196,7 @@ import {
   type PendingConsentLookupItem,
 } from "@/lib/services/consent-center-service";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
+import { resolveGeminiRuntimeConnection } from "@/lib/connections/gemini-runtime-configuration";
 import { deriveVoiceRouteScreen } from "@/lib/voice/route-screen-derivation";
 import { useAgentRuntimeStateOptional } from "@/lib/agent/agent-runtime-context";
 import {
@@ -211,6 +218,30 @@ import type {
   EmailDeliveryError,
   EmailDraft,
 } from "@/lib/services/email-delivery-service";
+
+/**
+ * The transcript a pod turn is seeded with. A pod holds no durable session by
+ * design (its session service is in-memory), so without this every pod turn
+ * started from nothing while the hub kept its thread. Bounded, oldest dropped
+ * first; the message being sent is not in it (the pod appends that itself).
+ */
+const POD_HISTORY_MAX_MESSAGES = 20;
+
+function transcriptForPod(
+  messages: ReadonlyArray<AgentMessage>,
+): Array<{ role: "user" | "assistant"; content: string }> {
+  return messages
+    .filter(
+      (message) =>
+        !message.ephemeral &&
+        message.kind !== "selection" &&
+        message.status !== "streaming" &&
+        message.status !== "error" &&
+        message.text.trim().length > 0,
+    )
+    .slice(-POD_HISTORY_MAX_MESSAGES)
+    .map((message) => ({ role: message.role, content: message.text }));
+}
 
 type AgentMessage = {
   id: string;
@@ -1355,23 +1386,107 @@ export function AgentChatWorkspace({
   >(null);
   const [editingQueuedPromptText, setEditingQueuedPromptText] = useState("");
   const [conversationId, setConversationId] = useState<string | null>(null);
+
+  // The person's own pod, when they have one. Follows the same status endpoint the
+  // presence chip does, so this adds no new polling -- the hook already exists and is
+  // already mounted elsewhere; Agent Chat simply had no way to know a pod was there,
+  // which is why every turn went to the shared hub even for someone whose pod was live.
+  const {
+    hushhId: podHushhId,
+    state: podState,
+    health: podHealth,
+    resolved: podResolved,
+  } = useAgentDeploymentFollow();
+  const podAddress = { hushhId: podHushhId, state: podState as string | null };
+  // A live reader for the router. The turn closure captures the values as they
+  // were when it was created; a first turn fired before the status read lands
+  // would therefore route on `null` forever. This lets the router re-read the
+  // latest values while it briefly waits, instead of assuming the person has no
+  // agent and sending their message to the shared hub.
+  const podAddressRef = useRef({
+    hushhId: podHushhId,
+    state: podState as string | null,
+    resolved: podResolved,
+  });
+  useEffect(() => {
+    podAddressRef.current = {
+      hushhId: podHushhId,
+      state: podState as string | null,
+      resolved: podResolved,
+    };
+  }, [podHushhId, podState, podResolved]);
+  const readPodAddress = useCallback(() => podAddressRef.current, []);
+  // Warm the person's own pod the moment they reach for it -- composer focus, surface
+  // mount, app resume -- so the ~11s cold start runs while they type instead of eating
+  // their first turn. `health` (not just `state`) is what tells asleep from serving, so
+  // it must be consumed here; before this the workspace discarded it and could not.
+  const { wakeNow: wakePodNow, isWaking: agentWaking } = useProactiveAgentWake({
+    state: podState as string | null,
+    health: podHealth,
+  });
+  // The private agent could not be reached on a turn (deprovisioned, or its host
+  // is gone). Surfaced as a banner with a rebuild action rather than a bare error,
+  // so a person whose pod vanished can recover instead of hitting a wall. This is the
+  // FAULT axis; a pod that is merely cold/starting is `agentStarting`, not this.
+  const [agentUnreachable, setAgentUnreachable] = useState(false);
+  // A provisioned-but-not-yet-serving pod (connecting, or cold) is a WARMING state, not
+  // a fault. Collapsing it into "unreachable" told people their agent was broken when it
+  // was simply waking. Kept separate so the copy and the affordance can be honest.
+  const [agentStarting, setAgentStarting] = useState(false);
+  const [agentAvailabilityMessage, setAgentAvailabilityMessage] = useState<string | null>(null);
+  useEffect(() => {
+    setAgentAvailabilityMessage(null);
+    setAgentStarting(false);
+    setAgentUnreachable(false);
+  }, [user?.uid, podHushhId, podState, podResolved]);
+  const [rebuildingAgent, setRebuildingAgent] = useState(false);
+  const handleRebuildAgent = useCallback(async () => {
+    setRebuildingAgent(true);
+    try {
+      // Probe first, through the ONE shared recovery classifier. Wake/reconnect
+      // preserves the agent's identity and memory; a rebuild mints a new
+      // identity and is the last resort, only on a confirmed-gone host whose
+      // cloud is still reachable. A gone PROJECT needs reinit, not a rebuild.
+      const outcome = await classifyAgentRecovery({ podHushhId });
+      if (outcome.kind === "reconnected" || outcome.kind === "waking") {
+        setAgentUnreachable(false);
+        return;
+      }
+      if (outcome.kind === "needs_reinit") {
+        // The project is gone; provisioning into it can only fail. Send the
+        // person to reconnect their cloud rather than churn a dead rebuild.
+        router.push(ROUTES.ONE_SETUP_CLOUD);
+        return;
+      }
+      if (outcome.kind === "error") return; // keep the banner; let them retry
+      // rebuildable: confirmed gone, cloud reachable -> a new identity is warranted.
+      const token = getVaultOwnerToken();
+      if (!token) return; // rebuilding writes the registry; the vault must be unlocked first
+      await ApiService.provisionPersonalAgent({ vaultOwnerToken: token });
+      setAgentUnreachable(false);
+    } catch {
+      // keep the banner up so the person can retry
+    } finally {
+      setRebuildingAgent(false);
+    }
+  }, [podHushhId, getVaultOwnerToken, router]);
   // Ratings for this conversation, keyed by message id. Durable, so a reload
   // and a conversation switch both keep what the person said about an answer.
   const [messageRatings, setMessageRatings] = useState<
     Record<string, "up" | "down">
   >({});
-  const [conversations, setConversations] = useState<AgentChatConversation[]>(
-    [],
-  );
-  const [messages, setMessages] = useState<AgentMessage[]>(() => [
-    createGreetingMessage(),
-  ]);
-  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(
-    null,
-  );
-  const consumeHandoff = useOneConversationSession(
-    (state) => state.consumeHandoff,
-  );
+  const [conversations, setConversations] = useState<AgentChatConversation[]>([]);
+  const [messages, setMessages] = useState<AgentMessage[]>(() => [createGreetingMessage()]);
+  // Read at send time by the turn callbacks, which must not re-bind per message.
+  const messagesRef = useRef<AgentMessage[]>(messages);
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+  // Which cell answered the last turn. Rendered, because "always my pod" is only
+  // a claim the product can keep by saying when the hub answered instead.
+  const [lastTurnCell, setLastTurnCell] = useState<TurnCell | null>(null);
+  const [queuedHandoffPrompt, setQueuedHandoffPrompt] = useState<string | null>(null);
+  const consumeHandoff = useOneConversationSession((state) => state.consumeHandoff);
   const consumedHandoffIdRef = useRef<string | null>(null);
   const [isChatLoading, setIsChatLoading] = useState(false);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
@@ -1743,51 +1858,59 @@ export function AgentChatWorkspace({
     voiceActive ||
     specialistBusy ||
     queuedPrompts.length > 0;
-  const statusText = useMemo(() => {
-    // Every line below narrates One's turn. In Puppy One it would report on an
-    // agent the reader is not looking at, which is the same lie as merging the
-    // transcripts, told in the header instead.
-    if (isPuppySurface) return null;
-    if (authLoading) return "Checking access";
-    if (!user?.uid) return "Sign in required";
-    if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh)
-      return "Vault locked";
-    if (activeActionRun) return activeActionRun.message;
-    if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
-    if (voiceState === "connecting") return "Voice connecting";
-    if (voiceState === "listening") return "Listening";
-    if (voiceState === "muted") return "Muted";
-    if (voiceState === "transcribing") return "Transcribing";
-    if (voiceState === "thinking") return "Thinking";
-    if (voiceState === "speaking") return "Speaking";
-    if (voiceState === "error") return "Voice error";
-    if (isLoadingHistory) return "Loading";
-    if (isVoiceConnecting) return "Voice connecting";
-    if (isToolWorking) return "Working";
-    if (isPkmMemoryWorking) return "Saving memory";
-    if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
-    if (isChatLoading) return "Thinking";
-    if (isStreaming) return "Streaming";
-    return null;
-  }, [
-    authLoading,
-    activeActionRun,
-    agentVoiceEnabled,
-    isChatLoading,
-    isLoadingHistory,
-    isPkmMemoryWorking,
-    isPuppySurface,
-    isToolWorking,
-    isStreaming,
-    isVoiceConnecting,
-    isVaultUnlocked,
-    queuedPrompts.length,
-    tokenIsFresh,
-    user?.uid,
-    vaultOwnerToken,
-    voiceState,
-    voiceActive,
-  ]);
+  const statusText = useMemo(
+    () => {
+      // Every line below narrates One's turn. On the Puppy surface it would report on
+      // an agent the reader is not looking at (ported from main, 2026-09-02).
+      if (isPuppySurface) return null;
+      if (authLoading) return "Checking access";
+      if (!user?.uid) return "Sign in required";
+      if (!isVaultUnlocked || !vaultOwnerToken || !tokenIsFresh) return "Vault locked";
+      if (activeActionRun) return activeActionRun.message;
+      if (!agentVoiceEnabled && voiceActive) return "Voice disabled";
+      if (voiceState === "connecting") return "Voice connecting";
+      if (voiceState === "listening") return "Listening";
+      if (voiceState === "muted") return "Muted";
+      if (voiceState === "transcribing") return "Transcribing";
+      if (voiceState === "thinking") return "Thinking";
+      if (voiceState === "speaking") return "Speaking";
+      if (voiceState === "error") return "Voice error";
+      if (isLoadingHistory) return "Loading";
+      if (isVoiceConnecting) return "Voice connecting";
+      if (isToolWorking) return "Working";
+      if (isPkmMemoryWorking) return "Saving memory";
+      if (queuedPrompts.length > 0) return `${queuedPrompts.length} queued`;
+      // Before "Thinking": a cold pod warming is NOT the model thinking, and a person
+      // told "Thinking" for eleven seconds reads the pause as a stall. This names the
+      // real reason, so the wait becomes legible instead of suspicious.
+      if (agentWaking) return "Waking your agent";
+      if (isChatLoading) return "Thinking";
+      if (isStreaming) return "Streaming";
+      // Idle shows no pill (main's UX): the status region carries only transient
+      // state, so a settled agent reports nothing rather than a standing "Ready".
+      return null;
+    },
+    [
+      authLoading,
+      activeActionRun,
+      agentVoiceEnabled,
+      agentWaking,
+      isPuppySurface,
+      isChatLoading,
+      isLoadingHistory,
+      isPkmMemoryWorking,
+      isToolWorking,
+      isStreaming,
+      isVoiceConnecting,
+      isVaultUnlocked,
+      queuedPrompts.length,
+      tokenIsFresh,
+      user?.uid,
+      vaultOwnerToken,
+      voiceState,
+      voiceActive,
+    ]
+  );
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({
@@ -3608,17 +3731,38 @@ export function AgentChatWorkspace({
         return;
       }
 
-      const streamResult = await streamAgentChat({
+      const runtimeConnection = await resolveGeminiRuntimeConnection({
+        userId,
+        vaultKey,
+        vaultOwnerToken: token,
+      });
+      const streamResult = await runAgentChatTurn({
+        // Which cell answers is decided by runAgentChatTurn, not here: the two
+        // cells return different SHAPES (the hub streams, a pod replies once) and
+        // that difference belongs in one place rather than at each call site.
+        podHushhId: podAddress.hushhId,
+        podState: podAddress.state,
+        podResolved,
+        readPodAddress,
         userId,
         message: text,
         conversationId: conversationIdRef.current,
         vaultOwnerToken: token,
         pkmContext: agentPkmContext.text || undefined,
+        history: transcriptForPod(messagesRef.current),
         screenContext: buildOneVoiceStructuredScreenContext({
           appRuntimeState: appRuntimeStateRef.current,
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
+        // The pod cell runs Gemini itself, so it needs the owner's runtime
+        // credential and Vertex target. The hub cell ignores these. Both come
+        // from the one resolved connection above.
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         handlers: {
           onStart: ({ conversationId: nextConversationId }) => {
@@ -3720,9 +3864,21 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
               streamEvents: settleVisibleStreamEvents(
                 current.streamEvents,
@@ -3739,6 +3895,7 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      setLastTurnCell(streamResult.cell);
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
       }
@@ -3766,7 +3923,7 @@ export function AgentChatWorkspace({
           : "Agent chat request failed.";
       updateMessage(assistantMessageId, (current) => ({
         ...current,
-        text: current.text || message,
+        text: current.text || agentTurnAvailabilityMessage(message) || message,
         status: "error",
         streamEvents: settleVisibleStreamEvents(
           current.streamEvents,
@@ -3847,8 +4004,23 @@ export function AgentChatWorkspace({
     streamAbortControllerRef.current = streamAbortController;
 
     try {
-      const streamResult = await streamAgentChat({
+      const runtimeConnection = await resolveGeminiRuntimeConnection({
         userId,
+        vaultKey,
+        vaultOwnerToken: token,
+      });
+      const streamResult = await runAgentChatTurn({
+        // Which cell answers is decided by runAgentChatTurn, not here: the two
+        // cells return different SHAPES (the hub streams, a pod replies once) and
+        // that difference belongs in one place rather than at each call site.
+        podHushhId: podAddress.hushhId,
+        podState: podAddress.state,
+        podResolved,
+        readPodAddress,
+        userId,
+        // A delegate turn carries its result in `message`: the pod cell forwards
+        // only message + credentials, so the human-readable outcome has to ride
+        // there for a pod to relay it (the hub cell reads the same field).
         message:
           result.detail ||
           result.display ||
@@ -3860,6 +4032,11 @@ export function AgentChatWorkspace({
           state: useAgentVoiceState.getState().oneVoiceState,
           lastTransition: useAgentVoiceState.getState().lastTransition,
         }) as unknown as Record<string, unknown>,
+        runtimeCredentialMode: runtimeConnection.mode,
+        runtimeCredential: runtimeConnection.credential,
+        runtimeCredentialTransport: runtimeConnection.transport,
+        runtimeVertexProject: runtimeConnection.vertexProject,
+        runtimeVertexLocation: runtimeConnection.vertexLocation,
         signal: streamAbortController.signal,
         // Handler set is intentionally reduced. A delegate_result turn is
         // serviced by the backend delegation branch (Task 6), which never
@@ -3904,9 +4081,21 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
             }));
             setIsChatLoading(false);
@@ -3926,6 +4115,7 @@ export function AgentChatWorkspace({
         return;
       }
       flushAssistantDelta();
+      setLastTurnCell(streamResult.cell);
       if (streamResult.conversationId) {
         updateConversationId(streamResult.conversationId);
       }
@@ -3955,7 +4145,7 @@ export function AgentChatWorkspace({
             : "Agent chat request failed.";
         updateMessage(assistantMessageId, (current) => ({
           ...current,
-          text: current.text || message,
+          text: current.text || agentTurnAvailabilityMessage(message) || message,
           status: "error",
         }));
       }
@@ -4130,9 +4320,21 @@ export function AgentChatWorkspace({
           onError: (message) => {
             if (streamAbortController.signal.aborted) return;
             flushAssistantDelta();
+            const availabilityMessage = agentTurnAvailabilityMessage(message);
+            setAgentAvailabilityMessage(availabilityMessage);
+            if (/AGENT_NOT_READY/.test(message)) {
+              // Provisioned but not serving yet (connecting, or cold). That is a
+              // warming state, not a fault: warm the pod and say "starting up", never
+              // flag it as unreachable. `wakePodNow` no-ops unless there is genuinely
+              // an asleep pod to warm, so this is safe on a still-connecting one.
+              setAgentStarting(true);
+              wakePodNow("turn_not_ready");
+            } else if (/AGENT_UNREACHABLE/.test(message)) {
+              setAgentUnreachable(true);
+            }
             updateMessage(assistantMessageId, (current) => ({
               ...current,
-              text: current.text || message,
+              text: current.text || agentTurnAvailabilityMessage(message) || message,
               status: "error",
             }));
             setIsChatLoading(false);
@@ -4155,7 +4357,7 @@ export function AgentChatWorkspace({
             : "Agent chat request failed.";
         updateMessage(assistantMessageId, (current) => ({
           ...current,
-          text: current.text || message,
+          text: current.text || agentTurnAvailabilityMessage(message) || message,
           status: "error",
         }));
       }
@@ -4192,6 +4394,11 @@ export function AgentChatWorkspace({
   const enqueuePrompt = (textInput: string) => {
     const text = textInput.trim();
     if (!text) return;
+    // A fresh send is a retry of whatever the banners were reporting. Clear the stale
+    // fault/warming state here -- the one choke point every turn path flows through --
+    // so a person who sends again is not staring at a banner about the last attempt.
+    setAgentUnreachable(false);
+    setAgentStarting(false);
     const prompt: QueuedAgentPrompt = {
       id: crypto.randomUUID(),
       text,
@@ -4781,6 +4988,36 @@ export function AgentChatWorkspace({
       )}
       data-agent-chat-workspace={variant}
     >
+      {agentAvailabilityMessage ? (
+        <div role="status" className="flex items-center justify-between gap-3 border-b border-border/40 px-4 py-2 text-sm">
+          <span>{agentAvailabilityMessage}</span>
+          <button type="button" className="shrink-0 underline" onClick={() => router.push(ROUTES.ONE_SETUP_CLOUD)}>
+            Private agent setup
+          </button>
+        </div>
+      ) : null}
+      {agentStarting && !agentUnreachable && !agentAvailabilityMessage ? (
+        <div className="flex items-center gap-2 border-b border-border/40 bg-foreground/[0.03] px-4 py-2 text-sm text-muted-foreground">
+          <span>
+            Your agent is starting up. This takes a few seconds; send again in a moment.
+          </span>
+        </div>
+      ) : null}
+      {agentUnreachable && !agentAvailabilityMessage ? (
+        <div className="flex items-center justify-between gap-3 border-b border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm">
+          <span className="text-amber-700 dark:text-amber-300">
+            Your private agent is unreachable right now.
+          </span>
+          <button
+            type="button"
+            onClick={handleRebuildAgent}
+            disabled={rebuildingAgent}
+            className="shrink-0 rounded-md bg-amber-600 px-3 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
+          >
+            {rebuildingAgent ? "Reconnecting…" : "Reconnect your agent"}
+          </button>
+        </div>
+      ) : null}
       <div
         className={cn(
           "relative flex min-h-0 flex-1",
@@ -4971,6 +5208,19 @@ export function AgentChatWorkspace({
                     ))}
                   </SelectContent>
                 </Select>
+              ) : null}
+              {lastTurnCell ? (
+                <span
+                  className="hidden text-[11px] text-muted-foreground/80 sm:inline-flex"
+                  data-testid="agent-turn-cell"
+                  title={
+                    lastTurnCell === "pod"
+                      ? "This answer came from your own private agent."
+                      : "This answer came from the shared Hussh hub, not your pod."
+                  }
+                >
+                  {lastTurnCell === "pod" ? "Your pod" : "Hussh hub"}
+                </span>
               ) : null}
               {/* A fixed slot, always present. This used to mount and unmount
                   with the status, and because the cluster is shrink-0 the whole
@@ -6043,6 +6293,7 @@ export function AgentChatWorkspace({
                         aria-label="Expanded message One"
                         value={input}
                         onChange={(event) => setInput(event.target.value)}
+                        onFocus={() => wakePodNow("composer_focus")}
                         onPaste={handleComposerPaste}
                         onKeyDown={(event) => {
                           if (
@@ -6093,6 +6344,7 @@ export function AgentChatWorkspace({
                           aria-label="Message One"
                           value={input}
                           onChange={(event) => setInput(event.target.value)}
+                          onFocus={() => wakePodNow("composer_focus")}
                           onPaste={handleComposerPaste}
                           onKeyDown={(event) => {
                             if (

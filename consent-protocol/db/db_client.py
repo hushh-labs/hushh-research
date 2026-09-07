@@ -444,15 +444,24 @@ class TableQuery:
         self._operation = "select"
         self._count_preference: Optional[str] = None
 
-    def select(self, columns: str = "*", count: Optional[str] = None) -> "TableQuery":
+    def select(self, *columns: str, count: Optional[str] = None) -> "TableQuery":
         """
         Select columns to return.
 
         Args:
-            columns: Comma-separated list of columns
+            columns: Column names -- either one comma-separated string (this
+                shim's original contract) or several names as separate arguments
+                (supabase-py's contract). Both are accepted because callers
+                written against supabase-py passed varargs here and the old
+                single-string signature raised ``TypeError`` at RUNTIME only --
+                the reconcile sweep silently skipped every pass on dev until the
+                mismatch was observed live (2026-08-25). ``count`` is
+                keyword-only for the same reason: a positional second string was
+                previously the count algorithm, and varargs would have silently
+                swallowed it into the column list.
             count: Count algorithm (e.g., 'exact')
         """
-        self._columns = columns
+        self._columns = ", ".join(columns) if columns else "*"
         self._count_preference = count
         self._operation = "select"
         return self

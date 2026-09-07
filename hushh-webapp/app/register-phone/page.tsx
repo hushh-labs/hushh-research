@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronLeft, LogOut, MoreHorizontal } from "lucide-react";
 import { toast } from "sonner";
@@ -35,7 +35,6 @@ import {
   isClaimableLookupOutcome,
   resolveVerifiedPhone,
 } from "@/lib/ria/ria-claim-entry";
-import { shouldBypassPhoneMandateForLocalhost } from "@/lib/services/phone-mandate-service";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
 import { resolvePostPhoneOnboardingPhase } from "@/lib/onboarding/onboarding-journey-phase";
 
@@ -154,7 +153,6 @@ export function PhoneMandatePageContent() {
             idToken,
             phoneNumber: activeUser.phoneNumber,
             phoneVerified: AccountIdentityService.hasVerifiedPhone(identity),
-            hostname: window.location.hostname,
           })
         : buildOneSetupRoute({ returnTo: redirectPath });
       await PreVaultUserStateService.syncOnboardingJourney({
@@ -175,12 +173,9 @@ export function PhoneMandatePageContent() {
     [redirectPath, refreshUser, router, user, phoneNumber],
   );
 
-  const [shouldBypassLocalPhoneMandate, setShouldBypassLocalPhoneMandate] =
-    useState(false);
   const [verificationStep, setVerificationStep] = useState<
     "phone" | "code" | "linked"
   >("phone");
-  const localBypassNavigationRef = useRef<string | null>(null);
 
   const handleSignOut = useCallback(async () => {
     try {
@@ -193,40 +188,17 @@ export function PhoneMandatePageContent() {
     }
   }, [signOut]);
 
-  useEffect(() => {
-    if (!loading && Boolean(user) && !phoneNumber) {
-      if (
-        typeof window !== "undefined" &&
-        shouldBypassPhoneMandateForLocalhost(window.location.hostname)
-      ) {
-        setShouldBypassLocalPhoneMandate(true);
-      }
-    }
-  }, [loading, user, phoneNumber]);
-
-  useEffect(() => {
-    if (!shouldBypassLocalPhoneMandate || !user) {
-      localBypassNavigationRef.current = null;
-      return;
-    }
-
-    // Local development bypasses the phone challenge only. It must not await
-    // account sync, persona lookup, or pre-vault bootstrap before leaving this
-    // screen: those are network-backed reconciliation tasks and can stall a
-    // local browser indefinitely. The canonical next onboarding boundary is
-    // always the setup hub; it owns its own authenticated state admission.
-    const targetRoute = ROUTES.ONE_SETUP;
-    const attemptKey = `${user.uid}:${targetRoute}`;
-    if (localBypassNavigationRef.current === attemptKey) {
-      return;
-    }
-
-    localBypassNavigationRef.current = attemptKey;
-    router.replace(targetRoute);
-  }, [router, shouldBypassLocalPhoneMandate, user]);
-
+  // This screen never host-redirects away. It used to detect localhost/dev
+  // hostnames and bounce straight to the setup hub, which turned the one
+  // reachable phone screen into a dead end while the server still required a
+  // verified phone before recording a cloud (observed on dev, 2026-08-19). The
+  // GUARD may exempt localhost from forcing this screen (Firebase reCAPTCHA
+  // cannot complete there), but an explicit visit always renders the flow, and
+  // the fictitious-number allowlist (+1 555 0100-0199) completes it without
+  // captcha or SMS in development lanes; production numbers ride the real SMS
+  // challenge.
   usePublishVoiceSurfaceMetadata(
-    !loading && user && !shouldBypassLocalPhoneMandate
+    !loading && user
       ? {
           screenId: "phone_mandate",
           title: "Verify your phone",
@@ -283,12 +255,6 @@ export function PhoneMandatePageContent() {
   if (loading || !user) {
     return (
       <HushhLoader label="Loading phone verification..." variant="fullscreen" />
-    );
-  }
-
-  if (shouldBypassLocalPhoneMandate) {
-    return (
-      <HushhLoader label="Continuing local session..." variant="fullscreen" />
     );
   }
 

@@ -22,11 +22,13 @@
     ".codex/skills/founder-brief-curation/references/brief-curation-rules.md",
     ".codex/skills/founder-brief-curation/references/founder-brief-kernel.md",
     ".codex/skills/founder-brief-curation/references/pdf-artifact-generation.md",
+    ".codex/skills/founder-brief-curation/references/world-class-artifact-standard.md",
     ".codex/skills/founder-brief-curation/references/architecture-diagram-standard.md",
     ".codex/skills/docs-governance/references/founder-document-cadence.md",
     "docs/reference/operations/documentation-architecture-map.md"
   ],
   "required_commands": [
+    "python3 scripts/ops/verify_pdf_artifact_contract.py",
     "./bin/hushh docs verify",
     "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
   ],
@@ -34,10 +36,12 @@
     {
       "id": "founder-brief-curation",
       "commands": [
+        "python3 scripts/ops/verify_pdf_artifact_contract.py",
         "./bin/hushh docs verify",
         "python3 .codex/skills/docs-governance/scripts/doc_inventory.py tier-a"
       ],
       "tests": [
+        "python3 scripts/ops/verify_pdf_artifact_contract.py",
         "./bin/hushh docs verify"
       ]
     }

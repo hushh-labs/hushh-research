@@ -15,7 +15,7 @@ from fastapi import FastAPI, HTTPException, Request  # noqa: E402
 from fastapi.middleware.cors import CORSMiddleware  # noqa: E402
 from fastapi.responses import JSONResponse, RedirectResponse  # noqa: E402
 
-from hushh_mcp.runtime_settings import get_app_runtime_settings  # noqa: E402
+from hushh_mcp.runtime_settings import get_app_runtime_settings, pod_mode  # noqa: E402
 from mcp_modules.log_redaction import install_sensitive_log_filter  # noqa: E402
 
 # Configure logging.
@@ -558,6 +558,9 @@ async def startup_pool_and_iam_cache() -> None:
 @app.on_event("startup")
 async def startup_consent_listener():
     """Start background task that LISTENs to consent_audit_new (NOTIFY)."""
+    if pod_mode():
+        logger.info("startup.consent_listener_skipped reason=pod_mode")
+        return
     import asyncio
 
     from api.consent_listener import run_consent_listener
@@ -570,6 +573,25 @@ async def startup_consent_listener():
     from api.referral_listener import run_referral_listener
 
     asyncio.create_task(run_referral_listener())
+
+
+@app.on_event("startup")
+async def startup_pod_lifecycle_listener():
+    """LISTEN pod_lifecycle_new so open lifecycle streams get doorbells.
+
+    Hub-only for the same reason as the consent listener: a pod has no registry
+    database. If the pool (or the parked 907 table) is absent the task exits
+    quietly and streams degrade to heartbeat-paced reads -- slower narrative,
+    never lost narrative, because readers are cursored.
+    """
+    if pod_mode():
+        logger.info("startup.pod_lifecycle_listener_skipped reason=pod_mode")
+        return
+    import asyncio
+
+    from api.pod_lifecycle_listener import run_pod_lifecycle_listener
+
+    _track_startup_background_task(asyncio.create_task(run_pod_lifecycle_listener()))
 
 
 @app.on_event("startup")
@@ -803,6 +825,9 @@ async def startup_market_insights_refresh():
 @app.on_event("startup")
 async def startup_gmail_receipts_sync():
     """Start Gmail catch-up/watch renewal loop for configured runtimes."""
+    if pod_mode():
+        logger.info("startup.gmail_receipts_sync_skipped reason=pod_mode")
+        return
     start_gmail_receipts_background_sync()
 
 
@@ -873,6 +898,11 @@ async def startup_consent_revocation_worker() -> None:
     Canonical attach point: hushh_mcp/services/revocation_worker.py
     Integrated by Abdul Gaffar — canonical temporal-consent boundary.
     """
+    if pod_mode():
+        # The revocation sweep is a shared control-plane singleton; per-user pods
+        # must not run it (per-request validate_token() still enforces expiry).
+        logger.info("startup.consent_revocation_worker_skipped reason=pod_mode")
+        return
     try:
         from hushh_mcp.services.connections_service import ConnectionsService
         from hushh_mcp.services.consent_db import ConsentDBService
@@ -904,8 +934,384 @@ async def startup_consent_revocation_worker() -> None:
 
 
 @app.on_event("startup")
+async def startup_personal_agent_reconcile_worker() -> None:
+    """Retry personal-agent provisions that stalled. Nothing did this before.
+
+    WHY A ROW STRANDS IN THE FIRST PLACE
+    ------------------------------------
+    Provisioning is ``loop.create_task`` around a ``wait_ready`` poll that can run
+    150s after the HTTP response was returned. On a CPU-throttled Cloud Run instance
+    that task barely progresses and may be evicted outright, leaving the row at
+    ``provisioning`` with no host, no error surfaced, and no retry -- because
+    ``start_personal_agent_reconcile_loop`` had ZERO callers anywhere in the repo.
+    Two customer-facing strings already promised that recovery. This is what makes
+    them true.
+
+    THE REAP HALF IS DELIBERATELY INERT
+    -----------------------------------
+    The worker also reaps idle pods, and that half must not run. Per its own module
+    docstring, ``personal_agent_registry`` has no last-activity column and
+    ``updated_at`` is never written -- so any idle query would reap on row AGE, and
+    tear down a perfectly healthy pod belonging to someone using it daily. So
+    ``fetch_idle`` returns nothing and ``reap`` raises if it is ever somehow reached.
+    Deleting someone's private agent on a signal we know to be wrong is not a
+    trade-off worth making for a sweep whose only benefit is cost.
+
+    Off by default behind ``PERSONAL_AGENT_RECONCILE_ENABLED``, which the worker
+    re-reads every pass, so it can be stopped without a redeploy.
+    """
+    if pod_mode():
+        # A control-plane singleton. A fleet of pods each retrying provisions would
+        # race one another over shared rows.
+        logger.info("startup.personal_agent_reconcile_skipped reason=pod_mode")
+        return
+    try:
+        from datetime import datetime, timezone
+
+        from hushh_mcp.services.personal_agent_reconcile_worker import (
+            StalledAgent,
+            start_personal_agent_reconcile_loop,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        registry = PersonalAgentRegistryRepo()
+        # Long enough that a healthy provision (wait_ready caps at 150s) is never
+        # mistaken for a dead one and retried underneath itself.
+        _stalled_after_seconds = 600
+        # How long a row may sit in 'connecting' before the handshake is declared
+        # dead rather than slow: 12x wait_ready's 150s cap, 3x the status route's
+        # 600s overdue warning, and >=4 failed key-collection passes at the 300s
+        # cadence. Nested deliberately: warn at 600s, fail at 1800s, stop retrying
+        # failed rows at 48h.
+        _connecting_failed_after_seconds = 1800
+
+        async def fetch_stalled() -> list:
+            cutoff = datetime.now(timezone.utc).timestamp() - _stalled_after_seconds
+            before = datetime.fromtimestamp(cutoff, tz=timezone.utc).isoformat()
+            # `connecting` joins the sweep FOR KEY COLLECTION ONLY -- `retry`
+            # below branches on the row's live status and never re-provisions a
+            # `connecting` row, which has a LIVE host mid-handshake. This closes
+            # the gap the status GET left when it became a pure reader: a row
+            # whose pod never heartbeated used to be advanced by the browser's
+            # poll, and is now watched here on the 300s cadence instead.
+            rows = await registry.fetch_stalled_agents(
+                stalled_before=before,
+                statuses=("provisioning", "provisioning_failed", "connecting"),
+            )
+            # A `provisioning_failed` row older than this is a PERMANENT
+            # failure wearing a transient costume: the sweep used to retry it
+            # forever, re-emitting "setup started again" each pass while (for
+            # example) the target project no longer existed (audit finding,
+            # 2026-08-21). Past the cap the row keeps its honest failed status,
+            # the owner's surfaces say setup did not finish, and a fresh
+            # attempt through the app resets the clock by rewriting the row.
+            permanent_cutoff = datetime.now(timezone.utc).timestamp() - 48 * 3600
+            kept = []
+            for row in rows:
+                if not str(row.get("user_id") or "").strip():
+                    continue
+                if str(row.get("status") or "") == "provisioning_failed":
+                    raw_created = str(row.get("created_at") or "")
+                    try:
+                        created_ts = datetime.fromisoformat(
+                            raw_created.replace("Z", "+00:00")
+                        ).timestamp()
+                    except ValueError:
+                        created_ts = permanent_cutoff  # unparseable: keep retrying
+                    if created_ts < permanent_cutoff:
+                        logger.info(
+                            "personal_agent.retry_capped hushh_id=%s age_h>48",
+                            str(row.get("hushh_id") or "<none>"),
+                        )
+                        continue
+                kept.append(row)
+            return [
+                StalledAgent(
+                    user_id=str(row.get("user_id") or ""),
+                    hushh_id=str(row.get("hushh_id") or ""),
+                    status=str(row.get("status") or ""),
+                )
+                for row in kept
+            ]
+
+        async def retry(user_id: str) -> None:
+            # A `connecting` row has a LIVE host waiting on its key push.
+            # Re-provisioning it would replace a running service, which is exactly
+            # why _STALLED_POD_STATUSES excludes it -- so that case is handled
+            # here, as key collection, and returns before the provision path.
+            #
+            # The probe is best-effort: if the registry read itself fails, fall
+            # through to the provision path, whose own phone gate and idempotent
+            # upsert are the long-standing safety net. A dead DB must not turn
+            # every retry into a no-op -- and provision() re-reads the row anyway.
+            try:
+                row = await registry.get(user_id)
+            except Exception:  # noqa: BLE001 - skip the pass; never provision blind
+                # The sweep now also returns `connecting` rows, so an unreadable
+                # row might be one whose host is LIVE mid-handshake. Falling
+                # through to provision on a failed read would risk replacing a
+                # running service to save one 300s pass -- the wrong trade in
+                # both directions. Do nothing; the next pass re-reads.
+                logger.warning("personal_agent_reconcile.row_read_failed -- skipping this pass")
+                return
+            if str((row or {}).get("status") or "") == "connecting":
+                from hushh_mcp.services.pod_key_collector import refresh_pod_key
+
+                advanced = None
+                try:
+                    # The sweep MUST use the rotation-aware entry: a rebuilt pod
+                    # holds a NEW keypair, and the raw collector's default refuses
+                    # to rebind ("a different pod public key is already registered")
+                    # -- observed live 2026-08-25: a re-provisioned row could never
+                    # leave `connecting`. refresh_pod_key exists precisely so this
+                    # call site never has to remember the flag.
+                    advanced = await refresh_pod_key(row)
+                    logger.info(
+                        "personal_agent_reconcile.key_collection user_id_prefix=%s advanced=%s",
+                        user_id[:8],
+                        advanced or "no",
+                    )
+                except Exception as exc:  # noqa: BLE001 - next pass retries
+                    # Same pinned format as the heartbeat site: the pod and the
+                    # reason, never just the class. test_journey_is_traceable
+                    # asserts these fields at every site that collects.
+                    detail = " ".join(str(exc).split())[:300] or "<no detail>"
+                    logger.warning(
+                        "personal_agent.key_collection_failed hushh_id=%s service=%s "
+                        "err=%s detail=%s",
+                        (row or {}).get("hushh_id") or "<none>",
+                        (row or {}).get("external_agent_id") or "<none>",
+                        type(exc).__name__,
+                        detail,
+                    )
+                if advanced in (None, "connecting"):
+                    # The row did not LEAVE connecting this pass. `upsert` stamps
+                    # updated_at on every transition and heartbeats never touch it,
+                    # so it IS time-in-state -- past the deadline the handshake is
+                    # declared dead rather than slow, and the row becomes the
+                    # 'failed' state the owner's rebuild affordance already renders.
+                    raw = str((row or {}).get("updated_at") or "").strip()
+                    try:
+                        entered = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+                    except ValueError:
+                        # Unparseable: keep waiting -- the same conservative
+                        # direction as the 48h cap.
+                        return
+                    if entered.tzinfo is None:
+                        entered = entered.replace(tzinfo=timezone.utc)
+                    waited = (datetime.now(timezone.utc) - entered).total_seconds()
+                    if waited >= _connecting_failed_after_seconds:
+                        from hushh_mcp.services.personal_agent_registry_repo import (
+                            REASON_HANDSHAKE_TIMEOUT,
+                        )
+
+                        marked = await registry.mark_provisioning_failed(
+                            user_id=user_id,
+                            reason=REASON_HANDSHAKE_TIMEOUT,
+                            detail=f"no pod key after {int(waited)}s in connecting",
+                        )
+                        if marked:
+                            from hushh_mcp.services.personal_agent_provisioning_service import (
+                                FEED_EVENT_FAILED,
+                                FEED_REASON_POD_UNRESPONSIVE,
+                                record_provisioning_feed_event_safe,
+                            )
+
+                            await record_provisioning_feed_event_safe(
+                                user_id=user_id,
+                                event_type=FEED_EVENT_FAILED,
+                                reason=FEED_REASON_POD_UNRESPONSIVE,
+                            )
+                            logger.error(
+                                "personal_agent.handshake_failed hushh_id=%s service=%s "
+                                "waited_s=%d -- host Ready but the pod never published "
+                                "its key; marked provisioning_failed. Recovery is the "
+                                "owner's rebuild affordance.",
+                                (row or {}).get("hushh_id") or "<none>",
+                                (row or {}).get("external_agent_id") or "<none>",
+                                int(waited),
+                            )
+                return
+
+            if str((row or {}).get("status") or "") == "provisioning_failed":
+                failure = ((row or {}).get("backend_metadata") or {}).get("failure") or {}
+                if str(failure.get("code") or "") == "handshake_timeout":
+                    # Terminal, not retryable: a re-provision heals to the SAME
+                    # digest the dead pod already runs, so auto-retry converges on
+                    # the same dead boot and would flap the owner's surface
+                    # connecting<->failed every ~35 min until the 48h cap. A row
+                    # whose NEXT failure happens before a handle exists keeps this
+                    # marker too -- acceptable, the owner is already in the
+                    # explicit-recovery flow.
+                    logger.info(
+                        "personal_agent_reconcile.skip reason=handshake_timeout hushh_id=%s",
+                        (row or {}).get("hushh_id") or "<none>",
+                    )
+                    return
+
+            from hushh_mcp.services.actor_identity_service import ActorIdentityService
+
+            identity = ActorIdentityService()
+            record = (await identity.get_many([user_id])).get(user_id) or {}
+            # Same server-side read the AI-connection gate performs. A retry must
+            # never mint an agent against a number nobody proved they hold, and an
+            # unverified row is not a retryable state -- it is a different problem.
+            if record.get("phone_verified") is not True:
+                logger.info("personal_agent_reconcile.skip reason=phone_unverified")
+                return
+            phone = str(record.get("phone_number") or "").strip()
+            if not phone:
+                return
+            # Construct and call the SAME way every other caller does. This line
+            # raised TypeError twice over -- `registry` is a required keyword-only
+            # constructor argument, and `provision` is keyword-only -- so the only
+            # path that recovers a provision evicted mid-flight failed before
+            # doing anything. The worker caught it and counted `retry_failed`,
+            # which is why nothing ever surfaced: a retry that always fails and a
+            # retry that is never needed produce the same clean logs.
+            from hushh_mcp.services.compute_backend import resolve_compute_backend
+            from hushh_mcp.services.personal_agent_provisioning_service import (
+                PersonalAgentProvisioningService,
+            )
+            from hushh_mcp.services.personal_agent_registry_repo import (
+                PersonalAgentRegistryRepo,
+            )
+
+            service = PersonalAgentProvisioningService(
+                registry=PersonalAgentRegistryRepo(),
+                backend=resolve_compute_backend(),
+            )
+            await service.provision(user_id=user_id, phone_e164=phone)
+
+        async def fetch_idle(_idle_since) -> list:
+            # See the docstring: no truthful idleness source exists in the schema.
+            return []
+
+        async def reap(external_agent_id: str) -> None:
+            raise AssertionError(
+                "idle reap is not wired: personal_agent_registry has no activity "
+                f"column, so any candidate is age-based ({external_agent_id[:8]}…)"
+            )
+
+        # The image-upgrade sweep. The hub's HUSSH_ONE_POD_IMAGE is set by the deploy
+        # that built it, so "hub at sha X, pods at sha X" is the invariant this keeps:
+        # until it existed a hub deploy left every running pod on whatever image it
+        # was born with (the founder's first BYOC pod, 2026-09-02, five commits behind).
+        def _upgrade_service():
+            from hushh_mcp.services.compute_backend import resolve_compute_backend
+            from hushh_mcp.services.personal_agent_provisioning_service import (
+                PersonalAgentProvisioningService,
+            )
+            from hushh_mcp.services.personal_agent_registry_repo import (
+                PersonalAgentRegistryRepo,
+            )
+
+            return PersonalAgentProvisioningService(
+                registry=PersonalAgentRegistryRepo(),
+                backend=resolve_compute_backend(),
+            )
+
+        def _current_pod_image() -> str:
+            return str(os.environ.get("HUSSH_ONE_POD_IMAGE") or "").strip()
+
+        async def fetch_stale() -> list:
+            from hushh_mcp.services.personal_agent_provisioning_service import running_image
+            from hushh_mcp.services.personal_agent_reconcile_worker import StalePod
+
+            current = _current_pod_image()
+            if not current:
+                return []
+            rows = await _upgrade_service().list_upgrade_candidates(current_image=current)
+            return [
+                StalePod(
+                    user_id=str(r.get("user_id") or ""),
+                    hushh_id=str(r.get("hushh_id") or ""),
+                    image=running_image(r) or "",
+                )
+                for r in rows
+                if r.get("user_id")
+            ]
+
+        async def upgrade(user_id: str) -> None:
+            await _upgrade_service().upgrade_pod(
+                user_id=user_id, current_image=_current_pod_image()
+            )
+
+        task = start_personal_agent_reconcile_loop(
+            fetch_stalled=fetch_stalled,
+            retry=retry,
+            fetch_idle=fetch_idle,
+            reap=reap,
+            interval_seconds=300,
+            fetch_stale=fetch_stale,
+            upgrade=upgrade,
+        )
+        if task is None:
+            logger.info("startup.personal_agent_reconcile_off flag=disabled")
+            return
+        _track_startup_background_task(task)
+        logger.info("startup.personal_agent_reconcile_registered interval_s=300")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.personal_agent_reconcile_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
+async def startup_pod_liveness_worker() -> None:
+    """Observe whether pods are alive. Nothing did this before either.
+
+    WHY THIS MATTERS MORE THAN IT LOOKS
+    -----------------------------------
+    ``start_liveness_loop`` had ZERO callers anywhere in the repo -- its only
+    occurrence was its own definition -- so the whole observe -> confirm -> heal
+    ladder was unreachable. That is why ``personal_agent_registry.health_state``
+    has exactly one writer in practice: the pod's own heartbeat, which can only
+    ever say ``healthy``. Every other verdict -- ``sleeping``, ``degraded``,
+    ``unreachable`` -- had no producer at all, so a UI showing four states would
+    have been showing three that cannot occur.
+
+    Confirmed against Cloud Logging: zero ``pod_liveness`` entries in
+    ``hushh-pda-dev`` since 2026-07-01.
+
+    HEALING STAYS OFF
+    -----------------
+    This attaches the OBSERVER only. ``HUSSH_POD_AUTOHEAL_ENABLED`` still
+    defaults False, so a confirmed-dead pod is recorded and left alone rather
+    than replaced. Observation is safe and immediately useful -- it makes the
+    health column mean something for the first time -- while healing deletes and
+    recreates a person's agent, and that should not switch itself on in the same
+    change that first makes the sweep run. Ship the eyes before the hands.
+
+    Both flags are re-read every pass, so either half can be stopped without a
+    redeploy.
+    """
+    if pod_mode():
+        # A control-plane singleton, for the same reason the reconcile sweep is:
+        # a fleet of pods each probing the fleet would race over shared rows.
+        logger.info("startup.pod_liveness_skipped reason=pod_mode")
+        return
+    try:
+        from hushh_mcp.services import pod_liveness_adapters  # noqa: PLC0415
+        from hushh_mcp.services.pod_liveness_worker import (  # noqa: PLC0415
+            start_liveness_loop,
+        )
+
+        task = asyncio.create_task(
+            start_liveness_loop(**pod_liveness_adapters.build_liveness_seams())
+        )
+        _track_startup_background_task(task)
+        logger.info("startup.pod_liveness_registered interval_s=120 heal=flag_gated")
+    except Exception as exc:  # noqa: BLE001 - a missing sweep must not stop the server
+        logger.warning("startup.pod_liveness_failed reason=%s", type(exc).__name__)
+
+
+@app.on_event("startup")
 async def startup_account_deletion_cleanup_worker() -> None:
     """Retry durable Firebase identity cleanup intents after account erasure."""
+    if pod_mode():
+        logger.info("startup.account_deletion_cleanup_skipped reason=pod_mode")
+        return
     try:
         from hushh_mcp.services.account_deletion_lifecycle_service import (
             start_account_deletion_cleanup_loop,

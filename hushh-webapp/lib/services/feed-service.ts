@@ -8,7 +8,31 @@ import {
 export type FeedSourceDomain =
   "consent" | "location" | "kai" | "kyc" | "connected_systems" | "connections";
 
+/**
+ * The private-agent lifecycle vocabulary, emitted by
+ * `personal_agent_provisioning_service.py`.
+ *
+ * Held as a value, not only a type, so a test can iterate it — and so the one
+ * check that matters can compare it against the backend's own constants at run
+ * time. None of these were in `FeedEventType` at all, which meant the union
+ * offered no protection whatsoever against a typo'd or unrendered event name:
+ * `FeedItem.event_type` widens to `| string`, so everything compiled either way.
+ */
+export const PERSONAL_AGENT_EVENT_TYPES = [
+  "personal_agent_reserved",
+  "personal_agent_provisioning",
+  "personal_agent_connecting",
+  "personal_agent_ready",
+  "personal_agent_failed",
+  "personal_agent_provisioning_capped",
+  "personal_agent_reaped",
+  "personal_agent_updated",
+] as const;
+
+export type PersonalAgentEventType = (typeof PERSONAL_AGENT_EVENT_TYPES)[number];
+
 export type FeedEventType =
+  | PersonalAgentEventType
   | "consent_requested"
   | "consent_granted"
   | "consent_revoked"

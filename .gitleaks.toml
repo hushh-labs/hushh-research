@@ -30,4 +30,38 @@ regexes = [
   '''onAlpacaOauthReturnRoute''',
   # HCT golden-vector deterministic test key; never used in production.
   '''golden_vector_signing_key_for_hct_parity_only_32\+''',
+  # OneConsent Keychain item account names — public, version-stable identifiers
+  # for the SE-bound wrapping key + wrapped data-key envelope. Documented in
+  # apps/one-mac/docs/threat-model.md.
+  '''ai\.hushh\.one\.consent\.wrapping\.v1''',
+  '''ai\.hushh\.one\.consent\.data-key\.v1''',
+  # The NAME of the env var that carries the consent signing key, not the key.
+  # `generic-api-key` fires on `PRIVATE_KEY_ENV = "CONSENT_ED25519_PRIVATE_KEY"`
+  # (hushh_mcp/consent/token_signing.py) because the constant reads like a secret
+  # and the literal clears the entropy bar at 4.06. The name is public by
+  # necessity — it appears in deploy configs, runbooks and the backend parity
+  # test — so the finding can never be anything but noise.
+  #
+  # Anchored on purpose, and matched against the SECRET rather than the file. A
+  # path allowlist would blind the scanner to a real key landing in that same
+  # file; this exempts one exact string and nothing else, so an actual Ed25519
+  # key assigned to that variable still trips the rule.
+  '''^CONSENT_ED25519_PRIVATE_KEY$''',
+  # A Pydantic LENGTH BOUND, not a secret. `generic-api-key` treats a field alias
+  # containing "Credential" as a key name and then captures the NEXT token as its
+  # value, so
+  #
+  #     alias="runtimeCredential", max_length=12000
+  #
+  # is read as `runtimeCredential = 12000`. Four findings in api/routes/one/
+  # pod_turn.py and pod_relay.py are all this shape; the captured "secret" is
+  # literally `max_length=12000` at entropy 3.70.
+  #
+  # Anchored, and matched against the SECRET rather than the file, following the
+  # CONSENT_ED25519_PRIVATE_KEY entry above. `max_length=<digits>` cannot express
+  # a credential -- there is no assignment of a key that produces this exact
+  # string -- so a real credential landing on the very next line of those same
+  # files still trips the rule with a different secret. A path allowlist would
+  # blind the scanner to that; this does not.
+  '''^max_length=[0-9]+$''',
 ]

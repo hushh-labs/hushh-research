@@ -141,6 +141,7 @@ export const ROUTES = {
   ONE_SETUP_EMAIL: "/one/setup/email",
   ONE_SETUP_RIA: "/one/setup/ria",
   ONE_SETUP_CONNECTED_SYSTEMS: "/one/setup/connected-systems",
+  ONE_SETUP_CLOUD: "/one/setup/cloud",
   ONE_SETUP_CONNECTIONS: "/one/setup/connections",
   GMAIL: "/one/gmail",
   EMAIL_AGENT: "/one/email",
@@ -323,6 +324,14 @@ export const SETUP_CAPABILITY_ROUTES: Readonly<Record<string, string>> = {
  * generated voice action.
  */
 export const SETUP_NAVIGATION_ROUTES: readonly string[] = [
+  // The hub itself is a browsable home for "what's left to set up" — its own
+  // header contract says a person who has finished onboarding can still browse
+  // here without being trapped. Ejecting the setup-complete owner from the hub
+  // stranded exactly the person the pod-provisioning journey needs: they could
+  // deep-link to the cloud step but never reach it through the product.
+  ROUTES.ONE_SETUP,
+  // Product order: the cloud is named and authorized before AI access is chosen.
+  ROUTES.ONE_SETUP_CLOUD,
   ROUTES.ONE_SETUP_CONNECTIONS,
 ];
 

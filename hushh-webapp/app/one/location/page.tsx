@@ -132,7 +132,7 @@ function BodyPortal({ children }: { children: ReactNode }) {
   return createPortal(children, document.body);
 }
 
-import { HushhContacts } from "@/lib/capacitor";
+import { HushhContacts, HushhLocation } from "@/lib/capacitor";
 import type { HushhLocationPermissionState } from "@/lib/capacitor";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import {
@@ -151,6 +151,7 @@ import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matchin
 import { isWeb } from "@/lib/capacitor/platform";
 import { apiErrorCode } from "@/lib/services/api-client";
 import { appInteractionCoordinator } from "@/lib/interaction/interaction-intent-coordinator";
+import { isLocationRequestPending } from "@/lib/one-location/request-expiry";
 import { LocationBus } from "@/lib/one-location/location-bus";
 import {
   isPublishableAge,
@@ -3389,9 +3390,9 @@ export function OneLocationAgentPageContent({
     () =>
       (state?.requests ?? []).filter(
         (request) =>
-          request.ownerUserId === auth.userId && request.status === "pending",
+          request.ownerUserId === auth.userId && isLocationRequestPending(request, nowMs),
       ),
-    [auth.userId, state?.requests],
+    [auth.userId, nowMs, state?.requests],
   );
   // Warm the shared position while the user is still reading the request.
   //
@@ -6414,7 +6415,19 @@ export function OneLocationAgentPageContent({
   // Keep native background publishing in sync with the opt-in toggle + grants.
   // Web returns { started:false } and this is a no-op there.
   useEffect(() => {
-    if (!vaultOwnerToken) return;
+    if (isWeb()) return;
+    const listener = HushhLocation.addListener("backgroundShareStopped", () => setBackgroundShareEnabled(false));
+    return () => {
+      void listener.then((handle) => handle.remove());
+      void OneLocationService.stopBackgroundShare();
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!vaultOwnerToken) {
+      void OneLocationService.stopBackgroundShare();
+      return;
+    }
     const session = buildBackgroundShareSession({
       activeGrants: activeOwnerGrants,
       recipients,
@@ -6423,12 +6436,17 @@ export function OneLocationAgentPageContent({
       minMoveMeters: LIVE_LOCATION_MIN_MOVE_METERS,
       minIntervalMs: LIVE_LOCATION_MIN_PUBLISH_INTERVAL_MS,
     });
+    let current = true;
     void syncBackgroundShare({
       enabled: backgroundShareEnabled && !locationControl.paused,
       session,
-    });
+    }).then((started) => {
+      if (current && backgroundShareEnabled && !locationControl.paused && !started) {
+        setBackgroundShareEnabled(false);
+      }
+    }).catch(() => { if (current) setBackgroundShareEnabled(false); });
     return () => {
-      void OneLocationService.stopBackgroundShare();
+      current = false;
     };
   }, [
     backgroundShareEnabled,

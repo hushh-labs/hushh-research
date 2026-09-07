@@ -21,12 +21,13 @@ const androidActivityPath = path.join(appRoot, "android/app/src/main/java/com/hu
 const iosInfoPlistPath = path.join(appRoot, "ios/App/App/Info.plist");
 const iosEntitlementsPath = path.join(appRoot, "ios/App/App/App.entitlements");
 
-const webOnlyPlugins = new Set(["HushhDatabase", "HushhAgent"]);
+const webOnlyPlugins = new Set();
 // App Shortcuts are an Apple system surface, not an Android route-parity lane.
 // The TypeScript adapter returns unsupported/no pending invocation elsewhere.
 const iosOnlyPlugins = new Set(["HushhVoiceInvocation"]);
 const ignoredTsMethodsByPlugin = new Map([
   ["Kai", new Set(["addListener"])],
+  ["HushhLocation", new Set(["addListener"])],
   ["HushhVoiceInvocation", new Set(["addListener"])],
 ]);
 

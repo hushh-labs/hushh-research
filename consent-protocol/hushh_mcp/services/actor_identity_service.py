@@ -13,6 +13,10 @@ import asyncpg
 
 from api.utils.firebase_admin import get_firebase_auth_app
 from db.connection import get_pool
+from hushh_mcp.runtime_settings import (
+    personal_agent_autoprovision_enabled,
+    personal_agent_enabled,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -21,6 +25,8 @@ _IDENTITY_SYNC_COOLDOWN = timedelta(minutes=5)
 _IDENTITY_SYNC_TASKS: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_IN_FLIGHT: dict[str, asyncio.Future[dict[str, Any] | None]] = {}
 _IDENTITY_SYNC_COOLDOWN_UNTIL: dict[str, datetime] = {}
+# In-flight personal-agent provisioning kickoffs, deduped per user (phone-verify seam).
+_PERSONAL_AGENT_PROVISION_TASKS: dict[str, asyncio.Task[None]] = {}
 _ALIAS_CODE_PATTERN = re.compile(r"\s+")
 
 # A verification code must not outlive the sitting; same 15 minutes the claim
@@ -309,6 +315,123 @@ class ActorIdentityService:
 
         task.add_done_callback(_cleanup)
         return True
+
+    def schedule_provision_personal_agent(
+        self, user_id: str, phone_number: str, *, via_ai_connection: bool = False
+    ) -> bool:
+        """Fire-and-forget: register the user's PENDING personal agent on phone-verify.
+
+        Flag-gated and strictly best-effort -- it never blocks or fails phone
+        verification. When ``PERSONAL_AGENT_ENABLED`` is off this is a no-op.
+        Deduped by an in-flight task per user; the actual work (HusshID + pending
+        registry row) is idempotent and non-destructive.
+        """
+        if not personal_agent_enabled():
+            return False
+        # The AI-connection gate owns this trigger now. Provisioning on phone-verify
+        # stood a billable pod behind an event that said nothing about whether the
+        # agent could think -- a user who never connected a model got a warm pod
+        # that answered nothing, forever.
+        #
+        # `via_ai_connection` is an explicit argument rather than an inspection of
+        # the call stack: the caller states which trigger it is, so the two can
+        # never both fire for one user and no future caller can be misclassified by
+        # where it happens to live.
+        from hushh_mcp.runtime_settings import provision_on_ai_connection  # noqa: PLC0415
+
+        if provision_on_ai_connection() and not via_ai_connection:
+            logger.info("personal_agent.provision_deferred reason=awaiting_ai_connection")
+            return False
+
+        normalized_user_id = str(user_id or "").strip()
+        normalized_phone = str(phone_number or "").strip()
+        if not normalized_user_id or not normalized_phone:
+            return False
+        if not self._looks_like_firebase_uid(normalized_user_id):
+            return False
+
+        existing = _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id)
+        if existing and not existing.done():
+            return False
+
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return False
+
+        task = loop.create_task(
+            self._register_pending_personal_agent(normalized_user_id, normalized_phone)
+        )
+        _PERSONAL_AGENT_PROVISION_TASKS[normalized_user_id] = task
+
+        def _cleanup(completed: asyncio.Task[None]) -> None:
+            if _PERSONAL_AGENT_PROVISION_TASKS.get(normalized_user_id) is completed:
+                _PERSONAL_AGENT_PROVISION_TASKS.pop(normalized_user_id, None)
+            try:
+                completed.result()
+            except Exception as exc:
+                logger.debug(
+                    "personal-agent provisioning kickoff skipped for %s: %s",
+                    normalized_user_id,
+                    exc,
+                )
+
+        task.add_done_callback(_cleanup)
+        return True
+
+    async def _register_pending_personal_agent(self, user_id: str, phone_number: str) -> None:
+        # Deferred import: no personal-agent dependency at module import time, and
+        # nothing runs unless the flag gated the scheduler open.
+        from hushh_mcp.services.compute_backend import resolve_compute_backend
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+        from hushh_mcp.services.personal_agent_registry_repo import (
+            PersonalAgentRegistryRepo,
+        )
+
+        # Resolve the SAME backend the owner-authorized route uses
+        # (api/routes/one/personal_agent.py). Constructing this service without a
+        # backend silently yields NullBackend, so this path would have reported
+        # success while creating no host at all -- and it is the path that will run
+        # for every signup, where nobody is watching a response body.
+        service = PersonalAgentProvisioningService(
+            registry=PersonalAgentRegistryRepo(), backend=resolve_compute_backend()
+        )
+        await service.register_pending(user_id=user_id, phone_e164=phone_number)
+
+        if not personal_agent_autoprovision_enabled():
+            return
+
+        # Continue straight through to a real host. Deferred pod key: at phone-verify
+        # there is no pod yet, so there is no pod public key yet either -- the pod
+        # generates its own and registers it, and provision() stops at 'connecting'
+        # until it does.
+        #
+        # Failures are logged and swallowed. This runs fire-and-forget off phone
+        # verification, so raising would be an invisible, unretried break AND could
+        # surface on a path whose only job is to confirm a phone number. The user
+        # keeps their reservation, the row records the failure, and the feed carries
+        # a personal_agent_failed row.
+        try:
+            await service.provision(user_id=user_id, phone_e164=phone_number)
+        except Exception:
+            # The HusshID is derived, not carried, so it is re-derived here purely to
+            # label the failure. Without it this traceback is unattributable: it is the
+            # first thing that runs for a new person, it runs fire-and-forget where
+            # nobody is reading a response, and on a shared dev lane several signups
+            # produce identical, unjoinable stack traces.
+            try:
+                from hushh_mcp.services.personal_agent_identity_service import mint_hushh_id
+
+                failed_hushh_id = mint_hushh_id(phone_number)
+            except Exception:  # labelling must never mask the real failure
+                failed_hushh_id = "<underivable>"
+            logger.exception(
+                "personal_agent.autoprovision_failed hushh_id=%s service=one-pod-%s",
+                failed_hushh_id,
+                failed_hushh_id.lower().replace("_", "-"),
+            )
 
     async def _known_actor_ids(self, user_ids: Iterable[str]) -> set[str]:
         normalized_ids = [str(user_id or "").strip() for user_id in user_ids]
@@ -902,7 +1025,45 @@ class ActorIdentityService:
             )
             return None
 
+        # Phone-verify seam: kick off the user's personal-agent provisioning
+        # (flag-gated, fire-and-forget). Wrapped defensively so it can never affect
+        # the phone-claim result.
+        try:
+            self.schedule_provision_personal_agent(normalized_user_id, normalized_phone_number)
+        except Exception:  # noqa: S110 -- provisioning kickoff must never break phone verify
+            pass
+        await self._resume_ai_connection(normalized_user_id)
+
         return self._normalize_row(row)
+
+    async def _resume_ai_connection(self, user_id: str) -> None:
+        """Re-run the AI-connection trigger for a choice recorded BEFORE the phone.
+
+        The setup wizard shows the cloud and the AI before identity (2026-09-02), so
+        a person can pick "use your pod's AI" while no record can exist yet; the gate
+        then defers on the missing phone and nothing re-fires when the phone arrives.
+        Only the managed choice resumes here: a bring-your-own-key choice proves its
+        key on its own path and fires the trigger from there. Never raises.
+        """
+        try:
+            from hushh_mcp.services.ai_connection_gate import (  # noqa: PLC0415
+                on_ai_connection_verified,
+            )
+            from hushh_mcp.services.vault_keys_service import VaultKeysService  # noqa: PLC0415
+
+            state = await VaultKeysService().get_pre_vault_state(user_id)
+            if str(state.get("oneRuntimeSetupChoice") or "") != "hushh_managed_vertex":
+                return
+            verdict = await on_ai_connection_verified(
+                user_id=user_id, provider="hushh_managed_vertex", transport="managed_vertex"
+            )
+            logger.info(
+                "personal_agent.ai_connection_resumed_after_phone scheduled=%s reason=%s",
+                bool(verdict.get("scheduled")),
+                str(verdict.get("reason") or "")[:80],
+            )
+        except Exception:  # noqa: BLE001 - phone verification must complete regardless
+            logger.warning("personal_agent.ai_connection_resume_failed", exc_info=True)
 
     async def list_verified_email_aliases(self, user_id: str) -> list[dict[str, Any]]:
         normalized_user_id = str(user_id or "").strip()

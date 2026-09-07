@@ -57,7 +57,7 @@ persona and structural surface:
 - `information_identity`: KYC, Email, Connected Systems, and Personal
   Information
 
-The existing curated `.codex/agents` fleet remains the implementation. Adding
+The existing curated `agents` fleet remains the implementation. Adding
 a generic maintenance agent would exceed the governed fleet cap and duplicate
 the governor, frontend, backend, data-model, documentation, security, and
 voice evidence lanes.
@@ -82,3 +82,76 @@ change dispatch, A2A, tool admission, consent, or action authority. Runtime
 agent creation follows [One Agent Hierarchy](../one/one-agent-hierarchy.md) and
 the `product-agent-development` workflow; engineering maintenance follows
 `runtime-topology-maintenance`.
+
+## Recurring audit cadence
+
+Run the existing `runtime-topology-maintenance` workflow manually when adopting
+a new model or agent host. Its playbook composes shared-rule alignment, database,
+environment, native and wiki evidence. This cadence does not install a scheduler
+or grant deployment, publishing, database mutation or account-reset authority.
+
+`python3 scripts/ops/audit_agents_md_alignment.py --json` exposes drift candidates;
+`--strict` returns nonzero for findings and `--self-test` exercises the portable
+bridge checks. Existing skill lint verifies canonical bridge metadata and targets
+on both supported hosts. Platform-specific procedures and imported bundles still
+need explicit classification before migration; an inventory is not proof they
+are unused.
+
+Persist a sanitized revision-bound report and compare it with the prior run.
+Preserve failed and unverified results, then correct one independently reversible
+boundary at a time. New model evaluations use the same contract fixtures and
+negative controls as the prior baseline.
+
+### Platform-source ratchet
+
+`skill_lint.py` reuses the alignment audit's bridge and classification checks.
+Canonical twins are discovered from `skills/`; governed owners from `skill.json`.
+Remaining host aliases, adapters and imported resources are explicitly inventoried in
+`.codex/skills/agent-orchestration-governance/references/platform-source-inventory.json`.
+Unclassified additions (including short files), changed classified behavior, broken
+canonical pointers and stale inventory entries fail lint. Updating a digest requires
+reviewing the actual behavior; a pending import or migration classification is recorded
+debt, not proof that the source meets the canonical contract. Impeccable's pinned
+upstream tree, outer license/notices and vendored screenshot license were verified
+on 2026-09-05; exact receipts and retained license paths live in the inventory above.
+The importer did not record the original revision of its derived platform references.
+Optional parser dependencies and bypassing host launchers still constrain execution
+and relocation. Keep the bundle intact and its nested writers outside the canonical
+evidence fleet; confirmed provenance is not approval to execute imported wrappers.
+
+Existing pod receipt checks prove only the declared date window and a tracked reproduction
+path. They do not establish that the current revision passed a live drill. A release audit
+must re-earn runtime evidence against its exact candidate and record image and environment;
+source tests, dated receipts and simulator results must remain distinguishable.
+
+### Fleet inventory evidence
+
+`pod_fleet.py --assert-empty` and `pod_reconcile.py` use the existing Cloud Run
+client's complete paginated inventory. Redirects, malformed records, unreachable
+locations, repeated continuation tokens and later-page failures are unavailable
+evidence; they cannot establish an empty fleet. The assertion returns 0 only for
+a complete empty observation, 1 for observed pods, and 77 when unavailable.
+
+The report-only reconciler reads host claims in one unrestricted registry SELECT,
+separate from the bounded liveness sweep. It joins recorded service identifiers
+within the requested project and region. Migrating rows retain their host claims;
+inactive rows with a live host are reported separately from unclaimed services.
+Missing coordinates and conflicting claims produce an incomplete report (exit 2)
+and suppress orphan conclusions. The legacy unscoped pure classifier remains
+available for offline callers and now also recognizes migrating rows.
+
+Cloud inventory and the registry snapshot are separate observations. Their
+mismatches are review candidates, never authority to delete, adopt or retry a
+resource. Neither an empty fleet nor a successful report proves provider-memory,
+object-version, key or backup erasure.
+
+### Live lifecycle producer admission
+
+`pod_lifecycle_drill.py --live` currently returns incomplete before acquiring
+cloud resources or consent authority. Its retained `GcpFleet` adapter is a
+migration surface, not an approved disposable-resource runner: existing-owner
+upsert, service adoption on conflict, name-only deletion and pre-cleanup reporting
+must be replaced through the existing registry, Cloud Run client and lifecycle
+services. Re-enabling requires exclusive attempt/incarnation ownership and
+verified cleanup, including durable external erasure. The existing dry-run and
+its schedule continue to test the oracle only; no new schedule is added.

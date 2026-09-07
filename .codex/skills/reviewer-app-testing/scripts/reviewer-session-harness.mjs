@@ -50,8 +50,9 @@ function requestPathname(request) {
   return endpointPath(request.url());
 }
 
-function installReadOnlyMutationGuard(context) {
+async function installReadOnlyMutationGuard(context) {
   const blockedMutations = [];
+  let suppressedAnalytics = 0;
   if (process.env.REVIEWER_ALLOW_SHARED_MUTATIONS === "true") {
     return {
       assertNoBlockedMutation() {},
@@ -59,10 +60,22 @@ function installReadOnlyMutationGuard(context) {
     };
   }
 
-  void context.route("**/*", async (route) => {
+  await context.route("**/*", async (route) => {
     const request = route.request();
     const method = request.method().toUpperCase();
     const pathname = requestPathname(request);
+    const hostname = requestHostname(request);
+    // Read-only product rehearsals must not send measurement events or mistake
+    // suppressed telemetry for a product mutation. This exact collection route
+    // is answered locally; analytics delivery has its own owning smoke workflow.
+    if (
+      method === "POST" && pathname === "/g/collect" &&
+      ["www.google-analytics.com", "region1.google-analytics.com", "analytics.google.com"].includes(hostname)
+    ) {
+      suppressedAnalytics += 1;
+      await route.fulfill({ status: 204, body: "" });
+      return;
+    }
     if (
       !["POST", "PUT", "PATCH", "DELETE"].includes(method) ||
       READ_ONLY_SAFE_POST_PATHS.has(pathname) ||
@@ -90,6 +103,7 @@ function installReadOnlyMutationGuard(context) {
         `Read-only reviewer rehearsal blocked state-changing request(s): ${blockedMutations.join(", ")}. Fix the app's test/read-only posture or use an isolated fixture with explicit mutation authority.`,
       );
     },
+    suppressedAnalyticsRequests: () => suppressedAnalytics,
     policy: "read_only",
   };
 }
@@ -151,14 +165,35 @@ export async function createReviewerSessionHarness({
   function attachMemoryOnlyCapture(page) {
     let vaultState = null;
     let ownerToken = "";
+    let firebaseBearer = "";
     let identityToken = "";
     const criticalApiFailures = [];
     const responsePromises = new Set();
+    // Two DISTINCT tokens, each read only off its own allowlisted routes so one
+    // can never be mistaken for the other: the vault-owner token rides /api/pkm/,
+    // and the Firebase ID token rides the state/agent routes below. The Firebase
+    // capture exists because the app fetches bootstrap state DURING sign-in and
+    // then serves it from cache -- a caller who attaches a listener after
+    // openSession returns can wait forever for a request that already happened.
+    const firebaseBearerPaths = [
+      "/api/vault/bootstrap-state",
+      "/api/vault/pre-vault-state",
+      "/api/one/runtime/",
+      "/api/one/personal-agent/status",
+      "/api/one/u/",
+    ];
     page.on("request", (request) => {
       const pathname = endpointPath(request.url());
       const authorization = request.headers().authorization || "";
       if (!authorization.startsWith("Bearer ")) return;
-      if (pathname.startsWith("/api/pkm/")) ownerToken = authorization.slice(7);
+      if (pathname.startsWith("/api/pkm/")) {
+        ownerToken = authorization.slice(7);
+        return;
+      }
+      if (firebaseBearerPaths.some((prefix) => pathname.startsWith(prefix))) {
+        firebaseBearer = authorization.slice(7);
+        return;
+      }
       if (pathname.startsWith("/api/one/connections")) {
         identityToken = authorization.slice(7);
       }
@@ -188,6 +223,12 @@ export async function createReviewerSessionHarness({
       async ownerToken() {
         return waitForValue(() => ownerToken, "vault-owner token", timeoutMs);
       },
+      // Synchronous on purpose: the sign-in traffic already happened by the time
+      // a caller asks, so there is nothing to wait for — either it was observed
+      // or the caller needs to trigger a fetch of its own.
+      firebaseBearer() {
+        return firebaseBearer;
+      },
       async identityToken() {
         return waitForValue(() => identityToken, "reviewer identity token", timeoutMs);
       },
@@ -206,13 +247,32 @@ export async function createReviewerSessionHarness({
     };
   }
 
-  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs) {
+  // `requireVaultUnlocked: false` is for a FIRST-RUN account, which has no vault to
+  // unlock. The bridge deliberately refuses to create one (it reports `vault_error`
+  // rather than minting a vault for a fixture), so a fresh-user journey has to stop
+  // at `authenticated` and drive the visible "Set a lock" dialog itself. Insisting on
+  // `vault_unlocked` there would fail every genuinely fresh run, which is exactly the
+  // journey a first-run rehearsal exists to walk.
+  async function waitForUnlock(page, readOnlyGuard, unlockTimeoutMs = timeoutMs, { requireVaultUnlocked = true } = {}) {
     const reviewerButton = page.getByRole("button", { name: /continue as reviewer/i });
     const unlockInput = page.locator("#unlock-passphrase");
-    const unlockButton = page
-      .getByRole("button", { name: /unlock with passphrase/i })
-      .first();
-    const terminalFailures = new Set(["auth_error", "uid_mismatch", "vault_error"]);
+    // The submit control renders "Unlock" (and "Unlocking..." while busy). This
+    // used to match a longer phrase that appears nowhere in the product, so the
+    // locator resolved to nothing, `isEnabled()` threw, the `.catch(() => false)`
+    // below swallowed it, and the manual-unlock fallback was dead code: any run
+    // where the auto-bootstrap did not fire waited out the whole timeout and then
+    // reported a state it had never tried to fix. The guard in
+    // `reviewer-route-bootstrap-contract.test.ts` now pins this against the vault's
+    // own source, so a selector and the control it targets cannot drift apart.
+    const unlockButton = page.getByRole("button", { name: /^unlock/i }).first();
+    // Shown when the vault offers passkey/biometric first; clicking it reveals the
+    // passphrase field the harness actually drives.
+    const passphraseFallback = page.locator('[data-testid="vault-use-passphrase-instead"]');
+    // A fresh account legitimately has no vault, so `vault_error` is the expected
+    // report there rather than a failure to abort on.
+    const terminalFailures = requireVaultUnlocked
+      ? new Set(["auth_error", "uid_mismatch", "vault_error"])
+      : new Set(["auth_error", "uid_mismatch"]);
     const deadline = Date.now() + unlockTimeoutMs;
     let reviewerLoginSubmitted = false;
     let manualPassphraseFilled = false;
@@ -233,19 +293,39 @@ export async function createReviewerSessionHarness({
     while (Date.now() < deadline) {
       readOnlyGuard.assertNoBlockedMutation();
       const bootstrap = await safeBootstrapState();
-      if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
       if (terminalFailures.has(bootstrap.state)) {
-        throw new Error(
-          `Reviewer vault bootstrap failed (state=${bootstrap.state}, error_class=${bootstrap.errorClass || "unknown"}, path=${bootstrap.path}, user_match=${bootstrap.userMatches}).`
-        );
+        throw new Error("Reviewer bootstrap failed its authentication or vault boundary.");
       }
+      if (bootstrap.state === "vault_unlocked" && bootstrap.userMatches) return;
+      // First-run: signed in as the right person, off the login screen, and the
+      // vault dialog is the caller's to drive.
+      if (
+        !requireVaultUnlocked &&
+        bootstrap.userMatches &&
+        bootstrap.state === "authenticated" &&
+        !bootstrap.path.startsWith("/login")
+      ) {
+        return;
+      }
+
 
       if (!reviewerLoginSubmitted && await reviewerButton.isVisible().catch(() => false)) {
         await reviewerButton.click({ noWaitAfter: true });
         reviewerLoginSubmitted = true;
       }
 
-      if (!manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
+      // If the vault is offering passkey/biometric, the passphrase field is not on
+      // screen yet. Reveal it first, or the block below never sees its input.
+      if (
+        requireVaultUnlocked &&
+        !manualUnlockSubmitted &&
+        !(await unlockInput.isVisible().catch(() => false)) &&
+        (await passphraseFallback.isVisible().catch(() => false))
+      ) {
+        await passphraseFallback.click({ noWaitAfter: true }).catch(() => undefined);
+      }
+
+      if (requireVaultUnlocked && !manualUnlockSubmitted && await unlockInput.isVisible().catch(() => false)) {
         if (!manualPassphraseFilled) {
           await unlockInput.fill(reviewerPassphrase);
           manualPassphraseFilled = true;
@@ -265,14 +345,26 @@ export async function createReviewerSessionHarness({
     );
   }
 
+  // Set by openSession when the caller opted into a first-run walk. A person who has
+  // no vault yet never reaches `vault_unlocked`, so continuity for them means "still
+  // signed in and not being asked to unlock", not "still holding a key they were
+  // never given". Without this the navigation helper reported a failure on every
+  // first-run hop -- an oracle raising a false alarm, which is as damaging as one
+  // that cannot fail, because it teaches the reader to discount real findings.
+  const firstRunPages = new WeakSet();
+
   async function assertVaultContinuity(page, label) {
     const unlockVisible = await page.locator("#unlock-passphrase").isVisible().catch(() => false);
     if (unlockVisible) throw new Error(`${label} lost the reviewer vault key.`);
-    const state = await page.evaluate(
-      () => window.__HUSHH_NATIVE_TEST__?.bootstrapState || ""
-    );
-    if (state && state !== "vault_unlocked") {
-      throw new Error(`${label} changed vault bootstrap state to ${state}.`);
+    const { state, userMatches } = await page.evaluate((expectedUserId) => ({
+      state: window.__HUSHH_NATIVE_TEST__?.bootstrapState || "",
+      userMatches: window.__HUSHH_NATIVE_TEST__?.bootstrapUserId === expectedUserId,
+    }), reviewerUid);
+    const acceptable = firstRunPages.has(page)
+      ? new Set(["vault_unlocked", "authenticated"])
+      : new Set(["vault_unlocked"]);
+    if (!userMatches || !acceptable.has(state)) {
+      throw new Error(`${label} lost the expected reviewer session.`);
     }
   }
 
@@ -292,7 +384,7 @@ export async function createReviewerSessionHarness({
     await assertVaultContinuity(page, href);
   }
 
-  async function openSession(browser, redirect) {
+  async function openSession(browser, redirect, { requireVaultUnlocked = true, onPageCreated = null } = {}) {
     const maxAttempts = 3;
     const attemptTimeoutMs = Math.max(20_000, Math.floor(timeoutMs / maxAttempts));
     let lastError = null;
@@ -300,16 +392,31 @@ export async function createReviewerSessionHarness({
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
       const context = await browser.newContext({ viewport: { width: 1440, height: 900 } });
       const page = await context.newPage();
+      if (!requireVaultUnlocked) firstRunPages.add(page);
       page.setDefaultTimeout(attemptTimeoutMs);
       page.setDefaultNavigationTimeout(attemptTimeoutMs);
-      const readOnlyGuard = installReadOnlyMutationGuard(context);
       const capture = attachMemoryOnlyCapture(page);
-      await installBridge(page);
       try {
+        const readOnlyGuard = await installReadOnlyMutationGuard(context);
+        // First-run authentication does not inject a vault passphrase or create
+        // a vault. The application owns the visible setup flow.
+        await installBridge(page, { includePassphrase: requireVaultUnlocked });
+        if (onPageCreated) await onPageCreated(page);
         await page.goto(`${normalizedOrigin}/login?redirect=${encodeURIComponent(redirect)}`, {
           waitUntil: "domcontentloaded",
         });
-        await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs);
+        await waitForUnlock(page, readOnlyGuard, attemptTimeoutMs, { requireVaultUnlocked });
+        // The bridge reports `vault_unlocked` while /login is still resolving
+        // its redirect. Returning here hands the caller a page with a pending
+        // navigation that silently clobbers their first navigateInApp, which
+        // then times out against a URL the login route overwrote. Wait for the
+        // handoff to leave /login. The destination is deliberately not asserted:
+        // the redirect is state-aware and may legitimately land on onboarding.
+        await page.waitForFunction(
+          () => !window.location.pathname.startsWith("/login"),
+          undefined,
+          { timeout: attemptTimeoutMs }
+        );
         return { context, page, capture, readOnlyGuard };
       } catch (error) {
         lastError = error;
@@ -328,9 +435,9 @@ export async function createReviewerSessionHarness({
     const challengeTimeoutMs = Math.min(timeoutMs, 60_000);
     page.setDefaultTimeout(challengeTimeoutMs);
     page.setDefaultNavigationTimeout(challengeTimeoutMs);
-    const readOnlyGuard = installReadOnlyMutationGuard(context);
     const capture = attachMemoryOnlyCapture(page);
     try {
+      const readOnlyGuard = await installReadOnlyMutationGuard(context);
       // Authenticate the canonical reviewer through the test bridge, but do
       // not inject or submit the passphrase. This context must prove the app
       // itself presents the locked-vault challenge first.

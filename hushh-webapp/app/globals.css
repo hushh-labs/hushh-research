@@ -3650,8 +3650,8 @@ body:has([data-testid="one-location-onboarding"])
 
 .dark {
   /* Foundation dark — PDF pitch-black bg #0a0a0c, elevated card #15151c.
-     Accent tuned BRIGHT for legibility on black; the light -deep tone is
-     too faint on dark surfaces. */
+     The accent -deep stays #007aff by design (see the ONE Action Blue note
+     below); only the translucent tint/surface washes take alpha form on dark. */
 
   /* ── App accent family (dark) ── iOS Blue default; gold overrides live
      under html[data-accent="gold"].dark below. ONE Action Blue across both

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 import {
@@ -9,12 +9,17 @@ import {
   AppPageShell,
 } from "@/components/app-ui/app-page-shell";
 import { PageHeader } from "@/components/app-ui/page-sections";
+import { PrivateAgentCard } from "@/components/connections/private-agent-card";
 import { GeminiRuntimeSettingsCard } from "@/components/connections/gemini-runtime-settings-card";
 import { RuntimeProviderMark } from "@/components/brand/runtime-provider-mark";
 import { RUNTIME_PROVIDER_CATALOG } from "@/lib/connections/runtime-provider-catalog";
 import { SetupCompletionFooter } from "@/components/onboarding/setup/setup-completion-footer";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { useAuth } from "@/hooks/use-auth";
+import {
+  isValidatedAuthSessionOwnerCurrent,
+  snapshotValidatedAuthSessionOwner,
+} from "@/lib/auth/session-owner";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { ROUTES } from "@/lib/navigation/routes";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
@@ -29,11 +34,31 @@ type GeminiRuntimeConfigurationPageProps = {
   setupMode?: boolean;
 };
 
-export function GeminiRuntimeConfigurationPage({
+export function GeminiRuntimeConfigurationPage(props: GeminiRuntimeConfigurationPageProps) {
+  const auth = useAuth();
+  const owner = snapshotValidatedAuthSessionOwner();
+  return (
+    <OwnerRuntimeConfigurationPage
+      key={`${auth.user?.uid ?? "signed-out"}:${owner?.generation ?? "unresolved"}`}
+      {...props}
+      auth={auth}
+    />
+  );
+}
+
+function OwnerRuntimeConfigurationPage({
   setupMode = false,
-}: GeminiRuntimeConfigurationPageProps) {
+  auth,
+}: GeminiRuntimeConfigurationPageProps & { auth: ReturnType<typeof useAuth> }) {
   const router = useRouter();
-  const { user, loading: authLoading } = useAuth();
+  const { user, loading: authLoading } = auth;
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const { vaultKey, vaultOwnerToken, isVaultUnlocked } = useVault();
   const [hasVault, setHasVault] = useState<boolean | null>(
     setupMode ? true : null,
@@ -108,12 +133,10 @@ export function GeminiRuntimeConfigurationPage({
     }
   }, [authLoading, router, setupMode, user]);
 
-  const needsVaultCreation = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === false,
-  );
-  const needsUnlock = !setupMode && Boolean(
-    user && !isVaultUnlocked && hasVault === true,
-  );
+  const needsVaultCreation =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === false);
+  const needsUnlock =
+    !setupMode && Boolean(user && !isVaultUnlocked && hasVault === true);
   const returnToSetupHub = useCallback(() => {
     setFinishing(true);
     const requested = requestInternalAppNavigation({
@@ -216,7 +239,10 @@ export function GeminiRuntimeConfigurationPage({
                       kept the mark's own 48px default, so they overflowed their
                       slots and overlapped each other by 4px, which is why the
                       logos looked cramped and Grok came out clipped. */}
-                  <RuntimeProviderMark provider={provider} className="h-9 w-9" />
+                  <RuntimeProviderMark
+                    provider={provider}
+                    className="h-9 w-9"
+                  />
                 </span>
                 <span className="sr-only">
                   {provider.availability === "available"
@@ -231,7 +257,7 @@ export function GeminiRuntimeConfigurationPage({
           title={setupMode ? "Choose your AI" : "Gemini settings"}
           description={
             setupMode
-              ? "Use ours, or bring your own key."
+              ? "Your pod's AI, or your own key."
               : "Choose how your private agent reaches Gemini."
           }
           accent="neutral"
@@ -241,6 +267,8 @@ export function GeminiRuntimeConfigurationPage({
           surface rhythm; without it the two SettingsGroups render flush and the
           "Coming soon" heading looks cramped against the Gemini card (#1940). */}
       <AppPageContentRegion className="space-y-6">
+        {/* Below the AI-connection card, deliberately: a pod runs on the person's
+            own model key, so it is offered only after there is a key to run it on. */}
         <GeminiRuntimeSettingsCard
           userId={user?.uid}
           vaultKey={vaultKey}
@@ -255,10 +283,14 @@ export function GeminiRuntimeConfigurationPage({
           onSelectionReadyChange={
             setupMode && user?.uid
               ? async (choice) => {
-                  const state = await PreVaultUserStateService.markOneRuntimeChoice(
-                    user.uid,
-                    choice,
-                  );
+                  const owner = snapshotValidatedAuthSessionOwner();
+                  if (!mountedRef.current || !owner || owner.userId !== user.uid) return;
+                  const state =
+                    await PreVaultUserStateService.markOneRuntimeChoice(
+                      user.uid,
+                      choice,
+                    );
+                  if (!mountedRef.current || !isValidatedAuthSessionOwnerCurrent(owner)) return;
                   setSetupChoice(state.oneRuntimeSetupChoice);
                   setHasRuntimeChoice(true);
                   // Taking the recommended option IS the whole decision —
@@ -267,6 +299,9 @@ export function GeminiRuntimeConfigurationPage({
                   // they have to find. Bringing your own key still continues
                   // below, because that path has a form left to fill.
                   if (choice === "hushh_managed_vertex") {
+                    // Navigation can unmount the card before its callback resumes.
+                    // Retire BYOK only after the managed choice was persisted.
+                    PreVaultSensitiveDraftService.clearGeminiRuntime(user.uid);
                     returnToSetupHub();
                   }
                 }
@@ -274,7 +309,11 @@ export function GeminiRuntimeConfigurationPage({
           }
           onPreVaultDraftStaged={
             setupMode && user?.uid
-              ? (draft) => PreVaultSensitiveDraftService.stageGeminiRuntime(user.uid, draft)
+              ? (draft) =>
+                  PreVaultSensitiveDraftService.stageGeminiRuntime(
+                    user.uid,
+                    draft,
+                  )
               : undefined
           }
           onPreVaultDraftCleared={
@@ -283,6 +322,16 @@ export function GeminiRuntimeConfigurationPage({
               : undefined
           }
         />
+        {/* Not shown during first-run setup: the person is still connecting the key
+            the pod would run on, and offering to build one mid-flow would interrupt
+            the journey they are already in. */}
+        {setupMode ? null : (
+          <PrivateAgentCard
+            vaultOwnerToken={vaultOwnerToken}
+            needsUnlock={needsUnlock}
+            onRequestVaultUnlock={() => setUnlockOpen(true)}
+          />
+        )}
       </AppPageContentRegion>
       {setupMode ? (
         <SetupCompletionFooter

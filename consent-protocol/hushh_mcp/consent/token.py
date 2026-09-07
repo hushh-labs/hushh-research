@@ -3,13 +3,13 @@
 import base64
 import binascii
 import hashlib
-import hmac
 import logging
 import threading
 import time
 from typing import Optional, Tuple, Union
 
 from hushh_mcp.config import APP_SIGNING_KEY, DEFAULT_CONSENT_TOKEN_EXPIRY_MS
+from hushh_mcp.consent.token_signing import sign_payload, verify_payload
 from hushh_mcp.constants import CONSENT_TOKEN_PREFIX, ConsentScope
 from hushh_mcp.types import AgentID, HushhConsentToken, UserID
 
@@ -253,9 +253,11 @@ def validate_token(
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}|commercial"
         else:
             raw = f"{user_id}|{agent_id}|{scope_str}|{issued_at_str}|{expires_at_str}"
-        expected_sig = _sign(raw)
 
-        if not hmac.compare_digest(signature, expected_sig):
+        # Alg-tagged dispatch (token_signing): HMAC signatures verify exactly as
+        # before; `ed25519.<kid>.<sig>` verifies against a PUBLIC key, which is
+        # what lets a pod check authenticity without the power to forge.
+        if not verify_payload(raw, signature, hmac_key=APP_SIGNING_KEY):
             return False, "Invalid signature", None
 
         # Check expiry BEFORE scope so that an expired token with the wrong
@@ -477,4 +479,6 @@ def _token_fingerprint(token_str: str) -> str:
 
 
 def _sign(input_string: str) -> str:
-    return hmac.new(APP_SIGNING_KEY.encode(), input_string.encode(), hashlib.sha256).hexdigest()
+    # Issuance routes through token_signing: HMAC by default (byte-identical to
+    # the historic signer), Ed25519 when CONSENT_TOKEN_SIGNING_ALG selects it.
+    return sign_payload(input_string, hmac_key=APP_SIGNING_KEY)

@@ -22,7 +22,17 @@ SETUP_CAPABILITY_IDS = frozenset(SETUP_CAPABILITY_ORDER)
 
 # Root setup facts that use the same durable marker set without becoming
 # product-agent capabilities or generated actions.
-SETUP_PREREQUISITE_ORDER = ("connections",)
+#
+# `cloud` precedes `connections` because that is the product order: a person names and
+# authorizes their own cloud, and only then chooses how the agent reaches a model -- by
+# which point their own project's native ADC usually answers it, and a key is the
+# exception rather than the front door.
+#
+# This tuple is the ADMISSION list, not merely a display order.
+# `normalize_setup_capability_ids` filters against `SETUP_STATE_IDS` on both the read and
+# the write path, so an id absent from here is dropped silently, with no error anywhere.
+# That is why this constant ships before any surface that writes a `cloud` marker.
+SETUP_PREREQUISITE_ORDER = ("cloud", "connections")
 SETUP_STATE_ORDER = SETUP_PREREQUISITE_ORDER + SETUP_CAPABILITY_ORDER
 SETUP_STATE_IDS = frozenset(SETUP_STATE_ORDER)
 

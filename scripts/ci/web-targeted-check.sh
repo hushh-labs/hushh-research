@@ -72,6 +72,20 @@ if has_match '^hushh-webapp/(lib/(analytics|observability)|__tests__/services/ob
   ran=1
 fi
 
+# The front door. `onboarding-journey-guard.test.tsx` has nineteen cases naming
+# exactly how a first-run person is admitted, and NO npm script referenced it and
+# no CI lane had ever executed it -- so the file that guards the one screen every
+# person must pass through was decoration. Same defect as the code it guards: it
+# existed, was correct, and was reached by nothing.
+#
+# The chrome-quiescence case is the one that would have caught the measured
+# defect: chrome that is hidden must not still be fetching, because on a pool of
+# four connections a nav badge nobody can see is a nav badge that delays setup.
+if has_match '^hushh-webapp/(components/onboarding/|components/navbar\.tsx|components/app-ui/top-app-bar\.tsx|lib/(auth/use-session-chrome-suppression|consent/use-consent-pending-summary-count|feed/use-feed-unread-count|persona/persona-context)|hooks/use-effective-avatar-url|app/providers\.tsx|__tests__/components/onboarding-journey-guard)'; then
+  run_check "first-run admission" npm run verify:first-run-admission
+  ran=1
+fi
+
 if has_match '^hushh-webapp/(components/.*/.*phone|__tests__/components/phone-verification|lib/services/.*phone|app/.*/.*phone)'; then
   run_check "phone verification" npm run verify:phone-verification
   ran=1

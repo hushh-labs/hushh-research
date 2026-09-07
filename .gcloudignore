@@ -82,3 +82,14 @@ assets/
 # deploy/
 *.sh
 *.ps1
+
+# ...except the backend deploy step, which MUST be uploaded.
+#
+# Cloud Build caps a single build-step arg at 10,000 characters, and that step's body
+# outgrew it (2026-07-28, commit 363a9932d), breaking every backend deploy on all three
+# lanes. It now lives in a file, so it has to reach /workspace. `*.sh` above would
+# silently exclude it and the step would die on "No such file or directory".
+#
+# Re-inclusion has to come AFTER the `*.sh` that excludes it -- gitignore semantics are
+# last-match-wins -- so do not move this above that line.
+!scripts/deploy/backend-deploy.sh

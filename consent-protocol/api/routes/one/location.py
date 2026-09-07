@@ -52,6 +52,11 @@ from hushh_mcp.services.one_location_place_rating_service import (
     OneLocationPlaceRatingService,
     PlaceRatingError,
 )
+from hushh_mcp.services.scheduler_identity import (
+    SchedulerIdentityError,
+    legacy_shared_token_allowed,
+    verified_scheduler_identity,
+)
 
 router = APIRouter(prefix="/api/one", tags=["One Location Agent"])
 
@@ -595,9 +600,49 @@ def _set_private_no_store(response: Response) -> None:
     response.headers["Pragma"] = "no-cache"
 
 
+def _verified_scheduler_identity(request: Request, config_prefix: str):
+    """Verify a scheduler OIDC token, or return None when none was presented.
+
+    A presented-but-invalid token raises rather than returning None, so it cannot
+    fall through to the weaker shared-header path below.
+    """
+    try:
+        return verified_scheduler_identity(request, config_prefix)
+    except SchedulerIdentityError as error:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+                "reason": error.reason,
+            },
+        ) from error
+
+
 def _require_retention_auth(request: Request) -> None:
+    """OIDC first; the shared header only while the legacy path is still open.
+
+    Order matters. Checking OIDC first means that once both Cloud Scheduler jobs are
+    reconfigured, turning the legacy path off is a config change and not a code
+    change -- and until then a job that presents a valid OIDC token is never asked
+    for a header it no longer carries.
+    """
     if not _retention_auth_enabled():
         return
+
+    identity = _verified_scheduler_identity(request, "ONE_LOCATION_RETENTION")
+    if identity is not None:
+        return
+
+    if not legacy_shared_token_allowed():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail={
+                "code": "ONE_LOCATION_RETENTION_UNAUTHORIZED",
+                "message": "One Location retention purge is not authorized.",
+            },
+        )
+
     expected = str(os.getenv("ONE_LOCATION_RETENTION_TOKEN") or "").strip()
     if not expected:
         raise HTTPException(

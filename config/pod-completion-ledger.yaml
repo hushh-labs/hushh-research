@@ -1,0 +1,505 @@
+# The private-pod completion ledger.
+#
+# WHAT THIS IS
+# Every item is something that must be TRUE before "the private pod deployment is
+# complete" is an honest sentence. Each carries a CHECK, and its status is whatever
+# running that check says today. There is deliberately no status field: nobody can
+# mark an item done, they can only make its check pass. Status is derived, never
+# declared, because a declared status is the failure this programme keeps hitting.
+#
+# THE TWO RULES A NEW ITEM MUST FOLLOW
+# 1. `falsifiable: true` only if the check genuinely FAILS when the thing is broken.
+#    A check that cannot fail is not evidence, and the judge reports it as a defect
+#    in this file rather than counting it as passing.
+# 2. If it cannot be evaluated where the judge runs, it reports UNKNOWN, never PASS.
+#    Use `blocked_by` for things gated on something outside our control, so the judge
+#    stops nagging about the unfixable and starts nagging about the actionable.
+#
+# Run it:  uv run python scripts/ops/pod_completion_judge.py   (from consent-protocol/)
+
+version: 1
+subject: "Hussh private agent pod, all tiers: hushh-hosted, user-cloud BYOC, on-device"
+
+assertions:
+  # ---------------------------------------------------------------- the front door
+  - id: firstrun-person-reaches-cloud-choice
+    requirement: First run
+    statement: "A brand-new person can reach the screen that asks where their agent should live."
+    falsifiable: true
+    owner_action: >-
+      Re-run the driver and record the receipt. The defect this item was opened for
+      appears to be FIXED and the note below is superseded; what is missing now is
+      live proof, not a fix. Running it needs REVIEWER_UID and
+      REVIEWER_VAULT_PASSPHRASE, which are maintainer-only by design, so this needs
+      a maintainer rather than more code.
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
+        - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
+        - hushh-webapp/app/one/setup/page.tsx
+        - hushh-webapp/app/one/setup/cloud/page.tsx
+        - hushh-webapp/components/connections/byoc-cloud-setup-page.tsx
+      observation_requirements:
+        hubRendered: {equals: true}
+        reached: {equals: true}
+        actual_tile_click: {equals: true}
+        first_run_state: {equals: true}
+        account_creation_proven: {equals: true}
+      reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
+      expires_after_days: 14
+      pending: >-
+        SUPERSEDED BY CODE, NOT YET RE-MEASURED. The 2026-08-28 reading said the hub
+        painted eight capability tiles with `one_setup_tile_cloud` in neither the
+        Remaining nor the Complete group, so no in-app route reached
+        /one/setup/cloud. That statement is no longer true of the tree: as of the
+        2026-09-02 founder direction the cloud tile is rendered unconditionally in a
+        "Start here" group pinned above the capability lists, with
+        href={ROUTES.ONE_SETUP_CLOUD} and statusLabel "Required"
+        (one-setup-hub.tsx, the SetupNavigationTile id="cloud"), and
+        app/one/setup/cloud/page.tsx exists.
+
+        It stays FAILING deliberately. Reading the source proves the tile is
+        rendered; it does not prove a brand-new person REACHES it, which is what
+        this item claims and only the driver can settle. Flipping it on a code read
+        would be the declared status this ledger exists to abolish. The correction
+        here is only to stop the note asserting a finding the code contradicts, so
+        the next person re-measures instead of hunting a bug that is already fixed.
+
+  - id: firstrun-guard-is-time-bounded
+    requirement: First run
+    statement: "The setup admission check cannot spin forever; a hang becomes a visible error."
+    falsifiable: true
+    owner_action: "Preserve visible recovery and refusal of late admission after a stalled bootstrap."
+    check:
+      kind: command
+      command: >-
+        cd hushh-webapp && npx --no-install vitest run
+        __tests__/components/onboarding-journey-guard.test.tsx
+        -t 'shows recovery when bootstrap never resolves and ignores late completion'
+      requires: [node, npm]
+
+  - id: firstrun-fanout-within-pool
+    requirement: First run
+    statement: "The first-paint fan-out fits inside the connection pool it runs against."
+    falsifiable: true
+    owner_action: >-
+      The three chrome reads (consent badge, feed badge, avatar, persona) are now
+      gated on route AND on chrome suppression, and that gate MEASURED NO CHANGE:
+      re-run shows peak 7 with the same witnesses. Reason, measured: the peak lands
+      while `location.pathname` is still /login and suppression is never active for
+      a warm-cache identity, so neither clause fires. The remaining honest options
+      are to gate on "the shell has not settled" rather than on route or
+      suppression, or to raise the pool for the lane.
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - hushh-webapp/scripts/testing/first-run-reachability.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-session-harness.mjs
+        - .codex/skills/reviewer-app-testing/scripts/reviewer-rehearsal-preflight.mjs
+        - hushh-webapp/scripts/testing/reviewer-test-identity.mjs
+        - hushh-webapp/lib/auth/use-session-chrome-suppression.ts
+        - hushh-webapp/components/onboarding/onboarding-journey-guard.tsx
+        - hushh-webapp/app/api/vault/bootstrap-state/route.ts
+        - consent-protocol/api/routes/db_proxy.py
+      observation_requirements:
+        database_pool_measured: {equals: true}
+        database_pool_within_configured_limit: {equals: true}
+      reproduce: hushh-webapp/scripts/testing/first-run-reachability.mjs
+      expires_after_days: 14
+      pending: >-
+        Measured 2026-08-28: peak 7 concurrent /api requests against a pool of 4, on
+        /login. Witnesses: vault/check, feed/unread-count, account/identity/refresh,
+        vault/bootstrap-state, consent/center/summary, iam/persona, connected-systems.
+        The earlier "14 routes" figure is superseded by this instrumented reading.
+        `/api/connected-systems` appears here and has no frontend caller anyone has
+        found, which is worth chasing on its own.
+
+  # ---------------------------------------------------------------- the seven
+  - id: identity-durable-across-restart
+    requirement: Identity
+    statement: "The offline lifecycle model detects identity loss and requires a durable identity report when identity is checked."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_lifecycle_drill.py
+
+  - id: identity-proven-on-live-infrastructure
+    requirement: Identity
+    statement: "The durable-identity claim has been demonstrated on a real pod, with a negative control."
+    falsifiable: true
+    check:
+      # A receipt, not a note. The note this replaced said "PROVEN 2026-08-28" and
+      # would have kept saying it in 2027, which is the declared status this ledger
+      # exists to abolish wearing a different field name. A receipt expires.
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/prove_identity.py
+        - consent-protocol/pod_server.py
+        - consent-protocol/hushh_mcp/services/pod_identity_store.py
+        - consent-protocol/hushh_mcp/services/pod_self_registration.py
+      observation_requirements:
+        revision_changed: {equals: true}
+        same_key: {equals: true}
+        durable_before: {equals: true}
+        durable_after: {equals: true}
+        storage_generation_unchanged: {equals: true}
+        negative_control_refused: {equals: true}
+      verified_on: "2026-08-28"
+      expires_after_days: 30
+      reproduce: consent-protocol/scripts/ops/prove_identity.py
+      evidence: >-
+        hushh-pda-dev: same podKeyId across revisions 00001-xnm and 00002-857,
+        podKeyDurable true on both, the stored key object READ not rewritten
+        (generation 1787951680186460 unchanged), and a negative control with the
+        feature off reported not durable. Everything created was torn down.
+
+  - id: persistence-recall-across-death
+    requirement: Persistence
+    statement: "An agent recalls what it was taught after its compute is destroyed and rebuilt."
+    falsifiable: true
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
+      observation_requirements:
+        compute_replaced: {equals: true}
+        learned_before_death: {equals: true}
+        all_taught_facts_recalled: {equals: true}
+        negative_control_clean: {equals: true}
+        identity_preserved: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Run the existing --live drill on disposable synthetic resources and retain
+        sanitized revision-bound measurements. The in-memory --dry-run and unit
+        tests prove the oracle, not compute replacement or provider recall.
+
+  - id: lifecycle-drill-can-fail
+    requirement: Persistence
+    statement: "The lifecycle drill fails a lifecycle that loses memory or re-mints identity."
+    falsifiable: true
+    check:
+      kind: command
+      command: "cd consent-protocol && uv run python scripts/ops/pod_lifecycle_drill.py --dry-run >/dev/null"
+      requires: [uv]
+
+  - id: parity-ruler-hub-grounding-independent
+    requirement: Capability
+    statement: "The parity probe never reads the hub's grounding off the pod it is judging."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_parity_probe.py
+
+  - id: parity-ruler-sees-specialists
+    requirement: Capability
+    statement: "A live pod turn reports which specialists served, so the ruler can see them."
+    falsifiable: true
+    owner_action: "Emit a `specialists` key from run_pod_turn; observe_pod already reads it."
+    check:
+      # A pytest, not a grep. The grep this replaced would have passed on the word
+      # appearing in a comment, and it could not see the half of the seam that
+      # actually broke: the route's spelling of the id field agreeing with the
+      # oracle's reader. The test pins both ends and the route source.
+      kind: pytest
+      target: tests/test_pod_turn_reports_specialists.py
+
+  - id: specialists-run-in-pod
+    requirement: Capability
+    statement: "The DB-backed specialists execute inside the pod rather than reaching a central service."
+    falsifiable: true
+    blocked_by: >-
+      Hub-side exact-authority threading. Three specialists are refused identically on
+      both sides today, which is honest but is not re-homing.
+    owner_action: "Land the nav/consent door first: deterministic, no model, no authority gate."
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/pod_parity_probe.py
+        - consent-protocol/hushh_mcp/observability/parity_oracle.py
+        - consent-protocol/api/routes/one/pod_turn.py
+        - consent-protocol/hushh_mcp/services/pod_pkm_resolver.py
+        - consent-protocol/pod_server.py
+      observation_requirements:
+        specialist_execution_attributed_to_pod: {equals: true}
+        consented_success: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_parity_probe.py
+      expires_after_days: 30
+      pending: >-
+        The ruler can see specialists as of 2026-08-28, so a live probe can now
+        certify this. What it will certify today is identical refusal on both sides,
+        which is honest agreement and not re-homing; earn the receipt after the
+        nav/consent door lands.
+
+  - id: consent-chain-detects-a-wipe
+    requirement: Authority
+    statement: "An emptied or truncated consent ledger fails verification instead of passing."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_consent_audit_chain.py
+
+  - id: consent-chain-not-signed-by-the-minting-key
+    requirement: Authority
+    statement: "The audit ledger is not signed with the same key that mints consent tokens."
+    falsifiable: true
+    owner_action: "Move the chain signature off APP_SIGNING_KEY (Ed25519 or a KMS-side sign)."
+    check:
+      # A grep for the string would now FAIL on the module docstring that explains
+      # why the key is not APP_SIGNING_KEY, and would have passed on a file that
+      # merely renamed the import. The test parses the module and asserts no CODE
+      # names it, then asserts the two properties a grep cannot see at all:
+      # verification uses the public key, and an untagged HMAC signature is refused
+      # so nobody can downgrade their way back in.
+      kind: pytest
+      target: tests/test_consent_audit_key_separation.py
+
+  - id: internal-actions-are-chained
+    requirement: Authority
+    statement: "The agent's own internal actions are written into the audit chain."
+    falsifiable: true
+    owner_action: >-
+      Route insert_internal_event through append_consent_receipt_safe. Today
+      insert_event diverts internal events (self, agent_kai, kai, OPERATION_PERFORMED,
+      device-scoped vault.owner) to insert_internal_event, which never chains them, so
+      the largest class of actions has no receipt.
+    check:
+      # Scoped to the FUNCTION, not the file: a file-wide grep passed because the
+      # chain call exists elsewhere for the primary ledger, which is exactly the
+      # false green this ledger is supposed to make impossible. The test also pins
+      # the part that matters most -- internal events land on their OWN sequence,
+      # so the head an owner pins for truncation detection does not advance on
+      # every turn and become useless for the one thing it is for.
+      kind: pytest
+      target: tests/test_consent_audit_key_separation.py
+
+  - id: capability-wiring-is-closed-loop
+    requirement: Isolation
+    statement: "Every pod capability that is rendered is also emitted, and parked ones are wired nowhere."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_capability_wiring_is_closed_loop.py
+
+  - id: economics-cost-is-measured-not-estimated
+    requirement: Economics
+    statement: "The per-person cost is a measured number from real billed time."
+    falsifiable: true
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      # Expected target and artifact digest are filled only from a fresh verified run.
+      source_paths:
+        - consent-protocol/scripts/ops/measure_pod_cost.py
+      observation_requirements:
+        points: {minimum: 1}
+        billable_seconds: {minimum: 0}
+        usd: {minimum: 0}
+      verified_on: "2026-08-31"
+      expires_after_days: 30
+      reproduce: consent-protocol/scripts/ops/measure_pod_cost.py
+      evidence: >-
+        Re-earned 2026-08-31 against a REAL pod, because the 2026-08-28 receipt was a
+        false green: measure_pod_cost.py shelled out to `gcloud monitoring time-series
+        list`, a subcommand that does not exist in SDK 577 (nor alpha/beta), so the
+        reproduction path could never run. The receipt passed only because the check
+        verifies the path EXISTS, not that it RUNS. It now uses the Monitoring REST
+        API and was executed to produce this line.
+        Measured on one-pod-ha1-6ty5ir24faljqjfb43r6dexar6soha47 in
+        hussh-one-kd8rb4ssh-one-tk2o4w over 7d: 0.5 vCPU / 1 GiB at $0.0000145 per
+        billable second, 424.7 billable seconds across 489 sampled points, $0.00616
+        for the window. Model inference is excluded and the report says so on its
+        face, because a user_adc pod bills Vertex to its owner's account and is not
+        in this project's metrics at all.
+
+  - id: economics-cost-attributable-per-pod
+    requirement: Economics
+    statement: "Unit contracts bind opaque per-pod billing labels to matching registry attribution records; billing exports and provider spend require separate measurements."
+    falsifiable: true
+    owner_action: >-
+      Assign billing_space_id on PodSpec at the provision sites. It must be an OPAQUE
+      derived value distinct from the owner's space_id handle: _label_value's docstring
+      forbids a raw user id (or a user-chosen name) in a billing label.
+    check:
+      # A grep for `space_id=` would have passed the day the field was DEFINED.
+      # The test asserts the two things that actually make spend attributable:
+      # the label carries an opaque value, and the registry row carries the same
+      # one so it can be joined back to an account.
+      kind: pytest
+      target: tests/test_pod_cost_is_attributable.py
+
+  # ---------------------------------------------------------------- operations
+  - id: pod-image-has-a-supported-upgrade-path
+    requirement: Lifecycle
+    statement: "A running pod can be moved to a newer image without losing its memory."
+    falsifiable: true
+    owner_action: >-
+      Shipped 2026-09-02: `UserGcpBackend.upgrade` / `GcpBackend.upgrade` replace the
+      revision in place on the hub's current image (a heal still pins the deployed
+      digest), `PersonalAgentProvisioningService.upgrade_pod` rewrites only the image
+      facts on the row, and the reconcile worker's bounded sweep
+      (PERSONAL_AGENT_UPGRADE_SWEEP_ENABLED, PERSONAL_AGENT_UPGRADE_BATCH) moves the
+      fleet after each hub deploy. `scripts/ops/pod_upgrade.py` is the operator hand.
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_upgrade.py
+        - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
+      observation_requirements:
+        installed_image_changed: {equals: true}
+        identity_preserved: {equals: true}
+        learned_before_upgrade: {equals: true}
+        recalled_after_upgrade: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_upgrade.py
+      expires_after_days: 14
+      pending: >-
+        Upgrade implementation tests pass, but mock clients cannot prove recall
+        after a real image replacement. Extend the existing operator rehearsal to
+        measure both sides; the upgrade command alone is not a recall receipt.
+
+  - id: teardown-deletes-what-it-claims-to
+    requirement: Economics
+    statement: "Owner teardown erases retained agent resources before removing its authority and reports incomplete deletion truthfully."
+    falsifiable: true
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/hushh_mcp/services/personal_agent_provisioning_service.py
+        - consent-protocol/hushh_mcp/services/account_service.py
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
+      observation_requirements:
+        external_memory_erased: {equals: true}
+        retained_storage_erased: {equals: true}
+        compute_removed: {equals: true}
+        retry_state_durable: {equals: true}
+        deleted_information_not_recalled: {equals: true}
+        restoration_cannot_resurrect: {equals: true}
+        cleanup_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Owner teardown currently refuses retained external resources to preserve
+        erasure authority. Complete the existing lifecycle contract and extend its
+        disposable drill with erasure/retry/restore measurements. Its current
+        compute-only recovery cycle and an empty fleet do not prove erasure.
+
+  - id: an-update-is-visible-at-login
+    requirement: Lifecycle
+    statement: "Backend contracts expose available, installing and failed update state, preferring the pod's reported build; rendered journeys remain in the deployed upgrade receipt."
+    falsifiable: true
+    # The founder's rule: an upgrade is a software update when the person opens the
+    # app. That starts with the installed version, which nothing exposed before.
+    check:
+      kind: pytest
+      target: tests/test_pod_update_detection.py
+
+  - id: pod-memory-is-the-persons-own-memory-bank
+    requirement: Learning loop
+    statement: "An explicitly enabled BYOC Memory Bank is created through pod-held authority in the owner's project and supports actual provider recall with the sealed log underneath."
+    falsifiable: true
+    check:
+      kind: receipt
+      required_target_mode: deployed
+      source_paths:
+        - consent-protocol/hushh_mcp/services/pod_memory_bank.py
+        - consent-protocol/hushh_mcp/services/pod_memory_service.py
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+        - consent-protocol/hushh_mcp/services/pod_commit_log.py
+      observation_requirements:
+        backend: {equals: memory_bank}
+        owner_project_binding_verified: {equals: true}
+        pod_identity_created_engine: {equals: true}
+        provider_recall_verified: {equals: true}
+        sealed_log_fallback_verified: {equals: true}
+      reproduce: consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      expires_after_days: 14
+      pending: >-
+        Memory Bank is explicitly enabled; the configuration default remains commit_log.
+        Scripted provider tests establish the adapter contract, not owner-cloud engine
+        creation or real recall. Extend the existing disposable lifecycle drill to
+        observe these facts without crediting sealed-log fallback as provider success.
+
+  - id: only-the-pod-can-vouch-for-its-model
+    requirement: Economics
+    statement: "Unit tests enforce owner-scoped diagnostic relay and classify provider responses; live generation and audio success are not established."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_model_diagnostic.py
+
+  - id: no-pod-is-billing-right-now
+    requirement: Economics
+    statement: "The labelled Cloud Run pod fleet in hushh-pda-dev/us-central1 is empty; retained storage, Memory Bank and owner-project charges are outside this check."
+    falsifiable: true
+    owner_action: "Tear down what the session created, then re-run the fleet sweep."
+    check:
+      # Deliberately narrow: this proves the shared dev environment is clean today.
+      # It does NOT prove teardown works -- teardown-deletes-what-it-claims-to does.
+      # Splitting them is the fix for a check that was green because the fleet was
+      # empty for reasons unrelated to the thing it claimed to certify.
+      kind: command
+      command: >-
+        cd consent-protocol && uv run python scripts/ops/pod_fleet.py
+        --project hushh-pda-dev --region us-central1 --assert-empty
+      # Reuse explicit-key or ADC authority. Exit 77 means access unavailable;
+      # neither a missing env variable nor a string grep establishes fleet state.
+      requires: [uv]
+
+  - id: the-drill-runs-on-a-schedule
+    requirement: Learning loop
+    statement: "The existing weekly offline lifecycle-orchestration job has a fresh successful scheduled execution for the audited source."
+    falsifiable: true
+    check:
+      kind: receipt
+      required_target_mode: local
+      source_paths:
+        - .github/workflows/dev-pod-lifecycle-drill.yml
+        - consent-protocol/scripts/ops/pod_lifecycle_drill.py
+      observation_requirements:
+        event: {equals: schedule}
+        head_branch: {equals: main}
+        conclusion: {equals: success}
+        mode: {equals: dry-run}
+        report_verified: {equals: true}
+      reproduce: .github/workflows/dev-pod-lifecycle-drill.yml
+      expires_after_days: 14
+      pending: >-
+        This is the existing Monday 07:23 UTC offline job, not a live cloud drill.
+        Run 33406975413 succeeded on 2026-08-31 at main revision
+        04b3deb51bc5a55b74a1e54f4e76005bdf671e87. Its workflow and drill source
+        differ from this tree, so it remains historical evidence. Reconcile the
+        common source and verify a fresh scheduled report; add no new schedule.
+
+  - id: the-judge-itself-can-fail
+    requirement: Learning loop
+    statement: "The judge reports NOT finished when an item is failing, and cannot report a false green."
+    falsifiable: true
+    check:
+      kind: pytest
+      target: tests/test_pod_completion_judge.py

@@ -1,11 +1,12 @@
 #!/usr/bin/env node
 
 import fs from "node:fs";
+import { createAndroidCredentialRunId, deliverAndroidAuditCredentials } from "./android-audit-credentials.mjs";
+import { applyNativeAuditBuildEnvironment } from "./native-build-environment.mjs";
 import path from "node:path";
 import { execFileSync, execSync, spawn } from "node:child_process";
 import {
   defaultReviewerIdentityEnvFiles,
-  parseEnvFile,
   resolveReviewerTestIdentity,
 } from "../testing/reviewer-test-identity.mjs";
 import { filterUiFlows } from "../testing/signed-in-ui-flows.mjs";
@@ -44,8 +45,8 @@ const adb = process.env.ADB || (fs.existsSync(defaultAdb) ? defaultAdb : "adb");
 const emulator =
   process.env.ANDROID_EMULATOR ||
   (fs.existsSync(defaultEmulator) ? defaultEmulator : "emulator");
-const bundleId = "com.hushh.app";
-const activityName = "com.hushh.app/.MainActivity";
+const bundleId = "com.hussh.app";
+const activityName = "com.hussh.app/.MainActivity";
 const apkPath =
   process.env.ANDROID_APK_PATH ||
   path.join(androidDir, "app/build/outputs/apk/debug/app-debug.apk");
@@ -223,6 +224,7 @@ function bootAndroidEmulator() {
     "-no-snapshot-load",
     "-no-audio",
     ...extraArgs,
+    ...(process.env.NATIVE_AUDIT_VISIBLE === "true" ? [] : ["-no-window"]),
   ];
   console.log(`==> booting Android emulator: ${avdName}`);
   const child = spawn(emulator, args, {
@@ -270,55 +272,8 @@ function parseStatus(raw) {
   );
 }
 
-function applyEnvValues(values = {}) {
-  for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== "") {
-      process.env[key] = value;
-    }
-  }
-}
-
 function ensureNativeTestBuildEnv() {
-  const uatEnvPath = path.join(repoRoot, ".env.uat.local");
-  const uatValues = parseEnvFile(uatEnvPath);
-  const backendUrl = String(uatValues.NEXT_PUBLIC_BACKEND_URL || "").trim();
-
-  if (
-    !backendUrl ||
-    /^https?:\/\/(localhost|127\.0\.0\.1)(:|\/|$)/i.test(backendUrl)
-  ) {
-    throw new Error(
-      "native Android UI interaction audit requires UAT NEXT_PUBLIC_BACKEND_URL (.env.uat.local).",
-    );
-  }
-
-  applyEnvValues({
-    APP_RUNTIME_PROFILE: uatValues.APP_RUNTIME_PROFILE || "uat",
-    NEXT_PUBLIC_APP_ENV: uatValues.NEXT_PUBLIC_APP_ENV || "uat",
-    NEXT_PUBLIC_BACKEND_URL: backendUrl,
-    NEXT_PUBLIC_APP_URL: uatValues.NEXT_PUBLIC_APP_URL,
-    NEXT_PUBLIC_PASSKEY_RP_ID: uatValues.NEXT_PUBLIC_PASSKEY_RP_ID,
-    NEXT_PUBLIC_FIREBASE_API_KEY: uatValues.NEXT_PUBLIC_FIREBASE_API_KEY,
-    NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY: uatValues.NEXT_PUBLIC_GOOGLE_MAPS_ANDROID_API_KEY,
-    NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN:
-      uatValues.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
-    NEXT_PUBLIC_FIREBASE_PROJECT_ID: uatValues.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
-    NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET:
-      uatValues.NEXT_PUBLIC_FIREBASE_STORAGE_BUCKET,
-    NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID:
-      uatValues.NEXT_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-    NEXT_PUBLIC_FIREBASE_APP_ID: uatValues.NEXT_PUBLIC_FIREBASE_APP_ID,
-    NEXT_PUBLIC_FIREBASE_VAPID_KEY: uatValues.NEXT_PUBLIC_FIREBASE_VAPID_KEY,
-    NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID:
-      uatValues.NEXT_PUBLIC_FIREBASE_MEASUREMENT_ID,
-    NEXT_PUBLIC_OBSERVABILITY_ENABLED:
-      uatValues.NEXT_PUBLIC_OBSERVABILITY_ENABLED,
-    NEXT_PUBLIC_OBSERVABILITY_DEBUG: uatValues.NEXT_PUBLIC_OBSERVABILITY_DEBUG,
-    NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE:
-      uatValues.NEXT_PUBLIC_OBSERVABILITY_SAMPLE_RATE,
-  });
-
-  console.log(`==> native test backend: ${backendUrl}`);
+  applyNativeAuditBuildEnvironment(repoRoot);
 }
 
 function buildApp() {
@@ -374,6 +329,7 @@ function buildApp() {
 }
 
 function installAndLaunch(serial) {
+  const credentialRunId = createAndroidCredentialRunId();
   const launchTarget = resolveInitialLaunchTarget();
   const encodedRedirect = encodeURIComponent(launchTarget.route);
   tryRunAdb(serial, ["shell", "input", "keyevent", "KEYCODE_WAKEUP"], {
@@ -431,12 +387,10 @@ function installAndLaunch(serial) {
     "HUSHH_NATIVE_TEST_UI_FLOW_RUN_ID",
     uiFlowRunId,
     "--es",
-    "HUSHH_NATIVE_TEST_VAULT_PASSPHRASE",
-    reviewerVaultPassphrase,
-    "--es",
-    "HUSHH_NATIVE_TEST_EXPECTED_USER_ID",
-    reviewerUid,
+    "HUSHH_NATIVE_TEST_CREDENTIAL_RUN_ID",
+    credentialRunId,
   ]);
+  deliverAndroidAuditCredentials({ adb, serial, runId: credentialRunId, reviewerUid, reviewerVaultPassphrase });
 }
 
 function readStatus(serial) {

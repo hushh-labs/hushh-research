@@ -8,12 +8,61 @@
   ],
   "defaults": {
     "reachability": {
-      "active_personas": ["investor", "ria"]
+      "active_personas": [
+        "investor",
+        "ria"
+      ]
     },
     "speaker_persona": "one",
-    "guard_ids": ["auth_signed_in"]
+    "guard_ids": [
+      "auth_signed_in"
+    ]
   },
   "actions": [
+    {
+      "action_id": "setup.open_cloud",
+      "label": "Set up your cloud",
+      "meaning": "Opens the step where the person names and authorizes their own Google Cloud project for their private agent.",
+      "aliases": [
+        "set up my cloud",
+        "connect my cloud",
+        "open cloud setup",
+        "use my own google cloud"
+      ],
+      "search_keywords": [
+        "cloud",
+        "project",
+        "google cloud",
+        "byoc",
+        "own compute"
+      ],
+      "reachability": {
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": []
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/setup/cloud"
+      },
+      "control_ids": [
+        "one_setup_tile_cloud"
+      ],
+      "state_exposure": [],
+      "docs_references": []
+    },
     {
       "action_id": "setup.open_connections",
       "label": "Choose your AI",
@@ -26,14 +75,27 @@
         "configure one",
         "use my gemini key"
       ],
-      "search_keywords": ["AI access", "gemini", "runtime", "key", "setup"],
+      "search_keywords": [
+        "AI access",
+        "gemini",
+        "runtime",
+        "key",
+        "setup"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -41,7 +103,9 @@
         "path": "route",
         "target": "/one/setup/connections"
       },
-      "control_ids": ["one_setup_tile_connections"],
+      "control_ids": [
+        "one_setup_tile_connections"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -49,15 +113,31 @@
       "action_id": "setup.open_gmail",
       "label": "Connect Gmail",
       "meaning": "Opens Gmail setup so the person can choose whether to connect receipt sync and purchase memory.",
-      "aliases": ["connect gmail", "set up gmail", "open gmail setup"],
-      "search_keywords": ["gmail", "receipt", "email", "setup"],
+      "aliases": [
+        "connect gmail",
+        "set up gmail",
+        "open gmail setup"
+      ],
+      "search_keywords": [
+        "gmail",
+        "receipt",
+        "email",
+        "setup"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -65,7 +145,9 @@
         "path": "route",
         "target": "/one/setup/gmail"
       },
-      "control_ids": ["one_setup_tile_gmail"],
+      "control_ids": [
+        "one_setup_tile_gmail"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -73,15 +155,32 @@
       "action_id": "setup.open_calendar",
       "label": "Connect your calendar",
       "meaning": "Opens Calendar setup so the person can choose Calendar access for schedule summaries, availability, and confirmed meeting changes.",
-      "aliases": ["connect calendar", "set up calendar", "open calendar setup"],
-      "search_keywords": ["calendar", "schedule", "availability", "meeting", "setup"],
+      "aliases": [
+        "connect calendar",
+        "set up calendar",
+        "open calendar setup"
+      ],
+      "search_keywords": [
+        "calendar",
+        "schedule",
+        "availability",
+        "meeting",
+        "setup"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -89,7 +188,9 @@
         "path": "route",
         "target": "/one/setup/calendar"
       },
-      "control_ids": ["one_setup_tile_calendar"],
+      "control_ids": [
+        "one_setup_tile_calendar"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -102,14 +203,25 @@
         "open location setup",
         "set up live sharing"
       ],
-      "search_keywords": ["location", "setup", "sharing"],
+      "search_keywords": [
+        "location",
+        "setup",
+        "sharing"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -117,7 +229,9 @@
         "path": "route",
         "target": "/one/setup/location"
       },
-      "control_ids": ["one_setup_tile_location"],
+      "control_ids": [
+        "one_setup_tile_location"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -134,14 +248,26 @@
         "set up email",
         "open email setup"
       ],
-      "search_keywords": ["kyc", "email", "draft", "toggle"],
+      "search_keywords": [
+        "kyc",
+        "email",
+        "draft",
+        "toggle"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -149,7 +275,9 @@
         "path": "route",
         "target": "/one/setup/email"
       },
-      "control_ids": ["one_setup_tile_email"],
+      "control_ids": [
+        "one_setup_tile_email"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -157,15 +285,32 @@
       "action_id": "setup.open_finance",
       "label": "Set up your money",
       "meaning": "Opens the Finance capability setup step from the setup hub.",
-      "aliases": ["set up finance", "set up my money", "open finance setup", "set up investing"],
-      "search_keywords": ["finance", "setup", "investing", "kai"],
+      "aliases": [
+        "set up finance",
+        "set up my money",
+        "open finance setup",
+        "set up investing"
+      ],
+      "search_keywords": [
+        "finance",
+        "setup",
+        "investing",
+        "kai"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -173,7 +318,9 @@
         "path": "route",
         "target": "/one/setup/finance"
       },
-      "control_ids": ["one_setup_tile_finance"],
+      "control_ids": [
+        "one_setup_tile_finance"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -181,15 +328,32 @@
       "action_id": "setup.open_ria",
       "label": "Set up your advisor profile",
       "meaning": "Opens the RIA advisor-profile setup step from the setup hub.",
-      "aliases": ["set up ria", "set up my advisor profile", "open ria setup"],
-      "search_keywords": ["ria", "advisor", "profile", "verification", "setup"],
+      "aliases": [
+        "set up ria",
+        "set up my advisor profile",
+        "open ria setup"
+      ],
+      "search_keywords": [
+        "ria",
+        "advisor",
+        "profile",
+        "verification",
+        "setup"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -197,7 +361,9 @@
         "path": "route",
         "target": "/one/setup/ria"
       },
-      "control_ids": ["one_setup_tile_ria"],
+      "control_ids": [
+        "one_setup_tile_ria"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -222,12 +388,19 @@
         "setup"
       ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -235,7 +408,9 @@
         "path": "route",
         "target": "/one/setup/connected-systems"
       },
-      "control_ids": ["one_setup_tile_connected-systems"],
+      "control_ids": [
+        "one_setup_tile_connected-systems"
+      ],
       "state_exposure": [],
       "docs_references": []
     },
@@ -247,14 +422,27 @@
         "i'm done setting up",
         "finish setup"
       ],
-      "search_keywords": ["finish", "done", "vault", "protect", "setup"],
+      "search_keywords": [
+        "finish",
+        "done",
+        "vault",
+        "protect",
+        "setup"
+      ],
       "reachability": {
-        "routes": ["/one/setup"],
-        "screens": ["one_setup_hub", "one_setup"],
+        "routes": [
+          "/one/setup"
+        ],
+        "screens": [
+          "one_setup_hub",
+          "one_setup"
+        ],
         "hidden_navigable": false,
         "navigation_prerequisites": []
       },
-      "guard_ids": ["auth_signed_in"],
+      "guard_ids": [
+        "auth_signed_in"
+      ],
       "risk_level": "low",
       "execution_policy": "allow_direct",
       "execution_target": {
@@ -262,8 +450,12 @@
         "path": "local_handler",
         "target": "setup.hub_master_ack"
       },
-      "control_ids": ["one-setup-master-ack"],
-      "state_exposure": ["capabilities completed count"],
+      "control_ids": [
+        "one-setup-master-ack"
+      ],
+      "state_exposure": [
+        "capabilities completed count"
+      ],
       "docs_references": [
         "hushh-webapp/components/onboarding/setup/one-setup-hub.tsx"
       ]

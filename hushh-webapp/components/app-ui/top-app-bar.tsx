@@ -68,6 +68,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useEffectiveAvatarUrl } from "@/hooks/use-effective-avatar-url";
+import { useSessionChromeSuppressed } from "@/lib/auth/use-session-chrome-suppression";
 import { useVault } from "@/lib/vault/vault-context";
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import {
@@ -80,7 +81,7 @@ import {
 import { buildLoginRouteWithAuthSessionNotice } from "@/lib/auth/session-invalidation";
 import { VaultService } from "@/lib/services/vault-service";
 import { getKaiChromeState } from "@/lib/navigation/kai-chrome-state";
-import {
+import { isOneSetupSurfaceRoute,
   KAI_MARKET_PATH,
   normalizeInternalRouteHref,
   ROUTES,
@@ -457,11 +458,18 @@ export function AppTopShell({ className, model }: AppTopShellProps) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const { isAuthenticated, user } = useAuth();
-  const effectiveAvatarUrl = useEffectiveAvatarUrl();
   const { isVaultUnlocked } = useVault();
   const { activePersona, riaCapability, riaEntryRoute, switchPersona } =
     usePersonaState();
   const pathname = usePathname();
+  // The top bar is suppressed on every setup surface, so its avatar must not
+  // spend a pool connection fetching an image nobody is looking at while a
+  // first-run person waits on the gate. It still renders from cache, and
+  // `PhoneMandateGuard` fetches the same identity below the gate.
+  const chromeSuppressed = useSessionChromeSuppressed();
+  const effectiveAvatarUrl = useEffectiveAvatarUrl({
+    fetchWhenCold: !isOneSetupSurfaceRoute(pathname ?? "") && !chromeSuppressed,
+  });
   const normalizedPathname = useMemo(
     () =>
       model.mode === "hidden"

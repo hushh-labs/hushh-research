@@ -36,6 +36,20 @@ Use these in order:
 | `audit_regulated` | consent, internal access, funding/trading evidence | long-retention metadata only |
 | `reference` | shared market/reference data | rebuildable or refreshable |
 
+## Lifecycle Status
+
+`lifecycle_status` says where a family sits in its rollout, not what it stores. Unlike `data_class` it has **no** `allowed_*` enum in the contract: `scripts/ops/data_model_audit.py` only requires the field to be non-empty, and the single behavioural branch is `startswith("legacy")`, which pulls the family's tables into the legacy-write scan. Because nothing validates the spelling, keep the vocabulary small and add a row here before introducing a new value.
+
+| Status | Meaning |
+| --- | --- |
+| `current` | Applied everywhere through the release migration manifest. The default. |
+| `customer0` | Live, but scoped to the Customer Zero rollout rather than general availability. |
+| `dev_only` | Schema carried by the dev-only lane (`consent-protocol/db/dev_migration_manifest.json`, resolved in place from `consent-protocol/db/migrations/parked/`), deliberately absent from `release_migration_manifest.json` and therefore from UAT and production. Promotion is a manual, human-initiated step — see the promotion section of [the dev-live execution plan](../../future/personal-agent/DEV-LIVE-EXECUTION-PLAN.md). |
+| `transitional` | Retained for a bounded compatibility window during an in-flight migration. |
+| `legacy_migration` | Read and cleanup only. A new write is a governance failure, and the audit scans runtime source for one. |
+
+`dev_only` is a statement about which **lane** carries the schema, not about any one database's current contents — the same way `current` does not assert a row count. A family may only be `dev_only` while its migrations stay under `migrations/parked/`; the moment they are renumbered into `migrations/` proper it becomes `current`.
+
 ## Adding Or Changing Tables
 
 Before a migration is production-ready:

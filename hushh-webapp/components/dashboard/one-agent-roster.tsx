@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { type CSSProperties, useEffect, useMemo, useState } from "react";
+import { type CSSProperties, useEffect, useMemo, useRef, useState } from "react";
 import { ChevronRight, Grid2X2, List, Search } from "lucide-react";
 
 import { AgentSectionIcon } from "@/components/app-ui/agent-section-icon";
@@ -26,6 +26,13 @@ import { PreVaultUserStateService } from "@/lib/services/pre-vault-user-state-se
 import { MaterialRipple } from "@/lib/morphy-ux/material-ripple";
 import type { OneLocationState } from "@/lib/one-location/types";
 import type { KaiHomeInsightsV2, KaiHomeMover } from "@/lib/services/api-service";
+import {
+  INITIAL_METRIC_STATE,
+  METRIC_MAX_AGE_MS,
+  observeInteraction,
+  shouldRecalculate,
+  type MetricRecalcState,
+} from "@/lib/dashboard/agent-metrics-policy";
 import { CACHE_KEYS, CacheService } from "@/lib/services/cache-service";
 import type { CapabilityStatus } from "@/lib/services/capability-setup-state-service";
 import type { PersonalKnowledgeModelMetadata } from "@/lib/services/personal-knowledge-model-service";
@@ -266,10 +273,21 @@ export function resolveCachedAgentMetrics(
   return metrics;
 }
 
+/**
+ * Metrics under a recalculation policy, rather than on every cache event.
+ *
+ * This previously bumped a revision for ANY cache write touching the user, so an
+ * unrelated location ping or feed read re-derived every agent's metric — while a
+ * person who did nothing never refreshed at all, because nothing wrote. Both
+ * problems are the same missing idea, and `agent-metrics-policy` is that idea:
+ * recompute after enough relevant interactions, OR after enough time, whichever
+ * comes first.
+ */
 function useCachedAgentMetrics(
   userId?: string | null,
 ): Record<string, AgentMetric> {
   const [revision, setRevision] = useState(0);
+  const policy = useRef<MetricRecalcState>(INITIAL_METRIC_STATE);
 
   useEffect(() => {
     if (!userId) return;
@@ -280,14 +298,42 @@ function useCachedAgentMetrics(
           : event.type === "invalidate" || event.type === "invalidate_user"
             ? event.keys
             : [];
-      if (event.type === "clear" || keys.some((key) => key.includes(userId))) {
+      // A clear wipes what the projection reads, so it is not an "interaction"
+      // to be counted — there is simply nothing left to show. Recompute now.
+      if (event.type === "clear") {
+        policy.current = INITIAL_METRIC_STATE;
         setRevision((current) => current + 1);
+        return;
       }
+      let due = false;
+      for (const key of keys) {
+        if (!key.includes(userId)) continue;
+        const result = observeInteraction(policy.current, key, Date.now());
+        policy.current = result.state;
+        due = due || result.recalculate;
+      }
+      if (due) setRevision((current) => current + 1);
     });
   }, [userId]);
 
-  // `revision` is deliberately read so cache events cause a fresh, read-only
-  // projection without introducing a second cache mirror for this list.
+  // An age-based recompute needs something to wake it: with no further cache
+  // writes, no event would ever arrive to notice the metric had gone stale.
+  useEffect(() => {
+    if (!userId) return;
+    const timer = window.setInterval(() => {
+      if (shouldRecalculate(policy.current, Date.now())) {
+        policy.current = {
+          interactionsSinceRecompute: 0,
+          lastRecomputedAt: Date.now(),
+        };
+        setRevision((current) => current + 1);
+      }
+    }, METRIC_MAX_AGE_MS);
+    return () => window.clearInterval(timer);
+  }, [userId]);
+
+  // `revision` is deliberately read so a policy-approved recompute produces a
+  // fresh, read-only projection without introducing a second cache mirror.
   void revision;
   return resolveCachedAgentMetrics(userId);
 }

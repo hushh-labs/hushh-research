@@ -645,6 +645,25 @@ def _is_google_provider_runtime_error(error: Exception) -> bool:
     }
 
 
+# A model naming a tool that does not exist is ordinary LLM behaviour, not an
+# exceptional condition -- it happens whenever the model's tool memory drifts
+# from the roster the tree actually offers. ADK raises a plain ``ValueError`` for
+# it, whose module is ``builtins``, so the provider-error check above cannot see
+# it and the turn re-raised bare: an untyped 500, while every other failure on
+# this path carries an ``AGENT_RUNTIME_*`` code the client can act on.
+#
+# Found by the agent validation harness: a generated journey that scripts a
+# hallucinated tool name killed the whole turn rather than degrading.
+_TOOL_RESOLUTION_MARKERS = ("tool ", " not found")
+
+
+def _is_tool_resolution_error(error: Exception) -> bool:
+    if not isinstance(error, ValueError):
+        return False
+    text = str(error).lower()
+    return all(marker in text for marker in _TOOL_RESOLUTION_MARKERS)
+
+
 # Transient Gemini status codes worth a short, jittered retry: rate limit (429),
 # and the overloaded/unavailable family (500/503). Auth/quota-config errors
 # (401/403/404) are deliberately excluded - retrying those is pointless.
@@ -1727,6 +1746,7 @@ class AgentChatService:
         timezone: str | None,
         screen_context: dict[str, Any] | None,
         pkm_context: str | None,
+        grounding_reason: str | None = None,
         runtime: PreparedAgentRuntime,
         runtime_credential: str | None,
         runtime_credential_transport: GeminiByokTransport,
@@ -1744,6 +1764,7 @@ class AgentChatService:
                 timezone=timezone,
                 screen_context=screen_context,
                 pkm_context=pkm_context,
+                grounding_reason=grounding_reason,
                 runtime_provider=runtime.provider,
                 runtime_model=runtime.model,
                 runtime_mode=runtime.mode,
@@ -1765,6 +1786,15 @@ class AgentChatService:
         except genai_errors.APIError as error:
             raise _runtime_provider_error_from_exception(error) from error
         except Exception as error:
+            if _is_tool_resolution_error(error):
+                raise AgentRuntimeProviderError(
+                    error_code="AGENT_RUNTIME_TOOL_UNAVAILABLE",
+                    message=(
+                        "One tried to use a capability that is not available here. "
+                        "Please try again."
+                    ),
+                    detail={"phase": "text_stream"},
+                ) from error
             if _is_google_provider_runtime_error(error):
                 raise _runtime_provider_error_from_exception(error) from error
             raise

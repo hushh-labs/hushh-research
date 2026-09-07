@@ -1,0 +1,52 @@
+{
+  "name": "analyze_nvidia_debate",
+  "mode": "exact",
+  "hub_grounded": true,
+  "hub_frames": [
+    {
+      "event": "token",
+      "data": {
+        "text": "Let me run a full analysis on NVIDIA."
+      }
+    },
+    {
+      "event": "tool_start",
+      "data": {
+        "action_id": "analysis.start",
+        "label": "Analyze NVIDIA",
+        "execution": "frontend"
+      }
+    },
+    {
+      "event": "tool_waiting",
+      "data": {
+        "action_id": "analysis.start",
+        "status": "waiting_for_frontend"
+      }
+    }
+  ],
+  "pod_turn": {
+    "text": "Let me run a full analysis on NVIDIA.",
+    "grounded": true,
+    "directiveCount": 1,
+    "runtimeMode": "user_adc",
+    "directives": [
+      {
+        "kind": "action",
+        "payload": {
+          "actionId": "analysis.start",
+          "label": "Analyze NVIDIA",
+          "execution": "frontend"
+        },
+        "delegateAgentId": null
+      }
+    ]
+  },
+  "pod_specialist_statuses": [],
+  "expect_hub_directive_kinds": [
+    "action"
+  ],
+  "expect_hub_specialists": [],
+  "expect_hub_text": true,
+  "expect_hub_grounded": true
+}

@@ -1,0 +1,108 @@
+name: Pod Completion Judge
+
+# "Did we finish it?" asked on a cadence, by something that cannot be talked out of
+# the answer.
+#
+# The ledger (config/pod-completion-ledger.yaml) lists what must be TRUE before the
+# private pod deployment is complete. Every item carries a check, and its status is
+# whatever running that check says today. There is no status field to edit: nobody
+# can mark an item done, they can only make its check pass.
+#
+# WHY THIS JOB FAILS ON PURPOSE
+# It exits non-zero while anything is unfinished. A green scheduled job that means
+# "still not done" would be indistinguishable from one that means "done", which is
+# the whole failure this programme keeps hitting. A red run here is the nag, and
+# GitHub mails it, so the reminder arrives without anyone remembering to look.
+#
+# WHY IT DOES NOT CRY WOLF
+# The judge separates three states. FAILING is work we can do now. UNKNOWN is a
+# check that could not run here, and it is never counted as done. Items gated on
+# something outside our control carry `blocked_by` and are reported rather than
+# shouted, because a judge that nags about the unfixable teaches people to ignore
+# it, which is worse than having no judge.
+#
+# ACTIVATION: GitHub fires `schedule:` only from the default branch. On a feature
+# branch this file is documentation and the judge is still runnable by hand and by
+# dispatch. Promoting it to `main` is what turns the cadence on.
+
+on:
+  schedule:
+    - cron: "17 8 * * 1-5" # weekday mornings, 08:17 UTC
+  workflow_dispatch:
+  # Also on any change to the ledger or the judge, so an edit that quietly weakens
+  # a check is caught by the same job that would have reported it.
+  pull_request:
+    paths:
+      - "config/pod-completion-ledger.yaml"
+      - "consent-protocol/scripts/ops/pod_completion_judge.py"
+      - "consent-protocol/tests/test_pod_completion_judge.py"
+
+permissions:
+  contents: read
+
+jobs:
+  did-we-finish-it:
+    name: Did we finish it?
+    if: github.repository == 'hushh-labs/hushh-research'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v6
+
+      - name: Set up Python + uv runtime
+        uses: ./consent-protocol/.github/actions/setup-python-uv
+        with:
+          python-version: "3.13"
+          protocol-dir: ./consent-protocol
+
+      - name: The judge must be able to say no
+        shell: bash
+        working-directory: consent-protocol
+        run: |
+          set -euo pipefail
+          # Run this FIRST. A judge whose own guard is broken can report anything,
+          # so the verdict below is only worth reading once this passes.
+          uv run pytest tests/test_pod_completion_judge.py -q
+
+      - name: Ask the question
+        id: judge
+        shell: bash
+        working-directory: consent-protocol
+        run: |
+          set -uo pipefail
+          uv run python scripts/ops/pod_completion_judge.py \
+            --report-path "$RUNNER_TEMP/pod-completion.json" \
+            --fail-on-unfinished | tee "$RUNNER_TEMP/pod-completion.txt"
+          echo "verdict=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Put the answer in the run summary
+        if: always()
+        shell: bash
+        run: |
+          {
+            echo '## Did we finish the private pod deployment?'
+            echo
+            echo '```'
+            cat "$RUNNER_TEMP/pod-completion.txt" 2>/dev/null || echo '(the judge produced no output)'
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the verdict
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: pod-completion-${{ github.run_id }}
+          if-no-files-found: warn
+          path: |
+            ${{ runner.temp }}/pod-completion.json
+            ${{ runner.temp }}/pod-completion.txt
+
+      - name: Fail while it is unfinished
+        if: steps.judge.outputs.verdict != '0'
+        shell: bash
+        run: |
+          echo "Still unfinished. The run summary lists what is failing and what is unknown."
+          echo "This job is red on purpose: a green 'not done' is the lie this exists to prevent."
+          exit 1

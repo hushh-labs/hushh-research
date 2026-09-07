@@ -492,10 +492,12 @@ never prints or persists the header value.
 
 Operators configure that hourly job through
 `deploy/one-location/setup_retention_scheduler.sh`. It calls
-`POST /api/one/location/retention/purge?older_than_hours=12` with
-`X-Hushh-Maintenance-Token` backed by the dedicated
-`ONE_LOCATION_RETENTION_TOKEN`, so due encrypted material is scrubbed within
-the configured scheduler interval even when no feature traffic occurs. Public
+`POST /api/one/location/retention/purge?older_than_hours=12` authenticated by a
+per-invocation Google-signed OIDC token, so due encrypted material is scrubbed
+within the configured scheduler interval even when no feature traffic occurs.
+The job carries no secret: the identity it runs as must appear in
+`ONE_LOCATION_RETENTION_SCHEDULER_SERVICE_ACCOUNTS` and its token's audience
+must equal `ONE_LOCATION_RETENTION_AUDIENCE`. Public
 request-link invites, public submissions, Invite to One links, expired/revoked
 named Circle codes, and checked-out/expired nearby presence follow the same
 terminal-state retention boundary. Pending targeted Circle-member invitations

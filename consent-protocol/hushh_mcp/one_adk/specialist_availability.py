@@ -74,8 +74,15 @@ def resolve_specialist_availability(
     user_id: str,
     consent_token: str,
     voice_context: object,
+    exact_authority_available: bool = False,
 ) -> SpecialistAvailabilityV1:
-    """Resolve a specialist's callable state from redacted current context."""
+    """Resolve a specialist's callable state from redacted current context.
+
+    ``exact_authority_available`` says whether the turn's authority carries anything
+    beyond permission to start a task. It defaults to False so a caller that does not
+    pass it fails closed -- the wrong answer here is the one that reports a specialist
+    ready and then refuses it.
+    """
     context = voice_context if isinstance(voice_context, dict) else {}
     route_family = str(context.get("route_family") or "").strip()
     screen = str(context.get("screen") or "").strip()
@@ -126,7 +133,16 @@ def resolve_specialist_availability(
     if is_location_setup:
         return result("setup_required", "location_setup_incomplete")
 
-    if agent_id in _AUTHORITY_INGRESS_ONLY and not is_wired_specialist(agent_id):
+    # These three call `require_attenuated_authority(information=True)` in their
+    # handlers, so a turn without exact authority cannot reach them.
+    #
+    # This used to read `not is_wired_specialist(agent_id)` -- i.e. it asked whether
+    # the specialist was REGISTERED. Registration is a different question from
+    # authorisation, and once all three were wired the condition could never fire.
+    # The branch became dead code, the accurate per-specialist messages downstream
+    # became unreachable, and admission started answering `ready` for specialists
+    # that were about to fail with a raw EXACT_AUTHORITY_REQUIRED.
+    if agent_id in _AUTHORITY_INGRESS_ONLY and not exact_authority_available:
         return result("authority_required", "exact_a2a_authority_required")
 
     if not is_wired_specialist(agent_id):

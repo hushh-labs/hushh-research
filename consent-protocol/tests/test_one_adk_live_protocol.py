@@ -1138,3 +1138,16 @@ def test_the_relay_never_sends_activity_signals_while_the_provider_endpoints_its
     # revisited rather than silently kept passing: that is the configuration
     # where the relay MUST send the signals it is forbidden from sending here.
     assert "realtime_input_config=" not in code
+
+
+def test_unknown_route_diagnostics_do_not_log_caller_paths_or_queries(caplog):
+    marker = "synthetic-private-route-detail"
+    with caplog.at_level("INFO"):
+        _sanitize_live_context(
+            {
+                "route_family": f"/unknown/{marker}",
+                "route_query": f"credential={marker}",
+                "available_action_ids": ["route.one"],
+            }
+        )
+    assert marker not in caplog.text

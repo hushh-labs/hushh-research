@@ -30,9 +30,9 @@ describe("One setup hub terminal action contract", () => {
     expect(source).toContain('variant="blue-gradient"');
     expect(source).toContain('effect="fill"');
     expect(source).toContain("FinanceSetupDraftService.finalizeForVault");
-    expect(source.lastIndexOf("FinanceSetupDraftService.finalizeForVault")).toBeLessThan(
-      source.indexOf("await acknowledgeOneSetupExit"),
-    );
+    expect(
+      source.lastIndexOf("FinanceSetupDraftService.finalizeForVault"),
+    ).toBeLessThan(source.indexOf("await acknowledgeOneSetupExit"));
   });
 
   it("uses the same responsive in-flow terminal action as a capability workspace", () => {
@@ -43,7 +43,25 @@ describe("One setup hub terminal action contract", () => {
 
     expect(source).toContain("<SetupCompletionFooter");
     expect(source).toContain('testId="one-setup-master-ack"');
-    expect(source).toContain("blocked={!runtimeChoiceComplete}");
+    // Both root prerequisites now gate the exit, so the footer reads the combined
+    // value rather than the AI-access half. A person must not be able to leave the
+    // hub having connected a model but no cloud for it to run in.
+    expect(source).toContain("disabled={!setupPrerequisitesComplete}");
+    expect(source).toContain(
+      "cloudComplete && phoneVerified && runtimeChoiceComplete",
+    );
+    // The reorder itself, asserted on the rendered order rather than on intent.
+    // Broken on purpose: move the cloud tile below AI access and this goes red.
+    // The phone sits between them: the agent's record is minted from it.
+    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+      source.indexOf('title="Verify your phone"'),
+    );
+    expect(source.indexOf('title="Verify your phone"')).toBeLessThan(
+      source.indexOf('title="Choose your AI"'),
+    );
+    expect(source.indexOf('title="Your cloud"')).toBeLessThan(
+      source.indexOf('title="Choose your AI"'),
+    );
     expect(source).toContain(
       "PreVaultUserStateService.hasOneRuntimeChoice(currentState)",
     );
@@ -99,9 +117,18 @@ describe("One setup hub terminal action contract", () => {
 
     // "Required" in the same muted grey as every other trailing label reads as
     // one more optional status. The blocking row takes the accent pill and the
-    // current-step role so it is legible as the thing to do first.
-    expect(hub).toContain('statusLabel="Required"');
-    expect(hub).toContain('statusTone="required"');
+    // current-step role so it is legible as the thing to do first. The cloud
+    // row's label is dynamic now (it reads "Setting up (step N of 6)" while
+    // the background job runs), and "Required" stays its resting default.
+    // The cloud row is pinned first in both states; its label walks
+    // Connected -> setting-up stage -> Required, and the AI row's tone goes
+    // accent only once the cloud ahead of it is done.
+    expect(hub).toContain("? cloudSetupStageLabel");
+    expect(hub).toContain(
+      'statusTone={cloudComplete ? undefined : "required"}',
+    );
+    expect(hub).toContain("phoneVerified && !runtimeChoiceComplete");
+    expect(hub).toContain('"After your cloud"');
     expect(tile).toContain('statusTone === "required"');
     expect(tile).toContain("bg-[var(--app-accent-tint)]");
     expect(tile).toContain('aria-current={isCurrent ? "step" : undefined}');
@@ -203,7 +230,9 @@ describe("One setup hub terminal action contract", () => {
     // ...and a visible edge with it. `muted` is the page surface in the light
     // theme, so the fill alone leaves no control on screen.
     expect(footer).toContain("disabled:!border-border");
-    expect(footer).toContain("aria-disabled={isBlockedTappableAction || undefined}");
+    expect(footer).toContain(
+      "aria-disabled={isBlockedTappableAction || undefined}",
+    );
     expect(hub).not.toContain("disabled:opacity-40");
 
     // ...but "looks gated" must not mean "eats the tap". The master action
@@ -217,9 +246,13 @@ describe("One setup hub terminal action contract", () => {
     );
     // One block, not a stacked description -- the two-line toast ceiling.
     expect(hub).toContain('toast.info("Choose your AI first."');
-    expect(hub).not.toContain("description: \"Pick how One gets its AI");
-    expect(hub).not.toContain('title={\n                !runtimeChoiceComplete');
-    expect(hub).not.toContain('? "Choose your AI first."\n                    : "Set up the rest later."');
+    expect(hub).not.toContain('description: "Pick how One gets its AI');
+    expect(hub).not.toContain(
+      "title={\n                !runtimeChoiceComplete",
+    );
+    expect(hub).not.toContain(
+      '? "Choose your AI first."\n                    : "Set up the rest later."',
+    );
 
     // The header summary still names it on both layouts, so the blocker is
     // legible before the tap as well as after it.
@@ -319,7 +352,7 @@ describe("One setup hub terminal action contract", () => {
     // bottom-safe-area clearance, so mobile does not need a separate header CTA.
     expect(source).not.toContain('data-testid="one-setup-master-ack-mobile"');
     expect(source).not.toContain('<div className="hidden sm:block">');
-    expect(source).toContain('<SetupCompletionFooter');
+    expect(source).toContain("<SetupCompletionFooter");
   });
 
   it("does not reserve header space for a duplicate mobile action", () => {
@@ -328,7 +361,9 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
 
-    expect(source).not.toContain('<div className="flex flex-wrap items-start gap-3">');
+    expect(source).not.toContain(
+      '<div className="flex flex-wrap items-start gap-3">',
+    );
     expect(source).not.toContain('<div className="min-w-[8rem] flex-1">');
     expect(source).not.toContain('<div className="min-w-0 flex-1">');
     expect(source).not.toContain("basis-[8rem]");
@@ -341,7 +376,9 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(source).toContain("setVaultInvitationOpen(true);");
-    expect(source).toContain("const completeSetupAfterVault = useCallback(async ()");
+    expect(source).toContain(
+      "const completeSetupAfterVault = useCallback(async ()",
+    );
     const masterHandler = source.slice(source.indexOf("const handleMasterAck"));
     expect(masterHandler).not.toContain("acknowledgeOneSetupExit");
     expect(source).toContain("Set a lock");
@@ -372,14 +409,18 @@ describe("One setup hub terminal action contract", () => {
     expect(source).not.toContain("showVaultInvitation");
     expect(source).not.toContain('data-testid="one-setup-vault-invitation"');
     expect(source).not.toContain("A private place for what matters");
-    expect(source).not.toContain('data-testid="one-setup-vault-invitation-open"');
+    expect(source).not.toContain(
+      'data-testid="one-setup-vault-invitation-open"',
+    );
 
     // ...and the promise that screen carried moves onto the step that needs it.
     const vaultFlow = readFileSync(
       join(process.cwd(), "components/vault/vault-flow.tsx"),
       "utf8",
     );
-    expect(vaultFlow).toContain('description="Only you can open what you save."');
+    expect(vaultFlow).toContain(
+      'description="Only you can open what you save."',
+    );
   });
 
   it("keeps AI access one tap from the hub instead of behind a prologue", () => {
@@ -425,8 +466,10 @@ describe("One setup hub terminal action contract", () => {
     );
 
     expect(card).toContain('<Badge variant="outline">Recommended</Badge>');
-    expect(card).toContain('title="Use Hussh\'s AI"');
-    expect(card).toContain('title="Use my own key"');
+    expect(card).toContain(
+      'title={ownCloudProject ? "Use your pod\'s AI" : "Use Hussh\'s AI"}',
+    );
+    expect(card).toContain('title="Use your own key"');
     // System nouns and vendor plumbing stay out of the two rows a person reads.
     expect(card).not.toContain("Hussh managed Gemini");
     expect(card).not.toContain("Use my Gemini access");
@@ -437,7 +480,10 @@ describe("One setup hub terminal action contract", () => {
 
   it("requires a vault before collecting KYC identity information", () => {
     const kycPrefaceSource = readFileSync(
-      join(process.cwd(), "components/onboarding/setup/kyc-identity-preface.tsx"),
+      join(
+        process.cwd(),
+        "components/onboarding/setup/kyc-identity-preface.tsx",
+      ),
       "utf8",
     );
     expect(kycPrefaceSource).toContain("VaultUnlockDialog");
@@ -453,7 +499,10 @@ describe("One setup hub terminal action contract", () => {
     }
 
     const emailSetupSource = readFileSync(
-      join(process.cwd(), "app/one/setup/email/email-onboarding-setup-client.tsx"),
+      join(
+        process.cwd(),
+        "app/one/setup/email/email-onboarding-setup-client.tsx",
+      ),
       "utf8",
     );
     const kycRouteSource = readFileSync(
@@ -473,3 +522,53 @@ describe("One setup hub terminal action contract", () => {
     }
   });
 });
+
+describe("One setup hub reaches the cloud choice", () => {
+  // Pins the defect `firstrun-person-reaches-cloud-choice` was opened for. Measured
+  // on 2026-08-28: the hub painted eight capability tiles and one_setup_tile_cloud
+  // was in NEITHER the Remaining nor the Complete group, so nothing in the app
+  // routed to /one/setup/cloud and the whole BYOC path -- a finished backend, a
+  // mounted card, a live route -- was unreachable by a person.
+  //
+  // WHAT THIS DOES AND DOES NOT PROVE. It proves the tile is rendered, pinned, and
+  // aimed at the canonical route. It does NOT prove a brand-new person REACHES it;
+  // only first-run-reachability.mjs settles that, and it needs maintainer-only
+  // credentials. So this is a floor under the regression, never the receipt.
+  const source = () =>
+    readFileSync(
+      join(process.cwd(), "components/onboarding/setup/one-setup-hub.tsx"),
+      "utf8",
+    );
+
+  it("renders a cloud tile aimed at the canonical setup route", () => {
+    expect(source()).toContain('id="cloud"');
+    expect(source()).toContain("href={ROUTES.ONE_SETUP_CLOUD}");
+    expect(source()).toContain('voiceControlId="one_setup_tile_cloud"');
+  });
+
+  it("keeps the cloud tile unconditional, which is the half that broke", () => {
+    // The tile existing in the file was never the question -- it can exist and
+    // still render for nobody. This asserts nothing gates it between the group it
+    // belongs to and its own tag, so a future `{cloudEnabled && (` reintroducing
+    // the 2026-08-28 defect fails here rather than in somebody's first run.
+    const src = source();
+    const group = src.indexOf('testId="one-setup-foundation"');
+    const tile = src.indexOf('id="cloud"', group);
+    expect(group).toBeGreaterThan(-1);
+    expect(tile).toBeGreaterThan(group);
+    const between = src.slice(group, tile);
+    expect(between).not.toMatch(/&&\s*\(/);
+    expect(between).not.toMatch(/\?\s*\(/);
+  });
+
+  it("pins the cloud choice above the capability lists", () => {
+    // Founder direction 2026-09-02: where the agent lives decides what can be
+    // chosen after it, so it leads in both states rather than sinking into
+    // "Complete" once connected.
+    const src = source();
+    expect(src.indexOf('testId="one-setup-foundation"')).toBeLessThan(
+      src.indexOf("{item.copy.href}"),
+    );
+  });
+});
+
