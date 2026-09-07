@@ -290,9 +290,10 @@ class _FakeRunClient:
 
     def create_service(self, body):
         self.created.append(body)
-        return {"metadata": body["metadata"]}
+        return {"metadata": {**body["metadata"], "uid": "created-uid"}}
 
     def wait_ready(self, name, **kw):
+        assert kw["expected_uid"] == "created-uid"
         svc = {
             "status": {
                 "url": "https://svc-abc.run.app",
@@ -340,6 +341,22 @@ async def test_live_provision_creates_service_and_returns_live_handle(simulation
     assert handle.backend == BACKEND_GCP
     assert handle.backend_metadata["url"] == "https://svc-abc.run.app"
     assert handle.backend_metadata["ready"] is True
+    assert handle.backend_metadata["serviceUid"] == "created-uid"
+
+
+@pytest.mark.parametrize("expected_uid", [None, "different-uid"])
+async def test_managed_upgrade_refuses_unverified_incarnation_before_mutation(
+    simulation_lane, expected_uid
+):
+    from dataclasses import replace
+
+    fake = _FakeRunClient()
+    fake.get_service = lambda _: {"metadata": {"uid": "recorded-uid"}}
+    writes = []
+    fake.replace_service = lambda *a, **k: writes.append(k)
+    with pytest.raises(RuntimeError, match="incarnation"):
+        await _live(fake).upgrade(replace(_spec(), expected_service_uid=expected_uid))
+    assert fake.created == [] and writes == []
 
 
 async def test_live_provision_not_ready_is_deploying(simulation_lane):

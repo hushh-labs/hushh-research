@@ -56,7 +56,11 @@ HUSHH_ID = "ha1_27mqrdirlc56t4p2inqkthnwfrohj62o"
 
 def _spec() -> PodSpec:
     return PodSpec(
-        hushh_id=HUSHH_ID, phone_e164_hash="hash", pod_pubkey="", billing_space_id="sp_1"
+        hushh_id=HUSHH_ID,
+        phone_e164_hash="hash",
+        pod_pubkey="",
+        billing_space_id="sp_1",
+        expected_service_uid="uid-from-cloud-run",
     )
 
 
@@ -119,8 +123,11 @@ class FakeRun:
     service_url = staticmethod(GcpRunClient.service_url)
     ready_failure = staticmethod(GcpRunClient.ready_failure)
 
-    def replace_service(self, name: str, body: dict, *, revision_nonce=None) -> dict:
+    def replace_service(
+        self, name: str, body: dict, *, revision_nonce=None, expected_uid=None
+    ) -> dict:
         assert name in self.services, "replace is not a create"
+        assert expected_uid == self.services[name]["metadata"]["uid"]
         self.replaced.append(copy.deepcopy(body))
         self.services[name] = {**self.services[name], "spec": body["spec"]}
         return body
@@ -131,6 +138,7 @@ class FakeRun:
 
     def wait_ready(self, name: str, **_: Any):
         svc = copy.deepcopy(self.services[name])
+        assert _["expected_uid"] == svc["metadata"]["uid"]
         if self.ready:
             svc["status"] = {
                 "url": "https://one-pod.a.run.app",
@@ -285,10 +293,23 @@ async def test_upgrade_is_a_noop_when_the_pod_already_runs_the_current_digest(co
     run = FakeRun(name, existing_digest=NEW)
 
     handle = await _backend(run).upgrade(_spec())
+    assert handle.backend_metadata["serviceUid"] == "uid-from-cloud-run"
 
     assert run.replaced == [] and run.created == []
     assert (handle.backend_metadata or {})["upgraded"] is False
     assert (handle.backend_metadata or {})["image_digest"] == NEW
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("expected_uid", [None, "", "different-uid"])
+async def test_upgrade_refuses_unverified_incarnation_before_image_copy(copy_log, expected_uid):
+    from dataclasses import replace
+
+    run = FakeRun(ugb._service_name(HUSHH_ID), existing_digest=OLD)
+    with pytest.raises(RuntimeError, match="incarnation"):
+        await _backend(run).upgrade(replace(_spec(), expected_service_uid=expected_uid))
+    assert copy_log.resolved == [] and copy_log.copied == []
+    assert run.replaced == [] and run.created == []
 
 
 @pytest.mark.asyncio
@@ -423,6 +444,7 @@ class FakeUpgradingBackend:
 def _row(*, source_image: str = SOURCE_OLD, status: str = "provisioned", marker=None) -> dict:
     meta = {
         "tenancy": "user-owned",
+        "serviceUid": "uid-from-cloud-run",
         "image": f"reg/copy@{OLD}",
         "source_image": source_image,
         "image_digest": OLD,

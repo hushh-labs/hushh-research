@@ -1236,6 +1236,7 @@ class PersonalAgentProvisioningService:
             phone_e164_hash=phone_hash,
             billing_space_id=row.get("billing_space_id"),
             pod_pubkey=str(row.get("pod_pubkey") or ""),
+            expected_service_uid=(row.get("backend_metadata") or {}).get("serviceUid"),
             deployment_target=row.get("deployment_target")
             or (cloud.deployment_target if cloud else None),
             model_credential_mode=row.get("model_credential_mode")

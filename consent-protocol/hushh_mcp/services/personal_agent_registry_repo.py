@@ -110,6 +110,7 @@ _UPGRADE_HOST_METADATA_KEYS = (
     "project",
     "region",
     "service",
+    "serviceUid",
     "url",
     "runtime_service_account",
     "tenancy",

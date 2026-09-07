@@ -218,7 +218,7 @@ _MANAGED_ONLY_ENV = frozenset(
 )
 
 
-async def _create_once_iam_settles(create: Any) -> None:
+async def _create_once_iam_settles(create: Any) -> Any:
     """Create the pod, retrying ONLY the IAM race the bootstrap opens for itself.
 
     The bootstrap grants itself ``actAs`` on the pod's service account moments before
@@ -237,8 +237,7 @@ async def _create_once_iam_settles(create: Any) -> None:
     delays = UserGcpBackend._ACTAS_BACKOFF_SECONDS
     for attempt, delay in enumerate((*delays, None)):
         try:
-            await create()
-            return
+            return await create()
         except Exception as exc:  # noqa: BLE001 -- narrowed immediately below
             if delay is None or not _is_actas_propagation(exc):
                 raise
@@ -829,6 +828,9 @@ class UserGcpBackend:
         from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
         from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token  # noqa: PLC0415
 
+        project = self._user_project
+        if not project:
+            raise RuntimeError("BYOC provisioning requires the owner's cloud project")
         if not self._bootstrap_sa:
             raise RuntimeError(
                 "BYOC provisioning needs HUSSH_USER_GCP_BOOTSTRAP_SA — the account the "
@@ -836,13 +838,15 @@ class UserGcpBackend:
             )
         token = mint_bootstrap_token(bootstrap_sa=self._bootstrap_sa)
         return GcpRunClient(
-            project=self._user_project, region=self._user_region, credentials=_StaticToken(token)
+            project=project, region=self._user_region, credentials=_StaticToken(token)
         )
 
     _ACTAS_BACKOFF_SECONDS: tuple[float, ...] = (5.0, 10.0, 20.0, 30.0)
 
     async def _execute_live(self, spec: PodSpec) -> BackendHandle:
         import asyncio  # noqa: PLC0415
+
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
 
         name = _service_name(spec.hushh_id)
         client = await asyncio.to_thread(self._client)
@@ -858,10 +862,17 @@ class UserGcpBackend:
         )
         config = self.render_deploy_config(spec, image_digest=image_digest)
         if existing is None:
-            await _create_once_iam_settles(lambda: asyncio.to_thread(client.create_service, config))
+            admitted = await _create_once_iam_settles(
+                lambda: asyncio.to_thread(client.create_service, config)
+            )
+            service_uid = GcpRunClient.service_uid(admitted)
         else:
+            service_uid = GcpRunClient.service_uid(existing)
             await asyncio.to_thread(
-                client.replace_service, name, client.merge_for_replace(existing, config)
+                client.replace_service,
+                name,
+                client.merge_for_replace(existing, config),
+                expected_uid=service_uid,
             )
         # Same narrative stages as the managed tier, same names -- the vocabulary is
         # shared with trace_pod_journey so the operator diagnostic and the person's
@@ -874,14 +885,12 @@ class UserGcpBackend:
         # its startup probe was reported `live`, and `service_url` was handed a tuple and
         # raised. The managed tier unpacks it correctly (`gcp_backend.py:566`); this path
         # did not, and only a pod that genuinely failed to boot could show the difference.
-        ready, svc = await asyncio.to_thread(client.wait_ready, name)
+        ready, svc = await asyncio.to_thread(client.wait_ready, name, expected_uid=service_uid)
         if ready:
             spec.emit_stage("host_serving")
         else:
             # The real parser, not the client instance: it is a pure function of the
             # service JSON, and test doubles for the client need not carry it.
-            from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
-
             boot_failure = GcpRunClient.ready_failure(svc)
             if boot_failure is not None:
                 # Ready==False is the platform's verdict, not a slow boot. Proceeding
@@ -928,6 +937,7 @@ class UserGcpBackend:
                 "image": self._user_pod_image_ref(spec, image_digest),
                 "source_image": self._image,
                 "image_digest": image_digest,
+                "serviceUid": service_uid,
                 "keyless": True,
                 "credential": "impersonated bootstrap SA, 15-minute token",
                 # WHICH service account this pod runs as, recorded because on BYOC it
@@ -993,6 +1003,11 @@ class UserGcpBackend:
             )
         import asyncio  # noqa: PLC0415
 
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        expected_uid = spec.expected_service_uid
+        if not isinstance(expected_uid, str) or not expected_uid.strip():
+            raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
         client = await asyncio.to_thread(self._client)
         existing = await asyncio.to_thread(client.get_service, name)
         if existing is None:
@@ -1000,6 +1015,7 @@ class UserGcpBackend:
                 f"cannot upgrade {name}: no pod service exists in the person's project; "
                 "provision (or adopt) it instead"
             )
+        GcpRunClient.require_service_uid(existing, expected_uid)
         previous_digest = _digest_from_service(existing)
         # `None` for the recorded digest is the whole difference from a heal: resolve
         # the source tag fresh and copy THAT digest into the person's registry.
@@ -1009,12 +1025,13 @@ class UserGcpBackend:
         svc: Optional[dict[str, Any]] = existing
         if changed:
             await asyncio.to_thread(
-                client.replace_service, name, client.merge_for_replace(existing, config)
+                client.replace_service,
+                name,
+                client.merge_for_replace(existing, config),
+                expected_uid=expected_uid,
             )
-            ready, svc = await asyncio.to_thread(client.wait_ready, name)
+            ready, svc = await asyncio.to_thread(client.wait_ready, name, expected_uid=expected_uid)
             if not ready:
-                from hushh_mcp.services.gcp_run_client import GcpRunClient  # noqa: PLC0415
-
                 boot_failure = GcpRunClient.ready_failure(svc)
                 if boot_failure is not None:
                     raise PodBootFailedError(
@@ -1051,6 +1068,7 @@ class UserGcpBackend:
                 "image_digest": image_digest,
                 "previous_image_digest": previous_digest,
                 "upgraded": changed,
+                "serviceUid": expected_uid,
                 "keyless": True,
                 "credential": "impersonated bootstrap SA, 15-minute token",
                 "runtime_service_account": self._pod_service_account(spec),

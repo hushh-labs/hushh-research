@@ -1311,9 +1311,10 @@ async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None
             return None
 
         def create_service(self, _cfg):
-            return {}
+            return {"metadata": {"uid": "created-uid"}}
 
-        def wait_ready(self, _name):
+        def wait_ready(self, _name, *, expected_uid):
+            assert expected_uid == "created-uid"
             return False, {"status": {"conditions": [{"type": "Ready", "status": "False"}]}}
 
         def set_invoker_binding(self, *_a, **_k):

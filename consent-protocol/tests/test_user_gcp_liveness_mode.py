@@ -91,8 +91,10 @@ class _CapturingRunClient:
 
     def create_service(self, config):
         self.created.append(config)
+        return {"metadata": {"uid": "created-uid"}}
 
-    def wait_ready(self, name):  # noqa: ARG002
+    def wait_ready(self, name, *, expected_uid):  # noqa: ARG002
+        assert expected_uid == "created-uid"
         return True, {"status": {"url": "https://one-pod-ha1abc.run.app"}}
 
     def set_invoker_binding(self, name, member):

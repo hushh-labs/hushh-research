@@ -107,11 +107,11 @@ def resolve_admin_project(sa_key_b64: Optional[str] = None) -> Optional[str]:
     try:
         import google.auth  # noqa: PLC0415
 
-        _credentials, project = google.auth.default(scopes=_SCOPES)
+        _credentials, attached_project = google.auth.default(scopes=_SCOPES)
     except Exception:  # noqa: BLE001 - absence is a real answer here
         return None
-    project = str(project or "").strip()
-    return project or None
+    attached_project = str(attached_project or "").strip()
+    return attached_project or None
 
 
 class GcpRunClient:
@@ -318,6 +318,7 @@ class GcpRunClient:
         body: dict[str, Any],
         *,
         revision_nonce: Optional[str] = None,
+        expected_uid: Optional[str] = None,
     ) -> dict[str, Any]:
         """Replace a live service in place (PUT), rolling it onto a fresh revision.
 
@@ -336,22 +337,62 @@ class GcpRunClient:
         current = self.get_service(name)
         if current is None:
             raise RuntimeError(f"cannot replace {name}: no such Cloud Run service")
+        if expected_uid is not None:
+            self.require_service_uid(current, expected_uid)
+            version = (current.get("metadata") or {}).get("resourceVersion")
+            if not isinstance(version, str) or not version.strip():
+                raise RuntimeError("Cloud Run replacement concurrency version unavailable")
 
         merged = self.merge_for_replace(current, body, revision_nonce=revision_nonce)
         r = requests.put(
-            f"{self._base}/services/{name}", headers=self._headers(), json=merged, timeout=60
+            f"{self._base}/services/{name}",
+            headers=self._headers(),
+            json=merged,
+            timeout=60,
+            allow_redirects=False,
         )
         r.raise_for_status()
+        if r.status_code != 200:
+            raise RuntimeError("Cloud Run replacement not confirmed")
+        result = r.json()
+        if not isinstance(result, dict):
+            raise RuntimeError("Cloud Run replacement response invalid")
+        if expected_uid is not None:
+            self.require_service_uid(result, expected_uid)
         logger.info("gcp_run.replaced name=%s nonce_present=%s", name, bool(revision_nonce))
-        return dict(r.json())
+        return result
+
+    @staticmethod
+    def service_uid(service: Optional[dict[str, Any]]) -> str:
+        metadata = service.get("metadata") if isinstance(service, dict) else None
+        uid = metadata.get("uid") if isinstance(metadata, dict) else None
+        if not isinstance(uid, str) or not uid.strip():
+            raise RuntimeError("Cloud Run service incarnation unverified")
+        return uid
+
+    @staticmethod
+    def require_service_uid(service: Optional[dict[str, Any]], expected_uid: str) -> None:
+        if (
+            not isinstance(expected_uid, str)
+            or not expected_uid.strip()
+            or GcpRunClient.service_uid(service) != expected_uid
+        ):
+            raise RuntimeError("Cloud Run service incarnation changed or unverified")
 
     def get_service(self, name: str) -> Optional[dict[str, Any]]:
         import requests  # type: ignore[import-untyped]
 
-        r = requests.get(f"{self._base}/services/{name}", headers=self._headers(), timeout=30)
+        r = requests.get(
+            f"{self._base}/services/{name}",
+            headers=self._headers(),
+            timeout=30,
+            allow_redirects=False,
+        )
         if r.status_code == 404:
             return None
         r.raise_for_status()
+        if r.status_code != 200:
+            raise RuntimeError("Cloud Run service observation not confirmed")
         return dict(r.json())
 
     def list_services(self, label_selector: str = "") -> list[dict[str, Any]]:
@@ -526,7 +567,12 @@ class GcpRunClient:
             time.sleep(min(interval_s, max(0, deadline - time.monotonic())))
 
     def wait_ready(
-        self, name: str, *, timeout_s: float = 150.0, interval_s: float = 3.0
+        self,
+        name: str,
+        *,
+        timeout_s: float = 150.0,
+        interval_s: float = 3.0,
+        expected_uid: Optional[str] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
         """Poll until the service's Ready condition is True (ok) or False (failed),
         or the timeout elapses. Returns (ready, last_service_json).
@@ -551,6 +597,8 @@ class GcpRunClient:
         last: Optional[dict[str, Any]] = None
         while time.monotonic() < deadline:
             svc = self.get_service(name)
+            if expected_uid is not None:
+                self.require_service_uid(svc, expected_uid)
             last = svc
             if not self._status_is_current(svc):
                 # A stale status is not a verdict. Keep polling rather than reading the

@@ -571,6 +571,77 @@ class _InventoryResponse:
         return self.body
 
 
+@pytest.mark.parametrize("mutation", ["uid", "missing_uid", "missing_version"])
+def test_fenced_replace_refuses_changed_or_unverified_service_before_put(monkeypatch, mutation):
+    import requests
+
+    observed = _live_service()
+    expected = observed["metadata"]["uid"]
+    if mutation == "uid":
+        observed["metadata"]["uid"] = "replacement-uid"
+    else:
+        observed["metadata"].pop("uid" if mutation == "missing_uid" else "resourceVersion")
+    client = _client_no_net()
+    client.get_service = lambda _: observed
+    writes = []
+    monkeypatch.setattr(requests, "put", lambda *a, **k: writes.append(k))
+    with pytest.raises(RuntimeError, match="incarnation|concurrency"):
+        client.replace_service("one-pod-abc", _desired(), expected_uid=expected)
+    assert writes == []
+
+
+@pytest.mark.parametrize("outcome", ["same", "changed", "missing_uid", "conflict", "redirect"])
+def test_fenced_replace_preserves_version_and_verifies_acknowledgement(monkeypatch, outcome):
+    import copy
+
+    import requests
+
+    observed = _live_service()
+    expected = observed["metadata"]["uid"]
+    result = copy.deepcopy(observed)
+    if outcome == "changed":
+        result["metadata"]["uid"] = "replacement-uid"
+    elif outcome == "missing_uid":
+        result["metadata"].pop("uid")
+    response = _InventoryResponse(result)
+    if outcome == "conflict":
+        response.status_code = 409
+        response.error = requests.HTTPError("synthetic version conflict")
+    elif outcome == "redirect":
+        response.status_code = 307
+    client = _client_no_net()
+    client.get_service = lambda _: observed
+    writes = []
+
+    def put(_url, **kwargs):
+        writes.append(kwargs)
+        return response
+
+    monkeypatch.setattr(requests, "put", put)
+    if outcome == "same":
+        assert client.replace_service("one-pod-abc", _desired(), expected_uid=expected) == result
+    else:
+        with pytest.raises((RuntimeError, requests.HTTPError)):
+            client.replace_service("one-pod-abc", _desired(), expected_uid=expected)
+    assert len(writes) == 1
+    assert writes[0]["allow_redirects"] is False
+    assert writes[0]["json"]["metadata"]["uid"] == expected
+    assert writes[0]["json"]["metadata"]["resourceVersion"] == "AAAB1234"
+
+
+@pytest.mark.parametrize("replacement", ["new-uid", None])
+def test_readiness_cannot_credit_a_same_name_replacement(replacement):
+    stale = _svc(generation=2, observed=1, ready="True")
+    stale["metadata"]["uid"] = "expected-uid"
+    ready = _svc(generation=2, observed=2, ready="True")
+    if replacement is not None:
+        ready["metadata"]["uid"] = replacement
+    client = _ScriptedRun([stale, ready])
+    with pytest.raises(RuntimeError, match="incarnation"):
+        client.wait_ready("same-name", timeout_s=1, interval_s=0, expected_uid="expected-uid")
+    assert client.polls == 2
+
+
 def test_service_inventory_reads_all_pages_with_same_filter(monkeypatch):
     import requests
 

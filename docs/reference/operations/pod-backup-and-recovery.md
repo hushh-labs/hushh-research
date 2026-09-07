@@ -376,6 +376,16 @@ resolves the mutable source tag again:
   unrelated keys. The ten-minute expiry permits another claim; it does not cancel
   or drain an already admitted provider operation. These registry checks do not
   establish the Cloud Run service's unique incarnation or prove safe erasure.
+- **Provider incarnation**: live backend admission retains the returned Cloud Run
+  `metadata.uid` as `backend_metadata.serviceUid` and carries it through readiness.
+  Image upgrades require that recorded UID before copying or replacing an image.
+  The client's own pre-PUT read must match it and supply `resourceVersion`; the
+  response and every readiness observation must also match. See Google's
+  [ObjectMeta contract](https://cloud.google.com/run/docs/reference/rest/v1/ObjectMeta).
+  Legacy rows without UID refuse upgrades; a name lookup alone never backfills
+  their identity. Owner-authorized recovery must establish that binding first.
+  Existing create-conflict adoption and IAM operations by name remain separate
+  ownership gaps. UID checks do not drain admitted work or establish erasure safety.
 - **Operator hand**: `uv run python scripts/ops/pod_upgrade.py --list | --user-id <uid> | --all`
   from a hub environment. `--image <tag>` rolls a pod back to a tag that still exists.
 

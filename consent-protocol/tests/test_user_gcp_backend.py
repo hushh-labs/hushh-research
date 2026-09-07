@@ -280,7 +280,7 @@ class _BootVerdictClient:
 
     def __init__(self, ready_condition: dict | None) -> None:
         self._svc = {
-            "metadata": {"name": "one-pod-ha1abc234def"},
+            "metadata": {"name": "one-pod-ha1abc234def", "uid": "admitted-uid"},
             "status": {
                 "url": "https://one-pod-ha1abc234def.run.app",
                 "conditions": [ready_condition] if ready_condition else [],
@@ -295,10 +295,12 @@ class _BootVerdictClient:
     def merge_for_replace(existing, desired):  # noqa: ARG004
         return desired
 
-    def replace_service(self, name, config):  # noqa: ARG002
+    def replace_service(self, name, config, *, expected_uid):  # noqa: ARG002
+        assert expected_uid == "admitted-uid"
         return self._svc
 
-    def wait_ready(self, name):  # noqa: ARG002
+    def wait_ready(self, name, *, expected_uid):  # noqa: ARG002
+        assert expected_uid == "admitted-uid"
         return False, self._svc
 
     def set_invoker_binding(self, name, member):

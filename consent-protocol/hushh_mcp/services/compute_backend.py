@@ -125,6 +125,8 @@ class PodSpec:
     consent_binding_ref: Optional[str] = None
     runtime_version: Optional[str] = None
     prompt_version: Optional[str] = None
+    # Recorded provider incarnation for an in-place upgrade; never inferred from a name.
+    expected_service_uid: Optional[str] = None
 
     # -- the two axes, per person -----------------------------------------------
     #

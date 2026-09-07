@@ -285,6 +285,7 @@ async def test_lifecycle_transition_refuses_old_upgrade_publication(pg, engine):
         "project",
         "region",
         "service",
+        "serviceUid",
         "url",
         "runtime_service_account",
         "tenancy",

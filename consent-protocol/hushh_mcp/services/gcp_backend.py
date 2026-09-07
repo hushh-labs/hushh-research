@@ -550,6 +550,9 @@ class GcpBackend:
 
         # A fleet that is not aimed may not be rolled either.
         require_hosted_pod_creates_permitted("hussh-managed pod upgrade")
+        expected_uid = spec.expected_service_uid
+        if not isinstance(expected_uid, str) or not expected_uid.strip():
+            raise RuntimeError("pod incarnation unverified; recovery required before upgrade")
         client = self._client or self._build_client()
 
         def _run() -> tuple[bool, Optional[dict[str, Any]], Optional[str]]:
@@ -558,6 +561,7 @@ class GcpBackend:
                 raise RuntimeError(
                     f"cannot upgrade {name}: no such pod service; provision it instead"
                 )
+            GcpRunClient.require_service_uid(existing, expected_uid)
             previous = None
             try:
                 previous = str(
@@ -569,8 +573,9 @@ class GcpBackend:
             client.replace_service(
                 name,
                 client.merge_for_replace(existing, config, revision_nonce=f"image-{tag}"),
+                expected_uid=expected_uid,
             )
-            ready, svc = client.wait_ready(name)
+            ready, svc = client.wait_ready(name, expected_uid=expected_uid)
             if not ready:
                 boot_failure = GcpRunClient.ready_failure(svc)
                 if boot_failure is not None:
@@ -602,6 +607,7 @@ class GcpBackend:
                 "ingress": self._ingress,
                 "image": self._image,
                 "previous_image": previous,
+                "serviceUid": expected_uid,
                 "upgraded": True,
                 "livenessMode": _liveness_mode(_rendered_min_scale(config)),
             },
@@ -699,8 +705,9 @@ class GcpBackend:
         client = self._client or self._build_client()
         name = str(config["metadata"]["name"])
 
-        def _run() -> tuple[bool, Optional[str], bool]:
-            client.create_service(config)
+        def _run() -> tuple[bool, Optional[str], bool, str]:
+            admitted = client.create_service(config)
+            service_uid = GcpRunClient.service_uid(admitted)
             # Narrative per stage, on this worker thread, through the spec's opaque
             # callback -- this closure was the identical opacity the BYOC substrate
             # had: three long operations under one `provisioning`. Order matters and
@@ -718,12 +725,12 @@ class GcpBackend:
                 client.set_invoker_binding(name, self._invoker_member)
                 invoker_bound = True
                 spec.emit_stage("invoker_bound")
-            ready, svc = client.wait_ready(name)
+            ready, svc = client.wait_ready(name, expected_uid=service_uid)
             if ready:
                 spec.emit_stage("host_serving")
-            return ready, GcpRunClient.service_url(svc), invoker_bound
+            return ready, GcpRunClient.service_url(svc), invoker_bound, service_uid
 
-        ready, url, invoker_bound = await asyncio.to_thread(_run)
+        ready, url, invoker_bound, service_uid = await asyncio.to_thread(_run)
         if not invoker_bound:
             # Say so loudly. A pod nobody may invoke is not a working pod, and the
             # symptom (a row stuck in `connecting`) points nowhere near the cause.
@@ -744,6 +751,7 @@ class GcpBackend:
                 "region": spec.region or self._region,
                 "service": name,
                 "url": url,
+                "serviceUid": service_uid,
                 "ready": ready,
                 "tier": spec.tier,
                 "ingress": self._ingress,
