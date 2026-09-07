@@ -474,7 +474,11 @@ jobs:
   ios-native-check:
     name: "iOS Native (Xcode)"
     needs: [preflight-gate]
-    if: needs.preflight-gate.outputs.ios == 'true'
+    # Push runs have skipped PR-only ancestors; override inherited success()
+    # while still requiring successful preflight and native changed-path scope.
+    if: >-
+      !cancelled() && needs['preflight-gate'].result == 'success' &&
+      needs['preflight-gate'].outputs.ios == 'true'
     runs-on: macos-15
     timeout-minutes: 45
     env:
