@@ -104,12 +104,12 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     )
 
     # Discard arbitrary client state before the middleware merges the trusted
-    # projection. Sensitive values are represented only by expiring references.
+    # projection. This public ingress retains no private credentials or PKM.
     input_data.state = {}
     anonymous_seed = (
         f"{request.client.host if request.client else ''}|{request.headers.get('user-agent', '')}"
     )
-    user_id = str((token or {}).get("user_id") or firebase_uid).strip()
+    user_id = firebase_uid.strip()
     session_user_id = (
         user_id or f"anonymous:{hashlib.sha256(anonymous_seed.encode()).hexdigest()[:24]}"
     )
