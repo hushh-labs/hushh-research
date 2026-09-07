@@ -116,6 +116,41 @@ describe("One Location — link durations stay inside the server's ceiling", () 
     expect(HUB_SOURCE).toContain("Anyone with this link can see your location.");
   });
 
+  it("keeps the public-link duration and create controls compact", () => {
+    const start = HUB_SOURCE.indexOf("function PublicLinkDurationOptions");
+    expect(start).toBeGreaterThan(-1);
+    const publicLinkControls = HUB_SOURCE.slice(start, start + 2400);
+
+    expect(publicLinkControls).toContain("w-[min(100%,14rem)]");
+    expect(publicLinkControls).toContain("grid-cols-2");
+    expect(publicLinkControls).toContain("data-selected");
+    expect(publicLinkControls).toContain("after:opacity-0");
+    expect(publicLinkControls).toContain(
+      "data-[selected=true]:after:opacity-100",
+    );
+
+    const createLinkStart = HUB_SOURCE.indexOf(
+      'data-voice-control-id="one-location-action-temp-link"',
+    );
+    expect(createLinkStart).toBeGreaterThan(-1);
+    const createLinkControl = HUB_SOURCE.slice(
+      createLinkStart - 900,
+      createLinkStart + 900,
+    );
+    const className = /className="([^"]+)"/.exec(createLinkControl)?.[1] ?? "";
+    const classes = className.split(/\s+/);
+
+    expect(classes).toContain("w-fit");
+    expect(classes).toContain("min-w-[min(100%,9rem)]");
+    expect(classes).not.toContain("w-full");
+    expect(createLinkControl).not.toContain(
+      'isLoading={vm.busy === "publicInvite"}',
+    );
+    expect(createLinkControl).toContain(
+      'aria-busy={vm.busy === "publicInvite" || undefined}',
+    );
+  });
+
   it("drops the Request sent banner in favour of the toast that already fired", () => {
     // Reported on the Ask screen: "request sent is not looking cool, do you
     // really think we want a bar for this only". The screen was telling the
