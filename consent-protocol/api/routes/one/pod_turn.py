@@ -1,58 +1,21 @@
-"""The pod runs the agent. This route is where that becomes true for the first time.
+"""Owner-gated text turns in the private pod.
 
-Until this file, **no module mounted in a pod imported ``hushh_mcp.one_adk`` at all.**
-A pod process never constructed Agent One, never built a Runner, never loaded a
-specialist. The pod's only agent-shaped endpoint, ``POST /api/one/a2a/message``,
-reaches a containment stub that discards the message and returns a fixed string.
-Meanwhile ``/health`` advertised ``["one","kai","nav","kyc"]`` from a hardcoded
-literal, and a live-validation document quoted that string as proof of life. The
-whole per-user-pod architecture rested on a capability nothing had ever exercised.
+Each turn asks the hub to validate consent and revocation, then requires the
+returned owner binding to match this pod. Unavailable authority refuses the turn.
+Browser-provided PKM context takes precedence; otherwise the existing local PKM
+resolver supplies bounded grounding. Owner conflicts and erasure fences refuse
+execution rather than degrade to an ungrounded provider request.
 
-This began as First Light: the smallest honest thing that proves a pod can run a real
-turn, deliberately narrow so that a failure was attributable to the agent running in a
-pod rather than to transport, ownership, or PKM.
+The existing text runtime collects events into a JSON response. Its transient
+ADK session uses InMemorySessionService; persistent agent experience belongs to
+the separately resolved pod memory service. PKM remains the information authority.
+The hub currently forwards the browser's plaintext projection, so this transport
+is not evidence that the control plane cannot observe turn context.
 
-What it does NOT do, on purpose
--------------------------------
-* **No streaming.** The events are collected into one JSON response. SSE through
-  the relay is the next milestone and has its own failure modes.
-* **No durable history.** ``InMemorySessionService`` — ``DatabaseSessionService``
-  needs a database URL a pod will never hold.
-
-Grounding: solved without weakening the boundary
-------------------------------------------------
-This route used to pass ``pkm_context=None`` and report ``grounded: false``, on the
-reasoning that a pod cannot ground until it has a durable key and a populated store.
-That reasoning had a false premise: it assumed the POD must be the one to read PKM.
-
-It does not have to be. The browser already decrypts the owner's turn projection from
-their own unlocked vault and already sends it to the hub on every Agent Chat turn. The
-hub couriers that same value here. The projection is opened by the owner's key on the
-owner's device, so Zero Knowledge is preserved exactly — the pod grounds without ever
-holding a database credential, which is the property that makes it a private agent.
-
-``grounded`` is now DERIVED from what actually reached the runtime, never asserted. A
-hardcoded value was honest while the turn was ungrounded by construction and would
-have become a lie the moment a projection started arriving — the same failure shape as
-the ``/health`` roster literal that reported four agents from a pod running none.
-
-Consent: the pod ASKS, it does not verify
------------------------------------------
-A pod's ``APP_SIGNING_KEY`` is deliberately a DIFFERENT key from the hub's, because
-with HMAC the ability to verify is the ability to forge. So a pod cannot check the
-hub's signatures -- and even if it could, that would not close revocation, whose
-state lives in the hub's process and database (SECURITY-REVIEW **I1**): a revoked
-token would read as live inside a pod indefinitely.
-
-So every turn asks the hub, which issued the token and owns the revoked set. See
-``api/routes/one/pod_consent.py`` for why asking beats verifying and what it costs.
-An unreachable authority is a 503, never a silent pass -- an agent that keeps
-acting on holdings when consent cannot be checked is exactly what consent-first
-forbids.
-
-Ship-dark behind ``HUSSH_POD_TURN_ENABLED`` (default off) **and** pod mode. The hub
-already has a turn route; a second one there would be two implementations of the
-same contract, free to drift.
+Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
+shared turn implementation is separate. Live voice and streaming transport are
+not implemented by this route. Historical First Light findings remain in Git;
+source wiring alone does not establish deployed recall or lifecycle completion.
 """
 
 from __future__ import annotations
