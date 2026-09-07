@@ -1981,6 +1981,7 @@ def build_one_live_runner(
     runtime_credential_transport: Literal["developer_api", "vertex_api_key"] = "developer_api",
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
+    public_intro_only: bool = False,
 ) -> Runner:
     """Return the managed runner or an isolated, connection-local BYOK runner.
 
@@ -1993,6 +1994,17 @@ def build_one_live_runner(
     explicitly. This prevents an API key from causing a credential fallback
     or an unverified model swap in either direction.
     """
+    if public_intro_only:
+        if runtime_mode != "hushh_managed_vertex" or runtime_credential:
+            raise ValueError("runtime_bootstrap_invalid")
+        # Reuse the existing bounded intro agent, with the governed Live model.
+        # Public sessions have no specialists, owner memory, or durable DB store.
+        return Runner(
+            app_name=ONE_APP_NAME,
+            agent=build_one_intro_text_agent(model=_build_one_live_model()),
+            session_service=InMemorySessionService(),
+            auto_create_session=True,
+        )
     if runtime_mode == "hushh_managed_vertex":
         return get_one_runner()
 

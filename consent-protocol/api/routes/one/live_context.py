@@ -293,7 +293,7 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         # a missing index entry is diagnosable instead of a silent dead mic.
         logger.info(
             "one_adk_live_context_route_without_actions route=%s submitted=%d accepted=%d",
-            route_family or "unknown",
+            route_entry.get("route_pattern") if isinstance(route_entry, dict) else "unknown",
             len(submitted_raw),
             len(submitted_action_ids),
         )

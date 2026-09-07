@@ -45,7 +45,7 @@ async def select(req, data):
 @pytest.fixture
 def no_secret_storage(monkeypatch):
     store = Mock(side_effect=AssertionError("intro must never store private context"))
-    monkeypatch.setattr(agent_chat, "store_request_secret", store)
+    monkeypatch.setattr("hushh_mcp.one_adk.request_secrets.store_request_secret", store)
     return store
 
 
@@ -132,18 +132,22 @@ async def test_intro_refuses_private_payload_and_client_tools(no_secret_storage,
 @pytest.mark.parametrize(
     "header", ["Bearer HCT:synthetic", "Bearer  HCT:synthetic", "  HCT:synthetic  "]
 )
-async def test_shared_compatibility_owner_requires_verified_hct(monkeypatch, header):
+async def test_owner_credentials_cannot_admit_a_shared_personal_turn(
+    monkeypatch, no_secret_storage, header
+):
     monkeypatch.setattr(
         agent_chat,
         "require_vault_owner_token",
         AsyncMock(return_value={"user_id": "owner-a", "token": "synthetic-hct"}),
     )
-    monkeypatch.setattr(
-        agent_chat, "store_request_secret", lambda value: "synthetic-ref" if value else ""
-    )
-    data = incoming()
-    assert await select(request({"authorization": header}), data) is agent_chat._agent
-    assert data.state[STATE_USER_ID] == "owner-a"
+    with pytest.raises(HTTPException) as failure:
+        await select(
+            request({"authorization": header}),
+            incoming(forwarded_props={"pkmContext": "synthetic-private"}),
+        )
+    assert failure.value.status_code == 409
+    assert failure.value.detail["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    no_secret_storage.assert_not_called()
 
 
 async def test_two_supplied_owner_tokens_must_also_match(monkeypatch, no_secret_storage):
@@ -199,3 +203,35 @@ def test_http_ingress_preserves_verifier_failure_before_streaming(monkeypatch):
         )
     assert response.status_code == 503
     assert response.json() == {"detail": "Sign-in unavailable"}
+
+
+async def test_private_state_cannot_select_full_runner_directly():
+    with pytest.raises(HTTPException) as failure:
+        await agent_chat._resolve_agent(
+            request(), incoming(state={STATE_CONSENT_TOKEN: "synthetic-ref"})
+        )
+    assert failure.value.status_code == 409
+
+
+def test_http_owner_turn_is_refused_before_session_or_provider(monkeypatch):
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+
+    app = FastAPI()
+    app.include_router(agent_chat.router)
+    monkeypatch.setattr(
+        agent_chat,
+        "require_vault_owner_token",
+        AsyncMock(return_value={"user_id": "owner-a", "token": "synthetic-hct"}),
+    )
+    sessions = AsyncMock(side_effect=AssertionError("must not create a shared session"))
+    monkeypatch.setattr(agent_chat._intro_session_service, "create_session", sessions)
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/one/agent-chat",
+            json=incoming().model_dump(by_alias=True),
+            headers={"authorization": "Bearer HCT:synthetic"},
+        )
+    assert response.status_code == 409
+    assert response.json()["detail"]["code"] == "AGENT_PRIVATE_RUNTIME_REQUIRED"
+    sessions.assert_not_awaited()

@@ -103,6 +103,12 @@ tests/test_model_access_policy.py
 tests/test_no_orphaned_agents.py
 tests/test_onboarding_contract.py
 tests/test_one_adk_live_protocol.py
+# Voice/text admission and owner continuation regressions must run in the
+# canonical CI manifest, including shared-registry outage/replay controls.
+tests/test_one_relay_identity.py
+tests/test_relay_ticket_nonces.py
+tests/test_one_agent_chat_ingress.py
+tests/test_one_adk_agent_tree.py
 tests/test_one_grounding_honesty.py
 tests/test_one_location_db_error_detail_cwe209.py
 tests/test_one_location_routes.py

@@ -6,37 +6,20 @@ Status: current-state truth for the ADK-based One voice runtime.
 
 ```mermaid
 flowchart TD
-  shell["One Voice shell<br/>Agent Bar + Agent Chat"]
-  fsm["Shared One Voice FSM<br/>accessible transitions"]
-  context["OneVoiceContextSnapshot<br/>redacted active state"]
-  transport["RealtimeVoiceTransport<br/>provider adapter seam"]
-  gemini["GeminiLiveClient<br/>audio pump + wire envelope"]
-  settlement["Correlated action settlement<br/>browser-observed outcome"]
-  relay["/api/one/adk/live<br/>ADK live relay"]
-  runner["ADK Runner (run_live)<br/>single ordered event stream"]
-  one["One root LlmAgent<br/>gemini-live model"]
-  onboarding["agent_onboarding<br/>deterministic, redacted goal resolver"]
-  search["google_search<br/>web grounding"]
-  nav["open_screen<br/>governed navigation allowlist"]
-  agenttools["AgentTool specialists<br/>Finance, RIA"]
-  fntools["Specialist turn tools<br/>Email, Location, Connections,<br/>Connected Systems, Consent"]
-  a2a["adk_bridge dispatch<br/>A2A scope-gated specialists"]
-
-  shell --> fsm
-  shell --> context
-  shell --> transport
-  transport --> gemini
-  gemini -- "relay ticket ws" --> relay
-  relay --> runner
-  runner --> one
-  one --> onboarding
-  one --> search
-  one --> nav
-  one --> agenttools
-  one --> fntools
-  fntools --> a2a
-  shell --> settlement
-  settlement --> relay
+  shell["One Voice shell / Agent Bar"]
+  transport["Existing Gemini Live transport"]
+  admission["Relay ticket admission"]
+  refusal["Signed-in voice unavailable<br/>pod Live still incomplete"]
+  intro["Public onboarding runner<br/>ephemeral session"]
+  navigation["Existing intro navigation tools<br/>generated public actions"]
+  context["Bounded public context<br/>owner credentials rejected"]
+  chat["Personal typed chat"]
+  pod["Owner-authorized active pod"]
+  shell --> transport --> admission
+  admission -- "signed-in" --> refusal
+  admission -- "anonymous" --> intro
+  context --> intro --> navigation
+  chat --> pod
 ```
 
 ## Current Truth
@@ -282,7 +265,7 @@ default. The browser is an audio pump and directive executor; every decision
 (conversation vs tool call vs navigation vs specialist delegation) is made
 inside One's agent tree on the backend.
 
-What shipped:
+Reusable full-agent factory (separate from public relay admission):
 
 - `consent-protocol/hushh_mcp/one_adk/agent_tree.py` builds One as the root
   `LlmAgent` (name `one`, model `gemini-3.1-flash-live-preview` via
@@ -299,23 +282,36 @@ What shipped:
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
   browser wire envelope onto `run_live`.
+- On the private-agent branch, this hub relay admits public onboarding only,
+  using `build_one_intro_text_agent` with the existing governed Live model. It
+  exposes only its two generated-navigation tools and has no owner memory,
+  specialist roster or durable session service. Nonempty private context is
+  rejected before state append or context publication.
+  Signed-in ticket issuance returns the existing `AGENT_NOT_READY` refusal;
+  the socket also rejects previously minted signed-in tickets before reading
+  credentials, context or audio. The pod has no Live adapter yet, so private
+  voice remains incomplete. An active pod alone does not establish voice
+  isolation. Completion requires running this same protocol in the owner's pod
+  with scoped consent and runtime authority, followed by live evidence.
+  Public reconnects start a fresh conversation: an anonymous ticket cannot
+  prove ownership of a provider continuation from an earlier personal session.
 - The legacy hand-rolled Vertex pump
   (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
   planner (`lib/voice/one-voice-live-action-bridge.ts`), and the
   `action_proposal` transport event were deleted. There is no second
   decision-maker anywhere in the voice path.
 
-Voice responder contract (who makes LLM calls, who speaks):
+Voice responder contract (public admission uses the restricted intro head):
 
 - The root Live model is the ONLY audio producer. Specialists never speak.
 - Agent Chat has no microphone transport, STT adapter, TTS queue, or browser
   speech fallback. Its microphone affordance requests the persistent Agent
   Bar's existing One Live owner, so a chat surface can never overlap or replace
   native-audio playback.
-- `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
+- In the full-agent factory, `AgentTool(finance)` / `AgentTool(ria)` consults run ONE nested text-mode
   `run_async` call on the specialist model inside the live turn; the root
   model folds the result into its spoken answer.
-- The deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
+- In that factory, the deterministic `ask_*` specialist turn tools and `open_screen` make ZERO extra
   LLM calls: they are deterministic handlers (A2A dispatch / directive
   parking) whose structured results return to the root model.
 - `resolve_onboarding_goal` is likewise deterministic but intentionally is not
@@ -613,9 +609,18 @@ execution by `action_id` is unaffected either way.
 
 ## Chat Runtime (parity path)
 
-Typed private-agent chat (`api/routes/one/agent_chat.py`) accepts standard
-AG-UI runs, sends natural-language turns to One's ADK semantic head, and
-retains encrypted history plus explicit specialist continuity. It does not run a client lexical action planner. The
+The private branch executes personal turns through the owner-authorized pod
+relay. `api/routes/one/agent_chat.py` now admits only the existing restricted
+public intro, including valid Firebase-only onboarding. A supplied owner token
+is verified and then refused with `AGENT_PRIVATE_RUNTIME_REQUIRED` before any
+private context or shared session is retained. The unused full shared agent
+instance was retired; protected encrypted-history routes remain available.
+Invalid, revoked, mismatched or unavailable credentials never become intro
+authority. Intro accepts no client tools, private context or PKM projection.
+
+The retained AG-UI intro transport accepts standard
+AG-UI runs for ephemeral public conversation and governed public navigation.
+It does not retain private history or grant specialist authority. The
 Information Marketplace is intentionally rejected at this boundary; its
 standalone consent-first chat and routes remain separate.
 

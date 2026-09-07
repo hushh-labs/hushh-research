@@ -62,20 +62,22 @@ describe("turn cell routing", () => {
   });
 
   it.each([
-    ["no pod at all", null, null],
-    ["a pod still connecting", "ha1_abc", "connecting"],
-    ["a pod that failed", "ha1_abc", "failed"],
-    ["a reserved identity with no host", "ha1_abc", "reserved"],
-  ])("does not reach for the pod on %s", async (_case, hushhId, state) => {
-    // Only `active` is answerable. Sending a turn to a pod that is mid-handshake would
-    // produce AGENT_NOT_READY for a state the client could already see.
-    //
-    // Asserts the ROUTING decision only. The hub leg then runs the real SSE client,
-    // which needs a live stream and is covered by its own tests -- so it is allowed to
-    // fail here rather than being mocked into a second, weaker copy of those tests.
-    runPodTurn.mockRejectedValue(new Error("the pod must not be consulted"));
-    await runAgentChatTurn({ ...BASE, podHushhId: hushhId, podState: state }).catch(() => {});
+    ["unresolved status", null, null, false, "AGENT_STATUS_UNKNOWN"],
+    ["confirmed absent pod", null, null, true, "AGENT_SETUP_REQUIRED"],
+    ["connecting", "ha1_abc", "connecting", true, "AGENT_UNAVAILABLE"],
+    ["failed", "ha1_abc", "failed", true, "AGENT_UNAVAILABLE"],
+    ["reserved", "ha1_abc", "reserved", true, "AGENT_UNAVAILABLE"],
+    ["suspended", "ha1_abc", "suspended", true, "AGENT_UNAVAILABLE"],
+    ["unknown state", "ha1_abc", null, true, "AGENT_UNAVAILABLE"],
+  ])("refuses %s before either pod or shared transport", async (_case, hushhId, state, resolved, code) => {
+    const errors: string[] = [];
+    await expect(runAgentChatTurn({
+      ...BASE, podHushhId: hushhId, podState: state, podResolved: resolved,
+      handlers: { onError: (message) => errors.push(message) },
+    })).rejects.toThrow(code);
+    expect(errors).toEqual([code]);
     expect(runPodTurn).not.toHaveBeenCalled();
+    expect(streamAgentChat).not.toHaveBeenCalled();
   });
 
   it("delivers a pod answer as ONE token rather than imitating a stream", async () => {

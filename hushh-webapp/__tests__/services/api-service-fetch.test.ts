@@ -1264,6 +1264,18 @@ describe("ApiService.apiFetch", () => {
 
 
 describe("voice relay authentication downgrade boundary", () => {
+  it("shows the private voice refusal without reflecting provider details", async () => {
+    publishValidatedAuthSessionOwner("owner-a");
+    vi.mocked(AuthService.getIdToken).mockResolvedValue(makeUnsignedToken({ sub: "owner-a" }));
+    vi.spyOn(ApiService, "apiFetch").mockResolvedValue(jsonResponse({ detail: {
+      code: "AGENT_NOT_READY", status: "unavailable", message: "synthetic-private-detail",
+    } }, 503));
+    await expect(ApiService.createOneAdkRelaySession({ requireAuthenticated: true })).rejects.toMatchObject({
+      status: 503, code: "AGENT_NOT_READY",
+      message: "Private-agent voice is unavailable. Use your private agent's typed chat.",
+    });
+  });
+
   beforeEach(() => { vi.clearAllMocks(); publishValidatedAuthSessionOwner("synthetic-owner"); });
   afterEach(() => { vi.restoreAllMocks(); publishValidatedAuthSessionOwner(null); });
 

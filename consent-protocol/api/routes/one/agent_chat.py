@@ -1,4 +1,8 @@
-"""Canonical AG-UI transport for the private agent's text experience."""
+"""Public AG-UI intro and protected historical conversation access.
+
+Personal turns use the existing owner-authorized pod relay. This hub endpoint
+never selects a full shared runner, even for valid vault-owner credentials.
+"""
 
 from __future__ import annotations
 
@@ -26,12 +30,8 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_USER_ID,
     STATE_VOICE_CONTEXT,
     build_one_intro_text_agent,
-    build_one_text_agent,
 )
-from hushh_mcp.one_adk.agui_action_tools import action_id_from_tool_name
 from hushh_mcp.one_adk.encrypted_session_service import EncryptedAdkSessionService
-from hushh_mcp.one_adk.request_secrets import store_request_secret
-from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 router = APIRouter(tags=["Agent One"])
 
@@ -42,6 +42,16 @@ def _user_id(input_data: RunAgentInput) -> str:
     if not value:
         raise ValueError("Authenticated Agent One user is missing.")
     return value
+
+
+def _private_runtime_required() -> HTTPException:
+    return HTTPException(
+        status_code=409,
+        detail={
+            "code": "AGENT_PRIVATE_RUNTIME_REQUIRED",
+            "message": "Open your private agent to continue this conversation.",
+        },
+    )
 
 
 async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[str, Any]:
@@ -80,10 +90,11 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
             raise HTTPException(status_code=401, detail="Invalid owner identity")
         if firebase_uid and owner_id != firebase_uid:
             raise HTTPException(status_code=403, detail="Credentials belong to different accounts")
+        # Owner credentials are valid, but do not authorize personal execution
+        # on shared compute. Refuse before retaining context or creating a session.
+        raise _private_runtime_required()
     forwarded = input_data.forwarded_props if isinstance(input_data.forwarded_props, dict) else {}
-    if token is None and (
-        input_data.tools or input_data.context or set(forwarded) - {"screenContext", "timezone"}
-    ):
+    if input_data.tools or input_data.context or set(forwarded) - {"screenContext", "timezone"}:
         raise HTTPException(
             status_code=400, detail="Intro accepts public conversation context only"
         )
@@ -91,15 +102,6 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     screen_context = sanitize_live_context(
         screen_payload if isinstance(screen_payload, dict) else {}
     )
-
-    # Client-provided tools are frontend execution requests, never new
-    # authority. Every tool must already exist in the generated Action Gateway.
-    for tool in input_data.tools:
-        action_id = action_id_from_tool_name(tool.name)
-        if not action_id or get_action_gateway_action(action_id) is None:
-            raise HTTPException(
-                status_code=400, detail="Agent tool is not in the generated action contract."
-            )
 
     # Discard arbitrary client state before the middleware merges the trusted
     # projection. Sensitive values are represented only by expiring references.
@@ -113,22 +115,15 @@ async def _extract_state(request: Request, input_data: RunAgentInput) -> dict[st
     )
     return {
         STATE_USER_ID: session_user_id,
-        STATE_CONSENT_TOKEN: store_request_secret(str(token.get("token") or "")) if token else "",
+        STATE_CONSENT_TOKEN: "",
         STATE_CONVERSATION_ID: input_data.thread_id,
         STATE_TIMEZONE: str(forwarded.get("timezone") or "")[:64],
         STATE_SCREEN: str(screen_context.get("screen") or "")[:64],
         STATE_VOICE_CONTEXT: screen_context,
-        STATE_PKM_CONTEXT: store_request_secret(str(forwarded.get("pkmContext") or "")[:20000])
-        if token
-        else "",
+        STATE_PKM_CONTEXT: "",
     }
 
 
-_app = App(
-    name=ONE_APP_NAME,
-    root_agent=build_one_text_agent(),
-    resumability_config=ResumabilityConfig(is_resumable=True),
-)
 _intro_app = App(
     name=f"{ONE_APP_NAME}_intro",
     root_agent=build_one_intro_text_agent(),
@@ -136,50 +131,26 @@ _intro_app = App(
 )
 _session_service = EncryptedAdkSessionService()
 _intro_session_service = InMemorySessionService()
-_authenticated_capabilities = {
+_intro_capabilities = {
     "identity": {
-        "name": "Agent One",
+        "name": "One onboarding",
         "type": "google-adk",
-        "description": "Hussh private agent",
+        "description": "Public onboarding conversation",
         "version": "1.0.0",
         "provider": "Hussh",
     },
     "transport": {"streaming": True, "websocket": False, "httpBinary": False, "resumable": True},
-    "tools": {"supported": True, "parallelCalls": False, "clientProvided": True},
-    "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": True},
-    "multiAgent": {"supported": True, "delegation": True, "handoffs": False},
-    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
-    "humanInTheLoop": {
-        "supported": True,
-        "approvals": True,
-        "interventions": True,
-        "feedback": False,
-        "interrupts": True,
-        "approveWithEdits": False,
-    },
-}
-_intro_capabilities = {
-    **_authenticated_capabilities,
     "tools": {"supported": False, "parallelCalls": False, "clientProvided": False},
     "state": {"snapshots": True, "deltas": True, "memory": False, "persistentState": False},
     "multiAgent": {"supported": False, "delegation": False, "handoffs": False},
+    "reasoning": {"supported": True, "streaming": True, "encrypted": False},
     "humanInTheLoop": {"supported": False, "interrupts": False},
 }
-_agent = ADKAgent.from_app(
-    _app,
-    user_id_extractor=_user_id,
-    session_service=_session_service,
-    use_in_memory_services=True,
-    use_thread_id_as_session_id=True,
-    emit_messages_snapshot=True,
-    capabilities=_authenticated_capabilities,
-)
 _intro_agent = ADKAgent.from_app(
     _intro_app,
     user_id_extractor=_user_id,
-    # Anonymous and Firebase-only pre-vault turns intentionally remain
-    # ephemeral. Durable history begins only after VAULT_OWNER authority is
-    # present, where the encrypted owner-bound store can enforce teardown.
+    # Public intro is ephemeral. Existing encrypted history remains readable
+    # through the owner-protected routes below; personal execution lives in pods.
     session_service=_intro_session_service,
     use_in_memory_services=True,
     use_thread_id_as_session_id=True,
@@ -190,12 +161,14 @@ _intro_agent = ADKAgent.from_app(
 
 async def _resolve_agent(_request: Request, input_data: RunAgentInput) -> ADKAgent:
     state = input_data.state if isinstance(input_data.state, dict) else {}
-    return _agent if state.get(STATE_CONSENT_TOKEN) else _intro_agent
+    if state.get(STATE_CONSENT_TOKEN) or state.get(STATE_PKM_CONTEXT):
+        raise _private_runtime_required()
+    return _intro_agent
 
 
 add_adk_fastapi_endpoint(
     router,
-    _agent,
+    _intro_agent,
     path="/api/one/agent-chat",
     extract_state_from_request=_extract_state,
     agent_resolver=_resolve_agent,

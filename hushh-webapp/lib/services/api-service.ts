@@ -3231,9 +3231,8 @@ export class ApiService {
     expires_at: number;
     model: string;
     tier: string;
-    // Which cell will hold this voice session. Today always "hub" (voice predates
-    // the pod and has not been taught about it); the reason says why, so the
-    // product can say so rather than imply the pod covers voice.
+    // Public onboarding uses the hub. Private voice refuses admission until
+    // the owner's pod can execute the existing Live protocol.
     cell?: "hub" | "pod";
     cell_reason?: string | null;
   }> {
@@ -3280,6 +3279,13 @@ export class ApiService {
       signal: data?.signal,
     });
     if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      if (response.status === 503 && body?.detail?.code === "AGENT_NOT_READY") {
+        throw Object.assign(
+          new Error("Private-agent voice is unavailable. Use your private agent's typed chat."),
+          { status: 503, code: "AGENT_NOT_READY" },
+        );
+      }
       const error = new Error(
         `One voice relay session failed: ${response.status}`,
       ) as Error & { status: number };
