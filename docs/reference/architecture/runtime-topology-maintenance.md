@@ -111,8 +111,13 @@ Remaining host aliases, adapters and imported resources are explicitly inventori
 Unclassified additions (including short files), changed classified behavior, broken
 canonical pointers and stale inventory entries fail lint. Updating a digest requires
 reviewing the actual behavior; a pending import or migration classification is recorded
-debt, not proof that the source meets the canonical contract. Impeccable's import license
-and provenance remain unresolved; its bundle must stay intact pending that review.
+debt, not proof that the source meets the canonical contract. Impeccable's pinned
+upstream tree, outer license/notices and vendored screenshot license were verified
+on 2026-09-05; exact receipts and retained license paths live in the inventory above.
+The importer did not record the original revision of its derived platform references.
+Optional parser dependencies and bypassing host launchers still constrain execution
+and relocation. Keep the bundle intact and its nested writers outside the canonical
+evidence fleet; confirmed provenance is not approval to execute imported wrappers.
 
 Existing pod receipt checks prove only the declared date window and a tracked reproduction
 path. They do not establish that the current revision passed a live drill. A release audit
