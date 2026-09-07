@@ -491,6 +491,127 @@ def test_a_key_that_cannot_be_stored_stops_the_pod(monkeypatch) -> None:
     assert "nothing persisted" in str(exc.value)
 
 
+@pytest.mark.parametrize("operation", ["wrap", "unwrap", "read", "upload"])
+def test_custody_failures_never_retain_provider_body_or_coordinates(monkeypatch, operation):
+    import traceback
+
+    private_body = "private-provider-body-sentinel"
+    private_bucket = "private-bucket-sentinel"
+    private_object = "private-object-sentinel"
+    monkeypatch.setenv(KMS_KEY_ENV, KMS_KEY)
+    monkeypatch.setenv("POD_STORAGE_GCS_BUCKET", private_bucket)
+    monkeypatch.setenv(WRAPPED_KEY_OBJECT_ENV, private_object)
+    denied = _Response(403, text=private_body)
+    responses = [denied]
+    if operation == "upload":
+        responses = [_Response(404), _Response(200, {"ciphertext": "Vw=="}), denied]
+    session = _Session(responses)
+    with pytest.raises(ByocKeyCustodyError) as caught:
+        if operation == "wrap":
+            wrap_dek(b"k" * 32, kms_key=KMS_KEY, session=session, token=BORROWED)
+        elif operation == "unwrap":
+            unwrap_dek(b"wrapped", kms_key=KMS_KEY, session=session, token=BORROWED)
+        else:
+            resolve_pod_log_key(session=session, token=BORROWED)
+    rendered = "".join(traceback.format_exception(caught.value))
+    assert "403" in str(caught.value)
+    for private in (private_body, private_bucket, private_object):
+        assert private not in str(caught.value)
+        assert private not in rendered
+    assert len(session.calls) == (3 if operation == "upload" else 1)
+
+
+@pytest.mark.parametrize("operation", ["wrap", "unwrap"])
+@pytest.mark.parametrize("failure", ["transport", "json", "base64", "shape"])
+def test_custody_transport_and_response_failures_are_sanitized(operation, failure):
+    import traceback
+
+    private = "private-key-response-sentinel"
+
+    class Response:
+        status_code = 200
+
+        def json(self):
+            if failure == "json":
+                raise ValueError(private)
+            field = "ciphertext" if operation == "wrap" else "plaintext"
+            return {field: private if failure == "base64" else [private]}
+
+    class Session:
+        calls = 0
+
+        def post(self, _url, **kwargs):
+            self.calls += 1
+            assert kwargs["allow_redirects"] is False
+            if failure == "transport":
+                raise RuntimeError(private)
+            return Response()
+
+    session = Session()
+    with pytest.raises(ByocKeyCustodyError) as caught:
+        if operation == "wrap":
+            wrap_dek(b"k" * 32, kms_key=KMS_KEY, session=session, token=BORROWED)
+        else:
+            unwrap_dek(b"wrapped", kms_key=KMS_KEY, session=session, token=BORROWED)
+    assert private not in str(caught.value)
+    assert private not in "".join(traceback.format_exception(caught.value))
+    assert session.calls == 1
+
+
+def test_uncertain_custody_read_never_creates_a_replacement(monkeypatch):
+    monkeypatch.setenv(KMS_KEY_ENV, KMS_KEY)
+    monkeypatch.setenv("POD_STORAGE_GCS_BUCKET", "synthetic-bucket")
+
+    class Unavailable:
+        def get(self, _url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            raise RuntimeError("private-storage-response-sentinel")
+
+        def post(self, *_args, **_kwargs):
+            pytest.fail("uncertain custody read attempted replacement")
+
+    with pytest.raises(ByocKeyCustodyError, match="request unavailable"):
+        resolve_pod_log_key(session=Unavailable(), token=BORROWED)
+
+
+@pytest.mark.parametrize("failure", ["transport", "denied", "json", "empty", "wrong_type"])
+def test_metadata_failure_is_sanitized_before_storage_or_kms(monkeypatch, failure):
+    import traceback
+
+    private = "private-metadata-response-sentinel"
+    monkeypatch.setenv(KMS_KEY_ENV, KMS_KEY)
+    monkeypatch.setenv("POD_STORAGE_GCS_BUCKET", "synthetic-bucket")
+
+    class Response:
+        status_code = 403 if failure == "denied" else 200
+
+        def json(self):
+            if failure == "json":
+                raise ValueError(private)
+            return {"access_token": " " if failure == "empty" else {"private": private}}
+
+    class Session:
+        calls = 0
+
+        def get(self, url, **kwargs):
+            self.calls += 1
+            assert "metadata.google.internal" in url
+            assert kwargs["allow_redirects"] is False
+            if failure == "transport":
+                raise RuntimeError(private)
+            return Response()
+
+        def post(self, *_args, **_kwargs):
+            pytest.fail("metadata failure reached KMS or storage write")
+
+    session = Session()
+    with pytest.raises(ByocKeyCustodyError) as caught:
+        resolve_pod_log_key(session=session)
+    assert private not in str(caught.value)
+    assert private not in "".join(traceback.format_exception(caught.value))
+    assert session.calls == 1
+
+
 # -- the backend ---------------------------------------------------------------------
 
 

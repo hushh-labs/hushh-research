@@ -352,10 +352,10 @@ async def run_pod_turn(
                 "runtimeMode": runtime_mode,
                 "degraded": "keyless_pod_db_wall",
             }
-        logger.warning("pod_turn.failed %s: %s", type(exc).__name__, str(exc)[:200])
+        logger.warning("pod_turn.failed reason=%s", type(exc).__name__)
         raise HTTPException(
             status_code=502, detail=f"the agent could not complete this turn: {type(exc).__name__}"
-        ) from exc
+        ) from None
 
     text = "".join(chunks).strip()
     # A SUCCESSFUL TURN LEAVES A TRACE. Until this line, `run_pod_turn` logged only on

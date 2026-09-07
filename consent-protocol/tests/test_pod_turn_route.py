@@ -184,18 +184,27 @@ async def test_directives_are_counted(enabled, monkeypatch):
     assert result["directiveCount"] == 1
 
 
-async def test_a_failed_turn_is_502_not_a_raw_traceback(enabled, monkeypatch):
+async def test_a_failed_turn_is_502_not_a_raw_traceback(enabled, monkeypatch, caplog):
     """A 500 both leaks internals and invites the caller to treat it as permanent."""
     _consent_ok(monkeypatch)
+    import traceback
+
+    private_text = " ".join(("credential-sentinel", "projection-sentinel", "storage-path-sentinel"))
     with pytest.raises(HTTPException) as exc:
         await pod_turn.run_pod_turn(
             payload=_payload(),
             consent_token="t",
-            stream_fn=_stream([], boom=RuntimeError("model exploded")),
+            stream_fn=_stream([], boom=RuntimeError(private_text)),
         )
     assert exc.value.status_code == 502
     # The exception TYPE is useful; its message may carry internals, so it is not echoed.
-    assert "model exploded" not in str(exc.value.detail)
+    assert exc.value.detail == "the agent could not complete this turn: RuntimeError"
+    rendered = "".join(traceback.format_exception(exc.value))
+    for sentinel in private_text.split():
+        assert sentinel not in str(exc.value.detail)
+        assert sentinel not in caplog.text
+        assert sentinel not in rendered
+    assert all(record.exc_info is None for record in caplog.records)
 
 
 # -- the keyless-pod DB wall degrades, never 502s ------------------------------
@@ -232,11 +241,12 @@ async def test_the_keyless_pod_db_wall_degrades_gracefully_not_502(enabled, monk
     assert "traceback" not in result["text"].lower()
 
 
-async def test_a_db_wall_wrapped_in_a_cause_chain_still_degrades(enabled, monkeypatch):
+async def test_a_db_wall_wrapped_in_a_cause_chain_still_degrades(enabled, monkeypatch, caplog):
     # The DB error is raised deep in a tool and re-wrapped by the ADK runner before
     # it reaches the turn boundary, so detection must walk the cause chain.
     _consent_ok(monkeypatch)
-    outer = RuntimeError("Root node one failed.")
+    caplog.set_level("INFO")
+    outer = RuntimeError("private-outer-error-sentinel")
     outer.__cause__ = _db_wall_error()
     result = await pod_turn.run_pod_turn(
         payload=_payload(),
@@ -244,6 +254,8 @@ async def test_a_db_wall_wrapped_in_a_cause_chain_still_degrades(enabled, monkey
         stream_fn=_stream([], boom=outer),
     )
     assert result["degraded"] == "keyless_pod_db_wall"
+    assert "private-outer-error-sentinel" not in caplog.text
+    assert "DB_PASSWORD" not in caplog.text
 
 
 def test_the_db_wall_detector_is_narrow():

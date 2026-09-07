@@ -145,6 +145,38 @@ async def test_fence_during_provider_recall_blocks_result_and_local_fallback(
         await service.search_memory(app_name="one", user_id=OWNER, query="violet")
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("provider_fails", [False, True])
+async def test_memory_telemetry_keeps_counts_without_owner_or_private_text(
+    tmp_path, caplog, provider_fails
+):
+    from types import SimpleNamespace
+
+    class Bank:
+        async def add_session_to_memory(self, session):
+            if provider_fails:
+                raise RuntimeError("private-provider-error-sentinel")
+
+        async def search_memory(self, **kwargs):
+            if provider_fails:
+                raise RuntimeError("private-provider-error-sentinel")
+            return SimpleNamespace(memories=[SimpleNamespace(content="synthetic bank recall")])
+
+    caplog.set_level("INFO")
+    service = build_pod_memory_service(hushh_id=OWNER, pod_key=KEY, log=_log(tmp_path), bank=Bank())
+    await service.add_session_to_memory(_Session("private-memory-content-sentinel"))
+    assert (
+        await service.search_memory(
+            app_name="one", user_id=OWNER, query="private-memory-content-sentinel"
+        )
+    ).memories
+    assert "pod_memory.hydrated records=" in caplog.text
+    assert "pod_memory.recall" in caplog.text
+    for private in (OWNER, "private-memory-content-sentinel", "private-provider-error-sentinel"):
+        assert private not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
 def test_without_a_log_memory_does_not_survive(tmp_path: Path) -> None:
     """The honest negative. No durable state configured means forgetful, not broken."""
 

@@ -152,6 +152,26 @@ def test_pod_fully_configured_resolves_a_service(monkeypatch):
     assert hasattr(svc, "search_memory") and hasattr(svc, "add_session_to_memory")
 
 
+def test_memory_initialization_never_logs_private_custody_failures(monkeypatch, caplog):
+    from hushh_mcp.services import byoc_key_custody
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("POD_AGENT_MEMORY_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "private-owner-sentinel")
+    monkeypatch.setattr(byoc_key_custody, "byoc_custody_configured", lambda: True)
+
+    def unavailable():
+        raise byoc_key_custody.ByocKeyCustodyError("private-provider-body-sentinel")
+
+    monkeypatch.setattr(byoc_key_custody, "resolve_pod_memory_key", unavailable)
+    caplog.set_level("INFO")
+    assert resolve_pod_memory_service() is None
+    assert "pod_memory.build_failed reason=ByocKeyCustodyError" in caplog.text
+    assert "private-owner-sentinel" not in caplog.text
+    assert "private-provider-body-sentinel" not in caplog.text
+    assert all(record.exc_info is None for record in caplog.records)
+
+
 # -- authenticated sealing (AES-256-GCM) ---------------------------------------
 #
 # The seal was an unauthenticated XOR keystream. These assert the two properties

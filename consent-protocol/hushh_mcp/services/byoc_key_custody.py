@@ -83,6 +83,23 @@ def _kms_endpoint(kms_key: str, verb: str) -> str:
     return f"https://cloudkms.googleapis.com/v1/{kms_key}:{verb}"
 
 
+def _custody_request(session: Any, method: str, url: str, **kwargs: Any) -> Any:
+    try:
+        return getattr(session, method)(url, allow_redirects=False, **kwargs)
+    except Exception:  # noqa: BLE001 - transport errors can embed credentials and request bodies
+        raise ByocKeyCustodyError("key custody request unavailable") from None
+
+
+def _decode_key_response(response: Any, field: str) -> bytes:
+    try:
+        encoded = response.json()[field]
+        if not isinstance(encoded, str) or not encoded:
+            raise ValueError("missing key material")
+        return base64.b64decode(encoded, validate=True)
+    except Exception:  # noqa: BLE001 - malformed responses must not disclose key material
+        raise ByocKeyCustodyError("key custody response invalid") from None
+
+
 def generate_dek() -> bytes:
     """A fresh 32-byte data key. Generated once, by the pod, and never regenerated.
 
@@ -103,7 +120,9 @@ def wrap_dek(dek: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
     """
     if len(dek) != _KEY_LEN:
         raise ByocKeyCustodyError(f"the log DEK must be exactly {_KEY_LEN} bytes")
-    response = session.post(
+    response = _custody_request(
+        session,
+        "post",
         _kms_endpoint(kms_key, "encrypt"),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"plaintext": base64.b64encode(dek).decode("ascii")},
@@ -112,9 +131,9 @@ def wrap_dek(dek: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
     if response.status_code != 200:
         raise ByocKeyCustodyError(
             f"KMS wrap failed ({response.status_code}); the pod would boot without a "
-            f"key it can prove is the user's: {response.text[:200]}"
+            "key it can prove is the user's"
         )
-    return base64.b64decode(response.json()["ciphertext"])
+    return _decode_key_response(response, "ciphertext")
 
 
 def unwrap_dek(wrapped: bytes, *, kms_key: str, session: Any, token: str) -> bytes:
@@ -123,7 +142,9 @@ def unwrap_dek(wrapped: bytes, *, kms_key: str, session: Any, token: str) -> byt
     A pod that cannot unwrap its key must not continue with a fresh one: that would
     silently start a second history beside the first and present it as the same agent.
     """
-    response = session.post(
+    response = _custody_request(
+        session,
+        "post",
         _kms_endpoint(kms_key, "decrypt"),
         headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
         json={"ciphertext": base64.b64encode(wrapped).decode("ascii")},
@@ -131,10 +152,9 @@ def unwrap_dek(wrapped: bytes, *, kms_key: str, session: Any, token: str) -> byt
     )
     if response.status_code != 200:
         raise ByocKeyCustodyError(
-            f"KMS unwrap failed ({response.status_code}); refusing to run with a "
-            f"substitute key: {response.text[:200]}"
+            f"KMS unwrap failed ({response.status_code}); refusing to run with a substitute key"
         )
-    dek = base64.b64decode(response.json()["plaintext"])
+    dek = _decode_key_response(response, "plaintext")
     if len(dek) != _KEY_LEN:
         raise ByocKeyCustodyError("the unwrapped log DEK is not 32 bytes")
     return dek
@@ -171,7 +191,8 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
     if not byoc_custody_configured():
         from hushh_mcp.services.pod_commit_log import log_key_from_env  # noqa: PLC0415
 
-        return log_key_from_env()
+        key: bytes = log_key_from_env()
+        return key
 
     kms_key = (os.getenv(KMS_KEY_ENV) or "").strip()
     obj = (os.getenv(WRAPPED_KEY_OBJECT_ENV) or WRAPPED_LOG_KEY_OBJECT).strip()
@@ -182,7 +203,9 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
         )
 
     if session is None:
-        import requests as session  # noqa: PLC0415
+        import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+        session = requests
 
     if token is None:
         token = _metadata_token(session)
@@ -190,7 +213,9 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
     import urllib.parse  # noqa: PLC0415
 
     quoted = urllib.parse.quote(obj, safe="")
-    response = session.get(
+    response = _custody_request(
+        session,
+        "get",
         f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted}",
         params={"alt": "media"},
         headers={"Authorization": f"Bearer {token}"},
@@ -210,7 +235,7 @@ def resolve_pod_log_key(*, session: Any = None, token: Optional[str] = None) -> 
         )
     if status != 200:
         raise ByocKeyCustodyError(
-            f"the wrapped log key at gs://{bucket}/{obj} could not be read ({status}). "
+            f"the wrapped log key could not be read ({status}). "
             "Refusing to mint a replacement: a second key would start a second history "
             "and present it as the same agent."
         )
@@ -231,7 +256,9 @@ def _create_wrapped_dek(
     """
     dek = generate_dek()
     wrapped = wrap_dek(dek, kms_key=kms_key, session=session, token=token)
-    created = session.post(
+    created = _custody_request(
+        session,
+        "post",
         f"https://storage.googleapis.com/upload/storage/v1/b/{bucket}/o",
         params={"uploadType": "media", "name": obj, "ifGenerationMatch": 0},
         headers={
@@ -243,12 +270,14 @@ def _create_wrapped_dek(
     )
     status = getattr(created, "status_code", 0)
     if status in (200, 201):
-        logger.info("byoc_custody.log_key_created bucket=%s object=%s", bucket, obj)
+        logger.info("byoc_custody.log_key_created")
         return dek
     if status == 412:
         # Lost the race. The other boot's key is the real one; ours is discarded unused.
-        logger.info("byoc_custody.log_key_race_lost bucket=%s object=%s", bucket, obj)
-        winner = session.get(
+        logger.info("byoc_custody.log_key_race_lost")
+        winner = _custody_request(
+            session,
+            "get",
             f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/{quoted}",
             params={"alt": "media"},
             headers={"Authorization": f"Bearer {token}"},
@@ -261,9 +290,9 @@ def _create_wrapped_dek(
             )
         return unwrap_dek(winner.content, kms_key=kms_key, session=session, token=token)
     raise ByocKeyCustodyError(
-        f"could not store the wrapped log key in gs://{bucket}/{obj} ({status}). "
+        f"could not store the wrapped log key ({status}). "
         "The pod stops here rather than running on a key nothing persisted -- that "
-        f"would seal records no later boot could open: {getattr(created, 'text', '')[:200]}"
+        "would seal records no later boot could open"
     )
 
 
@@ -311,13 +340,23 @@ def resolve_pod_memory_key(*, session: Any = None, token: Optional[str] = None) 
 
 def _metadata_token(session: Any) -> str:
     """The pod's OWN identity, from the metadata server. An address, not a secret."""
-    response = session.get(
+    response = _custody_request(
+        session,
+        "get",
         "http://metadata.google.internal/computeMetadata/v1/instance"
         "/service-accounts/default/token",
         headers={"Metadata-Flavor": "Google"},
         timeout=10,
     )
-    return str(response.json()["access_token"])
+    try:
+        if response.status_code != 200:
+            raise ValueError("metadata unavailable")
+        token = response.json()["access_token"]
+        if not isinstance(token, str) or not token.strip():
+            raise ValueError("metadata invalid")
+        return token
+    except Exception:  # noqa: BLE001 - never retain metadata body or credential diagnostics
+        raise ByocKeyCustodyError("pod custody credential unavailable") from None
 
 
 __all__ = [

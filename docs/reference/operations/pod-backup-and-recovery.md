@@ -614,6 +614,16 @@ locally. Read admission checks do not drain in-flight requests. Object versions,
 provider operations, caches, keys and backups still require complete cleanup and
 verified recovery before any account-deletion completion assertion can pass.
 
+Custody diagnostics retain fixed refusal reasons and HTTP status, never provider
+bodies, bucket/object coordinates or credential-bearing transport exceptions.
+Key responses must contain valid base64 material; malformed responses and uncertain
+reads remain failures and cannot trigger a replacement key. Custody requests refuse
+redirects. Memory hydration and recall telemetry retain counts and backend choice
+without owner identifiers or information content. Turn failures retain the existing
+public status and exception class while omitting private error text and exception
+chains from rendered diagnostics. The keyless-pod database-wall classification still
+inspects its cause chain in memory; it does not log those messages.
+
 ## Only the pod can vouch for its model (2026-09-03)
 
 The receipt Pillar 6 needs before voice moves to the pod, "the person's own project can

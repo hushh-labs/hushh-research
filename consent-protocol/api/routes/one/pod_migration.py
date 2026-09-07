@@ -155,7 +155,8 @@ def _commit_log() -> Any:
 
 async def _verified_replay(log: PodCommitLog) -> list[dict[str, Any]]:
     try:
-        return await log.replay()
+        records: list[dict[str, Any]] = await log.replay()
+        return records
     except Exception:  # noqa: BLE001 - storage errors may carry private coordinates
         logger.warning("pod_migration.log_unavailable")
         raise HTTPException(

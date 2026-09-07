@@ -469,8 +469,8 @@ def resolve_pod_memory_service() -> Optional[Any]:
             log=_resolve_log(),
             bank=resolve_memory_bank_service(),
         )
-    except Exception:  # noqa: BLE001 -- fail-safe: never block pod startup on memory
-        logger.exception("pod_memory.build_failed hushh_id=%s", hushh_id)
+    except Exception as exc:  # noqa: BLE001 -- preserve startup, never log custody details
+        logger.warning("pod_memory.build_failed reason=%s", type(exc).__name__)
         return None
 
 
@@ -560,7 +560,7 @@ def build_pod_memory_service(
                 ]
                 loaded = store.hydrate(replayed)
                 self._hydrated = True
-                logger.info("pod_memory.hydrated hushh_id=%s records=%d", hushh_id, loaded)
+                logger.info("pod_memory.hydrated records=%d", loaded)
 
         async def _require_open_log(self) -> None:
             if self.log is not None:
@@ -598,8 +598,7 @@ def build_pod_memory_service(
                     await self.bank.add_session_to_memory(session)
                 except Exception as exc:  # noqa: BLE001 - the sealed log already has it
                     logger.warning(
-                        "pod_memory_bank.add_failed hushh_id=%s reason=%s",
-                        self.hushh_id,
+                        "pod_memory_bank.add_failed reason=%s",
                         type(exc).__name__,
                     )
 
@@ -615,16 +614,14 @@ def build_pod_memory_service(
                     if memories:
                         await self._require_open_log()
                         logger.info(
-                            "pod_memory.recall hushh_id=%s backend=memory_bank query_chars=%d hits=%d",
-                            self.hushh_id,
+                            "pod_memory.recall backend=memory_bank query_chars=%d hits=%d",
                             len(query or ""),
                             len(memories),
                         )
                         return banked
                 except Exception as exc:  # noqa: BLE001 - fall back to the sealed log
                     logger.warning(
-                        "pod_memory_bank.search_failed hushh_id=%s reason=%s",
-                        self.hushh_id,
+                        "pod_memory_bank.search_failed reason=%s",
                         type(exc).__name__,
                     )
             # user_id carries the pod owner; a mismatch is an isolation breach, not a miss.
@@ -636,8 +633,7 @@ def build_pod_memory_service(
             # unassertable against a running pod. Query text is the person's own
             # words — log length and hit count, never content.
             logger.info(
-                "pod_memory.recall hushh_id=%s query_chars=%d hits=%d",
-                self.hushh_id,
+                "pod_memory.recall query_chars=%d hits=%d",
                 len(query or ""),
                 len(hits),
             )
