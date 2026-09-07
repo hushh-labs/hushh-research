@@ -67,6 +67,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
 from hushh_mcp.services.pod_commit_log import PodLogFenced
+from hushh_mcp.services.pod_pkm_resolver import PodPkmOwnerMismatch
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,10 @@ async def run_pod_turn(
             raise HTTPException(
                 status_code=409, detail="pod storage is closed for erasure"
             ) from None
+        except PodPkmOwnerMismatch:
+            # An identity conflict is not degraded grounding. Never let a
+            # recycled or misrouted pod proceed to the provider without context.
+            raise HTTPException(status_code=403, detail="pod owner mismatch") from None
         except Exception:  # noqa: BLE001 - ordinary grounding availability may degrade
             logger.warning("pod_turn.local_grounding_failed")
             grounding = None

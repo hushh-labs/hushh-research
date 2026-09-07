@@ -96,6 +96,23 @@ async def test_no_projection_is_reported_ungrounded_and_says_why(enabled) -> Non
 
 
 @pytest.mark.asyncio
+async def test_owner_conflict_never_degrades_into_a_provider_turn(enabled, monkeypatch):
+    from fastapi import HTTPException
+
+    from hushh_mcp.services import pod_pkm_resolver
+
+    async def conflicting_owner(_owner):
+        raise pod_pkm_resolver.PodPkmOwnerMismatch("synthetic foreign owner")
+
+    monkeypatch.setattr(pod_pkm_resolver, "local_grounding", conflicting_owner)
+    seen: dict = {}
+    with pytest.raises(HTTPException) as error:
+        await _run(_payload(), seen)
+    assert error.value.status_code == 403
+    assert seen == {}
+
+
+@pytest.mark.asyncio
 async def test_whitespace_is_not_grounding(enabled) -> None:
     """A blank projection that counted would report `grounded: true` for a turn that
     learned nothing — a claim with no holdings behind it."""
