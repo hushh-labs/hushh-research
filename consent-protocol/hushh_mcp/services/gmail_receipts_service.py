@@ -42,6 +42,9 @@ from hushh_mcp.runtime_settings import (
     get_core_security_settings,
     get_optional_gmail_oauth_token_key,
 )
+from hushh_mcp.services.gmail_cache_retention import (
+    GMAIL_TERMINAL_RUN_RETENTION_DAYS,
+)
 from hushh_mcp.services.gmail_nudges import (
     MeetingEvent,
     NudgeMessage,
@@ -2843,10 +2846,13 @@ class GmailReceiptsService:
             SELECT *
             FROM kai_gmail_sync_runs
             WHERE user_id = :user_id
+              AND (status NOT IN ('completed', 'failed', 'canceled')
+                   OR COALESCE(completed_at, updated_at) >
+                      CURRENT_TIMESTAMP - make_interval(days => :retention_days))
             ORDER BY requested_at DESC
             LIMIT 1
             """,
-            {"user_id": user_id},
+            {"user_id": user_id, "retention_days": GMAIL_TERMINAL_RUN_RETENTION_DAYS},
         )
         return result.data[0] if result.data else None
 
@@ -3878,11 +3884,15 @@ class GmailReceiptsService:
             FROM kai_gmail_sync_runs
             WHERE run_id = :run_id
               AND user_id = :user_id
+              AND (status NOT IN ('completed', 'failed', 'canceled')
+                   OR COALESCE(completed_at, updated_at) >
+                      CURRENT_TIMESTAMP - make_interval(days => :retention_days))
             LIMIT 1
             """,
             {
                 "run_id": run_id,
                 "user_id": user_id,
+                "retention_days": GMAIL_TERMINAL_RUN_RETENTION_DAYS,
             },
         )
         if not result.data:

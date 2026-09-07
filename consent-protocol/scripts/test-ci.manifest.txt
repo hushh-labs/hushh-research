@@ -3,6 +3,9 @@
 
 tests/quality/test_byok_encryption.py
 tests/test_developer_api_routes.py
+tests/test_data_model_audit_script.py
+tests/test_data_model_audit_postgres.py
+tests/services/test_gmail_cache_retention.py
 tests/services/test_consent_request_lock.py
 tests/test_scoped_export_download.py
 tests/test_partner_developer_apps.py
