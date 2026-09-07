@@ -597,8 +597,7 @@ async def set_space_name(
         )
 
     repo = PersonalAgentRegistryRepo()
-    row = await repo.get(user_id)
-    if not row:
+    if not await repo.set_space_name(user_id=user_id, space_name=name):
         raise HTTPException(
             status_code=409,
             detail={
@@ -606,10 +605,4 @@ async def set_space_name(
                 "message": "Name your space after your agent exists; there is nothing to name yet.",
             },
         )
-    await repo.upsert(
-        user_id=user_id,
-        hushh_id=str(row.get("hushh_id") or ""),
-        status=str(row.get("status") or ""),
-        space_id=name,
-    )
     return {"success": True, "spaceName": name}

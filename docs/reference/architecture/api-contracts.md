@@ -154,6 +154,15 @@ flowchart TB
 | DELETE | `/api/notifications/unregister`                       | Unregister FCM tokens (logout)                                                                                                                                  |
 | POST   | `/api/kai/consent/grant`                              | Grant consent for Kai scopes                                                                                                                                    |
 
+### Private Agent Space Name
+
+`GET` and `PUT /api/one/personal-agent/space-name` require Firebase owner
+authentication and the existing personal-agent feature flag. PUT accepts
+`spaceName`, validates the handle, and updates only the existing owner row's
+`space_id`. It preserves pod status, custody, billing identity and lifecycle
+timestamps. An absent or concurrently deleted row returns the existing
+`409 NO_AGENT`; naming cannot create a registry row.
+
 ### One Runtime Configuration
 
 | Method | Path                               | Auth            | Description                                                                                                                                                                                                                                                                                                               |

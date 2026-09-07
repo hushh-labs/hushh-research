@@ -14,6 +14,7 @@ never the raw phone number and never a private key.
 
 from __future__ import annotations
 
+import asyncio
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Any, Optional
@@ -193,6 +194,28 @@ class PersonalAgentRegistryRepo:
         response = self._db().table(_REGISTRY).select("*").eq("user_id", user_id).limit(1).execute()
         rows = response.data or []
         return rows[0] if rows else None
+
+    async def set_space_name(self, *, user_id: str, space_name: str) -> bool:
+        """Update only an existing owner's handle, preserving lifecycle authority.
+
+        A name edit must not replay an earlier status, reset transition timestamps,
+        or recreate a row removed by account deletion. UPDATE's returned rows are
+        the acknowledgement; a separate existence check would race with deletion.
+        """
+
+        def write() -> bool:
+            response = (
+                self._db()
+                .table(_REGISTRY)
+                .update({"space_id": space_name})
+                .eq("user_id", user_id)
+                .execute()
+            )
+            if not isinstance(response.data, list):
+                raise RuntimeError("Space name update acknowledgement unavailable")
+            return bool(response.data)
+
+        return await asyncio.to_thread(write)
 
     async def get_by_hushh_id(self, hushh_id: str) -> Optional[dict]:
         """Reverse lookup for callers that know the HusshID but not the user.

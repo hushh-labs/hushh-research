@@ -330,13 +330,16 @@ def test_status_omits_cloud_identity_when_unrecorded(monkeypatch):
 class _FakeRepo:
     def __init__(self, row):
         self._row = row
-        self.upserts: list[dict] = []
+        self.name_updates: list[dict] = []
 
     async def get(self, user_id):
         return self._row
 
-    async def upsert(self, **kwargs):
-        self.upserts.append(kwargs)
+    async def set_space_name(self, *, user_id, space_name):
+        if self._row is None:
+            return False
+        self.name_updates.append({"user_id": user_id, "space_id": space_name})
+        return True
 
 
 def _build_space(monkeypatch, *, row, enabled=True):
@@ -357,7 +360,7 @@ def test_set_space_name_rejects_an_unsafe_name(monkeypatch):
     r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "a/b\nc"})
     assert r.status_code == 400
     assert r.json()["detail"]["code"] == "INVALID_SPACE_NAME"
-    assert repo.upserts == []
+    assert repo.name_updates == []
 
 
 def test_set_space_name_refuses_when_no_agent_exists(monkeypatch):
@@ -365,7 +368,7 @@ def test_set_space_name_refuses_when_no_agent_exists(monkeypatch):
     r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
     assert r.status_code == 409
     assert r.json()["detail"]["code"] == "NO_AGENT"
-    assert repo.upserts == []
+    assert repo.name_updates == []
 
 
 def test_set_space_name_writes_the_handle_not_the_billing_id(monkeypatch):
@@ -373,8 +376,8 @@ def test_set_space_name_writes_the_handle_not_the_billing_id(monkeypatch):
     r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Kushal's Space"})
     assert r.status_code == 200
     assert r.json() == {"success": True, "spaceName": "Kushal's Space"}
-    assert len(repo.upserts) == 1
-    written = repo.upserts[0]
+    assert len(repo.name_updates) == 1
+    written = repo.name_updates[0]
     assert written["space_id"] == "Kushal's Space"
     # The write must NOT touch billing_space_id -- the two columns stay independent.
     assert "billing_space_id" not in written or written["billing_space_id"] is None
@@ -391,6 +394,84 @@ def test_space_name_is_flag_gated(monkeypatch):
     client, _ = _build_space(monkeypatch, row={"hushh_id": "ha1_x"}, enabled=False)
     r = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
     assert r.status_code in (403, 404, 503)
+
+
+@pytest.mark.parametrize("status", ["provisioned", "suspended", "migrating", "needs_reinit"])
+def test_space_name_real_adapter_preserves_lifecycle_and_cannot_recreate_deleted_row(
+    monkeypatch, status
+):
+    from types import SimpleNamespace
+
+    from fastapi import FastAPI
+    from fastapi.testclient import TestClient
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.pool import StaticPool
+
+    from db.db_client import TableQuery
+    from hushh_mcp.services.personal_agent_registry_repo import PersonalAgentRegistryRepo
+
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "CREATE TABLE personal_agent_registry (user_id TEXT PRIMARY KEY, "
+                    "hushh_id TEXT NOT NULL, phone_e164_hash TEXT NOT NULL, status TEXT NOT NULL, "
+                    "space_id TEXT, billing_space_id TEXT, updated_at TEXT, provisioned_at TEXT)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO personal_agent_registry VALUES "
+                    "(:uid, :hid, 'synthetic-hash', :status, 'Before', 'billing', 'transition', 'activation')"
+                ),
+                [
+                    {"uid": "uid1", "hid": "ha1_owner", "status": status},
+                    {"uid": "uid2", "hid": "ha1_foreign", "status": "provisioned"},
+                ],
+            )
+        db = SimpleNamespace(table=lambda name: TableQuery(name, engine))
+        repo = PersonalAgentRegistryRepo(client=db)
+        monkeypatch.setattr(pa, "PersonalAgentRegistryRepo", lambda: repo)
+        monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+        app = FastAPI()
+        app.include_router(pa.router)
+        app.dependency_overrides[require_firebase_auth] = lambda: "uid1"
+        with TestClient(app) as client:
+            response = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Home"})
+            assert response.status_code == 200
+            with engine.begin() as connection:
+                rows = (
+                    connection.execute(
+                        text("SELECT * FROM personal_agent_registry ORDER BY user_id")
+                    )
+                    .mappings()
+                    .all()
+                )
+                assert rows[0]["space_id"] == "Home"
+                assert rows[0]["status"] == status
+                assert rows[0]["updated_at"] == "transition"
+                assert rows[0]["provisioned_at"] == "activation"
+                assert rows[0]["billing_space_id"] == "billing"
+                assert rows[0]["phone_e164_hash"] == "synthetic-hash"
+                assert rows[1]["space_id"] == "Before"
+                connection.execute(
+                    text("DELETE FROM personal_agent_registry WHERE user_id = 'uid1'")
+                )
+            response = client.put("/api/one/personal-agent/space-name", json={"spaceName": "Again"})
+            assert response.status_code == 409
+            assert response.json()["detail"]["code"] == "NO_AGENT"
+            with engine.connect() as connection:
+                assert (
+                    connection.execute(
+                        text("SELECT count(*) FROM personal_agent_registry WHERE user_id = 'uid1'")
+                    ).scalar_one()
+                    == 0
+                )
+    finally:
+        engine.dispose()
 
 
 def test_deprovision_refusal_is_409_and_never_success(monkeypatch):
