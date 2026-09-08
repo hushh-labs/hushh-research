@@ -188,3 +188,97 @@ async def test_invalid_inventory_is_never_dropped_or_partially_executed(monkeypa
     with pytest.raises(SubstrateDeleteError):
         await execute_teardown(resources, deleter=deleter, dry_run=False)
     deleter.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", ["admission", "outcome", "exception", "truthy"])
+async def test_cleanup_checkpoint_failure_preserves_remaining_resources(monkeypatch, failure):
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    events = []
+
+    async def admit(action):
+        events.append(("admit", action["id"]))
+        return failure != "admission"
+
+    async def delete(action):
+        events.append(("delete", action["id"]))
+
+    async def record(outcome):
+        events.append(("record", outcome["status"]))
+        if failure == "exception":
+            raise RuntimeError("synthetic-private-database-connection")
+        return 1 if failure == "truthy" else False
+
+    result = await execute_teardown(
+        [
+            {"type": "cloud_scheduler_job", "id": "first"},
+            {"type": "pubsub_topic", "id": "second"},
+            {"type": "secret", "id": "recovery"},
+        ],
+        deleter=delete,
+        dry_run=False,
+        before_action=admit,
+        on_result=record,
+    )
+    assert result["complete"] is False
+    assert result["deleted"] == []
+    assert len(events) == (1 if failure == "admission" else 3)
+    assert result["failed"][0]["reason"] == (
+        "cleanup_admission_unconfirmed" if failure == "admission" else "cleanup_outcome_unconfirmed"
+    )
+    assert all(
+        item["reason"] == "deferred_until_cleanup_receipt_confirmed"
+        for item in result["failed"][1:]
+    )
+    assert "synthetic-private" not in str(result)
+
+
+@pytest.mark.asyncio
+async def test_cleanup_checkpoints_precede_next_action_and_cannot_mutate_its_target(monkeypatch):
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    events = []
+
+    async def admit(action):
+        events.append(("admit", action["id"]))
+        action["id"] = "foreign"
+        return True
+
+    async def delete(action):
+        events.append(("delete", action["id"]))
+
+    async def record(outcome):
+        events.append(("record", outcome["action"]["id"]))
+        assert outcome["status"] == "deleted"
+        return True
+
+    result = await execute_teardown(
+        [{"type": "cloud_scheduler_job", "id": "first"}, {"type": "secret", "id": "last"}],
+        deleter=delete,
+        dry_run=False,
+        before_action=admit,
+        on_result=record,
+    )
+    assert result["complete"] is True
+    assert events == [
+        (stage, resource)
+        for resource in ("first", "last")
+        for stage in ("admit", "delete", "record")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cleanup_rejects_unpaired_persistence_before_deletion(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    delete = AsyncMock()
+    with pytest.raises(SubstrateDeleteError, match="paired"):
+        await execute_teardown(
+            [{"type": "secret", "id": "recovery"}],
+            deleter=delete,
+            dry_run=False,
+            on_result=AsyncMock(),
+        )
+    delete.assert_not_awaited()

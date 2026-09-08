@@ -15,6 +15,8 @@ safe.
 from __future__ import annotations
 
 import os
+from collections.abc import Awaitable, Callable
+from copy import deepcopy
 from typing import Any
 
 
@@ -137,6 +139,8 @@ async def execute_teardown(
     *,
     deleter: Any,
     dry_run: bool = True,
+    before_action: Callable[[dict[str, Any]], Awaitable[bool]] | None = None,
+    on_result: Callable[[dict[str, Any]], Awaitable[bool]] | None = None,
 ) -> dict[str, Any]:
     """Run a teardown plan. Destroys NOTHING unless BOTH guards open:
     ``dry_run=False`` AND ``personal_agent_substrate_teardown_enabled()``. Otherwise
@@ -148,13 +152,22 @@ async def execute_teardown(
     the call site and this stays testable without touching a customer's project.
     ``deleted`` holds only confirmed removals; a raise lands the action in ``failed``
     with its reason. Independent cleanup continues after a failure, but credentials,
-    permissions and keys needed to recover are deferred and recorded as incomplete."""
+    permissions and keys needed to recover are deferred and recorded as incomplete.
+
+    Coordinated callers supply BOTH callbacks. ``before_action`` must exclusively
+    retain admission in the existing owner reservation; ``on_result`` must retain
+    the observed outcome there. Only explicit True acknowledges persistence. A lost
+    admission or result stops further actions, leaving reconciliation to that owner.
+    These callbacks do not themselves establish ownership or durable storage.
+    """
     from hushh_mcp.runtime_settings import (  # noqa: PLC0415
         personal_agent_substrate_teardown_enabled,
     )
 
     # Validate the complete inventory before the first destructive operation.
     # Callers cannot bypass the planner with a partially malformed action list.
+    if (before_action is None) != (on_result is None):
+        raise SubstrateDeleteError("cleanup admission and outcome callbacks must be paired")
     plan = plan_teardown(actions)
     live = (not dry_run) and personal_agent_substrate_teardown_enabled()
     if not live:
@@ -165,21 +178,47 @@ async def execute_teardown(
             "deleted": [],
             "failed": [],
         }
+
+    async def retain(
+        callback: Callable[[dict[str, Any]], Awaitable[bool]], payload: dict[str, Any]
+    ) -> bool:
+        import asyncio
+
+        try:
+            return await asyncio.wait_for(callback(deepcopy(payload)), timeout=30) is True
+        except Exception:  # noqa: BLE001 -- persistence errors may expose connection details
+            return False
+
     deleted: list[dict[str, Any]] = []
     failed: list[dict[str, Any]] = []
+    retention_failed = False
     for action in plan:
+        if retention_failed:
+            failed.append({**action, "reason": "deferred_until_cleanup_receipt_confirmed"})
+            continue
         if failed and action.get("type") in _RECOVERY_AUTHORITY_TYPES:
             failed.append({**action, "reason": "deferred_until_dependencies_erased"})
             continue
-        try:
-            await deleter(action)
-        except Exception as exc:  # noqa: BLE001 - record and continue; the rest may still delete
-            # Transport/SDK exceptions can embed bearer tokens, signed URLs or
-            # response bodies. Only this module's bounded diagnostics are receipts.
-            reason = str(exc) if isinstance(exc, SubstrateDeleteError) else "cleanup_unavailable"
-            failed.append({**action, "reason": reason})
+        if before_action is not None and not await retain(before_action, action):
+            failed.append({**action, "reason": "cleanup_admission_unconfirmed"})
+            retention_failed = True
             continue
-        deleted.append(action)
+        reason = ""
+        try:
+            await deleter(deepcopy(action))
+        except Exception as exc:  # noqa: BLE001 - preserve recovery authority after failure
+            reason = str(exc) if isinstance(exc, SubstrateDeleteError) else "cleanup_unavailable"
+        outcome = {"action": action, "status": "failed" if reason else "deleted"}
+        if reason:
+            outcome["reason"] = reason
+        if on_result is not None and not await retain(on_result, outcome):
+            failed.append({**action, "reason": "cleanup_outcome_unconfirmed"})
+            retention_failed = True
+            continue
+        if reason:
+            failed.append({**action, "reason": reason})
+        else:
+            deleted.append(action)
     return {
         "executed": True,
         "planned": plan,
