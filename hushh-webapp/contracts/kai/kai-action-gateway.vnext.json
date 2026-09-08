@@ -12035,6 +12035,115 @@
       }
     },
     {
+      "action_id": "route.profile_access_panel",
+      "surface_id": "profile_account",
+      "label": "Open Access And Discoverability Panel",
+      "aliases": [
+        "open access settings",
+        "who can find me",
+        "discoverability settings",
+        "open access panel"
+      ],
+      "search_keywords": [
+        "access",
+        "discoverable",
+        "marketplace",
+        "visibility",
+        "find me"
+      ],
+      "meaning": "Navigates to the Access panel in Profile, where marketplace discoverability and who can find you are controlled.",
+      "speaker_persona": "one",
+      "delegate_agent_id": null,
+      "reachability": {
+        "routes": [
+          "/one/profile/access"
+        ],
+        "screens": [
+          "profile_privacy"
+        ],
+        "hidden_navigable": false,
+        "navigation_prerequisites": [],
+        "active_personas": [
+          "investor",
+          "ria"
+        ],
+        "requires_persona_switch_confirmation": false
+      },
+      "guard_ids": [
+        "auth_signed_in"
+      ],
+      "risk_level": "low",
+      "execution_policy": "allow_direct",
+      "activation_policy": "none",
+      "siri_mode": "unsupported",
+      "siri_requires_vault": false,
+      "siri_vault_locked_fallback_action_id": null,
+      "execution_target": {
+        "status": "wired",
+        "path": "route",
+        "target": "/one/profile/access"
+      },
+      "control_ids": [],
+      "state_exposure": [],
+      "docs_references": [
+        "docs/reference/kai/kai-action-gateway-vnext.md",
+        "app/profile/profile-workspace-page.tsx"
+      ],
+      "workflow": null,
+      "external_callback": null,
+      "expected_effects": {
+        "state_changes": [
+          "current route becomes /one/profile/access"
+        ],
+        "backend_effects": []
+      },
+      "trigger": {
+        "primary": "voice",
+        "supported": [
+          "voice",
+          "tap",
+          "keyboard",
+          "programmatic"
+        ]
+      },
+      "goal": {
+        "goal_id": "goal.route.profile_access_panel",
+        "required_inputs": [],
+        "input_resolvers": [],
+        "slot_schema": {},
+        "workflow_steps": [
+          {
+            "type": "action",
+            "action_id": "route.profile_access_panel",
+            "label": "Open Access And Discoverability Panel",
+            "failure_behavior": "stop",
+            "settlement_target": {
+              "route": "/one/profile/access",
+              "screen": "profile_privacy"
+            }
+          }
+        ],
+        "progress_contract": {
+          "mode": "none",
+          "milestone_events": []
+        },
+        "cancellation_contract": {
+          "cancellable": false,
+          "cancel_action_id": null
+        },
+        "result_contract": {
+          "summary_mode": "action_result"
+        },
+        "entrypoint_support": [
+          "voice",
+          "chat",
+          "typed_search",
+          "command_bar",
+          "ui"
+        ]
+      }
+    },
+    {
       "action_id": "route.profile_pkm_agent_lab",
       "surface_id": "profile_account",
       "label": "Open PKM",
@@ -12290,9 +12399,9 @@
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "unwired",
-        "reason": "submitSupportMessage is local to ProfilePage and not exported to global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.support.submit_message"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12304,7 +12413,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/support"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": [
           {
@@ -12385,19 +12494,18 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "auth_signed_in",
-        "manual_user_execution"
+        "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "unwired",
-        "reason": "Only handled by local Switch in ProfilePage.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.marketplace_visibility.toggle"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12409,7 +12517,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile/access"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
@@ -12590,19 +12698,19 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "explicit_user_confirmation",
-        "manual_user_execution"
+        "auth_signed_in",
+        "explicit_user_confirmation"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "confirm_required",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "unwired",
-        "reason": "Delete flow is intentionally local + guarded by dialogs and vault unlock.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.delete_account"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12614,7 +12722,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },
