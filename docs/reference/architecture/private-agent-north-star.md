@@ -432,7 +432,11 @@ prove completion. Polls must match the acknowledged operation and diagnostics om
 must not be deleted solely because its derived name appears in a cleanup plan. Before
 connecting substrate cleanup, retain typed inventory and resource-specific ownership
 alongside the existing erasure reservation, then persist partial outcomes before releasing
-bootstrap authority. The existing live drill remains unavailable until disposable ownership
+bootstrap authority. Dev migration 920 retains the exact captured substrate receipt after
+validated compute completion, under the same owner locks and immutable erasure guard.
+The hub reads it back before continuing. This preserves shared and unresolved inventory;
+it does not grant cleanup eligibility. Per-action admission and outcome persistence remain
+unconnected to the executor callbacks, so complete substrate erasure remains open. The existing live drill remains unavailable until disposable ownership
 and complete cleanup satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
 cancellation. Lost worker or transport outcomes remain `delete_submitting` and cannot

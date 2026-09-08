@@ -313,6 +313,20 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def retain_erasure_substrate_inventory(self, *, user_id: str, reservation: dict) -> bool:
+        """Retain the database snapshot inventory; this grants no deletion authority."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_substrate_inventory(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

@@ -930,3 +930,43 @@ async def test_compute_erasure_resumes_only_acknowledged_work_and_retains_owner(
             "status": "compute_deleted",
         }
     assert registry.deleted == [] and grant.revokes == []
+
+
+@pytest.mark.parametrize("case", ["retained", "foreign", "unavailable", "changed_attempt"])
+async def test_erasure_inventory_requires_owner_bound_retention_and_readback(case):
+    service = _svc()
+    registry = service._registry
+    inventory = {
+        "version": "byoc.substrate.receipt.v1",
+        "plannedResources": [{"type": "artifact_repository", "id": "shared"}],
+    }
+    reservation = {
+        "ownerId": "foreign" if case == "foreign" else _UID,
+        "attemptId": "erase-one",
+        "computeDeletion": {"status": "compute_deleted"},
+        "registrySnapshot": {"user_id": _UID, "backend_metadata": {"substrateReceipt": inventory}},
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+
+    async def retain(*, user_id, reservation):
+        assert user_id == _UID
+        if case == "unavailable":
+            return False
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {
+            **reservation,
+            "substrateInventory": inventory,
+            "attemptId": "replacement" if case == "changed_attempt" else "erase-one",
+        }
+        return True
+
+    registry.retain_erasure_substrate_inventory = AsyncMock(side_effect=retain)
+    if case == "retained":
+        await service._retain_reserved_substrate_inventory(user_id=_UID)
+        assert registry.rows[_UID]["backend_metadata"]["erasure"]["substrateInventory"] == inventory
+    else:
+        with pytest.raises(RuntimeError, match="inventory"):
+            await service._retain_reserved_substrate_inventory(user_id=_UID)
+    if case == "foreign":
+        registry.retain_erasure_substrate_inventory.assert_not_awaited()
+    assert registry.rows[_UID]["status"] == "suspended"
+    assert registry.deleted == []

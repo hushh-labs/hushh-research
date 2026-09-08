@@ -455,6 +455,15 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg = provision_pg
     pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
     pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/920_personal_agent_substrate_inventory.sql")
+    inventory = {
+        "version": "byoc.substrate.receipt.v1",
+        "applied": True,
+        "plannedResources": [
+            {"type": "gcs_bucket", "id": "synthetic-bucket"},
+            {"type": "artifact_repository", "id": "shared-repository"},
+        ],
+    }
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
         "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
@@ -462,6 +471,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             json.dumps(
                 {
                     "serviceUid": "incarnation",
+                    "substrateReceipt": inventory,
                     "provisionAttempt": {
                         "version": 1,
                         "ownerId": "synthetic-owner",
@@ -556,6 +566,18 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_deletion(completed)
     saved = provision_row(pg)
     assert saved["backend_metadata"]["erasure"]["memoryDeletion"] == completed
+
+    def retain_inventory(owner="synthetic-owner", attempt="attempt-one", expected=None):
+        return pg.execute(
+            "SELECT retain_erasure_substrate_inventory(%s,%s,%s::jsonb)",
+            (
+                owner,
+                attempt,
+                json.dumps(expected or provision_row(pg)["backend_metadata"]["erasure"]),
+            ),
+        )[0][0]
+
+    assert not retain_inventory()  # Compute deletion is not yet qualified.
     compute = {
         "serviceName": "projects/synthetic-project/locations/us-central1/services/pod-service",
         "serviceUid": "incarnation",
@@ -599,10 +621,27 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_compute("computeAcknowledgement", ack)
     assert not retain_compute("computeDeletion", {**ack, "status": "pending"})
     assert retain_compute("computeDeletion", {**ack, "status": "compute_deleted"})
+    assert not retain_inventory(owner="foreign")
+    assert not retain_inventory(attempt="foreign")
+    assert not retain_inventory(expected={"ownerId": "synthetic-owner"})
+    before_inventory = provision_row(pg)["backend_metadata"]["erasure"]
+    assert not pg.execute(
+        "SELECT valid_erasure_substrate_inventory(%s::jsonb,%s::jsonb)",
+        (json.dumps(before_inventory), json.dumps({**inventory, "plannedResources": []})),
+    )[0][0]
+    assert retain_inventory()
+    assert retain_inventory()
     saved = provision_row(pg)
+    assert saved["backend_metadata"]["erasure"]["substrateInventory"] == inventory
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,"
+            "'{erasure,substrateInventory}', '{}'::jsonb) WHERE user_id='synthetic-owner'"
+        )
     pg.execute(
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
     )
+    assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.
     assert not retain_deletion(completed)
     pg.execute(

@@ -1960,6 +1960,34 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("erasure compute completion retention unconfirmed")
 
+    async def _retain_reserved_substrate_inventory(self, *, user_id: str) -> None:
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        inventory = (snapshot.get("backend_metadata") or {}).get("substrateReceipt")
+        retain = getattr(self._registry, "retain_erasure_substrate_inventory", None)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or not reservation.get("computeDeletion")
+            or not isinstance(inventory, dict)
+            or retain is None
+            or not await retain(user_id=user_id, reservation=reservation)
+        ):
+            raise RuntimeError("erasure substrate inventory retention unavailable")
+        observed = await self._registry.get(user_id)
+        saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not observed
+            or observed.get("status") != "suspended"
+            or saved.get("ownerId") != user_id
+            or saved.get("attemptId") != reservation.get("attemptId")
+            or saved.get("substrateInventory") != inventory
+        ):
+            raise RuntimeError("erasure substrate inventory readback unconfirmed")
+
     async def deprovision(
         self,
         *,
@@ -1999,6 +2027,7 @@ class PersonalAgentProvisioningService:
                         )
                         await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
                     await self._erase_reserved_compute(user_id=user_id)
+                    await self._retain_reserved_substrate_inventory(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",
