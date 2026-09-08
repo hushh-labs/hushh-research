@@ -34,11 +34,8 @@ _TEARDOWN_PRIORITY = {
     "pubsub_topic": 30,
     # Preserve recovery material until storage/image removal has succeeded.
     "secret": 65,
-    # The user's own copy of the pod image. Nothing in the substrate depends on it, so
-    # its slot is free; reclaim it promptly (before the bucket) so a delete that fails
-    # surfaces early. The Cloud Run service that referenced it is already gone by now --
-    # deprovision deletes the service BEFORE substrate teardown runs, and that ordering
-    # is load-bearing (a running pod holds a pull reference to this repo).
+    # A fixed repository may be shared or adopted. Retain it as an unresolved
+    # inventory item, before recovery authority, rather than authorize its deletion.
     "artifact_repository": 45,
     "gcs_object": 50,
     "gcs_bucket": 60,
@@ -276,10 +273,8 @@ def substrate_resources(
         {"type": "cloud_scheduler_job", "id": f"one-mail-{slug}-watch-renew"},
         {"type": "pubsub_subscription", "id": f"one-mail-{slug}-sub"},
         {"type": "pubsub_topic", "id": f"one-mail-{slug}"},
-        # The person's own copy of the pod image. A fixed id, not slug-derived: the repo
-        # is `one-pod` in every project (one image per person, one repo). Left behind, it
-        # keeps billing them in a project hushh can barely reach -- so it MUST be named
-        # here, where account deletion reads the list.
+        # Project-wide, not owner-slugged: multiple pods can use this repository.
+        # Keep the obligation visible; naming alone never permits repository deletion.
         {"type": "artifact_repository", "id": "one-pod"},
         {"type": "gcs_bucket", "id": f"one-pod-{slug}-blobs"},
         {"type": "secret", "id": f"{account_id}-signing-key"},
@@ -747,50 +742,6 @@ def build_gcp_deleter(
                     )
         raise SubstrateDeleteError("bucket not emptied after 32 version pages")
 
-    def _delete_artifact_repository(repository: str) -> None:
-        # DELETE acknowledges a long-running operation, not completed erasure.
-        # A pending operation keeps the existing teardown retry authority intact.
-        base = "https://artifactregistry.googleapis.com/v1/"
-        parent = f"projects/{project}/locations/{region}"
-        url = f"{base}{parent}/repositories/{repository}"
-        response = session.delete(url, headers=headers, timeout=30, allow_redirects=False)
-        if response.status_code == 404:
-            return
-        if response.status_code != 200:
-            raise SubstrateDeleteError(f"artifact repository http={response.status_code}")
-        operation = response.json() or {}
-        name = str(operation.get("name") or "")
-        prefix = f"{parent}/operations/"
-        operation_id = name.removeprefix(prefix)
-        if (
-            not name.startswith(prefix)
-            or not operation_id
-            or any(
-                char not in "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_"
-                for char in operation_id
-            )
-        ):
-            raise SubstrateDeleteError("artifact deletion operation identity mismatch")
-        if operation.get("done") is not True:
-            observed = session.get(f"{base}{name}", headers=headers, timeout=30)
-            if observed.status_code != 200:
-                raise SubstrateDeleteError(
-                    f"artifact deletion operation http={observed.status_code}"
-                )
-            operation = observed.json() or {}
-            if operation.get("name") != name:
-                raise SubstrateDeleteError("artifact deletion operation identity mismatch")
-        if "error" in operation:
-            # Provider error messages can contain private resource details.
-            raise SubstrateDeleteError("artifact deletion operation failed")
-        if operation.get("done") is not True or "response" not in operation:
-            raise SubstrateDeleteError("artifact deletion pending verification")
-        absent = session.get(url, headers=headers, timeout=30)
-        if absent.status_code != 404:
-            raise SubstrateDeleteError(
-                f"artifact repository absence unverified http={absent.status_code}"
-            )
-
     def _destroy_kms_versions(key_id: str) -> None:
         parent = f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{key_id}"
         # Scheduling is reversible. Only a complete inventory of DESTROYED
@@ -959,6 +910,8 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "artifact_repository":
+            raise SubstrateDeleteError("shared artifact repository ownership unresolved")
         if kind == "gcs_bucket" and retain_bucket_receipt is not None and not observation:
             raise SubstrateDeleteError("coordinated bucket cleanup requires creation evidence")
         if observation:
@@ -1062,8 +1015,6 @@ def build_gcp_deleter(
                     absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
                     if absent.status_code != 404:
                         raise SubstrateDeleteError("service account deletion unverified")
-            elif kind == "artifact_repository":
-                _delete_artifact_repository(rid)
             elif kind == "iam_binding":
                 _remove_project_iam_binding(
                     str(action.get("role") or ""), str(action.get("member") or "")
