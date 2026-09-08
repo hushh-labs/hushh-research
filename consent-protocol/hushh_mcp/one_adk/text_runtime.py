@@ -587,8 +587,8 @@ async def _stream_one_text_turn_once(
                     session_id=session.id,
                 )
             )
-        except Exception:  # noqa: BLE001 - see above: the answer is already delivered
-            logger.warning("one_text_turn.memory_write_failed", exc_info=True)
+        except Exception as error:  # noqa: BLE001 - answer is already delivered
+            logger.warning("one_text_turn.memory_write_failed error=%s", type(error).__name__)
 
     logger.info(
         "one_text_turn_complete model=%s first_visible_ms=%s elapsed_ms=%s directives=%s",

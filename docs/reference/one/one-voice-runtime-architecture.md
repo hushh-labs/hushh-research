@@ -327,7 +327,7 @@ Reusable full-agent factory (separate from public relay admission):
   rejected before state append or context publication.
   Signed-in ticket issuance returns the existing `AGENT_NOT_READY` refusal;
   the socket also rejects previously minted signed-in tickets before reading
-  credentials, context or audio. The pod has no Live adapter yet, so private
+  credentials, context or audio. The pod has no admitted Live endpoint yet, so private
   voice remains incomplete. An active pod alone does not establish voice
   isolation. Completion requires running this same protocol in the owner's pod
   with scoped consent and runtime authority, followed by live evidence.
@@ -336,6 +336,13 @@ Reusable full-agent factory (separate from public relay admission):
   memory resolver. Shared BYOK and public intro do not receive pod memory.
   Factory checks establish wiring only; transport admission, hub-backed
   directive settlement and ongoing revocation checks remain required.
+  The unconnected `pod_live_*` transport adapters now preserve the hub's
+  existing directive ledger: confirmation/settlement must match browser frames,
+  generated action policy and current context. The courier bounds writes,
+  rechecks access while idle and closes both peers on refusal. Polling is not
+  instantaneous revocation, and cancellation-resistant work is reported as
+  incomplete shutdown. These component checks do not prove deployed admission,
+  provider drainage, specialist consent or persistent Live recall.
   Public reconnects start a fresh conversation: an anonymous ticket cannot
   prove ownership of a provider continuation from an earlier personal session.
 - The legacy hand-rolled Vertex pump
