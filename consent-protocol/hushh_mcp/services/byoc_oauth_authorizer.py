@@ -356,16 +356,46 @@ def apply_authorization(
     )
     _check(created, "create the bootstrap service account", ok_statuses=(200, 409))
 
+    def checked_policy(response: Any, what: str) -> dict:
+        policy = _check(response, what)
+        bindings = policy.get("bindings", [])
+        if (
+            not isinstance(bindings, list)
+            or any(
+                not isinstance(binding, dict)
+                or not isinstance(binding.get("role"), str)
+                or not binding["role"]
+                or not isinstance(binding.get("members"), list)
+                or any(not isinstance(member, str) or not member for member in binding["members"])
+                for binding in bindings
+            )
+            or any("condition" in binding for binding in bindings)
+            and policy.get("version") != 3
+            or not isinstance(policy.get("etag"), str)
+            or not policy["etag"].strip()
+        ):
+            raise ByocAuthorizeError(
+                "Google's IAM policy could not be safely verified; try again",
+                status_code=502,
+                code="AUTHORIZE_FAILED",
+            )
+        return policy
+
     # 3. Project roles for the bootstrap SA — read-merge-write, add-only (R3).
     crm = f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}"
-    policy = _check(
-        session.post(f"{crm}:getIamPolicy", headers=headers, json={}, timeout=30),
+    policy = checked_policy(
+        session.post(
+            f"{crm}:getIamPolicy",
+            headers=headers,
+            json={"options": {"requestedPolicyVersion": 3}},
+            timeout=30,
+        ),
         "read the project's IAM policy",
     )
     bindings = list(policy.get("bindings") or [])
     changed = False
     for role, _why in BOOTSTRAP_ROLES:
-        entry = next((b for b in bindings if b.get("role") == role), None)
+        entry = next((b for b in bindings if b.get("role") == role and "condition" not in b), None)
         if entry is None:
             bindings.append({"role": role, "members": [sa_member]})
             changed = True
@@ -383,12 +413,20 @@ def apply_authorization(
 
     # 4. The ONE durable grant to hushh: tokenCreator on that SA alone.
     sa_url = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{sa_email}"
-    sa_policy = _check(
-        session.post(f"{sa_url}:getIamPolicy", headers=headers, json={}, timeout=30),
+    sa_policy = checked_policy(
+        session.post(
+            f"{sa_url}:getIamPolicy",
+            headers=headers,
+            params={"options.requestedPolicyVersion": 3},
+            timeout=30,
+        ),
         "read the bootstrap account's policy",
     )
     sa_bindings = list(sa_policy.get("bindings") or [])
-    entry = next((b for b in sa_bindings if b.get("role") == _TOKEN_CREATOR_ROLE), None)
+    entry = next(
+        (b for b in sa_bindings if b.get("role") == _TOKEN_CREATOR_ROLE and "condition" not in b),
+        None,
+    )
     if entry is None:
         sa_bindings.append({"role": _TOKEN_CREATOR_ROLE, "members": [caller_member]})
         sa_policy["bindings"] = sa_bindings

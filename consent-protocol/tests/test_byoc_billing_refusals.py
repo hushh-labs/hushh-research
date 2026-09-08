@@ -12,9 +12,85 @@ refusal naming the person's two moves.
 
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 from hushh_mcp.services import byoc_oauth_authorizer as oauth
+
+
+@pytest.mark.parametrize("invalid", [None, "etag", "bindings", "version"])
+def test_authorization_preserves_conditional_grants_and_requires_policy_preconditions(invalid):
+    from hushh_mcp.services.user_gcp_bootstrap import BOOTSTRAP_ROLES
+
+    caller = "caller@synthetic-project.iam.gserviceaccount.com"
+    bootstrap = "one-bootstrap@synthetic-project.iam.gserviceaccount.com"
+    condition = {"title": "existing", "expression": "false"}
+    conditional = {
+        "role": BOOTSTRAP_ROLES[0][0],
+        "members": [f"serviceAccount:{bootstrap}"],
+        "condition": condition,
+    }
+    sa_conditional = {
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "members": [f"serviceAccount:{caller}"],
+        "condition": condition,
+    }
+    project_policy = {"version": 3, "etag": "project-before", "bindings": [conditional]}
+    sa_policy = {"version": 3, "etag": "account-before", "bindings": [sa_conditional]}
+    if invalid == "etag":
+        project_policy.pop("etag")
+    elif invalid == "bindings":
+        project_policy["bindings"] = [None]
+    elif invalid == "version":
+        project_policy["version"] = 1
+
+    class Session:
+        def __init__(self):
+            self.reads = []
+            self.writes = []
+
+        def post(self, url, **kwargs):
+            if url.endswith(":getIamPolicy"):
+                self.reads.append((url, kwargs))
+                return _Response(
+                    200, deepcopy(sa_policy if "/serviceAccounts/" in url else project_policy)
+                )
+            if url.endswith(":setIamPolicy"):
+                self.writes.append(deepcopy(kwargs["json"]["policy"]))
+            return _Response(200, {"done": True})
+
+        def get(self, url, **kwargs):
+            assert url.endswith("/keys")
+            return _Response(200, {})
+
+    session = Session()
+    arguments = {
+        "project": "synthetic-project",
+        "token": "synthetic",
+        "caller_sa": caller,
+        "session": session,
+    }
+    if invalid:
+        with pytest.raises(oauth.ByocAuthorizeError, match="safely verified"):
+            oauth.apply_authorization(**arguments)
+        assert not session.writes
+        return
+    oauth.apply_authorization(**arguments)
+    assert session.reads[0][1]["json"] == {"options": {"requestedPolicyVersion": 3}}
+    assert session.reads[1][1]["params"] == {"options.requestedPolicyVersion": 3}
+    assert session.writes[0]["etag"] == "project-before"
+    assert session.writes[0]["bindings"][0] == conditional
+    assert session.writes[1]["etag"] == "account-before"
+    assert session.writes[1]["bindings"] == [
+        sa_conditional,
+        {"role": "roles/iam.serviceAccountTokenCreator", "members": [f"serviceAccount:{caller}"]},
+    ]
+    unconditional = [
+        binding for binding in session.writes[0]["bindings"] if "condition" not in binding
+    ]
+    assert {binding["role"] for binding in unconditional} == {role for role, _ in BOOTSTRAP_ROLES}
+
 
 # The exact body Google returned for the founder's sixth project, captured live.
 _QUOTA_BODY = {
