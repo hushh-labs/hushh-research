@@ -13,6 +13,9 @@ import android.view.ViewGroup
 import android.view.WindowManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebView
+import androidx.webkit.ScriptHandler
+import androidx.webkit.WebViewCompat
+import androidx.webkit.WebViewFeature
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.ProgressBar
@@ -57,6 +60,7 @@ class MainActivity : BridgeActivity() {
     private var sessionPrivacyOwnsSecureFlag = false
     private var sessionPrivacyAccessibilityWebView: WebView? = null
     private var sessionPrivacyPreviousWebViewAccessibility: Int? = null
+    private var androidScrollContractScript: ScriptHandler? = null
 
     data class SessionPrivacyState(
         val shielded: Boolean,
@@ -98,6 +102,8 @@ class MainActivity : BridgeActivity() {
         Log.d("MainActivity", "All 13 plugins registered successfully")
         
         super.onCreate(savedInstanceState)
+
+        installAndroidScrollContract()
 
         installSessionPrivacyOverlay()
         if (sessionPrivacyShielded) {
@@ -155,11 +161,38 @@ class MainActivity : BridgeActivity() {
     }
 
     override fun onDestroy() {
+        androidScrollContractScript?.remove()
+        androidScrollContractScript = null
         sessionPrivacyActivityResumed = false
         restoreSessionContentAccessibility()
         nativeTestPollRunnable?.let { nativeTestHandler.removeCallbacks(it) }
         nativeTestPollRunnable = null
         super.onDestroy()
+    }
+
+    /**
+     * Keep Android's native document viewport from becoming a second scroll
+     * owner. The route shell provides the intentional scroll surface through
+     * [data-app-scroll-root]; iOS enforces the same boundary by disabling the
+     * WKWebView scroll view in MyViewController.
+     */
+    private fun installAndroidScrollContract() {
+        val webView = bridge?.webView ?: return
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            Log.w(
+                "MainActivity",
+                "Document-start scripts are unavailable; native scroll contract was not installed"
+            )
+            return
+        }
+
+        androidScrollContractScript?.remove()
+        androidScrollContractScript = WebViewCompat.addDocumentStartJavaScript(
+            webView,
+            ANDROID_SCROLL_CONTRACT_SCRIPT,
+            setOf("https://localhost")
+        )
+        webView.evaluateJavascript(ANDROID_SCROLL_CONTRACT_SCRIPT, null)
     }
 
     internal fun readSessionPrivacyState(): SessionPrivacyState =
@@ -1083,6 +1116,24 @@ class MainActivity : BridgeActivity() {
     }
 
     companion object {
+        private val ANDROID_SCROLL_CONTRACT_SCRIPT = """
+            (function () {
+              var styleId = "hushh-android-scroll-contract";
+              var style = document.getElementById(styleId);
+              if (!style) {
+                style = document.createElement("style");
+                style.id = styleId;
+                (document.head || document.documentElement).appendChild(style);
+              }
+              style.textContent = `
+                html,
+                body {
+                  overflow: hidden !important;
+                }
+              `;
+            })();
+        """.trimIndent()
+
         private const val SESSION_PRIVACY_SHIELDED_KEY =
             "com.hussh.app.session_privacy.shielded"
         private const val SESSION_PRIVACY_GENERATION_KEY =
