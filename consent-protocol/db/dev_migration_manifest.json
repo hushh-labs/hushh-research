@@ -39,6 +39,7 @@
     "921_personal_agent_writer_revocation.sql",
     "922_personal_agent_bucket_erasure.sql",
     "923_personal_agent_mail_erasure.sql",
-    "924_personal_agent_kms_erasure.sql"
+    "924_personal_agent_kms_erasure.sql",
+    "925_personal_agent_secret_erasure.sql"
   ]
 }

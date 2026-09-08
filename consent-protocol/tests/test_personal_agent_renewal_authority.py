@@ -460,6 +460,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/922_personal_agent_bucket_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/923_personal_agent_mail_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/924_personal_agent_kms_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/925_personal_agent_secret_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -520,6 +521,18 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     }
     inventory["plannedResources"].append({"type": "kms_key", "id": "key-one"})
     inventory["resourceObservations"].append(kms_observation)
+    secret_observation = {
+        "type": "secret",
+        "id": "signing-key",
+        "disposition": "created",
+        "identity": {
+            "name": "projects/synthetic-project/secrets/signing-key",
+            "projectId": "synthetic-project",
+            "createTime": "2026-09-08T00:00:00Z",
+        },
+    }
+    inventory["plannedResources"].append({"type": "secret", "id": "signing-key"})
+    inventory["resourceObservations"].append(secret_observation)
     mail_observations = []
     for kind, segment in (
         ("cloud_scheduler_job", "locations/us-central1/jobs"),
@@ -861,7 +874,37 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_kms("acknowledgement", {**kms_version, "status": "scheduled"})
     assert not retain_kms("completion", {**kms_inventory, "status": "destroyed"})
     assert retain_kms("destruction", {**kms_version, "status": "destroyed"})
+    secret_receipt = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "resourceObservation": secret_observation,
+        "etag": "synthetic-etag",
+        "status": "admitted",
+    }
+
+    def retain_secret(stage, receipt):
+        return pg.execute(
+            "SELECT retain_erasure_secret_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_secret("admission", secret_receipt)
     assert retain_kms("completion", {**kms_inventory, "status": "destroyed"})
+    assert not retain_secret("admission", {**secret_receipt, "ownerId": "foreign"})
+    assert not retain_secret("admission", {**secret_receipt, "etag": ""})
+    assert not retain_secret("deletion", {**secret_receipt, "status": "absent"})
+    assert retain_secret("admission", secret_receipt)
+    assert not retain_secret("admission", secret_receipt)
+    assert not retain_secret(
+        "acknowledgement", {**secret_receipt, "etag": "changed", "status": "acknowledged"}
+    )
+    assert retain_secret("acknowledgement", {**secret_receipt, "status": "acknowledged"})
+    assert retain_secret("deletion", {**secret_receipt, "status": "absent"})
+    assert retain_secret("deletion", {**secret_receipt, "status": "absent"})
     saved = provision_row(pg)
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
