@@ -377,6 +377,13 @@ Recall rechecks
 its owner-bound record before releasing the result. These are source-level safeguards,
 not deployed drainage evidence: older clients must be drained before claiming coverage
 of previously admitted requests, and unresolved reservations still require reconciliation.
+The existing pod erasure-fence endpoint now closes the sealed log and then CAS-fences
+Memory Bank admission in `memory_bank.json`. Its `admission_closed` phase preserves
+ready, creating and legacy records and outstanding operations; an absent record gets
+an explicit marker, never an absence-of-resources receipt. Late creation publication
+can retain only a captured-generation/configuration-bound engine acknowledgement.
+Startup refuses ordinary initialization under the marker. This phase cannot yet advance
+to provider deletion; partial fence failures remain incomplete and retries preserve authority.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
 without initializing ordinary memory. It requires the matching owner/attempt log fence;

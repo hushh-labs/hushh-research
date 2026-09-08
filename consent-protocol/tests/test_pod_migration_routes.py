@@ -15,6 +15,7 @@ order of how badly the failure would go:
 
 from __future__ import annotations
 
+import json
 import os
 
 import pytest
@@ -93,6 +94,11 @@ async def test_erasure_fence_requires_bound_attempt_and_running_incarnation(
             "status": "fenced",
             **payload,
         }
+        from hushh_mcp.services.pod_memory_bank import MEMORY_BANK_RECORD_KEY
+
+        memory_record = json.loads(await log._store.get(MEMORY_BANK_RECORD_KEY))
+        assert memory_record["erasure"]["ownerId"] == "ha1_owner"
+        assert memory_record["erasure"]["phase"] == "admission_closed"
         with pytest.raises(PodLogFenced):
             await log.replay()
 

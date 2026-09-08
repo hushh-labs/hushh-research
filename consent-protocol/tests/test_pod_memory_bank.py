@@ -2105,3 +2105,116 @@ async def test_cancelled_generation_retains_late_ack_without_resubmission(outcom
         with pytest.raises(mb.MemoryBankErasurePending, match="generation acknowledgement"):
             await _erase(restarted, log)
         assert http.deletes == []
+
+
+@pytest.mark.parametrize("source", ["absent", "creating", "ready"])
+async def test_memory_admission_fence_preserves_source_and_prevents_boot_provider(
+    monkeypatch, source
+):
+    _configure(monkeypatch)
+    cfg = mb.memory_bank_config()
+    store = _ready_store(cfg) if source == "ready" else _Store()
+    if source == "creating":
+        await mb._reserve_creation(store, cfg)
+    before_raw, generation = await store.get_with_generation(mb.MEMORY_BANK_RECORD_KEY)
+    before = json.loads(before_raw) if before_raw is not None else {}
+    log = await _erasure_log(store)
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert all(record[key] == value for key, value in before.items())
+    assert record["erasure"]["priorGeneration"] == generation
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    monkeypatch.setattr(
+        mb, "find_or_create_engine", lambda *a, **k: pytest.fail("provider reached")
+    )
+    assert await mb.ensure_memory_bank(store=store, log=log) is None
+    assert store.objects[mb.MEMORY_BANK_RECORD_KEY] == json.dumps(record, sort_keys=True).encode()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await mb.fence_memory_bank_admission(
+            store=store, log=log, owner_id="ha1_test", attempt_id="other-attempt"
+        )
+
+
+@pytest.mark.parametrize("fence_at", ["provider_observation", "publication_readback"])
+async def test_late_creation_receipt_survives_admission_fence_without_ready_publication(
+    monkeypatch,
+    fence_at,
+):
+    import asyncio
+
+    class PublicationStore(_Store):
+        async def put_if_generation(self, key, value, expected):
+            written = await super().put_if_generation(key, value, expected)
+            record = json.loads(value)
+            if (
+                fence_at == "publication_readback"
+                and "engineId" in record
+                and "erasure" not in record
+            ):
+                await mb.fence_memory_bank_admission(
+                    store=self, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+                )
+            return written
+
+    cfg, store = _cfg(), PublicationStore()
+    generation = await mb._reserve_creation(store, cfg)
+    log = await _erasure_log(store)
+    loop = asyncio.get_running_loop()
+    receipt = {
+        "name": "projects/123/locations/us-central1/reasoningEngines/91",
+        "createTime": "2026-09-01T00:00:00Z",
+    }
+
+    def observe(*args):
+        if fence_at == "provider_observation":
+            asyncio.run_coroutine_threadsafe(
+                mb.fence_memory_bank_admission(
+                    store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+                ),
+                loop,
+            ).result(timeout=5)
+        return receipt
+
+    monkeypatch.setattr(mb, "_observe_engine_incarnation", observe)
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await mb._write_record(store, cfg, "91", expected_generation=generation)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["erasure"]["phase"] == "admission_closed"
+    if fence_at == "provider_observation":
+        assert record["status"] == "creating"
+        assert record["creationAcknowledgement"] == {"engineId": "91", "engineIncarnation": receipt}
+    else:
+        assert record["engineId"] == "91" and record["engineIncarnation"] == receipt
+    with pytest.raises(mb.MemoryBankUnavailable):
+        mb._decode_record(json.dumps(record), cfg)
+
+
+async def test_admission_fence_preserves_and_accepts_exact_late_generation_ack():
+    import asyncio
+
+    store = _ready_store()
+    log = await _erasure_log(store)
+    loop = asyncio.get_running_loop()
+
+    class FenceDuringGeneration(_RestHttp):
+        def post(self, *args, **kwargs):
+            asyncio.run_coroutine_threadsafe(
+                mb.fence_memory_bank_admission(
+                    store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+                ),
+                loop,
+            ).result(timeout=5)
+            return super().post(*args, **kwargs)
+
+    await _tracked_service(store, FenceDuringGeneration()).add_session_to_memory(_rest_session("x"))
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["erasure"]["phase"] == "admission_closed"
+    assert record["generationOperation"]["phase"] == "pending"
+    http = _ErasureHttp()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _erase(_tracked_service(store, http), log)
+    assert http.deletes == []

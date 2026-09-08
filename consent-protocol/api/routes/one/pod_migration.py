@@ -196,7 +196,7 @@ async def fence_erasure(
     body: ErasureFenceRequest,
     x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
 ) -> dict:
-    """Close this owner's log; this is not permission to delete any resources."""
+    """Close log and memory admission; this is not permission to delete resources."""
     _require_enabled()
     payload = body.model_dump()
     if any(
@@ -210,7 +210,13 @@ async def fence_erasure(
         raise HTTPException(status_code=403, detail="erasure fence refused")
     _require_hub_caller(x_hussh_hub_proof, audience=erasure_proof_audience(payload))
     try:
-        await _commit_log().fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
+        from hushh_mcp.services.pod_memory_bank import fence_memory_bank_admission
+
+        log = _commit_log()
+        await log.fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
+        await fence_memory_bank_admission(
+            store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId
+        )
     except Exception:
         raise HTTPException(status_code=409, detail="erasure fence incomplete") from None
     return {"status": "fenced", **payload}

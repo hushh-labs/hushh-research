@@ -501,9 +501,76 @@ def _recall_slot(record: dict[str, Any]) -> Optional[dict[str, str]]:
     return slot
 
 
+def _admission_fence(record: dict[str, Any], owner_id: str) -> dict[str, Any]:
+    state = record.get("erasure")
+    if (
+        not isinstance(state, dict)
+        or set(state) != {"version", "ownerId", "attemptId", "phase", "priorGeneration"}
+        or type(state.get("version")) is not int
+        or state["version"] != 1
+        or state.get("ownerId") != owner_id
+        or state.get("phase") != "admission_closed"
+        or not isinstance(state.get("attemptId"), str)
+        or not 0 < len(state["attemptId"]) <= 128
+        or type(state.get("priorGeneration")) is not int
+        or state["priorGeneration"] < 0
+    ):
+        raise MemoryBankUnavailable("memory admission fence mismatch")
+    return state
+
+
+async def fence_memory_bank_admission(
+    *, store: Any, log: Any, owner_id: str, attempt_id: str
+) -> None:
+    """Close admission only, including absent/creating records; never call a provider."""
+    try:
+        await log.require_fenced(owner_id=owner_id, attempt_id=attempt_id)
+        raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+        record = json.loads(raw) if raw is not None else {}
+        if not isinstance(record, dict):
+            raise MemoryBankUnavailable("invalid memory record")
+        if "erasure" in record:
+            fence = _admission_fence(record, owner_id)
+            if fence["attemptId"] != attempt_id:
+                raise MemoryBankUnavailable("memory admission attempt changed")
+            return
+        if record and record.get("displayName") != _DISPLAY_PREFIX + owner_id:
+            raise MemoryBankUnavailable("memory admission owner mismatch")
+        if not record:
+            cfg = memory_bank_config()
+            if cfg is not None:
+                if cfg.display_name != _DISPLAY_PREFIX + owner_id:
+                    raise MemoryBankUnavailable("memory admission configuration mismatch")
+                record = {
+                    "project": cfg.project,
+                    "location": cfg.location,
+                    "displayName": cfg.display_name,
+                }
+        record = {
+            **record,
+            "erasure": {
+                "version": 1,
+                "ownerId": owner_id,
+                "attemptId": attempt_id,
+                "phase": "admission_closed",
+                "priorGeneration": generation,
+            },
+        }
+        _admission_fence(record, owner_id)
+        await _persist_record(store, record, generation)
+    except Exception:
+        raise MemoryBankUnavailable("memory admission fence incomplete") from None
+
+
 def _erasure_state(record: dict[str, Any], cfg: MemoryBankConfig, engine_id: str) -> dict[str, Any]:
     """Validate lifecycle metadata without admitting ordinary memory operations."""
     state = record.get("erasure")
+    if isinstance(state, dict) and state.get("phase") == "admission_closed":
+        state = _admission_fence(record, cfg.display_name.removeprefix(_DISPLAY_PREFIX))
+        ordinary = {key: value for key, value in record.items() if key != "erasure"}
+        if _decode_record(json.dumps(ordinary), cfg) != engine_id:
+            raise MemoryBankUnavailable("memory admission binding mismatch")
+        return state
     if (
         record.get("status") not in {"erasing", "provider_deleted"}
         or not isinstance(state, dict)
@@ -602,7 +669,30 @@ async def _write_record(
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
         }
     ).encode()
-    await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, expected_generation)
+    try:
+        await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, expected_generation)
+    except Exception:
+        # A CAS conflict is reconciled below; storage details remain private.
+        pass
+    observed, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+    current = json.loads(observed) if observed is not None else {}
+    if isinstance(current, dict) and "erasure" in current:
+        state = _admission_fence(current, cfg.display_name.removeprefix(_DISPLAY_PREFIX))
+        if state["priorGeneration"] != expected_generation or any(
+            current.get(key) != value
+            for key, value in {
+                "project": cfg.project,
+                "location": cfg.location,
+                "displayName": cfg.display_name,
+            }.items()
+        ):
+            raise MemoryBankUnavailable("creation acknowledgement binding changed")
+        receipt = {"engineId": engine_id, "engineIncarnation": incarnation}
+        existing = current.get("creationAcknowledgement")
+        if existing is not None and existing != receipt:
+            raise MemoryBankUnavailable("creation acknowledgement changed")
+        await _persist_record(store, {**current, "creationAcknowledgement": receipt}, generation)
+        raise MemoryBankErasurePending("creation acknowledged under closed admission")
     # CAS loss is not proof that another boot stored the same engine. Verify the
     # winning durable record before reporting readiness or enabling retrieval.
     observed = await store.get(MEMORY_BANK_RECORD_KEY)
@@ -626,6 +716,10 @@ async def _resume_erasure_if_present(store: Any, cfg: MemoryBankConfig, log: Any
         return False
     _STATE.update(engine_id=None, binding=None)
     _SERVICE.clear()
+    if isinstance(record["erasure"], dict) and record["erasure"].get("phase") == "admission_closed":
+        state = _admission_fence(record, cfg.display_name.removeprefix(_DISPLAY_PREFIX))
+        await log.require_fenced(owner_id=state["ownerId"], attempt_id=state["attemptId"])
+        raise MemoryBankErasurePending("memory admission closed; lifecycle reconciliation required")
     engine_id = record.get("engineId")
     if not isinstance(engine_id, str) or not _resource_segment(engine_id):
         raise MemoryBankUnavailable("invalid memory erasure engine")
@@ -664,6 +758,8 @@ async def ensure_memory_bank(*, store: Any = None, log: Any = None) -> Optional[
     try:
         if log is not None and await _resume_erasure_if_present(store, cfg, log):
             return None
+        if log is not None:
+            await log.require_open()
         try:
             recorded = await _read_record(store, cfg)
         except MemoryBankCreationPending:
@@ -691,6 +787,10 @@ async def ensure_memory_bank(*, store: Any = None, log: Any = None) -> Optional[
                 await _write_record(store, cfg, engine_id)
         if cfg.engine_id and cfg.engine_id != engine_id:
             raise MemoryBankUnavailable("configured engine conflicts with durable record")
+        if log is not None:
+            await log.require_open()
+        if await _read_record(store, cfg) != engine_id:
+            raise MemoryBankUnavailable("memory initialization admission changed")
         binding = _STATE.get("binding")
         if (
             binding is None
@@ -900,7 +1000,10 @@ def build_rest_memory_bank_service(
                 raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
                 current = json.loads(raw)
                 if "erasure" in current:
-                    if _erasure_state(current, cfg, engine_id)["phase"] != "waiting":
+                    if _erasure_state(current, cfg, engine_id)["phase"] not in {
+                        "waiting",
+                        "admission_closed",
+                    }:
                         raise MemoryBankUnavailable("memory completion crossed erasure")
                 elif _decode_record(raw, cfg) != engine_id:
                     raise MemoryBankUnavailable("memory completion binding changed")
