@@ -279,6 +279,23 @@ async def test_iam_binding_removed_via_read_modify_write():
             },
         ),
     )
+    first_policy = session.rules[0][2]
+    reads = iter(
+        [
+            first_policy,
+            _Resp(
+                200,
+                {
+                    "etag": "after",
+                    "bindings": [
+                        {"role": "roles/aiplatform.user", "members": [other]},
+                        {"role": "roles/viewer", "members": [other]},
+                    ],
+                },
+            ),
+        ]
+    )
+    session.rules[0] = ("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
     session.rule("POST", ":setIamPolicy", _Resp(200))
     await _deleter(session)(dict(action))
 
@@ -386,6 +403,23 @@ async def test_revoking_hushh_keeps_every_other_binding():
             },
         ),
     )
+    first_policy = session.rules[0][2]
+    reads = iter(
+        [
+            first_policy,
+            _Resp(
+                200,
+                {
+                    "etag": "after",
+                    "bindings": [
+                        {"role": "roles/iam.serviceAccountTokenCreator", "members": [theirs]},
+                        {"role": "roles/iam.serviceAccountUser", "members": [theirs]},
+                    ],
+                },
+            ),
+        ]
+    )
+    session.rules[0] = ("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
     session.rule("POST", ":setIamPolicy", _Resp(200))
     await _deleter(session)(dict(_REVOKE))
 
@@ -590,7 +624,7 @@ async def test_kms_pagination_failure_preserves_incomplete_result(second_status)
 
 
 @pytest.mark.parametrize("service_account", [False, True])
-@pytest.mark.parametrize("invalid", [None, "etag", "bindings", "version"])
+@pytest.mark.parametrize("invalid", [None, "etag", "bindings", "version", "readback"])
 async def test_iam_cleanup_preserves_conditional_grants_and_requires_write_precondition(
     service_account, invalid
 ):
@@ -629,12 +663,23 @@ async def test_iam_cleanup_preserves_conditional_grants_and_requires_write_preco
     elif invalid == "version":
         policy["version"] = 1
     session = _Session()
-    session.rule("POST", ":getIamPolicy", _Resp(200, policy))
+    reads = iter(
+        [
+            _Resp(200, policy),
+            _Resp(
+                200,
+                policy
+                if invalid == "readback"
+                else {"version": 3, "etag": "after", "bindings": [unrelated]},
+            ),
+        ]
+    )
+    session.rule("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
     session.rule("POST", ":setIamPolicy", _Resp(200))
     if invalid:
         with pytest.raises(SubstrateDeleteError):
             await _deleter(session)(action)
-        assert len(session.calls) == 1
+        assert len(session.calls) == (3 if invalid == "readback" else 1)
     else:
         await _deleter(session)(action)
         assert session.calls[1][2]["json"]["policy"] == {

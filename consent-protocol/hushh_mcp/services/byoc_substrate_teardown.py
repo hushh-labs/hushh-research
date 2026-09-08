@@ -1035,6 +1035,18 @@ def build_gcp_deleter(
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"project iam setIamPolicy http={put.status_code}")
+        observed = session.post(
+            f"{base}:getIamPolicy",
+            headers=headers,
+            json={"options": {"requestedPolicyVersion": 3}},
+            timeout=30,
+            allow_redirects=False,
+        )
+        if (
+            observed.status_code != 200
+            or _policy_without_binding(observed.json(), role, member) is not None
+        ):
+            raise SubstrateDeleteError("project iam grant removal unverified")
 
     def _remove_service_account_iam_binding(resource: str, role: str, member: str) -> None:
         # The same read-modify-write as the project version, on the service ACCOUNT's
@@ -1065,6 +1077,18 @@ def build_gcp_deleter(
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"sa iam setIamPolicy http={put.status_code}")
+        observed = session.post(
+            f"{base}:getIamPolicy",
+            headers=headers,
+            params={"options.requestedPolicyVersion": 3},
+            timeout=30,
+            allow_redirects=False,
+        )
+        if (
+            observed.status_code != 200
+            or _policy_without_binding(observed.json(), role, member) is not None
+        ):
+            raise SubstrateDeleteError("sa iam grant removal unverified")
 
     async def _deleter(action: dict) -> None:
         import asyncio  # noqa: PLC0415
