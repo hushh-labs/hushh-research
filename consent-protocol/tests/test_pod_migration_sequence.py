@@ -282,15 +282,33 @@ async def test_a_count_disagreement_refuses_the_switch(repo):
     assert "switch_over" not in steps.calls
 
 
-async def test_a_failed_switch_still_puts_the_agent_back(repo):
-    steps = _Steps(fail_at="switch_over")
+async def test_lost_switch_acknowledgement_retains_both_hosts(repo):
+    class LostAcknowledgement(_Steps):
+        published_url = None
 
+        async def switch_over(self, destination_url):
+            self.published_url = destination_url
+            raise RuntimeError("lost acknowledgement with sensitive provider detail")
+
+    steps = LostAcknowledgement()
     status, row = await _run(repo, steps)
 
+    assert steps.published_url == "https://one-pod-dst.run.app"
     assert status == "failed"
-    assert row["error_code"] == "SWITCH_FAILED"
-    assert "unfreeze" in steps.calls
-    assert "reap_source" not in steps.calls
+    assert row["error_code"] == "SWITCH_OUTCOME_UNKNOWN"
+    assert "sensitive provider detail" not in row["error_message"]
+    assert not {"unfreeze", "rollback_destination", "reap_source"}.intersection(steps.calls)
+
+
+async def test_superseded_switch_does_not_attempt_recovery(repo):
+    class SupersededSwitch(_Steps):
+        async def switch_over(self, destination_url):
+            raise MigrationJobSuperseded("replacement owns the migration")
+
+    steps = SupersededSwitch()
+    with pytest.raises(MigrationJobSuperseded):
+        await _run(repo, steps)
+    assert not {"unfreeze", "rollback_destination", "reap_source"}.intersection(steps.calls)
 
 
 # --------------------------------------------------------------------------- #

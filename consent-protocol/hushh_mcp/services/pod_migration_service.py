@@ -319,8 +319,8 @@ async def run_migration(
     THE SWITCH IS THE POINT OF NO RETURN, and it is gated on a hash comparison
     the hub can perform without any key at all. Before it, the source pod is
     untouched and the worst outcome is a migration that did not happen. After
-    it, the destination is live and verified and only cleanup can still fail --
-    which is why cleanup is last and its failure is logged rather than fatal.
+    an acknowledged switch, cleanup runs last. If switch acknowledgement is
+    lost, neither host is removed or unfrozen: routing must be reconciled first.
     """
     from hushh_mcp.services.pod_migration_bundle import (  # noqa: PLC0415
         PodMigrationBundleError,
@@ -437,10 +437,18 @@ async def run_migration(
     await repo.advance(user_id=user_id, job_id=job_id, stage="switching_over")
     try:
         await steps.switch_over(destination_url)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning("pod_migration.switch_failed", exc_info=True)
-        await _recover()
-        return await _fail("SWITCH_FAILED", f"{type(exc).__name__}: {exc}")
+    except MigrationJobSuperseded:
+        raise
+    except Exception:  # noqa: BLE001 - publication may have committed before acknowledgement
+        # A transport failure is not evidence that routing stayed on the source.
+        # Retain BOTH hosts: rollback could destroy the now-serving destination,
+        # while unfreezing could reopen the old source. Reconciliation must first
+        # establish which destination the authoritative registry actually serves.
+        logger.warning("pod_migration.switch_outcome_unknown")
+        return await _fail(
+            "SWITCH_OUTCOME_UNKNOWN",
+            "routing outcome could not be confirmed; both hosts retained for reconciliation",
+        )
 
     # 10. Cleanup is last and its failure is NOT fatal. The person's agent is
     #     already live and verified in their own cloud; a stranded old host is

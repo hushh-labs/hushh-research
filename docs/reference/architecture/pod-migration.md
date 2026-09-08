@@ -131,9 +131,16 @@ record.
 | destination already has history | import refuses (409) — merging two agents' memories into one chain that verifies perfectly and belongs to nobody is not a thing this code may attempt |
 | heads do not match | job fails before the switch; source unfrozen and whole |
 | instance restarts mid-run | ticket goes stale after 15 minutes and says so; every pre-switch stage is safe to restart |
-| failure after the switch | the destination is live and verified; only cleanup retries |
+| switch raises before its outcome can be confirmed | `SWITCH_OUTCOME_UNKNOWN`; both hosts retained, with no unfreeze, destination rollback or source reap |
+| cleanup failure after an acknowledged switch | the sequencer reports success and logs the retained source; complete resource cleanup remains unverified |
 
-There is no state in which both pods accept writes.
+On `SWITCH_OUTCOME_UNKNOWN`, inspect the authoritative owner registry and both
+hosts before any cleanup or retry. Confirm the serving destination, owner binding
+and recorded head receipts; a lost acknowledgement does not prove that the
+registry update failed. Retain both hosts if that evidence is unavailable. Do not
+start a new move or manually unfreeze the source merely because the job says
+`failed`. The existing error code distinguishes this unresolved outcome; automated
+reconciliation and complete in-flight writer fencing remain unfinished.
 
 ## Grace window for what is left behind
 
