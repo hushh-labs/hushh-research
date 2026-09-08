@@ -426,3 +426,35 @@ def test_receipt_persists_only_validated_creation_identity_for_its_planned_bucke
     assert len(record["resourceObservations"]) == 1
     assert record["resourceObservations"][0]["identity"]["generation"] == "1"
     assert "must-not-retain" not in json.dumps(record)
+
+
+@pytest.mark.parametrize("stage", ["plan", "apply", "configuration"])
+def test_bootstrap_failures_do_not_disclose_exception_contents(stage, caplog):
+    from hushh_mcp.services.user_gcp_bootstrap import BootstrapError
+
+    private = "synthetic-private-provider-value"
+
+    def render(_spec):
+        if stage == "plan":
+            raise RuntimeError(private)
+        return _PLAN
+
+    class Bootstrap:
+        def __init__(self, **kwargs):
+            if stage == "configuration":
+                raise BootstrapError(private)
+
+        def apply(self, *args, **kwargs):
+            raise RuntimeError(private)
+
+    ensurer = HushhFederatedSubstrate(
+        project="user-proj",
+        plan_renderer=render,
+        bootstrap_factory=Bootstrap,
+        dry_run=True,
+    )
+    receipt = asyncio.run(ensurer.ensure(object()))
+    assert receipt.applied is False
+    assert private not in receipt.detail
+    assert private not in caplog.text
+    assert private not in json.dumps(receipt.as_record())

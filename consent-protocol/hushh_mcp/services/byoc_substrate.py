@@ -1,53 +1,18 @@
-"""Make a BYOC tenant's infrastructure exist, and keep a receipt rather than a mirror.
+"""Ensure per-owner substrate through the existing bootstrap and retain bounded receipts.
 
-WHY THIS MODULE EXISTS
+The provisioning service resolves an ensurer for every target. User-cloud targets
+invoke ``UserGcpBootstrap``; targets without substrate use ``NoSubstrateRequired``.
+Provider credentials remain transient and provider response bodies are not persisted.
 
-``UserGcpBootstrap`` is a complete applier -- ordered calls, long-running-operation
-polling, secret seeding, IAM binding merge, bucket-ownership checks, dependency-aware
-per-step results -- and it had **zero callers outside tests**. The only mention of it in
-production code was a docstring in ``user_gcp_backend.py`` explaining that live
-provisioning depends on it.
+Receipts retain the planned typed inventory, plan digest and qualified creation
+observations. Only bucket and service-account identity fields currently have
+validators. Successful bootstrap may adopt existing resources, so neither ``applied``
+nor a resource name authorizes deletion. Creation observations are also insufficient
+without lifecycle admission and current-incarnation checks. Interrupted bootstrap
+before receipt persistence remains unqualified for automatic cleanup.
 
-That missing call is the whole reason BYO GCP could not be reached.
-``UserGcpBackend.provision`` is live-wired and gated on ``HUSSH_USER_GCP_LIVE`` **plus**
-a completed bootstrap that nothing ever ran. Not a missing capability -- a missing call,
-which is the same shape as every other defect this workstream has found.
-
-RECEIPT, NOT STATE
-------------------
-This is where the Terraform decision (docs/reference/architecture/deployment-standard.md)
-becomes code. Terraform's product is a *state file*: a durable record of every resource
-it created **and every attribute of each one**. For a project hushh does not own, holding
-that file is not bookkeeping -- it is the inverse of the promise. BYOC mints a
-900-second impersonated token and holds nothing afterward; a state file would be a
-permanent hushh-held mirror of a sovereign project, and because state records attributes
-verbatim it would contain the customer's own pod signing key -- the exact value
-``_seed_secret_version`` goes out of its way never even to echo.
-
-So hushh keeps a **receipt**:
-
-    state file  -> resource ATTRIBUTES     (configuration + secrets)
-    receipt     -> resource IDENTIFIERS    (names, plan version, grant, timestamp)
-
-Every BYOC resource name is already derived from the HusshID, so the receipt is a short
-name list plus a plan digest -- recomputable, not a mirror. It delivers the three things
-state was actually wanted for:
-
-  * **teardown inventory** -- the real gap today: nothing records what was created in a
-    customer's project, so nothing can clean it up;
-  * **audit evidence** -- which plan version reached which tenant, when, under which grant;
-  * **drift** -- re-impersonate with a fresh short-lived token, list, diff EXISTENCE.
-
-The residual is honest and deliberate: per-tenant, consent-gated drift, never fleet-wide.
-Fleet-wide drift across customer projects would require exactly the standing credential
-this tier promises not to have.
-
-STAYING PROVIDER-BLIND
-----------------------
-The orchestrator must not know which people need substrate -- knowing that means naming a
-provider in the common layer, which ``tests/test_deployment_boundary_holds.py`` refuses.
-So this follows the ``NullBackend`` pattern: the orchestrator ALWAYS ensures substrate,
-and targets with none resolve to :class:`NoSubstrateRequired`.
+The ensurer stays behind the provider-neutral provisioning boundary. It is not a
+second infrastructure state store or a fleet-wide authority over owner projects.
 """
 
 from __future__ import annotations
@@ -310,11 +275,9 @@ class HushhFederatedSubstrate:
 
         try:
             plan = self._render_plan(spec)
-        except Exception as exc:
-            logger.exception(
-                "byoc_substrate.plan_failed hushh_id=%s tenant=%s", hushh_id, tenant_ref
-            )
-            return SubstrateReceipt(False, tenant_ref, detail=f"plan render failed: {exc}")
+        except Exception:
+            logger.warning("byoc_substrate.plan_failed")
+            return SubstrateReceipt(False, tenant_ref, detail="bootstrap plan unavailable")
 
         resources = plan.get("resources") if isinstance(plan, dict) else None
         if not isinstance(resources, list) or any(
@@ -384,20 +347,22 @@ class HushhFederatedSubstrate:
                 dry_run=self._dry_run,
                 on_step=getattr(spec, "on_substrate_step", None),
             )
-        except BootstrapError as exc:
-            return SubstrateReceipt(
-                False, tenant_ref, resource_ids=ids, plan_digest=digest, detail=str(exc)
-            )
-        except Exception as exc:
-            logger.exception(
-                "byoc_substrate.apply_failed hushh_id=%s tenant=%s", hushh_id, tenant_ref
-            )
+        except BootstrapError:
             return SubstrateReceipt(
                 False,
                 tenant_ref,
                 resource_ids=ids,
                 plan_digest=digest,
-                detail=f"apply failed: {exc}",
+                detail="bootstrap configuration unavailable",
+            )
+        except Exception:
+            logger.warning("byoc_substrate.apply_failed")
+            return SubstrateReceipt(
+                False,
+                tenant_ref,
+                resource_ids=ids,
+                plan_digest=digest,
+                detail="bootstrap execution unavailable",
             )
 
         if not isinstance(outcome, dict):
