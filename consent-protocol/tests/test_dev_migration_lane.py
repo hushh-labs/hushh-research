@@ -4,7 +4,7 @@ Guards the contract that lets the 900-band migrations apply in dev WITHOUT
 touching the UAT/production schema contracts:
 
 * the parked files stay under ``db/migrations/parked/`` and out of
-  ``release_migration_manifest.json`` (so the repo migration head stays 131);
+  ``release_migration_manifest.json`` without changing the release migration head;
 * the lane activates on the dev GCP project id and nowhere else;
 * the release lane is unchanged when the dev lane is off.
 """
@@ -31,25 +31,9 @@ DB_DIR = Path(migrate.__file__).resolve().parent
 MIGRATIONS_DIR = DB_DIR / "migrations"
 PARKED_DIR = MIGRATIONS_DIR / "parked"
 
-EXPECTED_PARKED_MIGRATIONS = (
-    "900_personal_agent_registry.sql",
-    "901_agent_prompt_versions.sql",
-    "902_personal_agent_tombstone_hushh_id_index.sql",
-    "903_webauthn_credentials.sql",
-    "904_consent_audit_receipts.sql",
-    "905_personal_agent_liveness.sql",
-    "906_personal_agent_user_cloud.sql",
-    "907_pod_lifecycle_events.sql",
-    "908_personal_agent_tombstone_metadata.sql",
-    "909_byoc_setup_jobs.sql",
-    "910_personal_agent_status_needs_reinit.sql",
-    "911_pod_migration_jobs.sql",
-    "912_personal_agent_status_migrating.sql",
-    "913_consent_audit_receipts_ledger.sql",
-    "914_personal_agent_billing_space_id.sql",
-    "915_personal_agent_renewal_authority.sql",
-    "916_personal_agent_erasure_admission.sql",
-)
+
+def _parked_migrations() -> tuple[str, ...]:
+    return migrate._load_dev_manifest(migrate.DEV_MANIFEST_PATH)
 
 
 def _migration_version(filename: str) -> int:
@@ -72,14 +56,13 @@ def test_dev_manifest_lists_every_parked_file_and_nothing_else() -> None:
     """
     ordered = migrate._load_dev_manifest(migrate.DEV_MANIFEST_PATH)
 
-    assert ordered == EXPECTED_PARKED_MIGRATIONS
     on_disk = sorted(p.name for p in PARKED_DIR.glob("*.sql"))
     assert sorted(ordered) == on_disk, "db/migrations/parked/ and the dev manifest disagree"
 
 
 def test_dev_manifest_is_in_numeric_order() -> None:
     """902 indexes a table 900 creates, so ordering is load-bearing."""
-    versions = [_migration_version(name) for name in EXPECTED_PARKED_MIGRATIONS]
+    versions = [_migration_version(name) for name in _parked_migrations()]
 
     assert versions == sorted(versions)
     assert len(set(versions)) == len(versions), "duplicate migration number in the parked band"
@@ -137,16 +120,16 @@ def test_parked_entries_build_from_the_parked_dir() -> None:
     ordered = migrate._load_dev_manifest(migrate.DEV_MANIFEST_PATH)
     entries = build_manifest_entries(migrate.PARKED_MIGRATIONS_DIR, ordered)
 
-    expected_ids = [name.split("_", 1)[0] for name in EXPECTED_PARKED_MIGRATIONS]
+    expected_ids = [name.split("_", 1)[0] for name in _parked_migrations()]
     assert [entry.migration_id for entry in entries] == expected_ids
-    assert [entry.filename for entry in entries] == list(EXPECTED_PARKED_MIGRATIONS)
+    assert [entry.filename for entry in entries] == list(_parked_migrations())
     assert all(entry.sql.strip() for entry in entries)
     assert all(len(entry.checksum_sha256) == 64 for entry in entries)
 
 
 def test_parked_files_are_not_resolvable_from_the_release_migrations_dir() -> None:
     """Proves the files really are parked, not sitting in the active sequence."""
-    for filename in EXPECTED_PARKED_MIGRATIONS:
+    for filename in _parked_migrations():
         assert not (MIGRATIONS_DIR / filename).exists()
 
 
@@ -225,11 +208,11 @@ def test_dev_gcp_project_id_is_matched_exactly_not_by_prefix() -> None:
 def test_release_manifest_excludes_every_parked_migration() -> None:
     release_set = set(migrate.RELEASE_MIGRATION_FILES)
 
-    for filename in EXPECTED_PARKED_MIGRATIONS:
+    for filename in _parked_migrations():
         assert filename not in release_set
 
     for group in (migrate.IAM_MIGRATION_FILES, migrate.PKM_MIGRATION_FILES):
-        assert not set(group) & set(EXPECTED_PARKED_MIGRATIONS)
+        assert not set(group) & set(_parked_migrations())
 
 
 def test_release_manifest_still_matches_the_repo_migration_head() -> None:

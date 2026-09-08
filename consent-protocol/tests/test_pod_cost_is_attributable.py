@@ -105,25 +105,39 @@ def test_the_rendered_label_carries_the_minted_space():
     assert _GCP_LABEL_VALUE.match(labels["hussh-billing-space"])
 
 
-def test_the_provision_path_assigns_a_space_and_records_it_on_the_row():
-    """THE test that would have caught the defect. The cost-label test constructs
-    its own spec, so it can only prove the renderer works; nothing anywhere
-    asserted that a real provision puts a value into the field."""
-    import pathlib
+async def test_the_provision_path_assigns_a_space_and_records_it_on_the_row(monkeypatch):
+    """Actual orchestration must persist the same opaque id sent to the backend."""
+    from unittest.mock import AsyncMock
 
-    src = (
-        pathlib.Path(__file__).resolve().parents[1]
-        / "hushh_mcp"
-        / "services"
-        / "personal_agent_provisioning_service.py"
-    ).read_text()
-    assert "billing_space_id = mint_billing_space_id(hushh_id)" in src, (
-        "provision stopped minting the billing id"
+    from hushh_mcp.runtime_settings import get_core_security_settings
+    from hushh_mcp.services.compute_backend import NullBackend
+    from hushh_mcp.services.personal_agent_provisioning_service import (
+        PersonalAgentProvisioningService,
     )
-    assert "billing_space_id=billing_space_id," in src, "the spec or the row stopped carrying it"
-    # Both consumers, named separately: the label makes spend visible, the row
-    # makes it joinable, and one without the other attributes nothing.
-    assert src.count("billing_space_id=billing_space_id,") >= 2
+    from tests.test_personal_agent_provisioning_service import FakeGrant, FakeRegistry, _pod_key
+
+    monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    get_core_security_settings.cache_clear()
+    registry, backend = FakeRegistry(), NullBackend()
+    backend.provision = AsyncMock(wraps=backend.provision)
+    key = _pod_key()
+    try:
+        await PersonalAgentProvisioningService(
+            registry=registry, grant=FakeGrant(), backend=backend
+        ).provision(
+            user_id="cost-owner",
+            phone_e164=_PHONES[0],
+            pod_public_key_b64=key.public_key_b64,
+            pod_key_id=key.key_id,
+        )
+        spec = backend.provision.call_args.args[0]
+        row = await registry.get("cost-owner")
+        expected = mint_billing_space_id(mint_hushh_id(_PHONES[0]))
+        assert spec.billing_space_id == expected
+        assert row["billing_space_id"] == expected
+        assert row["backend_metadata"]["provisionAttempt"]["intent"]["billing_space_id"] == expected
+    finally:
+        get_core_security_settings.cache_clear()
 
 
 def test_the_lifecycle_paths_read_the_space_off_the_row_rather_than_re_deriving_it():
