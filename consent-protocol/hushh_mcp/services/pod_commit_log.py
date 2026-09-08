@@ -35,8 +35,10 @@ not a property anyone can reason about.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import contextlib
+import contextvars
 import fcntl
 import hashlib
 import json
@@ -310,6 +312,9 @@ class GcsObjectStore:
         return data
 
     async def get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
+        return await asyncio.to_thread(self._get_with_generation, key)
+
+    def _get_with_generation(self, key: str) -> tuple[Optional[bytes], int]:
         quoted = urllib.parse.quote(self._key(key), safe="")
         meta = self._session.get(
             f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}",
@@ -337,6 +342,28 @@ class GcsObjectStore:
             raise FileExistsError(f"record object already exists: {key}")
 
     async def put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
+        # Offloading must not make cancellation report completion while a write
+        # is still running. Retain and join the bounded HTTP worker first. This
+        # is process-local completion, not a durable upload-drain receipt.
+        worker = asyncio.get_running_loop().run_in_executor(
+            None, contextvars.copy_context().run, self._put_if_generation, key, data, expected
+        )
+        cancelled = False
+        while not worker.done():
+            try:
+                await asyncio.shield(worker)
+            except asyncio.CancelledError:
+                cancelled = True
+            except Exception:
+                break
+        if cancelled:
+            # Observe any worker exception without releasing it to a cancelled caller.
+            if not worker.cancelled():
+                worker.exception()
+            raise asyncio.CancelledError
+        return worker.result()
+
+    def _put_if_generation(self, key: str, data: bytes, expected: int) -> Optional[int]:
         response = self._session.post(
             f"https://storage.googleapis.com/upload/storage/v1/b/{self._bucket}/o",
             params={

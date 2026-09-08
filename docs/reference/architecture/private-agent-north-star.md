@@ -426,6 +426,9 @@ claim; contradictory returned bucket names fail bootstrap. Receipt-backed cleanu
 its configured project number before bucket access, compares creation identity before and
 after object cleanup, and uses a current metageneration for bucket deletion. It checks
 both live absence and the retained soft-deleted generation; retention is incomplete.
+GCS log HTTP runs off the event loop; cancelled write callers wait for their worker
+to terminate before cancellation completes. That process-local join is not durable
+upload reconciliation or proof of remote completion after a transport error.
 Metageneration is not an atomic incarnation precondition: writer quiescence, exclusive
 lifecycle admission, interrupted-operation recovery and live acceptance remain outstanding.
 Only bounded identity fields

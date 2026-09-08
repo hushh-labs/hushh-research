@@ -784,3 +784,38 @@ async def test_inconsistent_head_cannot_publish_a_successor(tmp_path):
     with pytest.raises(PodLogTampered):
         await log.append("must-not-publish", {})
     assert sorted((tmp_path / "store" / "records").iterdir()) == before
+
+
+@pytest.mark.asyncio
+async def test_gcs_write_keeps_loop_responsive_and_joins_cancelled_worker():
+    import asyncio
+    import threading
+
+    entered = threading.Event()
+    release = threading.Event()
+    completed = threading.Event()
+
+    class BlockingTransport(_FakeGcsTransport):
+        def post(self, url, **kwargs):
+            entered.set()
+            try:
+                assert release.wait(3), "event loop did not release upload"
+                return super().post(url, **kwargs)
+            finally:
+                completed.set()
+
+    store = GcsObjectStore("user-bucket", session=BlockingTransport())
+    task = asyncio.create_task(store.put_if_generation("head.json", b"{}", 3))
+    try:
+        assert await asyncio.to_thread(entered.wait, 2)
+        task.cancel()
+        await asyncio.sleep(0)
+        task.cancel()
+        await asyncio.sleep(0)
+        assert not task.done()
+        assert not completed.is_set()
+    finally:
+        release.set()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    assert completed.is_set()
