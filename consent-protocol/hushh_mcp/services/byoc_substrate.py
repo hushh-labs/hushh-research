@@ -69,12 +69,15 @@ RECEIPT_VERSION = "byoc.substrate.receipt.v1"
 
 @dataclass(frozen=True)
 class SubstrateReceipt:
-    """What was created, named but not described.
+    """Applied substrate identifiers, including resources adopted during bootstrap.
 
     Deliberately carries no resource ATTRIBUTES. A reader can tell that
     ``one-pod-<slug>-key`` exists; it cannot learn the key, the bucket's configuration,
     or any seeded secret. That boundary is the reason this type exists rather than a
-    stashed copy of the plan.
+    stashed copy of the plan. A successful receipt does not establish exclusive
+    creation or authorize deletion: bootstrap can accept existing resources, and
+    project membership alone does not prove this pod owns them. Cleanup requires
+    separately retained typed inventory and resource-specific ownership evidence.
 
     ``steps`` is kept because a half-applied project is a real state a caller has to
     reason about, and the applier goes to some trouble to report which half -- returning

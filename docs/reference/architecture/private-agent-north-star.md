@@ -413,7 +413,14 @@ DELETE. Terminal operation evidence must identify the original service; it does 
 storage erasure. Version-specific object deletion and separate retained-object inventory
 checks still require live acceptance, including soft-delete-disabled and missing-bucket
 recovery. Account erasure remains incomplete while storage, keys, grants or owner cleanup
-lack verified outcomes. These compute changes are local and not deployed.
+lack verified outcomes. These compute changes are published but not deployed.
+The substrate receipt records applied identifiers and a plan digest, including adopted
+resources; it does not prove exclusive creation. The shared `one-pod` image repository
+must not be deleted solely because its derived name appears in a cleanup plan. Before
+connecting substrate cleanup, retain typed inventory and resource-specific ownership
+alongside the existing erasure reservation, then persist partial outcomes before releasing
+bootstrap authority. The existing live drill remains unavailable until disposable ownership
+and complete cleanup satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
 cancellation. Lost worker or transport outcomes remain `delete_submitting` and cannot
 resubmit DELETE. These source changes require dev rollout and lifecycle acceptance.
