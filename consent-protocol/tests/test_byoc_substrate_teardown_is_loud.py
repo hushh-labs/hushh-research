@@ -734,3 +734,45 @@ async def test_receipted_account_cleanup_targets_creation_identity(case):
     assert all(
         target == url and kwargs["allow_redirects"] is False for _, target, kwargs in session.calls
     )
+
+
+@pytest.mark.parametrize("case", ["destroyed", "changed", "foreign", "unavailable"])
+async def test_receipted_kms_cleanup_verifies_creation_before_version_access(case):
+    from hushh_mcp.services.byoc_substrate_teardown import plan_teardown
+
+    name = "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/key-1"
+    identity = {"name": name, "purpose": "ENCRYPT_DECRYPT", "createTime": "2026-09-08T00:00:00Z"}
+    action = {
+        "type": "kms_key",
+        "id": "key-1",
+        "resourceObservation": {
+            "type": "kms_key",
+            "id": "key-1",
+            "disposition": "created",
+            "identity": identity,
+        },
+    }
+    if case == "foreign":
+        identity["name"] = name.replace("proj-x", "foreign")
+    observed = dict(identity)
+    if case == "changed":
+        observed["createTime"] = "2026-09-09T00:00:00Z"
+    session = _Session()
+    session.rule(
+        "GET",
+        name + "/cryptoKeyVersions",
+        _Resp(
+            200,
+            {"cryptoKeyVersions": [{"name": name + "/cryptoKeyVersions/1", "state": "DESTROYED"}]},
+        ),
+    )
+    session.rule("GET", name, _Resp(404 if case == "unavailable" else 200, observed))
+    planned = plan_teardown([action])
+    if case == "destroyed":
+        await _deleter(session)(planned[0])
+        assert len(session.calls) == 2
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await _deleter(session)(planned[0])
+        assert len(session.calls) == (0 if case == "foreign" else 1)
+    assert all(method == "GET" for method, _, _ in session.calls)

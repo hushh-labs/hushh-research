@@ -5,8 +5,7 @@ invoke ``UserGcpBootstrap``; targets without substrate use ``NoSubstrateRequired
 Provider credentials remain transient and provider response bodies are not persisted.
 
 Receipts retain the planned typed inventory, plan digest and qualified creation
-observations. Only bucket and service-account identity fields currently have
-validators. Successful bootstrap may adopt existing resources, so neither ``applied``
+observations. Bucket, service-account and KMS key identity fields currently have validators. Successful bootstrap may adopt existing resources, so neither ``applied``
 nor a resource name authorizes deletion. Creation observations are also insufficient
 without lifecycle admission and current-incarnation checks. Interrupted bootstrap
 before receipt persistence remains unqualified for automatic cleanup.
@@ -82,6 +81,35 @@ def _service_account_creation_identity(value: Any, expected_email: str) -> dict[
     return {key: value[key] for key in ("name", "email", "projectId", "uniqueId")}
 
 
+def _kms_key_creation_identity(value: Any, expected_name: str) -> dict[str, str] | None:
+    """Retain immutable key identity, excluding versions, labels and key material."""
+    import re
+    from datetime import datetime
+
+    if (
+        not isinstance(expected_name, str)
+        or len(expected_name) > 512
+        or re.fullmatch(
+            r"projects/[a-z0-9-]+/locations/[a-z0-9-]+/keyRings/hushh-one/cryptoKeys/[A-Za-z0-9_-]+",
+            expected_name,
+        )
+        is None
+        or not isinstance(value, dict)
+        or value.get("name") != expected_name
+        or value.get("purpose") != "ENCRYPT_DECRYPT"
+    ):
+        return None
+    created = value.get("createTime")
+    if not isinstance(created, str) or len(created) > 64:
+        return None
+    try:
+        if datetime.fromisoformat(created.replace("Z", "+00:00")).tzinfo is None:
+            return None
+    except ValueError:
+        return None
+    return {key: value[key] for key in ("name", "purpose", "createTime")}
+
+
 @dataclass(frozen=True)
 class SubstrateReceipt:
     """Applied substrate identifiers, including resources adopted during bootstrap.
@@ -137,6 +165,11 @@ class SubstrateReceipt:
         validators = {
             "gcs_bucket": _bucket_creation_identity,
             "service_account": _service_account_creation_identity,
+            "kms_key": lambda value, key_id: _kms_key_creation_identity(
+                value,
+                f"projects/{self.tenant_ref.partition('/')[0]}/locations/"
+                f"{self.tenant_ref.partition('/')[2]}/keyRings/hushh-one/cryptoKeys/{key_id}",
+            ),
         }
         for observation in self.resource_observations:
             if (

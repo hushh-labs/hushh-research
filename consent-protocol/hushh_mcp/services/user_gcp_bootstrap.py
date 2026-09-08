@@ -954,6 +954,27 @@ class UserGcpBootstrap:
                         "disposition": "created",
                         "identity": identity,
                     }
+            if ok and code in (200, 201) and call["step"] == "kms_key":
+                from hushh_mcp.services.byoc_substrate import _kms_key_creation_identity
+
+                key_id = call["params"]["cryptoKeyId"]
+                expected_name = (
+                    f"{call['url'].removeprefix('https://cloudkms.googleapis.com/v1/')}/{key_id}"
+                )
+                key_body = _json_or_empty(response)
+                if ("name" in key_body and key_body["name"] != expected_name) or (
+                    "purpose" in key_body and key_body["purpose"] != "ENCRYPT_DECRYPT"
+                ):
+                    ok = False
+                    result.update(ok=False, detail="KMS key creation identity mismatch")
+                identity = _kms_key_creation_identity(key_body, expected_name)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "kms_key",
+                        "id": key_id,
+                        "disposition": "created",
+                        "identity": identity,
+                    }
             results.append(result)
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)

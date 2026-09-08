@@ -24,8 +24,8 @@ class SubstrateDeleteError(RuntimeError):
 
 # Dependency-safe teardown order (LOWER runs first). Reverse of creation, so a
 # resource is deleted only after whatever depends on it is gone. KMS is LAST and
-# is a version-destroy, not a delete -- the keyring/key resource itself is
-# permanent in GCP; only key versions can be scheduled for destruction.
+# destroys key material through version destruction and retains resource shells.
+# KMS also supports conditional resource deletion; this executor does not invoke it.
 _TEARDOWN_PRIORITY = {
     "cloud_scheduler_job": 10,
     "pubsub_subscription": 20,
@@ -92,18 +92,28 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
             if r.get(key):
                 action[key] = str(r[key])
         if "resourceObservation" in r:
-            from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+            from hushh_mcp.services.byoc_substrate import (
+                _kms_key_creation_identity,
+                _service_account_creation_identity,
+            )
 
             observation = r["resourceObservation"]
             if (
-                rtype != "service_account"
+                rtype not in {"service_account", "kms_key"}
                 or not isinstance(observation, dict)
                 or observation.get("type") != rtype
                 or observation.get("id") != rid
                 or observation.get("disposition") != "created"
             ):
                 raise SubstrateDeleteError("substrate creation observation invalid or unsupported")
-            identity = _service_account_creation_identity(observation.get("identity"), rid)
+            if rtype == "service_account":
+                identity = _service_account_creation_identity(observation.get("identity"), rid)
+            else:
+                raw_identity = observation.get("identity")
+                name = raw_identity.get("name", "") if isinstance(raw_identity, dict) else ""
+                identity = _kms_key_creation_identity(raw_identity, name)
+                if identity and identity["name"].rsplit("/", 1)[-1] != rid:
+                    identity = None
             if identity is None:
                 raise SubstrateDeleteError("substrate creation identity invalid")
             action["resourceObservation"] = {
@@ -607,8 +617,13 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
-        if observation and observation["identity"]["projectId"] != project:
-            raise SubstrateDeleteError("substrate creation project mismatch")
+        if observation:
+            if kind == "service_account" and observation["identity"]["projectId"] != project:
+                raise SubstrateDeleteError("substrate creation project mismatch")
+            if kind == "kms_key" and observation["identity"]["name"] != (
+                f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{rid}"
+            ):
+                raise SubstrateDeleteError("substrate creation project or region mismatch")
 
         def _run() -> None:
             if kind == "cloud_scheduler_job":
@@ -666,8 +681,23 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                     str(action.get("member") or ""),
                 )
             elif kind == "kms_key":
-                # Keys cannot be deleted; destroying every version is the real
-                # erasure, and the empty key shell is inert and costless.
+                # This cleanup policy destroys key material and retains the key
+                # shell. It does not invoke KMS resource deletion or claim absence.
+                if observation:
+                    from hushh_mcp.services.byoc_substrate import _kms_key_creation_identity
+
+                    expected = observation["identity"]
+                    response = session.get(
+                        f"https://cloudkms.googleapis.com/v1/{expected['name']}",
+                        headers=headers,
+                        timeout=30,
+                        allow_redirects=False,
+                    )
+                    if (
+                        response.status_code != 200
+                        or _kms_key_creation_identity(response.json(), expected["name"]) != expected
+                    ):
+                        raise SubstrateDeleteError("KMS key creation identity unverified")
                 _destroy_kms_versions(rid)
             else:
                 # A plan entry nothing knows how to delete must fail the completeness

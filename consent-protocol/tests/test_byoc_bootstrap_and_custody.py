@@ -1412,3 +1412,37 @@ def test_service_account_creation_receipt_binds_unique_identity(case):
         assert "must-not-retain" not in json.dumps(receipt)
     else:
         assert "resourceObservation" not in step
+
+
+@pytest.mark.parametrize("case", ["created", "adopted", "foreign", "missing_time"])
+def test_kms_creation_receipt_binds_key_identity(case):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    plan = _plan()
+    key = next(r["id"] for r in plan["resources"] if r["type"] == "kms_key")
+    name = f"projects/{USER_PROJECT}/locations/us-central1/keyRings/hushh-one/cryptoKeys/{key}"
+    body = {
+        "name": name,
+        "purpose": "ENCRYPT_DECRYPT",
+        "createTime": "2026-09-08T00:00:00Z",
+        "private": "must-not-retain",
+    }
+    if case == "foreign":
+        body["name"] = name.replace(USER_PROJECT, "foreign-project")
+    elif case == "missing_time":
+        body.pop("createTime")
+    session = _Session(routes={"/cryptoKeys": _Response(409 if case == "adopted" else 200, body)})
+    result = _boot(session).apply(plan, dry_run=False)
+    step = next(step for step in result["steps"] if step["step"] == "kms_key")
+    assert step["ok"] is (case != "foreign")
+    if case == "created":
+        record = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=[{"type": "kms_key", "id": key}],
+            resource_observations=[step["resourceObservation"]],
+        ).as_record()
+        assert record["resourceObservations"][0]["identity"]["name"] == name
+        assert "must-not-retain" not in json.dumps(record)
+    else:
+        assert "resourceObservation" not in step
