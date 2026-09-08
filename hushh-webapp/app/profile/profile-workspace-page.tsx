@@ -2467,6 +2467,26 @@ function ProfilePageContent() {
         preference_voice_actions_available:
           activePanel === "preferences" ? false : null,
       },
+      // Deliberately offered to the agent; screenMetadata above stays
+      // browser-local. Curated rather than copied: screenMetadata carries
+      // google_email, and this map is rendered into the model's prompt, so the
+      // person's address would have travelled into every turn on this screen.
+      // Counts, states and flags only.
+      screenState: {
+        profile_panel: activePanel,
+        profile_detail: activeDetail ?? null,
+        total_attributes: profileSummary.totalAttributes,
+        domain_count: profileSummary.totalDomains,
+        pending_consents: pendingConsents ?? 0,
+        gmail_connected: gmailPresentation.isConnected,
+        gmail_state: gmailPresentation.state,
+        marketplace_opt_in: marketplaceOptIn,
+        security_summary: securitySummaryText,
+        phone_verified: Boolean(phoneNumber),
+        email_verified: emailVerified,
+        pkm_agent_lab_available: canShowPkmAgentLab,
+        vault_needs_creation: vaultAccess.needsVaultCreation === true,
+      },
     };
   }, [
     activeDetail,

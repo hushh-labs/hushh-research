@@ -1070,6 +1070,7 @@ async def run_one_live_session(
                     # is re-notified when the person focuses different content on
                     # the SAME route (e.g. selecting another item), not only on
                     # navigation. Both lists are bounded and redacted upstream.
+                    screen_state = sanitized_context.get("screen_state")
                     content_key = "|".join(
                         [
                             ",".join(
@@ -1079,6 +1080,15 @@ async def run_one_live_session(
                                 str(value)
                                 for value in sanitized_context.get("visible_control_ids", [])
                             ),
+                            # Screen state has to move this key or the note is
+                            # never re-injected when only the state changed --
+                            # the modules and controls are identical when a
+                            # pending count goes 0 -> 3, so the model would keep
+                            # answering with the count it was first told.
+                            # Sorted so an unordered dict cannot churn the key.
+                            ",".join(f"{key}={screen_state[key]}" for key in sorted(screen_state))
+                            if isinstance(screen_state, dict)
+                            else "",
                         ]
                     )
                     route_key = ":".join(

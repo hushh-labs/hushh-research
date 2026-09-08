@@ -9972,6 +9972,31 @@ export function OneLocationAgentPageContent({
         circle_count: namedCircles.length,
         has_load_error: Boolean(loadError),
       },
+      // Deliberately offered to the agent, unlike screenMetadata above which
+      // stays browser-local. Every value here already existed in this
+      // component's render and was simply never sent, so One could list every
+      // sharing action while being unable to answer "am I sharing right now".
+      // These are the questions people actually ask this screen.
+      //
+      // Counts and flags only -- no names, no grant ids, no addresses. This
+      // map is rendered into the model's prompt.
+      screenState: {
+        location_tab: hubTab,
+        location_flow: openFlow ?? null,
+        data_state: dataState,
+        permission_state: permission?.state ?? null,
+        pending_request_count: pendingOwnerRequests.length,
+        connection_count: shareRecipientPool.length,
+        circle_count: namedCircles.length,
+        has_load_error: Boolean(loadError),
+        sharing_enabled: locationEnabled,
+        sharing_paused: locationControl.paused === true,
+        active_share_count: activeOwnerGrants.length,
+        live_share_active: Boolean(liveShareStatus),
+        shared_with_me_count: visibleReceivedGrants.length,
+        sos_active: Boolean(sosIncident?.grantIds.length),
+        emergency_contact_count: smsContactUserIds.length,
+      },
     };
   }, [
     busy,
@@ -9986,6 +10011,16 @@ export function OneLocationAgentPageContent({
     // Picking someone clears the dead end, so the metadata has to be rebuilt
     // when the selection changes -- not only when the pool does.
     shareReadySelectedRecipients.length,
+    // Every published value needs its dependency here or the memo serves a
+    // frozen number: a stale count is worse than an absent one, because the
+    // model states it as fact.
+    locationEnabled,
+    locationControl.paused,
+    activeOwnerGrants.length,
+    liveShareStatus,
+    visibleReceivedGrants.length,
+    sosIncident,
+    smsContactUserIds.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
 
