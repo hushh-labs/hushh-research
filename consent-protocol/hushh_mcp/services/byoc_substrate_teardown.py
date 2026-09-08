@@ -74,6 +74,7 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
     if not isinstance(resources, (list, tuple)):
         raise SubstrateDeleteError("substrate inventory must be an explicit sequence")
     actions: list[dict[str, Any]] = []
+    targets: set[tuple[str, ...]] = set()
     for r in resources:
         if not isinstance(r, dict) or any(
             not isinstance(r.get(key), str) or not r[key].strip() for key in ("type", "id")
@@ -129,6 +130,22 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
                 "disposition": "created",
                 "identity": identity,
             }
+        # A resource incarnation gets one action. Conflicting observations must
+        # not turn the same provider target into two independent admissions.
+        # IAM IDs are display labels; its actual target includes the grant.
+        target = (
+            (
+                rtype,
+                str(action.get("resource", "")) if rtype == "service_account_iam_binding" else "",
+                str(action.get("role", "")),
+                str(action.get("member", "")),
+            )
+            if rtype in {"iam_binding", "service_account_iam_binding"}
+            else (rtype, rid)
+        )
+        if target in targets:
+            raise SubstrateDeleteError("substrate inventory contains duplicate targets")
+        targets.add(target)
         actions.append(action)
     actions.sort(key=lambda a: _TEARDOWN_PRIORITY.get(a["type"], 49))
     return actions

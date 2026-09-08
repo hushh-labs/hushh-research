@@ -44,6 +44,49 @@ def test_every_emitted_type_has_an_explicit_priority_slot():
     assert types[-1] == "kms_key"
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize("kind", ["gcs_bucket", "iam_binding", "service_account_iam_binding"])
+async def test_duplicate_targets_refuse_before_admission_or_provider(monkeypatch, kind):
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    calls = []
+
+    async def observe(payload):
+        calls.append(payload)
+        return True
+
+    resource = {
+        "type": kind,
+        "id": "target",
+        "role": "roles/viewer",
+        "member": "serviceAccount:owner@example.com",
+        "resource": "owner@example.com",
+    }
+    duplicate = {**resource, "id": " target " if kind == "gcs_bucket" else "different-label"}
+    with pytest.raises(SubstrateDeleteError, match="duplicate targets"):
+        await execute_teardown(
+            [resource, duplicate],
+            deleter=observe,
+            dry_run=False,
+            before_action=observe,
+            on_result=observe,
+        )
+    assert calls == []
+
+
+def test_distinct_iam_grants_remain_separate_actions():
+    base = {"type": "iam_binding", "id": "grant", "role": "roles/viewer"}
+    assert (
+        len(
+            plan_teardown(
+                [{**base, "member": "user:a@example.com"}, {**base, "member": "user:b@example.com"}]
+            )
+        )
+        == 2
+    )
+
+
 def test_substrate_resources_names_the_project_level_grant():
     from hushh_mcp.services.user_gcp_backend import pod_service_account_id
 
