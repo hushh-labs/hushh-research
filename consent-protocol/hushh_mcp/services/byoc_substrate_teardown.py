@@ -79,7 +79,7 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
             raise SubstrateDeleteError("substrate inventory contains an invalid resource")
         rtype = r["type"].strip()
         rid = r["id"].strip()
-        action = {
+        action: dict[str, Any] = {
             "type": rtype or "unknown",
             "id": rid,
             "op": "destroy_versions" if rtype == "kms_key" else "delete",
@@ -91,6 +91,27 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
         for key in ("role", "member", "resource"):
             if r.get(key):
                 action[key] = str(r[key])
+        if "resourceObservation" in r:
+            from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+
+            observation = r["resourceObservation"]
+            if (
+                rtype != "service_account"
+                or not isinstance(observation, dict)
+                or observation.get("type") != rtype
+                or observation.get("id") != rid
+                or observation.get("disposition") != "created"
+            ):
+                raise SubstrateDeleteError("substrate creation observation invalid or unsupported")
+            identity = _service_account_creation_identity(observation.get("identity"), rid)
+            if identity is None:
+                raise SubstrateDeleteError("substrate creation identity invalid")
+            action["resourceObservation"] = {
+                "type": rtype,
+                "id": rid,
+                "disposition": "created",
+                "identity": identity,
+            }
         actions.append(action)
     actions.sort(key=lambda a: _TEARDOWN_PRIORITY.get(a["type"], 49))
     return actions
@@ -160,9 +181,11 @@ def substrate_resources(
     bootstrap_sa: str = "",
     hushh_caller: str = "",
 ) -> list[dict[str, Any]]:
-    """The deletable substrate a pod's bootstrap created in the person's project.
+    """Legacy candidate inventory derived from bootstrap naming, not ownership proof.
 
-    Derived from the SAME naming helpers the bootstrap plan renders from, so the
+    Bootstrap can adopt these names. The fixed artifact repository and bootstrap
+    grants may be shared; this inventory alone must not authorize private-pod cleanup.
+    Derived from the same naming helpers the bootstrap plan renders from, so the
     two cannot drift apart silently. The Cloud Run service is deliberately
     absent: the existing deprovision path owns it, and two owners racing one
     delete is how a teardown summary starts lying.
@@ -273,7 +296,7 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
     _OK = (200, 204, 404)
 
     def _delete(url: str, what: str, ok: tuple = _OK) -> None:
-        response = session.delete(url, headers=headers, timeout=30)
+        response = session.delete(url, headers=headers, timeout=30, allow_redirects=False)
         if response.status_code in ok:
             return
         # A resource we could NOT delete keeps billing the person in a project hushh
@@ -378,7 +401,7 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         base = "https://artifactregistry.googleapis.com/v1/"
         parent = f"projects/{project}/locations/{region}"
         url = f"{base}{parent}/repositories/{repository}"
-        response = session.delete(url, headers=headers, timeout=30)
+        response = session.delete(url, headers=headers, timeout=30, allow_redirects=False)
         if response.status_code == 404:
             return
         if response.status_code != 200:
@@ -579,8 +602,13 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
     async def _deleter(action: dict) -> None:
         import asyncio  # noqa: PLC0415
 
-        kind = str(action.get("type") or "")
-        rid = str(action.get("id") or "")
+        # Revalidate even when the injected deleter is called without the executor.
+        action = plan_teardown([action])[0]
+        kind = action["type"]
+        rid = action["id"]
+        observation = action.get("resourceObservation")
+        if observation and observation["identity"]["projectId"] != project:
+            raise SubstrateDeleteError("substrate creation project mismatch")
 
         def _run() -> None:
             if kind == "cloud_scheduler_job":
@@ -613,10 +641,18 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                     "secret",
                 )
             elif kind == "service_account":
-                _delete(
-                    f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{rid}",
-                    "service account",
+                # The provider's immutable numeric ID prevents a retry from deleting
+                # a replacement account that reuses the original email. Legacy plans
+                # have no creation receipt and retain their existing compatibility path.
+                account_id = observation["identity"]["uniqueId"] if observation else rid
+                url = (
+                    f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{account_id}"
                 )
+                _delete(url, "service account")
+                if observation:
+                    absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+                    if absent.status_code != 404:
+                        raise SubstrateDeleteError("service account deletion unverified")
             elif kind == "artifact_repository":
                 _delete_artifact_repository(rid)
             elif kind == "iam_binding":

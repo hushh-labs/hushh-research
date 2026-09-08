@@ -683,3 +683,54 @@ async def test_iam_cleanup_preserves_conditional_grants_and_requires_write_preco
         assert "json" not in read
     else:
         assert read["json"] == {"options": {"requestedPolicyVersion": 3}}
+
+
+@pytest.mark.parametrize("case", ["deleted", "still_present", "foreign", "adopted", "invalid_uid"])
+async def test_receipted_account_cleanup_targets_creation_identity(case):
+    from hushh_mcp.services.byoc_substrate_teardown import plan_teardown
+
+    email = "one-pod-owner@proj-x.iam.gserviceaccount.com"
+    uid = "123456789012345678901"
+    identity = {
+        "name": f"projects/proj-x/serviceAccounts/{email}",
+        "projectId": "proj-x",
+        "email": email,
+        "uniqueId": uid,
+        "private": "must-not-retain",
+    }
+    observation = {
+        "type": "service_account",
+        "id": email,
+        "disposition": "created",
+        "identity": identity,
+    }
+    action = {"type": "service_account", "id": email, "resourceObservation": observation}
+    if case == "adopted":
+        observation["disposition"] = "adopted"
+    elif case == "invalid_uid":
+        identity["uniqueId"] = "../replacement"
+    elif case == "foreign":
+        email = "one-pod-owner@foreign.iam.gserviceaccount.com"
+        action["id"] = observation["id"] = identity["email"] = email
+        identity.update(projectId="foreign", name=f"projects/foreign/serviceAccounts/{email}")
+    session = _Session()
+    url = f"https://iam.googleapis.com/v1/projects/proj-x/serviceAccounts/{uid}"
+    session.rule("DELETE", url, _Resp(200))
+    session.rule("GET", url, _Resp(200 if case == "still_present" else 404))
+    if case in {"adopted", "invalid_uid", "foreign"}:
+        with pytest.raises(SubstrateDeleteError):
+            await _deleter(session)(action)
+        assert session.calls == []
+        return
+    plan = plan_teardown([action])
+    assert "private" not in plan[0]["resourceObservation"]["identity"]
+    assert plan_teardown(plan) == plan
+    if case == "still_present":
+        with pytest.raises(SubstrateDeleteError, match="unverified"):
+            await _deleter(session)(plan[0])
+    else:
+        await _deleter(session)(plan[0])
+    assert [method for method, _, _ in session.calls] == ["DELETE", "GET"]
+    assert all(
+        target == url and kwargs["allow_redirects"] is False for _, target, kwargs in session.calls
+    )
