@@ -461,6 +461,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/923_personal_agent_mail_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/924_personal_agent_kms_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/925_personal_agent_secret_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/926_personal_agent_runtime_account_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -903,7 +904,47 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "acknowledgement", {**secret_receipt, "etag": "changed", "status": "acknowledged"}
     )
     assert retain_secret("acknowledgement", {**secret_receipt, "status": "acknowledged"})
+    account_receipt = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "resourceObservation": {
+            "type": "service_account",
+            "id": runtime_email,
+            "disposition": "created",
+            "identity": runtime_identity,
+        },
+        "status": "admitted",
+    }
+
+    def retain_account(stage, receipt):
+        return pg.execute(
+            "SELECT retain_erasure_account_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_account("admission", account_receipt)
     assert retain_secret("deletion", {**secret_receipt, "status": "absent"})
+    assert not retain_account("admission", {**account_receipt, "ownerId": "foreign"})
+    assert not retain_account(
+        "admission",
+        {
+            **account_receipt,
+            "resourceObservation": {
+                **account_receipt["resourceObservation"],
+                "identity": bootstrap_identity,
+            },
+        },
+    )
+    assert not retain_account("deletion", {**account_receipt, "status": "absent"})
+    assert retain_account("admission", account_receipt)
+    assert not retain_account("admission", account_receipt)
+    assert retain_account("acknowledgement", {**account_receipt, "status": "acknowledged"})
+    assert retain_account("deletion", {**account_receipt, "status": "absent"})
+    assert retain_account("deletion", {**account_receipt, "status": "absent"})
     assert retain_secret("deletion", {**secret_receipt, "status": "absent"})
     saved = provision_row(pg)
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):

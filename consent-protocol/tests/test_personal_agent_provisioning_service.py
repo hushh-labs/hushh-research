@@ -1271,17 +1271,19 @@ async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admissio
 
 
 @pytest.mark.parametrize("failure", [None, "preflight", "admission"])
-@pytest.mark.parametrize("resource_kind", ["kms", "secret"])
+@pytest.mark.parametrize("resource_kind", ["kms", "secret", "account"])
 async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admission(
     monkeypatch, failure, resource_kind
 ):
     import asyncio
 
     service = _svc()
-    state_key = "kmsErasure" if resource_kind == "kms" else "secretErasure"
+    state_key = {"kms": "kmsErasure", "secret": "secretErasure", "account": "accountErasure"}[
+        resource_kind
+    ]
     registry = service._registry
     observation = {
-        "type": "kms_key" if resource_kind == "kms" else "secret",
+        "type": {"kms": "kms_key", "secret": "secret", "account": "service_account"}[resource_kind],
         "id": "key-one",
         "disposition": "created",
         "identity": {"name": "synthetic-key"},
@@ -1292,7 +1294,12 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
         "registrySnapshot": {"user_id": _UID},
         "substrateInventory": {
             "plannedResources": [
-                {"type": "kms_key" if resource_kind == "kms" else "secret", "id": "key-one"}
+                {
+                    "type": {"kms": "kms_key", "secret": "secret", "account": "service_account"}[
+                        resource_kind
+                    ],
+                    "id": "key-one",
+                }
             ],
             "resourceObservations": [observation],
         },
@@ -1307,7 +1314,7 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
         if failure == stage:
             return False
         kms = reservation.get(state_key, {})
-        if stage == "inventory" or resource_kind == "secret":
+        if stage == "inventory" or resource_kind != "kms":
             kms = {**kms, stage: receipt}
         else:
             kms = {**kms, "versions": {"version-one": {stage: receipt}}}
@@ -1328,14 +1335,18 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
                 },
             ),
         )
-        if resource_kind == "secret":
+        if resource_kind != "kms":
             steps = steps[1:]
         for stage, raw in steps:
             if not await asyncio.to_thread(retain_receipt, stage, raw):
                 raise RuntimeError("retention refused")
         events.append("provider_destroy")
 
-    method = "erase_kms_material" if resource_kind == "kms" else "erase_signing_secret"
+    method = {
+        "kms": "erase_kms_material",
+        "secret": "erase_signing_secret",
+        "account": "erase_runtime_account",
+    }[resource_kind]
     adapter = Mock(**{method: AsyncMock(side_effect=erase)})
     monkeypatch.setattr(service, "_reserved_cleanup_backend", lambda snapshot: adapter)
     monkeypatch.setattr(service, "_revoke_reserved_runtime_writer", AsyncMock())
@@ -1348,11 +1359,11 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
         AsyncMock(return_value=failure != "preflight"),
     )
     setattr(registry, f"retain_erasure_{resource_kind}_receipt", AsyncMock(side_effect=retain))
-    cleanup = (
-        service._erase_reserved_kms_material
-        if resource_kind == "kms"
-        else service._erase_reserved_signing_secret
-    )
+    cleanup = {
+        "kms": service._erase_reserved_kms_material,
+        "secret": service._erase_reserved_signing_secret,
+        "account": service._erase_reserved_runtime_account,
+    }[resource_kind]
     if failure:
         with pytest.raises(RuntimeError):
             await cleanup(user_id=_UID)
@@ -1366,3 +1377,43 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
     if failure == "preflight":
         getattr(adapter, method).assert_not_awaited()
     assert registry.deleted == []
+
+
+async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monkeypatch):
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
+
+    service = _svc()
+    service._registry.reserve_erasure = AsyncMock(
+        return_value={"accountErasure": {"admission": {"status": "admitted"}}}
+    )
+    earlier = (
+        "_fence_reserved_erasure",
+        "_erase_reserved_memory",
+        "_erase_reserved_compute",
+        "_retain_reserved_substrate_inventory",
+        "_revoke_reserved_runtime_writer",
+        "_erase_reserved_mail_resources",
+        "_erase_reserved_bucket",
+        "_erase_reserved_kms_material",
+        "_erase_reserved_signing_secret",
+    )
+    for method in earlier:
+        monkeypatch.setattr(
+            service, method, AsyncMock(side_effect=AssertionError("earlier phase replayed"))
+        )
+    terminal = AsyncMock()
+    monkeypatch.setattr(service, "_erase_reserved_runtime_account", terminal)
+    monkeypatch.setattr(
+        AccountService,
+        "assert_personal_agent_external_resources_absent",
+        Mock(side_effect=PersonalAgentDeprovisioningRequiredError("retained resources")),
+    )
+    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+        await service.deprovision(user_id=_UID)
+    terminal.assert_awaited_once_with(user_id=_UID)
+    for method in earlier:
+        getattr(service, method).assert_not_awaited()
+    assert service._registry.deleted == []

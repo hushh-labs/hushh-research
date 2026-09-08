@@ -2503,6 +2503,103 @@ class PersonalAgentProvisioningService:
             retain_receipt=checkpoint,
         )
 
+    async def _erase_reserved_runtime_account(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("runtime account erasure guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        inventory = reservation.get("substrateInventory") or {}
+        retain = getattr(self._registry, "retain_erasure_account_receipt", None)
+        preflight = getattr(self._registry, "verify_erasure_account_preflight", None)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or retain is None
+            or preflight is None
+        ):
+            raise RuntimeError("runtime account erasure reservation unavailable")
+        if not await preflight(user_id=user_id, reservation=reservation):
+            raise RuntimeError("runtime account erasure database contract unavailable")
+        planned = [
+            item
+            for item in inventory.get("plannedResources", [])
+            if isinstance(item, dict) and item.get("type") == "service_account"
+        ]
+        if len(planned) != 1:
+            raise RuntimeError("runtime account erasure inventory unresolved")
+        captured = [
+            item
+            for item in inventory.get("resourceObservations", [])
+            if isinstance(item, dict)
+            and item.get("type") == "service_account"
+            and item.get("id") == planned[0].get("id")
+            and item.get("disposition") == "created"
+        ]
+        if len(captured) != 1:
+            raise RuntimeError("runtime account erasure creation evidence unavailable")
+        erase = getattr(self._reserved_cleanup_backend(snapshot), "erase_runtime_account", None)
+        if erase is None:
+            raise RuntimeError("runtime account erasure unsupported")
+        attempt = reservation["attemptId"]
+        loop = asyncio.get_running_loop()
+
+        async def append(stage: str, raw: dict) -> bool:
+            if stage == "admission":
+                await self._revoke_reserved_runtime_writer(user_id=user_id)
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not observed
+                or observed.get("status") != "suspended"
+                or saved.get("ownerId") != user_id
+                or saved.get("attemptId") != attempt
+                or saved.get("registrySnapshot") != snapshot
+                or saved.get("substrateInventory") != inventory
+            ):
+                return False
+            receipt = {**raw, "ownerId": user_id, "attemptId": attempt}
+            if not await retain(user_id=user_id, reservation=saved, stage=stage, receipt=receipt):
+                return False
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            retained = (saved.get("accountErasure") or {}).get(stage)
+            return bool(
+                observed
+                and observed.get("status") == "suspended"
+                and saved.get("ownerId") == user_id
+                and saved.get("attemptId") == attempt
+                and retained == receipt
+            )
+
+        def checkpoint(stage: str, raw: dict) -> bool:
+            return asyncio.run_coroutine_threadsafe(append(stage, raw), loop).result(timeout=30)
+
+        def unbind(receipt: dict) -> dict:
+            if (
+                not isinstance(receipt, dict)
+                or receipt.get("ownerId") != user_id
+                or receipt.get("attemptId") != attempt
+            ):
+                raise RuntimeError("runtime account recovery owner unverified")
+            return {
+                key: value for key, value in receipt.items() if key not in {"ownerId", "attemptId"}
+            }
+
+        states = {
+            stage: unbind(receipt)
+            for stage, receipt in (reservation.get("accountErasure") or {}).items()
+        }
+        await erase(
+            action={**planned[0], "resourceObservation": captured[0]},
+            state=states,
+            retain_receipt=checkpoint,
+        )
+
     async def deprovision(
         self,
         *,
@@ -2536,18 +2633,20 @@ class PersonalAgentProvisioningService:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
-                    if not reservation.get("computeAdmission"):
-                        qualified = await self._fence_reserved_erasure(
-                            user_id=user_id, reservation=reservation
-                        )
-                        await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
-                    await self._erase_reserved_compute(user_id=user_id)
-                    await self._retain_reserved_substrate_inventory(user_id=user_id)
-                    await self._revoke_reserved_runtime_writer(user_id=user_id)
-                    await self._erase_reserved_mail_resources(user_id=user_id)
-                    await self._erase_reserved_bucket(user_id=user_id)
-                    await self._erase_reserved_kms_material(user_id=user_id)
-                    await self._erase_reserved_signing_secret(user_id=user_id)
+                    if not (reservation.get("accountErasure") or {}).get("admission"):
+                        if not reservation.get("computeAdmission"):
+                            qualified = await self._fence_reserved_erasure(
+                                user_id=user_id, reservation=reservation
+                            )
+                            await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
+                        await self._erase_reserved_compute(user_id=user_id)
+                        await self._retain_reserved_substrate_inventory(user_id=user_id)
+                        await self._revoke_reserved_runtime_writer(user_id=user_id)
+                        await self._erase_reserved_mail_resources(user_id=user_id)
+                        await self._erase_reserved_bucket(user_id=user_id)
+                        await self._erase_reserved_kms_material(user_id=user_id)
+                        await self._erase_reserved_signing_secret(user_id=user_id)
+                    await self._erase_reserved_runtime_account(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",
