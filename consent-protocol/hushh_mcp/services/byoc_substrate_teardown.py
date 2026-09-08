@@ -757,8 +757,8 @@ def build_gcp_deleter(
                 timeout=30,
                 allow_redirects=False,
             )
-            if listing.status_code == 404 and not page_token:
-                return  # key never created -- retry-safe
+            # Missing inventory is not proof that a captured key was never
+            # created or that its material was destroyed. Retain recovery authority.
             if listing.status_code != 200:
                 raise SubstrateDeleteError(f"kms version listing http={listing.status_code}")
             body = listing.json()

@@ -702,7 +702,9 @@ async def test_receipted_account_cleanup_targets_creation_identity(case):
     )
 
 
-@pytest.mark.parametrize("case", ["destroyed", "changed", "foreign", "unavailable"])
+@pytest.mark.parametrize(
+    "case", ["destroyed", "changed", "foreign", "unavailable", "missing_versions"]
+)
 async def test_receipted_kms_cleanup_verifies_creation_before_version_access(case):
     from hushh_mcp.services.byoc_substrate_teardown import plan_teardown
 
@@ -728,7 +730,7 @@ async def test_receipted_kms_cleanup_verifies_creation_before_version_access(cas
         "GET",
         name + "/cryptoKeyVersions",
         _Resp(
-            200,
+            404 if case == "missing_versions" else 200,
             {"cryptoKeyVersions": [{"name": name + "/cryptoKeyVersions/1", "state": "DESTROYED"}]},
         ),
     )
@@ -740,7 +742,9 @@ async def test_receipted_kms_cleanup_verifies_creation_before_version_access(cas
     else:
         with pytest.raises(SubstrateDeleteError):
             await _deleter(session)(planned[0])
-        assert len(session.calls) == (0 if case == "foreign" else 1)
+        assert len(session.calls) == (
+            0 if case == "foreign" else 2 if case == "missing_versions" else 1
+        )
     assert all(method == "GET" for method, _, _ in session.calls)
 
 
