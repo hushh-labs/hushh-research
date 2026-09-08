@@ -108,6 +108,53 @@ async def test_erasure_fence_requires_bound_attempt_and_running_incarnation(
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.parametrize("proof_purpose", ["fence", "memory-binding", "memory-reconcile"])
+@pytest.mark.parametrize("operation", ["memory-binding", "memory-reconcile"])
+async def test_memory_binding_requires_its_own_proof_before_storage(
+    monkeypatch, proof_purpose, operation
+):
+    from hushh_mcp.services import scheduler_identity
+
+    payload = dict(
+        hushhId="ha1_owner",
+        attemptId="attempt-1",
+        service="pod-owner",
+        serviceUid="uid-1",
+        revision="pod-owner-00001",
+    )
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    for key, env in (("hushhId", "HUSSH_ID"), ("service", "K_SERVICE"), ("revision", "K_REVISION")):
+        monkeypatch.setenv(env, payload[key])
+    if operation == "memory-reconcile":
+        payload["memoryBinding"] = {}
+    expected = pod_migration.erasure_proof_audience(payload, purpose=proof_purpose)
+
+    def verify(**kwargs):
+        if kwargs["audience"] != expected:
+            raise scheduler_identity.SchedulerIdentityError("refused")
+
+    monkeypatch.setattr(scheduler_identity, "verify_scheduler_request", verify)
+    reads = []
+
+    def storage():
+        reads.append(True)
+        raise RuntimeError("synthetic private storage diagnostic")
+
+    monkeypatch.setattr(pod_migration, "_commit_log", storage)
+    with pytest.raises(HTTPException) as error:
+        if operation == "memory-binding":
+            await pod_migration.erasure_memory_binding(
+                pod_migration.ErasureFenceRequest(**payload), "Bearer proof"
+            )
+        else:
+            await pod_migration.reconcile_erasure_memory(
+                pod_migration.ErasureMemoryRequest(**payload), "Bearer proof"
+            )
+    assert error.value.status_code == (409 if proof_purpose == operation else 403)
+    assert reads == ([True] if proof_purpose == operation else [])
+    assert "synthetic" not in str(error.value.detail)
+
+
 @pytest.mark.parametrize("value", ["", "0", "false", "no", "maybe"])
 async def test_the_surface_is_absent_until_a_lane_turns_it_on(monkeypatch, value):
     monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", value)

@@ -895,6 +895,12 @@ class UserGcpBackend:
                         "backend": self.backend_id,
                         "project": self._user_project,
                         "region": self._user_region,
+                        **GcpRunClient.creation_runtime_evidence(
+                            admitted,
+                            requested_image=config["spec"]["template"]["spec"]["containers"][0][
+                                "image"
+                            ],
+                        ),
                     },
                 )
         else:
@@ -1004,6 +1010,18 @@ class UserGcpBackend:
         service = await asyncio.to_thread(client.get_service, name)
         return GcpRunClient.erasure_fence_target(
             service, name=name, expected_uid=spec.expected_service_uid
+        )
+
+    async def observe_erasure_runtime(self, spec: PodSpec) -> dict[str, Any]:
+        if not self._live or not spec.expected_service_uid:
+            raise RuntimeError("erasure compute authority unavailable")
+        import asyncio
+
+        client = await asyncio.to_thread(self._client)
+        return await asyncio.to_thread(
+            client.observe_erasure_runtime,
+            name=_service_name(spec.hushh_id),
+            expected_uid=spec.expected_service_uid,
         )
 
     async def observe_upgrade(

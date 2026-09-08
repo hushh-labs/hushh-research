@@ -625,7 +625,18 @@ def test_user_safe_failure_reason_vocabulary():
     assert user_safe_failure_reason(RuntimeError("transient")) == "temporary_issue"
 
 
-@pytest.mark.parametrize("refusal", [None, "foreign_owner", "held_upgrade", "changed_reservation"])
+@pytest.mark.parametrize(
+    "refusal",
+    [
+        None,
+        "foreign_owner",
+        "held_upgrade",
+        "changed_reservation",
+        "old_generation",
+        "changed_image",
+        "adopted_engine",
+    ],
+)
 async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, refusal):
     from types import SimpleNamespace
 
@@ -636,6 +647,7 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
     )
 
     registry, grant = FakeRegistry(), FakeGrant()
+    initial_image = "registry.example/pod@sha256:" + "a" * 64
     snapshot = {
         "user_id": _UID,
         "hushh_id": "ha1_owner",
@@ -652,6 +664,27 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
         "attemptId": "attempt-one",
         "registrySnapshot": snapshot,
     }
+    creation_target = {
+        "backend": "fake",
+        "project": "synthetic-project",
+        "region": "us-central1",
+        "service": "pod-one",
+    }
+    snapshot["backend_metadata"]["provisionAttempt"] = {
+        "version": 1,
+        "ownerId": _UID,
+        "phase": "provisioned",
+        "evidence": {
+            "host_requested": {
+                "creationAcknowledgement": {
+                    **creation_target,
+                    "serviceUid": "uid-one",
+                    "initialGeneration": 1,
+                    "initialImage": initial_image,
+                }
+            }
+        },
+    }
     registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
     registry.reserve_erasure = AsyncMock(return_value=reservation)
 
@@ -667,12 +700,30 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
         }
 
     backend = SimpleNamespace(
-        backend_id="fake", observe_erasure_target=AsyncMock(side_effect=observe)
+        backend_id="fake",
+        observe_erasure_target=AsyncMock(side_effect=observe),
+        provision_target_for=lambda spec: creation_target,
+        observe_erasure_runtime=AsyncMock(
+            return_value={
+                "service": "pod-one",
+                "serviceUid": "uid-one",
+                "podUrl": "https://pod-one.run.app",
+                "revision": "pod-one-00001",
+                "generation": 1,
+                "image": initial_image,
+            }
+        ),
     )
     if refusal == "foreign_owner":
         reservation["ownerId"] = "foreign"
     if refusal == "held_upgrade":
         snapshot["backend_metadata"]["upgradeLease"] = "unresolved"
+    if refusal == "old_generation":
+        backend.observe_erasure_runtime.return_value["generation"] = 2
+    if refusal == "changed_image":
+        backend.observe_erasure_runtime.return_value["image"] = (
+            "registry.example/pod@sha256:" + "b" * 64
+        )
 
     def refuse(*args):
         raise PersonalAgentDeprovisioningRequiredError("retained resources")
@@ -680,11 +731,39 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
     monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
     fence = Mock()
     monkeypatch.setattr(pod_migration_transport, "fence_for_erasure", fence)
+    binding = Mock(
+        side_effect=lambda **kw: {
+            **kw["payload"],
+            "memoryBinding": {
+                "engineId": "91",
+                "creationProvenance": None if refusal == "adopted_engine" else {"version": 1},
+            },
+        }
+    )
+    monkeypatch.setattr(pod_migration_transport, "observe_memory_for_erasure", binding)
+
+    async def retain(*, user_id, reservation, receipt):
+        registry.rows[user_id]["backend_metadata"]["erasure"] = {
+            **reservation,
+            "memoryBinding": receipt,
+        }
+        return True
+
+    registry.retain_erasure_memory_binding = AsyncMock(side_effect=retain)
     service = PersonalAgentProvisioningService(registry=registry, grant=grant, backend=backend)
-    with pytest.raises(PersonalAgentDeprovisioningRequiredError):
-        await service.deprovision(user_id=_UID)
-    if refusal:
+    if refusal is None:
+        qualified = await service._fence_reserved_erasure(user_id=_UID, reservation=reservation)
+        assert qualified["runtime"]["image"] == initial_image
+    elif refusal in {"old_generation", "changed_image", "adopted_engine"}:
+        with pytest.raises(RuntimeError, match="erasure runtime"):
+            await service._fence_reserved_erasure(user_id=_UID, reservation=reservation)
+    else:
+        with pytest.raises(PersonalAgentDeprovisioningRequiredError):
+            await service.deprovision(user_id=_UID)
+    if refusal in {"foreign_owner", "held_upgrade", "changed_reservation"}:
         fence.assert_not_called()
+        binding.assert_not_called()
+        registry.retain_erasure_memory_binding.assert_not_called()
     else:
         fence.assert_called_once_with(
             pod_url="https://pod-one.run.app",
@@ -696,4 +775,57 @@ async def test_deprovision_fences_only_the_reserved_observed_owner(monkeypatch, 
                 "revision": "pod-one-00001",
             },
         )
+        registry.retain_erasure_memory_binding.assert_awaited_once()
+        saved = registry.rows[_UID]["backend_metadata"]["erasure"]
+        assert saved["memoryBinding"]["attemptId"] == reservation["attemptId"]
+        assert saved["memoryBinding"]["revision"] == "pod-one-00001"
+    assert registry.deleted == [] and grant.revokes == []
+
+
+@pytest.mark.parametrize("failure", [None, "owner", "guard", "pending", "receipt", "readback"])
+async def test_provider_erasure_requires_admission_and_durable_completion(monkeypatch, failure):
+    from hushh_mcp.services import pod_migration_transport
+
+    registry, grant = FakeRegistry(), FakeGrant()
+    payload = dict(
+        hushhId="ha1_owner",
+        attemptId="attempt-one",
+        service="pod-one",
+        serviceUid="uid-one",
+        revision="pod-one-00001",
+        memoryBinding={"engineId": "91"},
+    )
+    reservation = {
+        "ownerId": "foreign" if failure == "owner" else _UID,
+        "attemptId": "attempt-one",
+        "memoryBinding": payload,
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    registry.retain_erasure_memory_binding = AsyncMock(return_value=failure != "guard")
+    completion = {"status": "provider_deleted", **payload}
+    provider = Mock(return_value=completion)
+    if failure == "pending":
+        provider.side_effect = RuntimeError("pending")
+    monkeypatch.setattr(pod_migration_transport, "reconcile_memory_for_erasure", provider)
+
+    async def retain(*, user_id, reservation, receipt):
+        if failure == "receipt":
+            return False
+        if failure != "readback":
+            registry.rows[user_id]["backend_metadata"]["erasure"] = {
+                **reservation,
+                "memoryDeletion": receipt,
+            }
+        return True
+
+    registry.retain_erasure_memory_deletion = AsyncMock(side_effect=retain)
+    service = PersonalAgentProvisioningService(registry=registry, grant=grant, backend=object())
+    qualified = {**payload, "runtime": {"podUrl": "https://pod-one.run.app"}}
+    if failure:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_memory(user_id=_UID, qualified=qualified)
+    else:
+        await service._erase_reserved_memory(user_id=_UID, qualified=qualified)
+        assert registry.rows[_UID]["backend_metadata"]["erasure"]["memoryDeletion"] == completion
+    assert provider.call_count == (0 if failure in {"owner", "guard"} else 1)
     assert registry.deleted == [] and grant.revokes == []

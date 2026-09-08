@@ -544,6 +544,15 @@ class GcpBackend:
             service, name=name, expected_uid=spec.expected_service_uid
         )
 
+    async def observe_erasure_runtime(self, spec: PodSpec) -> dict[str, Any]:
+        if not self._live or not spec.expected_service_uid:
+            raise RuntimeError("erasure compute authority unavailable")
+        name = str(self.render_deploy_config(spec)["metadata"]["name"])
+        client = self._client or self._build_client()
+        return await asyncio.to_thread(
+            client.observe_erasure_runtime, name=name, expected_uid=spec.expected_service_uid
+        )
+
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:
@@ -797,6 +806,12 @@ class GcpBackend:
                         "backend": self.backend_id,
                         "project": self._project,
                         "region": self._region,
+                        **GcpRunClient.creation_runtime_evidence(
+                            admitted,
+                            requested_image=config["spec"]["template"]["spec"]["containers"][0][
+                                "image"
+                            ],
+                        ),
                     }
                 )
             # Narrative per stage, on this worker thread, through the spec's opaque

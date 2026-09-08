@@ -418,8 +418,9 @@ async def test_erasure_observation_backends_only_read_existing_service(monkeypat
 
 @pytest.mark.parametrize("kind", ["managed", "user"])
 @pytest.mark.parametrize("refuse_ack", [False, True])
+@pytest.mark.parametrize("optional_spec", [None, "invalid", {"template": []}])
 async def test_owned_creation_retains_location_and_uid_before_readiness(
-    monkeypatch, simulation_lane, kind, refuse_ack
+    monkeypatch, simulation_lane, kind, refuse_ack, optional_spec
 ):
     from dataclasses import replace
 
@@ -441,7 +442,10 @@ async def test_owned_creation_retains_location_and_uid_before_readiness(
         def create_service(self, body, *, adopt_existing):
             assert adopt_existing is False
             calls.append("create")
-            return super().create_service(body)
+            result = super().create_service(body)
+            if optional_spec is not None:
+                result["spec"] = optional_spec
+            return result
 
         def wait_ready(self, name, **kw):
             assert calls[-1] == "ack"

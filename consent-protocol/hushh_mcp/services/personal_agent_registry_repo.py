@@ -261,6 +261,40 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def retain_erasure_memory_binding(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        """Append immutable pod coordinates under the same reserved owner attempt."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_memory_binding(:owner, :attempt, "
+            "CAST(:expected AS jsonb), CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_memory_deletion(
+        self, *, user_id: str, reservation: dict, receipt: dict
+    ) -> bool:
+        """Retain provider completion without releasing compute or owner authority."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_memory_deletion(:owner, :attempt, "
+            "CAST(:expected AS jsonb), CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

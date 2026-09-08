@@ -389,7 +389,26 @@ It then uses the existing generation-reconciliation and deletion sequence. Absen
 and late-creation-only records remain incomplete; startup observation cannot initiate
 this transition. Partial fence failures remain incomplete and retries preserve authority.
 Protocol 2 alone does not prove older provider work has drained; the trusted coordinator
-still owns that prerequisite. Public teardown is not yet connected to provider deletion.
+still owns that prerequisite. The public lifecycle now requests pod-held provider deletion
+only after the fresh memory and unchanged initial runtime qualifications below.
+The pod exposes fenced engine coordinates through a separate `memory-binding` proof
+on the existing migration router. The hub appends that exact serving-revision/engine
+binding to the existing erasure reservation and requires database readback before
+continuing. Dev migration 918 rejects conflicting retries and preserves the reservation's
+immutable snapshot; this observation is neither a deletion receipt nor historical drain
+evidence. New compute creation acknowledgements retain initial generation and image
+evidence only when the returned image matches a digest-pinned request. Missing optional
+metadata still preserves the base service-identity receipt. The coordinator qualifies
+only a completed initial provisioning attempt with fresh memory creation provenance,
+unchanged first generation and the same resolved serving-image digest; adopted engines,
+upgraded pods and unavailable evidence remain incomplete. This qualification does not
+authorize compute or storage cleanup. A separately purpose-bound pod request verifies the
+exact persisted engine binding and invokes the existing reconciler with pod-held credentials.
+Only its validated provider completion is appended to the registry reservation, with active
+guard validation and readback. Account erasure still reports incomplete while other resources
+remain. An already-admitted DELETE worker retains its acknowledgement after caller
+cancellation. Lost worker or transport outcomes remain `delete_submitting` and cannot
+resubmit DELETE. These source changes require dev rollout and lifecycle acceptance.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
 without initializing ordinary memory. It requires the matching owner/attempt log fence;
@@ -398,7 +417,12 @@ The existing migration transport refuses redirects while carrying hub proof and 
 only bounded refusal diagnostics; malformed success responses are typed failures.
 New initialization captures the provider resource name and `createTime` in the existing
 `memory_bank.json` before admitting use; these are observed provider fields, not the
-local record timestamp. The provider fields follow Google's
+local record timestamp. New records initialize protocol 2 and empty recall/generation
+slots before first use. Only a successful creation response, matching the subsequent
+engine observation, can attach creation provenance tied to the reserved object generation.
+Discovery, configured-engine adoption and recovery without that acknowledgement do not
+acquire freshness evidence. Runtime-image provenance and historical-work reconciliation
+remain separate prerequisites for coordinated deletion. The provider fields follow Google's
 [ReasoningEngine resource contract](https://docs.cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/projects.locations.reasoningEngines).
 Erasure refuses missing or mismatched persisted incarnation evidence before provider
 access and requires a matching current observation before deletion. Legacy records

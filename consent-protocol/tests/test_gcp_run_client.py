@@ -893,3 +893,80 @@ def test_erasure_target_requires_exact_single_serving_incarnation(mismatch):
             "revision": "pod-one-00001",
             "podUrl": "https://pod-one.run.app",
         }
+
+
+@pytest.mark.parametrize("invalid", [None, "mutable", "generation", "different_image"])
+def test_creation_evidence_never_qualifies_unpinned_or_unobserved_image(invalid):
+    image = "registry.example/pod@sha256:" + "a" * 64
+    if invalid == "mutable":
+        image = "registry.example/pod:latest"
+    service = {
+        "metadata": {"generation": True if invalid == "generation" else 1},
+        "spec": {
+            "template": {
+                "spec": {
+                    "containers": [{"image": "other" if invalid == "different_image" else image}]
+                }
+            }
+        },
+    }
+    assert GcpRunClient.creation_runtime_evidence(service, requested_image=image) == (
+        {} if invalid else {"initialGeneration": 1, "initialImage": image}
+    )
+
+
+@pytest.mark.parametrize(
+    "invalid", [None, "redirect", "foreign_revision", "mutable", "replacement"]
+)
+def test_erasure_runtime_observation_binds_revision_digest_and_stable_generation(
+    monkeypatch, invalid
+):
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    import requests
+
+    image = "registry.example/pod@sha256:" + "a" * 64
+    service = {
+        "metadata": {"name": "pod-one", "uid": "uid-one", "generation": 1},
+        "status": {
+            "observedGeneration": 1,
+            "url": "https://pod-one.run.app",
+            "latestReadyRevisionName": "pod-one-00001",
+            "latestCreatedRevisionName": "pod-one-00001",
+            "traffic": [{"revisionName": "pod-one-00001", "percent": 100}],
+            "conditions": [{"type": "Ready", "status": "True"}],
+        },
+    }
+    second = deepcopy(service)
+    if invalid == "replacement":
+        second["metadata"]["generation"] = 2
+        second["status"]["observedGeneration"] = 2
+    observations = iter([service, second])
+    client = object.__new__(GcpRunClient)
+    client._base = "https://us-central1-run.googleapis.com/apis/serving.knative.dev/v1/namespaces/p"
+    monkeypatch.setattr(client, "get_service", lambda name: next(observations))
+    monkeypatch.setattr(client, "_headers", lambda: {})
+
+    def get(url, **kw):
+        assert url.endswith("/revisions/pod-one-00001")
+        assert kw["allow_redirects"] is False and kw["timeout"] == 30
+        return SimpleNamespace(
+            status_code=302 if invalid == "redirect" else 200,
+            json=lambda: {
+                "metadata": {
+                    "name": "foreign" if invalid == "foreign_revision" else "pod-one-00001",
+                    "labels": {"serving.knative.dev/service": "pod-one"},
+                },
+                "status": {"imageDigest": "pod:latest" if invalid == "mutable" else image},
+            },
+        )
+
+    monkeypatch.setattr(requests, "get", get)
+    if invalid:
+        with pytest.raises(RuntimeError):
+            client.observe_erasure_runtime(name="pod-one", expected_uid="uid-one")
+    else:
+        result = client.observe_erasure_runtime(name="pod-one", expected_uid="uid-one")
+        assert result["generation"] == 1 and result["image"] == image
+        assert result["serviceUid"] == "uid-one"

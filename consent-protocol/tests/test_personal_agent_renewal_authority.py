@@ -448,6 +448,105 @@ def claim_provision(pg, *, attempt="a" * 32, observed=None, owner="synthetic-own
     )[0][0]
 
 
+@pytest.mark.parametrize(
+    "invalid", [None, "owner", "attempt", "engine", "extra", "guard", "provenance"]
+)
+def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, invalid):
+    pg = provision_pg
+    pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
+        "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
+        (json.dumps({"serviceUid": "incarnation"}),),
+    )
+    reservation = pg.execute(
+        "SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')"
+    )[0][0]
+    receipt = dict(
+        hushhId="ha1_erasure",
+        attemptId="attempt-one",
+        service="pod-service",
+        serviceUid="incarnation",
+        revision="pod-service-00001",
+        memoryBinding=dict(
+            project="synthetic-project",
+            location="us-central1",
+            engineId="91",
+            generationProtocol=2,
+            engineIncarnation=dict(
+                name="projects/123/locations/us-central1/reasoningEngines/91",
+                createTime="2026-09-01T00:00:00Z",
+            ),
+        ),
+    )
+    receipt["memoryBinding"]["creationProvenance"] = {
+        "version": 1,
+        "reservationGeneration": 1,
+        "engineIncarnation": dict(receipt["memoryBinding"]["engineIncarnation"]),
+    }
+    if invalid == "provenance":
+        receipt["memoryBinding"]["creationProvenance"]["reservationGeneration"] = True
+    elif invalid == "attempt":
+        receipt["attemptId"] = "foreign"
+    elif invalid == "engine":
+        receipt["memoryBinding"]["engineId"] = "other"
+    elif invalid == "extra":
+        receipt["privateContent"] = "must never persist"
+    elif invalid == "guard":
+        pg.execute(
+            "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+        )
+    before = provision_row(pg)
+
+    def retain(value):
+        return pg.execute(
+            "SELECT retain_erasure_memory_binding(%s,'attempt-one',%s::jsonb,%s::jsonb)",
+            (
+                "foreign" if invalid == "owner" else "synthetic-owner",
+                json.dumps(reservation),
+                json.dumps(value),
+            ),
+        )[0][0]
+
+    assert retain(receipt) is (invalid is None)
+    if invalid:
+        assert provision_row(pg) == before
+        return
+    saved = provision_row(pg)
+    assert saved["status"] == "suspended"
+    assert saved["backend_metadata"]["erasure"] == {**reservation, "memoryBinding": receipt}
+    assert retain(receipt)  # Lost caller response is idempotent.
+    completed = {"status": "provider_deleted", **receipt}
+
+    def retain_deletion(value):
+        return pg.execute(
+            "SELECT retain_erasure_memory_deletion('synthetic-owner','attempt-one',%s::jsonb,%s::jsonb)",
+            (json.dumps(saved["backend_metadata"]["erasure"]), json.dumps(value)),
+        )[0][0]
+
+    assert not retain_deletion({**completed, "status": "pending"})
+    assert not retain_deletion({**completed, "serviceUid": "foreign"})
+    assert retain_deletion(completed)
+    assert retain_deletion(completed)
+    saved = provision_row(pg)
+    assert saved["backend_metadata"]["erasure"]["memoryDeletion"] == completed
+    pg.execute(
+        "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+    )
+    assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.
+    assert not retain_deletion(completed)
+    pg.execute(
+        "ALTER TABLE personal_agent_registry ENABLE TRIGGER zz_personal_agent_erasure_registry"
+    )
+    receipt["revision"] = "pod-service-00002"
+    assert not retain(receipt)
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,memoryBinding}' WHERE user_id='synthetic-owner'"
+        )
+    assert provision_row(pg) == saved
+
+
 def provision_row(pg):
     return pg.execute(
         "SELECT to_jsonb(r) FROM personal_agent_registry r WHERE user_id='synthetic-owner'"

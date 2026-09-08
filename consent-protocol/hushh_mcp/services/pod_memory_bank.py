@@ -221,6 +221,7 @@ def find_or_create_engine(
     wait_seconds: float = _CREATE_WAIT_SECONDS,
     sleep: Any = time.sleep,
     allow_create: bool = True,
+    on_created: Optional[Callable[[dict[str, str]], None]] = None,
 ) -> str:
     """The engine for this pod, by display name; created when absent. Blocking.
 
@@ -294,7 +295,10 @@ def find_or_create_engine(
     if operation.get("error") is not None:
         raise MemoryBankUnavailable("create operation failed")
     if operation.get("done") is True:
-        return _completed_engine_id(operation, cfg)
+        engine_id = _completed_engine_id(operation, cfg)
+        if on_created is not None:
+            on_created(_engine_incarnation(operation.get("response"), cfg, engine_id))
+        return engine_id
     op_name = str(operation.get("name") or "")
     deadline = time.monotonic() + wait_seconds
     while op_name and time.monotonic() < deadline:
@@ -311,7 +315,10 @@ def find_or_create_engine(
             raise MemoryBankUnavailable("create operation failed")
         if body.get("done") is not True:
             continue
-        return _completed_engine_id(body, cfg)
+        engine_id = _completed_engine_id(body, cfg)
+        if on_created is not None:
+            on_created(_engine_incarnation(body.get("response"), cfg, engine_id))
+        return engine_id
     # Reaching here means the loop ran to the deadline WITHOUT the operation ever
     # reporting done. A slow create and a failing one are indistinguishable at that
     # point, and this used to pick "slow" and return the id parsed from the create
@@ -453,7 +460,27 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
         receipt = record["engineIncarnation"]
         if _engine_incarnation(receipt, cfg, engine_id) != receipt:
             raise MemoryBankUnavailable("invalid memory engine incarnation record")
+    if "creationProvenance" in record:
+        _creation_provenance(record)
     return engine_id
+
+
+def _creation_provenance(record: dict[str, Any]) -> dict[str, Any]:
+    """Only an acknowledged fresh creation may carry this immutable evidence."""
+    proof = record.get("creationProvenance")
+    if (
+        not isinstance(proof, dict)
+        or set(proof) != {"version", "reservationGeneration", "engineIncarnation"}
+        or type(proof.get("version")) is not int
+        or proof["version"] != 1
+        or type(proof.get("reservationGeneration")) is not int
+        or proof["reservationGeneration"] <= 0
+        or not isinstance(record.get("engineIncarnation"), dict)
+        or proof.get("engineIncarnation") != record["engineIncarnation"]
+        or record.get("generationProtocol") != 2
+    ):
+        raise MemoryBankUnavailable("invalid memory creation provenance")
+    return proof
 
 
 def _generation_slot(record: dict[str, Any]) -> Optional[dict[str, Any]]:
@@ -578,6 +605,53 @@ async def fence_memory_bank_admission(
         raise MemoryBankUnavailable("memory admission fence incomplete") from None
 
 
+async def memory_bank_erasure_binding(
+    *, store: Any, log: Any, owner_id: str, attempt_id: str
+) -> dict[str, Any]:
+    """Read bounded engine coordinates after fencing, without provider access.
+
+    The hub must durably retain this binding before requesting reconciliation.
+    It is not a deletion receipt or proof of historical provider-work drainage.
+    """
+    try:
+        cfg = memory_bank_config()
+        if cfg is None or cfg.display_name != _DISPLAY_PREFIX + owner_id:
+            raise MemoryBankUnavailable("memory owner configuration unavailable")
+        await log.require_fenced(owner_id=owner_id, attempt_id=attempt_id)
+        raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+        if type(generation) is not int or generation <= 0:
+            raise MemoryBankUnavailable("memory record unavailable")
+        record = json.loads(raw)
+        engine_id = record.get("engineId")
+        if not isinstance(engine_id, str) or not _resource_segment(engine_id):
+            raise MemoryBankUnavailable("memory engine unavailable")
+        if cfg.engine_id and cfg.engine_id != engine_id:
+            raise MemoryBankUnavailable("memory engine configuration changed")
+        state = _erasure_state(record, cfg, engine_id)
+        if state["attemptId"] != attempt_id or record.get("generationProtocol") != 2:
+            raise MemoryBankUnavailable("memory admission binding unavailable")
+        incarnation = _engine_incarnation(record.get("engineIncarnation"), cfg, engine_id)
+        # The record may receive late acknowledgements, but the captured binding
+        # must come from one confirmed generation, never a torn read.
+        if await store.get_with_generation(MEMORY_BANK_RECORD_KEY) != (raw, generation):
+            raise MemoryBankUnavailable("memory binding changed during observation")
+        await log.require_fenced(owner_id=owner_id, attempt_id=attempt_id)
+        return {
+            "project": cfg.project,
+            "location": cfg.location,
+            "engineId": engine_id,
+            "engineIncarnation": incarnation,
+            "generationProtocol": 2,
+            **(
+                {"creationProvenance": _creation_provenance(record)}
+                if "creationProvenance" in record
+                else {}
+            ),
+        }
+    except Exception:
+        raise MemoryBankUnavailable("memory erasure binding unavailable") from None
+
+
 def _erasure_state(record: dict[str, Any], cfg: MemoryBankConfig, engine_id: str) -> dict[str, Any]:
     """Validate lifecycle metadata without admitting ordinary memory operations."""
     state = record.get("erasure")
@@ -665,7 +739,12 @@ async def _reserve_creation(store: Any, cfg: MemoryBankConfig) -> int:
 
 
 async def _write_record(
-    store: Any, cfg: MemoryBankConfig, engine_id: str, *, expected_generation: int = 0
+    store: Any,
+    cfg: MemoryBankConfig,
+    engine_id: str,
+    *,
+    expected_generation: int = 0,
+    creation_incarnation: Optional[dict[str, str]] = None,
 ) -> None:
     if store is None:
         raise MemoryBankUnavailable("durable memory record store unavailable")
@@ -675,14 +754,30 @@ async def _write_record(
     # the existing CAS record. Never retrofit today's resource onto a legacy
     # record and call that historical identity proof.
     incarnation = await asyncio.to_thread(_observe_engine_incarnation, cfg, engine_id)
+    provenance = {}
+    if creation_incarnation is not None:
+        if creation_incarnation != incarnation or expected_generation <= 0:
+            raise MemoryBankUnavailable("memory creation observation mismatch")
+        provenance = {
+            "creationProvenance": {
+                "version": 1,
+                "reservationGeneration": expected_generation,
+                "engineIncarnation": incarnation,
+            }
+        }
     payload = json.dumps(
         {
+            "status": "ready",
+            "generationProtocol": 2,
+            "generationOperation": None,
+            "recallOperation": None,
             "engineId": engine_id,
             "engineIncarnation": incarnation,
             "project": cfg.project,
             "location": cfg.location,
             "displayName": cfg.display_name,
             "createdAt": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            **provenance,
         }
     ).encode()
     try:
@@ -703,7 +798,7 @@ async def _write_record(
             }.items()
         ):
             raise MemoryBankUnavailable("creation acknowledgement binding changed")
-        receipt = {"engineId": engine_id, "engineIncarnation": incarnation}
+        receipt = {"engineId": engine_id, "engineIncarnation": incarnation, **provenance}
         existing = current.get("creationAcknowledgement")
         if existing is not None and existing != receipt:
             raise MemoryBankUnavailable("creation acknowledgement changed")
@@ -797,8 +892,17 @@ async def ensure_memory_bank(*, store: Any = None, log: Any = None) -> Optional[
                 # Prove durable write authority and reserve creation BEFORE any
                 # provider request. Concurrent boots lose CAS and do not create.
                 generation = await _reserve_creation(store, cfg)
-                engine_id = await asyncio.to_thread(find_or_create_engine, cfg)
-                await _write_record(store, cfg, engine_id, expected_generation=generation)
+                created: list[dict[str, str]] = []
+                engine_id = await asyncio.to_thread(
+                    find_or_create_engine, cfg, on_created=created.append
+                )
+                await _write_record(
+                    store,
+                    cfg,
+                    engine_id,
+                    expected_generation=generation,
+                    creation_incarnation=created[0] if len(created) == 1 else None,
+                )
             elif not recorded:
                 await _write_record(store, cfg, engine_id)
         if cfg.engine_id and cfg.engine_id != engine_id:
@@ -1106,7 +1210,7 @@ def build_rest_memory_bank_service(
 
             The trusted lifecycle caller owns consent and registry/replacement
             fencing. Google DELETE has no incarnation precondition: createTime
-            equality is an observation only. Public teardown remains disabled.
+            equality is an observation only. Compute and substrate teardown remain disabled.
             This method uses the captured store even after ordinary resolution
             is invalidated; every retry verifies its irreversible record binding.
             """
@@ -1262,11 +1366,21 @@ def build_rest_memory_bank_service(
                 record = {**record, "erasure": state}
                 generation = await _persist_record(store, record, generation)
                 await log.require_fenced(owner_id=user_id, attempt_id=attempt_id)
-                payload = await asyncio.to_thread(self._delete_engine)
-                operation = self._operation_path(payload.get("name"))
-                state = {**state, "phase": "delete_pending", "operation": operation}
-                record = {**record, "erasure": state}
-                generation = await _persist_record(store, record, generation)
+
+                async def delete_and_record_acknowledgement() -> tuple[dict, dict, dict, int]:
+                    # Once admitted, a disconnected caller must not discard a
+                    # provider acknowledgement. Process loss still leaves the
+                    # durable submitting state unresolved; never repeat DELETE.
+                    result = await asyncio.to_thread(self._delete_engine)
+                    operation = self._operation_path(result.get("name"))
+                    pending = {**state, "phase": "delete_pending", "operation": operation}
+                    updated = {**record, "erasure": pending}
+                    saved = await _persist_record(store, updated, generation)
+                    return result, pending, updated, saved
+
+                payload, state, record, generation = await _await_admitted_work(
+                    delete_and_record_acknowledgement()
+                )
             else:
                 # Persisted alias came from the configured engine's authenticated
                 # GET. A deleted engine cannot supply it again after restart.

@@ -347,3 +347,37 @@ def test_erasure_fence_proof_and_acknowledgement_bind_exact_attempt(minted, matc
                 pod_url="https://pod-one.run.app", payload=payload, session=session
             )
     assert minted == ["https://pod-one.run.app", erasure_proof_audience(payload)]
+
+
+@pytest.mark.parametrize("matched", [True, False])
+def test_erasure_memory_binding_uses_separate_proof_and_exact_envelope(minted, matched):
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    payload = dict(
+        hushhId="ha1_owner",
+        attemptId="attempt-one",
+        service="pod-one",
+        serviceUid="uid-one",
+        revision="pod-one-00001",
+    )
+    receipt = {**payload, "memoryBinding": {"engineId": "91"}}
+    reply = {"status": "bound", **receipt}
+    if not matched:
+        reply["revision"] = "pod-one-00002"
+    session = _Recorder(body=reply)
+    if matched:
+        assert (
+            transport.observe_memory_for_erasure(
+                pod_url="https://pod-one.run.app", payload=payload, session=session
+            )
+            == receipt
+        )
+    else:
+        with pytest.raises(PodMigrationTransportError):
+            transport.observe_memory_for_erasure(
+                pod_url="https://pod-one.run.app", payload=payload, session=session
+            )
+    assert minted == [
+        "https://pod-one.run.app",
+        erasure_proof_audience(payload, purpose="memory-binding"),
+    ]

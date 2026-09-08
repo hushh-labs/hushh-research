@@ -169,6 +169,54 @@ def fence_for_erasure(
     return result
 
 
+def observe_memory_for_erasure(
+    *, pod_url: str, payload: dict[str, Any], session: Any = None, token_minter: Any = None
+) -> dict[str, Any]:
+    """Read fenced coordinates; the registry validates and retains the binding."""
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    result = _post(
+        pod_url,
+        "/pod/migration/erasure/memory/binding",
+        payload["hushhId"],
+        payload,
+        timeout=60,
+        session=session,
+        minter=token_minter,
+        proof_audience=erasure_proof_audience(payload, purpose="memory-binding"),
+    )
+    if not isinstance(result.get("memoryBinding"), dict) or {
+        key: value for key, value in result.items() if key != "memoryBinding"
+    } != {"status": "bound", **payload}:
+        raise PodMigrationTransportError(
+            "POD_RESPONSE_INVALID", "erasure memory binding acknowledgement mismatch"
+        )
+    return {**payload, "memoryBinding": result["memoryBinding"]}
+
+
+def reconcile_memory_for_erasure(
+    *, pod_url: str, payload: dict[str, Any], session: Any = None, token_minter: Any = None
+) -> dict[str, Any]:
+    """Carry a qualified immutable engine binding, never a fence-only proof."""
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    result = _post(
+        pod_url,
+        "/pod/migration/erasure/memory/reconcile",
+        payload["hushhId"],
+        payload,
+        timeout=180,
+        session=session,
+        minter=token_minter,
+        proof_audience=erasure_proof_audience(payload, purpose="memory-reconcile"),
+    )
+    if result != {"status": "provider_deleted", **payload}:
+        raise PodMigrationTransportError(
+            "POD_RESPONSE_INVALID", "memory deletion acknowledgement mismatch"
+        )
+    return result
+
+
 def export_from(
     *,
     pod_url: str,

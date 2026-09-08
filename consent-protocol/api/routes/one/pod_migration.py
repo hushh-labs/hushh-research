@@ -184,21 +184,22 @@ class ErasureFenceRequest(BaseModel):
     revision: str = Field(min_length=1, max_length=128)
 
 
-def erasure_proof_audience(payload: dict[str, Any]) -> str:
+class ErasureMemoryRequest(ErasureFenceRequest):
+    memoryBinding: dict[str, Any]
+
+
+def erasure_proof_audience(payload: dict[str, Any], *, purpose: str = "fence") -> str:
     digest = hashlib.sha256(
         json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     ).hexdigest()
-    return f"{hub_proof_audience(str(payload['hushhId']))}:erasure:{digest}"
+    prefix = f"{hub_proof_audience(str(payload['hushhId']))}:erasure"
+    # Preserve the existing fence audience; a fence token cannot authorize
+    # observation or a future destructive reconciliation operation.
+    return f"{prefix}:{digest}" if purpose == "fence" else f"{prefix}:{purpose}:{digest}"
 
 
-@router.post("/erasure/fence")
-async def fence_erasure(
-    body: ErasureFenceRequest,
-    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
-) -> dict:
-    """Close log and memory admission; this is not permission to delete resources."""
+def _require_erasure_caller(payload: dict[str, Any], proof: str | None, *, purpose: str) -> None:
     _require_enabled()
-    payload = body.model_dump()
     if any(
         payload[key] != str(os.getenv(env) or "").strip()
         for key, env in (
@@ -207,8 +208,18 @@ async def fence_erasure(
             ("revision", "K_REVISION"),
         )
     ):
-        raise HTTPException(status_code=403, detail="erasure fence refused")
-    _require_hub_caller(x_hussh_hub_proof, audience=erasure_proof_audience(payload))
+        raise HTTPException(status_code=403, detail="erasure request refused")
+    _require_hub_caller(proof, audience=erasure_proof_audience(payload, purpose=purpose))
+
+
+@router.post("/erasure/fence")
+async def fence_erasure(
+    body: ErasureFenceRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Close log and memory admission; this is not permission to delete resources."""
+    payload = body.model_dump()
+    _require_erasure_caller(payload, x_hussh_hub_proof, purpose="fence")
     try:
         from hushh_mcp.services.pod_memory_bank import fence_memory_bank_admission
 
@@ -220,6 +231,65 @@ async def fence_erasure(
     except Exception:
         raise HTTPException(status_code=409, detail="erasure fence incomplete") from None
     return {"status": "fenced", **payload}
+
+
+@router.post("/erasure/memory/binding")
+async def erasure_memory_binding(
+    body: ErasureFenceRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Expose only fenced engine coordinates for the hub's durable reservation."""
+    payload = body.model_dump()
+    _require_erasure_caller(payload, x_hussh_hub_proof, purpose="memory-binding")
+    try:
+        from hushh_mcp.services.pod_memory_bank import memory_bank_erasure_binding
+
+        log = _commit_log()
+        binding = await memory_bank_erasure_binding(
+            store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId
+        )
+    except Exception:
+        raise HTTPException(status_code=409, detail="erasure memory binding unavailable") from None
+    return {"status": "bound", **payload, "memoryBinding": binding}
+
+
+@router.post("/erasure/memory/reconcile")
+async def reconcile_erasure_memory(
+    body: ErasureMemoryRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Reconcile one qualified hub reservation using only this pod's authority."""
+    payload = body.model_dump()
+    _require_erasure_caller(payload, x_hussh_hub_proof, purpose="memory-reconcile")
+    try:
+        from hushh_mcp.services.pod_memory_bank import (
+            build_rest_memory_bank_service,
+            memory_bank_config,
+            memory_bank_erasure_binding,
+        )
+
+        log = _commit_log()
+        binding = await memory_bank_erasure_binding(
+            store=log._store, log=log, owner_id=body.hushhId, attempt_id=body.attemptId
+        )
+        cfg = memory_bank_config()
+        if cfg is None or binding != body.memoryBinding or not binding.get("creationProvenance"):
+            raise RuntimeError("memory erasure binding changed")
+        service = build_rest_memory_bank_service(
+            cfg, binding["engineId"], store=log._store, is_current=lambda: False
+        )
+        result = await service.reconcile_memory_bank_erasure(
+            log=log,
+            user_id=body.hushhId,
+            attempt_id=body.attemptId,
+            incarnation_id=body.serviceUid,
+            expected_engine_create_time=binding["engineIncarnation"]["createTime"],
+        )
+        if result != {"status": "provider_deleted"}:
+            raise RuntimeError("memory erasure completion unconfirmed")
+    except Exception:
+        raise HTTPException(status_code=409, detail="erasure memory incomplete") from None
+    return {"status": "provider_deleted", **payload}
 
 
 @router.post("/export")

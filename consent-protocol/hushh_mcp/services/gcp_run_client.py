@@ -17,6 +17,7 @@ import json
 import logging
 import math
 import os
+import re
 import time
 from typing import Any, Optional
 
@@ -363,6 +364,37 @@ class GcpRunClient:
         return result
 
     @staticmethod
+    def creation_runtime_evidence(
+        service: dict[str, Any], *, requested_image: str
+    ) -> dict[str, Any]:
+        """Enrich the creation receipt only with observed, immutable runtime coordinates.
+
+        Missing evidence must not discard the already acknowledged service UID.
+        Such a receipt remains useful for recovery but cannot qualify fresh erasure.
+        """
+        metadata = service.get("metadata")
+        spec = service.get("spec")
+        if not isinstance(metadata, dict) or not isinstance(spec, dict):
+            return {}
+        template = spec.get("template")
+        if not isinstance(template, dict) or not isinstance(template.get("spec"), dict):
+            return {}
+        generation = metadata.get("generation")
+        containers = template["spec"].get("containers")
+        if (
+            type(generation) is not int
+            or generation < 1
+            or not isinstance(containers, list)
+            or len(containers) != 1
+            or not isinstance(containers[0], dict)
+            or containers[0].get("image") != requested_image
+            or not isinstance(requested_image, str)
+            or re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", requested_image) is None
+        ):
+            return {}
+        return {"initialGeneration": generation, "initialImage": requested_image}
+
+    @staticmethod
     def erasure_fence_target(
         service: dict[str, Any], *, name: str, expected_uid: str
     ) -> dict[str, str]:
@@ -409,6 +441,43 @@ class GcpRunClient:
             "revision": revision,
             "podUrl": url.rstrip("/"),
         }
+
+    def observe_erasure_runtime(self, *, name: str, expected_uid: str) -> dict[str, Any]:
+        """Join the existing service fence observation to its resolved revision image."""
+        import requests  # type: ignore[import-untyped]
+
+        service = self.get_service(name)
+        if service is None:
+            raise RuntimeError("erasure runtime unavailable")
+        target = self.erasure_fence_target(service, name=name, expected_uid=expected_uid)
+        response = requests.get(
+            f"{self._base}/revisions/{target['revision']}",
+            headers=self._headers(),
+            timeout=30,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise RuntimeError("erasure revision unavailable")
+        revision = response.json()
+        metadata = revision.get("metadata") or {}
+        digest = (revision.get("status") or {}).get("imageDigest")
+        if (
+            metadata.get("name") != target["revision"]
+            or (metadata.get("labels") or {}).get("serving.knative.dev/service") != name
+            or not isinstance(digest, str)
+            or re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", digest) is None
+        ):
+            raise RuntimeError("erasure revision identity unavailable")
+        # A replacement between reads is not a qualified observation.
+        current = self.get_service(name)
+        if (
+            current is None
+            or self.erasure_fence_target(current, name=name, expected_uid=expected_uid) != target
+            or (current.get("metadata") or {}).get("generation")
+            != service["metadata"]["generation"]
+        ):
+            raise RuntimeError("erasure runtime changed during observation")
+        return {**target, "generation": service["metadata"]["generation"], "image": digest}
 
     @staticmethod
     def upgrade_acknowledgement(

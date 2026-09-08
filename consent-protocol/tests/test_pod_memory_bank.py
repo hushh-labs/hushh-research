@@ -198,6 +198,9 @@ async def test_ensure_creates_once_persists_the_record_and_reuses_it(monkeypatch
     store = _Store()
     assert await mb.ensure_memory_bank(store=store) == "555"
     record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["generationProtocol"] == 2
+    assert record["generationOperation"] is None and record["recallOperation"] is None
+    assert "creationProvenance" not in record  # A returned ID alone is not creation proof.
     assert record["engineId"] == "555"
     assert record["engineIncarnation"] == {
         "name": "projects/hussh-one-test/locations/us-central1/reasoningEngines/555",
@@ -1691,6 +1694,62 @@ async def test_lost_bank_delete_acknowledgement_never_repeats_destructive_reques
     )
 
 
+@pytest.mark.parametrize("outcome", ["acknowledged", "transport_unknown", "worker_lost"])
+async def test_cancelled_erasure_retains_delete_acknowledgement_without_resubmitting(outcome):
+    import asyncio
+    import threading
+
+    started, release, ended = threading.Event(), threading.Event(), threading.Event()
+
+    class HeldDelete(_ErasureHttp):
+        def delete(self, *args, **kwargs):
+            response = super().delete(*args, **kwargs)
+            started.set()
+            try:
+                assert release.wait(timeout=5)
+                if outcome == "transport_unknown":
+                    raise OSError("synthetic private provider diagnostic")
+                return response
+            finally:
+                ended.set()
+
+    store, http = _ready_store(), HeldDelete()
+    log = await _erasure_log(store)
+    task = asyncio.create_task(_erase(_tracked_service(store, http), log))
+    worker = None
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        worker = next(iter(mb._PROVIDER_TASKS))
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not worker.done()
+        before = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+        assert before["erasure"]["phase"] == "delete_submitting"
+        with pytest.raises(mb.MemoryBankErasurePending, match="acknowledgement unresolved"):
+            await _erase(_tracked_service(store, http), log)
+        assert len(http.deletes) == 1
+        if outcome == "worker_lost":
+            worker.cancel()
+    finally:
+        release.set()
+        assert await asyncio.to_thread(ended.wait, 5)
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+            await asyncio.sleep(0)
+        await asyncio.gather(task, return_exceptions=True)
+    assert not mb._PROVIDER_TASKS
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    if outcome == "acknowledged":
+        assert record["erasure"]["phase"] == "delete_pending"
+        assert await _erase(_tracked_service(store, http), log) == {"status": "provider_deleted"}
+    else:
+        assert record == before
+        with pytest.raises(mb.MemoryBankErasurePending, match="acknowledgement unresolved"):
+            await _erase(_tracked_service(store, http), log)
+    assert len(http.deletes) == 1
+
+
 @pytest.mark.parametrize(
     "completion",
     [
@@ -2139,6 +2198,44 @@ async def test_memory_admission_fence_preserves_source_and_prevents_boot_provide
         )
 
 
+@pytest.mark.parametrize("invalid", [None, "owner", "attempt", "legacy", "incarnation", "recall"])
+async def test_erasure_binding_is_fenced_bounded_and_provider_free(monkeypatch, invalid):
+    monkeypatch.setattr(mb, "memory_bank_config", _cfg)
+    store = _ready_store()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record.update(status="ready", generationProtocol=2, recallOperation=None)
+    if invalid == "legacy":
+        record["generationProtocol"] = 1
+    if invalid == "incarnation":
+        record.pop("engineIncarnation")
+    if invalid == "recall":
+        record.pop("recallOperation")
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    log = await _erasure_log(store)
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    before = store.objects.copy()
+    monkeypatch.setattr(mb, "_adc_token", lambda: pytest.fail("provider credentials reached"))
+    args = dict(store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt")
+    if invalid == "owner":
+        args["owner_id"] = "foreign"
+    if invalid == "attempt":
+        args["attempt_id"] = "foreign"
+    if invalid:
+        with pytest.raises(mb.MemoryBankUnavailable, match="binding unavailable"):
+            await mb.memory_bank_erasure_binding(**args)
+    else:
+        assert await mb.memory_bank_erasure_binding(**args) == {
+            "project": _cfg().project,
+            "location": _cfg().location,
+            "engineId": "91",
+            "engineIncarnation": record["engineIncarnation"],
+            "generationProtocol": 2,
+        }
+    assert store.objects == before
+
+
 @pytest.mark.parametrize("fence_at", ["provider_observation", "publication_readback"])
 async def test_late_creation_receipt_survives_admission_fence_without_ready_publication(
     monkeypatch,
@@ -2273,3 +2370,121 @@ async def test_admission_transition_refuses_unresolved_or_mismatched_state(gap):
         await _erase(_tracked_service(store, http), log, observe_only=gap == "observe_only")
     assert store.objects[mb.MEMORY_BANK_RECORD_KEY] == before
     assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("source", ["created", "adopted", "configured", "changed_incarnation"])
+async def test_first_write_records_creation_provenance_only_for_acknowledged_new_engine(
+    monkeypatch, source
+):
+    _configure(monkeypatch, GOOGLE_CLOUD_PROJECT="p")
+    incarnation = {
+        "name": "projects/p/locations/us-central1/reasoningEngines/91",
+        "createTime": "2026-09-01T00:00:00Z",
+    }
+    listing = (
+        {"reasoningEngines": [{"displayName": _cfg().display_name, **incarnation}]}
+        if source == "adopted"
+        else {}
+    )
+    response = (
+        {**incarnation, "createTime": "2026-09-02T00:00:00Z"}
+        if source == "changed_incarnation"
+        else incarnation
+    )
+    http = _Http(_Resp(200, listing), _Resp(200, {"done": True, "response": response}))
+    monkeypatch.setattr(requests, "Session", lambda: http)
+    if source == "configured":
+        monkeypatch.setenv("POD_MEMORY_BANK_ENGINE_ID", "91")
+    store = _Store()
+    result = await mb.ensure_memory_bank(store=store)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    if source == "changed_incarnation":
+        assert result is None
+        assert record["status"] == "creating"
+        assert "creationProvenance" not in record
+        return
+    assert result == "91"
+    assert record["generationProtocol"] == 2
+    assert record["generationOperation"] is None and record["recallOperation"] is None
+    if source == "created":
+        assert record["creationProvenance"] == {
+            "version": 1,
+            "reservationGeneration": 1,
+            "engineIncarnation": incarnation,
+        }
+        log = await _erasure_log(store)
+        await mb.fence_memory_bank_admission(
+            store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+        )
+        binding = await mb.memory_bank_erasure_binding(
+            store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+        )
+        assert binding["creationProvenance"] == record["creationProvenance"]
+    else:
+        assert "creationProvenance" not in record
+        assert http.posts == []
+
+
+async def test_pod_route_reconciles_fresh_binding_and_retries_without_second_delete(monkeypatch):
+    from fastapi import HTTPException
+
+    from api.routes.one import pod_migration
+
+    monkeypatch.setattr(mb, "memory_bank_config", _cfg)
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    for key, value in {
+        "HUSSH_ID": "ha1_test",
+        "K_SERVICE": "pod-one",
+        "K_REVISION": "pod-one-00001",
+    }.items():
+        monkeypatch.setenv(key, value)
+    store, http = _ready_store(), _ErasureHttp()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    record.update(
+        status="ready", generationProtocol=2, generationOperation=None, recallOperation=None
+    )
+    record["creationProvenance"] = {
+        "version": 1,
+        "reservationGeneration": 1,
+        "engineIncarnation": record["engineIncarnation"],
+    }
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    log = await _erasure_log(store)
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    binding = await mb.memory_bank_erasure_binding(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    body = pod_migration.ErasureMemoryRequest(
+        hushhId="ha1_test",
+        attemptId="erase-attempt",
+        service="pod-one",
+        serviceUid="uid-one",
+        revision="pod-one-00001",
+        memoryBinding=binding,
+    )
+
+    def verify(proof, *, audience):
+        assert audience == pod_migration.erasure_proof_audience(
+            body.model_dump(), purpose="memory-reconcile"
+        )
+
+    monkeypatch.setattr(pod_migration, "_require_hub_caller", verify)
+    monkeypatch.setattr(pod_migration, "_commit_log", lambda: log)
+    build = mb.build_rest_memory_bank_service
+    monkeypatch.setattr(
+        mb,
+        "build_rest_memory_bank_service",
+        lambda cfg, engine_id, **kw: build(cfg, engine_id, **kw, session=http, token=_Token()),
+    )
+    with pytest.raises(HTTPException) as pending:
+        await pod_migration.reconcile_erasure_memory(body, "Bearer synthetic")
+    assert pending.value.status_code == 409
+    assert (
+        json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["erasure"]["phase"] == "delete_pending"
+    )
+    expected = {"status": "provider_deleted", **body.model_dump()}
+    assert await pod_migration.reconcile_erasure_memory(body, "Bearer synthetic") == expected
+    assert await pod_migration.reconcile_erasure_memory(body, "Bearer synthetic") == expected
+    assert len(http.deletes) == 1

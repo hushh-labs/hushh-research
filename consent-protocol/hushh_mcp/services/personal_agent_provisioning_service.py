@@ -1710,9 +1710,12 @@ class PersonalAgentProvisioningService:
         )
         return {"hushhId": hushh_id, "status": status or "connecting", "adopted": True}
 
-    async def _fence_reserved_erasure(self, *, user_id: str, reservation: dict) -> None:
+    async def _fence_reserved_erasure(self, *, user_id: str, reservation: dict) -> dict:
         """Fence one observed pod under its immutable registry reservation."""
-        from hushh_mcp.services.pod_migration_transport import fence_for_erasure
+        from hushh_mcp.services.pod_migration_transport import (
+            fence_for_erasure,
+            observe_memory_for_erasure,
+        )
 
         if (
             not isinstance(reservation, dict)
@@ -1766,17 +1769,99 @@ class PersonalAgentProvisioningService:
             or (current.get("backend_metadata") or {}).get("erasure") != reservation
         ):
             raise RuntimeError("erasure reservation changed")
-        await asyncio.to_thread(
-            fence_for_erasure,
-            pod_url=target["podUrl"],
-            payload={
-                "hushhId": hushh_id,
-                "attemptId": reservation["attemptId"],
-                "service": target["service"],
-                "serviceUid": target["serviceUid"],
-                "revision": target["revision"],
-            },
+        payload = {
+            "hushhId": hushh_id,
+            "attemptId": reservation["attemptId"],
+            "service": target["service"],
+            "serviceUid": target["serviceUid"],
+            "revision": target["revision"],
+        }
+        await asyncio.to_thread(fence_for_erasure, pod_url=target["podUrl"], payload=payload)
+        receipt = await asyncio.to_thread(
+            observe_memory_for_erasure, pod_url=target["podUrl"], payload=payload
         )
+        retain = getattr(self._registry, "retain_erasure_memory_binding", None)
+        if retain is None or not await retain(
+            user_id=user_id, reservation=reservation, receipt=receipt
+        ):
+            raise RuntimeError("erasure memory binding retention unconfirmed")
+        observed = await self._registry.get(user_id)
+        saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not observed
+            or observed.get("status") != "suspended"
+            or saved.get("ownerId") != user_id
+            or saved.get("attemptId") != reservation["attemptId"]
+            or saved.get("memoryBinding") != receipt
+        ):
+            raise RuntimeError("erasure memory binding readback unconfirmed")
+        attempt = metadata.get("provisionAttempt") or {}
+        creation = ((attempt.get("evidence") or {}).get("host_requested") or {}).get(
+            "creationAcknowledgement"
+        ) or {}
+        if (
+            attempt.get("version") != 1
+            or attempt.get("ownerId") != user_id
+            or attempt.get("phase") != "provisioned"
+            or type(creation.get("initialGeneration")) is not int
+            or creation["initialGeneration"] != 1
+            or not isinstance(creation.get("initialImage"), str)
+            or not receipt["memoryBinding"].get("creationProvenance")
+            or creation.get("serviceUid") != target["serviceUid"]
+        ):
+            raise RuntimeError("erasure runtime creation provenance unavailable")
+        expected_target = backend.provision_target_for(spec)
+        if any(creation.get(key) != value for key, value in expected_target.items()):
+            raise RuntimeError("erasure creation target changed")
+        runtime = await backend.observe_erasure_runtime(spec)
+        if (
+            any(runtime.get(key) != value for key, value in target.items())
+            or runtime.get("generation") != creation["initialGeneration"]
+            or runtime.get("image") != creation["initialImage"]
+        ):
+            raise RuntimeError("erasure runtime creation identity changed")
+        return {**receipt, "runtime": runtime}
+
+    async def _erase_reserved_memory(self, *, user_id: str, qualified: dict) -> None:
+        """Persist pod-held provider erasure before any later resource teardown."""
+        from hushh_mcp.services.pod_migration_transport import reconcile_memory_for_erasure
+
+        payload = {key: value for key, value in qualified.items() if key != "runtime"}
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or reservation.get("attemptId") != payload.get("attemptId")
+            or reservation.get("memoryBinding") != payload
+        ):
+            raise RuntimeError("erasure reservation changed before provider request")
+        retain_binding = getattr(self._registry, "retain_erasure_memory_binding", None)
+        retain_deletion = getattr(self._registry, "retain_erasure_memory_deletion", None)
+        if (
+            retain_binding is None
+            or retain_deletion is None
+            or not await retain_binding(user_id=user_id, reservation=reservation, receipt=payload)
+        ):
+            raise RuntimeError("erasure admission unconfirmed before provider request")
+        receipt = await asyncio.to_thread(
+            reconcile_memory_for_erasure,
+            pod_url=qualified["runtime"]["podUrl"],
+            payload=payload,
+        )
+        if not await retain_deletion(user_id=user_id, reservation=reservation, receipt=receipt):
+            raise RuntimeError("erasure provider receipt retention unconfirmed")
+        observed = await self._registry.get(user_id)
+        saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not observed
+            or observed.get("status") != "suspended"
+            or saved.get("ownerId") != user_id
+            or saved.get("attemptId") != reservation["attemptId"]
+            or saved.get("memoryDeletion") != receipt
+        ):
+            raise RuntimeError("erasure provider receipt readback unconfirmed")
 
     async def deprovision(
         self,
@@ -1786,7 +1871,7 @@ class PersonalAgentProvisioningService:
         revoke: bool = True,
         defer_row_delete: bool = False,
     ) -> dict[str, Any]:
-        """Refuse destructive teardown until owner-held erasure can be proved.
+        """Reconcile pod-held memory erasure while retaining all other resources.
 
         The existing account guard owns retained-resource classification. Retained
         registry resources are reserved for erasure; teardown still reports incomplete.
@@ -1809,7 +1894,10 @@ class PersonalAgentProvisioningService:
             if reserve is not None:
                 try:
                     reservation = await reserve(user_id=user_id)
-                    await self._fence_reserved_erasure(user_id=user_id, reservation=reservation)
+                    qualified = await self._fence_reserved_erasure(
+                        user_id=user_id, reservation=reservation
+                    )
+                    await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",
