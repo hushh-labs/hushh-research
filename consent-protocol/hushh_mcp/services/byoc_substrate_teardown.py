@@ -514,6 +514,8 @@ def build_gcp_deleter(
     session: Any = None,
     bucket_erasure_state: dict[str, Any] | None = None,
     retain_bucket_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
+    kms_erasure_state: dict[str, Any] | None = None,
+    retain_kms_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
 ):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 
@@ -533,6 +535,9 @@ def build_gcp_deleter(
     if bucket_erasure_state is not None and retain_bucket_receipt is None:
         raise SubstrateDeleteError("bucket recovery requires durable receipt retention")
     bucket_state = deepcopy(bucket_erasure_state or {})
+    if kms_erasure_state is not None and retain_kms_receipt is None:
+        raise SubstrateDeleteError("KMS recovery requires durable receipt retention")
+    kms_state = deepcopy(kms_erasure_state or {})
     log = logging.getLogger(__name__)
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
@@ -742,6 +747,149 @@ def build_gcp_deleter(
                     )
         raise SubstrateDeleteError("bucket not emptied after 32 version pages")
 
+    def _reconcile_kms_versions(observation: dict[str, Any]) -> None:
+        # The coordinator owns durable admission. This adapter never releases keys,
+        # secrets or IAM authority and never repeats an admitted destroy request.
+        parent = observation["identity"]["name"]
+        base = "https://cloudkms.googleapis.com/v1/"
+        receipt_base = {"resourceObservation": observation}
+
+        def retain(stage: str, receipt: dict[str, Any]) -> None:
+            try:
+                retained = retain_kms_receipt(stage, deepcopy(receipt)) is True
+            except Exception:
+                retained = False
+            if not retained:
+                raise SubstrateDeleteError("KMS receipt retention unconfirmed")
+            if stage in {"inventory", "completion"}:
+                kms_state[stage] = deepcopy(receipt)
+            else:
+                kms_state.setdefault("versions", {}).setdefault(receipt["versionName"], {})[
+                    stage
+                ] = deepcopy(receipt)
+
+        def validate(value: Any, expected_name: str | None = None) -> dict[str, str]:
+            prefix = parent + "/cryptoKeyVersions/"
+            name = value.get("name") if isinstance(value, dict) else None
+            if (
+                not isinstance(name, str)
+                or not name.startswith(prefix)
+                or not name[len(prefix) :].isascii()
+                or not name[len(prefix) :].isdigit()
+                or not 1 <= len(name[len(prefix) :]) <= 20
+                or (expected_name is not None and name != expected_name)
+                or value.get("state")
+                not in {"ENABLED", "DISABLED", "DESTROY_SCHEDULED", "DESTROYED"}
+                or value.get("reimportEligible") not in (None, False)
+                or value.get("importJob")
+            ):
+                raise SubstrateDeleteError("KMS version identity or state unverified")
+            return {"name": name, "state": value["state"]}
+
+        def inventory() -> dict[str, str]:
+            versions: dict[str, str] = {}
+            page_token = ""
+            seen: set[str] = set()
+            for _ in range(32):
+                response = session.get(
+                    f"{base}{parent}/cryptoKeyVersions",
+                    headers=headers,
+                    params={"pageSize": 1000, **({"pageToken": page_token} if page_token else {})},
+                    timeout=30,
+                    allow_redirects=False,
+                )
+                if response.status_code != 200:
+                    raise SubstrateDeleteError("KMS version inventory unavailable")
+                body = response.json()
+                if (
+                    not isinstance(body, dict)
+                    or body.get("error") is not None
+                    or not isinstance(body.get("cryptoKeyVersions", []), list)
+                ):
+                    raise SubstrateDeleteError("KMS version inventory invalid")
+                for raw in body.get("cryptoKeyVersions", []):
+                    version = validate(raw)
+                    if version["name"] in versions or len(versions) >= 32000:
+                        raise SubstrateDeleteError("KMS version inventory invalid")
+                    versions[version["name"]] = version["state"]
+                page_token = body.get("nextPageToken", "")
+                if not isinstance(page_token, str) or len(page_token) > 4096 or page_token in seen:
+                    raise SubstrateDeleteError("KMS version inventory invalid")
+                if not page_token:
+                    return versions
+                seen.add(page_token)
+            raise SubstrateDeleteError("KMS version inventory exceeds 32 pages")
+
+        current = inventory()
+        captured = {**receipt_base, "versionNames": sorted(current)}
+        if kms_state and (
+            set(kms_state) - {"inventory", "versions", "completion"}
+            or kms_state.get("inventory") != captured
+            or not isinstance(kms_state.get("versions", {}), dict)
+            or set(kms_state.get("versions", {})) - set(current)
+        ):
+            raise SubstrateDeleteError("KMS recovery inventory changed")
+        if not kms_state:
+            retain("inventory", captured)
+        # Validate all retained stages before any provider mutation.
+        statuses = {
+            "admission": "admitted",
+            "acknowledgement": "scheduled",
+            "destruction": "destroyed",
+        }
+        for name, stages in kms_state.get("versions", {}).items():
+            if not isinstance(stages, dict) or set(stages) - set(statuses):
+                raise SubstrateDeleteError("KMS recovery receipt invalid")
+            for stage, receipt in stages.items():
+                if receipt != {**receipt_base, "versionName": name, "status": statuses[stage]}:
+                    raise SubstrateDeleteError("KMS recovery receipt invalid")
+            if "acknowledgement" in stages and "admission" not in stages:
+                raise SubstrateDeleteError("KMS recovery admission unavailable")
+        if "completion" in kms_state and kms_state["completion"] != {
+            **captured,
+            "status": "destroyed",
+        }:
+            raise SubstrateDeleteError("KMS completion receipt invalid")
+        pending = False
+        for name in sorted(current):
+            receipt = {**receipt_base, "versionName": name}
+            stages = kms_state.get("versions", {}).get(name, {})
+            response = session.get(
+                f"{base}{name}", headers=headers, timeout=30, allow_redirects=False
+            )
+            if response.status_code != 200:
+                raise SubstrateDeleteError("KMS version observation unavailable")
+            state = validate(response.json(), name)["state"]
+            if state == "DESTROYED":
+                if "destruction" not in stages:
+                    retain("destruction", {**receipt, "status": "destroyed"})
+                continue
+            if "destruction" in stages or "completion" in kms_state:
+                raise SubstrateDeleteError("KMS destroyed version changed")
+            pending = True
+            if state == "DESTROY_SCHEDULED":
+                continue
+            if "admission" in stages:
+                raise SubstrateDeleteError("KMS admitted destruction unresolved")
+            retain("admission", {**receipt, "status": "admitted"})
+            response = session.post(
+                f"{base}{name}:destroy", headers=headers, timeout=30, allow_redirects=False
+            )
+            if (
+                response.status_code != 200
+                or validate(response.json(), name)["state"] != "DESTROY_SCHEDULED"
+            ):
+                raise SubstrateDeleteError("KMS destruction acknowledgement unconfirmed")
+            retain("acknowledgement", {**receipt, "status": "scheduled"})
+        if pending:
+            raise SubstrateDeleteError("kms destruction pending verification")
+        final = inventory()
+        if sorted(final) != captured["versionNames"] or any(
+            v != "DESTROYED" for v in final.values()
+        ):
+            raise SubstrateDeleteError("KMS final inventory unverified")
+        retain("completion", {**captured, "status": "destroyed"})
+
     def _destroy_kms_versions(key_id: str) -> None:
         parent = f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{key_id}"
         # Scheduling is reversible. Only a complete inventory of DESTROYED
@@ -916,6 +1064,8 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "kms_key" and retain_kms_receipt is not None and not observation:
+            raise SubstrateDeleteError("coordinated KMS cleanup requires creation evidence")
         if kind == "artifact_repository":
             raise SubstrateDeleteError("shared artifact repository ownership unresolved")
         if kind == "gcs_bucket" and retain_bucket_receipt is not None and not observation:
@@ -1049,7 +1199,10 @@ def build_gcp_deleter(
                         or _kms_key_creation_identity(response.json(), expected["name"]) != expected
                     ):
                         raise SubstrateDeleteError("KMS key creation identity unverified")
-                _destroy_kms_versions(rid)
+                if retain_kms_receipt is not None:
+                    _reconcile_kms_versions(observation)
+                else:
+                    _destroy_kms_versions(rid)
             else:
                 # A plan entry nothing knows how to delete must fail the completeness
                 # check, honoring plan_teardown's "never silently dropped" promise.

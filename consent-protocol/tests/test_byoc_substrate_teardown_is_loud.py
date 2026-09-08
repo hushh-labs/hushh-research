@@ -1112,3 +1112,100 @@ def test_mail_cleanup_retains_stages_and_never_replays_uncertain_delete(kind, ca
         case in {"deleted", "ack_refused"}
     )
     assert all(kwargs["allow_redirects"] is False for _, _, kwargs in session.calls)
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "schedule",
+        "destroyed",
+        "admission_lost",
+        "ack_lost",
+        "resumed",
+        "restored",
+        "foreign",
+        "new_version",
+    ],
+)
+async def test_coordinated_kms_cleanup_retains_admission_and_reconciles_without_replay(case):
+    from copy import deepcopy
+
+    name = "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/key-1"
+    version_name = name + "/cryptoKeyVersions/1"
+    identity = {"name": name, "purpose": "ENCRYPT_DECRYPT", "createTime": "2026-09-08T00:00:00Z"}
+    observation = {"type": "kms_key", "id": "key-1", "disposition": "created", "identity": identity}
+    action = {"type": "kms_key", "id": "key-1", "resourceObservation": observation}
+    base = {"resourceObservation": observation}
+    captured = {**base, "versionNames": [version_name]}
+    admitted = {**base, "versionName": version_name, "status": "admitted"}
+    state = {}
+    if case in {"resumed", "restored"}:
+        state = {"inventory": captured, "versions": {version_name: {"admission": admitted}}}
+    observed_state = (
+        "DESTROYED"
+        if case == "destroyed"
+        else "DESTROY_SCHEDULED"
+        if case == "resumed"
+        else "ENABLED"
+    )
+    version = {"name": version_name, "state": observed_state}
+    if case == "foreign":
+        version["name"] = version_name.replace("proj-x", "other-project")
+    session = _Session()
+    lists = 0
+
+    def list_versions(url, kwargs):
+        nonlocal lists
+        lists += 1
+        versions = [version]
+        if case == "new_version" and lists == 2:
+            versions = [version, {"name": name + "/cryptoKeyVersions/2", "state": "ENABLED"}]
+        return _Resp(200, {"cryptoKeyVersions": versions})
+
+    if case == "new_version":
+        version["state"] = "DESTROYED"
+    session.rule("GET", version_name, _Resp(200, version))
+    session.rule("GET", name + "/cryptoKeyVersions", list_versions)
+    session.rule("GET", name, _Resp(200, identity))
+    session.rule(
+        "POST", ":destroy", _Resp(200, {"name": version_name, "state": "DESTROY_SCHEDULED"})
+    )
+    receipts = []
+
+    def retain(stage, receipt):
+        receipts.append(stage)
+        if (case == "admission_lost" and stage == "admission") or (
+            case == "ack_lost" and stage == "acknowledgement"
+        ):
+            return False
+        if stage in {"inventory", "completion"}:
+            state[stage] = deepcopy(receipt)
+        else:
+            state.setdefault("versions", {}).setdefault(receipt["versionName"], {})[stage] = (
+                deepcopy(receipt)
+            )
+        return True
+
+    deleter = build_gcp_deleter(
+        token="synthetic",  # noqa: S106
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        kms_erasure_state=state,
+        retain_kms_receipt=retain,
+    )
+    if case == "destroyed":
+        await deleter(action)
+        assert receipts == ["inventory", "destruction", "completion"]
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert "completion" not in receipts
+    posts = [call for call in session.calls if call[0] == "POST"]
+    assert len(posts) == (1 if case in {"schedule", "ack_lost"} else 0)
+    if case == "ack_lost":
+        session.calls.clear()
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert all(call[0] == "GET" for call in session.calls)
+    assert all(call[2]["allow_redirects"] is False for call in session.calls)
