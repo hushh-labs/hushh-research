@@ -519,7 +519,17 @@ async def test_kms_recoverable_versions_never_count_as_erased(state):
         "/cryptoKeyVersions",
         _Resp(200, {"cryptoKeyVersions": [{"name": name, "state": state}]}),
     )
-    session.rule("POST", ":destroy", _Resp(200, {"state": "DESTROY_SCHEDULED"}))
+    session.rule(
+        "POST",
+        ":destroy",
+        _Resp(
+            200,
+            {
+                "name": "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/2",
+                "state": "DESTROY_SCHEDULED",
+            },
+        ),
+    )
     with pytest.raises(SubstrateDeleteError, match="destruction pending verification"):
         await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
     assert len([call for call in session.calls if call[0] == "POST"]) == (state == "ENABLED")
@@ -530,9 +540,28 @@ async def test_kms_inventory_checks_later_pages_before_claiming_erasure():
 
     def listing(url, kwargs):
         if kwargs["params"].get("pageToken") == "second":
-            return _Resp(200, {"cryptoKeyVersions": [{"state": "DESTROY_SCHEDULED"}]})
+            return _Resp(
+                200,
+                {
+                    "cryptoKeyVersions": [
+                        {
+                            "name": "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/2",
+                            "state": "DESTROY_SCHEDULED",
+                        }
+                    ]
+                },
+            )
         return _Resp(
-            200, {"cryptoKeyVersions": [{"state": "DESTROYED"}], "nextPageToken": "second"}
+            200,
+            {
+                "cryptoKeyVersions": [
+                    {
+                        "name": "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/1",
+                        "state": "DESTROYED",
+                    }
+                ],
+                "nextPageToken": "second",
+            },
         )
 
     session.rule("GET", "/cryptoKeyVersions", listing)
@@ -544,7 +573,51 @@ async def test_kms_inventory_checks_later_pages_before_claiming_erasure():
 async def test_kms_completed_destruction_is_retry_safe():
     session = _Session()
     session.rule(
-        "GET", "/cryptoKeyVersions", _Resp(200, {"cryptoKeyVersions": [{"state": "DESTROYED"}]})
+        "GET",
+        "/cryptoKeyVersions",
+        _Resp(
+            200,
+            {
+                "cryptoKeyVersions": [
+                    {
+                        "name": "projects/proj-x/locations/us-central1/keyRings/hushh-one/cryptoKeys/one-pod-x-key/cryptoKeyVersions/1",
+                        "state": "DESTROYED",
+                    }
+                ]
+            },
+        ),
     )
     await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
     assert [call for call in session.calls if call[0] == "POST"] == []
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"cryptoKeyVersions": None},
+        {"cryptoKeyVersions": {}},
+        {"error": {"message": "synthetic private content"}},
+        {"nextPageToken": 12},
+        {"cryptoKeyVersions": [{"name": "foreign/key/1", "state": "DESTROYED"}]},
+        {"cryptoKeyVersions": [{"name": "foreign/key/1", "state": "DESTROY_SCHEDULED"}]},
+    ],
+)
+async def test_invalid_kms_inventory_never_certifies_erasure_or_schedules_destroy(body):
+    session = _Session()
+    session.rule("GET", "/cryptoKeyVersions", _Resp(200, body))
+    with pytest.raises(SubstrateDeleteError) as raised:
+        await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
+    assert "synthetic private content" not in str(raised.value)
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+@pytest.mark.parametrize("second_status", [404, 200])
+async def test_kms_pagination_failure_preserves_incomplete_result(second_status):
+    session = _Session()
+    pages = iter(
+        [_Resp(200, {"nextPageToken": "same"}), _Resp(second_status, {"nextPageToken": "same"})]
+    )
+    session.rule("GET", "/cryptoKeyVersions", lambda url, kwargs: next(pages))
+    with pytest.raises(SubstrateDeleteError):
+        await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
+    assert len(session.calls) == 2

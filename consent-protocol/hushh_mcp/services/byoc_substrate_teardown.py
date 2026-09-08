@@ -422,36 +422,67 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         # versions proves erasure; pending versions retain retry authority.
         page_token = ""
         pending = False
+        seen_tokens: set[str] = set()
         for _ in range(32):
             listing = session.get(
                 f"https://cloudkms.googleapis.com/v1/{parent}/cryptoKeyVersions",
                 headers=headers,
                 params={"pageSize": 1000, **({"pageToken": page_token} if page_token else {})},
                 timeout=30,
+                allow_redirects=False,
             )
-            if listing.status_code == 404:
+            if listing.status_code == 404 and not page_token:
                 return  # key never created -- retry-safe
             if listing.status_code != 200:
                 raise SubstrateDeleteError(f"kms version listing http={listing.status_code}")
-            body = listing.json() or {}
-            for version in body.get("cryptoKeyVersions") or []:
-                state = str(version.get("state") or "")
+            body = listing.json()
+            if not isinstance(body, dict) or body.get("error") is not None:
+                raise SubstrateDeleteError("kms version inventory invalid")
+            versions = body.get("cryptoKeyVersions", [])
+            continuation = body.get("nextPageToken", "")
+            prefix = f"{parent}/cryptoKeyVersions/"
+            if (
+                not isinstance(versions, list)
+                or not isinstance(continuation, str)
+                or continuation in seen_tokens
+                or len(continuation) > 4096
+            ):
+                raise SubstrateDeleteError("kms version inventory invalid")
+            # Validate every entry before acting on this page, including entries
+            # claiming DESTROYED. A foreign destroyed key proves nothing here.
+            for version in versions:
+                if not isinstance(version, dict):
+                    raise SubstrateDeleteError("kms version inventory invalid")
+                name = version.get("name")
+                state = version.get("state")
+                if (
+                    not isinstance(name, str)
+                    or not name.startswith(prefix)
+                    or not name[len(prefix) :].isascii()
+                    or not name[len(prefix) :].isdigit()
+                ):
+                    raise SubstrateDeleteError("kms version identity mismatch")
+                if not isinstance(state, str) or not state:
+                    raise SubstrateDeleteError("kms version state unavailable")
+            for version in versions:
+                state = version["state"]
                 if state == "DESTROYED":
                     continue
                 pending = True
                 if state == "DESTROY_SCHEDULED":
                     continue
-                name = str(version.get("name") or "")
-                if not name.startswith(f"{parent}/cryptoKeyVersions/"):
-                    raise SubstrateDeleteError("kms version identity mismatch")
+                name = version["name"]
                 resp = session.post(
                     f"https://cloudkms.googleapis.com/v1/{name}:destroy",
                     headers=headers,
                     timeout=30,
+                    allow_redirects=False,
                 )
                 if resp.status_code not in (200, 404):
                     raise SubstrateDeleteError(f"kms version destroy http={resp.status_code}")
-            page_token = str(body.get("nextPageToken") or "")
+            page_token = continuation
+            if continuation:
+                seen_tokens.add(continuation)
             if not page_token:
                 if pending:
                     raise SubstrateDeleteError("kms destruction pending verification")
