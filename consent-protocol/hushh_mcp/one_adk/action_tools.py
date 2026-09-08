@@ -55,11 +55,14 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_hours,
 )
 from hushh_mcp.services.action_gateway import (
+    GLOBAL_SESSION_ACTION_IDS,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleError,
     ConsentLifecycleService,
@@ -98,6 +101,7 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileService,
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -232,6 +236,27 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     if not isinstance(context, dict) or "available_action_ids" not in context:
         return None
     ids = context.get("available_action_ids")
+    if not isinstance(ids, list):
+        return set()
+    return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+
+
+def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
+    """Everything the current route may run, independent of the prompt budget.
+
+    The browser ranks and truncates what the model is told about, because a
+    prompt has a budget. Execution does not: an action this route declares is
+    runnable whether or not it won a slot in the inventory. Keeping the two
+    apart is what stops a ranking decision from surfacing as a refusal.
+
+    Server-derived, from the generated route orchestration index, so it cannot
+    be widened by a forged frame. Absent for non-live callers and older
+    payloads, where the caller falls back to the declared inventory.
+    """
+    context = _voice_context(tool_context)
+    if not isinstance(context, dict) or "executable_action_ids" not in context:
+        return None
+    ids = context.get("executable_action_ids")
     if not isinstance(ids, list):
         return set()
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
@@ -2483,10 +2508,53 @@ async def run_app_action(
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
     if entry is None:
-        logger.info("one_adk_action_decision action=%s status=unknown_action", clean_id[:128])
+        # A bare "that is not a known action" is a dead end: the model has
+        # nothing to do with it, so it narrates instead of retrying, which is
+        # indistinguishable from a hallucination to the person listening.
+        # Hand back the nearest real actions and ask for exactly one retry.
+        candidates: list[dict[str, str]] = []
+        try:
+            from hushh_mcp.one_adk.action_retrieval import search_actions
+
+            probe = clean_id.replace(".", " ").replace("_", " ").strip()
+            if probe:
+                for item in search_actions(
+                    probe,
+                    {"actions": list_action_gateway_actions()},
+                    limit=5,
+                ):
+                    hit = get_action_gateway_action(item.action_id) or {}
+                    candidates.append(
+                        {
+                            "action_id": item.action_id,
+                            "label": str(hit.get("label") or item.action_id),
+                        }
+                    )
+        except Exception:  # noqa: BLE001 - never let repair break the tool
+            logger.exception("unknown_action_repair_failed")
+
+        logger.info(
+            "one_adk_action_decision action=%s status=unknown_action candidates=%d",
+            clean_id[:128],
+            len(candidates),
+        )
+        if candidates:
+            return {
+                "status": "unknown_action",
+                "candidates": candidates,
+                "message": (
+                    f"'{clean_id}' is not a known app action. Call run_app_action "
+                    "exactly once more using one of the action_id values in "
+                    "candidates, or call report_no_app_action if none of them is "
+                    "what the person asked for. Do not guess a third id."
+                ),
+            }
         return {
             "status": "unknown_action",
-            "message": f"'{clean_id}' is not a known app action.",
+            "message": (
+                f"'{clean_id}' is not a known app action. Call "
+                "report_no_app_action rather than guessing another id."
+            ),
         }
 
     context = _voice_context(tool_context)
@@ -2670,9 +2738,13 @@ async def run_app_action(
     # browser to run a local handler, so there is no screen inventory for
     # them to be missing from -- the person can be looking at anything.
     # All other actions must be declared by the current surface.
+    # An action this route declares is runnable even when it lost the prompt
+    # ranking race -- being un-mentioned is not the same as being unavailable.
+    executable_action_ids = _executable_action_ids(tool_context)
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
+        and (executable_action_ids is None or clean_id not in executable_action_ids)
         and not is_navigation_action(entry)
         and not _is_backend_direct(clean_id, clean_slots)
     ):
@@ -3006,6 +3078,31 @@ def _navigation_action_for_route(route: str) -> str | None:
     # `route.*` ones are in the browser's global-navigation set, so they are the
     # ones guaranteed to be offered from any screen. Deterministic either way:
     # alphabetical still breaks ties inside each group.
+    if not candidates:
+        # Seven navigation contracts have no route path at all: route.profile,
+        # route.consents and route.analysis_history run through kai_command,
+        # route.back through voice_tool (see is_navigation_action, which counts
+        # them as navigation on the `route.` prefix alone). For those the
+        # destination is declared in reachability.routes rather than in
+        # execution_target.target, so the exact-target match above finds
+        # nothing and the whole destination looks unreachable.
+        #
+        # /one/profile is exactly that case, and it is why every wired Profile
+        # action was a dead end from any other screen: nothing could name a
+        # screen to open first, so "delete my account" said no on Location
+        # while Profile sat one navigation away.
+        #
+        # Restricted to the `route.` prefix on purpose. reachability.routes
+        # says where an action is reachable FROM, which for an ordinary action
+        # is not its destination -- profile.sign_out lists /one/profile too and
+        # would be a nonsense escort.
+        candidates = [
+            action_id
+            for candidate in list_action_gateway_actions()
+            if (action_id := str(candidate.get("action_id") or "").strip()).startswith("route.")
+            and (candidate.get("execution_target") or {}).get("status") == "wired"
+            and clean_route in ((candidate.get("reachability") or {}).get("routes") or [])
+        ]
     return (
         sorted(candidates, key=lambda action: (not action.startswith("route."), action))[0]
         if candidates
@@ -3582,6 +3679,12 @@ def _reachability(
     """
     if available_action_ids is None or action_id in available_action_ids:
         return "on_screen", None
+    if action_id in GLOBAL_SESSION_ACTION_IDS:
+        # Available on every screen by construction, so an empty mounted
+        # inventory means "nothing published yet", not "not offered here".
+        # Without this, signing out reads as a dead end from every screen
+        # except Profile -- the exact refusal this function exists to prevent.
+        return "on_screen", None
     if is_navigation_action(entry):
         return "on_screen", None
     if _is_journey_startable(entry):
@@ -4093,3 +4196,103 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
         "time_zone": zone_name,
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
     }
+
+
+async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]:
+    """Declare that no app action matches what the person asked for.
+
+    Call this instead of guessing an action_id, and instead of silently
+    answering in prose, whenever the request has no matching capability on
+    this screen or anywhere in the app -- including after run_app_action
+    returned unknown_action and none of its candidates fit.
+
+    Answering conversationally is still correct for questions that are not
+    about operating the app (the time, the weather, small talk); this tool is
+    for requests that sounded like an app action but have no action behind
+    them. Declaring it makes "correctly declined" distinguishable from
+    "narrated because it did not know", which is the difference between a
+    measurable miss and an invisible one.
+
+    Args:
+        reason: Short machine-readable note, e.g. "no_matching_action" or
+            "action_exists_but_not_on_this_surface".
+        spoken_reply: What to say to the person, in One's voice.
+    """
+    clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
+    clean_reply = str(spoken_reply or "").strip()[:600]
+    logger.info("one_adk_action_decision status=no_app_action reason=%s", clean_reason)
+    return {
+        "status": "no_app_action",
+        "reason": clean_reason,
+        "message": clean_reply,
+    }
+
+
+async def read_my_profile_status(tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own Profile status: verification, consents, marketplace.
+
+    Answers the questions Profile can be asked but could not answer -- "is my
+    phone verified", "how many consents are waiting on me", "is my marketplace
+    profile visible". Location has had read tools for this since #6434; Profile
+    had none, so One could open the Security panel and still not say what was
+    in it.
+
+    Each field is read independently and a failure reports ``None`` for that
+    field alone rather than failing the whole answer. That is deliberate:
+    ``None`` here means "could not determine", never "no". Collapsing an
+    unavailable read into ``False`` would have One state that a phone is
+    unverified because a table was briefly unreachable, which is worse than
+    saying it does not know.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around a
+    # *synchronous* service method, and all three services here are async. Same
+    # failure-boundary reasoning -- an exception must never escape a live-session
+    # tool call -- awaited instead of called, following
+    # read_my_pkm_domain_summary.
+    phone_verified: bool | None = None
+    email_verified: bool | None = None
+    try:
+        identities = await ActorIdentityService().get_many([user_id])
+        identity = identities.get(user_id) or {}
+        phone_verified = bool(identity.get("phone_verified"))
+        email_verified = bool(identity.get("email_verified"))
+    except Exception:  # noqa: BLE001 - report the gap, never the internals
+        logger.exception("one_adk_read_tool_failed label=profile_identity reason=unexpected")
+
+    pending_consents: int | None = None
+    try:
+        summary = await ConsentCenterService().get_center_summary(user_id, actor="investor")
+        counts = summary.get("counts") if isinstance(summary, dict) else None
+        if isinstance(counts, dict):
+            pending_consents = int(counts.get("pending") or 0)
+    except Exception:  # noqa: BLE001
+        logger.exception("one_adk_read_tool_failed label=profile_consents reason=unexpected")
+
+    marketplace_visible: bool | None = None
+    try:
+        persona_state = await RIAIAMService().get_persona_state(user_id)
+        if isinstance(persona_state, dict):
+            marketplace_visible = bool(persona_state.get("investor_marketplace_opt_in"))
+    except Exception:  # noqa: BLE001
+        logger.exception("one_adk_read_tool_failed label=profile_persona reason=unexpected")
+
+    result = {
+        "phone_verified": phone_verified,
+        "email_verified": email_verified,
+        "pending_consents": pending_consents,
+        "marketplace_visible": marketplace_visible,
+    }
+    if all(value is None for value in result.values()):
+        # Every read failed. Saying "I don't know" once is honest; reporting
+        # four separate nulls invites the model to narrate around them.
+        return {
+            "status": "failed",
+            "message": "Could not check your profile status right now. Try again in a moment.",
+        }
+    return {"status": "ok", "result": result}

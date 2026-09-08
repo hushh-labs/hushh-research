@@ -2149,6 +2149,98 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
+  it("shows owned SMS Circle in auto-approve circles list and excludes Trusted Circle", async () => {
+    const circleFamily = {
+      id: "circle_family",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 3,
+      memberLimit: 20,
+    };
+    const circleSms = {
+      id: "circle_sms",
+      name: "SMS Contacts",
+      kind: "other" as const,
+      role: "owner" as const,
+      memberCount: 2,
+      memberLimit: 10,
+      isSystem: true,
+      systemKind: "sms" as const,
+    };
+    const circleTrusted = {
+      id: "circle_trusted",
+      name: "Trusted",
+      kind: "other" as const,
+      role: "owner" as const,
+      memberCount: 15,
+      isSystem: false,
+      systemKind: "trusted" as const,
+    };
+    let serverPreference = {
+      enabled: false,
+      scope: null as { kind: "circles"; circleIds: string[] } | null,
+      enabledAt: null as string | null,
+      ruleVersion: 0,
+    };
+    mockGetState.mockImplementation(async () => ({
+      ...locationState(),
+      ownerGrants: [],
+      circles: [circleFamily, circleSms, circleTrusted],
+      autoApprovePreference: serverPreference,
+    }));
+    mockUpdateAutoApprovePreference.mockImplementation(async ({ enabled, scope }) => {
+      serverPreference = enabled
+        ? {
+            enabled: true,
+            scope,
+            enabledAt: "2026-08-24T09:00:00.000Z",
+            ruleVersion: 1,
+          }
+        : { enabled: false, scope: null, enabledAt: null, ruleVersion: 2 };
+      return serverPreference;
+    });
+
+    mockLocationSearchParams("action=settings");
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+    expect(
+      await screen.findByRole("heading", { name: "Settings" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Auto-approve requests" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Auto-approve for" }),
+    ).toBeTruthy();
+
+    // SMS Contacts and Family circles must be visible as options
+    const smsCheckbox = screen.getByRole("checkbox", { name: /^SMS Contacts/ });
+    const familyCheckbox = screen.getByRole("checkbox", { name: /^Family/ });
+    expect(smsCheckbox).toBeInTheDocument();
+    expect(familyCheckbox).toBeInTheDocument();
+
+    // Trusted Circle must NOT be offered as an auto-approve option
+    expect(screen.queryByRole("checkbox", { name: /^Trusted/ })).not.toBeInTheDocument();
+
+    // Selecting SMS Contacts enables auto-approve for that circle
+    fireEvent.click(smsCheckbox);
+    expect(smsCheckbox).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    await waitFor(() =>
+      expect(mockUpdateAutoApprovePreference).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        enabled: true,
+        scope: {
+          kind: "circles",
+          circleIds: ["circle_sms"],
+        },
+      }),
+    );
+  });
+
   it("stops the automatic queue when the server rule is turned off", async () => {
     let ruleEnabled = true;
     const requests = [

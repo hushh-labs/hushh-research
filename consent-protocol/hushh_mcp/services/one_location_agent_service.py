@@ -5293,8 +5293,10 @@ class OneLocationAgentService:
                         CAST(:require_owned_person_circle AS BOOLEAN) IS FALSE
                         OR (
                           owner_user_id = :owner_user_id
-                          AND system_kind IS NULL
-                          AND NOT is_system
+                          AND (
+                            (system_kind IS NULL AND NOT is_system)
+                            OR system_kind = 'sms'
+                          )
                         )
                       )
                     FOR SHARE
@@ -6672,8 +6674,10 @@ class OneLocationAgentService:
                             WHERE id = CAST(:circle_id AS UUID)
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),
@@ -6698,8 +6702,10 @@ class OneLocationAgentService:
                             WHERE id = ANY(CAST(:circle_ids AS UUID[]))
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),

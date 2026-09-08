@@ -2945,7 +2945,7 @@ function ownedUserCircleScopeOptions(
   circles: readonly OneLocationCircleSummary[],
 ): OneLocationCircleSummary[] {
   return circles.filter(
-    (circle) => circle.role === "owner" && circle.systemKind == null,
+    (circle) => circle.role === "owner" && circle.systemKind !== "trusted",
   );
 }
 
