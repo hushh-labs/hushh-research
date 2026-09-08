@@ -573,6 +573,7 @@ class GcpRunClient:
         timeout_s: float = 150.0,
         interval_s: float = 3.0,
         expected_uid: Optional[str] = None,
+        expected_revision_nonce: Optional[str] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
         """Poll until the service's Ready condition is True (ok) or False (failed),
         or the timeout elapses. Returns (ready, last_service_json).
@@ -599,6 +600,20 @@ class GcpRunClient:
             svc = self.get_service(name)
             if expected_uid is not None:
                 self.require_service_uid(svc, expected_uid)
+            if expected_revision_nonce is not None:
+                metadata = (((svc or {}).get("spec") or {}).get("template") or {}).get(
+                    "metadata"
+                ) or {}
+                actual_nonce = (metadata.get("annotations") or {}).get("hussh/restart-nonce")
+                if actual_nonce != expected_revision_nonce:
+                    raise RuntimeError("Cloud Run upgrade attempt changed or unverified")
+                generation = ((svc or {}).get("metadata") or {}).get("generation")
+                if (
+                    not isinstance(generation, int)
+                    or isinstance(generation, bool)
+                    or generation < 1
+                ):
+                    raise RuntimeError("Cloud Run upgrade generation unverified")
             last = svc
             if not self._status_is_current(svc):
                 # A stale status is not a verdict. Keep polling rather than reading the

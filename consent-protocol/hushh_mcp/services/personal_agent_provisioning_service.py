@@ -48,8 +48,10 @@ feed-write failure can never block or break provisioning.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import datetime, timezone
 from hmac import compare_digest
 from typing import Any, Optional, Protocol
@@ -1321,6 +1323,7 @@ class PersonalAgentProvisioningService:
             )
         ):
             raise RuntimeError("image upgrade host binding changed before execution")
+        spec = replace(spec, upgrade_attempt_id=hashlib.sha256(lease.encode()).hexdigest())
         claimed_metadata = dict(row.get("backend_metadata") or {})
         claimed_row = row
 

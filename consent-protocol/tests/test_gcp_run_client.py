@@ -755,3 +755,30 @@ def test_unidentified_service_cannot_be_discarded_as_absence(monkeypatch, item):
     monkeypatch.setattr(requests, "get", lambda *_a, **_k: _InventoryResponse({"items": [item]}))
     with pytest.raises(RuntimeError, match="incomplete"):
         _client_no_net().list_services()
+
+
+@pytest.mark.parametrize(
+    "nonce,generation", [("foreign-attempt", 4), (None, 4), ("owned-attempt", None)]
+)
+def test_upgrade_readiness_refuses_unbound_attempt(nonce, generation):
+    service = _svc(generation=generation, observed=4, ready="True")
+    service["spec"] = {"template": {"metadata": {"annotations": {"hussh/restart-nonce": nonce}}}}
+    run = _ScriptedRun([service])
+    with pytest.raises(RuntimeError, match="upgrade"):
+        run.wait_ready("pod", timeout_s=1, interval_s=0, expected_revision_nonce="owned-attempt")
+
+
+def test_upgrade_attempt_waits_for_its_controller_generation():
+    import copy
+
+    pending = _svc(generation=4, observed=3, ready="True")
+    pending["spec"] = {
+        "template": {"metadata": {"annotations": {"hussh/restart-nonce": "owned-attempt"}}}
+    }
+    completed = copy.deepcopy(pending)
+    completed["status"]["observedGeneration"] = 4
+    run = _ScriptedRun([pending, completed])
+    ready, _ = run.wait_ready(
+        "pod", timeout_s=1, interval_s=0, expected_revision_nonce="owned-attempt"
+    )
+    assert ready and run.polls == 2

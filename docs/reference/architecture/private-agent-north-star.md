@@ -378,6 +378,13 @@ before claiming the lifecycle complete.
    an unresolved token based on age or service health alone. Older running hub
    revisions still use the former expiry rule; drain them before claiming this
    admission guarantee for a deployed environment.
+   New hub upgrades also stamp the revision template with an opaque digest of
+   the registry attempt; readiness polling refuses another or missing binding
+   and requires a real controller generation. This detects a replaced attempt,
+   but is not a durable provider acknowledgement: receipt persistence and restart
+   reconciliation are still required before automatically releasing an unresolved
+   operation. Unrelated writers can preserve template annotations, so a matching
+   annotation alone is never a complete recovery proof.
 6. **Migration is a first-class product surface.** A person who started on the hosted tier
    must be able to move their agent into their own project with one click, keeping the same
    HusshID and everything the agent has learned, with the re-seal happening inside the

@@ -127,6 +127,8 @@ class PodSpec:
     prompt_version: Optional[str] = None
     # Recorded provider incarnation for an in-place upgrade; never inferred from a name.
     expected_service_uid: Optional[str] = None
+    # Opaque binding to the existing registry upgrade reservation.
+    upgrade_attempt_id: Optional[str] = None
 
     # -- the two axes, per person -----------------------------------------------
     #

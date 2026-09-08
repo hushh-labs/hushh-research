@@ -61,6 +61,7 @@ def _spec() -> PodSpec:
         pod_pubkey="",
         billing_space_id="sp_1",
         expected_service_uid="uid-from-cloud-run",
+        upgrade_attempt_id="synthetic-upgrade-attempt",
     )
 
 
@@ -229,6 +230,10 @@ async def test_upgrade_resolves_the_source_tag_fresh_and_replaces_in_place(copy_
     assert len(run.replaced) == 1
     body = run.replaced[0]
     assert _image_of(body).endswith(f"@{NEW}")
+    assert (
+        body["spec"]["template"]["metadata"]["annotations"]["hussh/restart-nonce"]
+        == "synthetic-upgrade-attempt"
+    )
     # System-managed metadata survives the PUT (this is what keeps the URL).
     assert body["metadata"]["uid"] == "uid-from-cloud-run"
     assert body["metadata"]["resourceVersion"] == "rv-17"

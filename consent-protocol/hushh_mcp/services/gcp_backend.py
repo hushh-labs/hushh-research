@@ -572,10 +572,20 @@ class GcpBackend:
             tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
             client.replace_service(
                 name,
-                client.merge_for_replace(existing, config, revision_nonce=f"image-{tag}"),
+                client.merge_for_replace(
+                    existing, config, revision_nonce=spec.upgrade_attempt_id or f"image-{tag}"
+                ),
                 expected_uid=expected_uid,
             )
-            ready, svc = client.wait_ready(name, expected_uid=expected_uid)
+            ready, svc = client.wait_ready(
+                name,
+                expected_uid=expected_uid,
+                **(
+                    {"expected_revision_nonce": spec.upgrade_attempt_id}
+                    if spec.upgrade_attempt_id
+                    else {}
+                ),
+            )
             if not ready:
                 boot_failure = GcpRunClient.ready_failure(svc)
                 if boot_failure is not None:

@@ -1027,10 +1027,19 @@ class UserGcpBackend:
             await asyncio.to_thread(
                 client.replace_service,
                 name,
-                client.merge_for_replace(existing, config),
+                client.merge_for_replace(existing, config, revision_nonce=spec.upgrade_attempt_id),
                 expected_uid=expected_uid,
             )
-            ready, svc = await asyncio.to_thread(client.wait_ready, name, expected_uid=expected_uid)
+            ready, svc = await asyncio.to_thread(
+                client.wait_ready,
+                name,
+                expected_uid=expected_uid,
+                **(
+                    {"expected_revision_nonce": spec.upgrade_attempt_id}
+                    if spec.upgrade_attempt_id
+                    else {}
+                ),
+            )
             if not ready:
                 boot_failure = GcpRunClient.ready_failure(svc)
                 if boot_failure is not None:
