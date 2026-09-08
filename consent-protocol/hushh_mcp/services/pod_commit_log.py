@@ -291,16 +291,34 @@ class GcsObjectStore:
             session = requests
         self._session = session
 
+    @staticmethod
+    def _generation(body: Any) -> int:
+        value = body.get("generation") if isinstance(body, dict) else None
+        if (
+            not isinstance(value, str)
+            or not 1 <= len(value) <= 20
+            or not value.isascii()
+            or not value.isdigit()
+            or int(value) <= 0
+        ):
+            raise RuntimeError("pod storage generation unverified")
+        return int(value)
+
     def _key(self, key: str) -> str:
         return f"{self._prefix}/{key}" if self._prefix else key
 
     def _token(self) -> str:
         response = self._session.get(
-            self._METADATA_ACCESS_ENDPOINT, headers={"Metadata-Flavor": "Google"}, timeout=10
+            self._METADATA_ACCESS_ENDPOINT,
+            headers={"Metadata-Flavor": "Google"},
+            timeout=10,
+            allow_redirects=False,
         )
-        response.raise_for_status()
-        token = response.json()["access_token"]
-        if not isinstance(token, str) or not token.strip():
+        if response.status_code != 200:
+            raise RuntimeError("pod storage credential unavailable")
+        body = response.json()
+        token = body.get("access_token") if isinstance(body, dict) else None
+        if not isinstance(token, str) or not token.strip() or len(token) > 16384:
             raise RuntimeError("pod storage credential unavailable")
         return token
 
@@ -321,18 +339,22 @@ class GcsObjectStore:
             params={"fields": "generation"},
             headers=self._headers(),
             timeout=30,
+            allow_redirects=False,
         )
         if getattr(meta, "status_code", 0) == 404:
             return None, 0
-        meta.raise_for_status()
-        generation = int(meta.json()["generation"])
+        if meta.status_code != 200:
+            raise RuntimeError("pod storage metadata unavailable")
+        generation = self._generation(meta.json())
         media = self._session.get(
             f"https://storage.googleapis.com/storage/v1/b/{self._bucket}/o/{quoted}",
             params={"alt": "media", "generation": str(generation)},
             headers=self._headers(),
             timeout=60,
+            allow_redirects=False,
         )
-        media.raise_for_status()
+        if media.status_code != 200:
+            raise RuntimeError("pod storage content unavailable")
         return media.content, generation
 
     async def put(self, key: str, data: bytes) -> None:
@@ -374,11 +396,13 @@ class GcsObjectStore:
             headers={**self._headers(), "Content-Type": "application/octet-stream"},
             data=data,
             timeout=60,
+            allow_redirects=False,
         )
         if getattr(response, "status_code", 0) == 412:
             return None  # lost the race; the caller retries from a fresh pointer
-        response.raise_for_status()
-        return int(response.json()["generation"])
+        if response.status_code not in (200, 201):
+            raise RuntimeError("pod storage write unconfirmed")
+        return self._generation(response.json())
 
 
 # --- the log --------------------------------------------------------------------------

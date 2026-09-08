@@ -819,3 +819,20 @@ async def test_gcs_write_keeps_loop_responsive_and_joins_cancelled_worker():
     with pytest.raises(asyncio.CancelledError):
         await task
     assert completed.is_set()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("status,generation", [(302, "7"), (200, True), (200, "0"), (200, "oops")])
+async def test_gcs_write_refuses_redirect_or_invalid_generation(status, generation):
+    class InvalidTransport(_FakeGcsTransport):
+        def get(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            return super().get(url, **kwargs)
+
+        def post(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            return _FakeResponse(status, {"generation": generation})
+
+    store = GcsObjectStore("user-bucket", session=InvalidTransport())
+    with pytest.raises(RuntimeError, match="pod storage (write unconfirmed|generation unverified)"):
+        await store.put_if_generation("head.json", b"{}", 3)
