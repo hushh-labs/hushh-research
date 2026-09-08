@@ -302,6 +302,7 @@ class UserGcpBootstrap:
         if not project:
             raise BootstrapError("a target project is required; BYOC never guesses one")
         self._project = project
+        self._project_number: str | None = None
         self._region = region
         self._token = token
         # Which account this applier is borrowing. Only used to grant that one account
@@ -975,6 +976,27 @@ class UserGcpBootstrap:
                         "disposition": "created",
                         "identity": identity,
                     }
+            if ok and code in (200, 201) and call["step"] == "pod_signing_secret":
+                from hushh_mcp.services.byoc_substrate import _secret_creation_identity
+
+                secret_id = call["params"]["secretId"]
+                secret_body = _json_or_empty(response)
+                # Project-number aliases come only from the preceding Resource
+                # Manager lookup, never from an unverified response attribute.
+                candidate = {
+                    "name": secret_body.get("name"),
+                    "createTime": secret_body.get("createTime"),
+                    "projectId": self._project,
+                    **({"projectNumber": self._project_number} if self._project_number else {}),
+                }
+                identity = _secret_creation_identity(candidate, secret_id, self._project)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "secret",
+                        "id": secret_id,
+                        "disposition": "created",
+                        "identity": identity,
+                    }
             results.append(result)
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)
@@ -1151,7 +1173,13 @@ class UserGcpBootstrap:
         it is also what provisions the agent on a project that has never had one.
         """
         response = self._session.request(
-            "GET", lookup["url"], headers=headers, params=None, data=None, timeout=60
+            "GET",
+            lookup["url"],
+            headers=headers,
+            params=None,
+            data=None,
+            timeout=60,
+            allow_redirects=False,
         )
         if getattr(response, "status_code", 0) != 200:
             logger.warning(
@@ -1159,7 +1187,20 @@ class UserGcpBootstrap:
                 getattr(response, "status_code", 0),
             )
             return ""
-        value = str(_json_or_empty(response).get(lookup["field"]) or "")
+        body = _json_or_empty(response)
+        value = str(body.get(lookup["field"]) or "")
+        if (
+            lookup["url"]
+            == f"https://cloudresourcemanager.googleapis.com/v1/projects/{self._project}"
+            and lookup["field"] == "projectNumber"
+            and body.get("projectId") == self._project
+            and isinstance(body.get("projectNumber"), str)
+            and value.isascii()
+            and value.isdigit()
+            and 1 <= len(value) <= 20
+            and int(value) > 0
+        ):
+            self._project_number = value
         if not value:
             return ""
         # Two shapes: a simple PREFIX (the GCS agent, whose email the storage API returns

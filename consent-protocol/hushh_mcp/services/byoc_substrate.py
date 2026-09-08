@@ -5,7 +5,7 @@ invoke ``UserGcpBootstrap``; targets without substrate use ``NoSubstrateRequired
 Provider credentials remain transient and provider response bodies are not persisted.
 
 Receipts retain the planned typed inventory, plan digest and qualified creation
-observations. Bucket, service-account and KMS key identity fields currently have validators. Successful bootstrap may adopt existing resources, so neither ``applied``
+observations. Bucket, service-account, KMS key and signing-secret identities have validators. Successful bootstrap may adopt existing resources, so neither ``applied``
 nor a resource name authorizes deletion. Creation observations are also insufficient
 without lifecycle admission and current-incarnation checks. Interrupted bootstrap
 before receipt persistence remains unqualified for automatic cleanup.
@@ -110,6 +110,46 @@ def _kms_key_creation_identity(value: Any, expected_name: str) -> dict[str, str]
     return {key: value[key] for key in ("name", "purpose", "createTime")}
 
 
+def _secret_creation_identity(
+    value: Any, expected_id: str, expected_project: str
+) -> dict[str, str] | None:
+    """Validate a secret's identity using an independently resolved project alias."""
+    import re
+    from datetime import datetime
+
+    if (
+        not isinstance(expected_project, str)
+        or not isinstance(expected_id, str)
+        or not isinstance(value, dict)
+        or value.get("projectId") != expected_project
+        or re.fullmatch(r"[a-z0-9-]{1,128}", expected_project) is None
+        or re.fullmatch(r"[A-Za-z0-9_-]{1,255}", expected_id) is None
+    ):
+        return None
+    projects = {expected_project}
+    number = value.get("projectNumber")
+    if number is not None:
+        if not isinstance(number, str) or re.fullmatch(r"[1-9][0-9]{0,19}", number) is None:
+            return None
+        projects.add(number)
+    if value.get("name") not in {
+        f"projects/{project}/secrets/{expected_id}" for project in projects
+    }:
+        return None
+    created = value.get("createTime")
+    if not isinstance(created, str) or len(created) > 64:
+        return None
+    try:
+        if datetime.fromisoformat(created.replace("Z", "+00:00")).tzinfo is None:
+            return None
+    except ValueError:
+        return None
+    identity = {key: value[key] for key in ("name", "projectId", "createTime")}
+    if number is not None:
+        identity["projectNumber"] = number
+    return identity
+
+
 @dataclass(frozen=True)
 class SubstrateReceipt:
     """Applied substrate identifiers, including resources adopted during bootstrap.
@@ -165,6 +205,9 @@ class SubstrateReceipt:
         validators = {
             "gcs_bucket": _bucket_creation_identity,
             "service_account": _service_account_creation_identity,
+            "secret": lambda value, secret_id: _secret_creation_identity(
+                value, secret_id, self.tenant_ref.partition("/")[0]
+            ),
             "kms_key": lambda value, key_id: _kms_key_creation_identity(
                 value,
                 f"projects/{self.tenant_ref.partition('/')[0]}/locations/"

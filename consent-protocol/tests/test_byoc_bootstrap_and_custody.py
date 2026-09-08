@@ -1446,3 +1446,50 @@ def test_kms_creation_receipt_binds_key_identity(case):
         assert "must-not-retain" not in json.dumps(record)
     else:
         assert "resourceObservation" not in step
+
+
+@pytest.mark.parametrize(
+    "case", ["created", "numeric_alias", "unverified_alias", "adopted", "missing_time"]
+)
+def test_secret_creation_receipt_uses_verified_project_alias(case):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    plan = _plan()
+    secret = next(r["id"] for r in plan["resources"] if r["type"] == "secret")
+    number = "123456789012"
+    project_name = number if "alias" in case else USER_PROJECT
+    body = {
+        "name": f"projects/{project_name}/secrets/{secret}",
+        "createTime": "2026-09-08T00:00:00Z",
+        "private": "must-not-retain",
+        "projectNumber": number,
+    }
+    if case == "missing_time":
+        body.pop("createTime")
+    session = _Session(
+        routes={
+            "cloudresourcemanager.googleapis.com/v1/projects/": _Response(
+                200,
+                {
+                    "projectId": USER_PROJECT if case != "unverified_alias" else "foreign",
+                    "projectNumber": number,
+                },
+            ),
+            f"secretmanager.googleapis.com/v1/projects/{USER_PROJECT}/secrets": _Response(
+                409 if case == "adopted" else 200, body
+            ),
+        }
+    )
+    result = _boot(session).apply(plan, dry_run=False)
+    step = next(step for step in result["steps"] if step["step"] == "pod_signing_secret")
+    if case in {"created", "numeric_alias"}:
+        receipt = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=[{"type": "secret", "id": secret}],
+            resource_observations=[step["resourceObservation"]],
+        ).as_record()
+        assert receipt["resourceObservations"][0]["identity"]["name"] == body["name"]
+        assert "must-not-retain" not in json.dumps(receipt)
+    else:
+        assert "resourceObservation" not in step

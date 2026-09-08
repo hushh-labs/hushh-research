@@ -94,12 +94,13 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
         if "resourceObservation" in r:
             from hushh_mcp.services.byoc_substrate import (
                 _kms_key_creation_identity,
+                _secret_creation_identity,
                 _service_account_creation_identity,
             )
 
             observation = r["resourceObservation"]
             if (
-                rtype not in {"service_account", "kms_key"}
+                rtype not in {"service_account", "kms_key", "secret"}
                 or not isinstance(observation, dict)
                 or observation.get("type") != rtype
                 or observation.get("id") != rid
@@ -108,6 +109,10 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
                 raise SubstrateDeleteError("substrate creation observation invalid or unsupported")
             if rtype == "service_account":
                 identity = _service_account_creation_identity(observation.get("identity"), rid)
+            elif rtype == "secret":
+                raw_identity = observation.get("identity")
+                project_id = raw_identity.get("projectId") if isinstance(raw_identity, dict) else ""
+                identity = _secret_creation_identity(raw_identity, rid, project_id)
             else:
                 raw_identity = observation.get("identity")
                 name = raw_identity.get("name", "") if isinstance(raw_identity, dict) else ""
@@ -618,7 +623,10 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         rid = action["id"]
         observation = action.get("resourceObservation")
         if observation:
-            if kind == "service_account" and observation["identity"]["projectId"] != project:
+            if (
+                kind in {"service_account", "secret"}
+                and observation["identity"]["projectId"] != project
+            ):
                 raise SubstrateDeleteError("substrate creation project mismatch")
             if kind == "kms_key" and observation["identity"]["name"] != (
                 f"projects/{project}/locations/{region}/keyRings/hushh-one/cryptoKeys/{rid}"
@@ -651,10 +659,54 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                     "bucket",
                 )
             elif kind == "secret":
-                _delete(
-                    f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{rid}",
-                    "secret",
+                if not observation:
+                    _delete(
+                        f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{rid}",
+                        "secret",
+                    )
+                    return
+                from hushh_mcp.services.byoc_substrate import _secret_creation_identity
+
+                expected = observation["identity"]
+                # A receipt may describe a numeric alias, but must never select
+                # the request's authority boundary. Resolve through the bound project.
+                url = f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{rid}"
+                current = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+                if current.status_code != 200:
+                    raise SubstrateDeleteError("secret creation identity unavailable")
+                body = current.json()
+                if not isinstance(body, dict):
+                    raise SubstrateDeleteError("secret creation identity invalid")
+                candidate = {
+                    "name": body.get("name"),
+                    "createTime": body.get("createTime"),
+                    "projectId": project,
+                    **(
+                        {"projectNumber": expected["projectNumber"]}
+                        if "projectNumber" in expected
+                        else {}
+                    ),
+                }
+                etag = body.get("etag")
+                if (
+                    _secret_creation_identity(candidate, rid, project) != expected
+                    or not isinstance(etag, str)
+                    or not etag.strip()
+                    or len(etag) > 512
+                ):
+                    raise SubstrateDeleteError("secret creation identity or etag unverified")
+                deleted = session.delete(
+                    url,
+                    headers=headers,
+                    params={"etag": etag},
+                    timeout=30,
+                    allow_redirects=False,
                 )
+                if deleted.status_code not in _OK:
+                    raise SubstrateDeleteError("secret conditional deletion unconfirmed")
+                absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+                if absent.status_code != 404:
+                    raise SubstrateDeleteError("secret deletion unverified")
             elif kind == "service_account":
                 # The provider's immutable numeric ID prevents a retry from deleting
                 # a replacement account that reuses the original email. Legacy plans

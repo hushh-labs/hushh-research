@@ -776,3 +776,61 @@ async def test_receipted_kms_cleanup_verifies_creation_before_version_access(cas
             await _deleter(session)(planned[0])
         assert len(session.calls) == (0 if case == "foreign" else 1)
     assert all(method == "GET" for method, _, _ in session.calls)
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["deleted", "replacement", "no_etag", "raced", "foreign", "forged_alias", "still_present"],
+)
+async def test_receipted_secret_cleanup_requires_identity_and_conditional_delete(case):
+    from hushh_mcp.services.byoc_substrate_teardown import plan_teardown
+
+    name = "projects/123456789012/secrets/signing-key"
+    identity = {
+        "name": name,
+        "projectId": "proj-x",
+        "projectNumber": "123456789012",
+        "createTime": "2026-09-08T00:00:00Z",
+    }
+    action = {
+        "type": "secret",
+        "id": "signing-key",
+        "resourceObservation": {
+            "type": "secret",
+            "id": "signing-key",
+            "disposition": "created",
+            "identity": identity,
+        },
+    }
+    if case == "foreign":
+        identity["projectId"] = "foreign"
+    if case == "forged_alias":
+        identity.update(
+            projectNumber="999999999999", name="projects/999999999999/secrets/signing-key"
+        )
+    observed = {"name": name, "createTime": identity["createTime"], "etag": '"current-etag"'}
+    if case == "replacement":
+        observed["createTime"] = "2026-09-09T00:00:00Z"
+    elif case == "no_etag":
+        observed.pop("etag")
+    session = _Session()
+    reads = iter([_Resp(200, observed), _Resp(200 if case == "still_present" else 404)])
+    bound_name = "projects/proj-x/secrets/signing-key"
+    session.rule("GET", bound_name, lambda _url, _kwargs: next(reads))
+    session.rule("DELETE", bound_name, _Resp(412 if case == "raced" else 200))
+    plan = plan_teardown([action])
+    if case == "deleted":
+        await _deleter(session)(plan[0])
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await _deleter(session)(plan[0])
+    deletes = [(url, kwargs) for method, url, kwargs in session.calls if method == "DELETE"]
+    assert all("projects/proj-x/secrets/signing-key" in url for _, url, _ in session.calls)
+    if case in {"foreign", "forged_alias", "replacement", "no_etag"}:
+        assert deletes == []
+        if case == "foreign":
+            assert session.calls == []
+    else:
+        assert len(deletes) == 1
+        assert deletes[0][1]["params"] == {"etag": '"current-etag"'}
+        assert deletes[0][1]["allow_redirects"] is False
