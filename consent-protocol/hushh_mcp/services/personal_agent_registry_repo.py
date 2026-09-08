@@ -327,6 +327,24 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def retain_erasure_writer_receipt(
+        self, *, user_id: str, reservation: dict, stage: str, receipt: dict
+    ) -> bool:
+        """Retain writer revocation under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_writer_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

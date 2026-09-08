@@ -349,6 +349,85 @@ def _hushh_access_revocation(
     ]
 
 
+def revoke_runtime_writer(
+    *,
+    token: str,
+    project: str,
+    bootstrap_ref: str,
+    identity: dict[str, str],
+    before_disable: Callable[[dict[str, Any]], bool],
+    admitted: bool = False,
+    session: Any = None,
+) -> dict[str, Any]:
+    """Revoke one captured runtime identity; never call disable again after admission.
+
+    A disabled account is not an upload-drain or deletion receipt. The caller owns
+    durable admission and must retain/read back this result before dependent work.
+    """
+    from urllib.parse import quote
+
+    from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+
+    if (
+        _service_account_creation_identity(identity, identity.get("email", "")) != identity
+        or identity.get("projectId") != project
+        or not bootstrap_ref
+    ):
+        raise SubstrateDeleteError("runtime writer identity unavailable")
+    if session is None:
+        import requests  # type: ignore[import-untyped]
+
+        session = requests
+    headers = {"Authorization": f"Bearer {token}"}
+    base = f"https://iam.googleapis.com/v1/projects/{quote(project, safe='')}/serviceAccounts"
+    bootstrap = session.get(
+        f"{base}/{quote(bootstrap_ref, safe='')}",
+        headers=headers,
+        timeout=30,
+        allow_redirects=False,
+    )
+    body = bootstrap.json() if bootstrap.status_code == 200 else None
+    bootstrap_identity = _service_account_creation_identity(
+        body, body.get("email", "") if isinstance(body, dict) else ""
+    )
+    if (
+        bootstrap_identity is None
+        or bootstrap_identity["projectId"] != project
+        or bootstrap_ref not in (bootstrap_identity["email"], bootstrap_identity["uniqueId"])
+        or bootstrap_identity["uniqueId"] == identity["uniqueId"]
+        or (isinstance(body, dict) and body.get("disabled", False) is not False)
+    ):
+        raise SubstrateDeleteError("independent bootstrap recovery identity unverified")
+    url = f"{base}/{identity['uniqueId']}"
+
+    def observe() -> bool:
+        response = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+        current = response.json() if response.status_code == 200 else None
+        if (
+            _service_account_creation_identity(current, identity["email"]) != identity
+            or not isinstance(current, dict)
+            or type(current.get("disabled", False)) is not bool
+        ):
+            raise SubstrateDeleteError("runtime writer incarnation unverified")
+        return current.get("disabled", False) is True
+
+    disabled = observe()
+    receipt = {"runtimeIdentity": identity, "bootstrapIdentity": bootstrap_identity}
+    if not admitted:
+        if before_disable(receipt) is not True:
+            raise SubstrateDeleteError("runtime writer admission unconfirmed")
+        if not disabled:
+            response = session.post(
+                url + ":disable", headers=headers, json={}, timeout=30, allow_redirects=False
+            )
+            if response.status_code != 200 or response.json() != {}:
+                raise SubstrateDeleteError("runtime writer revocation unconfirmed")
+        disabled = observe()
+    if not disabled:
+        raise SubstrateDeleteError("runtime writer revocation unresolved")
+    return {**receipt, "status": "disabled"}
+
+
 def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = None):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 

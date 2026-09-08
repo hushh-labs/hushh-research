@@ -904,3 +904,84 @@ async def test_observed_bucket_checks_project_incarnation_and_retention(failure)
         assert not any(url.endswith("/o") for _, url, _ in session.calls)
     if failure == "foreign_project":
         assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "success",
+        "same_account_alias",
+        "admission_refused",
+        "retry_disabled",
+        "retry_enabled",
+        "disable_failed",
+        "replacement",
+        "reenabled_during_admission",
+    ],
+)
+def test_runtime_writer_revocation_preserves_recovery_and_never_replays_disable(case):
+    from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
+
+    def account(name, uid):
+        email = f"{name}@proj-x.iam.gserviceaccount.com"
+        return {
+            "name": f"projects/proj-x/serviceAccounts/{email}",
+            "email": email,
+            "projectId": "proj-x",
+            "uniqueId": uid,
+        }
+
+    runtime = account("runtime", "123456789")
+    bootstrap = account("bootstrap", "987654321")
+    if case == "same_account_alias":
+        bootstrap = dict(runtime)
+    session = _Session()
+    # Numeric bootstrap lookup deliberately exercises email/UID alias protection.
+    session.rule("GET", f"/{bootstrap['uniqueId']}", _Resp(200, bootstrap))
+    observations = iter(
+        [
+            {**runtime, "uniqueId": "111111111"}
+            if case == "replacement"
+            else {**runtime, "disabled": case in {"retry_disabled", "reenabled_during_admission"}},
+            {**runtime, "disabled": case != "reenabled_during_admission"},
+        ]
+    )
+    if case != "same_account_alias":
+        session.rule("GET", f"/{runtime['uniqueId']}", lambda *_: _Resp(200, next(observations)))
+    session.rule("POST", ":disable", _Resp(403 if case == "disable_failed" else 200))
+    admissions = []
+
+    def admit(receipt):
+        assert not any(method == "POST" for method, _, _ in session.calls)
+        admissions.append(receipt)
+        return case != "admission_refused"
+
+    def invoke():
+        return revoke_runtime_writer(
+            token="synthetic-token",  # noqa: S106 -- scripted provider, no real credential
+            project="proj-x",
+            bootstrap_ref=bootstrap["uniqueId"],
+            identity=runtime,
+            before_disable=admit,
+            admitted=case.startswith("retry_"),
+            session=session,
+        )
+
+    if case in {"success", "retry_disabled"}:
+        receipt = invoke()
+        assert receipt == {
+            "runtimeIdentity": runtime,
+            "bootstrapIdentity": bootstrap,
+            "status": "disabled",
+        }
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            invoke()
+    posts = [url for method, url, _ in session.calls if method == "POST"]
+    assert len(posts) == (1 if case in {"success", "disable_failed"} else 0)
+    assert len(admissions) == (
+        1
+        if case in {"success", "disable_failed", "admission_refused", "reenabled_during_admission"}
+        else 0
+    )
+    assert all(options["allow_redirects"] is False for _, _, options in session.calls)

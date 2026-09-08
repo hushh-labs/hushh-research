@@ -970,3 +970,96 @@ async def test_erasure_inventory_requires_owner_bound_retention_and_readback(cas
         registry.retain_erasure_substrate_inventory.assert_not_awaited()
     assert registry.rows[_UID]["status"] == "suspended"
     assert registry.deleted == []
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["retained", "foreign", "admission_refused", "readback_changed", "outcome_refused", "retry"],
+)
+async def test_writer_revocation_requires_owner_admission_and_outcome_readback(monkeypatch, case):
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+
+    service = _svc()
+    registry = service._registry
+    email = "runtime@synthetic-project.iam.gserviceaccount.com"
+    identity = {
+        "name": f"projects/synthetic-project/serviceAccounts/{email}",
+        "email": email,
+        "projectId": "synthetic-project",
+        "uniqueId": "123456789",
+    }
+    reservation = {
+        "ownerId": "foreign" if case == "foreign" else _UID,
+        "attemptId": "erase-one",
+        "computeDeletion": {"status": "compute_deleted"},
+        "registrySnapshot": {
+            "user_id": _UID,
+            "user_cloud_project": "synthetic-project",
+            "user_cloud_bootstrap_sa": "bootstrap@synthetic-project.iam.gserviceaccount.com",
+            "backend_metadata": {"runtime_service_account": email},
+        },
+        "substrateInventory": {
+            "resourceObservations": [
+                {
+                    "type": "service_account",
+                    "id": email,
+                    "disposition": "created",
+                    "identity": identity,
+                }
+            ]
+        },
+    }
+    if case == "retry":
+        reservation["writerAdmission"] = {"status": "admitted"}
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+
+    async def retain(*, user_id, reservation, stage, receipt):
+        assert user_id == _UID
+        events.append(stage)
+        if (case == "admission_refused" and stage == "writerAdmission") or (
+            case == "outcome_refused" and stage == "writerDisabled"
+        ):
+            return False
+        saved = {**reservation, stage: receipt}
+        if case == "readback_changed":
+            saved["attemptId"] = "replacement"
+        registry.rows[_UID]["backend_metadata"]["erasure"] = saved
+        return True
+
+    def revoke(**kwargs):
+        assert kwargs["identity"] == identity
+        if not kwargs["admitted"]:
+            if not kwargs["before_disable"]({"runtimeIdentity": identity}):
+                raise SubstrateDeleteError("admission refused")
+            events.append("disable")
+        else:
+            events.append("observe")
+        return {"runtimeIdentity": identity, "status": "disabled"}
+
+    token = Mock(return_value="synthetic")
+    provider = Mock(side_effect=revoke)
+    registry.retain_erasure_writer_receipt = AsyncMock(side_effect=retain)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.mint_bootstrap_token", token)
+    monkeypatch.setattr(
+        "hushh_mcp.services.byoc_substrate_teardown.revoke_runtime_writer", provider
+    )
+    if case in {"retained", "retry"}:
+        await service._revoke_reserved_runtime_writer(user_id=_UID)
+        assert events == (
+            ["observe", "writerDisabled"]
+            if case == "retry"
+            else ["writerAdmission", "disable", "writerDisabled"]
+        )
+    else:
+        with pytest.raises((RuntimeError, SubstrateDeleteError)):
+            await service._revoke_reserved_runtime_writer(user_id=_UID)
+    if case == "foreign":
+        token.assert_not_called()
+        provider.assert_not_called()
+    if case in {"admission_refused", "readback_changed"}:
+        assert events == ["writerAdmission"]
+    assert registry.deleted == [] and registry.rows[_UID]["status"] == "suspended"

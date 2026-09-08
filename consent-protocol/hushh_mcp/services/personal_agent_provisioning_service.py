@@ -1988,6 +1988,92 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("erasure substrate inventory readback unconfirmed")
 
+    async def _revoke_reserved_runtime_writer(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+        from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+        from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("runtime writer revocation guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        metadata = snapshot.get("backend_metadata") or {}
+        inventory = reservation.get("substrateInventory") or {}
+        project = snapshot.get("user_cloud_project")
+        bootstrap_ref = str(snapshot.get("user_cloud_bootstrap_sa") or "").removeprefix(
+            "serviceAccount:"
+        )
+        email = metadata.get("runtime_service_account")
+        retain = getattr(self._registry, "retain_erasure_writer_receipt", None)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or not reservation.get("computeDeletion")
+            or not project
+            or not bootstrap_ref
+            or not email
+            or retain is None
+        ):
+            raise RuntimeError("runtime writer reservation unavailable")
+        observations = [
+            item
+            for item in inventory.get("resourceObservations", [])
+            if isinstance(item, dict)
+            and item.get("type") == "service_account"
+            and item.get("id") == email
+            and item.get("disposition") == "created"
+        ]
+        identity = observations[0].get("identity") if len(observations) == 1 else None
+        if (
+            _service_account_creation_identity(identity, email) != identity
+            or not isinstance(identity, dict)
+            or identity.get("projectId") != project
+        ):
+            raise RuntimeError("runtime writer creation evidence unavailable")
+        loop = asyncio.get_running_loop()
+
+        async def append(stage: str, raw: dict) -> bool:
+            nonlocal reservation
+            receipt = {**raw, "ownerId": user_id, "attemptId": reservation["attemptId"]}
+            if not await retain(
+                user_id=user_id, reservation=reservation, stage=stage, receipt=receipt
+            ):
+                return False
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not observed
+                or observed.get("status") != "suspended"
+                or saved.get("ownerId") != user_id
+                or saved.get("attemptId") != reservation["attemptId"]
+                or saved.get(stage) != receipt
+            ):
+                return False
+            reservation = saved
+            return True
+
+        def before_disable(raw: dict) -> bool:
+            return asyncio.run_coroutine_threadsafe(
+                append("writerAdmission", {**raw, "status": "admitted"}), loop
+            ).result(timeout=30)
+
+        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_ref)
+        result = await asyncio.to_thread(
+            revoke_runtime_writer,
+            token=token,
+            project=project,
+            bootstrap_ref=bootstrap_ref,
+            identity=identity,
+            before_disable=before_disable,
+            admitted=bool(reservation.get("writerAdmission")),
+        )
+        if not await append("writerDisabled", result):
+            raise RuntimeError("runtime writer revocation retention unconfirmed")
+
     async def deprovision(
         self,
         *,
@@ -2028,6 +2114,7 @@ class PersonalAgentProvisioningService:
                         await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
                     await self._erase_reserved_compute(user_id=user_id)
                     await self._retain_reserved_substrate_inventory(user_id=user_id)
+                    await self._revoke_reserved_runtime_writer(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

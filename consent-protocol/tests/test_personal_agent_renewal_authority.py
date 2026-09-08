@@ -456,12 +456,36 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
     pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/920_personal_agent_substrate_inventory.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/921_personal_agent_writer_revocation.sql")
+    runtime_email = "runtime@synthetic-project.iam.gserviceaccount.com"
+    runtime_identity = {
+        "name": f"projects/synthetic-project/serviceAccounts/{runtime_email}",
+        "email": runtime_email,
+        "projectId": "synthetic-project",
+        "uniqueId": "123456789",
+    }
+    bootstrap_email = "bootstrap@synthetic-project.iam.gserviceaccount.com"
+    bootstrap_identity = {
+        "name": f"projects/synthetic-project/serviceAccounts/{bootstrap_email}",
+        "email": bootstrap_email,
+        "projectId": "synthetic-project",
+        "uniqueId": "987654321",
+    }
     inventory = {
         "version": "byoc.substrate.receipt.v1",
         "applied": True,
         "plannedResources": [
+            {"type": "service_account", "id": runtime_email},
             {"type": "gcs_bucket", "id": "synthetic-bucket"},
             {"type": "artifact_repository", "id": "shared-repository"},
+        ],
+        "resourceObservations": [
+            {
+                "type": "service_account",
+                "id": runtime_email,
+                "disposition": "created",
+                "identity": runtime_identity,
+            }
         ],
     }
     pg.execute(
@@ -472,6 +496,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
                 {
                     "serviceUid": "incarnation",
                     "substrateReceipt": inventory,
+                    "runtime_service_account": runtime_email,
                     "provisionAttempt": {
                         "version": 1,
                         "ownerId": "synthetic-owner",
@@ -494,7 +519,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             ),
         ),
     )
-    pg.execute("UPDATE personal_agent_registry SET backend='gcp' WHERE user_id='synthetic-owner'")
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend='gcp', user_cloud_project='synthetic-project', "
+        "user_cloud_bootstrap_sa=%s WHERE user_id='synthetic-owner'",
+        (bootstrap_email,),
+    )
     reservation = pg.execute(
         "SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')"
     )[0][0]
@@ -638,9 +667,53 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,"
             "'{erasure,substrateInventory}', '{}'::jsonb) WHERE user_id='synthetic-owner'"
         )
+    writer = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "runtimeIdentity": runtime_identity,
+        "bootstrapIdentity": bootstrap_identity,
+        "status": "admitted",
+    }
+
+    def retain_writer(stage, value, expected=None):
+        return pg.execute(
+            "SELECT retain_erasure_writer_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(
+                    expected
+                    if expected is not None
+                    else provision_row(pg)["backend_metadata"]["erasure"]
+                ),
+                stage,
+                json.dumps(value),
+            ),
+        )[0][0]
+
+    disabled = {**writer, "status": "disabled"}
+    assert not retain_writer("writerDisabled", disabled)
+    for bad in (
+        {**writer, "ownerId": "foreign"},
+        {**writer, "attemptId": "foreign"},
+        {**writer, "bootstrapIdentity": runtime_identity},
+        {**writer, "runtimeIdentity": {**runtime_identity, "uniqueId": "111111111"}},
+        {**writer, "extra": "must-not-retain"},
+    ):
+        assert not retain_writer("writerAdmission", bad)
+    assert not retain_writer("writerAdmission", writer, expected={})
+    assert retain_writer("writerAdmission", writer)
+    assert not retain_writer("writerAdmission", writer)
+    assert retain_writer("writerDisabled", disabled)
+    assert retain_writer("writerDisabled", disabled)
+    saved = provision_row(pg)
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- "
+            "'{erasure,writerAdmission}' WHERE user_id='synthetic-owner'"
+        )
     pg.execute(
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
     )
+    assert not retain_writer("writerDisabled", disabled)
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.
     assert not retain_deletion(completed)

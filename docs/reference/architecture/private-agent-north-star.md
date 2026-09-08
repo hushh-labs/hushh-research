@@ -447,7 +447,12 @@ connecting substrate cleanup, retain typed inventory and resource-specific owner
 alongside the existing erasure reservation, then persist partial outcomes before releasing
 bootstrap authority. Dev migration 920 retains the exact captured substrate receipt after
 validated compute completion, under the same owner locks and immutable erasure guard.
-The hub reads it back before continuing. This preserves shared and unresolved inventory;
+Dev migration 921 adds append-only runtime credential revocation admission and disabled
+receipts. The owner-cloud path checks the captured runtime account's numeric identity,
+preserves a distinct bootstrap account and rechecks disabled state after admission.
+An admitted retry only observes; it never submits another disable request. This draft
+is not deployed and does not prove that previously accepted uploads have drained.
+The hub reads inventory back before continuing. This preserves shared and unresolved inventory;
 it does not grant cleanup eligibility. Per-action admission and outcome persistence remain
 unconnected to the executor callbacks, so complete substrate erasure remains open. The existing live drill remains unavailable until disposable ownership
 and complete cleanup satisfy those same contracts.
