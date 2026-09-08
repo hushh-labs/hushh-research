@@ -415,7 +415,12 @@ checks still require live acceptance, including soft-delete-disabled and missing
 recovery. Account erasure remains incomplete while storage, keys, grants or owner cleanup
 lack verified outcomes. These compute changes are published but not deployed.
 The substrate receipt records applied identifiers and a plan digest, including adopted
-resources; it does not prove exclusive creation. The shared `one-pod` image repository
+resources; that alone does not prove exclusive creation. New source retains planned
+resource types and selectively records acknowledged bucket creation with its generation,
+project number and creation time. Adopted buckets and missing evidence gain no creation
+claim; contradictory returned bucket names fail bootstrap. Only bounded identity fields
+are retained, never provider response bodies. Other resource types still lack equivalent
+ownership evidence, and these receipt changes are not deployed. The shared `one-pod` image repository
 must not be deleted solely because its derived name appears in a cleanup plan. Before
 connecting substrate cleanup, retain typed inventory and resource-specific ownership
 alongside the existing erasure reservation, then persist partial outcomes before releasing

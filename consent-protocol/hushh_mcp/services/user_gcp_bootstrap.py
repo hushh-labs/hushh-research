@@ -912,14 +912,30 @@ class UserGcpBootstrap:
                 ok = waited["ok"]
                 detail = waited["detail"]
 
-            results.append(
-                {
-                    "step": call["step"],
-                    "status": code,
-                    "ok": ok,
-                    "detail": detail,
-                }
-            )
+            result: dict[str, Any] = {
+                "step": call["step"],
+                "status": code,
+                "ok": ok,
+                "detail": detail,
+            }
+            if ok and code in (200, 201) and call["step"] == "cmek_bucket":
+                from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
+
+                bucket_name = (call.get("body") or {}).get("name")
+                if isinstance(bucket_name, str) and bucket_name:
+                    bucket_body = _json_or_empty(response)
+                    if "name" in bucket_body and bucket_body["name"] != bucket_name:
+                        ok = False
+                        result.update(ok=False, detail="bucket creation identity mismatch")
+                    identity = _bucket_creation_identity(bucket_body, bucket_name)
+                    if identity:
+                        result["resourceObservation"] = {
+                            "type": "gcs_bucket",
+                            "id": bucket_name,
+                            "disposition": "created",
+                            "identity": identity,
+                        }
+            results.append(result)
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)
             if not ok:

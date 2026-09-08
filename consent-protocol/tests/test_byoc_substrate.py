@@ -377,3 +377,52 @@ def test_live_bootstrap_receipt_requires_explicit_complete_owner_project_result(
     receipt = asyncio.run(ensurer.ensure(object()))
     assert receipt.applied is (case == "success")
     assert receipt.as_record()["applied"] is (case == "success")
+    assert receipt.as_record()["plannedResources"] == [
+        {"type": item["type"], "id": item["id"]} for item in _PLAN["resources"]
+    ]
+    assert "per-user CMEK" not in json.dumps(receipt.as_record())
+
+
+@pytest.mark.parametrize("resources", [None, {}, [{"type": "gcs_bucket"}], [None]])
+def test_malformed_substrate_inventory_refuses_before_credentials(resources):
+    from unittest.mock import Mock
+
+    minter, factory = Mock(), Mock()
+    ensurer = HushhFederatedSubstrate(
+        project="user-proj",
+        plan_renderer=lambda spec: {**_PLAN, "resources": resources},
+        bootstrap_factory=factory,
+        token_minter=minter,
+        dry_run=False,
+    )
+    receipt = asyncio.run(ensurer.ensure(object()))
+    assert receipt.applied is False
+    minter.assert_not_called()
+    factory.assert_not_called()
+
+
+def test_receipt_persists_only_validated_creation_identity_for_its_planned_bucket():
+    name = "one-pod-abc-blobs"
+    identity = {
+        "name": name,
+        "generation": "1",
+        "projectNumber": "123",
+        "timeCreated": "2026-09-08T00:00:00Z",
+        "private": "must-not-retain",
+    }
+    valid = {"type": "gcs_bucket", "id": name, "disposition": "created", "identity": identity}
+    receipt = SubstrateReceipt(
+        True,
+        "user-proj/us-central1",
+        planned_resources=[{"type": "gcs_bucket", "id": name}],
+        resource_observations=[
+            valid,
+            {**valid, "id": "foreign"},
+            {**valid, "disposition": "adopted"},
+            {**valid, "identity": {**identity, "generation": None}},
+        ],
+    )
+    record = receipt.as_record()
+    assert len(record["resourceObservations"]) == 1
+    assert record["resourceObservations"][0]["identity"]["generation"] == "1"
+    assert "must-not-retain" not in json.dumps(record)

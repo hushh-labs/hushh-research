@@ -67,6 +67,33 @@ logger = logging.getLogger(__name__)
 RECEIPT_VERSION = "byoc.substrate.receipt.v1"
 
 
+def _bucket_creation_identity(value: Any, expected_name: str) -> dict[str, str] | None:
+    """Select bounded identity fields, never copy a provider response into a receipt."""
+    from datetime import datetime
+
+    if not isinstance(value, dict) or value.get("name") != expected_name:
+        return None
+    for key in ("generation", "projectNumber"):
+        field_value = value.get(key)
+        if (
+            not isinstance(field_value, str)
+            or not 1 <= len(field_value) <= 20
+            or not field_value.isascii()
+            or not field_value.isdigit()
+            or int(field_value) <= 0
+        ):
+            return None
+    created = value.get("timeCreated")
+    if not isinstance(created, str) or len(created) > 64:
+        return None
+    try:
+        if datetime.fromisoformat(created.replace("Z", "+00:00")).tzinfo is None:
+            return None
+    except ValueError:
+        return None
+    return {key: value[key] for key in ("name", "generation", "projectNumber", "timeCreated")}
+
+
 @dataclass(frozen=True)
 class SubstrateReceipt:
     """Applied substrate identifiers, including resources adopted during bootstrap.
@@ -93,6 +120,8 @@ class SubstrateReceipt:
     grant_ref: str = ""
     detail: str = ""
     steps: list[dict[str, Any]] = field(default_factory=list)
+    planned_resources: list[dict[str, str]] = field(default_factory=list)
+    resource_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def failed_steps(self) -> list[dict[str, Any]]:
@@ -101,7 +130,7 @@ class SubstrateReceipt:
 
     def as_record(self) -> dict[str, Any]:
         """The persisted form. Identifiers only -- never attributes, never key material."""
-        return {
+        record: dict[str, Any] = {
             "version": RECEIPT_VERSION,
             "tenantRef": self.tenant_ref,
             "resourceIds": list(self.resource_ids),
@@ -109,6 +138,36 @@ class SubstrateReceipt:
             "grantRef": self.grant_ref,
             "applied": self.applied,
         }
+        if self.planned_resources:
+            # Preserve types for future reconciliation, never provider bodies or
+            # a claim that a planned resource was exclusively created.
+            record["plannedResources"] = [
+                {"type": item["type"], "id": item["id"]} for item in self.planned_resources
+            ]
+        observations = []
+        bucket_ids = {item["id"] for item in self.planned_resources if item["type"] == "gcs_bucket"}
+        for observation in self.resource_observations:
+            if (
+                not isinstance(observation, dict)
+                or observation.get("type") != "gcs_bucket"
+                or observation.get("disposition") != "created"
+                or not isinstance(observation.get("id"), str)
+                or observation["id"] not in bucket_ids
+            ):
+                continue
+            identity = _bucket_creation_identity(observation.get("identity"), observation["id"])
+            if identity:
+                observations.append(
+                    {
+                        "type": "gcs_bucket",
+                        "id": observation["id"],
+                        "disposition": "created",
+                        "identity": identity,
+                    }
+                )
+        if observations:
+            record["resourceObservations"] = observations
+        return record
 
 
 def plan_digest(plan: dict[str, Any]) -> str:
@@ -227,6 +286,19 @@ class HushhFederatedSubstrate:
             )
             return SubstrateReceipt(False, tenant_ref, detail=f"plan render failed: {exc}")
 
+        resources = plan.get("resources") if isinstance(plan, dict) else None
+        if not isinstance(resources, list) or any(
+            not isinstance(item, dict)
+            or not isinstance(item.get("type"), str)
+            or not item["type"].strip()
+            or not isinstance(item.get("id"), str)
+            or not item["id"].strip()
+            for item in resources
+        ):
+            return SubstrateReceipt(
+                False, tenant_ref, detail="bootstrap resource inventory invalid"
+            )
+        planned_resources = [{"type": item["type"], "id": item["id"]} for item in resources]
         ids, digest = resource_ids(plan), plan_digest(plan)
 
         token = None
@@ -318,6 +390,7 @@ class HushhFederatedSubstrate:
                 resource_ids=ids,
                 plan_digest=digest,
                 grant_ref=grant_ref,
+                planned_resources=planned_resources,
                 detail="dry run: nothing was created",
                 steps=list(outcome.get("steps") or []),
             )
@@ -342,11 +415,17 @@ class HushhFederatedSubstrate:
         )
         receipt = SubstrateReceipt(
             applied=applied,
+            planned_resources=planned_resources,
             tenant_ref=tenant_ref,
             resource_ids=ids,
             plan_digest=digest,
             grant_ref=grant_ref,
             steps=steps,
+            resource_observations=[
+                step["resourceObservation"]
+                for step in steps
+                if isinstance(step.get("resourceObservation"), dict)
+            ],
             detail="" if applied else "bootstrap completion unconfirmed",
         )
         if receipt.applied:

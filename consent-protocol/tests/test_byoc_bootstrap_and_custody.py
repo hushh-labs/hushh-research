@@ -1336,3 +1336,39 @@ async def test_a_pod_that_fails_its_startup_probe_is_not_reported_live() -> None
     # by test_a_slow_boot_still_returns_a_deploying_handle.)
     with pytest.raises(PodBootFailedError):
         await backend._execute_live(_spec())  # noqa: SLF001
+
+
+@pytest.mark.parametrize("case", ["created", "adopted", "foreign", "missing_generation"])
+def test_bucket_creation_observation_requires_acknowledged_incarnation(case):
+    plan = _plan()
+    bucket_name = next(r["id"] for r in plan["resources"] if r["type"] == "gcs_bucket")
+    body = {
+        "name": bucket_name,
+        "generation": "17",
+        "projectNumber": "123456789012",
+        "timeCreated": "2026-09-08T00:00:00Z",
+        "privateProviderField": "must-not-retain",
+    }
+    if case == "foreign":
+        body["name"] = "foreign-bucket"
+    elif case == "missing_generation":
+        body.pop("generation")
+    responses = [_Response(200, body)]
+    if case == "adopted":
+        responses = [_Response(409, body), _Response(200, {"items": [{"name": bucket_name}]})]
+    session = _Session(routes={"storage/v1/b": responses})
+    result = _boot(session).apply(plan, dry_run=False)
+    step = next(step for step in result["steps"] if step["step"] == "cmek_bucket")
+    assert step["ok"] is (case != "foreign")
+    if case == "created":
+        assert step["resourceObservation"] == {
+            "type": "gcs_bucket",
+            "id": bucket_name,
+            "disposition": "created",
+            "identity": {
+                key: body[key] for key in ("name", "generation", "projectNumber", "timeCreated")
+            },
+        }
+        assert "must-not-retain" not in json.dumps(step)
+    else:
+        assert "resourceObservation" not in step
