@@ -1065,12 +1065,19 @@ class MainActivity : BridgeActivity() {
             try {
                 val report = payload.opt("uiFlowReport")
                 if (report != null && report != JSONObject.NULL) {
-                    File(filesDir, "native-ui-interaction-report.json").writeText(
-                        sanitizeUiFlowReport(report).toString(2)
-                    )
+                    val bytes = sanitizeUiFlowReport(report).toString(2).toByteArray(Charsets.UTF_8)
+                    val file = android.util.AtomicFile(File(filesDir, "native-ui-interaction-report.json"))
+                    val stream = file.startWrite()
+                    try {
+                        stream.write(bytes)
+                        file.finishWrite(stream)
+                    } catch (error: Exception) {
+                        file.failWrite(stream)
+                        throw error
+                    }
                 }
             } catch (error: Exception) {
-                Log.w("MainActivity", "Failed to write native UI report: ${error.message}")
+                Log.w("MainActivity", "Failed to publish native UI report")
             }
 
             try {
