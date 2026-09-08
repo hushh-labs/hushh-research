@@ -1050,17 +1050,6 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   const nearbyPrivateCheckIn =
     searchParams.get(FLOW_ACTION_PARAM) === PRIVATE_CHECK_IN_ACTION &&
     searchParams.get(FLOW_SOURCE_PARAM) === NEARBY_CHECK_IN_SOURCE;
-  // Editing emergency contacts from SOS is a detour, not a destination.
-  //
-  // "Edit contacts" opens ?action=sms-contacts&source=sos, which then
-  // redirects to the SMS Circle -- and openCircleDetail pins the hub tab
-  // to "people", because that is where circles live. Closing therefore
-  // returned to the People tab and dropped the person out of the SOS flow
-  // they were part-way through. The source param already rode along; only
-  // the way back never read it. Mirrors nearbyPrivateCheckIn above.
-  const editingSosContacts =
-    searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["circle-detail"] &&
-    searchParams.get(FLOW_SOURCE_PARAM) === SOS_FLOW_SOURCE;
   const nearbyReturnToken = searchParams.get(NEARBY_PRIVATE_RETURN_TOKEN_PARAM);
   const nearbyCheckInReturnHref =
     nearbyPrivateCheckIn && isNearbyPrivateReturnToken(nearbyReturnToken)
@@ -1070,6 +1059,24 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     resolveLocationHubTab(searchParams.get(LOCATION_HUB_TAB_PARAM)),
   );
   const [flow, setFlow] = useState<FlowKind>("none");
+  const [selectedCircleId, setSelectedCircleId] = useState<string | null>(() =>
+    searchParams.get("circleId"),
+  );
+  const [flowSource, setFlowSource] = useState<string | null>(() =>
+    searchParams.get(FLOW_SOURCE_PARAM),
+  );
+  // Editing emergency contacts from SOS is a detour, not a destination.
+  //
+  // "Edit contacts" opens ?action=circle-detail&source=sos directly, which
+  // used to pin the hub tab to "people", because that is where circles live.
+  // Closing therefore returned to the People tab and dropped the person out
+  // of the SOS flow they were part-way through. The source param already rode
+  // along; only the way back never read it. Mirrors nearbyPrivateCheckIn above.
+  const editingSosContacts =
+    (flow === "circle-detail" ||
+      searchParams.get(FLOW_ACTION_PARAM) === FLOW_TO_ACTION["circle-detail"]) &&
+    (flowSource === SOS_FLOW_SOURCE ||
+      searchParams.get(FLOW_SOURCE_PARAM) === SOS_FLOW_SOURCE);
   // Opening a flow (SOS, Share, Ask, ...) mounts a fresh subtree under
   // whatever scroll offset the Now/People/Links tab was left at -- the
   // app-shell scroll-reset instance only keys on tab identity, never on
@@ -1219,8 +1226,14 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   // been removed from the flows — each action screen shows exactly one back
   // affordance plus its own Cancel/Done control.
   const openFlow = useCallback(
-    (next: Exclude<FlowKind, "none">, source?: string) => {
+    (
+      next: Exclude<FlowKind, "none">,
+      source?: string,
+      navigation: "push" | "replace" = "push",
+    ) => {
       setFlow(next);
+      setSelectedCircleId(null);
+      setFlowSource(source ?? null);
       activeFlowRef.current = next;
       pendingFlowRef.current = next;
       const params = new URLSearchParams(searchParams.toString());
@@ -1232,19 +1245,35 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         params.delete(FLOW_SOURCE_PARAM);
       }
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
-      router.push(`${pathname}?${params.toString()}`, { scroll: false });
+      params.delete("circleId");
+      router[navigation](`${pathname}?${params.toString()}`, { scroll: false });
     },
     [pathname, router, searchParams],
   );
 
   const openCircleDetail = useCallback(
-    (circleId: string, navigation: "push" | "replace" = "push") => {
+    (
+      circleId: string,
+      navigation: "push" | "replace" = "push",
+      source?: string,
+    ) => {
       const next: FlowKind = "circle-detail";
+      setFlow(next);
+      setSelectedCircleId(circleId);
+      setFlowSource(source ?? null);
+      activeFlowRef.current = next;
       pendingFlowRef.current = next;
       const params = new URLSearchParams(searchParams.toString());
       params.set(FLOW_ACTION_PARAM, FLOW_TO_ACTION[next]);
       params.set("circleId", circleId);
-      params.set(LOCATION_HUB_TAB_PARAM, "people");
+      if (source) {
+        params.set(FLOW_SOURCE_PARAM, source);
+      } else {
+        params.delete(FLOW_SOURCE_PARAM);
+      }
+      if (source !== SOS_FLOW_SOURCE) {
+        params.set(LOCATION_HUB_TAB_PARAM, "people");
+      }
       const href = `${pathname}?${params.toString()}`;
       router[navigation](href, { scroll: false });
     },
@@ -1280,8 +1309,10 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
   );
   useEffect(() => {
     if (flow !== "sms-contacts" || !smsSystemCircleId) return;
-    openCircleDetail(smsSystemCircleId, "replace");
-  }, [flow, openCircleDetail, smsSystemCircleId]);
+    const currentSource =
+      flowSource ?? searchParams.get(FLOW_SOURCE_PARAM) ?? undefined;
+    openCircleDetail(smsSystemCircleId, "replace", currentSource);
+  }, [flow, flowSource, openCircleDetail, searchParams, smsSystemCircleId]);
 
   const openShareFlow = useCallback(
     (initialRecipientId?: string) => {
@@ -1309,6 +1340,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
         vm.clearNamedCircleShareContext();
       }
       setFlow("none");
+      setSelectedCircleId(null);
+      setFlowSource(null);
       activeFlowRef.current = "none";
       pendingFlowRef.current = "none";
       setShareStep("person");
@@ -1438,6 +1471,8 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
     }
     activeFlowRef.current = desired;
     setFlow((current) => (current === desired ? current : desired));
+    setSelectedCircleId(searchParams.get("circleId"));
+    setFlowSource(searchParams.get(FLOW_SOURCE_PARAM));
     if (desired === "none") {
       setShareStep("person");
       vm.setShareReviewOpen(false);
@@ -1532,7 +1567,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <SosFlow
             vm={vm}
             onClose={() => closeFlow("now")}
-            onEditContacts={() => openFlow("sms-contacts", SOS_FLOW_SOURCE)}
+            onEditContacts={() => {
+              if (smsSystemCircleId) {
+                openCircleDetail(smsSystemCircleId, "push", SOS_FLOW_SOURCE);
+              } else {
+                openFlow("sms-contacts", SOS_FLOW_SOURCE);
+              }
+            }}
           />
         ) : flow === "sms-contacts" ? (
           <SmsContactsFlow
@@ -1574,11 +1615,16 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           />
         ) : flow === "circle-detail" ? (
           <CircleDetailFlow
-            circleId={String(searchParams.get("circleId") || "")}
+            circleId={
+              selectedCircleId ||
+              String(searchParams.get("circleId") || "")
+            }
             currentUserId={vm.userId}
             busy={vm.busy === "namedCircle"}
             onBack={() =>
-              editingSosContacts ? openFlow("sos") : closeFlow("people")
+              editingSosContacts
+                ? openFlow("sos", undefined, "replace")
+                : closeFlow("people")
             }
             onLoad={vm.onLoadNamedCircle}
             onLoadOverview={vm.onLoadNamedCircleOverview}
@@ -1642,7 +1688,13 @@ export function LocationRedesignHub({ vm }: { vm: LocationHubViewModel }) {
           <LocationSettingsFlow
             vm={vm}
             smsContactCount={vm.smsContactUserIds.length}
-            onManageSmsContacts={() => openFlow("sms-contacts")}
+            onManageSmsContacts={() => {
+              if (smsSystemCircleId) {
+                openCircleDetail(smsSystemCircleId, "push");
+              } else {
+                openFlow("sms-contacts");
+              }
+            }}
           />
         ) : // Every FlowKind above is matched, and `none` never reaches here.
         // This used to fall through to the temporary-link screen, so any
