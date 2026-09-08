@@ -458,3 +458,68 @@ def test_bootstrap_failures_do_not_disclose_exception_contents(stage, caplog):
     assert private not in receipt.detail
     assert private not in caplog.text
     assert private not in json.dumps(receipt.as_record())
+
+
+@pytest.mark.parametrize(
+    "state", ["applied", "partial", "exception", "grant_unavailable", "dry_run"]
+)
+def test_substrate_receipt_retains_intended_iam_obligations_after_partial_failure(state):
+    binding = {
+        "member": "pod@user-proj.iam.gserviceaccount.com",
+        "role": "roles/aiplatform.user",
+        "on": "project:user-proj",
+    }
+    plan = {**_PLAN, "iam": [{**binding, "note": "synthetic-private-note"}]}
+
+    def mint(**kwargs):
+        if state == "grant_unavailable":
+            raise RuntimeError("synthetic-private-provider-error")
+        return "synthetic"
+
+    class Bootstrap:
+        def __init__(self, **kwargs): ...
+        def apply(self, plan, *, dry_run, on_step=None):
+            if state == "exception":
+                raise RuntimeError("synthetic-private-provider-error")
+            return {
+                "dryRun": dry_run,
+                "ok": state == "applied",
+                "project": "user-proj",
+                "steps": [{"step": "grant", "ok": state == "applied"}],
+            }
+
+    receipt = asyncio.run(
+        HushhFederatedSubstrate(
+            project="user-proj",
+            plan_renderer=lambda spec: plan,
+            token_minter=mint,
+            bootstrap_factory=Bootstrap,
+            dry_run=state == "dry_run",
+        ).ensure(object())
+    )
+    record = receipt.as_record()
+    assert receipt.applied is (state == "applied")
+    assert record["plannedBindings"] == [binding]
+    assert record["plannedResources"] == [
+        {"type": item["type"], "id": item["id"]} for item in _PLAN["resources"]
+    ]
+    assert "synthetic-private" not in json.dumps(record)
+    assert "resourceObservations" not in record
+
+
+@pytest.mark.parametrize("bindings", [None, {}, [None], [{"role": "roles/aiplatform.user"}]])
+def test_invalid_iam_inventory_refuses_before_provider_credentials(bindings):
+    from unittest.mock import Mock
+
+    mint = Mock()
+    receipt = asyncio.run(
+        HushhFederatedSubstrate(
+            project="user-proj",
+            plan_renderer=lambda spec: {**_PLAN, "iam": bindings},
+            token_minter=mint,
+            dry_run=False,
+        ).ensure(object())
+    )
+    assert receipt.applied is False
+    assert receipt.detail == "bootstrap IAM inventory invalid"
+    mint.assert_not_called()

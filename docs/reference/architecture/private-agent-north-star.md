@@ -415,7 +415,11 @@ checks still require live acceptance, including soft-delete-disabled and missing
 recovery. Account erasure remains incomplete while storage, keys, grants or owner cleanup
 lack verified outcomes. These compute changes are published but not deployed.
 The substrate receipt records applied identifiers and a plan digest, including adopted
-resources; that alone does not prove exclusive creation. New source retains intended
+resources; that alone does not prove exclusive creation. It also retains intended IAM
+members, roles and targets from the authored plan, without notes or provider bodies.
+Typed resources and IAM obligations survive reported bootstrap exceptions and grant
+refusal. These declarations neither prove that a grant was created nor authorize its
+revocation; the resource type/ID digest does not authenticate IAM or creation evidence. New source retains intended
 resource types and selectively records acknowledged bucket creation with its generation,
 project number and creation time. Adopted buckets and missing evidence gain no creation
 claim; contradictory returned bucket names fail bootstrap. Only bounded identity fields

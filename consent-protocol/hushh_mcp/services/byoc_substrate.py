@@ -178,6 +178,7 @@ class SubstrateReceipt:
     steps: list[dict[str, Any]] = field(default_factory=list)
     planned_resources: list[dict[str, str]] = field(default_factory=list)
     resource_observations: list[dict[str, Any]] = field(default_factory=list)
+    planned_bindings: list[dict[str, str]] | None = None
 
     @property
     def failed_steps(self) -> list[dict[str, Any]]:
@@ -199,6 +200,13 @@ class SubstrateReceipt:
             # a claim that a planned resource was exclusively created.
             record["plannedResources"] = [
                 {"type": item["type"], "id": item["id"]} for item in self.planned_resources
+            ]
+        if self.planned_bindings is not None:
+            # Intended policy obligations only: never claim exclusive grant creation
+            # or authorize revocation from the plan's descriptive principals.
+            record["plannedBindings"] = [
+                {key: item[key] for key in ("member", "role", "on")}
+                for item in self.planned_bindings
             ]
         observations = []
         planned = {(item["type"], item["id"]) for item in self.planned_resources}
@@ -244,7 +252,8 @@ class SubstrateReceipt:
 def plan_digest(plan: dict[str, Any]) -> str:
     """A stable digest of the plan that was applied.
 
-    Digests the resource TYPE and ID only -- not the rest of the plan. Two reasons, and
+    Covers intended resource TYPE and ID only, not creation observations or IAM
+    declarations. It is not an ownership or whole-receipt integrity proof. Two reasons, and
     the second is the load-bearing one:
 
       * those are the fields the receipt records, so the digest describes the receipt's
@@ -368,6 +377,24 @@ class HushhFederatedSubstrate:
                 False, tenant_ref, detail="bootstrap resource inventory invalid"
             )
         planned_resources = [{"type": item["type"], "id": item["id"]} for item in resources]
+        bindings = plan.get("iam", [])
+        if not isinstance(bindings, list) or any(
+            not isinstance(item, dict)
+            or any(
+                not isinstance(item.get(key), str) or not item[key].strip() or len(item[key]) > 1024
+                for key in ("member", "role", "on")
+            )
+            for item in bindings
+        ):
+            return SubstrateReceipt(
+                False,
+                tenant_ref,
+                planned_resources=planned_resources,
+                detail="bootstrap IAM inventory invalid",
+            )
+        planned_bindings = [
+            {key: item[key] for key in ("member", "role", "on")} for item in bindings
+        ]
         ids, digest = resource_ids(plan), plan_digest(plan)
 
         token = None
@@ -392,6 +419,8 @@ class HushhFederatedSubstrate:
                     tenant_ref,
                     resource_ids=ids,
                     plan_digest=digest,
+                    planned_resources=planned_resources,
+                    planned_bindings=planned_bindings,
                     grant_ref=grant_ref,
                     # Impersonation refusal cannot distinguish "grant revoked"
                     # from "the project itself is gone" (both answer the same
@@ -429,6 +458,8 @@ class HushhFederatedSubstrate:
                 tenant_ref,
                 resource_ids=ids,
                 plan_digest=digest,
+                planned_resources=planned_resources,
+                planned_bindings=planned_bindings,
                 detail="bootstrap configuration unavailable",
             )
         except Exception:
@@ -438,6 +469,8 @@ class HushhFederatedSubstrate:
                 tenant_ref,
                 resource_ids=ids,
                 plan_digest=digest,
+                planned_resources=planned_resources,
+                planned_bindings=planned_bindings,
                 detail="bootstrap execution unavailable",
             )
 
@@ -447,6 +480,8 @@ class HushhFederatedSubstrate:
                 tenant_ref,
                 resource_ids=ids,
                 plan_digest=digest,
+                planned_resources=planned_resources,
+                planned_bindings=planned_bindings,
                 grant_ref=grant_ref,
                 detail="bootstrap result unavailable",
             )
@@ -460,8 +495,9 @@ class HushhFederatedSubstrate:
                 tenant_ref=tenant_ref,
                 resource_ids=ids,
                 plan_digest=digest,
-                grant_ref=grant_ref,
                 planned_resources=planned_resources,
+                planned_bindings=planned_bindings,
+                grant_ref=grant_ref,
                 detail="dry run: nothing was created",
                 steps=list(outcome.get("steps") or []),
             )
@@ -486,10 +522,11 @@ class HushhFederatedSubstrate:
         )
         receipt = SubstrateReceipt(
             applied=applied,
-            planned_resources=planned_resources,
             tenant_ref=tenant_ref,
             resource_ids=ids,
             plan_digest=digest,
+            planned_resources=planned_resources,
+            planned_bindings=planned_bindings,
             grant_ref=grant_ref,
             steps=steps,
             resource_observations=[
