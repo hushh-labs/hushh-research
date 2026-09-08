@@ -150,7 +150,7 @@ def test_creating_resources_in_someone_elses_cloud_is_opt_in(monkeypatch):
 def test_a_dry_run_reports_that_it_created_nothing():
     class _Bootstrap:
         def __init__(self, **_kwargs): ...
-        def apply(self, plan, *, dry_run=True):
+        def apply(self, plan, *, dry_run=True, on_step=None):
             return {"dryRun": True, "project": "user-proj", "steps": [{"step": "kms"}]}
 
     ensurer = HushhFederatedSubstrate(
@@ -321,3 +321,59 @@ async def test_a_non_byoc_person_pays_nothing_and_still_provisions():
 def test_substrate_failure_is_temporary_not_invalid_details():
     """A revoked or incomplete grant is not the person mistyping something."""
     assert user_safe_failure_reason(SubstrateNotReadyError("x")) == "temporary_issue"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "success",
+        "skipped",
+        "reported_failure",
+        "missing_ok",
+        "empty",
+        "malformed",
+        "foreign_project",
+        "missing_dry_run",
+    ],
+)
+def test_live_bootstrap_receipt_requires_explicit_complete_owner_project_result(case):
+    outcome = {
+        "dryRun": False,
+        "project": "user-proj",
+        "ok": True,
+        "steps": [{"step": "synthetic-resource", "ok": True}],
+    }
+    if case == "skipped":
+        outcome["steps"] = [{"step": "synthetic-resource", "ok": False, "skipped": True}]
+        outcome["ok"] = False
+    elif case == "reported_failure":
+        outcome["ok"] = False
+    elif case == "missing_ok":
+        outcome.pop("ok")
+    elif case == "empty":
+        outcome["steps"] = []
+    elif case == "malformed":
+        outcome["steps"] = [None]
+    elif case == "foreign_project":
+        outcome["project"] = "foreign-project"
+    elif case == "missing_dry_run":
+        outcome.pop("dryRun")
+
+    class Bootstrap:
+        def __init__(self, **kwargs):
+            pass
+
+        def apply(self, plan, *, dry_run, on_step):
+            assert dry_run is False
+            return outcome
+
+    ensurer = HushhFederatedSubstrate(
+        project="user-proj",
+        plan_renderer=lambda spec: _PLAN,
+        bootstrap_factory=Bootstrap,
+        token_minter=lambda **kwargs: "synthetic",
+        dry_run=False,
+    )
+    receipt = asyncio.run(ensurer.ensure(object()))
+    assert receipt.applied is (case == "success")
+    assert receipt.as_record()["applied"] is (case == "success")

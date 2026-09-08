@@ -298,6 +298,16 @@ class HushhFederatedSubstrate:
                 detail=f"apply failed: {exc}",
             )
 
+        if not isinstance(outcome, dict):
+            return SubstrateReceipt(
+                False,
+                tenant_ref,
+                resource_ids=ids,
+                plan_digest=digest,
+                grant_ref=grant_ref,
+                detail="bootstrap result unavailable",
+            )
+
         if outcome.get("dryRun"):
             # `applied` stays False so a caller cannot read a plan as a result. The
             # identifiers are still returned: knowing what WOULD be created is the
@@ -312,15 +322,32 @@ class HushhFederatedSubstrate:
                 steps=list(outcome.get("steps") or []),
             )
 
-        steps = list(outcome.get("results") or outcome.get("steps") or [])
-        failures = [s for s in steps if not s.get("ok", True) and not s.get("skipped")]
+        raw_steps = outcome.get("results", outcome.get("steps"))
+        valid_steps = (
+            isinstance(raw_steps, list)
+            and bool(raw_steps)
+            and all(
+                isinstance(step, dict) and isinstance(step.get("step"), str) and step["step"]
+                for step in raw_steps
+            )
+        )
+        steps = raw_steps if valid_steps else []
+        failures = [step for step in steps if step.get("ok") is not True or step.get("skipped")]
+        applied = (
+            outcome.get("dryRun") is False
+            and outcome.get("ok") is True
+            and outcome.get("project") == self._project
+            and valid_steps
+            and not failures
+        )
         receipt = SubstrateReceipt(
-            applied=not failures,
+            applied=applied,
             tenant_ref=tenant_ref,
             resource_ids=ids,
             plan_digest=digest,
             grant_ref=grant_ref,
             steps=steps,
+            detail="" if applied else "bootstrap completion unconfirmed",
         )
         if receipt.applied:
             logger.info(
@@ -335,13 +362,12 @@ class HushhFederatedSubstrate:
             # downstream of it "not attempted", so listing them all reports one cause
             # as several problems -- the exact noise its dependency tracking exists to
             # prevent.
-            first = failures[0]
+            first = failures[0] if failures else {}
             logger.error(
-                "byoc_substrate.incomplete hushh_id=%s tenant=%s first_failure=%s detail=%s",
+                "byoc_substrate.incomplete hushh_id=%s tenant=%s first_failure=%s",
                 hushh_id,
                 tenant_ref,
                 first.get("step", "<unknown>"),
-                str(first.get("detail") or "")[:200],
             )
         return receipt
 
