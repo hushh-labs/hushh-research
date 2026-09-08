@@ -11,7 +11,7 @@ import inspect
 from collections.abc import Awaitable, Callable
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, NoReturn
 
 from api.routes.one.live_context import sanitize_action_settlement, sanitize_live_context
 from api.routes.one.pod_live_transport import AUTHORITY_METHODS, REQUEST_TYPE, RESULT_TYPE
@@ -31,7 +31,7 @@ from hushh_mcp.services.action_directive_ledger import (
 from hushh_mcp.services.action_gateway import get_action_gateway_action
 
 
-def _refuse() -> None:
+def _refuse() -> NoReturn:
     raise ActionDirectiveAuthorityError("voice directive binding refused")
 
 
@@ -84,14 +84,14 @@ class HubVoiceAuthority:
         if frame.get("type") == "app_context" or "appContext" in frame:
             context = frame.get("appContext")
             self._context = sanitize_live_context(context if isinstance(context, dict) else {})
-            for binding in self._bindings.values():
+            for existing in self._bindings.values():
                 try:
-                    self._require_current(binding)
+                    self._require_current(existing)
                 except ActionDirectiveAuthorityError:
-                    binding.confirm_observed = False
+                    existing.confirm_observed = False
             return
         key = {"action_confirm": "actionConfirmation", "action_settled": "actionSettlement"}.get(
-            frame.get("type")
+            str(frame.get("type") or "")
         )
         payload = frame.get(key) if key else None
         if not isinstance(payload, dict):
@@ -222,7 +222,8 @@ class HubVoiceAuthority:
         settings = self._context.get("voice_settings") or {}
         action = get_action_gateway_action(action_id)
         if (
-            not action
+            not isinstance(action, dict)
+            or not action
             or not revision
             or self._context.get("context_revision") != revision
             or action_id not in self._executable_actions()

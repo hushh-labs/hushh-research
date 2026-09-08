@@ -225,9 +225,11 @@ assertions:
     statement: "The DB-backed specialists execute inside the pod rather than reaching a central service."
     falsifiable: true
     blocked_by: >-
-      Hub-side exact-authority threading. Three specialists are refused identically on
-      both sides today, which is honest but is not re-homing.
-    owner_action: "Land the nav/consent door first: deterministic, no model, no authority gate."
+      Scoped location, email and calendar reads are connected through the existing
+      hub information door; private text/Live compose the result inside the pod.
+      Actual deployed specialist execution, exact exports for other specialists and
+      owner-confirmed mutations still need independent receipt evidence.
+    owner_action: "Verify the connected scoped reads and owner-confirmed proposal handoff on a disposable private pod; retain denial controls."
     check:
       kind: receipt
       required_target_mode: deployed
@@ -237,6 +239,11 @@ assertions:
         - consent-protocol/hushh_mcp/observability/parity_oracle.py
         - consent-protocol/api/routes/one/pod_turn.py
         - consent-protocol/hushh_mcp/services/pod_pkm_resolver.py
+        - consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py
+        - consent-protocol/hushh_mcp/one_adk/agent_tree.py
+        - consent-protocol/api/routes/one/pod_relay.py
+        - consent-protocol/api/routes/one/pod_live_authority.py
+        - consent-protocol/api/routes/one/pod_live_relay.py
         - consent-protocol/pod_server.py
       observation_requirements:
         specialist_execution_attributed_to_pod: {equals: true}
@@ -244,10 +251,9 @@ assertions:
       reproduce: consent-protocol/scripts/ops/pod_parity_probe.py
       expires_after_days: 30
       pending: >-
-        The ruler can see specialists as of 2026-08-28, so a live probe can now
-        certify this. What it will certify today is identical refusal on both sides,
-        which is honest agreement and not re-homing; earn the receipt after the
-        nav/consent door lands.
+        Static tests now cover scoped reads and proposal handoff. They do not prove
+        actual provider success, per-hop export authority or deployed execution;
+        earn a current receipt by exercising the connected path on a disposable pod.
 
   - id: consent-chain-detects-a-wipe
     requirement: Authority

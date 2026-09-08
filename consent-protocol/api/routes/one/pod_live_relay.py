@@ -106,8 +106,8 @@ async def admit_private_live(user_id: str) -> HubLiveAdmission:
         hushh_id=hushh_id,
         request_id="relay-live:" + uuid.uuid4().hex,
     )
-    url = _pod_url(row)
-    _socket_url(url or "")
+    url = _pod_url(row) or ""
+    _socket_url(url)
     grant = await PersonalAgentGrantService().issue_or_reuse_standing_pkm_read(user_id)
     token = str(grant.get("token") or "")
     if not token:

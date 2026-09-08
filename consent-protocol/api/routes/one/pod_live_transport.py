@@ -157,7 +157,10 @@ class PodLiveTransport:
                 response = await future
             if not response["ok"]:
                 raise ActionDirectiveAuthorityError("voice directive refused")
-            return response["result"]
+            result = response["result"]
+            if not isinstance(result, dict):
+                raise ActionDirectiveAuthorityError("voice directive result invalid")
+            return result
         except asyncio.CancelledError:
             await self.close(code=1008, reason="Voice connection ended.")
             raise

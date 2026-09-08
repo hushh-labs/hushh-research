@@ -45,7 +45,7 @@ import re
 import secrets
 import time
 import uuid
-from typing import Any, Literal, Optional
+from typing import Any, Literal, Optional, Protocol
 
 from fastapi import (
     APIRouter,
@@ -269,8 +269,16 @@ def _decode_realtime_audio(data: str) -> bytes | None:
     return decoded
 
 
+class LiveSocket(Protocol):
+    """The existing Live loop accepts a browser socket or pod transport."""
+
+    async def receive_text(self) -> str: ...
+    async def send_text(self, data: str, /) -> None: ...
+    async def close(self, code: int = 1000, reason: str = "") -> None: ...
+
+
 async def _close_quietly(
-    websocket: WebSocket, *, code: int = 1000, reason: str | None = None
+    websocket: LiveSocket, *, code: int = 1000, reason: str | None = None
 ) -> None:
     """Best-effort close: the browser may already be gone by the time a
     rejection path calls this (tab closed, network drop mid-handshake), which
@@ -289,7 +297,7 @@ async def _close_quietly(
 
 
 async def _receive_runtime_bootstrap(
-    websocket: WebSocket,
+    websocket: LiveSocket,
     *,
     uid: str | None,
 ) -> tuple[
@@ -555,7 +563,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
 
 
 async def run_one_live_session(
-    websocket: WebSocket,
+    websocket: LiveSocket,
     *,
     uid: str | None,
     persona_tier: str,
