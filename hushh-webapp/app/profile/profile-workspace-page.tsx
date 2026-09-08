@@ -14,6 +14,8 @@ import {
   CodeXml,
   ContactRound,
   ExternalLink,
+  Eye,
+  EyeOff,
   Fingerprint,
   Folder,
   KeyRound,
@@ -693,7 +695,9 @@ function ProfilePageContent() {
   const [passkeyRemovalTarget, setPasskeyRemovalTarget] =
     useState<VaultWrapper | null>(null);
   const [newPassphrase, setNewPassphrase] = useState("");
+  const [showNewPassphrase, setShowNewPassphrase] = useState(false);
   const [confirmPassphrase, setConfirmPassphrase] = useState("");
+  const [showConfirmPassphrase, setShowConfirmPassphrase] = useState(false);
   const [marketplaceOptIn, setMarketplaceOptIn] = useState(false);
   const [loadingMarketplaceOptIn, setLoadingMarketplaceOptIn] = useState(true);
   const [savingMarketplaceOptIn, setSavingMarketplaceOptIn] = useState(false);
@@ -2059,6 +2063,8 @@ function ProfilePageContent() {
       setPassphraseDialogOpen(false);
       setNewPassphrase("");
       setConfirmPassphrase("");
+      setShowNewPassphrase(false);
+      setShowConfirmPassphrase(false);
     } catch (error) {
       console.error("[ProfilePage] Failed to update passphrase:", error);
       toast.error(
@@ -4470,7 +4476,15 @@ function ProfilePageContent() {
 
       <Dialog
         open={passphraseDialogOpen}
-        onOpenChange={setPassphraseDialogOpen}
+        onOpenChange={(open) => {
+          setPassphraseDialogOpen(open);
+          if (!open) {
+            setNewPassphrase("");
+            setConfirmPassphrase("");
+            setShowNewPassphrase(false);
+            setShowConfirmPassphrase(false);
+          }
+        }}
       >
         <DialogContent className="w-[calc(100%-1rem)] max-h-[calc(100svh-1rem)] overflow-y-auto sm:max-w-md">
           <DialogTitle>Change passphrase</DialogTitle>
@@ -4479,20 +4493,44 @@ function ProfilePageContent() {
             methods stay active.
           </DialogDescription>
           <div className="space-y-3 pt-2">
-            <Input
-              type="password"
-              placeholder="New passphrase (min 8 characters)"
-              autoComplete="new-password"
-              value={newPassphrase}
-              onChange={(event) => setNewPassphrase(event.target.value)}
-            />
-            <Input
-              type="password"
-              placeholder="Confirm passphrase"
-              autoComplete="new-password"
-              value={confirmPassphrase}
-              onChange={(event) => setConfirmPassphrase(event.target.value)}
-            />
+            <div className="relative">
+              <Input
+                type={showNewPassphrase ? "text" : "password"}
+                placeholder="New passphrase (min 8 characters)"
+                autoComplete="new-password"
+                value={newPassphrase}
+                onChange={(event) => setNewPassphrase(event.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowNewPassphrase((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
+                aria-label={showNewPassphrase ? "Hide passphrase" : "Show passphrase"}
+                title={showNewPassphrase ? "Hide passphrase" : "Show passphrase"}
+              >
+                <Icon icon={showNewPassphrase ? EyeOff : Eye} size={18} />
+              </button>
+            </div>
+            <div className="relative">
+              <Input
+                type={showConfirmPassphrase ? "text" : "password"}
+                placeholder="Confirm passphrase"
+                autoComplete="new-password"
+                value={confirmPassphrase}
+                onChange={(event) => setConfirmPassphrase(event.target.value)}
+                className="pr-10"
+              />
+              <button
+                type="button"
+                onClick={() => setShowConfirmPassphrase((prev) => !prev)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground transition-colors hover:text-foreground focus:outline-none"
+                aria-label={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
+                title={showConfirmPassphrase ? "Hide passphrase" : "Show passphrase"}
+              >
+                <Icon icon={showConfirmPassphrase ? EyeOff : Eye} size={18} />
+              </button>
+            </div>
             <div className="flex flex-col-reverse gap-2 pt-1 sm:flex-row sm:items-center sm:justify-end">
               <Button
                 variant="none"
