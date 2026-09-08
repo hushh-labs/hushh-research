@@ -382,8 +382,14 @@ Memory Bank admission in `memory_bank.json`. Its `admission_closed` phase preser
 ready, creating and legacy records and outstanding operations; an absent record gets
 an explicit marker, never an absence-of-resources receipt. Late creation publication
 can retain only a captured-generation/configuration-bound engine acknowledgement.
-Startup refuses ordinary initialization under the marker. This phase cannot yet advance
-to provider deletion; partial fence failures remain incomplete and retries preserve authority.
+Startup refuses ordinary initialization under the marker. The trusted internal lifecycle
+reconciler can advance it only for the matching owner/attempt and validated protocol-2
+initialized engine, with no outstanding recall and matching persisted incarnation.
+It then uses the existing generation-reconciliation and deletion sequence. Absent, legacy
+and late-creation-only records remain incomplete; startup observation cannot initiate
+this transition. Partial fence failures remain incomplete and retries preserve authority.
+Protocol 2 alone does not prove older provider work has drained; the trusted coordinator
+still owns that prerequisite. Public teardown is not yet connected to provider deletion.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
 without initializing ordinary memory. It requires the matching owner/attempt log fence;

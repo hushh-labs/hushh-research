@@ -480,6 +480,8 @@ def _generation_slot(record: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 def _recall_slot(record: dict[str, Any]) -> Optional[dict[str, str]]:
     if "recallOperation" not in record:
+        if record.get("generationProtocol") == 2:
+            raise MemoryBankUnavailable("memory recall completion field missing")
         return None
     if record.get("generationProtocol") != 2:
         raise MemoryBankUnavailable("unsupported recall record version")
@@ -530,7 +532,21 @@ async def fence_memory_bank_admission(
         if not isinstance(record, dict):
             raise MemoryBankUnavailable("invalid memory record")
         if "erasure" in record:
-            fence = _admission_fence(record, owner_id)
+            if (
+                isinstance(record["erasure"], dict)
+                and record["erasure"].get("phase") == "admission_closed"
+            ):
+                fence = _admission_fence(record, owner_id)
+            else:
+                if record.get("displayName") != _DISPLAY_PREFIX + owner_id:
+                    raise MemoryBankUnavailable("memory admission owner mismatch")
+                cfg = MemoryBankConfig(
+                    project=record.get("project"),
+                    location=record.get("location"),
+                    display_name=record["displayName"],
+                    engine_id=record.get("engineId"),
+                )
+                fence = _erasure_state(record, cfg, record.get("engineId"))
             if fence["attemptId"] != attempt_id:
                 raise MemoryBankUnavailable("memory admission attempt changed")
             return
@@ -1136,6 +1152,38 @@ def build_rest_memory_bank_service(
                 or record["erasure"].get("phase") not in {"delete_pending", "provider_deleted"}
             ):
                 raise MemoryBankErasurePending("memory erasure is not acknowledged")
+            if (
+                isinstance(record, dict)
+                and isinstance(record.get("erasure"), dict)
+                and record["erasure"].get("phase") == "admission_closed"
+            ):
+                closed = _admission_fence(record, user_id)
+                if closed["attemptId"] != attempt_id:
+                    raise MemoryBankUnavailable("memory erasure attempt changed")
+                # Only the trusted lifecycle caller may advance this phase. A
+                # fenced absence or late creation receipt does not establish a
+                # fully initialized engine or coverage of old provider work.
+                ordinary = {key: value for key, value in record.items() if key != "erasure"}
+                if (
+                    ordinary.get("generationProtocol") != 2
+                    or _decode_record(json.dumps(ordinary), cfg) != engine_id
+                ):
+                    raise MemoryBankErasurePending("memory initialization requires reconciliation")
+                if _recall_slot(ordinary) is not None:
+                    raise MemoryBankErasurePending("memory recall completion unresolved")
+                incarnation = ordinary.get("engineIncarnation")
+                if (
+                    _engine_incarnation(incarnation, cfg, engine_id) != incarnation
+                    or incarnation["createTime"] != expected_engine_create_time
+                ):
+                    raise MemoryBankUnavailable("memory erasure incarnation changed")
+                record = {
+                    **record,
+                    "status": "erasing",
+                    "erasure": {**expected, "phase": "waiting"},
+                }
+                _erasure_state(record, cfg, engine_id)
+                generation = await _persist_record(store, record, generation)
             incarnation = record.get("engineIncarnation") if isinstance(record, dict) else None
             if (
                 _engine_incarnation(incarnation, cfg, engine_id) != incarnation

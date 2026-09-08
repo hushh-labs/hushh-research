@@ -2218,3 +2218,58 @@ async def test_admission_fence_preserves_and_accepts_exact_late_generation_ack()
     with pytest.raises(mb.MemoryBankUnavailable):
         await _erase(_tracked_service(store, http), log)
     assert http.deletes == []
+
+
+async def test_closed_admission_advances_through_existing_erasure_reconciler():
+    store = _ready_store()
+    # Actual recall establishes protocol2 admission and completes its exact slot.
+    await _tracked_service(store, _RestHttp()).search_memory(
+        app_name="one", user_id="ha1_test", query="synthetic"
+    )
+    log = await _erasure_log(store)
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    http = _ErasureHttp()
+    with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
+        await _erase(_tracked_service(store, http), log)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["erasure"]["phase"] == "delete_pending"
+    assert len(http.deletes) == 1
+    # Hub fence retries remain idempotent after the internal phase advances.
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY]) == record
+    assert len(http.deletes) == 1
+
+
+@pytest.mark.parametrize(
+    "gap", ["legacy", "recall_pending", "incarnation", "attempt", "observe_only", "recall_missing"]
+)
+async def test_admission_transition_refuses_unresolved_or_mismatched_state(gap):
+    store = _ready_store()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    if gap != "legacy":
+        record.update(status="ready", generationProtocol=2, recallOperation=None)
+    if gap == "recall_missing":
+        record.pop("recallOperation")
+    if gap == "recall_pending":
+        record["recallOperation"] = {"attempt": "a" * 32, "clientId": "b" * 32, "engineId": "91"}
+    if gap == "incarnation":
+        record["engineIncarnation"]["createTime"] = "2026-09-02T00:00:00Z"
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    log = await _erasure_log(store)
+    await mb.fence_memory_bank_admission(
+        store=store, log=log, owner_id="ha1_test", attempt_id="erase-attempt"
+    )
+    if gap == "attempt":
+        record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+        record["erasure"]["attemptId"] = "foreign"
+        store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    before = store.objects[mb.MEMORY_BANK_RECORD_KEY]
+    http = _ErasureHttp()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _erase(_tracked_service(store, http), log, observe_only=gap == "observe_only")
+    assert store.objects[mb.MEMORY_BANK_RECORD_KEY] == before
+    assert http.gets == [] and http.deletes == []
