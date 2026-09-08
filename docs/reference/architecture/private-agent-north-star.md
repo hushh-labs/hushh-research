@@ -362,9 +362,16 @@ or unavailable targets remain incomplete. This is a fence-only phase: service UI
 is the hub's verified observation, not independent pod attestation, and it does not
 prove provider drainage. No compute, key, grant or owner identity is deleted by reservation.
 
-Memory Bank recall rechecks its owner-bound durable record after provider retrieval,
-before releasing the result. An observed erasure fence, invalid record or replaced client
-binding refuses that result; this does not drain requests already admitted to a provider.
+Memory Bank recall reserves one bounded operation in the existing `memory_bank.json`
+before credentials or retrieval. Protocol 2 records only the attempt, client incarnation
+and engine identifier; it stores no query or returned information. A successful response
+clears only that exact reservation while preserving generation and erasure state.
+Cancellation, uncertain responses and restart retain unresolved admission without expiry;
+erasure cannot submit DELETE while recall remains outstanding. Generation acknowledgements
+merge their exact slot so concurrent recall writes cannot discard them. Recall rechecks
+its owner-bound record before releasing the result. These are source-level safeguards,
+not deployed drainage evidence: older clients must be drained before claiming coverage
+of previously admitted requests, and unresolved reservations still require reconciliation.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
 without initializing ordinary memory. It requires the matching owner/attempt log fence;

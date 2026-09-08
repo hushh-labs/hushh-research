@@ -1846,3 +1846,177 @@ async def test_recall_does_not_release_information_after_admission_changes(chang
     with pytest.raises(mb.MemoryBankUnavailable) as failure:
         await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
     assert "synthetic revoked fact" not in str(failure.value)
+
+
+async def test_erasure_waits_for_admitted_recall_and_late_completion_keeps_fence():
+    import asyncio
+
+    store = _ready_store()
+    log = await _erasure_log(store)
+    loop = asyncio.get_running_loop()
+
+    class DuringRecall(_ErasureHttp):
+        def post(self, *args, **kwargs):
+            async def begin_erasure():
+                with pytest.raises(mb.MemoryBankErasurePending, match="recall completion"):
+                    await _erase(_tracked_service(store, self), log)
+
+            asyncio.run_coroutine_threadsafe(begin_erasure(), loop).result(timeout=5)
+            return _Resp(200, {"retrievedMemories": []})
+
+    http = DuringRecall()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).search_memory(
+            app_name="one", user_id="ha1_test", query="synthetic"
+        )
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing"
+    assert record["recallOperation"] is None
+    assert http.deletes == []
+    with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
+        await _erase(_tracked_service(store, http), log)
+    assert len(http.deletes) == 1
+
+
+async def test_cancelled_recall_retains_admission_across_worker_completion_and_restart():
+    import asyncio
+    import threading
+
+    started, release, ended = threading.Event(), threading.Event(), threading.Event()
+    store = _ready_store()
+
+    class HeldRecall(_RestHttp):
+        def post(self, *args, **kwargs):
+            started.set()
+            try:
+                assert release.wait(timeout=5)
+                return _Resp(200, {"retrievedMemories": []})
+            finally:
+                ended.set()
+
+    client = _tracked_service(store, HeldRecall())
+    task = asyncio.create_task(client.search_memory(app_name="one", user_id="ha1_test", query="x"))
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        before = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"]
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+    finally:
+        release.set()
+        assert await asyncio.to_thread(ended.wait, 5)
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"] == before
+    http = _ErasureHttp()
+    restarted = _tracked_service(store, http)
+    with pytest.raises(mb.MemoryBankUnavailable, match="recall completion"):
+        await restarted.search_memory(app_name="one", user_id="ha1_test", query="x")
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankErasurePending, match="recall completion"):
+        await _erase(restarted, log)
+    assert http.posts == [] and http.deletes == []
+
+
+async def test_generation_acknowledgement_preserves_concurrent_recall_reservation():
+    import asyncio
+
+    store = _ready_store()
+    loop = asyncio.get_running_loop()
+    held = {}
+
+    class DuringGeneration(_RestHttp):
+        def post(self, *args, **kwargs):
+            async def admit_recall():
+                record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+                held.update(attempt="b" * 32, clientId="c" * 32, engineId="91")
+                _, generation = await store.get_with_generation(mb.MEMORY_BANK_RECORD_KEY)
+                await mb._persist_record(
+                    store,
+                    {**record, "generationProtocol": 2, "recallOperation": held.copy()},
+                    generation,
+                )
+
+            asyncio.run_coroutine_threadsafe(admit_recall(), loop).result(timeout=5)
+            return _Resp(
+                200,
+                {
+                    "name": "projects/p/locations/us-central1/operations/1",
+                    "done": True,
+                    "response": {},
+                },
+            )
+
+    await _tracked_service(store, DuringGeneration()).add_session_to_memory(_rest_session("x"))
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["generationOperation"] is None
+    assert record["generationProtocol"] == 2 and record["recallOperation"] == held
+
+
+@pytest.mark.parametrize("change", ["attempt", "clientId", "incarnation"])
+async def test_recall_completion_cannot_clear_a_different_reservation(change):
+    import asyncio
+
+    store = _ready_store()
+    loop = asyncio.get_running_loop()
+
+    class ChangedRecall(_RestHttp):
+        def post(self, *args, **kwargs):
+            async def change_binding():
+                record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+                if change == "incarnation":
+                    record["engineIncarnation"]["createTime"] = "2026-09-02T00:00:00Z"
+                else:
+                    record["recallOperation"][change] = "d" * 32
+                _, generation = await store.get_with_generation(mb.MEMORY_BANK_RECORD_KEY)
+                await mb._persist_record(store, record, generation)
+
+            asyncio.run_coroutine_threadsafe(change_binding(), loop).result(timeout=5)
+            return _Resp(200, {"retrievedMemories": []})
+
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, ChangedRecall()).search_memory(
+            app_name="one", user_id="ha1_test", query="x"
+        )
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"] is not None
+
+
+async def test_generation_completion_during_erasure_cannot_admit_another_post():
+    import asyncio
+
+    store = _ready_store()
+    loop = asyncio.get_running_loop()
+    first = _RestHttp()
+    await _tracked_service(store, first).add_session_to_memory(_rest_session("first"))
+    log = await _erasure_log(store)
+
+    class FenceDuringPoll(_RestHttp):
+        def get(self, url, **kwargs):
+            if "/operations/" in url:
+
+                async def fence():
+                    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+                    record.update(
+                        status="erasing",
+                        erasure={
+                            "version": 1,
+                            "ownerId": "ha1_test",
+                            "attemptId": "erase-attempt",
+                            "incarnationId": "incarnation",
+                            "engineCreateTime": "2026-09-01T00:00:00Z",
+                            "phase": "waiting",
+                        },
+                    )
+                    _, generation = await store.get_with_generation(mb.MEMORY_BANK_RECORD_KEY)
+                    await mb._persist_record(store, record, generation)
+
+                asyncio.run_coroutine_threadsafe(fence(), loop).result(timeout=5)
+            return super().get(url, **kwargs)
+
+    http = FenceDuringPoll()
+    with pytest.raises(mb.MemoryBankUnavailable):
+        await _tracked_service(store, http).add_session_to_memory(_rest_session("second"))
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing"
+    assert record["generationOperation"] is None
+    assert record["erasure"]["attemptId"] == "erase-attempt"
+    assert http.posts == []
+    await log.require_fenced(owner_id="ha1_test", attempt_id="erase-attempt")

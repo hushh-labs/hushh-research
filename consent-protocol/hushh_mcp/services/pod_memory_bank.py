@@ -401,12 +401,18 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     if "erasure" in record:
         raise MemoryBankUnavailable("memory record is fenced for erasure")
     if "status" not in record and (
-        "generationProtocol" in record or "generationOperation" in record
+        "generationProtocol" in record
+        or "generationOperation" in record
+        or "recallOperation" in record
     ):
         raise MemoryBankUnavailable("unsupported memory record version")
     if "status" in record:
         if record["status"] == "creating":
-            if "generationProtocol" in record or "generationOperation" in record:
+            if (
+                "generationProtocol" in record
+                or "generationOperation" in record
+                or "recallOperation" in record
+            ):
                 raise MemoryBankUnavailable("inconsistent memory creation record")
             raise MemoryBankCreationPending("creation requires reconciliation")
         # Absence is the existing ready-record format. Unknown/future lifecycle
@@ -414,10 +420,11 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
         if (
             record["status"] != "ready"
             or type(record.get("generationProtocol")) is not int
-            or record["generationProtocol"] != 1
+            or record["generationProtocol"] not in {1, 2}
         ):
             raise MemoryBankUnavailable("unsupported memory record state")
     _generation_slot(record)
+    _recall_slot(record)
     engine_id = record.get("engineId")
     if (
         not isinstance(engine_id, str)
@@ -451,6 +458,29 @@ def _generation_slot(record: dict[str, Any]) -> Optional[dict[str, Any]]:
         not isinstance(slot.get("operation"), str) or not slot["operation"]
     ):
         raise MemoryBankUnavailable("invalid generation acknowledgement")
+    return slot
+
+
+def _recall_slot(record: dict[str, Any]) -> Optional[dict[str, str]]:
+    if "recallOperation" not in record:
+        return None
+    if record.get("generationProtocol") != 2:
+        raise MemoryBankUnavailable("unsupported recall record version")
+    slot = record["recallOperation"]
+    if slot is None:
+        return None
+    if (
+        not isinstance(slot, dict)
+        or set(slot) != {"attempt", "clientId", "engineId"}
+        or slot.get("engineId") != record.get("engineId")
+        or any(
+            not isinstance(slot.get(key), str)
+            or len(slot[key]) != 32
+            or any(c not in "0123456789abcdef" for c in slot[key])
+            for key in ("attempt", "clientId")
+        )
+    ):
+        raise MemoryBankUnavailable("invalid recall reservation")
     return slot
 
 
@@ -492,7 +522,9 @@ def _erasure_state(record: dict[str, Any], cfg: MemoryBankConfig, engine_id: str
     ready_fields = {key: value for key, value in record.items() if key != "erasure"}
     if _decode_record(json.dumps({**ready_fields, "status": "ready"}), cfg) != engine_id:
         raise MemoryBankUnavailable("memory erasure binding mismatch")
-    if state["phase"] != "waiting" and _generation_slot(record) is not None:
+    if state["phase"] != "waiting" and (
+        _generation_slot(record) is not None or _recall_slot(record) is not None
+    ):
         raise MemoryBankUnavailable("memory erasure has an unresolved mutation")
     return state
 
@@ -753,6 +785,7 @@ def build_rest_memory_bank_service(
     http = session or requests.Session()
     bearer = token or _AdcToken()
     engine = f"{_base_url(cfg)}/reasoningEngines/{engine_id}"
+    client_id = uuid.uuid4().hex
 
     def _headers() -> dict[str, str]:
         value = bearer.get() if hasattr(bearer, "get") else str(bearer)
@@ -828,6 +861,8 @@ def build_rest_memory_bank_service(
             return json.loads(raw), generation
 
         async def _save_state(self, record: dict[str, Any], generation: int) -> int:
+            if _decode_record(json.dumps(record), cfg) != engine_id:
+                raise MemoryBankUnavailable("memory ordinary write binding changed")
             if not is_current():
                 raise MemoryBankUnavailable("memory generation admission changed")
             updated = await _persist_record(store, record, generation)
@@ -835,31 +870,52 @@ def build_rest_memory_bank_service(
                 raise MemoryBankUnavailable("memory generation admission changed")
             return updated
 
+        async def _complete_slot(
+            self,
+            record: dict[str, Any],
+            field: str,
+            expected: dict[str, Any],
+            replacement: Optional[dict[str, Any]],
+        ) -> tuple[dict[str, Any], int]:
+            # Acknowledgements may race another slot or the erasure fence. Merge
+            # only this exact operation; never republish a stale whole record.
+            for _ in range(4):
+                raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
+                current = json.loads(raw)
+                if "erasure" in current:
+                    if _erasure_state(current, cfg, engine_id)["phase"] != "waiting":
+                        raise MemoryBankUnavailable("memory completion crossed erasure")
+                elif _decode_record(raw, cfg) != engine_id:
+                    raise MemoryBankUnavailable("memory completion binding changed")
+                if current.get("engineIncarnation") != record.get("engineIncarnation"):
+                    raise MemoryBankUnavailable("memory completion incarnation changed")
+                previous = current.get(field)
+                if previous == replacement:
+                    return current, generation
+                if previous != expected:
+                    raise MemoryBankUnavailable("memory completion attempt changed")
+                current = {**current, field: replacement}
+                try:
+                    updated = await _persist_record(store, current, generation)
+                    return current, updated
+                except Exception:
+                    # Bounded retry revalidates owner, incarnation, fence and
+                    # exact slot. No timeout removes an unresolved operation.
+                    continue
+            raise MemoryBankUnavailable("memory completion persistence unconfirmed")
+
         async def _save_generation_acknowledgement(
             self, record: dict[str, Any], generation: int
-        ) -> int:
-            try:
-                return await self._save_state(record, generation)
-            except MemoryBankUnavailable:
-                # Erasure can win the CAS while an admitted generation POST is
-                # returning. Retain only its exact acknowledgement, never reopen
-                # the record or submit new work through an invalidated client.
-                raw, current_generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
-                current = json.loads(raw)
-                state = _erasure_state(current, cfg, engine_id)
-                previous, incoming = _generation_slot(current), _generation_slot(record)
-                if (
-                    state["phase"] != "waiting"
-                    or previous is None
-                    or incoming is None
-                    or previous["attempt"] != incoming["attempt"]
-                    or incoming["phase"] != "pending"
-                    or (previous["phase"] == "pending" and previous != incoming)
-                ):
-                    raise MemoryBankUnavailable("memory acknowledgement binding changed") from None
-                return await _persist_record(
-                    store, {**current, "generationOperation": incoming}, current_generation
-                )
+        ) -> tuple[dict[str, Any], int]:
+            incoming = _generation_slot(record)
+            if incoming is None or incoming["phase"] != "pending":
+                raise MemoryBankUnavailable("memory acknowledgement unavailable")
+            return await self._complete_slot(
+                record,
+                "generationOperation",
+                {"attempt": incoming["attempt"], "phase": "submitting"},
+                incoming,
+            )
 
         def _erasure_engine_observation(self) -> Optional[dict[str, Any]]:
             try:
@@ -972,7 +1028,7 @@ def build_rest_memory_bank_service(
                 record = {
                     **record,
                     "status": "erasing",
-                    "generationProtocol": 1,
+                    "generationProtocol": record.get("generationProtocol", 1),
                     "erasure": {**expected, "phase": "waiting"},
                 }
                 _erasure_state(record, cfg, engine_id)
@@ -996,6 +1052,8 @@ def build_rest_memory_bank_service(
             if state["phase"] == "delete_submitting":
                 raise MemoryBankErasurePending("memory deletion acknowledgement unresolved")
             if state["phase"] == "waiting":
+                if _recall_slot(record) is not None:
+                    raise MemoryBankErasurePending("memory recall completion unresolved")
                 slot = _generation_slot(record)
                 if slot is not None and slot["phase"] == "submitting":
                     raise MemoryBankErasurePending("memory generation acknowledgement unresolved")
@@ -1083,8 +1141,12 @@ def build_rest_memory_bank_service(
                     raise MemoryBankUnavailable("memory operation result invalid")
             elif not isinstance(payload.get("response"), dict):
                 raise MemoryBankUnavailable("memory operation result unavailable")
-            record = {**record, "generationOperation": None}
-            generation = await self._save_state(record, generation)
+            slot = _generation_slot(record)
+            if slot is None:
+                raise MemoryBankUnavailable("memory generation completion lacks reservation")
+            record, generation = await self._complete_slot(
+                record, "generationOperation", slot, None
+            )
             if failed:
                 raise MemoryBankUnavailable("memory generation operation failed")
             return record, generation
@@ -1106,10 +1168,11 @@ def build_rest_memory_bank_service(
                 if self._operation_path(payload.get("name")) != operation:
                     raise MemoryBankUnavailable("memory operation response mismatch")
                 record, generation = await self._finish_operation(record, generation, payload)
+                await require_record()
             record = {
                 **record,
                 "status": "ready",
-                "generationProtocol": 1,
+                "generationProtocol": record.get("generationProtocol", 1),
                 "generationOperation": {"attempt": uuid.uuid4().hex, "phase": "submitting"},
             }
             generation = await self._save_state(record, generation)
@@ -1126,7 +1189,7 @@ def build_rest_memory_bank_service(
                     "operation": operation,
                 },
             }
-            generation = await self._save_generation_acknowledgement(record, generation)
+            record, generation = await self._save_generation_acknowledgement(record, generation)
             if payload.get("done") is True:
                 await require_record()
                 await self._finish_operation(record, generation, payload)
@@ -1160,12 +1223,34 @@ def build_rest_memory_bank_service(
 
         async def search_memory(self, *, app_name: str, user_id: str, query: str) -> Any:
             require_owner(user_id)
+            try:
+                return await self._search_memory(user_id=user_id, query=query)
+            except MemoryBankUnavailable:
+                raise
+            except Exception:
+                raise MemoryBankUnavailable("memory recall tracking unavailable") from None
+
+        async def _search_memory(self, *, user_id: str, query: str) -> Any:
             await require_record()
             body = {
                 "scope": {"user_id": str(user_id or cfg.display_name)},
                 "similaritySearchParams": {"searchQuery": query, "topK": top_k},
             }
+            record, generation = await self._record_state()
+            if _recall_slot(record) is not None:
+                raise MemoryBankUnavailable("memory recall completion unresolved")
+            slot = {"attempt": uuid.uuid4().hex, "clientId": client_id, "engineId": engine_id}
+            record = {
+                **record,
+                "status": "ready",
+                "generationProtocol": 2,
+                "recallOperation": slot,
+            }
+            await self._save_state(record, generation)
+            # Cancellation and transport uncertainty retain this reservation.
+            # asyncio.to_thread may still be running after its caller is gone.
             payload = await asyncio.to_thread(self._post, "memories:retrieve", body)
+            await self._complete_slot(record, "recallOperation", slot, None)
             # A durable fence or binding change can land while retrieval is in
             # flight. Do not release its information after admission is revoked.
             # This release check does not prove provider work has drained.
