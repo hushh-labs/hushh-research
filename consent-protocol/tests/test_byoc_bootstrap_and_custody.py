@@ -710,21 +710,33 @@ def test_a_merge_preserves_bindings_that_were_already_there() -> None:
     assert "user:someone@example.com" in members["members"]
 
 
-def test_a_merge_that_changes_nothing_is_reported_as_a_no_op() -> None:
+@pytest.mark.parametrize("conditional", [False, True])
+def test_a_merge_that_changes_nothing_is_reported_as_a_no_op(conditional) -> None:
     """A re-run should say 'already bound', not rewrite an identical policy."""
     pod_sa = f"one-pod-{HUSHH_ID.lower()}@{USER_PROJECT}.iam.gserviceaccount.com"
     already = {
         "bindings": [{"role": "roles/storage.objectAdmin", "members": [f"serviceAccount:{pod_sa}"]}]
     }
-    session = _Session([_Response(200, already)])
+    if conditional:
+        already["version"] = 3
+        already["bindings"][0]["condition"] = {
+            "title": "separate-grant",
+            "expression": "request.time < timestamp('2030-01-01T00:00:00Z')",
+        }
+    session = _Session([_Response(200, already), _Response(200, {})])
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     call = next(c for c in boot.plan_calls(plan) if c["step"] == "iam_pod_sa_on_bucket")
 
     result = boot._merge_binding(call, {"Authorization": "Bearer x"})
     assert result["ok"] is True
-    assert result["detail"] == "already bound"
-    assert len(session.calls) == 1, "a no-op must not write"
+    if conditional:
+        assert len(session.calls) == 2
+        written = json.loads(session.calls[1]["data"])
+        assert written["bindings"] == [already["bindings"][0], call["bindings"][0]]
+    else:
+        assert result["detail"] == "already bound"
+        assert len(session.calls) == 1, "a no-op must not write"
 
 
 def test_an_unreadable_policy_fails_rather_than_writing_blind() -> None:

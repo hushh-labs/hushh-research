@@ -610,8 +610,8 @@ async def test_iam_cleanup_preserves_conditional_grants_and_requires_write_preco
         "expression": "request.time < timestamp('2030-01-01T00:00:00Z')",
     }
     unrelated = {
-        "role": "roles/viewer",
-        "members": ["user:other@example.com"],
+        "role": action["role"],
+        "members": [member],
         "condition": condition,
     }
     policy = {

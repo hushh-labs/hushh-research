@@ -832,7 +832,13 @@ def build_gcp_deleter(
             raise SubstrateDeleteError("iam conditional policy version unavailable")
         kept, changed = [], False
         for binding in bindings:
-            if binding["role"] == role and member in binding["members"]:
+            # Bootstrap's recorded grant has no condition. A conditional grant
+            # with the same role/member is a distinct, independently owned binding.
+            if (
+                binding["role"] == role
+                and member in binding["members"]
+                and "condition" not in binding
+            ):
                 changed = True
                 members = [value for value in binding["members"] if value != member]
                 if members:

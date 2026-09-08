@@ -1359,9 +1359,17 @@ class UserGcpBootstrap:
 
         merged = [dict(b) for b in existing]
         for wanted in bindings:
-            match = next((b for b in merged if b.get("role") == wanted["role"]), None)
+            match = next(
+                (
+                    b
+                    for b in merged
+                    if b.get("role") == wanted["role"]
+                    and b.get("condition") == wanted.get("condition")
+                ),
+                None,
+            )
             if match is None:
-                merged.append({"role": wanted["role"], "members": list(wanted["members"])})
+                merged.append({**wanted, "members": list(wanted["members"])})
                 continue
             members = list(match.get("members") or [])
             for member in wanted["members"]:
@@ -1417,10 +1425,19 @@ def _operation_verdict(state: dict[str, Any], *, polls: int) -> dict[str, Any]:
 
 
 def _bindings_equal(existing: list, wanted: list) -> bool:
-    """Does the policy already carry every wanted (role, member)? Then nothing to write."""
-    have = {(b.get("role"), m) for b in existing for m in (b.get("members") or [])}
-    want = {(b["role"], m) for b in wanted for m in b["members"]}
-    return want.issubset(have)
+    """Check role, condition and members; a conditional grant is a distinct binding."""
+    return all(
+        set(binding["members"]).issubset(
+            {
+                member
+                for present in existing
+                if present.get("role") == binding["role"]
+                and present.get("condition") == binding.get("condition")
+                for member in (present.get("members") or [])
+            }
+        )
+        for binding in wanted
+    )
 
 
 def authorization_request(
