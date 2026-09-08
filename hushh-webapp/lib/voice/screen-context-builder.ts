@@ -47,13 +47,13 @@ export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
  * subview (which circle dialog is open, which tab, ...) into the surviving
  * slots first, so a crowded screen loses the actions nobody is looking at
  * right now rather than whichever happened to be declared last.
- * AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so a crowded screen
+ * AVAILABLE_ACTION_IDS_CAP (58) still bounds the total, so a crowded screen
  * trades a few of the 10 GLOBAL_NAV_ACTION_IDS slots for commands that
  * actually do something on it.
  */
-export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
+export const ACTION_ID_SCREEN_SEGMENT_CAP = 48;
 // A surface's own declared inventory before ranking. Deliberately far above
-// what any surface declares today (Location, the largest, publishes 30), so it
+// what any surface declares today (Location, the largest, publishes 52), so it
 // bounds a runaway publisher without ever deciding which actions the model is
 // allowed to see. That decision belongs to prioritizeAvailableActionIds and the
 // two caps applied after it.
@@ -1083,7 +1083,7 @@ export function buildOneVoiceContextSnapshot(args: {
     });
   const app = args.appRuntimeState;
   // available_action_ids already comes out of buildStructuredScreenContext
-  // ranked and bounded at AVAILABLE_ACTION_IDS_CAP (18), not the generic
+  // ranked and bounded at AVAILABLE_ACTION_IDS_CAP (58), not the generic
   // 10-item default -- re-reading it through the default here silently
   // re-truncated an already-correct 14-item screen segment back down to 10,
   // in plain Set-insertion order rather than by rank, and cost the two

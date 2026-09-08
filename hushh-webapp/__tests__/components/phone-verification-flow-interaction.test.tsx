@@ -533,3 +533,51 @@ describe("the OTP screen survives a late auth-context update", () => {
     });
   });
 });
+
+describe("the country picker starts on the person's own country", () => {
+  const realLanguage = navigator.language;
+
+  function setBrowserLocale(tag: string) {
+    Object.defineProperty(navigator, "language", {
+      value: tag,
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    setBrowserLocale(realLanguage);
+  });
+
+  it("selects India for a browser reporting en-IN", async () => {
+    // The founder tests from India. This defaulted to "United States (+1)",
+    // so a real Indian mobile was sent as +1<10 digits> -- a different number
+    // entirely. The code went nowhere and the test-number allowlist, which
+    // matches on the full E.164 string, could never match.
+    setBrowserLocale("en-IN");
+    renderPhoneVerificationFlow({ currentPhoneNumber: null });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/India/i)).not.toBeNull();
+    });
+  });
+
+  it("leaves the United States selected for a US browser", async () => {
+    setBrowserLocale("en-US");
+    renderPhoneVerificationFlow({ currentPhoneNumber: null });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/United States/i)).not.toBeNull();
+    });
+  });
+
+  it("keeps the country implied by an existing number over the browser locale", async () => {
+    // A person whose account already carries a US number must not have it
+    // silently re-pointed at India just because the browser says en-IN.
+    setBrowserLocale("en-IN");
+    renderPhoneVerificationFlow({ currentPhoneNumber: "+16505550101" });
+
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue(/India/i)).toBeNull();
+    });
+  });
+});

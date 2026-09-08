@@ -929,7 +929,7 @@ describe("LocationImmersiveMap demo experience", () => {
       expect(String(drawnCircle[key])).toMatch(/^#[0-9a-f]{3,8}$/i);
     }
     // And it stays subordinate to the map it describes: the radius is a
-    // background fact, the two pins inside it are the subject.
+    // background fact, the owner avatar and place pin inside it are the subject.
     expect(Number(drawnCircle.fillOpacity)).toBeLessThanOrEqual(0.08);
     expect(Number(drawnCircle.strokeOpacity)).toBeLessThanOrEqual(0.4);
     expect(Number(drawnCircle.strokeWeight)).toBeLessThanOrEqual(2);
@@ -1057,7 +1057,8 @@ describe("LocationImmersiveMap demo experience", () => {
         title?: string;
         zIndex?: number;
       }>;
-      // The place pin and the owner's pin are separate coordinates.
+      // The demo check-in starts before a camera report, so the renderer's
+      // fallback keeps both pins until the avatar layer can project a point.
       expect(
         drawn.some(
           (marker) =>
@@ -2169,8 +2170,10 @@ describe("LocationImmersiveMap reported map defects", () => {
     // the loudest thing on a sheet that is not about it.
     const checkIn = screen.getByTestId("one-location-map-nearby-check-in");
     expect(checkIn).toBeInTheDocument();
-    expect(checkIn.className).toContain("h-11");
-    expect(checkIn.className).not.toContain("w-full");
+    expect(checkIn).toHaveTextContent("Want to check in?");
+    expect(checkIn).toHaveAccessibleName("Want to check in?");
+    expect(checkIn.className).toContain("underline");
+    expect(checkIn.className).not.toContain("bg-");
   });
 
   it("never lets the viewer's own Ghost Mode empty their map", async () => {
@@ -2386,8 +2389,9 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).not.toBeNull();
 
     const checkIn = screen.getByTestId("one-location-map-nearby-check-in");
-    expect(checkIn).toHaveTextContent("Check in");
-    expect(checkIn).toHaveAccessibleName("Check in nearby");
+    expect(checkIn).toHaveTextContent("Want to check in?");
+    expect(checkIn).toHaveAccessibleName("Want to check in?");
+    expect(checkIn.className).toContain("underline");
     // Inside the tray body, so the sheet's own height math already accounts
     // for it and nothing new has to be measured.
     expect(
@@ -2440,7 +2444,7 @@ describe("LocationImmersiveMap reported map defects", () => {
   it("keeps the way out and the search-area legend while the sheet is up", async () => {
     // Decluttering must not take the two things up there that are still doing
     // a job. Close is the way out. The legend is the only explanation of what
-    // the blue dot is and how far "nearby" reaches -- the sheet states
+    // the owner marker is and how far "nearby" reaches -- the sheet states
     // neither, so cutting it would have tidied the screen by removing the part
     // that was answering a question.
     serviceHarness.getState.mockResolvedValue({
@@ -2677,11 +2681,11 @@ describe("LocationImmersiveMap reported map defects", () => {
     ).toHaveTextContent("AK");
   });
 
-  it("leaves the check-in map's two pins and its colour legend alone", async () => {
+  it("uses the owner's avatar for the check-in map location marker", async () => {
     // Check-in asks a different question -- how far am I from the place I am
-    // checking in to -- and answers it with two pins, a connector, and a legend
-    // whose swatch IS the owner's pin colour. A photo in place of one of those
-    // pins breaks the comparison and leaves the legend keying nothing.
+    // checking in to -- and still answers it with a place pin, connector and
+    // legend. The generic blue self pin is replaced by the same avatar used on
+    // Your Map, so the map and its key identify the owner consistently.
     experienceHarness.nearbyAvailable = true;
     stubPhoneGeometry();
     serviceHarness.captureCurrentPosition.mockResolvedValue({
@@ -2693,19 +2697,25 @@ describe("LocationImmersiveMap reported map defects", () => {
     });
 
     await renderReadyMap({ surface: "check-in" });
+    fireEvent.click(screen.getByTestId("publish-nearby-search-area"));
     await reportCamera();
 
+    expect(screen.getByTestId("one-location-map-self-avatar")).toHaveAccessibleName(
+      "Your location",
+    );
     expect(
-      screen.queryByTestId("one-location-map-self-avatar"),
-    ).not.toBeInTheDocument();
-    const lastAddMarkers = mapHarness.map.addMarkers.mock.calls.at(-1)?.[0] as
-      | Array<{ coordinate: { lat: number; lng: number } }>
-      | undefined;
+      screen.getByTestId("one-location-map-self-avatar-legend"),
+    ).toBeInTheDocument();
     expect(
-      lastAddMarkers?.some(
-        (marker) => Math.abs(marker.coordinate.lat - 25.46) < 0.0001,
-      ),
-    ).toBe(true);
+      screen
+        .getByTestId("one-location-map-self-avatar-legend")
+        .querySelector("img"),
+    ).toHaveAttribute("src", "https://avatars.test/ankit.jpg");
+    await waitFor(() => {
+      expect(mapHarness.map.removeMarkers).toHaveBeenCalledWith([
+        expect.stringMatching(/^m-/),
+      ]);
+    });
   });
 
   it("keeps the renderer's own pin when the renderer never reports a camera", async () => {

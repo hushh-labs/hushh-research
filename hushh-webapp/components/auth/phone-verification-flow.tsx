@@ -18,6 +18,7 @@ import {
   type CountryCode,
 } from "libphonenumber-js/core";
 import mobilePhoneMetadata from "libphonenumber-js/mobile/metadata";
+import { resolveContactPhoneRegion } from "@/lib/contacts/phone-normalization";
 import { Loader2, ShieldCheck } from "lucide-react";
 import { usePathname } from "next/navigation";
 
@@ -79,6 +80,9 @@ function isPhoneTakenByAnotherAccount(error: unknown): boolean {
 // Country metadata owns national-number length and validity.
 const E164_PHONE_PATTERN = /^\+[1-9]\d{1,14}$/;
 const E164_MAX_DIGITS = 15;
+// SSR-safe fallback only. The real starting country is detected from the
+// person's own locale in an effect below -- `navigator` does not exist on the
+// server, so this is what the first paint renders before detection runs.
 const DEFAULT_COUNTRY_VALUE = "US";
 const FLOW_CONTROL_SHELL_CLASS_NAME =
   "h-[54px] overflow-hidden rounded-[15px] border-black/10 bg-[#f5f5f7]/92 shadow-xs transition-[border-color,box-shadow] focus-within:border-[color:var(--app-accent)] focus-within:ring-4 focus-within:ring-[color:var(--app-accent-ring)] dark:border-white/10 dark:bg-white/[0.08]";
@@ -414,6 +418,30 @@ export function PhoneVerificationFlow({
     setVerificationCode("");
     setStep(mode === "link" && currentPhoneNumber ? "linked" : "phone");
   }, [currentPhoneNumber, mode]);
+
+  // Start on the person's own country, not on ours.
+  //
+  // This defaulted to "US" for everyone. Someone in India typing their real
+  // mobile got it sent as +91... -> +1..., which is a different number: the
+  // code goes nowhere, and a test-number allowlist keyed on E.164 never
+  // matches. The picker was right there and looked deliberate, so the failure
+  // read as "verification is broken" rather than "wrong country".
+  //
+  // Detection runs in an effect, never during render: `navigator` does not
+  // exist on the server, and seeding state from it would change the first
+  // client paint and break hydration. It also only ever runs once, and only
+  // while the field is untouched -- an explicit choice always wins.
+  const countrySeededRef = useRef(false);
+  useEffect(() => {
+    if (countrySeededRef.current) return;
+    if (currentPhoneNumber) return;
+    if (localPhoneNumber) return;
+    countrySeededRef.current = true;
+    const region = resolveContactPhoneRegion({});
+    if (!region || region === DEFAULT_COUNTRY_VALUE) return;
+    if (!PHONE_COUNTRY_OPTIONS.some((option) => option.value === region)) return;
+    setSelectedCountry(region);
+  }, [currentPhoneNumber, localPhoneNumber]);
 
   useEffect(() => {
     onStepChange?.(step);

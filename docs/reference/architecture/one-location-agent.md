@@ -2,7 +2,7 @@
 
 Status: v1 implementation contract
 Owner: One + IAM/consent governance
-Last updated: 2026-07-31
+Last updated: 2026-09-08
 
 ## Visual Map
 
@@ -49,6 +49,20 @@ report. Finish stays available during the optional scan; if the user opens the
 Location hub before it settles, the page still presents the completed report.
 Opening a contact source always requires the user's contact-check action.
 
+## Onboarding Resume
+
+Location onboarding checkpoints the current screen in tab-scoped session storage,
+separately for each account and for setup versus the workspace. Returning from an
+invite share or another tab still performs the normal session validation; when
+auth guards remount the route, onboarding resumes at the checkpoint instead of
+restarting at Welcome. Admission refreshes do not reset an active journey.
+
+The checkpoint contains only a screen name. Contacts, invite codes, coordinates,
+saved-place drafts and vault material are not stored there. A remounted place
+editor returns to Features to capture a fresh memory-only draft. Restoring Ready
+does not automatically resync contacts or request location permission. Successful
+completion or skip clears the checkpoint; failed settlement retains it for retry.
+
 ## Plaintext Boundary
 
 Plain coordinates are allowed only on:
@@ -81,6 +95,18 @@ metadata only when created through the explicit public location flow. That
 snapshot is returned by token resolve while the invite is active. It is not a
 live grant, ciphertext envelope, movement trail, raw owner identity, address, or
 reverse-geocoded enrichment.
+
+Share URLs include the owner's safe first name before the bearer token, for
+example `/one/location/view/neelesh.<token>`. The name is decorative; token
+validation and the resolved invite remain authoritative. Existing bare-token
+URLs continue to work, and accounts without a usable display name retain them.
+
+The public viewer refreshes while visible, removes the map when the server
+reports revocation or expiry, and retries transient failures. A device clock
+cannot expire a link that the server still accepts. Navigating to another link
+clears the previous location and ignores its outstanding responses. Hosted
+builds prerender an inert route probe to establish dynamic rendering; native
+builds retain their static fixture without requiring a server connection.
 
 ## Ciphertext Envelope
 

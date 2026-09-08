@@ -11,7 +11,8 @@ import {
 } from "@/lib/one-location/map-name-labels";
 
 /**
- * The current user's own position on Your Map, drawn as their avatar.
+ * The current user's own position on Your Map and Check-in, drawn as their
+ * avatar.
  *
  * ## Why this is HTML and not a renderer marker
  *
@@ -51,6 +52,9 @@ export const SELF_AVATAR_PHOTO_SIZE_PX = 36;
 /** Diameter of the whole marker including the keyline and ring. */
 export const SELF_AVATAR_MARKER_SIZE_PX = 44;
 
+/** The compact avatar key used by the nearby Check-in map legend. */
+export const SELF_AVATAR_LEGEND_SIZE_PX = 18;
+
 export interface MapSelfAvatarMarkerProps {
   point: { latitude: number; longitude: number };
   camera: MapNameLabelCamera | null;
@@ -79,6 +83,64 @@ function initialsOf(name: string | null): string {
     .join("")
     .slice(0, 2)
     .toUpperCase();
+}
+
+export interface MapSelfAvatarLegendProps {
+  /** The app's existing avatar URL for this user. */
+  avatarUrl: string | null;
+  /** Used for the initials fallback. */
+  displayName: string | null;
+  /** Position is older than the server's freshness window. */
+  stale?: boolean;
+}
+
+/**
+ * The legend key for the owner's map marker.
+ *
+ * Keep this visually related to `MapSelfAvatarMarker` without rendering the
+ * marker-sized button: the legend is explanatory content, not another map
+ * control. Using the same avatar source means the key cannot drift back to a
+ * blue key after the map marker becomes a face.
+ */
+export function MapSelfAvatarLegend({
+  avatarUrl,
+  displayName,
+  stale,
+}: MapSelfAvatarLegendProps) {
+  const initials = initialsOf(displayName);
+
+  return (
+    <span
+      aria-hidden="true"
+      data-testid="one-location-map-self-avatar-legend"
+      className="relative inline-flex shrink-0 items-center justify-center rounded-full"
+      style={{
+        width: SELF_AVATAR_LEGEND_SIZE_PX,
+        height: SELF_AVATAR_LEGEND_SIZE_PX,
+      }}
+    >
+      <span
+        className={`absolute inset-0 rounded-full ${
+          stale
+            ? "bg-[color:var(--muted-foreground)]/35"
+            : "bg-[color:var(--app-accent)]/30"
+        }`}
+      />
+      <span className="absolute inset-[1px] rounded-full bg-white dark:bg-background" />
+      <Avatar
+        className="relative"
+        style={{
+          width: SELF_AVATAR_LEGEND_SIZE_PX - 2,
+          height: SELF_AVATAR_LEGEND_SIZE_PX - 2,
+        }}
+      >
+        {avatarUrl ? <AvatarImage src={avatarUrl} alt="" /> : null}
+        <AvatarFallback className="bg-[color:var(--app-accent)] text-[7px] font-semibold leading-none text-[color:var(--app-accent-fg)]">
+          {initials || <UserRound className="h-2.5 w-2.5" aria-hidden />}
+        </AvatarFallback>
+      </Avatar>
+    </span>
+  );
 }
 
 function MapSelfAvatarMarkerImpl({

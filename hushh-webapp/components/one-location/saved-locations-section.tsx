@@ -48,20 +48,26 @@ import { cn } from "@/lib/utils";
 import { useVault } from "@/lib/vault/vault-context";
 
 function CategoryIcon({ category }: { category: SavedLocationCategory }) {
-  const Icon =
-    category === "home" ? Home : category === "work" ? Briefcase : MapPin;
+  const config: {
+    Icon: typeof Home;
+    bg: string;
+    fg: string;
+  } = category === "home"
+    ? { Icon: Home, bg: "bg-[color:var(--app-accent)]", fg: "text-white" }
+    : category === "work"
+      ? { Icon: Briefcase, bg: "bg-[color:var(--app-warning)]", fg: "text-white" }
+      : { Icon: MapPin, bg: "bg-[color:var(--app-icon-tile-background)]", fg: "text-white" };
   return (
     <span
-      // Was `bg-[...-foreground]` with `text-white` -- the tile's own
-      // foreground token IS white, so that painted a white icon on a white
-      // tile. Every other icon tile in the app pairs -background (the tile)
-      // with -foreground (the glyph); see components/app-ui/page-sections.tsx.
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)]"
+      className={cn(
+        "flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px]",
+        config.bg,
+        config.fg,
+      )}
       data-testid={`saved-location-icon-${category}`}
-      data-icon-tone="neutral-graphite"
       aria-hidden="true"
     >
-      <Icon className="h-4 w-4" strokeWidth={1.8} />
+      <config.Icon className="h-4 w-4" strokeWidth={1.8} aria-hidden="true" />
     </span>
   );
 }

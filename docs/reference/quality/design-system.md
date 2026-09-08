@@ -230,6 +230,11 @@ surface, readable active/inactive labels, and the same focus and motion
 grammar. Location is the visual reference for every tab set; route-specific
 underlines, borders, and alternate active pills are prohibited.
 
+Selected labels use `--app-accent` in both light and dark mode, including
+Location, Connect, and Consent Center. Label typography must preserve that
+selected colour rather than override it with the neutral text token. Dense
+four-tab strips keep every label readable at the supported phone widths.
+
 `SwipeViews` (`@/lib/morphy-ux/ui/swipe-views`) is that paired pager and the
 one canonical primitive for any route or panel with more than one
 locally-selectable content view, whether the selection is query-backed

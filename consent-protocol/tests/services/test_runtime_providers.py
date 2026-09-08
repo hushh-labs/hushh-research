@@ -282,6 +282,29 @@ def test_factory_gemini_uses_byok_and_managed_adc_clients(monkeypatch):
     ]
 
 
+def test_factory_managed_adc_separates_vertex_project_from_native_project(monkeypatch):
+    calls: list[dict] = []
+
+    monkeypatch.setenv("HUSHH_GENAI_AUTH_MODE", "vertex_adc")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "hushh-pda-uat")
+    monkeypatch.setenv("GENAI_GOOGLE_CLOUD_PROJECT", "hushh-vertex-personal54")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    monkeypatch.setattr(
+        "google.genai.Client",
+        lambda **kwargs: calls.append(kwargs) or types.SimpleNamespace(kind="genai"),
+    )
+
+    build_managed_runtime_client("gemini")
+
+    assert calls == [
+        {
+            "vertexai": True,
+            "project": "hushh-vertex-personal54",
+            "location": "global",
+        }
+    ]
+
+
 def test_factory_builds_google_cloud_vertex_api_key_transport(monkeypatch):
     calls: list[dict] = []
 

@@ -10,6 +10,7 @@ This module never reads application rows and never logs SQL or credentials.
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import os
@@ -27,6 +28,66 @@ _ALLOWED_BASELINE_ENVIRONMENTS = {"uat", "test", "local", "development", "dev"}
 # Anything slower than this is named in the deploy log. Lock contention shows
 # up here first, as a migration that used to be instant and now is not.
 _SLOW_MIGRATION_MS = 1_000
+
+# Lock contention is not a broken migration -- it is a busy database. Postgres
+# queues lock requests, so a pending ACCESS EXCLUSIVE request blocks every
+# later reader of that table too: raising ``lock_timeout`` would make a deploy
+# hold the environment down for longer, not succeed more often. The safe shape
+# is the opposite -- keep the timeout short, let go, and try again once the
+# queue has drained.
+#
+# 55P03 lock_not_available   -- our own ``lock_timeout`` fired
+# 40P01 deadlock_detected    -- two transactions crossed
+# 40001 serialization_failure-- lost a concurrency race, retryable by definition
+_LOCK_CONTENTION_SQLSTATES = frozenset({"55P03", "40P01", "40001"})
+_LOCK_RETRY_ATTEMPTS = 4
+_LOCK_RETRY_BASE_DELAY_S = 1.0
+# Bound what the RUN may spend retrying, not only what one migration may.
+# The UAT lane is 174 entries; at 4 attempts each that is
+# 174 x (4 x 5s lock wait + 7s backoff) = ~78 minutes, and deploy-uat.yml sets
+# no `timeout-minutes` (GitHub default 360). Unbounded, retry would turn a
+# 3-minute red deploy into a 78-minute hung one holding the advisory lock with
+# the account-deletion release fence installed -- worse than the bug it fixes.
+# Past the budget the next contention failure is reported instead of retried.
+_LOCK_RETRY_RUN_BUDGET_S = 300.0
+
+
+def _is_lock_contention(exc: BaseException) -> bool:
+    """True only for "the database was busy", never for a broken migration.
+
+    A constraint violation, a syntax error or a missing relation must fail on
+    the first attempt: retrying those just burns the deploy window and reports
+    the same error later. Only a contention SQLSTATE is worth a second try.
+    """
+    sqlstate = getattr(exc, "sqlstate", None)
+    return isinstance(sqlstate, str) and sqlstate in _LOCK_CONTENTION_SQLSTATES
+
+
+async def _reset_connection(conn: Any, failure: BaseException) -> bool:
+    """Clear the aborted transaction. Returns False when the connection is gone.
+
+    R28 again, on the new path: this cleanup runs on a connection that has just
+    failed, so it can fail too -- and its failure must never become the reported
+    error. The lock timeout stays the diagnosis; a reset failure becomes a note
+    on it and ends the retrying, because there is nothing left to retry with.
+    """
+    try:
+        await _rollback_failed_transaction(conn)
+        return True
+    except Exception as reset_error:  # noqa: BLE001 - diagnostic only
+        failure.add_note(f"connection reset failed [{_failure_signature(reset_error)}]")
+        print(
+            f"  connection reset failed [{_failure_signature(reset_error)}]",
+            file=sys.stderr,
+            flush=True,
+        )
+        return False
+
+
+def _lock_retry_delay_seconds(attempt: int) -> float:
+    """Exponential backoff: 1s, 2s, 4s. Bounded, and short enough to stay
+    inside a deploy window even if several migrations each need a retry."""
+    return _LOCK_RETRY_BASE_DELAY_S * (2 ** (attempt - 1))
 
 
 class MigrationAuthorityError(RuntimeError):
@@ -274,6 +335,7 @@ async def apply_manifest_entries(
 
     await _try_lock(conn)
     applied: list[str] = []
+    retry_spent_s = 0.0
     try:
         rows: dict[str, dict[str, Any]] = {}
         baseline_through: int | None = None
@@ -302,61 +364,101 @@ async def apply_manifest_entries(
                 if covered_by_baseline or (existing and existing.get("status") == "applied"):
                     continue
 
-            started = time.perf_counter()
-            recorded_applied = False
-            try:
-                if mode is MigrationMode.LEDGER and entry.transactional:
-                    async with conn.transaction():
-                        await conn.execute(f"SET LOCAL lock_timeout = '{entry.lock_timeout_ms}ms'")
+            for attempt in range(1, _LOCK_RETRY_ATTEMPTS + 1):
+                started = time.perf_counter()
+                recorded_applied = False
+                try:
+                    if mode is MigrationMode.LEDGER and entry.transactional:
+                        async with conn.transaction():
+                            await conn.execute(
+                                f"SET LOCAL lock_timeout = '{entry.lock_timeout_ms}ms'"
+                            )
+                            await conn.execute(
+                                f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
+                            )
+                            await conn.execute(entry.sql)
+                            duration_ms = round((time.perf_counter() - started) * 1000)
+                            await _record_result(
+                                conn,
+                                entry=entry,
+                                status="applied",
+                                duration_ms=duration_ms,
+                                deploy_sha=deploy_sha,
+                                failure_class=None,
+                            )
+                            recorded_applied = True
+                    else:
+                        await conn.execute(f"SET lock_timeout = '{entry.lock_timeout_ms}ms'")
                         await conn.execute(
-                            f"SET LOCAL statement_timeout = '{entry.statement_timeout_ms}ms'"
+                            f"SET statement_timeout = '{entry.statement_timeout_ms}ms'"
                         )
                         await conn.execute(entry.sql)
-                        duration_ms = round((time.perf_counter() - started) * 1000)
+                except Exception as exc:
+                    duration_ms = round((time.perf_counter() - started) * 1000)
+                    # A busy database is not a broken migration. Roll back first
+                    # so the connection is usable again, then wait for the lock
+                    # queue to drain and try the same body once more. Only a
+                    # contention SQLSTATE gets this; a constraint violation or a
+                    # syntax error still fails on the first attempt.
+                    delay = _lock_retry_delay_seconds(attempt)
+                    if (
+                        _is_lock_contention(exc)
+                        and attempt < _LOCK_RETRY_ATTEMPTS
+                        and retry_spent_s + delay <= _LOCK_RETRY_RUN_BUDGET_S
+                        # The next attempt runs on the connection this one left
+                        # behind, so clearing it is part of the decision: if the
+                        # reset fails there is nothing to retry with, and the
+                        # lock error -- not the reset -- stays the diagnosis.
+                        and await _reset_connection(conn, exc)
+                    ):
+                        retry_spent_s += delay
+                        print(
+                            f"  lock contention on {entry.filename} after {duration_ms}ms "
+                            f"[{_failure_signature(exc)}]; retry {attempt}/"
+                            f"{_LOCK_RETRY_ATTEMPTS - 1} in {delay:.0f}s",
+                            file=sys.stderr,
+                            flush=True,
+                        )
+                        await asyncio.sleep(delay)
+                        continue
+                    # Say which migration failed, and say it before anything else can
+                    # go wrong. Nothing in this function named the entry, so six UAT
+                    # deploys failed against a 173-file replay with no way to tell
+                    # which file stopped it.
+                    print(
+                        f"MIGRATION FAILED: {entry.filename} after {duration_ms}ms "
+                        f"[{_failure_signature(exc)}]"
+                        + (
+                            f" (gave up after {attempt} lock attempts)"
+                            if _is_lock_contention(exc)
+                            else ""
+                        ),
+                        file=sys.stderr,
+                        flush=True,
+                    )
+                    # Return the connection to a usable state in EVERY mode. This
+                    # used to be inside the `if` below, so a REPLAY failure left the
+                    # transaction aborted and the `finally: await _unlock(conn)` at
+                    # the end of this function then raised InFailedSQLTransactionError
+                    # -- which replaced the real error in the traceback. The UAT
+                    # workflow reported "current transaction is aborted" when the
+                    # actual failure was "canceling statement due to lock timeout".
+                    # Guarded for the same reason the unlock below is: this reset
+                    # runs on a just-failed connection and can fail itself, and
+                    # its exception must not replace the migration's (R28).
+                    await _reset_connection(conn, exc)
+                    if mode is not MigrationMode.REPLAY:
                         await _record_result(
                             conn,
                             entry=entry,
-                            status="applied",
+                            status="failed",
                             duration_ms=duration_ms,
                             deploy_sha=deploy_sha,
-                            failure_class=None,
+                            failure_class=_sanitize_failure_class(exc),
                         )
-                        recorded_applied = True
-                else:
-                    await conn.execute(f"SET lock_timeout = '{entry.lock_timeout_ms}ms'")
-                    await conn.execute(f"SET statement_timeout = '{entry.statement_timeout_ms}ms'")
-                    await conn.execute(entry.sql)
-            except Exception as exc:
-                duration_ms = round((time.perf_counter() - started) * 1000)
-                # Say which migration failed, and say it before anything else can
-                # go wrong. Nothing in this function named the entry, so six UAT
-                # deploys failed against a 173-file replay with no way to tell
-                # which file stopped it.
-                print(
-                    f"MIGRATION FAILED: {entry.filename} after {duration_ms}ms "
-                    f"[{_failure_signature(exc)}]",
-                    file=sys.stderr,
-                    flush=True,
-                )
-                # Return the connection to a usable state in EVERY mode. This
-                # used to be inside the `if` below, so a REPLAY failure left the
-                # transaction aborted and the `finally: await _unlock(conn)` at
-                # the end of this function then raised InFailedSQLTransactionError
-                # -- which replaced the real error in the traceback. The UAT
-                # workflow reported "current transaction is aborted" when the
-                # actual failure was "canceling statement due to lock timeout".
-                await _rollback_failed_transaction(conn)
-                if mode is not MigrationMode.REPLAY:
-                    await _record_result(
-                        conn,
-                        entry=entry,
-                        status="failed",
-                        duration_ms=duration_ms,
-                        deploy_sha=deploy_sha,
-                        failure_class=_sanitize_failure_class(exc),
-                    )
-                exc.add_note(f"while applying migration {entry.filename} ({duration_ms}ms)")
-                raise
+                    exc.add_note(f"while applying migration {entry.filename} ({duration_ms}ms)")
+                    raise
+                break
             duration_ms = round((time.perf_counter() - started) * 1000)
             if duration_ms >= _SLOW_MIGRATION_MS:
                 print(

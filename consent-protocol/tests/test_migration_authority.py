@@ -358,3 +358,158 @@ async def test_failure_log_never_quotes_the_database_message(tmp_path: Path, cap
     assert "MIGRATION FAILED: 20260721_ABC_new.sql" in stderr
     assert "synthetic migration failure" not in stderr
     assert "RuntimeError" in stderr
+
+
+class _LockTimeout(Exception):
+    """Stands in for asyncpg.exceptions.LockNotAvailableError.
+
+    The retry decision reads ``sqlstate`` and nothing else, so a synthetic
+    exception carrying 55P03 exercises the real branch.
+    """
+
+    sqlstate = "55P03"
+
+
+class _CheckViolation(Exception):
+    """A genuinely broken migration -- 23514, never retryable."""
+
+    sqlstate = "23514"
+
+
+class ContendingConnection(FakeConnection):
+    """Fails the target statement with a lock timeout N times, then succeeds."""
+
+    def __init__(self, target_sql: str, fail_times: int, exc: Exception | None = None) -> None:
+        super().__init__()
+        self.target_sql = target_sql
+        self.fail_times = fail_times
+        self.attempts = 0
+        self.exc = exc or _LockTimeout("canceling statement due to lock timeout")
+
+    async def execute(self, sql: str, *args):
+        if self.target_sql in sql and "lock_timeout" not in sql:
+            self.attempts += 1
+            if self.attempts <= self.fail_times:
+                self.in_transaction = True
+                raise self.exc
+        return await super().execute(sql, *args)
+
+
+@pytest.fixture
+def no_sleep(monkeypatch):
+    """Record the backoff schedule without spending it."""
+    slept: list[float] = []
+
+    async def _fake_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr("db.migration_authority.asyncio.sleep", _fake_sleep)
+    return slept
+
+
+@pytest.mark.asyncio
+async def test_lock_contention_retries_and_then_succeeds(tmp_path: Path, no_sleep):
+    """A busy database must not fail the deploy. This is the 2026-09-07 outage:
+    runs 34142917051 and 34143403982 both died on 55P03 with no second attempt."""
+    entries = _entries(tmp_path)
+    conn = ContendingConnection("SELECT 115", fail_times=2)
+
+    applied = await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert "20260721_ABC_new.sql" in applied
+    assert conn.attempts == 3, "should have retried twice then succeeded"
+    assert no_sleep == [1.0, 2.0], "backoff must be exponential and bounded"
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_a_broken_migration_is_not_retried(tmp_path: Path, no_sleep):
+    """A constraint violation is not contention. Retrying it burns the deploy
+    window and reports the same error later, so it must fail on attempt one."""
+    entries = _entries(tmp_path)
+    conn = ContendingConnection("SELECT 115", fail_times=99, exc=_CheckViolation("violated"))
+
+    with pytest.raises(_CheckViolation):
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert conn.attempts == 1, "a real SQL error must not be retried"
+    assert no_sleep == [], "no backoff should be spent on a broken migration"
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_retries_are_bounded_and_the_failure_says_so(tmp_path: Path, no_sleep, capsys):
+    """Sustained contention must still end, and the log must say it gave up on
+    locks rather than looking like a broken migration."""
+    entries = _entries(tmp_path)
+    conn = ContendingConnection("SELECT 115", fail_times=99)
+
+    with pytest.raises(_LockTimeout):
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert conn.attempts == 4, "bounded at _LOCK_RETRY_ATTEMPTS"
+    assert no_sleep == [1.0, 2.0, 4.0]
+    err = capsys.readouterr().err
+    assert "20260721_ABC_new.sql" in err, "must still name the failing migration (R28)"
+    assert "gave up after 4 lock attempts" in err
+    assert "sqlstate=55P03" in err
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_connection_is_rolled_back_between_lock_attempts(tmp_path: Path, no_sleep):
+    """R28: a retry on an aborted connection would raise
+    InFailedSQLTransactionError and mask the real error. Each attempt must start
+    from a usable connection."""
+    entries = _entries(tmp_path)
+    conn = ContendingConnection("SELECT 115", fail_times=1)
+
+    await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert conn.executed_sql.count("ROLLBACK") >= 1, "must roll back before retrying"
+    assert conn.in_transaction is False
+
+
+class ResetFailsConnection(ContendingConnection):
+    """The lock times out, and the cleanup that follows fails too."""
+
+    async def execute(self, sql: str, *args):
+        if sql == "ROLLBACK":
+            raise RuntimeError("connection is gone")
+        return await super().execute(sql, *args)
+
+
+@pytest.mark.asyncio
+async def test_a_failed_reset_never_replaces_the_lock_error(tmp_path: Path, no_sleep):
+    """R28 on the retry path. The cleanup runs on a just-failed connection, so
+    it can fail too -- and if it did, its RuntimeError would be reported as the
+    cause and the real 55P03 would vanish, exactly as six UAT deploys reported
+    'current transaction is aborted' instead of the lock timeout."""
+    entries = _entries(tmp_path)
+    conn = ResetFailsConnection("SELECT 115", fail_times=99)
+
+    with pytest.raises(_LockTimeout) as caught:
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert conn.attempts == 1, "a dead connection has nothing to retry with"
+    assert any("connection reset failed" in n for n in getattr(caught.value, "__notes__", []))
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
+async def test_run_wide_retry_budget_stops_a_long_contended_run(
+    tmp_path: Path, no_sleep, monkeypatch
+):
+    """Per-migration bounds alone let a 174-entry lane spend ~78 minutes
+    retrying while holding the advisory lock and the release fence -- worse
+    availability than the bug. The run budget ends it."""
+    monkeypatch.setattr("db.migration_authority._LOCK_RETRY_RUN_BUDGET_S", 1.0)
+    entries = _entries(tmp_path)
+    conn = ContendingConnection("SELECT 115", fail_times=99)
+
+    with pytest.raises(_LockTimeout):
+        await apply_manifest_entries(conn, entries, mode=MigrationMode.REPLAY)
+
+    assert no_sleep == [1.0], "budget of 1.0s affords exactly the first 1s backoff"
+    assert conn.attempts == 2, "then it reports instead of retrying"
+    assert conn.locked is False

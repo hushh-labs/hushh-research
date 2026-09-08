@@ -93,7 +93,7 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // cross-language sync for this; both sides must be changed together, in
     // the same commit, and this pins the current value so a drift is caught
     // here instead of in a UAT deploy.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(24);
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(58);
   });
 
   it("never lets a crowded screen trade away a global-nav slot", () => {
@@ -1340,11 +1340,26 @@ describe("a surface that declares more controls than the context can carry", () 
     expect(
       localOnlyIds(snapshot.available_action_ids).length,
     ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
-    // And the openers are what yields, since navigation is admitted from any
-    // screen whether or not this surface submitted it.
-    expect(snapshot.available_action_ids).not.toContain(
-      "location.open_join_circle",
+    // And the openers yield FIRST when the cap bites, since navigation is
+    // admitted from any screen whether or not this surface submitted it.
+    // Asserted as an ordering rather than an exclusion: Location's 32 local
+    // handlers now fit inside ACTION_ID_SCREEN_SEGMENT_CAP, so nothing is
+    // actually dropped here any more. The priority rule is what matters and
+    // it still has to hold -- every local handler ranks ahead of every
+    // opener, so raising the cap can never reorder them back.
+    const ids = snapshot.available_action_ids;
+    const lastLocal = Math.max(
+      ids.indexOf("location.share_selected"),
+      ids.indexOf("location.select_share_recipient"),
+      ids.indexOf("location.pause_updates"),
     );
+    const firstOpener = Math.min(
+      ...["location.open_join_circle", "location.open_create_circle"]
+        .map((actionId) => ids.indexOf(actionId))
+        .filter((index) => index >= 0),
+    );
+    expect(lastLocal).toBeGreaterThanOrEqual(0);
+    expect(firstOpener).toBeGreaterThan(lastLocal);
   });
 
   it("fits every one of Location's real local handlers, not just three of them", () => {

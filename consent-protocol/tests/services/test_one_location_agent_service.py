@@ -8188,3 +8188,44 @@ def test_the_viewed_projection_can_be_rolled_back() -> None:
     # Rows already written stay: they are the only record an owner has of who
     # looked.
     assert "DELETE FROM feed_events" not in rollback
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("Neelesh Meena", "neelesh"),
+        ("Anne-Marie Smith", "anne-marie"),
+        ("O'Connor Jones", "oconnor"),
+        ("Élodie Martin", "élodie"),
+        ("नीलेश मीणा", "नीलेश"),
+    ],
+)
+def test_public_invite_named_url_keeps_bare_token_compatible(name: str, slug: str) -> None:
+    from urllib.parse import unquote
+
+    service = FourUserMemoryService()
+    service.identities["user_a"]["display_name"] = name
+    created = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=PUBLIC_LOCATION_SNAPSHOT
+    )
+    named_token = unquote(created["publicUrl"].rsplit("/", 1)[1])
+    assert named_token == f"{slug}.{created['publicToken']}"
+    assert created["invite"]["publicUrl"] == created["publicUrl"]
+    resolved = service.resolve_public_invite(public_token=named_token)
+    assert resolved == service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == name
+    # Changing the decorative name cannot change the resolved owner or grant access.
+    assert (
+        service.resolve_public_invite(public_token=f"someone.{created['publicToken']}") == resolved
+    )
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert reused["reused"] is True
+    assert reused["publicUrl"] == created["publicUrl"]
+    assert (
+        service._public_invite_payload(next(iter(service.public_invites.values())))["publicUrl"]
+        == created["publicUrl"]
+    )
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=created["invite"]["id"])
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.resolve_public_invite(public_token=named_token)
+    assert exc.value.status_code == 410

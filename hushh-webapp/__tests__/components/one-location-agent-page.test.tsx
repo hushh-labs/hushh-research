@@ -66,6 +66,7 @@ const {
   mockWithdrawRequest,
   mockUpdateAutoApprovePreference,
   mockCreatePublicInvite,
+  mockRevokePublicInvite,
   mockCreateCircleInvite,
   mockListCircles,
   mockGetCircle,
@@ -127,6 +128,7 @@ const {
   mockWithdrawRequest: vi.fn(),
   mockUpdateAutoApprovePreference: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockRevokePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
   mockListCircles: vi.fn(),
   mockGetCircle: vi.fn(),
@@ -415,7 +417,7 @@ vi.mock("@/lib/one-location/service", () => ({
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
     createCircleInvite: mockCreateCircleInvite,
-    revokePublicInvite: vi.fn(),
+    revokePublicInvite: mockRevokePublicInvite,
     revokeCircleInvite: vi.fn(),
     // Named-circle surface: the mandatory onboarding invite screen
     // find-or-creates the user's first owned Circle and issues its
@@ -3353,6 +3355,66 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it.each(["setup", "workspace"] as const)(
+    "resumes the invite step after auth validation and route remount in %s",
+    async (mode) => {
+      const page = render(<OneLocationAgentPage mode={mode} />);
+      await reachLocationOnboardingFinalStep();
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Share", exact: true }),
+      );
+      await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
+      const contactChecksBeforeReturn =
+        mockSyncOneLocationContactSignals.mock.calls.length;
+      const permissionRequestsBeforeReturn =
+        mockRequestLocationPermission.mock.calls.length;
+      const auth = mockUseRequireAuth.mock.results.at(-1)!.value;
+
+      // Focus after a tab switch/share triggers a loading gate before the same
+      // identity is revalidated. The gate must still hide the protected flow.
+      mockUseRequireAuth.mockReturnValue({ ...auth, loading: true });
+      page.rerender(<OneLocationAgentPage mode={mode} />);
+      await waitFor(() =>
+        expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+      );
+      mockUseRequireAuth.mockReturnValue(auth);
+      page.rerender(<OneLocationAgentPage mode={mode} />);
+      await expectLocationInviteStep();
+
+      // Ancestor auth/setup guards also unmount the whole page on app return.
+      page.unmount();
+      render(<OneLocationAgentPage mode={mode} />);
+      await expectLocationInviteStep();
+      expect(
+        screen.queryByRole("heading", {
+          name: "Share your location easily with anyone.",
+        }),
+      ).toBeNull();
+      expect(await locationFinishButton()).toBeEnabled();
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(
+        contactChecksBeforeReturn,
+      );
+      expect(mockRequestLocationPermission).toHaveBeenCalledTimes(
+        permissionRequestsBeforeReturn,
+      );
+    },
+  );
+
+  it("retains the invite checkpoint when setup completion fails", async () => {
+    const onSetupComplete = vi.fn().mockRejectedValue(new Error("Try again"));
+    const page = render(
+      <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
+    );
+    await finishLocationOnboarding();
+    await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
+    ).toBeNull();
+    page.unmount();
+    render(<OneLocationAgentPage mode="setup" />);
+    await expectLocationInviteStep();
+  });
+
   it("does not replay Location onboarding after setup completes into the workspace", async () => {
     const onSetupComplete = vi.fn();
     const setup = render(
@@ -3362,6 +3424,11 @@ describe("OneLocationAgentPage", () => {
     await finishLocationOnboarding();
 
     await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
+    expect(
+      window.sessionStorage.getItem(
+        "one_location_onboarding_progress_v1:setup:user_a",
+      ),
+    ).toBeNull();
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
@@ -7942,6 +8009,25 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Duration")).toBeNull();
     // Ending it stays reachable -- that is the only exit.
     expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
+  });
+
+  it("removes revoked link actions even when refreshing the workspace fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite({ publicUrl: "/one/location/view/neelesh.derived-token-abc" })],
+    });
+    mockRevokePublicInvite.mockResolvedValue({ invite: { status: "revoked" } });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(await screen.findByRole("button", { name: /Copy link/i })).toBeTruthy();
+    mockGetState.mockRejectedValue(new Error("State refresh unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: /Revoke link/i }));
+    await waitFor(() => expect(mockRevokePublicInvite).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Copy link$/i })).toBeNull());
+    expect(screen.queryByRole("button", { name: /^Share$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
   });
 
   it("lets a link whose URL cannot be recovered be stopped", async () => {
