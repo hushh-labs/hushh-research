@@ -998,6 +998,11 @@ def test_one_location_retention_route_purges_terminal_state_and_preserves_active
 ) -> None:
     monkeypatch.delenv("ONE_LOCATION_RETENTION_AUTH_ENABLED", raising=False)
     monkeypatch.setenv("ONE_LOCATION_RETENTION_TOKEN", "expected-token")
+    from unittest.mock import Mock
+
+    ratings = Mock()
+    ratings.purge_expired_visits.return_value = {"purged": 0}
+    monkeypatch.setattr(one_location, "_place_rating_service", lambda: ratings)
     service = FourUserMemoryService()
     client = _client(service, {"user_id": "user_a"}, monkeypatch)
     now = datetime.now(timezone.utc)

@@ -980,6 +980,15 @@ async def test_writer_revocation_requires_owner_admission_and_outcome_readback(m
     from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
 
     service = _svc()
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    adapter = UserGcpBackend(
+        live=True,
+        user_project="synthetic-project",
+        bootstrap_sa="bootstrap@synthetic-project.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", lambda snapshot: adapter)
+
     registry = service._registry
     email = "runtime@synthetic-project.iam.gserviceaccount.com"
     identity = {
@@ -1080,6 +1089,15 @@ async def test_bucket_coordinator_rechecks_writer_before_final_admission(monkeyp
     import asyncio
 
     service = _svc()
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    adapter = UserGcpBackend(
+        live=True,
+        user_project="synthetic-project",
+        bootstrap_sa="bootstrap@synthetic-project.iam.gserviceaccount.com",
+    )
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", lambda snapshot: adapter)
+
     registry = service._registry
     identity = {
         "name": "one-pod-x-blobs",

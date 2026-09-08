@@ -1988,11 +1988,25 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("erasure substrate inventory readback unconfirmed")
 
+    def _reserved_cleanup_backend(self, snapshot: dict):
+        spec = PodSpec(
+            hushh_id=snapshot["hushh_id"],
+            phone_e164_hash=str(snapshot.get("phone_e164_hash") or ""),
+            pod_pubkey=str(snapshot.get("pod_pubkey") or ""),
+            deployment_target=snapshot.get("deployment_target"),
+            model_credential_mode=snapshot.get("model_credential_mode"),
+            user_cloud_project=snapshot.get("user_cloud_project"),
+            user_cloud_region=snapshot.get("user_cloud_region"),
+            user_cloud_bootstrap_sa=snapshot.get("user_cloud_bootstrap_sa"),
+        )
+        backend = self._backend_for(spec)
+        if getattr(backend, "backend_id", None) != snapshot.get("backend"):
+            raise RuntimeError("reserved cleanup backend mismatch")
+        return backend
+
     async def _revoke_reserved_runtime_writer(self, *, user_id: str) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
         from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
-        from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
 
         if not personal_agent_substrate_teardown_enabled():
             raise RuntimeError("runtime writer revocation guarded")
@@ -2061,12 +2075,12 @@ class PersonalAgentProvisioningService:
                 append("writerAdmission", {**raw, "status": "admitted"}), loop
             ).result(timeout=30)
 
-        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_ref)
-        result = await asyncio.to_thread(
-            revoke_runtime_writer,
-            token=token,
-            project=project,
-            bootstrap_ref=bootstrap_ref,
+        revoke_writer = getattr(
+            self._reserved_cleanup_backend(snapshot), "revoke_runtime_writer", None
+        )
+        if revoke_writer is None:
+            raise RuntimeError("runtime writer revocation unsupported")
+        result = await revoke_writer(
             identity=identity,
             before_disable=before_disable,
             admitted=bool(reservation.get("writerAdmission")),
@@ -2076,8 +2090,7 @@ class PersonalAgentProvisioningService:
 
     async def _erase_reserved_bucket(self, *, user_id: str) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
-        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter, plan_teardown
-        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+        from hushh_mcp.services.byoc_substrate_teardown import plan_teardown
 
         if not personal_agent_substrate_teardown_enabled():
             raise RuntimeError("bucket erasure guarded")
@@ -2175,15 +2188,10 @@ class PersonalAgentProvisioningService:
         preflight = getattr(self._registry, "verify_erasure_bucket_preflight", None)
         if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
             raise RuntimeError("bucket erasure database contract unavailable")
-        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_ref)
-        deleter = build_gcp_deleter(
-            token=token,
-            project=project,
-            region="",
-            bucket_erasure_state=states,
-            retain_bucket_receipt=checkpoint,
-        )
-        await deleter(action)
+        erase_bucket = getattr(self._reserved_cleanup_backend(snapshot), "erase_bucket", None)
+        if erase_bucket is None:
+            raise RuntimeError("bucket erasure unsupported")
+        await erase_bucket(action=action, state=states, retain_receipt=checkpoint)
 
     async def deprovision(
         self,

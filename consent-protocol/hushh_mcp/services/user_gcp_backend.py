@@ -35,7 +35,7 @@ import base64
 import hashlib
 import logging
 import re
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 from hushh_mcp.services.byoc_key_custody import byoc_key_env
 from hushh_mcp.services.compute_backend import (
@@ -1023,6 +1023,60 @@ class UserGcpBackend:
             name=_service_name(spec.hushh_id),
             expected_uid=spec.expected_service_uid,
         )
+
+    async def revoke_runtime_writer(
+        self,
+        *,
+        identity: dict[str, str],
+        before_disable: Callable[[dict[str, Any]], bool],
+        admitted: bool = False,
+    ) -> dict[str, Any]:
+        """Provider-specific credential revocation below the owner coordinator."""
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import revoke_runtime_writer
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("runtime writer authority unavailable")
+        bootstrap = self._bootstrap_sa.removeprefix("serviceAccount:")
+        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap)
+        return await asyncio.to_thread(
+            revoke_runtime_writer,
+            token=token,
+            project=self._user_project,
+            bootstrap_ref=bootstrap,
+            identity=identity,
+            before_disable=before_disable,
+            admitted=admitted,
+        )
+
+    async def erase_bucket(
+        self,
+        *,
+        action: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        """Reconcile one captured bucket using the owner's bootstrap authority."""
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("bucket erasure authority unavailable")
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        deleter = build_gcp_deleter(
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            bucket_erasure_state=state,
+            retain_bucket_receipt=retain_receipt,
+        )
+        await deleter(action)
 
     async def erase_compute(
         self, spec: PodSpec, *, operation_name=None, before_submit=None, on_acknowledged=None
