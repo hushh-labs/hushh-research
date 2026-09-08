@@ -419,7 +419,14 @@ function readUiReport(serial) {
     "files/native-ui-interaction-report.json",
   ]);
   if (!raw.trim()) return null;
-  return JSON.parse(raw);
+  try {
+    const report = JSON.parse(raw);
+    return report && typeof report === "object" && !Array.isArray(report) ? report : null;
+  } catch {
+    // A partial report must not swallow a terminal failure from the independent
+    // status channel. Success still requires a complete validated report.
+    return null;
+  }
 }
 
 function waitForUiInteractionReport(serial) {
