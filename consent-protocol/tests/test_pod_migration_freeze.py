@@ -84,7 +84,8 @@ async def test_a_provisioned_row_can_be_frozen():
 
 
 @pytest.mark.parametrize(
-    "status", ["provisioning", "connecting", "provisioning_failed", "needs_reinit", "migrating"]
+    "status",
+    ["provisioning", "connecting", "provisioning_failed", "needs_reinit", "migrating", "suspended"],
 )
 async def test_only_a_provisioned_row_can_be_frozen(status: str):
     """A pod still standing up, already failed, or already migrating must not be
@@ -175,9 +176,12 @@ def test_the_retry_sweep_never_re_provisions_a_migrating_pod():
 
 def test_the_two_tuples_differ_only_where_they_have_to():
     """They answer different questions, but a gratuitous divergence would be a
-    bug waiting to happen. The one status they disagree about is the one whose
-    two answers genuinely conflict."""
-    assert set(_ACTIVE_POD_STATUSES) - set(_LIVENESS_CANDIDATE_STATUSES) == {"migrating"}
+    bug waiting to happen. Migration and erasure retain compute while deliberately
+    refusing ordinary liveness work."""
+    assert set(_ACTIVE_POD_STATUSES) - set(_LIVENESS_CANDIDATE_STATUSES) == {
+        "migrating",
+        "suspended",
+    }
     assert not set(_LIVENESS_CANDIDATE_STATUSES) - set(_ACTIVE_POD_STATUSES)
 
 
