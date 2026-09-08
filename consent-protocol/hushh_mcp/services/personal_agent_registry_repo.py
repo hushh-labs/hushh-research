@@ -501,6 +501,19 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def reserve_erasure_grant_release(self, *, user_id: str, reservation: dict) -> bool:
+        """Fence shared project admission; this alone never authorizes a policy write."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.reserve_erasure_grant_release(:owner, :attempt, CAST(:expected AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

@@ -462,6 +462,8 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/924_personal_agent_kms_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/925_personal_agent_secret_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/926_personal_agent_runtime_account_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/927_personal_agent_project_grant_fence.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -944,6 +946,125 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert not retain_account("admission", account_receipt)
     assert retain_account("acknowledgement", {**account_receipt, "status": "acknowledged"})
     assert retain_account("deletion", {**account_receipt, "status": "absent"})
+
+    def reserve_grants():
+        return pg.execute(
+            "SELECT reserve_erasure_grant_release('synthetic-owner','attempt-one',%s::jsonb)",
+            (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),),
+        )[0][0]
+
+    pg.execute(
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-one','synthetic-project')"
+    )
+    assert not reserve_grants()
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata, "
+            "'{erasure,grantRelease}',%s::jsonb) WHERE user_id='synthetic-owner'",
+            (
+                json.dumps(
+                    {
+                        "ownerId": "synthetic-owner",
+                        "attemptId": "attempt-one",
+                        "project": "synthetic-project",
+                        "status": "reserved",
+                    }
+                ),
+            ),
+        )
+    pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='other-owner'")
+    pg.execute(
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES ('synthetic-owner','failed-setup','synthetic-project','failed')"
+    )
+    assert not reserve_grants()  # A failed setup may retain an uncertain provider call.
+    pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='synthetic-owner'")
+    # Hold setup admission uncommitted. Release must wait for its project fence,
+    # then see the newly committed dependency instead of revoking underneath it.
+    with connect(pg) as setup_conn:
+        with setup_conn.cursor() as cursor:
+            cursor.execute(
+                "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','racing-setup','synthetic-project')"
+            )
+        started = Event()
+
+        def racing_release():
+            started.set()
+            return reserve_grants()
+
+        with ThreadPoolExecutor(max_workers=1) as pool:
+            pending = pool.submit(racing_release)
+            assert started.wait(2)
+            try:
+                pending.result(timeout=0.2)
+                pytest.fail("release bypassed setup project lock")
+            except TimeoutError:
+                pass
+            setup_conn.commit()
+            assert pending.result(timeout=5) is False
+    pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='other-owner'")
+    # A legacy upsert must not hold the project lock while waiting on the
+    # release owner's row. Exercise the ordering with both transactions live.
+    expected_release = provision_row(pg)["backend_metadata"]["erasure"]
+    with connect(pg) as release_conn, ThreadPoolExecutor(max_workers=1) as pool:
+        with release_conn.cursor() as cursor:
+            cursor.execute("SET LOCAL statement_timeout='5s'")
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended('synthetic-owner',171))")
+            cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended('synthetic-owner',198))")
+            cursor.execute(
+                "SELECT 1 FROM personal_agent_registry WHERE user_id='synthetic-owner' FOR UPDATE"
+            )
+
+            def legacy_upsert():
+                with connect(pg, application_name="synthetic-grant-upsert") as conn:
+                    with conn.cursor() as writer:
+                        writer.execute("SET LOCAL statement_timeout='5s'")
+                        writer.execute(
+                            "INSERT INTO personal_agent_registry(user_id,hushh_id,status,user_cloud_project) "
+                            "VALUES ('synthetic-owner','ha1_erasure','provisioning','synthetic-project') "
+                            "ON CONFLICT(user_id) DO UPDATE SET status=EXCLUDED.status"
+                        )
+
+            upsert = pool.submit(legacy_upsert)
+            deadline = time.monotonic() + 3
+            while time.monotonic() < deadline:
+                if pg.execute(
+                    "SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic-grant-upsert' AND wait_event_type='Lock'"
+                )[0][0]:
+                    break
+                time.sleep(0.02)
+            else:
+                pytest.fail("legacy upsert did not reach the release lock")
+            cursor.execute(
+                "SELECT reserve_erasure_grant_release('synthetic-owner','attempt-one',%s::jsonb)",
+                (json.dumps(expected_release),),
+            )
+            assert cursor.fetchone()[0] is True
+        release_conn.commit()
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            upsert.result(timeout=5)
+    assert reserve_grants()
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-two','synthetic-project')"
+        )
+    pg.execute(
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-two','unrelated-project')"
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "INSERT INTO personal_agent_registry(user_id,hushh_id,status,user_cloud_project) VALUES ('other-owner','ha1_other','provisioned','synthetic-project')"
+        )
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,user_cloud_project) VALUES ('other-owner','ha1_other','provisioned','unrelated-project')"
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET user_cloud_project='synthetic-project' WHERE user_id='other-owner'"
+        )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE byoc_setup_jobs SET project_id='synthetic-project' WHERE user_id='other-owner'"
+        )
     assert retain_account("deletion", {**account_receipt, "status": "absent"})
     assert retain_secret("deletion", {**secret_receipt, "status": "absent"})
     saved = provision_row(pg)
