@@ -5,15 +5,11 @@ import { useEffect, useRef, useState } from "react";
 import { Loader2 } from "lucide-react";
 
 import { SettingsRow } from "@/components/app-ui/settings-ui";
-import {
-  Avatar,
-  AvatarFallback,
-  AvatarImage,
-} from "@/components/ui/avatar";
+import { ConnectionPersonAvatar } from "@/components/connections/connection-person-avatar";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
 import { morphyToast as toast } from "@/lib/morphy-ux/morphy";
-import { formatFeedTimestamp } from "@/lib/feed/feed-timestamp";
+import { FeedRowMetadata } from "./feed-row-metadata";
 import type {
   FeedActionButton,
   FeedActionable,
@@ -81,7 +77,7 @@ function ActionButton({
         runNow();
       }}
       className={cn(
-        "inline-flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
+        "inline-flex min-h-11 max-w-full items-center justify-center gap-1.5 rounded-full px-3.5 text-[13px] font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/70 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50",
         action.tone === "primary" &&
           "bg-accent text-accent-foreground hover:bg-accent/90",
         action.tone === "ghost" &&
@@ -122,7 +118,7 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
 
   if (!actions.length) return null;
   return (
-    <span className="flex shrink-0 items-center gap-2">
+    <span className="flex min-w-0 flex-wrap items-center gap-2">
       {actions.map((action) => (
         <ActionButton
           key={action.key}
@@ -135,30 +131,18 @@ function ActionButtons({ actions }: { actions: FeedActionButton[] }) {
   );
 }
 
-function initials(value: string): string {
-  const parts = value.trim().split(/\s+/).filter(Boolean);
-  return ((parts[0]?.[0] ?? "?") + (parts[1]?.[0] ?? ""))
-    .slice(0, 2)
-    .toUpperCase();
-}
-
 function FeedActionableIdentity({
   person,
 }: {
   person: NonNullable<FeedActionable["person"]>;
 }) {
   return (
-    <Avatar
-      className="h-10 w-10 bg-[color:var(--app-neutral-fill)] text-[13px] font-semibold text-[color:var(--app-secondary-label)]"
-      aria-hidden
-      data-testid="feed-actionable-avatar"
-      data-photo-url={person.photoUrl ?? ""}
-    >
-      {person.photoUrl ? <AvatarImage src={person.photoUrl} alt="" /> : null}
-      <AvatarFallback className="bg-[color:var(--app-neutral-fill)] text-[color:var(--app-secondary-label)]">
-        {initials(person.displayName)}
-      </AvatarFallback>
-    </Avatar>
+    <ConnectionPersonAvatar
+      label={person.displayName}
+      photoUrl={person.photoUrl}
+      size="list"
+      testId="feed-actionable-avatar"
+    />
   );
 }
 
@@ -171,10 +155,6 @@ function FeedActionableIdentity({
  * trailing buttons from nesting.
  */
 export function FeedActionableRow({ item }: { item: FeedActionable }) {
-  const timeLabel =
-    item.displayTimestamp != null
-      ? formatFeedTimestamp(item.displayTimestamp)
-      : null;
   const isLive = item.emphasis === "emergency";
 
   const descriptionBody =
@@ -187,29 +167,19 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
             isLive ? "bg-emerald-500" : "bg-accent",
           )}
         />
-        <span className="truncate">{item.description}</span>
+        <span className="whitespace-normal [overflow-wrap:anywhere]">
+          {item.description}
+        </span>
       </span>
     ) : (
       <span className="min-w-0">{item.description}</span>
     );
 
-  const description = timeLabel ? (
-    <span className="flex items-center gap-2">
-      {/* `line-clamp-1` HERE, on the flex item — not on the inline span inside
-          it. `truncate` was on that inner span, where overflow and
-          text-overflow do not apply at all (it is a non-replaced inline box),
-          so the only half of the class that survived was `white-space: nowrap`
-          — which is precisely what made the description one unbreakable line
-          that ran straight over the timestamp. The history row two files away
-          (feed-row.tsx:63) has always clamped the flex item; this is the same
-          shape, one class different. */}
-      <span className="min-w-0 flex-1 line-clamp-2">{descriptionBody}</span>
-      <span className="shrink-0 text-xs tabular-nums text-muted-foreground">
-        {timeLabel}
-      </span>
-    </span>
-  ) : (
-    descriptionBody
+  const description = (
+    <FeedRowMetadata
+      description={descriptionBody}
+      timestamp={item.displayTimestamp}
+    />
   );
 
   const hasActions = item.actions.length > 0;
@@ -218,6 +188,7 @@ export function FeedActionableRow({ item }: { item: FeedActionable }) {
   ) : undefined;
 
   const shared = {
+    layout: "person",
     icon: leading ? undefined : item.icon,
     iconTone: leading ? undefined : item.iconTone,
     leading,

@@ -152,6 +152,7 @@ const incomingConnection = {
   id: CONNECTION_ID,
   status: "pending",
   counterpartDisplayName: "Divya Rajendran",
+  counterpartPhotoUrl: "https://example.test/divya.png",
   scopes: [],
 };
 
@@ -184,6 +185,7 @@ describe("useFeedActionables — connection request de-duplication", () => {
     const [row] = result.current.actionables;
 
     expect(row.id).toBe(`connection:${CONNECTION_ID}`);
+    expect(row.person?.photoUrl).toBe("https://example.test/divya.png");
     expect(row.actions.map((action) => action.key)).toEqual([
       "decline",
       "confirm",

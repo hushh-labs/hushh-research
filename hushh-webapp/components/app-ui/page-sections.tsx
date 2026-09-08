@@ -3,7 +3,11 @@
 import type { ComponentPropsWithoutRef, ReactNode } from "react";
 import type { LucideIcon } from "lucide-react";
 
-import { SurfaceCard, type SurfaceAccent, type SurfaceTone } from "@/components/app-ui/surfaces";
+import {
+  SurfaceCard,
+  type SurfaceAccent,
+  type SurfaceTone,
+} from "@/components/app-ui/surfaces";
 import {
   AgentTitle,
   MajorSectionTitle,
@@ -33,47 +37,43 @@ type SectionAccent =
   | "rose"
   | "violet";
 
-const ACCENT_STYLES: Record<SectionAccent, {
-  eyebrow: string;
-  icon: string;
-}> = {
+const ACCENT_STYLES: Record<
+  SectionAccent,
+  {
+    eyebrow: string;
+    icon: string;
+  }
+> = {
   neutral: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   kai: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   ria: {
     // RIA sub-agent = Apple-clean gold. Var-driven so it flips to the DS gold
     // (#C8923A) inside body[data-persona-surface="ria"] and stays the Foundation
     // gold elsewhere. Mirrors the marketplace accent entry.
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   consent: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   marketplace: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   developers: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   research: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   location: {
     eyebrow: "text-muted-foreground",
@@ -93,13 +93,11 @@ const ACCENT_STYLES: Record<SectionAccent, {
   },
   default: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   sky: {
     eyebrow: "text-muted-foreground",
-    icon:
-      "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
+    icon: "bg-[color:var(--app-icon-tile-background)] text-[color:var(--app-icon-tile-foreground)] shadow-none",
   },
   emerald: {
     eyebrow: "text-emerald-700 dark:text-emerald-300",
@@ -141,12 +139,12 @@ export function AgentHeaderIcon({
     <span
       aria-hidden="true"
       className={cn(
-        "inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
-        className
+        "inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[11px] bg-[color:var(--app-accent)] text-[color:var(--app-accent-fg)]",
+        className,
       )}
       {...props}
     >
-      <IconComponent className="h-6 w-6" strokeWidth={2} />
+      <IconComponent className="h-[22px] w-[22px]" strokeWidth={2} />
     </span>
   );
 }
@@ -243,7 +241,7 @@ export function PageHeader({
               titleRole === "agent"
                 ? "h-11 w-11 rounded-[10px]"
                 : "h-[34px] w-[34px] rounded-[8px]",
-              styles.icon
+              styles.icon,
             )}
           />
         ) : null}
@@ -251,7 +249,9 @@ export function PageHeader({
           <div
             className={cn(
               "gap-[var(--page-header-row-gap)] sm:flex-row sm:items-center sm:justify-between",
-              actionsInlineMobile ? "flex items-start justify-between" : "flex flex-col"
+              actionsInlineMobile
+                ? "flex items-start justify-between"
+                : "flex flex-col",
             )}
             data-slot="page-header-row"
           >
@@ -259,17 +259,13 @@ export function PageHeader({
               {eyebrow ? (
                 <SectionLabel
                   as="p"
-                  className={cn(
-                    styles.eyebrow
-                  )}
+                  className={cn(styles.eyebrow)}
                   data-slot="page-header-eyebrow"
                 >
                   {eyebrow}
                 </SectionLabel>
               ) : null}
-              <TitleComponent>
-                {title}
-              </TitleComponent>
+              <TitleComponent>{title}</TitleComponent>
               {description && !descriptionFullWidth ? (
                 <PageSubtitle
                   as="div"
@@ -284,7 +280,9 @@ export function PageHeader({
               <div
                 className={cn(
                   "flex flex-wrap items-center gap-2 sm:w-auto sm:shrink-0 sm:justify-end sm:self-center",
-                  actionsInlineMobile ? "w-auto shrink-0 justify-end self-start" : "w-full"
+                  actionsInlineMobile
+                    ? "w-auto shrink-0 justify-end self-start"
+                    : "w-full",
                 )}
                 data-slot="page-header-actions"
               >
@@ -295,10 +293,7 @@ export function PageHeader({
         </div>
       </div>
       {description && descriptionFullWidth ? (
-        <PageSubtitle
-          as="div"
-          data-slot="page-header-description"
-        >
+        <PageSubtitle as="div" data-slot="page-header-description">
           {description}
         </PageSubtitle>
       ) : null}
@@ -351,7 +346,7 @@ export function SectionHeader({
             iconSize="md"
             iconClassName={cn(
               "flex h-[29px] w-[29px] shrink-0 items-center justify-center rounded-[7px]",
-              styles.icon
+              styles.icon,
             )}
           />
         ) : null}
@@ -375,10 +370,7 @@ export function SectionHeader({
                 {title}
               </MajorSectionTitle>
               {description ? (
-                <PageSubtitle
-                  as="div"
-                  data-slot="section-header-description"
-                >
+                <PageSubtitle as="div" data-slot="section-header-description">
                   {description}
                 </PageSubtitle>
               ) : null}

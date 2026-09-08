@@ -203,7 +203,7 @@ def _rel(path: Path) -> str:
     return str(path.relative_to(REPO_ROOT))
 
 
-def _strip_sql_comments_and_literals(sql: str) -> str:
+def _strip_sql_comments_and_literals(sql: str, *, preserve_dynamic_sql: bool = True) -> str:
     """Blank non-code SQL while preserving whitespace and line boundaries.
 
     The migration inventory is intentionally lightweight, but matching raw file
@@ -212,7 +212,8 @@ def _strip_sql_comments_and_literals(sql: str) -> str:
     understands the PostgreSQL quoting forms used by migrations, including
     nested block comments and dollar-quoted function bodies. Executed dynamic
     SQL remains code so migrations that conditionally create tables are still
-    part of the inventory.
+    part of the inventory. Callers checking top-level DDL can disable that
+    preservation to ignore function bodies as well as ordinary literals.
     """
 
     output: list[str] = []
@@ -223,6 +224,23 @@ def _strip_sql_comments_and_literals(sql: str) -> str:
         return "\n" if character == "\n" else " "
 
     while index < length:
+        if sql[index] == '"':
+            # Quoted identifiers remain code; comment markers inside them do not
+            # start comments. PostgreSQL escapes a quote by doubling it.
+            output.append(sql[index])
+            index += 1
+            while index < length:
+                character = sql[index]
+                output.append(character)
+                index += 1
+                if character == '"':
+                    if index < length and sql[index] == '"':
+                        output.append(sql[index])
+                        index += 1
+                    else:
+                        break
+            continue
+
         if sql.startswith("--", index):
             while index < length and sql[index] != "\n":
                 output.append(" ")
@@ -248,7 +266,17 @@ def _strip_sql_comments_and_literals(sql: str) -> str:
             continue
 
         if sql[index] == "'":
-            preserve_literal = DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            # Migrations use PostgreSQL's default standard_conforming_strings=on.
+            # Only E'...' treats a backslash as an escape; in an ordinary string
+            # it must not consume the closing quote and hide following DDL.
+            escape_string = (
+                index > 0
+                and sql[index - 1] in "eE"
+                and (index < 2 or not (sql[index - 2].isalnum() or sql[index - 2] in "_$"))
+            )
+            preserve_literal = preserve_dynamic_sql and (
+                DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            )
             output.append(" ")
             index += 1
             literal: list[str] = []
@@ -260,7 +288,7 @@ def _strip_sql_comments_and_literals(sql: str) -> str:
                         continue
                     index += 1
                     break
-                if sql[index] == "\\" and index + 1 < length:
+                if escape_string and sql[index] == "\\" and index + 1 < length:
                     literal.append(sql[index + 1])
                     index += 2
                     continue
@@ -277,7 +305,9 @@ def _strip_sql_comments_and_literals(sql: str) -> str:
         dollar_quote = DOLLAR_QUOTE_RE.match(sql, index)
         if dollar_quote:
             delimiter = dollar_quote.group(0)
-            preserve_literal = DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            preserve_literal = preserve_dynamic_sql and (
+                DYNAMIC_SQL_PREFIX_RE.search("".join(output[-256:])) is not None
+            )
             output.extend(" " for _ in delimiter)
             index = dollar_quote.end()
             closing_index = sql.find(delimiter, index)

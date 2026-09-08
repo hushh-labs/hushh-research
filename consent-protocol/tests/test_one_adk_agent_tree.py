@@ -1828,6 +1828,7 @@ class TestBackendDirectLocationShareSelected:
             "recipient_key_id": "k1",
             "duration_hours": 2.0,
             "duration_mode": "timed",
+            "require_recipient_phone_verified": False,
             "enforce_connection": True,
         }
         publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"

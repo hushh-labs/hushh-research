@@ -334,6 +334,20 @@ def test_migration_inventory_keeps_real_create_and_drop_statements() -> None:
     assert _table_events(sql) == [("account_rows", None), (None, "retired_rows")]
 
 
+def test_top_level_ddl_scan_can_ignore_quoted_function_bodies() -> None:
+    sql = """
+    CREATE FUNCTION install_guard() RETURNS void AS $guard$
+    BEGIN
+      EXECUTE 'CREATE TABLE dynamic_table (id bigint)';
+    END;
+    $guard$ LANGUAGE plpgsql;
+    CREATE TABLE account_rows (user_id TEXT);
+    """
+    code = data_model_audit._strip_sql_comments_and_literals(sql, preserve_dynamic_sql=False)
+    assert "dynamic_table" not in code
+    assert "CREATE TABLE account_rows" in code
+
+
 def test_live_migration_inventory_has_no_prose_tables_and_keeps_dynamic_tables() -> None:
     tables = data_model_audit._migration_tables()
 

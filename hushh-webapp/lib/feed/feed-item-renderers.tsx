@@ -715,6 +715,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Circle invitation",
+        person: counterpartPerson(item.metadata, who),
         description: circleName
           ? `You were invited to join ${circleName}.`
           : "You were invited to join a Circle.",
@@ -735,6 +736,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         icon,
         domainLabel,
         label: "Added to a Circle",
+        person: counterpartPerson(item.metadata, addedBy || who),
         description: addedBy
           ? circleName
             ? `${addedBy} added you to ${circleName}.`

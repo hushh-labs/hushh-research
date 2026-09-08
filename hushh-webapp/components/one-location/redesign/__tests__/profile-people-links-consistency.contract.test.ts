@@ -49,27 +49,41 @@ describe("Profile, Location People, and Location Links consistency contract", ()
       "components/one-location/redesign/circles/named-circle-flows.tsx",
     );
 
-    expect(circleSource).toMatch(/<SectionLabel\s+id=\{CIRCLE_MEMBERS_HEADING_ID\}\s+role="heading"\s+aria-level=\{2\}/);
-    expect(hubSource).toMatch(/<h2\s+id="one-location-people-heading"[^>]*>\s*People\s*<\/h2>/);
+    expect(circleSource).toMatch(
+      /<SectionLabel\s+as="div"\s+compact\s+role="heading"\s+aria-level=\{2\}\s+id=\{CIRCLE_MEMBERS_HEADING_ID\}/,
+    );
+    expect(hubSource).toContain('id="one-location-people-heading"');
+    expect(hubSource).toContain(
+      '<SectionLabel\n                as="h2"\n                compact\n                id="one-location-people-heading"',
+    );
     expect(hubSource).toContain('title="Temporary link"');
-    expect(hubSource).not.toContain("<SectionTitle as=\"h2\">Temporary link");
+    expect(hubSource).not.toContain('<SectionTitle as="h2">Temporary link');
+  });
+
+  it("keeps the Location hub content aligned with its shared tab shell", () => {
+    const source = readSource(
+      "components/one-location/redesign/location-redesign-hub.tsx",
+    );
+
+    // The People tab used to introduce a private 640px reading column inside
+    // the agent shell, leaving its search/list surface visibly narrower than
+    // the Now | People | Links tabs on desktop. Hub panels already own the
+    // canonical page gutters, so the tab content should fill that same shell.
+    expect(source).toContain('<div className="w-full space-y-4 sm:space-y-5">');
+    expect(source).toContain("w-full max-w-[200px] self-start rounded-[13px]");
   });
 
   it("keeps Location Links concise without duplicate active-card title or live pill copy", () => {
     const source = readSource(
       "components/one-location/redesign/location-redesign-hub.tsx",
     );
-    const cardSource = readSource(
-      "components/one-location/redesign/cards.tsx",
-    );
+    const cardSource = readSource("components/one-location/redesign/cards.tsx");
 
     expect(source).toContain('label.replace(/^Stops in\\b/i, "Expires in")');
     expect(source).toContain(
       "Anyone with this link can see your location until it expires.",
     );
-    expect(source).toContain(
-      "Anyone with this link can see your location.",
-    );
+    expect(source).toContain("Anyone with this link can see your location.");
     expect(cardSource).toContain("Revoke link");
     expect(source).not.toContain("Live location link");
     expect(source).not.toContain("Stops in 1h");
@@ -78,26 +92,28 @@ describe("Profile, Location People, and Location Links consistency contract", ()
   it("normalizes Profile utility icons to neutral rows while preserving semantic exceptions", () => {
     const source = readSource("app/profile/profile-workspace-page.tsx");
 
-    expect(source).toMatch(/<SettingsRow\s+icon=\{Users\}\s+iconTone="blue"\s+title=\{PROFILE_LABELS.referrals\}/);
-    expect(source).toMatch(/<SettingsRow\s+icon=\{CodeXml\}\s+iconTone="purple"\s+title=\{PROFILE_LABELS.developerTools\}/);
-    expect(source).toMatch(/<SettingsRow\s+icon=\{MessageCircleQuestion\}\s+iconTone="gray"\s+title=\{PROFILE_LABELS.support\}/);
+    expect(source).toContain("title={PROFILE_LABELS.referrals}");
+    expect(source).toContain('iconTone="gray"');
+    expect(source).toContain("title={PROFILE_LABELS.developerTools}");
+    expect(source).not.toContain(
+      'icon={Users}\n                iconTone="blue"',
+    );
+    expect(source).not.toContain(
+      'icon={CodeXml}\n                  iconTone="purple"',
+    );
   });
 
   it("keeps Profile and Location grouped surfaces on the same compact radius token", () => {
     const css = readSource("app/globals.css");
     const settingsSource = readSource("components/app-ui/settings-ui.tsx");
 
-    expect(css).toContain(
-      "--ios-account-card-radius: var(--app-radius-lg);",
-    );
+    expect(css).toContain("--ios-account-card-radius: var(--app-radius-lg);");
     expect(css).toContain(
       "--settings-group-radius: var(--ios-account-card-radius);",
     );
+    expect(settingsSource).toContain('data-ui-role="grouped-card"');
     expect(settingsSource).toContain(
-      'data-ui-role="grouped-card"',
-    );
-    expect(settingsSource).toContain(
-      "[--settings-group-radius:var(--app-card-radius-standard,24px)]",
+      "[--settings-group-radius:var(--app-card-radius-compact,16px)]",
     );
   });
 });

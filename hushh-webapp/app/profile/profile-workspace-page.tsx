@@ -39,7 +39,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { SettingsGroup, SettingsRow } from "@/components/profile/settings-ui";
+import {
+  SettingsGroup,
+  SettingsPresentationProvider,
+  SettingsRow,
+} from "@/components/profile/settings-ui";
 import {
   AppPageContentRegion,
   AppPageHeaderRegion,
@@ -4395,17 +4399,17 @@ function ProfilePageContent() {
     <div className="profile-home-screen">
       <AppPageHeaderRegion>
         <header
-          className="profile-home-hero flex w-full min-w-0 flex-col items-center gap-2 px-0 text-center sm:px-6"
+          className="profile-home-hero flex w-full min-w-0 items-center gap-3 px-0 text-left"
           data-slot="page-header"
           data-page-primary="true"
         >
           <ProfileAvatarEditor />
-          <div className="profile-home-copy flex w-full min-w-0 max-w-full flex-col items-center justify-center gap-1">
+          <div className="profile-home-copy flex min-w-0 flex-1 flex-col items-start justify-center gap-1">
             <h1 className="profile-home-name ui-text-identity-name [overflow-wrap:anywhere]">
               {user.displayName || "User"}
             </h1>
             <div
-              className="profile-home-meta flex w-full min-w-0 items-center justify-center gap-2 text-xs font-normal text-muted-foreground"
+              className="profile-home-meta flex w-full min-w-0 items-center justify-start gap-1.5 text-xs font-normal text-muted-foreground"
               title={provider.name}
             >
               <ProviderIcon providerId={provider.id} />
@@ -4459,7 +4463,7 @@ function ProfilePageContent() {
               />
               <SettingsRow
                 icon={Users}
-                iconTone="blue"
+                iconTone="gray"
                 title={PROFILE_LABELS.referrals}
                 chevron
                 density="compact"
@@ -4487,7 +4491,7 @@ function ProfilePageContent() {
               {canShowPkmAgentLab ? (
                 <SettingsRow
                   icon={CodeXml}
-                  iconTone="purple"
+                  iconTone="gray"
                   title={PROFILE_LABELS.developerTools}
                   trailing={<Badge variant="secondary">Local</Badge>}
                   chevron
@@ -4531,10 +4535,12 @@ function ProfilePageContent() {
         dataState: authLoading ? "loading" : "loaded",
       }}
     >
-      <ProfileStackNavigator
-        rootContent={profileRootContent}
-        entries={profileStackEntries}
-      />
+      <SettingsPresentationProvider density="compact">
+        <ProfileStackNavigator
+          rootContent={profileRootContent}
+          entries={profileStackEntries}
+        />
+      </SettingsPresentationProvider>
 
       {hasVault === true && (
         <VaultUnlockDialog

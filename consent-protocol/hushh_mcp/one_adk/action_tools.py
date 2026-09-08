@@ -1059,6 +1059,10 @@ async def _execute_backend_direct_mutation(
                     recipient_key_id=(str(recipient.get("keyId") or "") or None),
                     duration_hours=duration_hours,
                     duration_mode=duration_mode,
+                    # The recipient directory already proved an active One
+                    # connection and Location key. A phone claim belongs only
+                    # to the emergency SMS lane, not this ordinary share.
+                    require_recipient_phone_verified=False,
                     enforce_connection=True,
                 )
             except Exception:  # noqa: BLE001 - one failure must not lose or hide the rest

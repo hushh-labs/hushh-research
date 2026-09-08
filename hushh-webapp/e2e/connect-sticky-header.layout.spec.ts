@@ -39,8 +39,8 @@ import {
  * Both offsets are relative to `--top-shell-live-height`, not to `0`: the scroll
  * root clears the fixed top bar with a spacer rather than padding, so `top: 0`
  * sticks to the scrollport edge, which the bar overlays. The search adds the
- * header's measured height on top of that — measured, because the header is one
- * strip on Circles and two everywhere else.
+ * header's measured height on top of that. The directory selector belongs to
+ * the directory below the connections roster, outside the sticky strip.
  *
  * `--top-shell-live-height` is the mask's LAST VISIBLE pixel, not its solid
  * edge, so pinning there leaves the `--top-fade-active` band above the strips
@@ -63,15 +63,25 @@ const WIDTHS = [320, 360, 393, 600, 1440] as const;
 /** Sub-pixel line boxes only. A strip that does not pin drifts by hundreds. */
 const SLACK_PX = 2;
 
-/** Two strips, as every surface but Circles renders them. */
+/** One route strip; the directory selector is below My connections. */
 const SURFACE_STRIP_HEIGHT_PX = 38;
-const TAB_STRIP_HEIGHT_PX = 38;
 
-const STICKY_HEADER_CLASSNAME =
-  "sticky top-[var(--top-shell-live-height,0px)] z-20 mx-[calc(var(--page-inline-gutter-standard)*-1)] space-y-3 bg-background px-[var(--page-inline-gutter-standard)] pb-3 pt-2 before:pointer-events-none before:absolute before:inset-x-0 before:bottom-full before:bg-background data-[pinned=true]:before:h-[calc(var(--top-fade-active,0px)+1px)] sm:space-y-4";
+function connectClassName(name: string): string {
+  const source = fs.readFileSync(
+    path.join(process.cwd(), "app/connect/page-client.tsx"),
+    "utf8",
+  );
+  const match = source.match(new RegExp(`const ${name} =\\s*("[^"]+");`));
+  if (!match) throw new Error(`Missing Connect layout constant: ${name}`);
+  return JSON.parse(match[1]) as string;
+}
 
-const STICKY_SEARCH_CLASSNAME =
-  "sticky top-[calc(var(--top-shell-live-height,0px)+var(--connect-sticky-header-height,0px))] z-10 mx-[calc(var(--page-inline-gutter-standard)*-1)] bg-background px-[var(--page-inline-gutter-standard)] py-2";
+const STICKY_HEADER_CLASSNAME = connectClassName(
+  "CONNECT_STICKY_HEADER_CLASSNAME",
+);
+const STICKY_SEARCH_CLASSNAME = connectClassName(
+  "CONNECT_STICKY_SEARCH_CLASSNAME",
+);
 
 /** The page title Connect renders above the strips, and its gap to them. */
 const PAGE_HEADER_HEIGHT_PX = 34;
@@ -188,11 +198,10 @@ function shellMarkup(): string {
           </div>
           <div data-connect-content class="app-page-content-region w-full ${CONNECT_PAGE_CONTENT_CLASSNAME}">
             <div class="surface-stack surface-stack-compact">
-              <div data-connect-stack class="relative space-y-4 sm:space-y-5">
+              <div data-connect-stack class="relative space-y-3 sm:space-y-4">
                 <div data-testid="connect-sticky-pin-sentinel" aria-hidden class="pointer-events-none absolute inset-x-0 top-0 h-px"></div>
                 <div data-testid="connect-sticky-header" data-pinned="false" class="${STICKY_HEADER_CLASSNAME}">
-                  <div data-strip="surface" style="height: ${SURFACE_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / Circles</div>
-                  <div data-strip="tab" style="height: ${TAB_STRIP_HEIGHT_PX}px; background: #e8e8ed;">People / RIAs / Around you</div>
+                  <div data-strip="surface" style="height: ${SURFACE_STRIP_HEIGHT_PX}px; background: #e8e8ed;">Connections / Circles</div>
                 </div>
                 <div data-my-connections style="height: 900px; background: #dddde2;">
                   <div data-person-row class="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-3 px-4 py-2.5">
@@ -203,6 +212,7 @@ function shellMarkup(): string {
                     <button data-person-action class="h-8 min-h-8 shrink-0 rounded-2xl px-2.5">Connect</button>
                   </div>
                 </div>
+                <div data-directory-selector style="min-height: 44px;">People ▾</div>
                 <div data-testid="connect-search-row" class="${STICKY_SEARCH_CLASSNAME} flex items-center gap-2">
                   <div style="height: 44px; flex: 1 1 0%; background: #cfe0f5;">Search people</div>
                 </div>
@@ -221,8 +231,8 @@ async function writeFixture(): Promise<string> {
     "app-page-content-region",
     "surface-stack",
     "surface-stack-compact",
-    "space-y-4",
-    "sm:space-y-5",
+    "space-y-3",
+    "sm:space-y-4",
     ...CONNECT_PAGE_CONTENT_CLASSNAME.split(" "),
     ...CONNECT_WRAPPING_TEXT_CLASSNAME.split(" "),
     "flex",
@@ -327,7 +337,8 @@ async function measureAt(page: Page, y: number) {
       '[data-testid="connect-search-row"]',
     )!;
     const directory = document.querySelector<HTMLElement>("[data-directory]")!;
-    const pageHeader = document.querySelector<HTMLElement>("[data-page-header]")!;
+    const pageHeader =
+      document.querySelector<HTMLElement>("[data-page-header]")!;
     const stack = document.querySelector<HTMLElement>("[data-connect-stack]")!;
     const shell = document.querySelector<HTMLElement>(".app-page-shell")!;
     const content = document.querySelector<HTMLElement>(
@@ -578,20 +589,21 @@ test.describe("connect sticky header", () => {
         const action = document.querySelector<HTMLElement>(
           "[data-person-action]",
         )!;
-        const metrics = ["[data-person-title]", "[data-person-description]"].map(
-          (selector) => {
-            const node = document.querySelector<HTMLElement>(selector)!;
-            const style = getComputedStyle(node);
-            return {
-              clientWidth: node.clientWidth,
-              scrollWidth: node.scrollWidth,
-              clientHeight: node.clientHeight,
-              scrollHeight: node.scrollHeight,
-              textOverflow: style.textOverflow,
-              whiteSpace: style.whiteSpace,
-            };
-          },
-        );
+        const metrics = [
+          "[data-person-title]",
+          "[data-person-description]",
+        ].map((selector) => {
+          const node = document.querySelector<HTMLElement>(selector)!;
+          const style = getComputedStyle(node);
+          return {
+            clientWidth: node.clientWidth,
+            scrollWidth: node.scrollWidth,
+            clientHeight: node.clientHeight,
+            scrollHeight: node.scrollHeight,
+            textOverflow: style.textOverflow,
+            whiteSpace: style.whiteSpace,
+          };
+        });
         return {
           metrics,
           actionRight: action.getBoundingClientRect().right,
@@ -601,7 +613,9 @@ test.describe("connect sticky header", () => {
 
       for (const metric of result.metrics) {
         expect(metric.scrollWidth).toBeLessThanOrEqual(metric.clientWidth + 1);
-        expect(metric.scrollHeight).toBeLessThanOrEqual(metric.clientHeight + 1);
+        expect(metric.scrollHeight).toBeLessThanOrEqual(
+          metric.clientHeight + 1,
+        );
         expect(metric.textOverflow).not.toBe("ellipsis");
         expect(metric.whiteSpace).not.toBe("nowrap");
       }

@@ -1007,12 +1007,13 @@
       "data_class": "workflow_state",
       "lifecycle_status": "current",
       "exact_tables": [
-        "feed_events"
+        "feed_events",
+        "feed_event_counterparts"
       ],
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking",
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache.",
       "retention_policy": "Retain while the account exists; presentation-only, not a domain audit authority.",
-      "deletion_behavior": "Hard-delete with account deletion.",
-      "trust_boundary": "Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
+      "deletion_behavior": "Hard-delete owned Feed with account deletion; derived counterpart links cascade when either the Feed event or counterpart account is deleted. No copied photos.",
+      "trust_boundary": "The companion table holds server-only counterpart identity references resolved from viewer-authorized source records. They never enter the browser DTO. Presentation-only fan-out from each domain's own audit/event tables (consent, location, connected systems) or from a domain's completion point (Kai, KYC, connections). Never stores ciphertext, vault content, or full domain payloads; only bounded, non-sensitive metadata used to render a feed line.",
       "plaintext_posture": "metadata_only",
       "expected_row_growth": "medium_append_only"
     },

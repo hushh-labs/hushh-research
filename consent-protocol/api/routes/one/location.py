@@ -39,6 +39,7 @@ from hushh_mcp.services.one_location_agent_service import (
     OneLocationAgentService,
     database_error_detail,
     location_error_detail,
+    requires_recipient_phone_verification,
 )
 from hushh_mcp.services.one_location_circle_service import (
     OneLocationCircleError,
@@ -2011,6 +2012,10 @@ def create_location_grant(
                 source_circle_id=(
                     str(payload.source_circle_id) if payload.source_circle_id is not None else None
                 ),
+                require_recipient_phone_verified=requires_recipient_phone_verification(
+                    share_kind=payload.share_kind,
+                    reason=payload.reason,
+                ),
                 enforce_connection=True,
             )
         }
@@ -2039,6 +2044,10 @@ def create_location_grant_with_envelope(
             share_kind=payload.share_kind,
             source_circle_id=(
                 str(payload.source_circle_id) if payload.source_circle_id is not None else None
+            ),
+            require_recipient_phone_verified=requires_recipient_phone_verification(
+                share_kind=payload.share_kind,
+                reason=payload.reason,
             ),
             enforce_connection=True,
         )

@@ -169,6 +169,10 @@ def build_manifest_entries(
                 filename=filename,
                 checksum_sha256=hashlib.sha256(sql.encode("utf-8")).hexdigest(),
                 sql=sql,
+                # A concurrent index must be its own top-level SQL statement.
+                # Keep this opt-in in the checksummed migration, so replay and
+                # ledger use the same authored execution contract.
+                transactional=not sql.startswith("-- migration: transactional=false\n"),
             )
         )
     return tuple(entries)
