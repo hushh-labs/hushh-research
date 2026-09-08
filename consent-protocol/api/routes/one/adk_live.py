@@ -434,8 +434,8 @@ class _InitialGreetingGate:
         return True
 
 
-# Only public onboarding may execute here. The pod has no Live adapter yet;
-# a signed-in ticket must never become a personal session on shared compute.
+# Only public onboarding executes on this hub. Signed-in tickets are couriered
+# to a currently authorized pod; they never become shared personal sessions.
 VOICE_CELL_HUB_REASON = "Public onboarding voice runs on the shared hub."
 _PRIVATE_VOICE_UNAVAILABLE = (
     "Private-agent voice is unavailable. Use your private agent's typed chat."
@@ -465,22 +465,28 @@ async def create_one_adk_relay_session(
         )
     uid = await resolve_optional_uid(authorization)
     if uid:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "code": "AGENT_NOT_READY",
-                "status": "unavailable",
-                "message": _PRIVATE_VOICE_UNAVAILABLE,
-            },
-        )
+        from api.routes.one.pod_live_relay import admit_private_live
+
+        try:
+            async with asyncio.timeout(30.0):
+                await admit_private_live(uid)
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail={
+                    "code": "AGENT_NOT_READY",
+                    "status": "unavailable",
+                    "message": _PRIVATE_VOICE_UNAVAILABLE,
+                },
+            ) from None
     persona_tier = resolve_persona_tier(uid, None)
     ticket, expires_at = issue_relay_ticket(uid, persona_tier)
     return OneAdkRelaySessionResponse(
         relay_ticket=ticket,
         expires_at=expires_at,
         tier="full" if uid else "intro",
-        cell="hub",
-        cell_reason=VOICE_CELL_HUB_REASON,
+        cell="pod" if uid else "hub",
+        cell_reason="Your private agent runs in your own pod." if uid else VOICE_CELL_HUB_REASON,
     )
 
 
@@ -535,10 +541,12 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
         logger.info("one_adk_live_relay_ticket_rejected")
         await _close_quietly(websocket, code=1008, reason="Voice relay ticket is expired.")
         return
-    # Also reject tickets minted by an older image before accepting bootstrap
-    # credentials, context or audio. An active pod does not make this hub loop
-    # owner-isolated; this guard is removed only when the pod runs Live itself.
-    if uid or persona_tier in {"signed_locked", "signed_unlocked"}:
+    if uid:
+        from api.routes.one.pod_live_relay import relay_private_live
+
+        await relay_private_live(websocket, user_id=uid)
+        return
+    if persona_tier in {"signed_locked", "signed_unlocked"}:
         await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
         return
 

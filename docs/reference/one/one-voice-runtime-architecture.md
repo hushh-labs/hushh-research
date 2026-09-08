@@ -9,14 +9,18 @@ flowchart TD
   shell["One Voice shell / Agent Bar"]
   transport["Existing Gemini Live transport"]
   admission["Relay ticket admission"]
-  refusal["Signed-in voice unavailable<br/>pod Live still incomplete"]
+  refusal["Private voice unavailable"]
+  owner["Current owner, serving pod and scoped consent"]
+  courier["Hub courier and directive authority<br/>IAM, no redirects"]
   intro["Public onboarding runner<br/>ephemeral session"]
   navigation["Existing intro navigation tools<br/>generated public actions"]
   context["Bounded public context<br/>owner credentials rejected"]
   chat["Personal typed chat"]
   pod["Owner-authorized active pod"]
   shell --> transport --> admission
-  admission -- "signed-in" --> refusal
+  admission -- "signed-in" --> owner
+  owner -- "refused or unavailable" --> refusal
+  owner -- "authorized" --> courier --> pod
   admission -- "anonymous" --> intro
   context --> intro --> navigation
   chat --> pod
@@ -320,37 +324,24 @@ Reusable full-agent factory (separate from public relay admission):
   `POST /api/one/adk/relay-session` mints a signed one-time ticket
   (`api/routes/one/relay_auth.py`), `WS /api/one/adk/live` bridges the
   browser wire envelope onto `run_live`.
-- On the private-agent branch, this hub relay admits public onboarding only,
-  using `build_one_intro_text_agent` with the existing governed Live model. It
-  exposes only its two generated-navigation tools and has no owner memory,
-  specialist roster or durable session service. Nonempty private context is
-  rejected before state append or context publication.
-  Signed-in ticket issuance returns the existing `AGENT_NOT_READY` refusal;
-  the socket also rejects previously minted signed-in tickets before reading
-  credentials, context or audio. The pod now has an owner-checked Live endpoint, but hub admission is
-  still closed, so private voice remains incomplete. An active pod alone does not establish voice
-  isolation. Completion requires running this same protocol in the owner's pod
-  with scoped consent and runtime authority, followed by live evidence.
-  The existing Live factory now uses connection-local in-memory sessions in
-  pod mode for both managed and BYOK providers, and attaches the existing pod
-  memory resolver. Shared BYOK and public intro do not receive pod memory.
-  Factory checks establish wiring only; transport admission, hub-backed
-  directive settlement and ongoing revocation checks remain required.
-  The `pod_live_*` transport adapters preserve the hub's
-  existing directive ledger: confirmation/settlement must match browser frames,
-  generated action policy and current context. The courier bounds writes,
-  rechecks access while idle and closes both peers on refusal. Polling is not
-  instantaneous revocation, and cancellation-resistant work is reported as
-  incomplete shutdown. These component checks do not prove deployed admission,
-  provider drainage, specialist consent or persistent Live recall.
-  The pod endpoint checks the existing consent verifier and sealed-log fence
-  before bootstrap and during the session. ADK sessions use the HusshID while
-  tools and directive authority retain the verified Firebase UID. Graceful
-  shutdown projects completed transcriptions into the existing memory service,
-  excluding audio and session secrets. This does not establish crash durability;
-  private provider-resumption handles remain disabled.
-  Public reconnects start a fresh conversation: an anonymous ticket cannot
-  prove ownership of a provider continuation from an earlier personal session.
+- On the private-agent branch, anonymous voice executes only the restricted
+  public onboarding runner on the hub, without owner memory or private context.
+  Signed-in ticket issuance checks current serving ownership and scoped consent;
+  consuming the existing one-use ticket rechecks admission and opens an
+  audience-bound IAM connection to the registered pod. Redirects and ambient
+  proxies are disabled. Failure returns unavailability, never shared execution.
+  The hub retains the existing directive ledger. Confirmation and settlement
+  require matching browser frames, generated action policy and current context.
+  The pod rechecks consent and its sealed-log fence before bootstrap and while
+  connected. ADK memory/session identity is the HusshID; tools and directive
+  authority retain the verified Firebase UID. Completed transcriptions reach
+  the existing memory service at graceful shutdown, without audio or session
+  secrets. Private provider-resumption handles remain disabled.
+  Source and synthetic transport checks establish this wiring, not deployed
+  readiness. Periodic revocation checks are not instantaneous enforcement;
+  cancellation-resistant work is reported as incomplete shutdown. Specialist
+  scope completion, provider drainage, crash durability and actual owner-project
+  recall remain required operational evidence.
 - The legacy hand-rolled Vertex pump
   (`api/routes/kai/agent_realtime_gemini.py`), the client-side lexical
   planner (`lib/voice/one-voice-live-action-bridge.ts`), and the

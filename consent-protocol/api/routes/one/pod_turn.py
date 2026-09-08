@@ -14,8 +14,9 @@ is not evidence that the control plane cannot observe turn context.
 
 Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
 shared turn implementation is separate. The pod Live endpoint reuses the existing
-Live protocol with current consent and erasure checks; signed-in hub admission
-remains closed pending end-to-end wiring. Historical First Light findings remain in Git;
+Live protocol with current consent and erasure checks. The hub couriers admitted
+signed-in sockets here; deployed readiness still requires operational evidence.
+Historical First Light findings remain in Git;
 source wiring alone does not establish deployed recall or lifecycle completion.
 """
 

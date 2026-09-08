@@ -53,7 +53,12 @@ async def test_auth_provider_outage_preserves_503_without_ticket(monkeypatch):
     mint.assert_not_called()
 
 
-async def test_private_voice_does_not_mint_a_shared_ticket(monkeypatch):
+async def test_unavailable_private_voice_does_not_mint_ticket(monkeypatch):
+    from api.routes.one import pod_live_relay
+
+    monkeypatch.setattr(
+        pod_live_relay, "admit_private_live", AsyncMock(side_effect=PermissionError())
+    )
     monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
     monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", lambda header: "synthetic-owner")
     mint = Mock(side_effect=AssertionError("no shared personal session"))
@@ -89,7 +94,7 @@ async def test_public_onboarding_still_mints_its_anonymous_ticket(monkeypatch):
         (None, "signed_locked"),
     ],
 )
-async def test_old_signed_ticket_never_reads_credentials_or_builds_shared_runner(
+async def test_signed_ticket_never_reads_credentials_or_builds_shared_runner(
     monkeypatch, uid, tier
 ):
     monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
@@ -103,8 +108,16 @@ async def test_old_signed_ticket_never_reads_credentials_or_builds_shared_runner
     socket = Mock(query_params={"relay_ticket": "synthetic-old-ticket"})
     socket.accept = AsyncMock()
     socket.close = AsyncMock()
+    from api.routes.one import pod_live_relay
+
+    courier = AsyncMock()
+    monkeypatch.setattr(pod_live_relay, "relay_private_live", courier)
     await adk_live.one_adk_live_relay(socket)
-    socket.close.assert_awaited_once_with(code=1008, reason=adk_live._PRIVATE_VOICE_UNAVAILABLE)
+    if uid:
+        courier.assert_awaited_once_with(socket, user_id=uid)
+    else:
+        courier.assert_not_awaited()
+        socket.close.assert_awaited_once_with(code=1008, reason=adk_live._PRIVATE_VOICE_UNAVAILABLE)
     bootstrap.assert_not_awaited()
     runner.assert_not_called()
 
@@ -289,3 +302,20 @@ async def test_public_context_and_provider_frames_complete_and_cancel_idle_input
     assert {"serverContent": {"turnComplete": True}} in frames
     assert input_cancelled
     sessions.delete_session.assert_awaited_once()
+
+
+async def test_owner_with_current_pod_gets_pod_ticket(monkeypatch):
+    from api.routes.one import pod_live_relay
+
+    monkeypatch.setattr(adk_live, "one_voice_enabled", lambda: True)
+    monkeypatch.setattr(firebase_auth, "verify_firebase_bearer", lambda header: "synthetic-owner")
+    admission = AsyncMock()
+    monkeypatch.setattr(pod_live_relay, "admit_private_live", admission)
+    mint = Mock(return_value=("synthetic-ticket", 200))
+    monkeypatch.setattr(adk_live, "issue_relay_ticket", mint)
+    result = await adk_live.create_one_adk_relay_session.__wrapped__(
+        request=None, authorization="Bearer synthetic"
+    )
+    admission.assert_awaited_once_with("synthetic-owner")
+    assert result.cell == "pod" and result.tier == "full"
+    mint.assert_called_once_with("synthetic-owner", "signed_locked")
