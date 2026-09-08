@@ -1426,24 +1426,27 @@ class PersonalAgentProvisioningService:
         owner_loop = asyncio.get_running_loop()
 
         def persist_acknowledgement(receipt: dict[str, Any]) -> None:
-            # Backends call this from their worker thread. Persist through the
-            # same token/host CAS before polling; timeout retains uncertainty.
+            # Called off-loop. A late receipt may survive erasure admission, but
+            # that path never authorizes continued upgrade execution.
             if receipt.get("attemptId") != spec.upgrade_attempt_id:
                 raise RuntimeError("upgrade acknowledgement attempt mismatch")
-            future = asyncio.run_coroutine_threadsafe(
-                publish_upgrade(
-                    backend_metadata={
-                        **claimed_metadata,
-                        "upgradeAcknowledgement": {
-                            **receipt,
-                            "targetImage": current_image,
-                            "hubRevision": hub_revision(),
-                        },
-                    },
-                    retain_lease=True,
-                ),
-                owner_loop,
-            )
+            bound = {**receipt, "targetImage": current_image, "hubRevision": hub_revision()}
+
+            async def persist() -> None:
+                try:
+                    await publish_upgrade(
+                        backend_metadata={**claimed_metadata, "upgradeAcknowledgement": bound},
+                        retain_lease=True,
+                    )
+                except RuntimeError:
+                    retain = getattr(self._registry, "retain_erasure_upgrade_ack", None)
+                    if retain is not None and await retain(
+                        user_id=user_id, lease=lease, receipt=bound
+                    ):
+                        raise RuntimeError("upgrade acknowledgement retained for erasure") from None
+                    raise
+
+            future = asyncio.run_coroutine_threadsafe(persist(), owner_loop)
             future.result(timeout=30)
 
         spec = replace(spec, on_upgrade_ack=persist_acknowledgement)

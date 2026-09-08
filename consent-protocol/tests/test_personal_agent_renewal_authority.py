@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 # ruff: noqa: S106, S107 -- synthetic ledger labels, never usable credentials.
+import hashlib
 import json
 import time
 from concurrent.futures import ThreadPoolExecutor
@@ -306,13 +307,16 @@ def test_erasure_reservation_blocks_grants_and_registry_replacement(pg):
     pg.apply_file(ROOT / "db/migrations/parked/912_personal_agent_status_migrating.sql")
     pg.apply_file(ROOT / "db/migrations/parked/916_personal_agent_erasure_admission.sql")
     pg.execute(
-        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,backend_metadata) VALUES ('synthetic-owner','ha1_erasure','provisioned','{\"serviceUid\":\"incarnation\",\"upgradeLease\":\"unresolved-upgrade\"}')"
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service','{\"serviceUid\":\"incarnation\",\"upgradeLease\":\"synthetic|operation|synthetic/target\"}')"
     )
     receipt = pg.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')")[
         0
     ][0]
     assert receipt["phase"] == "reserved"
-    assert receipt["registrySnapshot"]["backend_metadata"]["upgradeLease"] == "unresolved-upgrade"
+    assert (
+        receipt["registrySnapshot"]["backend_metadata"]["upgradeLease"]
+        == "synthetic|operation|synthetic/target"
+    )
     assert (
         pg.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-two')")[0][0]
         == receipt
@@ -334,6 +338,32 @@ def test_erasure_reservation_blocks_grants_and_registry_replacement(pg):
     with connect(pg) as conn:
         insert(conn, event("REVOKED"))
         insert(conn, event(owner="another-owner"), renewal=True)
+
+    ack = {
+        "version": 1,
+        "generation": 4,
+        "serviceUid": "incarnation",
+        "service": "pod-service",
+        "attemptId": hashlib.sha256(b"synthetic|operation|synthetic/target").hexdigest(),
+        "image": "synthetic/image",
+        "targetImage": "synthetic/target",
+    }
+    retain_sql = "SELECT retain_erasure_upgrade_ack('synthetic-owner',%s,%s::jsonb)"
+    assert pg.execute(retain_sql, ("foreign-token", json.dumps(ack))) == [(False,)]
+    assert pg.execute(retain_sql, ("synthetic|operation|synthetic/target", json.dumps(ack))) == [
+        (True,)
+    ]
+    assert pg.execute(retain_sql, ("synthetic|operation|synthetic/target", json.dumps(ack))) == [
+        (True,)
+    ]
+    assert pg.execute(
+        retain_sql, ("synthetic|operation|synthetic/target", json.dumps({**ack, "generation": 5}))
+    ) == [(False,)]
+    saved = pg.execute(
+        "SELECT status,backend_metadata->'erasure' FROM personal_agent_registry WHERE user_id='synthetic-owner'"
+    )[0]
+    assert saved[0] == "suspended"
+    assert saved[1] == {**receipt, "lateUpgradeAcknowledgement": ack}
 
     pg.execute(
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"

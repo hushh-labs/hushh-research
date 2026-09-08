@@ -337,10 +337,13 @@ or first-run setup. Reserved compute still counts toward the fleet cap. This is
 source-level, PostgreSQL-tested admission, not a deployed erasure receipt.
 
 The snapshot cannot inventory provider work whose acknowledgement has not arrived.
-The frozen registry currently refuses those late ordinary writes too; retaining an
-unknown operation is not proof it drained. An exact-attempt evidence append and
-pod-held log fencing/provider reconciliation must be connected before this phase
-can finish. No compute, key, grant or owner identity is deleted by reservation.
+Ordinary result publication remains refused. A bounded late upgrade acknowledgement
+can now be appended to the reservation only when it matches the captured token,
+service incarnation and target; conflicting replacement is refused and identical
+replay is idempotent. The ordinary upgrade stops after retention. This is evidence
+preservation, not proof the provider drained. Late provisioning/resource creation
+still needs equivalent operation ownership; pod-held log fencing and provider
+reconciliation must be connected before this phase can finish. No compute, key, grant or owner identity is deleted by reservation.
 
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 It does not activate complete account deletion. Public lifecycle completion still needs

@@ -171,6 +171,15 @@ class PersonalAgentRegistryRepo:
     def _db(self) -> Any:
         return self._client if self._client is not None else get_db()
 
+    async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
+        """Append late provider evidence without reopening the reserved owner."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_upgrade_ack(:owner, :lease, CAST(:receipt AS jsonb)) AS retained",
+            {"owner": user_id, "lease": lease, "receipt": json.dumps(receipt)},
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> None:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

@@ -1483,3 +1483,28 @@ async def test_byoc_restart_observes_acknowledged_revision_without_copy_or_repla
     handle = await _backend(ReadOnlyRun()).observe_upgrade(_spec(), receipt)
     assert handle.status == "live" and handle.backend_metadata["source_image"] == SOURCE_NEW
     assert not copy_log.resolved and not copy_log.copied
+
+
+@pytest.mark.asyncio
+async def test_late_acknowledgement_is_retained_without_resuming_upgrade(service_env):
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+    registry.record_image_upgrade = AsyncMock(return_value=False)
+    registry.retain_erasure_upgrade_ack = AsyncMock(return_value=True)
+
+    class LateBackend(FakeUpgradingBackend):
+        async def upgrade(self, spec):
+            await asyncio.to_thread(spec.on_upgrade_ack, {"attemptId": spec.upgrade_attempt_id})
+            pytest.fail("erasure-retained acknowledgement reopened ordinary upgrade execution")
+
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=LateBackend())
+    with pytest.raises(RuntimeError, match="retained for erasure"):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    retained = registry.retain_erasure_upgrade_ack.call_args.kwargs
+    assert retained["user_id"] == "uid-1"
+    assert retained["lease"] == registry.rows["uid-1"]["backend_metadata"]["upgradeLease"]
+    assert retained["receipt"]["targetImage"] == SOURCE_NEW
+    registry.retain_erasure_upgrade_ack.assert_awaited_once()
