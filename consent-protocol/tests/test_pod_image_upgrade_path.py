@@ -1335,3 +1335,63 @@ async def test_changed_claimed_host_never_reaches_upgrade_provider(service_env, 
     with pytest.raises(RuntimeError, match="changed before execution"):
         await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
     assert backend.specs == [] and narrative == []
+
+
+@pytest.mark.asyncio
+async def test_upgrade_acknowledgement_is_persisted_before_provider_continues(service_env):
+    import asyncio
+
+    pas, _ = service_env
+    registry = FakeRegistry({"uid-1": _row()})
+
+    class AcknowledgingBackend(FakeUpgradingBackend):
+        async def upgrade(self, spec):
+            receipt = {"version": 1, "attemptId": spec.upgrade_attempt_id, "generation": 4}
+            await asyncio.to_thread(spec.on_upgrade_ack, receipt)
+            stored = registry.rows["uid-1"]["backend_metadata"]
+            assert stored["upgradeAcknowledgement"] == {**receipt, "targetImage": SOURCE_NEW}
+            assert stored["upgradeLease"]
+            raise RuntimeError("synthetic polling interrupted")
+
+    service = pas.PersonalAgentProvisioningService(
+        registry=registry, backend=AcknowledgingBackend()
+    )
+    with pytest.raises(RuntimeError, match="polling interrupted"):
+        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    assert registry.rows["uid-1"]["backend_metadata"]["upgradeLease"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("persistence_fails", [False, True])
+async def test_byoc_upgrade_polls_only_after_durable_acknowledgement(copy_log, persistence_fails):
+    from dataclasses import replace
+
+    acknowledged = []
+
+    class ReceiptRun(FakeRun):
+        polls = 0
+
+        def replace_service(self, name, body, **kwargs):
+            result = super().replace_service(name, body, **kwargs)
+            result["metadata"]["generation"] = 4
+            return result
+
+        def wait_ready(self, name, **kwargs):
+            self.polls += 1
+            assert acknowledged and kwargs["expected_generation"] == 4
+            return super().wait_ready(name, **kwargs)
+
+    def persist(receipt):
+        if persistence_fails:
+            raise RuntimeError("synthetic persistence unavailable")
+        acknowledged.append(receipt)
+
+    run = ReceiptRun(ugb._service_name(HUSHH_ID), existing_digest=OLD)
+    spec = replace(_spec(), on_upgrade_ack=persist)
+    if persistence_fails:
+        with pytest.raises(RuntimeError, match="persistence unavailable"):
+            await _backend(run).upgrade(spec)
+        assert run.polls == 0
+    else:
+        await _backend(run).upgrade(spec)
+        assert run.polls == 1

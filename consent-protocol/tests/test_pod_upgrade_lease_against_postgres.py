@@ -407,6 +407,17 @@ async def test_uncertain_upgrade_retains_admission_until_terminal_publication(pg
         user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
     )
     observed = await repo.get(_USER)
+    receipt = {"attemptId": "synthetic-attempt", "generation": 4}
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=observed["backend_metadata"],
+        backend_metadata={**observed["backend_metadata"], "upgradeAcknowledgement": receipt},
+        retain_lease=True,
+    )
+    # The worker's pre-ack snapshot must not erase the durable acknowledgement
+    # when it subsequently records a polling timeout.
     assert await repo.record_image_upgrade(
         user_id=_USER,
         observed=observed,
@@ -423,6 +434,7 @@ async def test_uncertain_upgrade_retains_admission_until_terminal_publication(pg
     )
     observed = await repo.get(_USER)
     assert observed["backend_metadata"]["upgradeLease"] == lease
+    assert observed["backend_metadata"]["upgradeAcknowledgement"] == receipt
     assert await repo.record_image_upgrade(
         user_id=_USER,
         observed=observed,

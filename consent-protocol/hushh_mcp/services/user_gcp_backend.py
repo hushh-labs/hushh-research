@@ -1024,16 +1024,27 @@ class UserGcpBackend:
         changed = image_digest != previous_digest
         svc: Optional[dict[str, Any]] = existing
         if changed:
-            await asyncio.to_thread(
+            acknowledged = await asyncio.to_thread(
                 client.replace_service,
                 name,
                 client.merge_for_replace(existing, config, revision_nonce=spec.upgrade_attempt_id),
                 expected_uid=expected_uid,
             )
+            acknowledgement_options = {}
+            if spec.on_upgrade_ack is not None:
+                receipt = GcpRunClient.upgrade_acknowledgement(
+                    acknowledged,
+                    name=name,
+                    expected_uid=expected_uid,
+                    attempt_id=spec.upgrade_attempt_id or "",
+                )
+                await asyncio.to_thread(spec.on_upgrade_ack, receipt)
+                acknowledgement_options["expected_generation"] = receipt["generation"]
             ready, svc = await asyncio.to_thread(
                 client.wait_ready,
                 name,
                 expected_uid=expected_uid,
+                **acknowledgement_options,
                 **(
                     {"expected_revision_nonce": spec.upgrade_attempt_id}
                     if spec.upgrade_attempt_id

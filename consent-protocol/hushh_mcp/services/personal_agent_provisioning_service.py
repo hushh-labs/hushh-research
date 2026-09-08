@@ -1338,6 +1338,26 @@ class PersonalAgentProvisioningService:
             if published is not True:
                 raise RuntimeError("image upgrade result publication lost authority")
 
+        owner_loop = asyncio.get_running_loop()
+
+        def persist_acknowledgement(receipt: dict[str, Any]) -> None:
+            # Backends call this from their worker thread. Persist through the
+            # same token/host CAS before polling; timeout retains uncertainty.
+            if receipt.get("attemptId") != spec.upgrade_attempt_id:
+                raise RuntimeError("upgrade acknowledgement attempt mismatch")
+            future = asyncio.run_coroutine_threadsafe(
+                publish_upgrade(
+                    backend_metadata={
+                        **claimed_metadata,
+                        "upgradeAcknowledgement": {**receipt, "targetImage": current_image},
+                    },
+                    retain_lease=True,
+                ),
+                owner_loop,
+            )
+            future.result(timeout=30)
+
+        spec = replace(spec, on_upgrade_ack=persist_acknowledgement)
         old_meta = dict(row.get("backend_metadata") or {})
         old_meta.pop("upgradeLease", None)
         previous = running_image(row)

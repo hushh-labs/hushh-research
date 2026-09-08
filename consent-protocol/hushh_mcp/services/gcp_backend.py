@@ -570,16 +570,27 @@ class GcpBackend:
             except (KeyError, IndexError, TypeError):
                 previous = None
             tag = str(self._image or "").rsplit(":", 1)[-1] or "latest"
-            client.replace_service(
+            acknowledged = client.replace_service(
                 name,
                 client.merge_for_replace(
                     existing, config, revision_nonce=spec.upgrade_attempt_id or f"image-{tag}"
                 ),
                 expected_uid=expected_uid,
             )
+            acknowledgement_options = {}
+            if spec.on_upgrade_ack is not None:
+                receipt = GcpRunClient.upgrade_acknowledgement(
+                    acknowledged,
+                    name=name,
+                    expected_uid=expected_uid,
+                    attempt_id=spec.upgrade_attempt_id or "",
+                )
+                spec.on_upgrade_ack(receipt)
+                acknowledgement_options["expected_generation"] = receipt["generation"]
             ready, svc = client.wait_ready(
                 name,
                 expected_uid=expected_uid,
+                **acknowledgement_options,
                 **(
                     {"expected_revision_nonce": spec.upgrade_attempt_id}
                     if spec.upgrade_attempt_id

@@ -36,6 +36,7 @@ HusshID/spaceID, the HMAC phone hash, the pod's PUBLIC key, and version pins.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from dataclasses import field as dataclass_field
 from typing import Any, Optional, Protocol, runtime_checkable
@@ -129,6 +130,10 @@ class PodSpec:
     expected_service_uid: Optional[str] = None
     # Opaque binding to the existing registry upgrade reservation.
     upgrade_attempt_id: Optional[str] = None
+    # Called off the event loop after provider acknowledgement, before polling.
+    on_upgrade_ack: Optional[Callable[[dict[str, Any]], None]] = dataclass_field(
+        default=None, repr=False, compare=False
+    )
 
     # -- the two axes, per person -----------------------------------------------
     #

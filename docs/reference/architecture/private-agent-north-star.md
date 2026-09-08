@@ -381,9 +381,11 @@ before claiming the lifecycle complete.
    New hub upgrades also stamp the revision template with an opaque digest of
    the registry attempt; readiness polling refuses another or missing binding
    and requires a real controller generation. This detects a replaced attempt,
-   but is not a durable provider acknowledgement: receipt persistence and restart
-   reconciliation are still required before automatically releasing an unresolved
-   operation. Unrelated writers can preserve template annotations, so a matching
+   and replacement acknowledgement is persisted through the same registry CAS
+   before polling: service UID, generation, attempt, deployed image and requested
+   target. Failure to persist stops polling and retains admission. A later timeout
+   cannot erase that receipt. Restart reconciliation is still required before
+   automatically releasing an unresolved operation. Unrelated writers can preserve template annotations, so a matching
    annotation alone is never a complete recovery proof.
 6. **Migration is a first-class product surface.** A person who started on the hosted tier
    must be able to move their agent into their own project with one click, keeping the same

@@ -782,3 +782,46 @@ def test_upgrade_attempt_waits_for_its_controller_generation():
         "pod", timeout_s=1, interval_s=0, expected_revision_nonce="owned-attempt"
     )
     assert ready and run.polls == 2
+
+
+@pytest.mark.parametrize("field", [None, "uid", "name", "generation", "nonce", "image"])
+def test_upgrade_acknowledgement_requires_exact_provider_binding(field):
+    service = {
+        "metadata": {"name": "pod", "uid": "uid", "generation": 4},
+        "spec": {
+            "template": {
+                "metadata": {"annotations": {"hussh/restart-nonce": "attempt"}},
+                "spec": {"containers": [{"image": "synthetic/image@sha256:123"}]},
+            }
+        },
+    }
+    if field in {"uid", "name", "generation"}:
+        service["metadata"][field] = None
+    elif field == "nonce":
+        service["spec"]["template"]["metadata"]["annotations"].clear()
+    elif field == "image":
+        service["spec"]["template"]["spec"]["containers"] = []
+    if field is not None:
+        with pytest.raises(RuntimeError):
+            GcpRunClient.upgrade_acknowledgement(
+                service, name="pod", expected_uid="uid", attempt_id="attempt"
+            )
+    else:
+        receipt = GcpRunClient.upgrade_acknowledgement(
+            service, name="pod", expected_uid="uid", attempt_id="attempt"
+        )
+        assert receipt == {
+            "version": 1,
+            "service": "pod",
+            "serviceUid": "uid",
+            "generation": 4,
+            "attemptId": "attempt",
+            "image": "synthetic/image@sha256:123",
+        }
+
+
+def test_readiness_refuses_a_generation_after_its_acknowledgement():
+    service = _svc(generation=5, observed=5, ready="True")
+    run = _ScriptedRun([service])
+    with pytest.raises(RuntimeError, match="acknowledged generation changed"):
+        run.wait_ready("pod", timeout_s=1, interval_s=0, expected_generation=4)

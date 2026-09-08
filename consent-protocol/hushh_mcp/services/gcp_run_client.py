@@ -363,6 +363,42 @@ class GcpRunClient:
         return result
 
     @staticmethod
+    def upgrade_acknowledgement(
+        service: dict[str, Any], *, name: str, expected_uid: str, attempt_id: str
+    ) -> dict[str, Any]:
+        """Narrow receipt from the replacement response; never a readiness claim."""
+        GcpRunClient.require_service_uid(service, expected_uid)
+        metadata = service.get("metadata") or {}
+        template = (service.get("spec") or {}).get("template") or {}
+        nonce = ((template.get("metadata") or {}).get("annotations") or {}).get(
+            "hussh/restart-nonce"
+        )
+        generation = metadata.get("generation")
+        containers = (template.get("spec") or {}).get("containers") or []
+        image = (
+            containers[0].get("image") if containers and isinstance(containers[0], dict) else None
+        )
+        if (
+            not attempt_id
+            or nonce != attempt_id
+            or metadata.get("name") != name
+            or not isinstance(generation, int)
+            or isinstance(generation, bool)
+            or generation < 1
+            or not isinstance(image, str)
+            or not image.strip()
+        ):
+            raise RuntimeError("Cloud Run upgrade acknowledgement unverified")
+        return {
+            "version": 1,
+            "service": name,
+            "serviceUid": expected_uid,
+            "generation": generation,
+            "attemptId": attempt_id,
+            "image": image,
+        }
+
+    @staticmethod
     def service_uid(service: Optional[dict[str, Any]]) -> str:
         metadata = service.get("metadata") if isinstance(service, dict) else None
         uid = metadata.get("uid") if isinstance(metadata, dict) else None
@@ -574,6 +610,7 @@ class GcpRunClient:
         interval_s: float = 3.0,
         expected_uid: Optional[str] = None,
         expected_revision_nonce: Optional[str] = None,
+        expected_generation: Optional[int] = None,
     ) -> tuple[bool, Optional[dict[str, Any]]]:
         """Poll until the service's Ready condition is True (ok) or False (failed),
         or the timeout elapses. Returns (ready, last_service_json).
@@ -614,6 +651,10 @@ class GcpRunClient:
                     or generation < 1
                 ):
                     raise RuntimeError("Cloud Run upgrade generation unverified")
+            if expected_generation is not None and (
+                ((svc or {}).get("metadata") or {}).get("generation") != expected_generation
+            ):
+                raise RuntimeError("Cloud Run acknowledged generation changed")
             last = svc
             if not self._status_is_current(svc):
                 # A stale status is not a verdict. Keep polling rather than reading the
