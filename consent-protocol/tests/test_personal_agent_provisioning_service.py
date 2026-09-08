@@ -1063,3 +1063,114 @@ async def test_writer_revocation_requires_owner_admission_and_outcome_readback(m
     if case in {"admission_refused", "readback_changed"}:
         assert events == ["writerAdmission"]
     assert registry.deleted == [] and registry.rows[_UID]["status"] == "suspended"
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "retained",
+        "foreign",
+        "missing_identity",
+        "writer_reenabled",
+        "retention_refused",
+        "preflight_missing",
+    ],
+)
+async def test_bucket_coordinator_rechecks_writer_before_final_admission(monkeypatch, case):
+    import asyncio
+
+    service = _svc()
+    registry = service._registry
+    identity = {
+        "name": "one-pod-x-blobs",
+        "generation": "10",
+        "projectNumber": "123",
+        "timeCreated": "2026-09-01T00:00:00Z",
+    }
+    inventory = {
+        "plannedResources": [{"type": "gcs_bucket", "id": identity["name"]}],
+        "resourceObservations": []
+        if case == "missing_identity"
+        else [
+            {
+                "type": "gcs_bucket",
+                "id": identity["name"],
+                "disposition": "created",
+                "identity": identity,
+            }
+        ],
+    }
+    reservation = {
+        "ownerId": "foreign" if case == "foreign" else _UID,
+        "attemptId": "erase-one",
+        "registrySnapshot": {
+            "user_id": _UID,
+            "user_cloud_project": "synthetic-project",
+            "user_cloud_bootstrap_sa": "bootstrap",
+        },
+        "substrateInventory": inventory,
+        "writerDisabled": {"status": "disabled"},
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+
+    async def writer(**kwargs):
+        events.append("writer_recheck")
+        if case == "writer_reenabled":
+            raise RuntimeError("writer enabled")
+
+    async def retain(*, user_id, reservation, stage, receipt):
+        assert user_id == _UID and receipt["attemptId"] == "erase-one"
+        events.append(stage)
+        if case == "retention_refused":
+            return False
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {**reservation, stage: receipt}
+        return True
+
+    def builder(**kwargs):
+        async def delete(action):
+            assert action["resourceObservation"]["identity"] == identity
+            raw = {"bucketIdentity": identity, "metageneration": "4"}
+            events.append("object_cleanup")
+            for stage, status in (
+                ("bucketAdmission", "admitted"),
+                ("bucketAcknowledgement", "acknowledged"),
+                ("bucketDeletion", "deleted"),
+            ):
+                if not await asyncio.to_thread(
+                    kwargs["retain_bucket_receipt"], stage, {**raw, "status": status}
+                ):
+                    raise RuntimeError("receipt refused")
+                if stage == "bucketAdmission":
+                    events.append("final_delete")
+
+        return delete
+
+    token = Mock(return_value="synthetic")
+    provider = Mock(side_effect=builder)
+    registry.retain_erasure_bucket_receipt = AsyncMock(side_effect=retain)
+    registry.verify_erasure_bucket_preflight = AsyncMock(return_value=case != "preflight_missing")
+    monkeypatch.setattr(service, "_revoke_reserved_runtime_writer", writer)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.mint_bootstrap_token", token)
+    monkeypatch.setattr("hushh_mcp.services.byoc_substrate_teardown.build_gcp_deleter", provider)
+    if case == "retained":
+        await service._erase_reserved_bucket(user_id=_UID)
+        assert events == [
+            "object_cleanup",
+            "writer_recheck",
+            "bucketAdmission",
+            "final_delete",
+            "bucketAcknowledgement",
+            "bucketDeletion",
+        ]
+    else:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_bucket(user_id=_UID)
+        assert "final_delete" not in events
+    if case in {"foreign", "missing_identity", "preflight_missing"}:
+        token.assert_not_called()
+        provider.assert_not_called()
+    assert registry.deleted == []

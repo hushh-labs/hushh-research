@@ -428,7 +428,15 @@ def revoke_runtime_writer(
     return {**receipt, "status": "disabled"}
 
 
-def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = None):
+def build_gcp_deleter(
+    *,
+    token: str,
+    project: str,
+    region: str,
+    session: Any = None,
+    bucket_erasure_state: dict[str, Any] | None = None,
+    retain_bucket_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
+):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 
     Runs under the person's bootstrap-impersonated token, which is the whole
@@ -444,6 +452,9 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
 
     import logging  # noqa: PLC0415
 
+    if bucket_erasure_state is not None and retain_bucket_receipt is None:
+        raise SubstrateDeleteError("bucket recovery requires durable receipt retention")
+    bucket_state = deepcopy(bucket_erasure_state or {})
     log = logging.getLogger(__name__)
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
@@ -506,20 +517,58 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                 raise SubstrateDeleteError("bucket metageneration unverified")
             return meta
 
-        current_metageneration()
-        _empty_bucket(bucket)
-        meta = current_metageneration()
-        # This protects metadata changes, not atomic bucket-incarnation changes.
-        # Exclusive lifecycle admission and writer quiescence remain required.
-        response = session.delete(
-            url,
-            headers=headers,
-            params={"ifMetagenerationMatch": meta},
-            timeout=30,
-            allow_redirects=False,
-        )
-        if response.status_code not in (200, 204):
-            raise SubstrateDeleteError("bucket conditional deletion unconfirmed")
+        def retain(stage: str, receipt: dict[str, Any]) -> None:
+            if retain_bucket_receipt is None:
+                return
+            try:
+                retained = retain_bucket_receipt(stage, deepcopy(receipt)) is True
+            except Exception:
+                retained = False
+            if not retained:
+                raise SubstrateDeleteError("bucket receipt retention unconfirmed")
+            bucket_state[stage] = deepcopy(receipt)
+
+        admission = bucket_state.get("bucketAdmission")
+        acknowledgement = bucket_state.get("bucketAcknowledgement")
+        completed = bucket_state.get("bucketDeletion")
+        if bucket_state and (
+            set(bucket_state) - {"bucketAdmission", "bucketAcknowledgement", "bucketDeletion"}
+            or not isinstance(admission, dict)
+            or set(admission) != {"bucketIdentity", "metageneration", "status"}
+            or admission.get("bucketIdentity") != expected
+            or admission.get("status") != "admitted"
+            or not isinstance(admission.get("metageneration"), str)
+            or not admission["metageneration"].isascii()
+            or not admission["metageneration"].isdigit()
+            or not 1 <= len(admission["metageneration"]) <= 20
+            or int(admission["metageneration"]) <= 0
+        ):
+            raise SubstrateDeleteError("bucket recovery identity unverified")
+        if admission:
+            if acknowledgement != {**admission, "status": "acknowledged"}:
+                raise SubstrateDeleteError("bucket deletion acknowledgement unresolved")
+            if completed is not None and completed != {**admission, "status": "deleted"}:
+                raise SubstrateDeleteError("bucket deletion receipt invalid")
+        else:
+            current_metageneration()
+            # Retention pauses here must not consume final DELETE admission.
+            _empty_bucket(bucket)
+            meta = current_metageneration()
+            admission = {"bucketIdentity": expected, "metageneration": meta, "status": "admitted"}
+            # The coordinator rechecks writer revocation and retains owner-bound
+            # admission before allowing this final provider mutation.
+            retain("bucketAdmission", admission)
+            response = session.delete(
+                url,
+                headers=headers,
+                params={"ifMetagenerationMatch": meta},
+                timeout=30,
+                allow_redirects=False,
+            )
+            if response.status_code not in (200, 204):
+                raise SubstrateDeleteError("bucket conditional deletion unconfirmed")
+            retain("bucketAcknowledgement", {**admission, "status": "acknowledged"})
+        # An acknowledged retry observes only; never repeat DELETE or object cleanup.
         absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
         retained = session.get(
             url,
@@ -530,6 +579,7 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         )
         if absent.status_code != 404 or retained.status_code != 404:
             raise SubstrateDeleteError("bucket retained generation remains or absence unverified")
+        retain("bucketDeletion", {**admission, "status": "deleted"})
 
     def _empty_bucket(bucket: str) -> None:
         from urllib.parse import quote
@@ -826,6 +876,8 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "gcs_bucket" and retain_bucket_receipt is not None and not observation:
+            raise SubstrateDeleteError("coordinated bucket cleanup requires creation evidence")
         if observation:
             if (
                 kind in {"service_account", "secret"}

@@ -2074,6 +2074,117 @@ class PersonalAgentProvisioningService:
         if not await append("writerDisabled", result):
             raise RuntimeError("runtime writer revocation retention unconfirmed")
 
+    async def _erase_reserved_bucket(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter, plan_teardown
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("bucket erasure guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        inventory = reservation.get("substrateInventory") or {}
+        retain = getattr(self._registry, "retain_erasure_bucket_receipt", None)
+        project = snapshot.get("user_cloud_project")
+        bootstrap_ref = str(snapshot.get("user_cloud_bootstrap_sa") or "").removeprefix(
+            "serviceAccount:"
+        )
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or not reservation.get("writerDisabled")
+            or not project
+            or not bootstrap_ref
+            or retain is None
+        ):
+            raise RuntimeError("bucket erasure reservation unavailable")
+        buckets = [
+            item
+            for item in inventory.get("plannedResources", [])
+            if isinstance(item, dict) and item.get("type") == "gcs_bucket"
+        ]
+        if len(buckets) != 1:
+            raise RuntimeError("bucket erasure inventory unresolved")
+        bucket = buckets[0]
+        observations = [
+            item
+            for item in inventory.get("resourceObservations", [])
+            if isinstance(item, dict)
+            and item.get("type") == "gcs_bucket"
+            and item.get("id") == bucket.get("id")
+            and item.get("disposition") == "created"
+        ]
+        if len(observations) != 1:
+            raise RuntimeError("bucket creation evidence unavailable")
+        action = plan_teardown([{**bucket, "resourceObservation": observations[0]}])[0]
+        attempt = reservation["attemptId"]
+        loop = asyncio.get_running_loop()
+
+        async def append(stage: str, raw: dict) -> bool:
+            nonlocal reservation
+            if stage == "bucketAdmission":
+                await self._revoke_reserved_runtime_writer(user_id=user_id)
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not observed
+                or observed.get("status") != "suspended"
+                or saved.get("ownerId") != user_id
+                or saved.get("attemptId") != attempt
+                or saved.get("registrySnapshot") != snapshot
+                or saved.get("substrateInventory") != inventory
+            ):
+                return False
+            receipt = {**raw, "ownerId": user_id, "attemptId": attempt}
+            if not await retain(user_id=user_id, reservation=saved, stage=stage, receipt=receipt):
+                return False
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not observed
+                or observed.get("status") != "suspended"
+                or saved.get("ownerId") != user_id
+                or saved.get("attemptId") != attempt
+                or saved.get(stage) != receipt
+            ):
+                return False
+            reservation = saved
+            return True
+
+        def checkpoint(stage: str, raw: dict) -> bool:
+            return asyncio.run_coroutine_threadsafe(append(stage, raw), loop).result(timeout=30)
+
+        states = {}
+        for stage in ("bucketAdmission", "bucketAcknowledgement", "bucketDeletion"):
+            if stage in reservation:
+                receipt = reservation[stage]
+                if (
+                    not isinstance(receipt, dict)
+                    or receipt.get("ownerId") != user_id
+                    or receipt.get("attemptId") != attempt
+                ):
+                    raise RuntimeError("bucket recovery receipt owner unverified")
+                states[stage] = {
+                    key: value
+                    for key, value in receipt.items()
+                    if key not in {"ownerId", "attemptId"}
+                }
+        preflight = getattr(self._registry, "verify_erasure_bucket_preflight", None)
+        if preflight is None or not await preflight(user_id=user_id, reservation=reservation):
+            raise RuntimeError("bucket erasure database contract unavailable")
+        token = await asyncio.to_thread(mint_bootstrap_token, bootstrap_sa=bootstrap_ref)
+        deleter = build_gcp_deleter(
+            token=token,
+            project=project,
+            region="",
+            bucket_erasure_state=states,
+            retain_bucket_receipt=checkpoint,
+        )
+        await deleter(action)
+
     async def deprovision(
         self,
         *,
@@ -2115,6 +2226,7 @@ class PersonalAgentProvisioningService:
                     await self._erase_reserved_compute(user_id=user_id)
                     await self._retain_reserved_substrate_inventory(user_id=user_id)
                     await self._revoke_reserved_runtime_writer(user_id=user_id)
+                    await self._erase_reserved_bucket(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

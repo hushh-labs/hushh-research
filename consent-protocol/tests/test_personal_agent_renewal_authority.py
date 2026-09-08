@@ -457,6 +457,13 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/920_personal_agent_substrate_inventory.sql")
     pg.apply_file(ROOT / "db/migrations/parked/921_personal_agent_writer_revocation.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/922_personal_agent_bucket_erasure.sql")
+    bucket_identity = {
+        "name": "synthetic-bucket",
+        "generation": "10",
+        "projectNumber": "123",
+        "timeCreated": "2026-09-01T00:00:00Z",
+    }
     runtime_email = "runtime@synthetic-project.iam.gserviceaccount.com"
     runtime_identity = {
         "name": f"projects/synthetic-project/serviceAccounts/{runtime_email}",
@@ -488,6 +495,14 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             }
         ],
     }
+    inventory["resourceObservations"].append(
+        {
+            "type": "gcs_bucket",
+            "id": "synthetic-bucket",
+            "disposition": "created",
+            "identity": bucket_identity,
+        }
+    )
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
         "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
@@ -690,6 +705,14 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         )[0][0]
 
     disabled = {**writer, "status": "disabled"}
+
+    def bucket_preflight():
+        return pg.execute(
+            "SELECT verify_erasure_bucket_preflight('synthetic-owner','attempt-one',%s::jsonb)",
+            (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),),
+        )[0][0]
+
+    assert not bucket_preflight()
     assert not retain_writer("writerDisabled", disabled)
     for bad in (
         {**writer, "ownerId": "foreign"},
@@ -704,6 +727,36 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert not retain_writer("writerAdmission", writer)
     assert retain_writer("writerDisabled", disabled)
     assert retain_writer("writerDisabled", disabled)
+    assert bucket_preflight()
+    bucket = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "bucketIdentity": bucket_identity,
+        "metageneration": "4",
+        "status": "admitted",
+    }
+
+    def retain_bucket(stage, value):
+        return pg.execute(
+            "SELECT retain_erasure_bucket_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(value),
+            ),
+        )[0][0]
+
+    assert not retain_bucket("bucketDeletion", {**bucket, "status": "deleted"})
+    assert not retain_bucket("bucketAdmission", {**bucket, "ownerId": "foreign"})
+    assert not retain_bucket(
+        "bucketAdmission", {**bucket, "bucketIdentity": {**bucket_identity, "generation": "11"}}
+    )
+    assert retain_bucket("bucketAdmission", bucket)
+    assert not retain_bucket("bucketAdmission", bucket)
+    assert not retain_bucket("bucketDeletion", {**bucket, "status": "deleted"})
+    assert retain_bucket("bucketAcknowledgement", {**bucket, "status": "acknowledged"})
+    assert retain_bucket("bucketAcknowledgement", {**bucket, "status": "acknowledged"})
+    assert retain_bucket("bucketDeletion", {**bucket, "status": "deleted"})
     saved = provision_row(pg)
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
@@ -714,6 +767,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
     )
     assert not retain_writer("writerDisabled", disabled)
+    assert not bucket_preflight()
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.
     assert not retain_deletion(completed)

@@ -429,8 +429,22 @@ both live absence and the retained soft-deleted generation; retention is incompl
 GCS log HTTP runs off the event loop; cancelled write callers wait for their worker
 to terminate before cancellation completes. That process-local join is not durable
 upload reconciliation or proof of remote completion after a transport error.
-Metageneration is not an atomic incarnation precondition: writer quiescence, exclusive
-lifecycle admission, interrupted-operation recovery and live acceptance remain outstanding.
+Metageneration is not an atomic incarnation precondition. The remaining bucket integration
+must preserve the existing lifecycle reservation and recheck the captured writer's disabled
+state and bucket identity before final deletion. Current pod writes use single-request
+media uploads. Final deletion acknowledgement followed by live-bucket and captured
+soft-deleted-generation absence is the required provider-visible outcome; it does not
+claim that every earlier HTTP request drained. This inference uses Cloud Storage's
+[nonempty-bucket deletion refusal](https://docs.cloud.google.com/storage/docs/json_api/v1/buckets/delete)
+and [strongly consistent bucket read-after-delete](https://docs.cloud.google.com/storage/docs/consistency).
+Keep exact-object-generation cleanup retryable before final bucket DELETE admission:
+retention can pause that work without a bucket DELETE having occurred. Retain final
+DELETE admission and acknowledgement separately; acknowledged retries observe, while
+uncertain acknowledgements remain unresolved. Dev migration 922 and the coordinator
+now draft those bucket stages under the existing immutable erasure reservation. Missing
+creation evidence refuses before provider access; final admission rechecks writer
+revocation. Other resource cleanup and live acceptance remain open. These bucket
+changes are not deployed.
 Only bounded identity fields
 are retained, never provider response bodies. Pod service-account creation likewise retains
 validated project/email and the stable numeric identity; adoption or missing identity creates

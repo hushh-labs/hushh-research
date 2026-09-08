@@ -36,6 +36,7 @@
     "918_personal_agent_erasure_memory_binding.sql",
     "919_personal_agent_compute_erasure.sql",
     "920_personal_agent_substrate_inventory.sql",
-    "921_personal_agent_writer_revocation.sql"
+    "921_personal_agent_writer_revocation.sql",
+    "922_personal_agent_bucket_erasure.sql"
   ]
 }

@@ -837,7 +837,20 @@ async def test_receipted_secret_cleanup_requires_identity_and_conditional_delete
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("failure", [None, "foreign_project", "replaced", "retained"])
+@pytest.mark.parametrize(
+    "failure",
+    [
+        None,
+        "foreign_project",
+        "replaced",
+        "retained",
+        "admission_refused",
+        "ack_refused",
+        "acknowledged_retry",
+        "uncertain_retry",
+        "object_retained",
+    ],
+)
 async def test_observed_bucket_checks_project_incarnation_and_retention(failure):
     session = _Session()
     identity = {
@@ -867,7 +880,7 @@ async def test_observed_bucket_checks_project_incarnation_and_retention(failure)
             },
         ),
     )
-    deleted = False
+    deleted = failure == "acknowledged_retry"
 
     def metadata(url, kwargs):
         if kwargs.get("params", {}).get("softDeleted"):
@@ -891,14 +904,66 @@ async def test_observed_bucket_checks_project_incarnation_and_retention(failure)
         deleted = True
         return _Resp(204)
 
-    session.rule("GET", "/one-pod-x-blobs/o", _Resp(200))
+    session.rule(
+        "GET",
+        "/one-pod-x-blobs/o",
+        lambda _url, kwargs: _Resp(
+            200,
+            {"items": [{"name": "held", "generation": "1"}]}
+            if failure == "object_retained" and kwargs.get("params", {}).get("softDeleted")
+            else {},
+        ),
+    )
     session.rule("GET", "/b/", metadata)
     session.rule("DELETE", "/b/", remove)
-    if failure:
+    checkpoints = []
+    admission = {"bucketIdentity": identity, "metageneration": "4", "status": "admitted"}
+    state = {}
+    if failure in {"acknowledged_retry", "uncertain_retry"}:
+        state["bucketAdmission"] = admission
+    if failure == "acknowledged_retry":
+        state["bucketAcknowledgement"] = {**admission, "status": "acknowledged"}
+
+    def retain(stage, receipt):
+        checkpoints.append(stage)
+        if stage == "bucketAdmission":
+            assert not deleted
+        if failure == "admission_refused" and stage == "bucketAdmission":
+            return False
+        if failure == "ack_refused" and stage == "bucketAcknowledgement":
+            return False
+        assert receipt["bucketIdentity"] == identity
+        return True
+
+    deleter = build_gcp_deleter(
+        token="tok",  # noqa: S106 -- scripted provider
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        bucket_erasure_state=state,
+        retain_bucket_receipt=retain,
+    )
+    if failure and failure != "acknowledged_retry":
         with pytest.raises(SubstrateDeleteError):
-            await _deleter(session)(action)
+            await deleter(action)
     else:
-        await _deleter(session)(action)
+        await deleter(action)
+    if failure in {"object_retained", "uncertain_retry"}:
+        assert checkpoints == []
+        assert not any(method == "DELETE" for method, _, _ in session.calls)
+    if failure == "admission_refused":
+        assert checkpoints == ["bucketAdmission"] and not deleted
+    if failure == "ack_refused":
+        assert checkpoints == ["bucketAdmission", "bucketAcknowledgement"]
+        before = list(session.calls)
+        with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
+            await deleter(action)
+        assert not any(method == "DELETE" for method, _, _ in session.calls[len(before) :])
+    if failure == "acknowledged_retry":
+        assert checkpoints == ["bucketDeletion"]
+        assert not any(method == "DELETE" or url.endswith("/o") for method, url, _ in session.calls)
+    if failure is None:
+        assert checkpoints == ["bucketAdmission", "bucketAcknowledgement", "bucketDeletion"]
     if failure in {"foreign_project", "replaced"}:
         assert not deleted
         assert not any(url.endswith("/o") for _, url, _ in session.calls)
@@ -985,3 +1050,22 @@ def test_runtime_writer_revocation_preserves_recovery_and_never_replays_disable(
         else 0
     )
     assert all(options["allow_redirects"] is False for _, _, options in session.calls)
+
+
+async def test_coordinated_bucket_never_falls_back_to_unreceipted_delete():
+    session = _Session()
+
+    def unexpected(*args):
+        raise AssertionError("no evidence may reach receipt retention")
+
+    deleter = build_gcp_deleter(
+        token="tok",  # noqa: S106 -- scripted provider
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        bucket_erasure_state={},
+        retain_bucket_receipt=unexpected,
+    )
+    with pytest.raises(SubstrateDeleteError, match="requires creation evidence"):
+        await deleter({"type": "gcs_bucket", "id": "unproven-bucket"})
+    assert session.calls == []
