@@ -18,7 +18,7 @@ import asyncio
 import json
 import uuid
 from copy import deepcopy
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 from db.db_client import get_db
@@ -61,11 +61,6 @@ _LIVENESS_CANDIDATE_STATUSES = ("provisioning", "connecting", "provisioned")
 # either way. The only way to see it was to compare this tuple against the writers,
 # which is exactly what the guard beside it now does on every run.
 _STALLED_POD_STATUSES = ("provisioning", "provisioning_failed")
-
-#: How long an image-upgrade lease protects a row before another worker may take
-#: it over. Longer than one upgrade (copy + replace + Ready, ~2 minutes live),
-#: shorter than two reconcile passes.
-_UPGRADE_LEASE_TTL = timedelta(minutes=10)
 
 # Failure code written by mark_provisioning_failed when a 'connecting' row blew its
 # handshake deadline, and read back by the reconcile sweep's retry gate: a heal
@@ -887,9 +882,10 @@ class PersonalAgentRegistryRepo:
         founder's pod within thirty seconds of each other and each counted the
         other pod's copy failure, so the three-attempt cap was reached in two
         passes. The lease is a timestamp inside ``backend_metadata`` (no new
-        column), cleared by the terminal write on either outcome and expired
-        after ten minutes if a worker died holding it. The returned exact token
-        owns result publication; expiry does not drain an admitted provider call.
+        column), cleared only after a known terminal result. Worker death and elapsed
+        time never release admission: the provider may still be executing. The
+        returned exact token owns result publication and uncertain retries remain
+        reserved until provider reconciliation proves a terminal outcome.
         """
         snapshot = upgrade_host_snapshot(observed)
         if (
@@ -930,18 +926,13 @@ class PersonalAgentRegistryRepo:
                     WHERE COALESCE(backend_metadata->observed.key, 'null'::jsonb)
                           IS DISTINCT FROM observed.value
                   )
-              AND (
-                    backend_metadata->>'upgradeLease' IS NULL
-                    OR CAST(split_part(backend_metadata->>'upgradeLease', '|', 1) AS timestamptz)
-                       < CAST(:stale_before AS timestamptz)
-                  )
+              AND backend_metadata->>'upgradeLease' IS NULL
             RETURNING user_id
             """,
             {
                 **observed_params,
                 "user_id": user_id,
                 "lease": lease,
-                "stale_before": (now - _UPGRADE_LEASE_TTL).isoformat(),
             },
         )
         return lease if result.data else None
@@ -955,6 +946,7 @@ class PersonalAgentRegistryRepo:
         previous_metadata: dict,
         observed: Optional[dict],
         liveness_mode: Optional[str] = None,
+        retain_lease: bool = False,
     ) -> bool:
         """Publish only the claiming worker's result, preserving unrelated metadata.
 
@@ -977,14 +969,18 @@ class PersonalAgentRegistryRepo:
             if key != "upgradeLease"
             and (key not in previous_metadata or previous_metadata[key] != value)
         }
-        removed = {key: True for key in previous_metadata if key not in backend_metadata}
+        removed = {
+            key: True
+            for key in previous_metadata
+            if key != "upgradeLease" and key not in backend_metadata
+        }
         result = self._db().execute_raw(
             """
             UPDATE personal_agent_registry AS registry
             SET backend_metadata = (
                     SELECT COALESCE(jsonb_object_agg(item.key, item.value), '{}'::jsonb)
                     FROM jsonb_each(COALESCE(registry.backend_metadata, '{}'::jsonb)) AS item
-                    WHERE item.key <> 'upgradeLease'
+                    WHERE (item.key <> 'upgradeLease' OR CAST(:retain_lease AS boolean))
                       AND NOT (
                           CAST(:removed AS jsonb) ? item.key
                           AND CAST(:previous AS jsonb)->item.key IS NOT DISTINCT FROM item.value
@@ -1018,6 +1014,7 @@ class PersonalAgentRegistryRepo:
                 **observed_params,
                 "user_id": user_id,
                 "expected_lease": expected_lease,
+                "retain_lease": retain_lease,
                 "removed": json.dumps(removed),
                 "previous": json.dumps(previous_metadata),
                 "changes": json.dumps(changes),

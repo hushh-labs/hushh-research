@@ -370,6 +370,14 @@ before claiming the lifecycle complete.
    the existing cloud resolver and rechecks its resolved authority after probing.
    These are optimistic observation checks, not durable compute-incarnation fencing,
    a provisioning reservation, or complete external-memory erasure.
+   Image-upgrade admission now retains its existing registry token after timeout
+   or provider failure; elapsed time never permits a second claimant. Known terminal
+   publication releases it. PostgreSQL checks cover retention and release. This
+   deliberately pauses uncertain upgrades; automated provider reconciliation and
+   protection against every other registry writer remain incomplete. Do not clear
+   an unresolved token based on age or service health alone. Older running hub
+   revisions still use the former expiry rule; drain them before claiming this
+   admission guarantee for a deployed environment.
 6. **Migration is a first-class product surface.** A person who started on the hosted tier
    must be able to move their agent into their own project with one click, keeping the same
    HusshID and everything the agent has learned, with the re-seal happening inside the

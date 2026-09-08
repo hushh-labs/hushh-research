@@ -388,6 +388,7 @@ class FakeRegistry:
         previous_metadata,
         observed,
         liveness_mode=None,
+        retain_lease=False,
     ):
         if self.rows[user_id]["backend_metadata"].get("upgradeLease") != expected_lease:
             return False
@@ -398,7 +399,10 @@ class FakeRegistry:
                 "liveness_mode": liveness_mode,
             }
         )
-        self.rows[user_id]["backend_metadata"] = backend_metadata
+        self.rows[user_id]["backend_metadata"] = {
+            **backend_metadata,
+            **({"upgradeLease": expected_lease} if retain_lease else {}),
+        }
         return True
 
 
@@ -792,7 +796,7 @@ async def test_the_winner_claims_before_it_moves_and_clears_the_lease_after(serv
 
 
 @pytest.mark.asyncio
-async def test_candidates_skip_a_fresh_lease_and_reclaim_a_stale_one(service_env):
+async def test_candidates_skip_every_unresolved_lease(service_env):
     from datetime import datetime, timedelta, timezone
 
     pas, _ = service_env
@@ -814,9 +818,7 @@ async def test_candidates_skip_a_fresh_lease_and_reclaim_a_stale_one(service_env
         r["user_id"] for r in await service.list_upgrade_candidates(current_image=SOURCE_NEW)
     )
 
-    assert out == ["abandoned", "garbage"], (
-        "a fresh lease is skipped; stale or unreadable is not a lock"
-    )
+    assert out == [], "age or malformed metadata cannot prove provider drainage"
 
 
 # ---- an older hub never moves a pod backwards (2026-09-03) ---------------------------
@@ -944,6 +946,8 @@ async def test_a_failure_stamps_when_it_happened(service_env) -> None:
     marker = registry.rows["uid-1"]["backend_metadata"]["upgrade"]
     assert marker["attempts"] == 1
     assert marker["lastAttemptAt"], "the cooldown needs to know when the attempt was"
+    assert marker["outcome"] == "unresolved"
+    assert registry.rows["uid-1"]["backend_metadata"]["upgradeLease"]
 
 
 @pytest.mark.asyncio

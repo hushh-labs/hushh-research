@@ -269,6 +269,7 @@ class _Registry(Protocol):
         previous_metadata: dict,
         observed: Optional[dict],
         liveness_mode: Optional[str] = ...,
+        retain_lease: bool = ...,
     ) -> bool: ...
 
     # OPTIONAL. The fleet-cap denominator. Resolved defensively with ``getattr``
@@ -1193,7 +1194,7 @@ class PersonalAgentProvisioningService:
             # regardless of which image it refers to.
             if str(marker.get("failedImage") or "") == target and _attempted_recently(marker):
                 continue
-            if _lease_is_fresh(((row or {}).get("backend_metadata") or {}).get("upgradeLease")):
+            if ((row or {}).get("backend_metadata") or {}).get("upgradeLease") is not None:
                 continue
             out.append(row)
         return out
@@ -1394,9 +1395,12 @@ class PersonalAgentProvisioningService:
             failure_recorded = False
             try:
                 await publish_upgrade(
+                    # An exception/timeout is not proof that external work stopped.
+                    retain_lease=True,
                     backend_metadata={
                         **old_meta,
                         "upgrade": {
+                            "outcome": "unresolved",
                             "failedImage": current_image,
                             "attempts": attempts,
                             "lastError": reason,

@@ -161,11 +161,11 @@ def test_a_contested_claim_does_not_raise_on_the_lease_value(pg, engine):
     assert _claim(engine) == [], "a held lease was either claimable or unparseable"
 
 
-def test_a_lease_older_than_the_ttl_is_reclaimable(pg, engine):
-    """A worker that died holding the lease must not freeze the pod forever."""
+def test_elapsed_time_does_not_drain_provider_work(pg, engine):
+    """A lost worker can leave an external operation running; age is not drainage."""
     stale = f"{(datetime.now(timezone.utc) - timedelta(minutes=30)).isoformat()}|{_TARGET}"
     _row(pg, lease=stale)
-    assert _claim(engine), "a lease abandoned half an hour ago was never released"
+    assert _claim(engine) == [], "elapsed time admitted overlapping provider work"
 
 
 def test_a_lease_inside_the_ttl_is_not_reclaimable(pg, engine):
@@ -203,8 +203,12 @@ async def test_expired_worker_cannot_publish_over_new_claim(pg, engine):
     _row(pg, lease=stale)
     repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
     observed = await repo.get(_USER)
-    lease = await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
-    assert isinstance(lease, str) and lease != stale
+    # Simulate an independently reconciled/replaced authority; age alone no longer claims.
+    lease = "replacement-owner-token"
+    pg.execute(
+        "UPDATE personal_agent_registry SET backend_metadata=jsonb_build_object('upgradeLease', %s::text) WHERE user_id=%s",
+        (lease, _USER),
+    )
     assert not await repo.record_image_upgrade(
         user_id=_USER,
         observed=observed,
@@ -391,3 +395,41 @@ async def test_equivalent_timestamp_offsets_preserve_claim(pg, engine):
         instant = datetime.fromisoformat(value) if isinstance(value, str) else value
         observed[key] = instant.astimezone(timezone(timedelta(hours=-7))).isoformat()
     assert await repo.claim_image_upgrade(user_id=_USER, target_image=_TARGET, observed=observed)
+
+
+@pytest.mark.asyncio
+async def test_uncertain_upgrade_retains_admission_until_terminal_publication(pg, engine):
+    from db.db_client import DatabaseClient
+
+    _row(pg)
+    repo = PersonalAgentRegistryRepo(client=DatabaseClient(engine=engine))
+    lease = await repo.claim_image_upgrade(
+        user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+    )
+    observed = await repo.get(_USER)
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=observed["backend_metadata"],
+        backend_metadata={"upgrade": {"outcome": "unresolved"}},
+        retain_lease=True,
+    )
+    assert (
+        await repo.claim_image_upgrade(
+            user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+        )
+        is None
+    )
+    observed = await repo.get(_USER)
+    assert observed["backend_metadata"]["upgradeLease"] == lease
+    assert await repo.record_image_upgrade(
+        user_id=_USER,
+        observed=observed,
+        expected_lease=lease,
+        previous_metadata=observed["backend_metadata"],
+        backend_metadata={"image": "terminal"},
+    )
+    assert await repo.claim_image_upgrade(
+        user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
+    )
