@@ -95,6 +95,9 @@ import {
 import { VaultUnlockDialog } from "@/components/vault/vault-unlock-dialog";
 import { PhoneVerificationFlow } from "@/components/auth/phone-verification-flow";
 import { useAuth } from "@/hooks/use-auth";
+import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
+import { getKaiActionById } from "@/lib/voice/kai-action-gateway";
 import { useStepProgress } from "@/lib/progress/step-progress-context";
 import { CacheSyncService } from "@/lib/cache/cache-sync-service";
 import { currentPkmInvalidationEpoch } from "@/lib/cache/pkm-invalidation-epoch";
@@ -1750,10 +1753,14 @@ function ProfilePageContent() {
     updateProfileView({ panel, detail: null }, "push");
   }
 
-  async function submitSupportMessage() {
+  async function submitSupportMessage(messageOverride?: string) {
     if (!user || sendingSupportMessage) return;
 
-    const trimmedMessage = supportMessage.trim();
+    // Voice dictates the message rather than typing it into the composer, and
+    // React state set in the same tick would not be readable here. Every
+    // validation below still runs on it -- a dictated message that is too
+    // short is refused exactly like a typed one.
+    const trimmedMessage = (messageOverride ?? supportMessage).trim();
     const trimmedReplyEmail = supportReplyEmail.trim();
     const presentation = SUPPORT_INTENT_PRESENTATION[supportKind];
 
@@ -2511,6 +2518,115 @@ function ProfilePageContent() {
     vaultAccess.needsVaultCreation,
   ]);
   usePublishVoiceSurfaceMetadata(profileVoiceSurfaceMetadata);
+
+  // Profile's three remaining unwired actions. Registered here rather than in
+  // the global registrar because each genuinely needs this page's state --
+  // the delete flow's vault resolution, the support composer's kind and reply
+  // email, the current marketplace value. profile.sign_out is the exception
+  // and lives in components/agent/global-voice-action-handlers.tsx.
+  useLocalOnboardingActionHandler(
+    "profile.delete_account",
+    async (slots) => {
+      if (slots?.confirmed !== true) {
+        // Deleting an account is the one thing in this app that cannot be
+        // undone, so it never runs on a first utterance -- the person has to
+        // hear what it does and say yes. handleDeleteAccount then resolves
+        // auth and routes to vault unlock on its own, which is a second,
+        // independent gate.
+        return {
+          status: "blocked" as const,
+          summary: "Deleting your account needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.delete_account",
+              slots: { confirmed: true },
+              prompt:
+                "Delete your account permanently? This cannot be undone.",
+              subject: { name: "Your account", detail: user?.email ?? "" },
+              consequence:
+                getKaiActionById("profile.delete_account")?.meaning ?? null,
+              confirmLabel: "Delete account",
+            },
+          },
+        };
+      }
+      void handleDeleteAccount();
+      return {
+        status: "started" as const,
+        summary: "Starting account deletion. You may need to unlock your vault.",
+      };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.marketplace_visibility.toggle",
+    async (slots) => {
+      // handleMarketplaceOptInToggle flips the current value; it is not a
+      // setter. Wired directly, "make me discoverable" would HIDE someone who
+      // already was. So a stated intent is honoured as a target state, and
+      // only a bare "toggle" actually flips.
+      const raw = slots?.enabled;
+      const desired =
+        typeof raw === "boolean"
+          ? raw
+          : typeof raw === "string"
+            ? ["true", "on", "yes", "enabled"].includes(raw.trim().toLowerCase())
+            : null;
+      if (desired !== null && desired === marketplaceOptIn) {
+        return {
+          status: "succeeded" as const,
+          summary: desired
+            ? "Your marketplace profile is already discoverable."
+            : "Your marketplace profile is already hidden.",
+        };
+      }
+      if (slots?.confirmed !== true) {
+        const next = desired ?? !marketplaceOptIn;
+        return {
+          status: "blocked" as const,
+          summary: "Changing who can find you needs a confirmation.",
+          data: {
+            [VOICE_CONFIRM_DATA_KEY]: {
+              actionId: "profile.marketplace_visibility.toggle",
+              slots: { enabled: next, confirmed: true },
+              prompt: next
+                ? "Make your investor profile discoverable in the marketplace?"
+                : "Hide your investor profile from the marketplace?",
+              subject: { name: "Marketplace visibility", detail: "" },
+              consequence:
+                getKaiActionById("profile.marketplace_visibility.toggle")
+                  ?.meaning ?? null,
+              confirmLabel: next ? "Make discoverable" : "Hide profile",
+            },
+          },
+        };
+      }
+      void handleMarketplaceOptInToggle();
+      return { status: "started" as const, summary: "Updating your visibility." };
+    },
+    { enabled: Boolean(user) },
+  );
+
+  useLocalOnboardingActionHandler(
+    "profile.support.submit_message",
+    async (slots) => {
+      const message = String(slots?.message ?? "").trim();
+      if (message.length < 10) {
+        // The same floor the typed composer enforces. Saying so is the point:
+        // a support message that silently failed validation would be reported
+        // as sent and never arrive.
+        return {
+          status: "blocked" as const,
+          summary:
+            "Tell me a bit more about the problem and I will send it to support.",
+        };
+      }
+      await submitSupportMessage(message);
+      return { status: "succeeded" as const, summary: "Sent that to support." };
+    },
+    { enabled: Boolean(user) },
+  );
 
   useEffect(() => {
     if (!shouldRequestVaultUnlock || authLoading || hasVault === null) {
