@@ -180,7 +180,9 @@ def _dispose_engine_quietly(engine: Any, *, reason: str) -> None:
     try:
         dispose()
     except Exception as exc:  # pragma: no cover - best-effort cleanup only
-        logger.warning("Failed to dispose database engine after %s: %s", reason, exc)
+        logger.warning(
+            "Failed to dispose database engine after %s error_type=%s", reason, type(exc).__name__
+        )
 
 
 def _run_with_connection_retry(
@@ -207,9 +209,9 @@ def _run_with_connection_retry(
             if not should_retry:
                 raise
             logger.warning(
-                "Transient database connection error during %s; disposing engine and retrying once: %s",
+                "Transient database connection error during %s; disposing engine and retrying once error_type=%s",
                 operation_label,
-                exc,
+                type(exc).__name__,
             )
             _dispose_engine_quietly(engine, reason=operation_label)
         finally:
@@ -617,7 +619,12 @@ class TableQuery:
         except DatabaseExecutionError:
             raise
         except Exception as e:
-            logger.error(f"Database error: {e}")
+            logger.error(
+                "Database operation failed table=%s operation=%s error_type=%s",
+                self.table_name,
+                self._operation,
+                type(e).__name__,
+            )
             is_unavailable = _is_transient_connection_error(e)
             raise DatabaseExecutionError(
                 table_name=self.table_name,
