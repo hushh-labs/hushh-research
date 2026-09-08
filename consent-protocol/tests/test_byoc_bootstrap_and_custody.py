@@ -111,9 +111,13 @@ class _Session:
             if callable(answer):
                 return answer()
             if isinstance(answer, list):
-                return answer.pop(0) if answer else _Response(200, {})
+                return answer.pop(0) if answer else _Response(200, {"done": True, "response": {}})
             return answer
-        return self._responses.pop(0) if self._responses else _Response(200, {})
+        return (
+            self._responses.pop(0)
+            if self._responses
+            else _Response(200, {"done": True, "response": {}})
+        )
 
     def post(self, url, headers=None, json=None, params=None, data=None, timeout=None, **kw):
         self.calls.append(
@@ -254,7 +258,7 @@ def test_a_failed_step_is_reported_rather_than_raised() -> None:
     """A half-built project is a real state; an exception loses which half."""
     # enable_services, kms_keyring, kms_key, pod_service_account, then the bucket fails.
     session = _Session(
-        [_Response(200, {})] * 20,
+        [_Response(200, {"done": True, "response": {}})] * 20,
         routes={"storage/v1/b": [_Response(403, text="denied")]},
     )
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
@@ -327,7 +331,7 @@ def test_a_half_applied_bootstrap_converges_on_a_re_run() -> None:
         token=BORROWED,
         session=_Session(
             routes={
-                "cryptoKeys": _Response(200, {}),
+                "cryptoKeys": _Response(200, {"done": True, "response": {}}),
                 "keyRings": _Response(429, text="quota exceeded"),
             }
         ),
@@ -342,7 +346,7 @@ def test_a_half_applied_bootstrap_converges_on_a_re_run() -> None:
         token=BORROWED,
         session=_Session(
             [_Response(409, text="already exists")] * 24,
-            routes={"serviceusage": _Response(200, {"done": True})},
+            routes={"serviceusage": _Response(200, {"done": True, "response": {}})},
         ),
     ).apply(plan, dry_run=False)
 
@@ -432,7 +436,7 @@ def test_the_pod_mints_its_own_key_on_first_boot(monkeypatch) -> None:
         [
             _Response(404, text="no key yet"),  # nothing stored
             _Response(200, {"ciphertext": wrapped}),  # KMS wrap
-            _Response(200, {}),  # stored in the user's bucket
+            _Response(200, {"done": True, "response": {}}),  # stored in the user's bucket
         ]
     )
     key = resolve_pod_log_key(session=session, token=BORROWED)
@@ -691,7 +695,7 @@ def test_a_merge_preserves_bindings_that_were_already_there() -> None:
         ],
         "etag": "BwXyz",
     }
-    session = _Session([_Response(200, existing), _Response(200, {})])
+    session = _Session([_Response(200, existing), _Response(200, {"done": True, "response": {}})])
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     call = next(c for c in boot.plan_calls(plan) if c["step"] == "iam_pod_sa_on_bucket")
@@ -757,7 +761,7 @@ def test_a_bucket_name_owned_by_someone_else_is_not_treated_as_success() -> None
     from the cause -- at the pod's first append, not at bootstrap.
     """
     session = _Session(
-        [_Response(200, {})] * 20,
+        [_Response(200, {"done": True, "response": {}})] * 20,
         routes={
             "storage/v1/b": [
                 _Response(409, text="conflict"),  # the bucket name is taken...
@@ -777,7 +781,7 @@ def test_a_bucket_we_already_own_still_counts_as_success() -> None:
     """Re-running a bootstrap against our own bucket must not be an error."""
     bucket_name = f"one-pod-{HUSHH_ID.lower()}-blobs"
     session = _Session(
-        [_Response(200, {})] * 20,
+        [_Response(200, {"done": True, "response": {}})] * 20,
         routes={
             "storage/v1/b": [
                 _Response(409, text="conflict"),
@@ -834,9 +838,11 @@ def test_no_resource_is_created_until_the_enablement_operation_reports_done() ->
         [
             _Response(200, {"name": "operations/acat.p2-1-abc"}),  # batchEnable: started
             _Response(200, {"name": "operations/acat.p2-1-abc"}),  # poll: not done yet
-            _Response(200, {"name": "operations/acat.p2-1-abc", "done": True}),  # poll: done
+            _Response(
+                200, {"name": "operations/acat.p2-1-abc", "done": True, "response": {}}
+            ),  # poll: done
         ]
-        + [_Response(200, {})] * 20
+        + [_Response(200, {"done": True, "response": {}})] * 20
     )
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
@@ -863,12 +869,14 @@ def test_a_tolerated_409_on_an_awaited_step_stays_green() -> None:
     every re-provision and every reconcile pass of an already-built project.
     """
     session = _Session(
-        [_Response(200, {"name": "op", "done": True})]  # enable_services: inline-done
-        + [_Response(200, {})] * 30,
+        [
+            _Response(200, {"name": "operations/inline", "done": True, "response": {}})
+        ]  # enable_services: inline-done
+        + [_Response(200, {"done": True, "response": {}})] * 30,
         routes={
             # Order matters: the grant policy URLs (repositories/one-pod) resolve before
             # the bare create URL (/repositories), which we force to a tolerated 409.
-            "repositories/one-pod": _Response(200, {}),
+            "repositories/one-pod": _Response(200, {"done": True, "response": {}}),
             "/repositories": _Response(409, {"error": {"code": 409, "message": "already exists"}}),
         },
     )
@@ -896,7 +904,7 @@ def test_an_operation_that_finishes_with_an_error_is_not_success() -> None:
                 },
             ),
         ]
-        + [_Response(200, {})] * 20
+        + [_Response(200, {"done": True, "response": {}})] * 20
     )
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
@@ -906,7 +914,7 @@ def test_an_operation_that_finishes_with_an_error_is_not_success() -> None:
     assert result["failed"] == ["enable_services"]
     enable = next(s for s in result["steps"] if s["step"] == "enable_services")
     assert enable["ok"] is False
-    assert "permission denied" in enable["detail"]
+    assert enable["detail"] == "operation finished with an error"
 
 
 def test_a_failed_enablement_skips_the_rest_instead_of_reporting_seven_failures() -> None:
@@ -923,7 +931,7 @@ def test_a_failed_enablement_skips_the_rest_instead_of_reporting_seven_failures(
                 200, {"name": "operations/acat.p2-1-abc", "done": True, "error": {"code": 7}}
             ),
         ]
-        + [_Response(200, {})] * 20
+        + [_Response(200, {"done": True, "response": {}})] * 20
     )
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
@@ -968,8 +976,8 @@ def test_an_operation_that_answers_inline_needs_no_poll() -> None:
     """Waiting is for work that is outstanding. An API that answers `done` immediately
     must not cost the bootstrap a poll interval per step."""
     session = _Session(
-        [_Response(200, {"name": "operations/acat.p2-1-abc", "done": True})]
-        + [_Response(200, {})] * 20
+        [_Response(200, {"name": "operations/acat.p2-1-abc", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 20
     )
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session, sleep=_no_sleep)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
@@ -1042,7 +1050,8 @@ def test_the_storage_service_agent_is_authorized_on_the_key_before_the_bucket_ex
 def test_the_looked_up_agent_is_the_member_actually_written() -> None:
     agent = "service-642919918840@gs-project-accounts.iam.gserviceaccount.com"
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 24,
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 24,
         routes={"storage/v1/projects/": _Response(200, {"email_address": agent})},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
@@ -1062,7 +1071,8 @@ def test_the_looked_up_agent_is_the_member_actually_written() -> None:
 def test_an_unresolvable_principal_refuses_instead_of_writing_a_binding() -> None:
     """A policy write is an access grant. Guessing the member is worse than failing."""
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 24,
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 24,
         routes={"storage/v1/projects/": _Response(500, text="service agent lookup down")},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
@@ -1077,7 +1087,8 @@ def test_an_unresolvable_principal_refuses_instead_of_writing_a_binding() -> Non
 def test_a_missing_prerequisite_skips_only_what_depends_on_it() -> None:
     """Narrower than stopping the run: mail and scheduling do not need the bucket."""
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 24,
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 24,
         routes={"storage/v1/projects/": _Response(500, text="lookup down")},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
@@ -1255,7 +1266,8 @@ def test_the_signing_key_is_never_rendered_into_the_plan() -> None:
 def test_a_rerun_does_not_rotate_the_signing_key() -> None:
     """This key signs receipts already written. A silent second version invalidates them."""
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 30,
         routes={"/versions": _Response(200, {"versions": [{"name": "…/versions/1"}]})},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
@@ -1267,8 +1279,9 @@ def test_a_rerun_does_not_rotate_the_signing_key() -> None:
 
 def test_a_signing_key_is_seeded_once_when_the_secret_is_empty() -> None:
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
-        routes={"/versions": _Response(200, {})},
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 30,
+        routes={"/versions": _Response(200, {"done": True, "response": {}})},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
     assert next(s for s in result["steps"] if s["step"] == "pod_signing_secret_version")["ok"]
@@ -1286,7 +1299,8 @@ def test_a_signing_key_is_seeded_once_when_the_secret_is_empty() -> None:
 def test_an_unreadable_version_list_refuses_to_add_a_key() -> None:
     """Not knowing whether a key exists is not the same as knowing there is none."""
     session = _Session(
-        [_Response(200, {"name": "operations/x", "done": True})] + [_Response(200, {})] * 30,
+        [_Response(200, {"name": "operations/x", "done": True, "response": {}})]
+        + [_Response(200, {"done": True, "response": {}})] * 30,
         routes={"/versions": _Response(403, text="denied")},
     )
     result = _boot(session, bootstrap_sa=BOOTSTRAP_SA).apply(_plan(), dry_run=False)
@@ -1493,3 +1507,60 @@ def test_secret_creation_receipt_uses_verified_project_alias(case):
         assert "must-not-retain" not in json.dumps(receipt)
     else:
         assert "resourceObservation" not in step
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {},
+        {"done": True},
+        {"done": 1, "response": {}},
+        {"done": True, "response": {}, "error": {}},
+        {"done": False, "response": {}, "name": "operations/pending"},
+        {"done": True, "response": {}, "name": "../foreign"},
+        {"done": True, "response": {}, "name": None},
+    ],
+)
+def test_invalid_enablement_completion_never_reaches_resource_creation(body):
+    session = _Session([_Response(200, body)])
+    result = _boot(session).apply(_plan(), dry_run=False)
+    assert result["ok"] is False
+    assert result["failed"] == ["enable_services"]
+    assert len(session.calls) == 1
+    assert result["skipped"]
+
+
+@pytest.mark.parametrize(
+    "case", ["foreign_initial", "poll_mismatch", "poll_error", "transport_error", "pending_result"]
+)
+def test_operation_polling_binds_identity_and_sanitizes_failure(case):
+    private = "synthetic-private-provider-error"
+    operation = "operations/owned"
+    first = {"name": operation}
+    if case == "foreign_initial":
+        first["name"] = "https://foreign.invalid/operation"
+    state = {"name": operation, "done": True, "response": {}}
+    if case == "poll_mismatch":
+        state["name"] = "operations/foreign"
+    elif case == "pending_result":
+        state["done"] = False
+    elif case == "poll_error":
+        state = {"name": operation, "done": True, "error": {"message": private}}
+
+    class Session(_Session):
+        def request(self, method, url, **kwargs):
+            if "/operations/" in url:
+                assert kwargs["allow_redirects"] is False
+                assert 0 < kwargs["timeout"] <= 60
+                if case == "transport_error":
+                    raise RuntimeError(private)
+            return super().request(method, url, **kwargs)
+
+    session = Session([_Response(200, first), _Response(200, state)])
+    result = _boot(session).apply(_plan(), dry_run=False)
+    assert result["ok"] is False
+    assert result["failed"] == ["enable_services"]
+    assert private not in json.dumps(result)
+    assert not any("cloudkms.googleapis.com" in call["url"] for call in session.calls)
+    if case == "foreign_initial":
+        assert len(session.calls) == 1

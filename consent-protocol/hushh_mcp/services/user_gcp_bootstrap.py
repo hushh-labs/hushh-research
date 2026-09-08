@@ -1037,56 +1037,74 @@ class UserGcpBootstrap:
     def _await_operation(
         self, call: dict[str, Any], headers: dict[str, str], response: Any
     ) -> dict[str, Any]:
-        """Block until a long-running operation finishes, or report why it did not.
+        """Require terminal provider evidence, polling only the acknowledged operation."""
+        import re
 
-        Learned from a live run against a real empty project: ``services:batchEnable``
-        returned 200 immediately, the applier moved on, and six of the next seven steps
-        failed with "API has not been used in this project". Checked a minute later,
-        every API was on. Nothing had gone wrong except the assumption that a 200 meant
-        the work was done.
-
-        An operation that finishes with an ``error`` is a failure, not a completion --
-        the difference matters because ``done: true`` is set in both cases and reading
-        only that field would turn a failed enable into a green step.
-        """
         body = _json_or_empty(response)
-        name = str(body.get("name") or "")
-        if body.get("done") or not name:
-            # Some calls answer inline. No name to poll means there is nothing to wait
-            # for, which is a legitimate (and fast) outcome rather than an error.
+        name = body.get("name", "")
+        if call["step"] == "artifact_repo":
+            prefix = f"projects/{self._project}/locations/{self._region}/operations/"
+            base = "https://artifactregistry.googleapis.com/v1/"
+        elif call["step"] in {"enable_services", "generate_run_service_identity"}:
+            prefix = "operations/"
+            version = "v1" if call["step"] == "enable_services" else "v1beta1"
+            base = f"https://serviceusage.googleapis.com/{version}/"
+        else:
+            return {"ok": False, "detail": "operation owner unsupported"}
+        if "name" in body and (
+            not isinstance(name, str)
+            or not name
+            or len(name) > 512
+            or not name.startswith(prefix)
+            or re.fullmatch(r"[A-Za-z0-9_.-]+", name.removeprefix(prefix)) is None
+            or name.removeprefix(prefix) in {".", ".."}
+        ):
+            return {"ok": False, "detail": "operation identity invalid"}
+        if body.get("done") is True:
             return _operation_verdict(body, polls=0)
+        if (
+            not name
+            or ("done" in body and body["done"] is not False)
+            or "response" in body
+            or "error" in body
+        ):
+            return {"ok": False, "detail": "operation completion unavailable"}
 
-        base = str(call.get("operation_url") or "")
         deadline = self._clock() + _OPERATION_DEADLINE_SECONDS
         polls = 0
         while self._clock() < deadline:
             self._sleep(_OPERATION_POLL_SECONDS)
+            remaining = deadline - self._clock()
+            if remaining <= 0:
+                break
             polls += 1
-            poll = self._session.request(
-                "GET", f"{base}{name}", headers=headers, params=None, data=None, timeout=60
-            )
+            request_timeout = min(60, remaining)
+            try:
+                poll = self._session.request(
+                    "GET",
+                    f"{base}{name}",
+                    headers=headers,
+                    params=None,
+                    data=None,
+                    timeout=request_timeout,
+                    allow_redirects=False,
+                )
+            except Exception:  # noqa: BLE001 -- provider diagnostics may contain credentials
+                return {"ok": False, "detail": "operation status unavailable"}
             if getattr(poll, "status_code", 0) != 200:
-                return {
-                    "ok": False,
-                    "detail": (
-                        f"could not read operation {name} "
-                        f"({getattr(poll, 'status_code', '?')}): "
-                        f"{getattr(poll, 'text', '')[:200]}"
-                    ),
-                }
+                return {"ok": False, "detail": "operation status unavailable"}
             state = _json_or_empty(poll)
-            if state.get("done"):
-                logger.info("byoc_bootstrap.operation_done step=%s polls=%s", call["step"], polls)
+            if state.get("name") != name:
+                return {"ok": False, "detail": "operation identity mismatch"}
+            if state.get("done") is True:
                 return _operation_verdict(state, polls=polls)
-
-        return {
-            "ok": False,
-            "detail": (
-                f"operation {name} did not finish within "
-                f"{int(_OPERATION_DEADLINE_SECONDS)}s. The steps that depend on it were "
-                "not attempted, because they would fail on APIs that are still turning on."
-            ),
-        }
+            if (
+                ("done" in state and state["done"] is not False)
+                or "response" in state
+                or "error" in state
+            ):
+                return {"ok": False, "detail": "operation status invalid"}
+        return {"ok": False, "detail": "operation did not finish within the polling deadline"}
 
     def _seed_secret_version(self, call: dict[str, Any], headers: dict[str, str]) -> dict[str, Any]:
         """Put one random secret into the USER's Secret Manager, once and only once.
@@ -1343,12 +1361,10 @@ def _json_or_empty(response: Any) -> dict[str, Any]:
 
 def _operation_verdict(state: dict[str, Any], *, polls: int) -> dict[str, Any]:
     """``done: true`` alone is not success -- a failed operation is also done."""
-    error = state.get("error") or {}
-    if error:
-        return {
-            "ok": False,
-            "detail": f"operation finished with an error: {json.dumps(error)[:250]}",
-        }
+    if "error" in state:
+        return {"ok": False, "detail": "operation finished with an error"}
+    if state.get("done") is not True or not isinstance(state.get("response"), dict):
+        return {"ok": False, "detail": "operation completion unavailable"}
     return {"ok": True, "detail": f"operation completed after {polls} poll(s)"}
 
 
