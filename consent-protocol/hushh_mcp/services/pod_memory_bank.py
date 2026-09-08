@@ -56,6 +56,15 @@ _DISPLAY_PREFIX = "one-pod-memory-"
 _DEFAULT_LOCATION = "us-central1"
 _CREATE_WAIT_SECONDS = 180
 _POLL_SECONDS = 3.0
+# Strong references retain already-admitted workers after caller cancellation.
+# This is process-local execution bookkeeping; the durable record owns admission.
+_RECALL_TASKS: set[asyncio.Task] = set()
+
+
+def _recall_finished(task: asyncio.Task) -> None:
+    _RECALL_TASKS.discard(task)
+    if not task.cancelled():
+        task.exception()  # Consume a detached failure without logging information.
 
 
 class MemoryBankUnavailable(RuntimeError):
@@ -1247,10 +1256,19 @@ def build_rest_memory_bank_service(
                 "recallOperation": slot,
             }
             await self._save_state(record, generation)
-            # Cancellation and transport uncertainty retain this reservation.
-            # asyncio.to_thread may still be running after its caller is gone.
-            payload = await asyncio.to_thread(self._post, "memories:retrieve", body)
-            await self._complete_slot(record, "recallOperation", slot, None)
+
+            async def retrieve_and_record_completion() -> dict[str, Any]:
+                payload = await asyncio.to_thread(self._post, "memories:retrieve", body)
+                await self._complete_slot(record, "recallOperation", slot, None)
+                return payload
+
+            # Cancelling the caller must not cancel acknowledgement of a worker
+            # that is still running. Only a validated response and exact durable
+            # completion clear admission. Process loss or uncertainty retain it.
+            worker = asyncio.create_task(retrieve_and_record_completion())
+            _RECALL_TASKS.add(worker)
+            worker.add_done_callback(_recall_finished)
+            payload = await asyncio.shield(worker)
             # A durable fence or binding change can land while retrieval is in
             # flight. Do not release its information after admission is revoked.
             # This release check does not prove provider work has drained.

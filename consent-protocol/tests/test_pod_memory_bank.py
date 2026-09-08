@@ -1878,7 +1878,8 @@ async def test_erasure_waits_for_admitted_recall_and_late_completion_keeps_fence
     assert len(http.deletes) == 1
 
 
-async def test_cancelled_recall_retains_admission_across_worker_completion_and_restart():
+@pytest.mark.parametrize("outcome", ["success", "transport_unknown", "worker_lost"])
+async def test_cancelled_recall_clears_only_acknowledged_worker_completion(outcome):
     import asyncio
     import threading
 
@@ -1890,30 +1891,51 @@ async def test_cancelled_recall_retains_admission_across_worker_completion_and_r
             started.set()
             try:
                 assert release.wait(timeout=5)
+                if outcome == "transport_unknown":
+                    raise OSError("synthetic private provider diagnostic")
                 return _Resp(200, {"retrievedMemories": []})
             finally:
                 ended.set()
 
     client = _tracked_service(store, HeldRecall())
     task = asyncio.create_task(client.search_memory(app_name="one", user_id="ha1_test", query="x"))
+    worker = None
     try:
         assert await asyncio.to_thread(started.wait, 5)
+        worker = next(iter(mb._RECALL_TASKS))
         before = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"]
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
+        assert not worker.done()
+        http = _ErasureHttp()
+        restarted = _tracked_service(store, http)
+        with pytest.raises(mb.MemoryBankUnavailable, match="recall completion"):
+            await restarted.search_memory(app_name="one", user_id="ha1_test", query="x")
+        log = await _erasure_log(store)
+        with pytest.raises(mb.MemoryBankErasurePending, match="recall completion"):
+            await _erase(restarted, log)
+        assert http.posts == [] and http.deletes == []
+        if outcome == "worker_lost":
+            worker.cancel()
     finally:
         release.set()
         assert await asyncio.to_thread(ended.wait, 5)
-    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"] == before
-    http = _ErasureHttp()
-    restarted = _tracked_service(store, http)
-    with pytest.raises(mb.MemoryBankUnavailable, match="recall completion"):
-        await restarted.search_memory(app_name="one", user_id="ha1_test", query="x")
-    log = await _erasure_log(store)
-    with pytest.raises(mb.MemoryBankErasurePending, match="recall completion"):
-        await _erase(restarted, log)
-    assert http.posts == [] and http.deletes == []
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+            await asyncio.sleep(0)  # Let the task's registered cleanup callback run.
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing"
+    assert record["recallOperation"] == (None if outcome == "success" else before)
+    assert not mb._RECALL_TASKS
+    if outcome == "success":
+        with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
+            await _erase(restarted, log)
+        assert len(http.deletes) == 1
+    else:
+        with pytest.raises(mb.MemoryBankErasurePending, match="recall completion"):
+            await _erase(restarted, log)
+        assert http.deletes == []
 
 
 async def test_generation_acknowledgement_preserves_concurrent_recall_reservation():

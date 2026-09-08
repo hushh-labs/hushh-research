@@ -366,8 +366,10 @@ Memory Bank recall reserves one bounded operation in the existing `memory_bank.j
 before credentials or retrieval. Protocol 2 records only the attempt, client incarnation
 and engine identifier; it stores no query or returned information. A successful response
 clears only that exact reservation while preserving generation and erasure state.
-Cancellation, uncertain responses and restart retain unresolved admission without expiry;
-erasure cannot submit DELETE while recall remains outstanding. Generation acknowledgements
+Caller cancellation leaves the admitted worker running so its validated response can
+record exact completion, without releasing information to the cancelled caller. While
+that worker runs, or when its response, persistence or process is lost, admission remains
+unresolved without expiry; erasure cannot submit DELETE while recall is outstanding. Generation acknowledgements
 merge their exact slot so concurrent recall writes cannot discard them. Recall rechecks
 its owner-bound record before releasing the result. These are source-level safeguards,
 not deployed drainage evidence: older clients must be drained before claiming coverage
