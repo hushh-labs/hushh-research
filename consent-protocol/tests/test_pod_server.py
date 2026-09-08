@@ -60,10 +60,37 @@ def test_pod_does_not_mount_central_or_unrelated_surface(forbidden_prefix):
     assert not leaked, f"pod leaked central/unrelated surface: {leaked}"
 
 
-def test_pod_surface_is_small():
-    # A slim pod exposes a handful of routes (agent + health + docs), not the
-    # monolith's hundreds. Guard against an accidental full-app mount.
-    assert len(_paths()) < 25
+def test_pod_surface_stays_within_reviewed_routes():
+    # Review authority-bearing additions explicitly. A route count can both
+    # reject legitimate lifecycle endpoints and miss a forbidden replacement.
+    allowed = {
+        "/",
+        "/.well-known/agent-card.json",
+        "/api/app-config/review-mode",
+        "/api/app-config/review-mode/session",
+        "/api/one/a2a/card",
+        "/api/one/a2a/message",
+        "/api/one/agent-prompt",
+        "/api/one/pod/live",
+        "/api/one/pod/turn",
+        "/docs",
+        "/docs/oauth2-redirect",
+        "/openapi.json",
+        "/redoc",
+        "/health",
+        "/health/capabilities",
+        "/health/ready",
+        "/pod/diagnostics/model",
+        "/pod/info",
+        "/pod/public-key",
+        "/pod/tick",
+        "/pod/migration/export",
+        "/pod/migration/import",
+        "/pod/migration/erasure/fence",
+        "/pod/migration/erasure/memory/binding",
+        "/pod/migration/erasure/memory/reconcile",
+    }
+    assert not (_paths() - allowed), "pod exposes an unreviewed route"
 
 
 def test_pod_info_reports_pod_role():

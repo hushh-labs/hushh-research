@@ -4,8 +4,8 @@ Defect being pinned: a single revoked grant (403) used to be swallowed as a warn
 execute_teardown counted the action as deleted, and account deletion then wrote the
 substrate_torn_down tombstone -- a clean-erase claim over surviving, billing resources.
 These drive build_gcp_deleter against a scripted REST session and assert that anything
-short of confirmed-gone raises SubstrateDeleteError (404-already-gone stays success,
-because a retry must not wedge on its own progress).
+short of confirmed-gone raises SubstrateDeleteError. Bucket absence alone cannot
+prove erasure because soft-deleted objects may survive.
 """
 
 from __future__ import annotations
@@ -149,23 +149,119 @@ async def test_bucket_not_empty_is_a_failure():
     # A bucket that never empties (items on every page) fails loudly at the page bound
     # instead of looping into a silent 409.
     session = _Session()
-    session.rule("GET", "/b/one-pod-x-blobs/o", _Resp(200, {"items": [{"name": "obj"}]}))
+    session.rule(
+        "GET", "/b/one-pod-x-blobs/o", _Resp(200, {"items": [{"name": "obj", "generation": "1"}]})
+    )
     session.rule("DELETE", "/o/", _Resp(204))
-    with pytest.raises(SubstrateDeleteError, match="not emptied after 32 pages"):
+    with pytest.raises(SubstrateDeleteError, match="not emptied after 32 version pages"):
         await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs", "op": "delete"})
 
 
 async def test_bucket_listing_failure_is_loud():
     session = _Session()
     session.rule("GET", "/b/one-pod-x-blobs/o", _Resp(500))
-    with pytest.raises(SubstrateDeleteError, match="bucket object listing http=500"):
+    with pytest.raises(SubstrateDeleteError, match="bucket version inventory unavailable http=500"):
         await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs", "op": "delete"})
 
-    # companion: already-gone stays idempotent -- listing 404 + bucket delete 404 raise nothing
+    # A missing bucket may retain soft-deleted contents; preserve recovery authority.
     session = _Session()
     session.rule("GET", "/b/one-pod-x-blobs/o", _Resp(404))
     session.rule("DELETE", "/b/one-pod-x-blobs", _Resp(404))
-    await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs", "op": "delete"})
+    with pytest.raises(SubstrateDeleteError, match="inventory unavailable http=404"):
+        await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs", "op": "delete"})
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+async def test_bucket_erases_each_generation_before_confirming_no_retained_objects():
+    session = _Session()
+    remaining = ["1", "2"]
+
+    def inventory(url, kwargs):
+        params = kwargs["params"]
+        assert kwargs["allow_redirects"] is False
+        if params.get("softDeleted"):
+            assert not remaining
+            assert "versions" not in params
+            return _Resp(200)
+        assert params["versions"] is True
+        return _Resp(200, {"items": [{"name": "logs/entry", "generation": g} for g in remaining]})
+
+    def erase(url, kwargs):
+        assert url.endswith("/o/logs%2Fentry")
+        generation = kwargs["params"]["generation"]
+        assert kwargs["params"]["ifGenerationMatch"] == generation
+        remaining.remove(generation)
+        return _Resp(204)
+
+    session.rule("GET", "/o", inventory)
+    session.rule("DELETE", "/o/", erase)
+    session.rule("DELETE", "/b/one-pod-x-blobs", _Resp(204))
+    await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs"})
+    assert not remaining
+    assert session.calls[-1][1].endswith("/b/one-pod-x-blobs")
+
+
+@pytest.mark.parametrize(
+    "status,body",
+    [
+        (200, {"items": [{"name": "old", "generation": "1"}]}),
+        (200, {"nextPageToken": "more"}),
+        (200, {"items": None}),
+        (403, {}),
+        (400, {}),
+    ],
+)
+async def test_retained_inventory_refusal_preserves_recovery_authority(monkeypatch, status, body):
+    session = _Session()
+    session.rule(
+        "GET",
+        "/o",
+        lambda url, kwargs: (
+            _Resp(status, body) if kwargs["params"].get("softDeleted") else _Resp(200)
+        ),
+    )
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    result = await execute_teardown(
+        [
+            {"type": "gcs_bucket", "id": "one-pod-x-blobs", "op": "delete"},
+            dict(_SA_ACTION),
+        ],
+        deleter=_deleter(session),
+        dry_run=False,
+    )
+    assert result["complete"] is False
+    assert result["deleted"] == []
+    assert all(method == "GET" for method, _, _ in session.calls)
+
+
+async def test_invalid_version_page_is_rejected_before_any_delete():
+    session = _Session()
+    session.rule(
+        "GET",
+        "/o",
+        _Resp(
+            200,
+            {
+                "items": [
+                    {"name": "valid", "generation": "1"},
+                    {"name": "invalid"},
+                ]
+            },
+        ),
+    )
+    with pytest.raises(SubstrateDeleteError, match="inventory invalid"):
+        await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs"})
+    assert len(session.calls) == 1
+
+
+async def test_generation_precondition_refusal_never_falls_back_to_name_delete():
+    session = _Session()
+    session.rule("GET", "/o", _Resp(200, {"items": [{"name": "obj", "generation": "1"}]}))
+    session.rule("DELETE", "/o/", _Resp(412))
+    with pytest.raises(SubstrateDeleteError, match="generation deletion http=412"):
+        await _deleter(session)({"type": "gcs_bucket", "id": "one-pod-x-blobs"})
+    assert len(session.calls) == 2
+    assert session.calls[-1][2]["params"] == {"generation": "1", "ifGenerationMatch": "1"}
 
 
 async def test_kms_listing_and_destroy_are_checked():

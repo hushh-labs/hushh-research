@@ -287,32 +287,87 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         raise SubstrateDeleteError(f"{what} http={response.status_code}")
 
     def _empty_bucket(bucket: str) -> None:
-        # Objects first, paged; a non-empty bucket refuses deletion. Bounded at
-        # 32 pages (~32k objects) -- beyond that the for/else below reports it.
+        from urllib.parse import quote
+
+        base = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o"
+        # Re-read the first page after deleting its exact generations. A new
+        # object version must never inherit a previously observed deletion.
         for _ in range(32):
             listing = session.get(
-                f"https://storage.googleapis.com/storage/v1/b/{bucket}/o",
+                base,
                 headers=headers,
-                params={"maxResults": 1000, "fields": "items(name)"},
+                params={
+                    "maxResults": 1000,
+                    "versions": True,
+                    "fields": "items(name,generation),nextPageToken",
+                },
                 timeout=30,
+                allow_redirects=False,
             )
-            if listing.status_code == 404:
-                return  # bucket already gone -- the bucket _delete then sees 404-ok
             if listing.status_code != 200:
-                raise SubstrateDeleteError(f"bucket object listing http={listing.status_code}")
-            items = (listing.json() or {}).get("items") or []
+                # A missing bucket can be soft-deleted. Without its retained
+                # generation/inventory, 404 cannot certify historical erasure.
+                raise SubstrateDeleteError(
+                    f"bucket version inventory unavailable http={listing.status_code}"
+                )
+            body = listing.json()
+            if not isinstance(body, dict) or body.get("error") is not None:
+                raise SubstrateDeleteError("bucket version inventory invalid")
+            items = body.get("items", [])
+            if not isinstance(items, list) or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("name"), str)
+                or not item["name"]
+                or not isinstance(item.get("generation"), str)
+                or not item["generation"].isascii()
+                or not item["generation"].isdigit()
+                or int(item["generation"]) <= 0
+                for item in items
+            ):
+                raise SubstrateDeleteError("bucket version inventory invalid")
             if not items:
+                if body.get("nextPageToken"):
+                    raise SubstrateDeleteError("bucket version inventory incomplete")
+                retained = session.get(
+                    base,
+                    headers=headers,
+                    params={
+                        "maxResults": 1,
+                        "softDeleted": True,
+                        "fields": "items(name,generation),nextPageToken",
+                    },
+                    timeout=30,
+                    allow_redirects=False,
+                )
+                if retained.status_code != 200:
+                    raise SubstrateDeleteError("bucket retained-object inventory unavailable")
+                retained_body = retained.json()
+                if (
+                    not isinstance(retained_body, dict)
+                    or retained_body.get("error") is not None
+                    or retained_body.get("items", []) != []
+                    or retained_body.get("nextPageToken")
+                ):
+                    raise SubstrateDeleteError(
+                        "bucket retained objects remain or inventory is invalid"
+                    )
                 return
             for item in items:
-                from urllib.parse import quote  # noqa: PLC0415
-
-                _delete(
-                    f"https://storage.googleapis.com/storage/v1/b/{bucket}/o/"
-                    f"{quote(str(item.get('name') or ''), safe='')}",
-                    "bucket object",
+                response = session.delete(
+                    f"{base}/{quote(item['name'], safe='')}",
+                    headers=headers,
+                    params={
+                        "generation": item["generation"],
+                        "ifGenerationMatch": item["generation"],
+                    },
+                    timeout=30,
+                    allow_redirects=False,
                 )
-        else:
-            raise SubstrateDeleteError("bucket not emptied after 32 pages (~32k objects)")
+                if response.status_code not in (200, 204, 404):
+                    raise SubstrateDeleteError(
+                        f"bucket object generation deletion http={response.status_code}"
+                    )
+        raise SubstrateDeleteError("bucket not emptied after 32 version pages")
 
     def _delete_artifact_repository(repository: str) -> None:
         # DELETE acknowledges a long-running operation, not completed erasure.
