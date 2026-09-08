@@ -561,7 +561,45 @@ async def _write_record(
         raise MemoryBankUnavailable("memory record persistence conflict")
 
 
-async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
+async def _resume_erasure_if_present(store: Any, cfg: MemoryBankConfig, log: Any) -> bool:
+    """At boot, observe only a deletion already acknowledged in durable state.
+
+    Initial deletion and unresolved submissions still require the trusted
+    lifecycle coordinator. This path never discovers, creates, or submits DELETE.
+    """
+    raw = await store.get(MEMORY_BANK_RECORD_KEY)
+    if raw is None:
+        return False
+    record = json.loads(raw)
+    if not isinstance(record, dict):
+        raise MemoryBankUnavailable("invalid memory recovery record")
+    if "erasure" not in record:
+        return False
+    _STATE.update(engine_id=None, binding=None)
+    _SERVICE.clear()
+    engine_id = record.get("engineId")
+    if not isinstance(engine_id, str) or not _resource_segment(engine_id):
+        raise MemoryBankUnavailable("invalid memory erasure engine")
+    state = _erasure_state(record, cfg, engine_id)
+    await log.require_fenced(owner_id=state["ownerId"], attempt_id=state["attemptId"])
+    if state["phase"] not in {"delete_pending", "provider_deleted"}:
+        raise MemoryBankErasurePending("memory erasure requires lifecycle reconciliation")
+    service = build_rest_memory_bank_service(cfg, engine_id, store=store, is_current=lambda: False)
+    result = await service.reconcile_memory_bank_erasure(
+        log=log,
+        user_id=state["ownerId"],
+        attempt_id=state["attemptId"],
+        incarnation_id=state["incarnationId"],
+        expected_engine_create_time=state["engineCreateTime"],
+        observe_only=True,
+    )
+    if result != {"status": "provider_deleted"}:
+        raise MemoryBankErasurePending("memory erasure observation incomplete")
+    _STATE["error"] = "MemoryBankProviderDeleted"
+    return True
+
+
+async def ensure_memory_bank(*, store: Any = None, log: Any = None) -> Optional[str]:
     """Resolve (or create) this pod's engine once per process. Never raises.
 
     Order: env id, then the pod's own record, then find-or-create in the person's
@@ -575,6 +613,8 @@ async def ensure_memory_bank(*, store: Any = None) -> Optional[str]:
         return None
     _STATE["attempted"] = True
     try:
+        if log is not None and await _resume_erasure_if_present(store, cfg, log):
+            return None
         try:
             recorded = await _read_record(store, cfg)
         except MemoryBankCreationPending:
@@ -868,6 +908,7 @@ def build_rest_memory_bank_service(
             attempt_id: str,
             incarnation_id: str,
             expected_engine_create_time: str,
+            observe_only: bool = False,
         ) -> dict[str, str]:
             """Internal provider reconciliation; not account-erasure completion.
 
@@ -886,6 +927,7 @@ def build_rest_memory_bank_service(
                     attempt_id=attempt_id,
                     incarnation_id=incarnation_id,
                     expected_engine_create_time=expected_engine_create_time,
+                    observe_only=observe_only,
                 )
             except MemoryBankUnavailable:
                 raise
@@ -900,6 +942,7 @@ def build_rest_memory_bank_service(
             attempt_id: str,
             incarnation_id: str,
             expected_engine_create_time: str,
+            observe_only: bool,
         ) -> dict[str, str]:
             expected = {
                 "version": 1,
@@ -910,6 +953,13 @@ def build_rest_memory_bank_service(
             }
             raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
             record = json.loads(raw)
+            if observe_only and (
+                not isinstance(record, dict)
+                or record.get("status") not in {"erasing", "provider_deleted"}
+                or not isinstance(record.get("erasure"), dict)
+                or record["erasure"].get("phase") not in {"delete_pending", "provider_deleted"}
+            ):
+                raise MemoryBankErasurePending("memory erasure is not acknowledged")
             incarnation = record.get("engineIncarnation") if isinstance(record, dict) else None
             if (
                 _engine_incarnation(incarnation, cfg, engine_id) != incarnation

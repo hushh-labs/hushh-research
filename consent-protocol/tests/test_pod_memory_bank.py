@@ -1538,6 +1538,46 @@ async def test_bank_erasure_survives_restart_without_recreating_or_reopening(mon
     assert len(http.gets) == calls and http.posts == []
 
 
+@pytest.mark.parametrize("phase", ["delete_pending", "delete_submitting", "waiting"])
+async def test_pod_boot_only_observes_acknowledged_erasure(monkeypatch, phase):
+    import pod_server
+    from hushh_mcp.services import pod_memory_service
+
+    _configure(monkeypatch, GOOGLE_CLOUD_PROJECT="p")
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankErasurePending):
+        await _erase(_tracked_service(store, http), log)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    if phase != "delete_pending":
+        record["erasure"]["phase"] = phase
+        record["erasure"].pop("operation")
+        store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    mb.reset_memory_bank_state()
+    http.gets.clear()
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: log)
+    monkeypatch.setattr(requests, "Session", lambda: http)
+    monkeypatch.setattr(mb, "_AdcToken", _Token)
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *a, **k: pytest.fail("recreated"))
+    await pod_server._ensure_memory_bank_task()
+    assert mb.resolve_memory_bank_service() is None
+    assert len(http.deletes) == 1 and http.posts == []
+    if phase == "delete_pending":
+        assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "provider_deleted"
+        assert mb.memory_bank_status() == {"memoryBankError": "MemoryBankProviderDeleted"}
+    else:
+        assert http.gets == []
+        assert mb.memory_bank_status() == {"memoryBankError": "MemoryBankErasurePending"}
+
+
+async def test_observation_only_erasure_cannot_start_deletion_from_ready_state():
+    store, http = _ready_store(), _ErasureHttp()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankErasurePending):
+        await _erase(_tracked_service(store, http), log, observe_only=True)
+    assert http.gets == [] and http.deletes == []
+
+
 @pytest.mark.parametrize("boundary", ["foreign_owner", "wrong_attempt", "open_log"])
 async def test_bank_erasure_refuses_before_provider_access(boundary):
     from hushh_mcp.services.pod_commit_log import PodLogFenced

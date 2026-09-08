@@ -424,7 +424,7 @@ async def _pod_startup() -> None:
 
 
 async def _ensure_memory_bank_task() -> None:
-    """Find or create this pod's Memory Bank engine under its own identity. Never raises."""
+    """Initialize memory or observe an acknowledged erasure after restart. Never raises."""
     try:
         from hushh_mcp.services.pod_memory_bank import ensure_memory_bank  # noqa: PLC0415
         from hushh_mcp.services.pod_memory_service import _resolve_log  # noqa: PLC0415
@@ -434,9 +434,9 @@ async def _ensure_memory_bank_task() -> None:
             log = _resolve_log()
         except Exception:  # noqa: BLE001 - no durable record means sealed-log fallback
             logger.info("pod_memory_bank.no_durable_store")
-        await ensure_memory_bank(store=getattr(log, "_store", None))
+        await ensure_memory_bank(store=getattr(log, "_store", None), log=log)
     except Exception:  # noqa: BLE001
-        logger.warning("pod_memory_bank.ensure_failed", exc_info=True)
+        logger.warning("pod_memory_bank.ensure_failed")
 
 
 async def _heartbeat_once(client: Any) -> bool:

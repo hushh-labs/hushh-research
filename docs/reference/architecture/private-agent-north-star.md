@@ -346,6 +346,11 @@ still needs equivalent operation ownership; pod-held log fencing and provider
 reconciliation must be connected before this phase can finish. No compute, key, grant or owner identity is deleted by reservation.
 
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
+Pod startup can resume observation of an acknowledged deletion from that durable record
+without initializing ordinary memory. It requires the matching owner/attempt log fence;
+waiting and unacknowledged submissions remain pending, and startup never submits DELETE.
+The existing migration transport refuses redirects while carrying hub proof and exposes
+only bounded refusal diagnostics; malformed success responses are typed failures.
 New initialization captures the provider resource name and `createTime` in the existing
 `memory_bank.json` before admitting use; these are observed provider fields, not the
 local record timestamp. The provider fields follow Google's
