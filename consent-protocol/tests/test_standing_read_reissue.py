@@ -159,16 +159,16 @@ async def test_a_row_with_no_token_is_skipped_rather_than_returned_empty():
     assert result["token"]
 
 
-async def test_a_lookup_failure_mints_rather_than_failing_the_turn():
-    """A ledger read that errors must not mean "your agent cannot know you". Minting
-    is the safe direction: it is a fresh least-privilege grant, fully logged."""
+async def test_a_lookup_failure_cannot_authorize_a_replacement_grant():
+    """Unknown authority cannot stand in for an observed absence of grants."""
 
     async def _boom(_user_id, agent_id=None, scope=None):
         raise RuntimeError("ledger unreachable")
 
-    result = await _reissue(lookup=_boom)
-    assert result["reused"] is False
-    assert result["scope"] == ConsentScope.PKM_READ.value
+    ledger = _Ledger()
+    with pytest.raises(PermissionError, match="consent lookup unavailable"):
+        await _reissue(lookup=_boom, ledger=ledger)
+    assert ledger.events == []
 
 
 # -- where it looks ----------------------------------------------------------------

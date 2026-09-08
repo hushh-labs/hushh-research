@@ -124,7 +124,7 @@ class PersonalAgentGrantService:
             token_id=token_obj.token,
             expires_at=token_obj.expires_at,
             scope_description="Personal agent standing read (Nav-governed)",
-            metadata={"grant_kind": "personal_agent_standing_read"},
+            metadata={"grant_kind": "personal_agent_standing_read", "automatic_renewal": True},
         )
 
         logger.info("personal_agent.standing_read_issued agent_id=%s", pod_agent_id)
@@ -197,9 +197,9 @@ class PersonalAgentGrantService:
         floor_ms = min(60 * 60 * 1000, expires_in_ms // 4)
         try:
             rows = await lookup(user_id, agent_id=pod_agent_id, scope=ConsentScope.PKM_READ.value)
-        except Exception as exc:  # noqa: BLE001 - a lookup failure means mint, never fail
+        except Exception as exc:  # noqa: BLE001 - unavailable authority cannot permit minting
             logger.info("personal_agent.standing_read_lookup_failed %s", type(exc).__name__)
-            rows = []
+            raise PermissionError("personal agent consent lookup unavailable") from None
 
         for row in rows or []:
             expires_at = int(row.get("expires_at") or 0)
@@ -323,13 +323,13 @@ class PersonalAgentGrantService:
         floor_ms = min(60 * 60 * 1000, expires_in_ms // 4)
         try:
             rows = await lookup(user_id, agent_id=pod_agent_id, scope=scope.value)
-        except Exception as exc:  # noqa: BLE001 - a lookup failure means mint, never fail
+        except Exception as exc:  # noqa: BLE001 - unavailable authority cannot permit minting
             logger.info(
                 "personal_agent.standing_scope_lookup_failed scope=%s %s",
                 scope.value,
                 type(exc).__name__,
             )
-            rows = []
+            raise PermissionError("personal agent consent lookup unavailable") from None
 
         for row in rows or []:
             expires_at = int(row.get("expires_at") or 0)
@@ -409,7 +409,7 @@ class PersonalAgentGrantService:
             token_id=token_obj.token,
             expires_at=token_obj.expires_at,
             scope_description=scope_description,
-            metadata={"grant_kind": grant_kind},
+            metadata={"grant_kind": grant_kind, "automatic_renewal": True},
         )
 
         logger.info(

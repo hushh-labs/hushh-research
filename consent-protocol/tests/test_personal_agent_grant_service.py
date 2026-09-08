@@ -217,3 +217,20 @@ async def test_location_view_refuses_when_flag_off(monkeypatch):
 
 async def _no_active_tokens(user_id, *, agent_id=None, scope=None):
     return []
+
+
+@pytest.mark.parametrize("scope", ["pkm", "location"])
+async def test_unavailable_ledger_never_mints_replacement_authority(scope):
+    async def unavailable(*args, **kwargs):
+        raise RuntimeError("synthetic unavailable ledger")
+
+    ledger = FakeLedger()
+    service = PersonalAgentGrantService()
+    issuer = (
+        service.issue_or_reuse_standing_pkm_read
+        if scope == "pkm"
+        else service.issue_or_reuse_standing_location_view
+    )
+    with pytest.raises(PermissionError, match="consent lookup unavailable"):
+        await issuer(_UID, lookup=unavailable, ledger=ledger)
+    assert ledger.events == []

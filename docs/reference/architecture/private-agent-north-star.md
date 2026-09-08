@@ -317,6 +317,16 @@ but receipt persistence is best-effort and does not invalidate an otherwise auth
 request. Complete recall coverage and durable receipts remain requirements; an outer-turn
 receipt does not prove that every internal read is independently receipted.
 
+Automatic standing grants use the existing consent ledger's dev-only migration 915
+renewal guard. A ledger lookup failure refuses issuance; a revoked or denied personal-agent
+grant cannot be implicitly reminted or reused. The database serializes renewal, revocation
+and expiry, while explicit owner reapproval remains the recovery authority. This is a
+source-level correction with disposable PostgreSQL evidence, not deployed acceptance.
+Deploy migration 915 before the corresponding runtime; keep its guard during an app
+rollback. Removing the guard would restore the renewal defect. Retaining revocation
+records remains necessary: the currently uncalled audit-log deletion helper is not an
+approved personal-agent erasure path.
+
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 It does not activate complete account deletion. Public lifecycle completion still needs
 coordinated owner admission, in-flight provider reconciliation, retained retry authority

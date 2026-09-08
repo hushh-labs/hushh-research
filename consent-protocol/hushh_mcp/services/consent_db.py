@@ -786,8 +786,9 @@ class ConsentDBService:
         query = db.table("consent_audit").select("*")
         response = (
             self._apply_user_filter(query, user_id, user_ids)
-            .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+            .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
             .order("issued_at", desc=True)
+            .order("id", desc=True)
             .execute()
         )
 
@@ -798,6 +799,10 @@ class ConsentDBService:
                 continue
             row_scope = row.get("scope")
             row_agent_id = row.get("agent_id") or ""
+            # A private-agent denial also closes implicit renewal/reuse. Keep
+            # the pre-existing decision semantics of other agent namespaces.
+            if row.get("action") == "CONSENT_DENIED" and row_agent_id != "personal_agent":
+                continue
             if not row_scope:
                 continue
 
@@ -1161,7 +1166,14 @@ class ConsentDBService:
                 if normalized_agent_id:
                     query = query.eq("agent_id", normalized_agent_id)
                 rows = await asyncio.to_thread(
-                    lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                    lambda: (
+                        query.order("issued_at", desc=True)
+                        .order("id", desc=True)
+                        .limit(1)
+                        .execute()
+                        .data
+                        or []
+                    )
                 )
             except DatabaseExecutionError as exc:
                 if not self._is_missing_internal_access_events_error(exc):
@@ -1183,12 +1195,24 @@ class ConsentDBService:
                 .select("action,expires_at,issued_at,token_id")
                 .eq("user_id", user_id)
                 .eq("scope", normalized_scope)
-                .in_("action", ["CONSENT_GRANTED", "REVOKED"])
+                .in_(
+                    "action",
+                    ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"]
+                    if normalized_agent_id == "personal_agent"
+                    else ["CONSENT_GRANTED", "REVOKED"],
+                )
             )
             if normalized_agent_id:
                 query = query.eq("agent_id", normalized_agent_id)
             rows = await asyncio.to_thread(
-                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
+                lambda: (
+                    query.order("issued_at", desc=True)
+                    .order("id", desc=True)
+                    .limit(1)
+                    .execute()
+                    .data
+                    or []
+                )
             )
 
         if not rows:
@@ -1500,11 +1524,36 @@ class ConsentDBService:
         # Remove None values
         data = {k: v for k, v in data.items() if v is not None}
 
-        response = await asyncio.to_thread(lambda: db.table("consent_audit").insert(data).execute())
+        if (
+            agent_id == "personal_agent"
+            and action == "CONSENT_GRANTED"
+            and (metadata or {}).get("automatic_renewal") is True
+        ):
+            # Dev-only private-agent admission. Missing migration/disabled guard
+            # refuses minting; no fallback to an unguarded INSERT. The same event
+            # continues through the existing receipt and notification path below.
+            try:
+                response = await asyncio.to_thread(
+                    db.execute_raw,
+                    "SELECT * FROM public.insert_personal_agent_renewal(CAST(:event AS jsonb))",
+                    {"event": json.dumps(data)},
+                )
+            except Exception as exc:
+                # DB exception details can contain bound token material. Neither
+                # provisioning diagnostics nor relay errors may retain it.
+                logger.info("personal_agent.renewal_refused error_type=%s", type(exc).__name__)
+                raise PermissionError("personal agent renewal authority unavailable") from None
+        else:
+            response = await asyncio.to_thread(
+                lambda: db.table("consent_audit").insert(data).execute()
+            )
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:
             event_id = response.data[0].get("id")
+            persisted_issued_at = response.data[0].get("issued_at")
+            if isinstance(persisted_issued_at, int):
+                issued_at = persisted_issued_at
             audit_event_id = int(event_id) if isinstance(event_id, int) else None
             logger.info(f"Inserted {action} event: {event_id}")
         else:
