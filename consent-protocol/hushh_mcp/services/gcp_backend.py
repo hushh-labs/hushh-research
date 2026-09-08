@@ -524,6 +524,36 @@ class GcpBackend:
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
 
+    async def observe_upgrade(
+        self, spec: PodSpec, receipt: dict[str, Any]
+    ) -> Optional[BackendHandle]:
+        """Read-only recovery of an acknowledged managed upgrade."""
+        if not self._live or not spec.expected_service_uid or not spec.upgrade_attempt_id:
+            raise RuntimeError("upgrade recovery authority unavailable")
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        name = str(self.render_deploy_config(spec)["metadata"]["name"])
+        client = self._client or self._build_client()
+        ready, service = await asyncio.to_thread(
+            client.observe_upgrade_acknowledgement,
+            receipt,
+            name=name,
+            expected_uid=spec.expected_service_uid,
+            attempt_id=spec.upgrade_attempt_id,
+        )
+        if ready is None:
+            return None
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
+            status="live" if ready else "failed",
+            backend=self.backend_id,
+            backend_metadata={
+                "image": receipt["image"],
+                "url": GcpRunClient.service_url(service) or "",
+            },
+        )
+
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
         """Roll THIS person's hussh-hosted pod onto the hub's current image tag.
 

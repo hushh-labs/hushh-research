@@ -384,8 +384,15 @@ before claiming the lifecycle complete.
    and replacement acknowledgement is persisted through the same registry CAS
    before polling: service UID, generation, attempt, deployed image and requested
    target. Failure to persist stops polling and retains admission. A later timeout
-   cannot erase that receipt. Restart reconciliation is still required before
-   automatically releasing an unresolved operation. Unrelated writers can preserve template annotations, so a matching
+   cannot erase that receipt. The existing upgrade sweep now reconciles stored
+   acknowledgements using GET-only backend observation of that exact service UID,
+   attempt, image and generation. Unknown or changed observations retain admission;
+   a terminal controller verdict publishes through the original token/host CAS.
+   PostgreSQL checks prove delayed old-worker success or failure cannot overwrite
+   a subsequent claimant. Source/provider-double tests cover restart recovery, not
+   live provider success, serving traffic, recall or complete erasure admission.
+   Missing acknowledgements still require independent reconciliation; never retry
+   their provider mutation just because the worker disappeared. Unrelated writers can preserve template annotations, so a matching
    annotation alone is never a complete recovery proof.
 6. **Migration is a first-class product surface.** A person who started on the hosted tier
    must be able to move their agent into their own project with one click, keeping the same

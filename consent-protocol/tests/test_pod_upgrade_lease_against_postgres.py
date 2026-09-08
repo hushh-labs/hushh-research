@@ -445,3 +445,12 @@ async def test_uncertain_upgrade_retains_admission_until_terminal_publication(pg
     assert await repo.claim_image_upgrade(
         user_id=_USER, target_image=_TARGET, observed=await repo.get(_USER)
     )
+    for delayed_metadata in ({"image": "old-success"}, {"upgrade": {"outcome": "unresolved"}}):
+        assert not await repo.record_image_upgrade(
+            user_id=_USER,
+            observed=observed,
+            expected_lease=lease,
+            previous_metadata=observed["backend_metadata"],
+            backend_metadata=delayed_metadata,
+            retain_lease="upgrade" in delayed_metadata,
+        )

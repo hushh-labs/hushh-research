@@ -1175,6 +1175,11 @@ class PersonalAgentProvisioningService:
         rows = await self._registry.fetch_upgrade_candidates(limit=limit)
         out: list[dict[str, Any]] = []
         for row in rows:
+            metadata = (row or {}).get("backend_metadata") or {}
+            if metadata.get("upgradeLease") is not None:
+                if isinstance(metadata.get("upgradeAcknowledgement"), dict):
+                    out.append(row)  # Observation only; upgrade_pod refuses new admission.
+                continue
             built_from = running_image(row)
             if not built_from or built_from == target:
                 continue
@@ -1200,6 +1205,81 @@ class PersonalAgentProvisioningService:
                 continue
             out.append(row)
         return out
+
+    async def _reconcile_image_upgrade(
+        self, *, user_id: str, row: dict, spec: PodSpec, backend: Any, lease: Any
+    ) -> dict[str, Any]:
+        metadata = dict(row.get("backend_metadata") or {})
+        receipt = metadata.get("upgradeAcknowledgement")
+        unresolved = {
+            "hushhId": spec.hushh_id,
+            "status": "provisioned",
+            "upgraded": False,
+            "skipped": "in_progress",
+            "image": running_image(row),
+            "previousImage": running_image(row),
+        }
+        observe = getattr(backend, "observe_upgrade", None)
+        if (
+            not isinstance(lease, str)
+            or not lease
+            or not isinstance(receipt, dict)
+            or observe is None
+        ):
+            return unresolved
+        attempt = hashlib.sha256(lease.encode()).hexdigest()
+        if (
+            receipt.get("attemptId") != attempt
+            or receipt.get("serviceUid") != spec.expected_service_uid
+            or not isinstance(receipt.get("targetImage"), str)
+            or not receipt["targetImage"]
+        ):
+            return unresolved
+        handle = await observe(replace(spec, upgrade_attempt_id=attempt), receipt)
+        if handle is None:
+            return unresolved
+        if handle.status not in {"live", "failed"} or handle.external_agent_id != receipt.get(
+            "service"
+        ):
+            raise RuntimeError("upgrade recovery terminal receipt invalid")
+        updated = dict(metadata)
+        updated.pop("upgradeLease", None)
+        succeeded = handle.status == "live"
+        if succeeded:
+            updated.update(handle.backend_metadata or {})
+            updated.pop("observed", None)
+            updated.pop("upgrade", None)
+            if receipt.get("hubRevision"):
+                updated["imageSetByRevision"] = receipt["hubRevision"]
+        else:
+            updated["upgrade"] = {
+                **(metadata.get("upgrade") or {}),
+                "failedImage": receipt["targetImage"],
+                "outcome": "failed",
+                "attempts": max(1, int((metadata.get("upgrade") or {}).get("attempts") or 0)),
+                "lastError": "Upgrade revision did not become ready",
+                "lastAttemptAt": datetime.now(timezone.utc).isoformat(),
+            }
+        updated["upgradeAcknowledgement"] = {
+            **receipt,
+            "outcome": "ready" if succeeded else "failed",
+        }
+        published = await self._registry.record_image_upgrade(
+            user_id=user_id,
+            observed=row,
+            expected_lease=lease,
+            previous_metadata=metadata,
+            backend_metadata=updated,
+        )
+        if published is not True:
+            raise RuntimeError("upgrade recovery publication lost authority")
+        return {
+            **unresolved,
+            "skipped": None,
+            "reconciled": True,
+            "upgraded": succeeded,
+            "image": running_image({"backend_metadata": updated}),
+        }
 
     async def upgrade_pod(self, *, user_id: str, current_image: str) -> dict[str, Any]:
         """Move one person's running pod onto ``current_image``, keeping who it is.
@@ -1270,6 +1350,11 @@ class PersonalAgentProvisioningService:
             resource_tier=row.get("liveness_mode"),
         )
         backend = self._backend_for(spec)
+        held = (row.get("backend_metadata") or {}).get("upgradeLease")
+        if held is not None:
+            return await self._reconcile_image_upgrade(
+                user_id=user_id, row=row, spec=spec, backend=backend, lease=held
+            )
         upgrade = getattr(backend, "upgrade", None)
         if upgrade is None:
             raise PersonalAgentUpgradeUnsupportedError(
@@ -1349,7 +1434,11 @@ class PersonalAgentProvisioningService:
                 publish_upgrade(
                     backend_metadata={
                         **claimed_metadata,
-                        "upgradeAcknowledgement": {**receipt, "targetImage": current_image},
+                        "upgradeAcknowledgement": {
+                            **receipt,
+                            "targetImage": current_image,
+                            "hubRevision": hub_revision(),
+                        },
                     },
                     retain_lease=True,
                 ),

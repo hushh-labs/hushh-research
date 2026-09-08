@@ -961,6 +961,44 @@ class UserGcpBackend:
             },
         )
 
+    async def observe_upgrade(
+        self, spec: PodSpec, receipt: dict[str, Any]
+    ) -> Optional[BackendHandle]:
+        """Read-only recovery; never recopy an image or issue another replacement."""
+        if not self._live or not spec.expected_service_uid or not spec.upgrade_attempt_id:
+            raise RuntimeError("upgrade recovery authority unavailable")
+        import asyncio
+
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        name = _service_name(spec.hushh_id)
+        client = await asyncio.to_thread(self._client)
+        ready, service = await asyncio.to_thread(
+            client.observe_upgrade_acknowledgement,
+            receipt,
+            name=name,
+            expected_uid=spec.expected_service_uid,
+            attempt_id=spec.upgrade_attempt_id,
+        )
+        if ready is None:
+            return None
+        image = receipt["image"]
+        digest = image.rsplit("@", 1)[-1] if "@" in image else None
+        if not digest or not digest.startswith("sha256:"):
+            raise RuntimeError("upgrade recovery image unverified")
+        return BackendHandle(
+            external_agent_id=name,
+            a2a_route=f"{A2A_ADDRESS_BASE}/{spec.hushh_id}",
+            status="live" if ready else "failed",
+            backend=self.backend_id,
+            backend_metadata={
+                "image": image,
+                "image_digest": digest,
+                "source_image": receipt["targetImage"],
+                "url": GcpRunClient.service_url(service) or "",
+            },
+        )
+
     async def upgrade(self, spec: PodSpec) -> BackendHandle:
         """Move THIS person's running pod onto the hub's current image, in place.
 

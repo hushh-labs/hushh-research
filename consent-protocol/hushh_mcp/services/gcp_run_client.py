@@ -398,6 +398,32 @@ class GcpRunClient:
             "image": image,
         }
 
+    def observe_upgrade_acknowledgement(
+        self, receipt: dict[str, Any], *, name: str, expected_uid: str, attempt_id: str
+    ) -> tuple[Optional[bool], dict[str, Any]]:
+        """Observe the exact acknowledged replacement without submitting work."""
+        if receipt.get("version") != 1 or receipt.get("service") != name:
+            raise RuntimeError("Cloud Run upgrade receipt binding invalid")
+        service = self.get_service(name)
+        if service is None:
+            raise RuntimeError("Cloud Run acknowledged service unavailable")
+        actual = self.upgrade_acknowledgement(
+            service, name=name, expected_uid=expected_uid, attempt_id=attempt_id
+        )
+        if any(receipt.get(key) != value for key, value in actual.items()):
+            raise RuntimeError("Cloud Run acknowledged replacement changed")
+        if not self._status_is_current(service):
+            return None, service
+        ready = next(
+            (
+                item
+                for item in (service.get("status") or {}).get("conditions", [])
+                if item.get("type") == "Ready"
+            ),
+            {},
+        ).get("status")
+        return ({"True": True, "False": False}.get(ready), service)
+
     @staticmethod
     def service_uid(service: Optional[dict[str, Any]]) -> str:
         metadata = service.get("metadata") if isinstance(service, dict) else None

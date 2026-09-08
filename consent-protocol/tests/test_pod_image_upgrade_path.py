@@ -549,8 +549,7 @@ async def test_upgrade_pod_records_a_bounded_failure_marker_and_reraises(service
         ("authority_live", "upgrade_failed"),
     ]
 
-    # A second attempt right away is on cooldown (the other worker's retry, seen
-    # burning the cap in two passes live); age the marker past it to retry for real.
+    # Age alone cannot resolve an unknown provider operation or admit another call.
     from datetime import datetime, timedelta, timezone
 
     from hushh_mcp.services.personal_agent_provisioning_service import (
@@ -560,9 +559,9 @@ async def test_upgrade_pod_records_a_bounded_failure_marker_and_reraises(service
     registry.rows["uid-1"]["backend_metadata"]["upgrade"]["lastAttemptAt"] = (
         datetime.now(timezone.utc) - timedelta(seconds=UPGRADE_RETRY_COOLDOWN_SECONDS + 1)
     ).isoformat()
-    with pytest.raises(PodBootFailedError):
-        await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
-    assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 2
+    result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+    assert result["skipped"] == "in_progress"
+    assert registry.rows["uid-1"]["backend_metadata"]["upgrade"]["attempts"] == 1
 
 
 @pytest.mark.asyncio
@@ -789,7 +788,6 @@ async def test_a_lost_lease_means_another_worker_has_this_pod(service_env):
 async def test_the_winner_claims_before_it_moves_and_clears_the_lease_after(service_env):
     pas, _ = service_env
     row = _row()
-    row["backend_metadata"]["upgradeLease"] = "2026-09-02T22:26:46+00:00|" + SOURCE_NEW
     registry = FakeRegistry({"uid-1": row})
     backend = FakeUpgradingBackend()
     service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
@@ -1349,7 +1347,11 @@ async def test_upgrade_acknowledgement_is_persisted_before_provider_continues(se
             receipt = {"version": 1, "attemptId": spec.upgrade_attempt_id, "generation": 4}
             await asyncio.to_thread(spec.on_upgrade_ack, receipt)
             stored = registry.rows["uid-1"]["backend_metadata"]
-            assert stored["upgradeAcknowledgement"] == {**receipt, "targetImage": SOURCE_NEW}
+            assert stored["upgradeAcknowledgement"] == {
+                **receipt,
+                "targetImage": SOURCE_NEW,
+                "hubRevision": pas.hub_revision(),
+            }
             assert stored["upgradeLease"]
             raise RuntimeError("synthetic polling interrupted")
 
@@ -1395,3 +1397,89 @@ async def test_byoc_upgrade_polls_only_after_durable_acknowledgement(copy_log, p
     else:
         await _backend(run).upgrade(spec)
         assert run.polls == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("state", ["live", "failed", "pending", "replaced"])
+async def test_restarted_upgrade_reconciles_receipt_without_new_admission(service_env, state):
+    import hashlib
+
+    pas, _ = service_env
+    row = _row()
+    lease = "synthetic-persisted-reservation"
+    receipt = {
+        "version": 1,
+        "attemptId": hashlib.sha256(lease.encode()).hexdigest(),
+        "serviceUid": "uid-from-cloud-run",
+        "service": "one-pod-x",
+        "targetImage": SOURCE_NEW,
+        "hubRevision": "dev-acknowledged-revision",
+        "generation": 4,
+        "image": f"reg/copy@{NEW}",
+    }
+    row["backend_metadata"].update(upgradeLease=lease, upgradeAcknowledgement=receipt)
+    registry = FakeRegistry({"uid-1": row})
+
+    class ObservingBackend(FakeUpgradingBackend):
+        async def observe_upgrade(self, spec, saved):
+            assert saved == receipt and spec.upgrade_attempt_id == receipt["attemptId"]
+            if state == "pending":
+                return None
+            if state == "replaced":
+                registry.rows["uid-1"]["backend_metadata"]["upgradeLease"] = "new-owner"
+            return BackendHandle(
+                external_agent_id="one-pod-x",
+                a2a_route="https://synthetic.invalid",
+                status="live" if state == "replaced" else state,
+                backend=self.backend_id,
+                backend_metadata={"source_image": SOURCE_NEW, "image": receipt["image"]},
+            )
+
+    backend = ObservingBackend()
+    service = pas.PersonalAgentProvisioningService(registry=registry, backend=backend)
+    assert await service.list_upgrade_candidates(current_image=SOURCE_NEW)
+    if state == "replaced":
+        with pytest.raises(RuntimeError, match="publication lost authority"):
+            await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+        assert registry.rows["uid-1"]["backend_metadata"]["upgradeLease"] == "new-owner"
+    else:
+        result = await service.upgrade_pod(user_id="uid-1", current_image=SOURCE_NEW)
+        stored = registry.rows["uid-1"]["backend_metadata"]
+        if state == "pending":
+            assert result["skipped"] == "in_progress" and stored["upgradeLease"] == lease
+        else:
+            assert result["reconciled"] and "upgradeLease" not in stored
+            assert result["upgraded"] is (state == "live")
+            if state == "live":
+                assert stored["imageSetByRevision"] == receipt["hubRevision"]
+    assert not backend.specs and not registry.claims
+
+
+@pytest.mark.asyncio
+async def test_byoc_restart_observes_acknowledged_revision_without_copy_or_replace(copy_log):
+    name = ugb._service_name(HUSHH_ID)
+    service_json = _service_json(name, NEW)
+    service_json["metadata"]["generation"] = 4
+    service_json["status"]["observedGeneration"] = 4
+    service_json["spec"]["template"].setdefault("metadata", {}).setdefault("annotations", {})[
+        "hussh/restart-nonce"
+    ] = _spec().upgrade_attempt_id
+
+    class ReadOnlyRun(GcpRunClient):
+        def __init__(self):
+            pass
+
+        def get_service(self, requested):
+            assert requested == name
+            return copy.deepcopy(service_json)
+
+    receipt = GcpRunClient.upgrade_acknowledgement(
+        service_json,
+        name=name,
+        expected_uid=_spec().expected_service_uid,
+        attempt_id=_spec().upgrade_attempt_id,
+    )
+    receipt["targetImage"] = SOURCE_NEW
+    handle = await _backend(ReadOnlyRun()).observe_upgrade(_spec(), receipt)
+    assert handle.status == "live" and handle.backend_metadata["source_image"] == SOURCE_NEW
+    assert not copy_log.resolved and not copy_log.copied

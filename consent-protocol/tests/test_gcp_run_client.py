@@ -825,3 +825,34 @@ def test_readiness_refuses_a_generation_after_its_acknowledgement():
     run = _ScriptedRun([service])
     with pytest.raises(RuntimeError, match="acknowledged generation changed"):
         run.wait_ready("pod", timeout_s=1, interval_s=0, expected_generation=4)
+
+
+@pytest.mark.parametrize("outcome", ["True", "False", "Unknown", "changed", "lagging"])
+def test_upgrade_receipt_reconciliation_never_submits_a_replacement(outcome):
+    service = _svc(generation=4, observed=4, ready=outcome)
+    service["metadata"].update(name="pod", uid="uid")
+    service["spec"] = {
+        "template": {
+            "metadata": {"annotations": {"hussh/restart-nonce": "attempt"}},
+            "spec": {"containers": [{"image": "synthetic/image"}]},
+        }
+    }
+    receipt = GcpRunClient.upgrade_acknowledgement(
+        service, name="pod", expected_uid="uid", attempt_id="attempt"
+    )
+    if outcome == "changed":
+        service["metadata"]["generation"] = 5
+    if outcome == "lagging":
+        service["status"]["observedGeneration"] = 3
+    run = _ScriptedRun([service])
+    if outcome == "changed":
+        with pytest.raises(RuntimeError, match="replacement changed"):
+            run.observe_upgrade_acknowledgement(
+                receipt, name="pod", expected_uid="uid", attempt_id="attempt"
+            )
+    else:
+        ready, _ = run.observe_upgrade_acknowledgement(
+            receipt, name="pod", expected_uid="uid", attempt_id="attempt"
+        )
+        assert ready is {"True": True, "False": False}.get(outcome)
+    assert run.polls == 1
