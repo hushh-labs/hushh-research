@@ -155,3 +155,32 @@ async def test_execute_full_success_reports_complete(monkeypatch):
     assert result["complete"] is True
     assert result["failed"] == []
     assert result["deleted"] == plan
+
+
+@pytest.mark.parametrize(
+    "invalid",
+    [
+        None,
+        {},
+        "bucket",
+        [None],
+        [{}],
+        [{"type": "gcs_bucket", "id": ""}],
+        [{"type": "gcs_bucket", "id": 7}],
+    ],
+)
+async def test_invalid_inventory_is_never_dropped_or_partially_executed(monkeypatch, invalid):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.byoc_substrate_teardown import SubstrateDeleteError
+
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+    deleter = AsyncMock()
+    resources = (
+        [{"type": "gcs_bucket", "id": "valid"}, *invalid] if isinstance(invalid, list) else invalid
+    )
+    with pytest.raises(SubstrateDeleteError):
+        plan_teardown(resources)
+    with pytest.raises(SubstrateDeleteError):
+        await execute_teardown(resources, deleter=deleter, dry_run=False)
+    deleter.assert_not_awaited()

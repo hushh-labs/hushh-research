@@ -1,10 +1,8 @@
 """Tear down a BYOC tenant's substrate -- DARK by construction.
 
-The substrate ensurer (byoc_substrate.py) self-names the gap: it records a receipt
-of WHAT was created but has no teardown, so account deletion leaves the user's KMS
-key, CMEK bucket, SA, Pub/Sub, and scheduler in their project. This closes it, but
-behind two independent guards, because it DESTROYS THE USER'S SEALED HOLDINGS in a
-customer-owned project, irreversibly (a KMS key cannot be un-destroyed):
+These helpers order and execute explicit resource plans; they do not establish a
+complete inventory or prove end-to-end account erasure. Invalid inventory refuses
+before any deletion. Execution remains behind two independent guards:
 
   1. ``personal_agent_substrate_teardown_enabled()`` -- founder flag, default off; and
   2. an explicit ``dry_run=False`` at the call site.
@@ -71,14 +69,16 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
     Each input is a ``{"type": ..., "id": ...}`` from the substrate plan. Unknown
     types run before recovery authority is removed, so an unsupported resource
     fails completeness while preserving access needed to finish its teardown."""
+    if not isinstance(resources, (list, tuple)):
+        raise SubstrateDeleteError("substrate inventory must be an explicit sequence")
     actions: list[dict[str, Any]] = []
-    for r in resources or []:
-        if not isinstance(r, dict):
-            continue
-        rtype = str(r.get("type") or "").strip()
-        rid = str(r.get("id") or "").strip()
-        if not rid:
-            continue
+    for r in resources:
+        if not isinstance(r, dict) or any(
+            not isinstance(r.get(key), str) or not r[key].strip() for key in ("type", "id")
+        ):
+            raise SubstrateDeleteError("substrate inventory contains an invalid resource")
+        rtype = r["type"].strip()
+        rid = r["id"].strip()
         action = {
             "type": rtype or "unknown",
             "id": rid,
@@ -117,9 +117,9 @@ async def execute_teardown(
         personal_agent_substrate_teardown_enabled,
     )
 
-    plan = sorted(
-        list(actions or []), key=lambda action: _TEARDOWN_PRIORITY.get(action["type"], 49)
-    )
+    # Validate the complete inventory before the first destructive operation.
+    # Callers cannot bypass the planner with a partially malformed action list.
+    plan = plan_teardown(actions)
     live = (not dry_run) and personal_agent_substrate_teardown_enabled()
     if not live:
         return {

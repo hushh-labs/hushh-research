@@ -409,7 +409,8 @@ coordinated owner admission, in-flight provider reconciliation, retained retry a
 and verified cleanup of all resources. The account service currently refuses destructive
 teardown while required external resources remain; this containment must not be described
 as successful erasure. Verify no resurrection through replay, restore or regeneration
-before claiming the lifecycle complete.
+before claiming the lifecycle complete. Substrate cleanup rejects malformed inventory
+before any deletion; silently dropping an entry cannot count as complete cleanup.
 
 ## What this changes about the work
 
