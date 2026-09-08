@@ -55,6 +55,7 @@ from hushh_mcp.operons.location.policy import (
     normalize_duration_hours,
 )
 from hushh_mcp.services.action_gateway import (
+    GLOBAL_SESSION_ACTION_IDS,
     get_action_gateway_action,
     is_navigation_action,
     list_action_gateway_actions,
@@ -3624,6 +3625,12 @@ def _reachability(
     off-screen answer becomes "open X first" instead of a dead end.
     """
     if available_action_ids is None or action_id in available_action_ids:
+        return "on_screen", None
+    if action_id in GLOBAL_SESSION_ACTION_IDS:
+        # Available on every screen by construction, so an empty mounted
+        # inventory means "nothing published yet", not "not offered here".
+        # Without this, signing out reads as a dead end from every screen
+        # except Profile -- the exact refusal this function exists to prevent.
         return "on_screen", None
     if is_navigation_action(entry):
         return "on_screen", None

@@ -82,6 +82,21 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.one_feed",
 ];
 /**
+ * Session verbs that are true wherever the person is standing. Kept separate
+ * from GLOBAL_NAV_ACTION_IDS above because that list is documented as
+ * cross-screen *navigation* -- one id per top-level surface -- and signing out
+ * is not navigation. Both segments are appended the same way and both widen
+ * AVAILABLE_ACTION_IDS_CAP, so the distinction costs nothing at runtime and
+ * keeps each list's rule checkable on its own.
+ *
+ * An id here still has to clear requireMountedLocalHandlers, so a session verb
+ * backed by a local handler must be registered somewhere always-mounted --
+ * components/agent/global-voice-action-handlers.tsx, not a page.
+ */
+export const GLOBAL_SESSION_ACTION_IDS: readonly string[] = [
+  "profile.sign_out",
+];
+/**
  * available_action_ids carries the screen-ranked local segment PLUS the
  * reserved global navigation segment above, so it must be at least as wide
  * as both combined -- not a separately-picked number. It used to be a bare
@@ -97,7 +112,9 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
  * agent_tree.py render-time slices); keep them in sync.
  */
 export const AVAILABLE_ACTION_IDS_CAP =
-  ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length;
+  ACTION_ID_SCREEN_SEGMENT_CAP +
+  GLOBAL_NAV_ACTION_IDS.length +
+  GLOBAL_SESSION_ACTION_IDS.length;
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -713,7 +730,10 @@ function prioritizeAvailableActionIds(
   }
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
-  for (const navId of GLOBAL_NAV_ACTION_IDS) {
+  for (const navId of [
+    ...GLOBAL_NAV_ACTION_IDS,
+    ...GLOBAL_SESSION_ACTION_IDS,
+  ]) {
     if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
     if (combined.includes(navId)) continue;
     if (!getKaiActionById(navId)) continue;

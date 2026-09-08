@@ -12435,7 +12435,10 @@
       "label": "Sign Out",
       "aliases": [
         "sign out",
-        "log out"
+        "log out",
+        "log me out",
+        "sign me out",
+        "log out of my account"
       ],
       "search_keywords": [
         "sign out",
@@ -12460,18 +12463,18 @@
         "requires_persona_switch_confirmation": false
       },
       "guard_ids": [
-        "manual_user_execution"
+        "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "allow_direct",
       "activation_policy": "none",
       "siri_mode": "unsupported",
       "siri_requires_vault": false,
       "siri_vault_locked_fallback_action_id": null,
       "execution_target": {
-        "status": "unwired",
-        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.sign_out"
       },
       "control_ids": [],
       "state_exposure": [],
@@ -12483,7 +12486,7 @@
       "external_callback": null,
       "expected_effects": {
         "state_changes": [
-          "current route becomes /one/profile"
+          "The mounted action reports its browser-observed outcome."
         ],
         "backend_effects": []
       },

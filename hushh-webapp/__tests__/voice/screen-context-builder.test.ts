@@ -5,6 +5,7 @@ import {
   ARRAY_DIMENSION_CAP_ERROR,
   AVAILABLE_ACTION_IDS_CAP,
   GLOBAL_NAV_ACTION_IDS,
+  GLOBAL_SESSION_ACTION_IDS,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildOneVoiceContextSnapshot,
@@ -81,7 +82,9 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // "must ALWAYS be visible" guarantee below. Deriving it here means
     // there is only one number to get right.
     expect(AVAILABLE_ACTION_IDS_CAP).toBe(
-      ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
+      ACTION_ID_SCREEN_SEGMENT_CAP +
+        GLOBAL_NAV_ACTION_IDS.length +
+        GLOBAL_SESSION_ACTION_IDS.length,
     );
   });
 
@@ -93,7 +96,7 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // cross-language sync for this; both sides must be changed together, in
     // the same commit, and this pins the current value so a drift is caught
     // here instead of in a UAT deploy.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(58);
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(59);
   });
 
   it("never lets a crowded screen trade away a global-nav slot", () => {
@@ -105,6 +108,41 @@ describe("the action-id cap invariant this file's own comments document", () => 
     expect(
       ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
     ).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("reserves room for the session segment as well, not just navigation", () => {
+    // Same guarantee as above, extended to GLOBAL_SESSION_ACTION_IDS. If the
+    // cap were left deriving from the nav list alone, adding a session verb
+    // would silently push the last nav id past the cap -- reintroducing the
+    // exact bug the derivation above was written to kill.
+    expect(
+      ACTION_ID_SCREEN_SEGMENT_CAP +
+        GLOBAL_NAV_ACTION_IDS.length +
+        GLOBAL_SESSION_ACTION_IDS.length,
+    ).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("carries sign-out as a session verb, never as navigation", () => {
+    // "log me out" is answerable from any screen, so it cannot live in a
+    // page's own segment -- a local handler is only offered while mounted,
+    // and Profile is usually not the screen someone is standing on when they
+    // say it. It is equally not navigation: putting it in
+    // GLOBAL_NAV_ACTION_IDS would break that list's stated rule of one id per
+    // top-level surface, which is what keeps it auditable.
+    expect(GLOBAL_SESSION_ACTION_IDS).toContain("profile.sign_out");
+    expect(GLOBAL_NAV_ACTION_IDS).not.toContain("profile.sign_out");
+  });
+
+  it("keeps every session action backed by a real wired gateway entry", () => {
+    // The global append in prioritizeAvailableActionIds skips any id that
+    // getKaiActionById cannot resolve, so a typo here would not fail loudly --
+    // the action would just never be offered, which is indistinguishable from
+    // the bug this whole change fixes.
+    for (const actionId of GLOBAL_SESSION_ACTION_IDS) {
+      const action = getKaiActionById(actionId);
+      expect(action, `${actionId} is not in the generated gateway`).toBeTruthy();
+      expect(action?.execution_target.status).toBe("wired");
+    }
   });
 });
 
