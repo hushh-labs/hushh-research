@@ -126,6 +126,8 @@ _STATE_BY_REGISTRY_STATUS: dict[str, str] = {
     # sweep is deliberately inert); the mapping exists so the first writer does
     # not ship a status every client renders by fallback.
     "reaped": "reserved",
+    # Erasure retains the host while refusing ordinary access.
+    "suspended": "failed",
 }
 
 # Every unmapped status degrades to this. A raw DB value is NEVER echoed to the

@@ -299,3 +299,87 @@ async def test_historical_event_order_uses_timestamp_then_id(
         ) is (later_insert_issued_at < 200)
     finally:
         engine.dispose()
+
+
+def test_erasure_reservation_blocks_grants_and_registry_replacement(pg):
+    pg.apply_file(ROOT / "db/migrations/parked/900_personal_agent_registry.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/912_personal_agent_status_migrating.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/916_personal_agent_erasure_admission.sql")
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status,backend_metadata) VALUES ('synthetic-owner','ha1_erasure','provisioned','{\"serviceUid\":\"incarnation\",\"upgradeLease\":\"unresolved-upgrade\"}')"
+    )
+    receipt = pg.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')")[
+        0
+    ][0]
+    assert receipt["phase"] == "reserved"
+    assert receipt["registrySnapshot"]["backend_metadata"]["upgradeLease"] == "unresolved-upgrade"
+    assert (
+        pg.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-two')")[0][0]
+        == receipt
+    )
+    assert pg.execute(
+        "SELECT status FROM personal_agent_registry WHERE user_id='synthetic-owner'"
+    ) == [("suspended",)]
+    for statement in (
+        "UPDATE personal_agent_registry SET status='provisioned' WHERE user_id='synthetic-owner'",
+        "UPDATE personal_agent_registry SET backend_metadata='{}' WHERE user_id='synthetic-owner'",
+        "DELETE FROM personal_agent_registry WHERE user_id='synthetic-owner'",
+    ):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            pg.execute(statement)
+    for automatic in (True, False):
+        with connect(pg) as conn, pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            insert(conn, event(automatic=automatic), renewal=automatic)
+    # Revocation and other owners remain admitted through existing authority.
+    with connect(pg) as conn:
+        insert(conn, event("REVOKED"))
+        insert(conn, event(owner="another-owner"), renewal=True)
+
+    pg.execute(
+        "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+    )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege, match="guards unavailable"):
+        pg.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-three')")
+
+
+@pytest.mark.parametrize("writer", ["grant", "registry"])
+def test_erasure_reservation_serializes_concurrent_owner_writers(pg, writer):
+    pg.apply_file(ROOT / "db/migrations/parked/900_personal_agent_registry.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/912_personal_agent_status_migrating.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/916_personal_agent_erasure_admission.sql")
+    pg.execute(
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status) VALUES ('synthetic-owner','ha1_erasure','provisioned')"
+    )
+    reserver = connect(pg)
+    pool = ThreadPoolExecutor(max_workers=1)
+    try:
+        with reserver.cursor() as cursor:
+            cursor.execute("SELECT reserve_personal_agent_erasure('synthetic-owner','attempt')")
+
+        def write():
+            with connect(pg, application_name="synthetic-erasure-race") as conn:
+                if writer == "grant":
+                    insert(conn, event(automatic=False))
+                else:
+                    with conn.cursor() as cursor:
+                        cursor.execute(
+                            "UPDATE personal_agent_registry SET status='provisioning' WHERE user_id='synthetic-owner'"
+                        )
+
+        future = pool.submit(write)
+        deadline = time.monotonic() + 5
+        while time.monotonic() < deadline:
+            if pg.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic-erasure-race' AND wait_event_type='Lock'"
+            )[0][0]:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("concurrent writer did not reach the reservation lock")
+        reserver.commit()
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            future.result(timeout=5)
+    finally:
+        reserver.rollback()
+        reserver.close()
+        pool.shutdown(wait=True)

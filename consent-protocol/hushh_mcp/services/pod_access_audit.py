@@ -60,6 +60,8 @@ def _owner_binding_denials(row: Any, hushh_id: Optional[str]) -> list[str]:
     if not isinstance(row, dict):
         return ["no_registry_row"]
     reasons: list[str] = []
+    if isinstance(row.get("backend_metadata"), dict) and "erasure" in row["backend_metadata"]:
+        reasons.append("erasure_reserved")
     if row.get("status") != STATUS_PROVISIONED:
         reasons.append("pod_not_provisioned")
     recorded = row.get("hushh_id")

@@ -52,6 +52,9 @@ def _written_statuses() -> set[str]:
     # The tombstone TABLE's own lifecycle status, written by the same module; it
     # never touches personal_agent_registry.status. Excluded by name so a
     # registry writer of the same string would still be caught.
+    # Dev lifecycle SQL is also an authored registry writer.
+    erasure = _BACKEND / "db/migrations/parked/916_personal_agent_erasure_admission.sql"
+    written |= set(re.findall(r"\bstatus\s*=\s*'([a-z_]+)'", erasure.read_text()))
     written -= {"deprovision_requested"}
     return written
 

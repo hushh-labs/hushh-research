@@ -327,6 +327,21 @@ rollback. Removing the guard would restore the renewal defect. Retaining revocat
 records remains necessary: the currently uncalled audit-log deletion helper is not an
 approved personal-agent erasure path.
 
+Dev migration916 adds the first erasure-admission phase to the existing registry.
+An owner-requested deprovision that finds retained resources reserves the current
+registry snapshot under the existing owner transaction locks, suspends ordinary
+access, and refuses new grants and ordinary registry writes. The existing endpoint
+still returns incomplete-erasure409; missing registry or unavailable reservation
+also stays incomplete. The public status uses the existing failed state, not active
+or first-run setup. Reserved compute still counts toward the fleet cap. This is
+source-level, PostgreSQL-tested admission, not a deployed erasure receipt.
+
+The snapshot cannot inventory provider work whose acknowledgement has not arrived.
+The frozen registry currently refuses those late ordinary writes too; retaining an
+unknown operation is not proof it drained. An exact-attempt evidence append and
+pod-held log fencing/provider reconciliation must be connected before this phase
+can finish. No compute, key, grant or owner identity is deleted by reservation.
+
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 It does not activate complete account deletion. Public lifecycle completion still needs
 coordinated owner admission, in-flight provider reconciliation, retained retry authority

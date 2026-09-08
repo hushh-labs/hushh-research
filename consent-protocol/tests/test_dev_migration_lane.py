@@ -48,6 +48,7 @@ EXPECTED_PARKED_MIGRATIONS = (
     "913_consent_audit_receipts_ledger.sql",
     "914_personal_agent_billing_space_id.sql",
     "915_personal_agent_renewal_authority.sql",
+    "916_personal_agent_erasure_admission.sql",
 )
 
 

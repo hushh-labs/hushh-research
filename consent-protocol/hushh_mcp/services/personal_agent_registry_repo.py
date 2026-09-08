@@ -39,7 +39,7 @@ _TOMBSTONES = "personal_agent_deletion_tombstones"
 #: question -- "does this person occupy a slot in the fleet" -- and `migrating`
 #: belongs here because a migration briefly holds TWO hosts, and under-counting a
 #: cost ceiling spends money.
-_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned", "migrating")
+_ACTIVE_POD_STATUSES = ("provisioning", "connecting", "provisioned", "migrating", "suspended")
 
 #: Rows whose SILENCE the liveness sweep is entitled to judge. Deliberately not
 #: the same tuple: one list was answering two different questions, and the answers
@@ -170,6 +170,19 @@ class PersonalAgentRegistryRepo:
 
     def _db(self) -> Any:
         return self._client if self._client is not None else get_db()
+
+    async def reserve_erasure(self, *, user_id: str) -> None:
+        """Retain the current resource snapshot and close ordinary pod admission."""
+        try:
+            response = await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.reserve_personal_agent_erasure(:owner, :attempt) AS reservation",
+                {"owner": user_id, "attempt": uuid.uuid4().hex},
+            )
+            if not response.data or not isinstance(response.data[0].get("reservation"), dict):
+                raise RuntimeError("erasure reservation not acknowledged")
+        except Exception:
+            raise RuntimeError("personal agent erasure admission unavailable") from None
 
     async def upsert(
         self,

@@ -198,3 +198,16 @@ async def test_missing_registry_identity_is_denied_and_receipted(hushh_id):
         )
     assert ledger.events[0]["metadata"]["decision"] == "deny"
     assert "hushh_id_unavailable" in ledger.events[0]["metadata"]["reasons"]
+
+
+@pytest.mark.parametrize("status", ["provisioned", "suspended"])
+async def test_erasure_reservation_refuses_existing_owner_read(status):
+    row = {
+        **_provisioned_row(status=status),
+        "backend_metadata": {"erasure": {"phase": "reserved"}},
+    }
+    ledger = FakeLedger()
+    svc = PodAccessAuditService(registry=FakeRegistry(row), ledger=ledger)
+    with pytest.raises(PodAccessDenied):
+        await svc.authorize_owner_read(user_id=_UID, agent_id=PERSONAL_AGENT_ID, scope="pkm.read")
+    assert ledger.events[-1]["action"] == ACTION_DENIED

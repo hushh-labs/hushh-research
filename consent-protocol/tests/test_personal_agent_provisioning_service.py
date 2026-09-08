@@ -294,8 +294,10 @@ async def test_deprovision_refuses_retained_resources_even_with_revoke_false(mon
         raise PersonalAgentDeprovisioningRequiredError("retained resources")
 
     monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", refuse)
+    registry.reserve_erasure = AsyncMock()
     with pytest.raises(PersonalAgentDeprovisioningRequiredError):
         await svc.deprovision(user_id=_UID, revoke=False)
+    registry.reserve_erasure.assert_awaited_once_with(user_id=_UID)
     assert grant.revokes == []
     assert registry.deleted == []
     assert registry.tombstones == []

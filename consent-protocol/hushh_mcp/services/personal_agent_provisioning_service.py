@@ -1688,8 +1688,9 @@ class PersonalAgentProvisioningService:
     ) -> dict[str, Any]:
         """Refuse destructive teardown until owner-held erasure can be proved.
 
-        The existing account guard owns retained-resource classification. A
-        successful empty-state observation performs no mutation after its locks
+        The existing account guard owns retained-resource classification. Retained
+        registry resources are reserved for erasure; teardown still reports incomplete.
+        A successful empty-state observation performs no mutation after its locks
         are released, so concurrent provisioning cannot be deleted by this call.
         Legacy keyword arguments remain accepted for call compatibility.
         """
@@ -1697,9 +1698,25 @@ class PersonalAgentProvisioningService:
 
         if not user_id:
             raise ValueError("user_id is required")
-        await asyncio.to_thread(
-            AccountService().assert_personal_agent_external_resources_absent, user_id
-        )
+        from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
+
+        try:
+            await asyncio.to_thread(
+                AccountService().assert_personal_agent_external_resources_absent, user_id
+            )
+        except PersonalAgentDeprovisioningRequiredError:
+            reserve = getattr(self._registry, "reserve_erasure", None)
+            if reserve is not None:
+                try:
+                    await reserve(user_id=user_id)
+                except Exception as exc:
+                    logger.warning(
+                        "personal_agent.erasure_admission_unavailable error_type=%s",
+                        type(exc).__name__,
+                    )
+            # Reserved, unavailable, and absent-registry cases all remain incomplete.
+            # Never remove compute, keys, grants, or owner identity at this phase.
+            raise
         return {
             "status": "unprovisioned",
             "noOp": True,
