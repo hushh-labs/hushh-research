@@ -422,7 +422,13 @@ refusal. These declarations neither prove that a grant was created nor authorize
 revocation; the resource type/ID digest does not authenticate IAM or creation evidence. New source retains intended
 resource types and selectively records acknowledged bucket creation with its generation,
 project number and creation time. Adopted buckets and missing evidence gain no creation
-claim; contradictory returned bucket names fail bootstrap. Only bounded identity fields
+claim; contradictory returned bucket names fail bootstrap. Receipt-backed cleanup resolves
+its configured project number before bucket access, compares creation identity before and
+after object cleanup, and uses a current metageneration for bucket deletion. It checks
+both live absence and the retained soft-deleted generation; retention is incomplete.
+Metageneration is not an atomic incarnation precondition: writer quiescence, exclusive
+lifecycle admission, interrupted-operation recovery and live acceptance remain outstanding.
+Only bounded identity fields
 are retained, never provider response bodies. Pod service-account creation likewise retains
 validated project/email and the stable numeric identity; adoption or missing identity creates
 no ownership claim. KMS creation receipts retain key name, purpose and creation time;

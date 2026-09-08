@@ -96,6 +96,7 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
                 action[key] = str(r[key])
         if "resourceObservation" in r:
             from hushh_mcp.services.byoc_substrate import (
+                _bucket_creation_identity,
                 _kms_key_creation_identity,
                 _secret_creation_identity,
                 _service_account_creation_identity,
@@ -103,14 +104,16 @@ def plan_teardown(resources: Any) -> list[dict[str, Any]]:
 
             observation = r["resourceObservation"]
             if (
-                rtype not in {"service_account", "kms_key", "secret"}
+                rtype not in {"service_account", "kms_key", "secret", "gcs_bucket"}
                 or not isinstance(observation, dict)
                 or observation.get("type") != rtype
                 or observation.get("id") != rid
                 or observation.get("disposition") != "created"
             ):
                 raise SubstrateDeleteError("substrate creation observation invalid or unsupported")
-            if rtype == "service_account":
+            if rtype == "gcs_bucket":
+                identity = _bucket_creation_identity(observation.get("identity"), rid)
+            elif rtype == "service_account":
                 identity = _service_account_creation_identity(observation.get("identity"), rid)
             elif rtype == "secret":
                 raw_identity = observation.get("identity")
@@ -383,10 +386,76 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         )
         raise SubstrateDeleteError(f"{what} http={response.status_code}")
 
+    def _delete_observed_bucket(bucket: str, expected: dict[str, str]) -> None:
+        from urllib.parse import quote
+
+        from hushh_mcp.services.byoc_substrate import _bucket_creation_identity
+
+        # Bucket names are global: bind the retained project number to the
+        # configured project before reading any bucket information.
+        resolved = session.get(
+            f"https://cloudresourcemanager.googleapis.com/v1/projects/{quote(project, safe='')}",
+            headers=headers,
+            timeout=30,
+            allow_redirects=False,
+        )
+        body = resolved.json() if resolved.status_code == 200 else None
+        if (
+            not isinstance(body, dict)
+            or body.get("projectId") != project
+            or body.get("projectNumber") != expected["projectNumber"]
+        ):
+            raise SubstrateDeleteError("bucket creation project unverified")
+        url = f"https://storage.googleapis.com/storage/v1/b/{quote(bucket, safe='')}"
+
+        def current_metageneration() -> str:
+            response = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+            current = response.json() if response.status_code == 200 else None
+            if (
+                not isinstance(current, dict)
+                or _bucket_creation_identity(current, bucket) != expected
+            ):
+                raise SubstrateDeleteError("bucket creation identity unverified")
+            meta = current.get("metageneration")
+            if (
+                not isinstance(meta, str)
+                or not 1 <= len(meta) <= 20
+                or not meta.isascii()
+                or not meta.isdigit()
+                or int(meta) <= 0
+            ):
+                raise SubstrateDeleteError("bucket metageneration unverified")
+            return meta
+
+        current_metageneration()
+        _empty_bucket(bucket)
+        meta = current_metageneration()
+        # This protects metadata changes, not atomic bucket-incarnation changes.
+        # Exclusive lifecycle admission and writer quiescence remain required.
+        response = session.delete(
+            url,
+            headers=headers,
+            params={"ifMetagenerationMatch": meta},
+            timeout=30,
+            allow_redirects=False,
+        )
+        if response.status_code not in (200, 204):
+            raise SubstrateDeleteError("bucket conditional deletion unconfirmed")
+        absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+        retained = session.get(
+            url,
+            headers=headers,
+            params={"softDeleted": True, "generation": expected["generation"]},
+            timeout=30,
+            allow_redirects=False,
+        )
+        if absent.status_code != 404 or retained.status_code != 404:
+            raise SubstrateDeleteError("bucket retained generation remains or absence unverified")
+
     def _empty_bucket(bucket: str) -> None:
         from urllib.parse import quote
 
-        base = f"https://storage.googleapis.com/storage/v1/b/{bucket}/o"
+        base = f"https://storage.googleapis.com/storage/v1/b/{quote(bucket, safe='')}/o"
         # Re-read the first page after deleting its exact generations. A new
         # object version must never inherit a previously observed deletion.
         for _ in range(32):
@@ -707,6 +776,9 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                     "pubsub topic",
                 )
             elif kind == "gcs_bucket":
+                if observation:
+                    _delete_observed_bucket(rid, observation["identity"])
+                    return
                 _empty_bucket(rid)
                 # No 409 in the ok tuple: a not-empty refusal is a recorded failure,
                 # never minted success.

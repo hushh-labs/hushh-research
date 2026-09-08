@@ -834,3 +834,73 @@ async def test_receipted_secret_cleanup_requires_identity_and_conditional_delete
         assert len(deletes) == 1
         assert deletes[0][1]["params"] == {"etag": '"current-etag"'}
         assert deletes[0][1]["allow_redirects"] is False
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [None, "foreign_project", "replaced", "retained"])
+async def test_observed_bucket_checks_project_incarnation_and_retention(failure):
+    session = _Session()
+    identity = {
+        "name": "one-pod-x-blobs",
+        "generation": "10",
+        "projectNumber": "123",
+        "timeCreated": "2026-09-01T00:00:00Z",
+    }
+    action = {
+        "type": "gcs_bucket",
+        "id": identity["name"],
+        "resourceObservation": {
+            "type": "gcs_bucket",
+            "id": identity["name"],
+            "disposition": "created",
+            "identity": identity,
+        },
+    }
+    session.rule(
+        "GET",
+        "cloudresourcemanager",
+        _Resp(
+            200,
+            {
+                "projectId": "proj-x",
+                "projectNumber": "999" if failure == "foreign_project" else "123",
+            },
+        ),
+    )
+    deleted = False
+
+    def metadata(url, kwargs):
+        if kwargs.get("params", {}).get("softDeleted"):
+            assert kwargs["params"]["generation"] == "10"
+            return _Resp(200 if failure == "retained" else 404)
+        if deleted:
+            return _Resp(404)
+        return _Resp(
+            200,
+            {
+                **identity,
+                "metageneration": "4",
+                "generation": "11" if failure == "replaced" else "10",
+            },
+        )
+
+    def remove(url, kwargs):
+        nonlocal deleted
+        assert kwargs["params"] == {"ifMetagenerationMatch": "4"}
+        assert kwargs["allow_redirects"] is False
+        deleted = True
+        return _Resp(204)
+
+    session.rule("GET", "/one-pod-x-blobs/o", _Resp(200))
+    session.rule("GET", "/b/", metadata)
+    session.rule("DELETE", "/b/", remove)
+    if failure:
+        with pytest.raises(SubstrateDeleteError):
+            await _deleter(session)(action)
+    else:
+        await _deleter(session)(action)
+    if failure in {"foreign_project", "replaced"}:
+        assert not deleted
+        assert not any(url.endswith("/o") for _, url, _ in session.calls)
+    if failure == "foreign_project":
+        assert len(session.calls) == 1
