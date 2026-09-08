@@ -319,6 +319,10 @@ watch renewal schedule, strict client-side ZK env parity, and a real UAT smoke.
 Local runtime bootstrap:
 
 - `bash scripts/env/bootstrap_profiles.sh` hydrates Gmail and voice backend secrets into `consent-protocol/.env` from the selected cloud project when those secrets are available.
+- For the local profile, bootstrap also mirrors UAT's non-secret
+  `GENAI_GOOGLE_CLOUD_PROJECT` override so managed Gemini uses the same
+  separately billed Vertex project as UAT. The local ADC identity must still
+  have Vertex prediction access in that project.
 - The key names are identical across local, UAT, and production. Only the secret values differ by project.
 - Missing Gmail/voice values are warnings by default and become failures only when bootstrap is run with `--strict`.
 
@@ -335,6 +339,7 @@ Local runtime bootstrap:
 | `APP_FRONTEND_ORIGIN` | Yes | GCP Secret Manager |
 | `HUSHH_GENAI_AUTH_MODE` | No | Cloud Run env var (`vertex_adc`) |
 | `GOOGLE_CLOUD_PROJECT` | No | Cloud Run env var |
+| `GENAI_GOOGLE_CLOUD_PROJECT` | No | Cloud Run env var; explicitly allowlisted managed Vertex billing/routing project |
 | `GOOGLE_CLOUD_LOCATION` | No | Cloud Run env var |
 | `GOOGLE_MAPS_API_KEY` | Yes | GCP Secret Manager |
 | `FIREBASE_ADMIN_CREDENTIALS_JSON` | Yes | GCP Secret Manager |
