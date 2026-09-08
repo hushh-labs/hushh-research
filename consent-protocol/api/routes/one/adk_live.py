@@ -508,12 +508,6 @@ def _event_audio_parts(event: Any) -> list[dict[str, Any]]:
 @router.websocket("/live")
 async def one_adk_live_relay(websocket: WebSocket) -> None:
     """Bridge the browser wire protocol onto Runner.run_live."""
-    from google.adk.agents.live_request_queue import LiveRequestQueue
-    from google.adk.agents.run_config import RunConfig, StreamingMode
-    from google.adk.events import Event as AdkEvent
-    from google.adk.events import EventActions
-    from google.genai import types as genai_types
-
     await websocket.accept()
 
     if not one_voice_enabled():
@@ -546,6 +540,33 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
     if uid or persona_tier in {"signed_locked", "signed_unlocked"}:
         await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
         return
+
+    await run_one_live_session(websocket, uid=uid, persona_tier=persona_tier)
+
+
+async def run_one_live_session(
+    websocket: WebSocket,
+    *,
+    uid: str | None,
+    persona_tier: str,
+    directive_store: Any = None,
+) -> None:
+    """Run the established protocol with the admitted transport's authority port.
+
+    Private admission is deliberately still closed while the pod transport and
+    ongoing consent enforcement are assembled. A supplied store changes only
+    directive persistence; it never grants private runtime admission.
+    """
+    if uid or persona_tier in {"signed_locked", "signed_unlocked"}:
+        await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
+        return
+    authority = directive_store if directive_store is not None else get_action_directive_store()
+
+    from google.adk.agents.live_request_queue import LiveRequestQueue
+    from google.adk.agents.run_config import RunConfig, StreamingMode
+    from google.adk.events import Event as AdkEvent
+    from google.adk.events import EventActions
+    from google.genai import types as genai_types
 
     try:
         (
@@ -844,7 +865,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 )
                 continue
             try:
-                await get_action_directive_store().cancel_voice(
+                await authority.cancel_voice(
                     directive_id=stale_directive_id,
                     user_id=session_user,
                     session_id=session_id,
@@ -1163,7 +1184,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     continue
                 try:
-                    confirmation = await get_action_directive_store().confirm(
+                    confirmation = await authority.confirm(
                         directive_id=directive_id,
                         user_id=session_user,
                         session_id=session_id,
@@ -1176,7 +1197,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                     )
                     # Consume before the browser can invoke the side effect.
                     # A lost response requires a new directive; it is never replayed.
-                    await get_action_directive_store().consume(
+                    await authority.consume(
                         directive_id=directive_id,
                         receipt=confirmation.receipt,
                         user_id=session_user,
@@ -1247,7 +1268,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                 receipt = _bounded_text(raw_settlement.get("receipt"), 256)
                 try:
                     if receipt:
-                        await get_action_directive_store().settle(
+                        await authority.settle(
                             directive_id=settlement["directive_id"],
                             receipt=receipt,
                             user_id=session_user,
@@ -1261,14 +1282,14 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             reason_code=settlement.get("reason") or settlement["status"],
                         )
                     elif settlement["status"] in {"blocked", "invalid", "failed"}:
-                        await get_action_directive_store().cancel_voice(
+                        await authority.cancel_voice(
                             directive_id=settlement["directive_id"],
                             user_id=session_user,
                             session_id=session_id,
                             action_id=settlement["action_id"],
                         )
                     elif settlement["directive_id"] in issued_direct_run_directives:
-                        await get_action_directive_store().settle_direct(
+                        await authority.settle_direct(
                             directive_id=settlement["directive_id"],
                             user_id=session_user,
                             action_id=settlement["action_id"],
@@ -1777,7 +1798,7 @@ async def one_adk_live_relay(websocket: WebSocket) -> None:
                             # new content into a live turn.
                             continue
                         try:
-                            issued = await get_action_directive_store().issue(
+                            issued = await authority.issue(
                                 user_id=session_user,
                                 channel="voice",
                                 session_id=session_id,

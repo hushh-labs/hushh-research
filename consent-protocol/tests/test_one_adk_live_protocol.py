@@ -1151,3 +1151,21 @@ def test_unknown_route_diagnostics_do_not_log_caller_paths_or_queries(caplog):
             }
         )
     assert marker not in caplog.text
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("uid,tier", [("owner", "signed_unlocked"), (None, "signed_locked")])
+async def test_injected_directive_authority_does_not_grant_private_admission(
+    monkeypatch, uid, tier
+):
+    from api.routes.one import adk_live
+
+    async def forbidden_bootstrap(*args, **kwargs):
+        pytest.fail("private bootstrap reached before pod admission exists")
+
+    monkeypatch.setattr(adk_live, "_receive_runtime_bootstrap", forbidden_bootstrap)
+    socket = _CloseSocket()
+    await adk_live.run_one_live_session(
+        socket, uid=uid, persona_tier=tier, directive_store=object()
+    )
+    assert socket.close_calls == [(1008, adk_live._PRIVATE_VOICE_UNAVAILABLE)]
