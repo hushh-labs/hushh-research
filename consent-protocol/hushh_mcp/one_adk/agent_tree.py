@@ -1988,6 +1988,17 @@ def build_one_live_runner(
             auto_create_session=True,
         )
     if runtime_mode == "hushh_managed_vertex":
+        if pod_mode():
+            # A private Live connection must not inherit the shared runner's
+            # optional database-session configuration. Experience memory uses
+            # the existing owner-bound pod resolver; session context is transient.
+            return Runner(
+                app_name=ONE_APP_NAME,
+                agent=build_one_root_agent(),
+                session_service=InMemorySessionService(),
+                memory_service=_build_one_memory_service(),
+                auto_create_session=True,
+            )
         return get_one_runner()
 
     enabled = (os.getenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED") or "").strip().lower()
@@ -2031,6 +2042,9 @@ def build_one_live_runner(
         # bounded (matching the text_runtime BYOK isolation), so it is intentionally
         # NOT routed through the durable ONE_DB_SESSIONS_ENABLED path.
         session_service=InMemorySessionService(),
+        # The owner's model credential changes provider selection, not memory
+        # ownership. Shared BYOK sessions still receive no personal memory.
+        memory_service=_build_one_memory_service() if pod_mode() else None,
         auto_create_session=True,
     )
 

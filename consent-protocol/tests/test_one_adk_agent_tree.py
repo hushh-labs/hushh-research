@@ -5264,3 +5264,48 @@ class TestPublicLiveRuntime:
             _tree.build_one_live_runner(
                 runtime_mode="byok", runtime_credential="synthetic-private", public_intro_only=True
             )
+
+
+class TestPrivateLiveRuntime:
+    @pytest.mark.parametrize("runtime_mode", ["hushh_managed_vertex", "byok"])
+    def test_pod_live_uses_transient_sessions_and_existing_owner_memory(
+        self, monkeypatch, runtime_mode
+    ):
+        from google.adk.memory import InMemoryMemoryService
+        from google.adk.sessions import InMemorySessionService
+
+        memory = InMemoryMemoryService()
+        monkeypatch.setattr(_tree, "pod_mode", lambda: True)
+        monkeypatch.setattr(_tree, "_build_one_live_model", lambda: "synthetic-live-model")
+        monkeypatch.setattr(_tree, "_build_one_memory_service", lambda: memory)
+        monkeypatch.setenv("ONE_DB_SESSIONS_ENABLED", "true")
+        monkeypatch.setenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED", "true")
+        monkeypatch.setattr(_tree, "_BYOK_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+        monkeypatch.setattr(_tree, "get_one_runner", lambda: pytest.fail("pod used shared runner"))
+        monkeypatch.setattr(
+            _tree, "_build_one_session_service", lambda: pytest.fail("pod opened database sessions")
+        )
+        first = _tree.build_one_live_runner(
+            runtime_mode=runtime_mode,
+            runtime_credential="test-key" if runtime_mode == "byok" else None,
+        )
+        second = _tree.build_one_live_runner(
+            runtime_mode=runtime_mode,
+            runtime_credential="test-key" if runtime_mode == "byok" else None,
+        )
+        assert isinstance(first.session_service, InMemorySessionService)
+        assert first.session_service is not second.session_service
+        assert first.memory_service is memory
+        assert second.memory_service is memory
+
+    def test_shared_byok_cannot_resolve_owner_memory(self, monkeypatch):
+        monkeypatch.setattr(_tree, "pod_mode", lambda: False)
+        monkeypatch.setenv("HUSHH_GEMINI_BYOK_LIVE_ENABLED", "true")
+        monkeypatch.setattr(_tree, "_BYOK_LIVE_MODEL", "gemini-3.1-flash-live-preview")
+        monkeypatch.setattr(
+            _tree,
+            "_build_one_memory_service",
+            lambda: pytest.fail("shared runtime resolved memory"),
+        )
+        runner = _tree.build_one_live_runner(runtime_mode="byok", runtime_credential="test-key")
+        assert runner.memory_service is None

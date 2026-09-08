@@ -331,6 +331,11 @@ Reusable full-agent factory (separate from public relay admission):
   voice remains incomplete. An active pod alone does not establish voice
   isolation. Completion requires running this same protocol in the owner's pod
   with scoped consent and runtime authority, followed by live evidence.
+  The existing Live factory now uses connection-local in-memory sessions in
+  pod mode for both managed and BYOK providers, and attaches the existing pod
+  memory resolver. Shared BYOK and public intro do not receive pod memory.
+  Factory checks establish wiring only; transport admission, hub-backed
+  directive settlement and ongoing revocation checks remain required.
   Public reconnects start a fresh conversation: an anonymous ticket cannot
   prove ownership of a provider continuation from an earlier personal session.
 - The legacy hand-rolled Vertex pump
