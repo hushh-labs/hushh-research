@@ -362,6 +362,9 @@ or unavailable targets remain incomplete. This is a fence-only phase: service UI
 is the hub's verified observation, not independent pod attestation, and it does not
 prove provider drainage. No compute, key, grant or owner identity is deleted by reservation.
 
+Memory Bank recall rechecks its owner-bound durable record after provider retrieval,
+before releasing the result. An observed erasure fence, invalid record or replaced client
+binding refuses that result; this does not drain requests already admitted to a provider.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
 without initializing ordinary memory. It requires the matching owner/attempt log fence;

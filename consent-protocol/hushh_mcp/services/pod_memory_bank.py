@@ -1166,6 +1166,10 @@ def build_rest_memory_bank_service(
                 "similaritySearchParams": {"searchQuery": query, "topK": top_k},
             }
             payload = await asyncio.to_thread(self._post, "memories:retrieve", body)
+            # A durable fence or binding change can land while retrieval is in
+            # flight. Do not release its information after admission is revoked.
+            # This release check does not prove provider work has drained.
+            await require_record()
             memories = []
             for item in (payload or {}).get("retrievedMemories") or []:
                 fact = str(((item or {}).get("memory") or {}).get("fact") or "").strip()

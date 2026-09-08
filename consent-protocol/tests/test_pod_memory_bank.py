@@ -890,10 +890,7 @@ async def test_old_provider_completion_cannot_overwrite_new_initialization(
         session=ReplacingHttp(status=http_status),
         token=_Token(),
     )
-    if http_status == 403:
-        with pytest.raises(mb.MemoryBankUnavailable):
-            await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
-    else:
+    with pytest.raises(mb.MemoryBankUnavailable):
         await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
     assert mb.memory_bank_status()["memoryBankError"] == "replacement-diagnostic"
 
@@ -1813,3 +1810,39 @@ async def test_unacknowledged_generation_keeps_erasure_pending_after_restart():
             await _erase(_tracked_service(store, http), log)
     assert _slot(store)["phase"] == "submitting"
     assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("change", ["erasure", "corrupt"])
+async def test_recall_does_not_release_information_after_admission_changes(change):
+    import asyncio
+
+    store = _ready_store()
+    loop = asyncio.get_running_loop()
+
+    class DuringRecall(_RestHttp):
+        def post(self, *args, **kwargs):
+            async def revoke_admission():
+                if change == "corrupt":
+                    store.objects[mb.MEMORY_BANK_RECORD_KEY] = b"invalid"
+                else:
+                    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+                    record["status"] = "erasing"
+                    record["erasure"] = {"phase": "waiting"}
+                    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+
+            asyncio.run_coroutine_threadsafe(revoke_admission(), loop).result(timeout=5)
+            return _Resp(
+                200, {"retrievedMemories": [{"memory": {"fact": "synthetic revoked fact"}}]}
+            )
+
+    client = mb.build_rest_memory_bank_service(
+        _cfg(),
+        "91",
+        store=store,
+        is_current=lambda: True,
+        session=DuringRecall(),
+        token=_Token(),
+    )
+    with pytest.raises(mb.MemoryBankUnavailable) as failure:
+        await client.search_memory(app_name="one", user_id="ha1_test", query="synthetic")
+    assert "synthetic revoked fact" not in str(failure.value)
