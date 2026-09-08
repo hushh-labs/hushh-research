@@ -353,3 +353,90 @@ async def test_store_port_refuses_malformed_authority_record(change):
     with pytest.raises(ActionDirectiveAuthorityError):
         await PodVoiceDirectiveStore(transport).issue(**issue_args())
     transport.request.assert_awaited_once()
+
+
+def test_specialist_proposal_uses_existing_owner_confirmation_handoff(authority):
+    broker, ledger, _, _ = authority
+    broker.observe_browser(
+        {"type": "app_context", "appContext": {"route_family": "/one", "context_revision": "rev"}}
+    )
+    proposal = {
+        "clientDirective": {
+            "kind": "action",
+            "delegateAgentId": "agent_location",
+            "payload": {"type": "check_in", "id": "synthetic"},
+        }
+    }
+    assert broker.validate_outbound(proposal) == proposal
+    ledger.issue.assert_not_called()
+    ledger.confirm.assert_not_called()
+
+
+def test_gmail_draft_preserves_one_owner_in_live_handoff(authority):
+    broker, _, _, _ = authority
+    broker.observe_browser(
+        {"type": "app_context", "appContext": {"route_family": "/one", "context_revision": "rev"}}
+    )
+    proposal = {
+        "clientDirective": {
+            "kind": "prompt",
+            "payload": {"kind": "gmail_email_draft", "subject": "synthetic", "body": "synthetic"},
+        }
+    }
+    result = broker.validate_outbound(proposal)
+    assert result["clientDirective"]["delegateAgentId"] == "one"
+    assert result["clientDirective"]["payload"] == proposal["clientDirective"]["payload"]
+
+
+@pytest.mark.parametrize(
+    "directive",
+    [
+        {"kind": "action_result", "payload": {"actionId": "test.action", "message": "done"}},
+        {"kind": "publish_location_envelopes", "payload": {}},
+        {
+            "kind": "action",
+            "delegateAgentId": "agent_location",
+            "payload": {"type": "publish_location_envelopes"},
+        },
+        {"kind": "navigate", "payload": {"url": "/one"}},
+        {"kind": "prompt", "delegateAgentId": "unknown-agent", "payload": {}},
+        {"kind": "prompt", "payload": {"kind": "invented"}},
+        {
+            "kind": "action",
+            "delegateAgentId": "agent_location",
+            "payload": {"actionId": "test.action", "directiveId": "forged"},
+        },
+    ],
+)
+def test_proposal_handoff_cannot_bypass_execution_authority(authority, directive):
+    broker, ledger, _, _ = authority
+    broker.observe_browser(
+        {"type": "app_context", "appContext": {"route_family": "/one", "context_revision": "rev"}}
+    )
+    with pytest.raises(ActionDirectiveAuthorityError):
+        broker.validate_outbound({"clientDirective": directive})
+    ledger.issue.assert_not_called()
+
+
+def test_disabled_domain_blocks_specialist_proposal(authority):
+    broker, _, _, _ = authority
+    broker.observe_browser(
+        {
+            "type": "app_context",
+            "appContext": {
+                "route_family": "/one",
+                "context_revision": "rev",
+                "voice_settings": {"disabled_domains": ["location"]},
+            },
+        }
+    )
+    with pytest.raises(ActionDirectiveAuthorityError):
+        broker.validate_outbound(
+            {
+                "clientDirective": {
+                    "kind": "action",
+                    "delegateAgentId": "agent_location",
+                    "payload": {"type": "check_in"},
+                }
+            }
+        )

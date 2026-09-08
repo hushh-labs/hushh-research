@@ -20,6 +20,7 @@ from hushh_mcp.one_adk.voice_domain_policy import (
     is_voice_domain_disabled,
     is_voice_entirely_disabled,
     resolve_voice_domain,
+    resolve_voice_domain_for_specialist,
 )
 from hushh_mcp.services.action_directive_ledger import (
     ActionConfirmationReceipt,
@@ -290,6 +291,63 @@ class HubVoiceAuthority:
         )
         return _wire(issued)
 
+    def _specialist_proposal(self, directive: dict[str, Any]) -> dict[str, Any]:
+        """Translate a proposal into the existing owner-confirmed chat handoff.
+
+        Translation is not payload authorization. Browser handlers and their
+        authenticated endpoints still own confirmation and execution authority.
+        """
+        from hushh_mcp.one_adk.one_persona import _load_registry_agents
+        from hushh_mcp.one_adk.text_runtime import OneTextDirective
+        from hushh_mcp.services.one_directive_frames import one_directive_frames
+        from hushh_mcp.services.route_orchestration_index import is_one_delegate_admitted
+
+        kind, payload = directive.get("kind"), directive.get("payload")
+        if kind not in {"action", "prompt"} or not isinstance(payload, dict):
+            _refuse()
+        if "actionId" in payload or any(
+            payload.get(key) in {"publish_location_envelopes", "navigate"}
+            for key in ("type", "kind")
+            if isinstance(payload.get(key), str)
+        ):
+            _refuse()
+        delegate = directive.get("delegateAgentId")
+        gmail = kind == "prompt" and payload.get("kind") == "gmail_email_draft"
+        if delegate in (None, "one"):
+            if not gmail:
+                _refuse()
+            delegate = None
+            policy_agent = "agent_email"
+        elif not isinstance(delegate, str) or delegate not in _load_registry_agents():
+            _refuse()
+        else:
+            policy_agent = delegate
+        context = self._context
+        settings = context.get("voice_settings") or {}
+        if (
+            not context.get("context_revision")
+            or not context.get("route_family")
+            or is_voice_entirely_disabled(settings)
+            or is_voice_domain_disabled(
+                resolve_voice_domain_for_specialist(policy_agent), settings.get("disabled_domains")
+            )
+            or is_one_delegate_admitted(context["route_family"], policy_agent) is False
+        ):
+            _refuse()
+        frames = one_directive_frames(
+            OneTextDirective(kind=kind, payload=payload, delegate_agent_id=delegate),
+            conversation_text="",
+        )
+        if len(frames) != 1 or frames[0][0] != "specialist_directive":
+            _refuse()
+        translated = frames[0][1]
+        return {
+            "clientDirective": {
+                **translated["directive"],
+                "delegateAgentId": translated["delegate_agent_id"],
+            }
+        }
+
     def validate_outbound(self, frame: dict[str, Any]) -> dict[str, Any]:
         """Reject forged actionable frames; return server-owned authority fields."""
         if "actionConfirmationAccepted" in frame:
@@ -318,11 +376,13 @@ class HubVoiceAuthority:
         if "clientDirective" not in frame:
             return frame
         directive = frame["clientDirective"]
-        if not isinstance(directive, dict) or directive.get("kind") != "action":
-            # Non-action specialist frames need their separate scoped adapter;
-            # never let an alternate kind bypass this action authority boundary.
+        if not isinstance(directive, dict):
             _refuse()
         payload = directive.get("payload")
+        if isinstance(payload, dict) and "actionId" not in payload:
+            return self._specialist_proposal(directive)
+        if directive.get("kind") != "action":
+            _refuse()
         if not isinstance(payload, dict):
             _refuse()
         binding = self._bindings.get(str(payload.get("directiveId") or ""))

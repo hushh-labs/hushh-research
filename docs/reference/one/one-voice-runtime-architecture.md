@@ -331,7 +331,12 @@ Reusable full-agent factory (separate from public relay admission):
   audience-bound IAM connection to the registered pod. Redirects and ambient
   proxies are disabled. Failure returns unavailability, never shared execution.
   The hub retains the existing directive ledger. Confirmation and settlement
-  require matching browser frames, generated action policy and current context.
+  require matching browser frames, generated action policy and current context. Specialist
+  proposals reuse `one_directive_frames` and the existing owner-confirmed chat
+  handoff, including One-owned Gmail drafts. This translation grants no execution
+  authority. A payload carrying `actionId` still requires the directive ledger;
+  unverified `action_result`, automatic location publication and legacy navigation
+  frames are refused.
   The pod rechecks consent and its sealed-log fence before bootstrap and while
   connected. ADK memory/session identity is the HusshID; tools and directive
   authority retain the verified Firebase UID. Completed transcriptions reach
