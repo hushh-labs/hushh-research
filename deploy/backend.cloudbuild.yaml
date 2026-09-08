@@ -142,7 +142,7 @@ steps:
         fi
         if [[ "${genai_project_id}" != "$PROJECT_ID" ]]; then
           case "${_DEPLOY_ENV}:${genai_project_id}" in
-            dev:hushh-pda-uat|uat:hushh-gemini-bridge) ;;
+            dev:hushh-pda-uat|uat:hushh-vertex-personal54) ;;
             *)
               echo "Cross-project managed Vertex target is not allowlisted." >&2
               exit 1
@@ -380,7 +380,7 @@ steps:
           --service-account="${_RUNTIME_SERVICE_ACCOUNT}" \
           --command="python3" \
           --args="scripts/verify_managed_vertex_runtime.py" \
-          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
+          --set-env-vars="^|^HUSHH_GENAI_AUTH_MODE=vertex_adc|GOOGLE_GENAI_USE_VERTEXAI=true|GOOGLE_CLOUD_PROJECT=${PROJECT_ID}|GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}|GOOGLE_CLOUD_LOCATION=global|HUSHH_VERTEX_LOCATIONS=global,us,eu|AGENT_ONE_ADK_LOCATION=us-central1|AGENT_ONE_ADK_MODEL=${_AGENT_ONE_ADK_MODEL}|HUSSH_GEMINI_TEXT_MODEL=${_HUSSH_GEMINI_TEXT_MODEL}" \
           ${live_key_secret_flag} \
           --max-retries=0 \
           --task-timeout=90s \

@@ -83,7 +83,8 @@ fi
 # managed Vertex allowlist, and the aiplatform.user / serviceUsageConsumer role
 # checks -- runs in the dedicated `verify-runtime-iam` build step BEFORE this one,
 # so it is not repeated here. This body only needs the resolved genai project id,
-# which the deployed service carries as GOOGLE_CLOUD_PROJECT.
+# which the deployed service carries as GENAI_GOOGLE_CLOUD_PROJECT.
+# GOOGLE_CLOUD_PROJECT remains the native runtime project for non-model services.
 genai_project_id="${_GENAI_PROJECT_ID}"
 if [[ -z "${genai_project_id}" ]]; then
   genai_project_id="$PROJECT_ID"
@@ -241,7 +242,8 @@ env_vars=(
   "HUSHH_DEPLOY_RUN_ID=${_GITHUB_RUN_ID}"
   "HUSHH_GENAI_AUTH_MODE=vertex_adc"
   "GOOGLE_GENAI_USE_VERTEXAI=true"
-  "GOOGLE_CLOUD_PROJECT=${genai_project_id}"
+  "GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"
+  "GENAI_GOOGLE_CLOUD_PROJECT=${genai_project_id}"
   "GOOGLE_CLOUD_LOCATION=global"
   "HUSHH_VERTEX_LOCATIONS=global,us,eu"
   "CONSENT_API_PUBLIC_ORIGIN=${_CONSENT_API_PUBLIC_ORIGIN}"

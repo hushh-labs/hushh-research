@@ -401,7 +401,10 @@
       "meaning": "Ends current session and redirects to home route.",
       "aliases": [
         "sign out",
-        "log out"
+        "log out",
+        "log me out",
+        "sign me out",
+        "log out of my account"
       ],
       "search_keywords": [
         "sign out",
@@ -418,14 +421,14 @@
         "navigation_prerequisites": []
       },
       "guard_ids": [
-        "manual_user_execution"
+        "auth_signed_in"
       ],
       "risk_level": "high",
-      "execution_policy": "manual_only",
+      "execution_policy": "allow_direct",
       "execution_target": {
-        "status": "unwired",
-        "reason": "handleSignOut exists only in ProfilePage and is not bound to voice/global executor.",
-        "intended_handler": "dispatchVoiceToolCall"
+        "status": "wired",
+        "path": "local_handler",
+        "target": "profile.sign_out"
       },
       "control_ids": [],
       "state_exposure": [],

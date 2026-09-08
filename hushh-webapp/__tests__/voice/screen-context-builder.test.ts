@@ -5,6 +5,9 @@ import {
   ARRAY_DIMENSION_CAP_ERROR,
   AVAILABLE_ACTION_IDS_CAP,
   GLOBAL_NAV_ACTION_IDS,
+  GLOBAL_SESSION_ACTION_IDS,
+  interleaveByVerbFamily,
+  verbFamilyOf,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildOneVoiceContextSnapshot,
@@ -81,7 +84,9 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // "must ALWAYS be visible" guarantee below. Deriving it here means
     // there is only one number to get right.
     expect(AVAILABLE_ACTION_IDS_CAP).toBe(
-      ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
+      ACTION_ID_SCREEN_SEGMENT_CAP +
+        GLOBAL_NAV_ACTION_IDS.length +
+        GLOBAL_SESSION_ACTION_IDS.length,
     );
   });
 
@@ -93,7 +98,7 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // cross-language sync for this; both sides must be changed together, in
     // the same commit, and this pins the current value so a drift is caught
     // here instead of in a UAT deploy.
-    expect(AVAILABLE_ACTION_IDS_CAP).toBe(24);
+    expect(AVAILABLE_ACTION_IDS_CAP).toBe(59);
   });
 
   it("never lets a crowded screen trade away a global-nav slot", () => {
@@ -105,6 +110,93 @@ describe("the action-id cap invariant this file's own comments document", () => 
     expect(
       ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length,
     ).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("reserves room for the session segment as well, not just navigation", () => {
+    // Same guarantee as above, extended to GLOBAL_SESSION_ACTION_IDS. If the
+    // cap were left deriving from the nav list alone, adding a session verb
+    // would silently push the last nav id past the cap -- reintroducing the
+    // exact bug the derivation above was written to kill.
+    expect(
+      ACTION_ID_SCREEN_SEGMENT_CAP +
+        GLOBAL_NAV_ACTION_IDS.length +
+        GLOBAL_SESSION_ACTION_IDS.length,
+    ).toBeLessThanOrEqual(AVAILABLE_ACTION_IDS_CAP);
+  });
+
+  it("carries sign-out as a session verb, never as navigation", () => {
+    // "log me out" is answerable from any screen, so it cannot live in a
+    // page's own segment -- a local handler is only offered while mounted,
+    // and Profile is usually not the screen someone is standing on when they
+    // say it. It is equally not navigation: putting it in
+    // GLOBAL_NAV_ACTION_IDS would break that list's stated rule of one id per
+    // top-level surface, which is what keeps it auditable.
+    expect(GLOBAL_SESSION_ACTION_IDS).toContain("profile.sign_out");
+    expect(GLOBAL_NAV_ACTION_IDS).not.toContain("profile.sign_out");
+  });
+
+  it("does not reorder an inventory that fits under the cap", () => {
+    // The fairness pass exists for the screen that outgrows the cap next, not
+    // for any screen shipping today -- Location declares 29 local handlers
+    // against 48 slots. Reordering a list that will be carried in full would
+    // churn the snapshot revision (uiRevision feeds context_revision) for no
+    // benefit, so below the cap this must be the identity function.
+    const ids = Array.from({ length: 5 }, (_, i) => `location.thing_${i}`);
+    expect(interleaveByVerbFamily(ids, () => 1)).toEqual(ids);
+  });
+
+  it("stops one verb family eating every slot on a crowded screen", () => {
+    // 60 circle verbs declared before a single sharing verb. Under plain
+    // insertion order the sharing verb sits at index 60 and is dropped by the
+    // 48-slot cap, so "stop sharing my location" becomes unavailable on a
+    // screen that plainly offers it -- the same class of failure as the
+    // truncation this file's telemetry now reports.
+    const crowded = [
+      ...Array.from({ length: 60 }, (_, i) => `location.rename_circle_${i}`),
+      "location.stop_share",
+    ];
+    const ordered = interleaveByVerbFamily(crowded, () => 1);
+    expect(ordered).toHaveLength(crowded.length);
+    expect(new Set(ordered)).toEqual(new Set(crowded));
+    expect(ordered.indexOf("location.stop_share")).toBeLessThan(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
+    );
+  });
+
+  it("lets rank outrank fairness, never the other way round", () => {
+    // A subview-boosted handler is the one the person is looking at. Fairness
+    // decides ties within a rank; it must not promote an unboosted verb above
+    // a boosted one just because its family is under-represented.
+    const ids = [
+      ...Array.from({ length: 60 }, (_, i) => `location.rename_circle_${i}`),
+      "location.stop_share",
+    ];
+    const rankOf = (id: string) => (id === "location.rename_circle_0" ? 0 : 1);
+    const ordered = interleaveByVerbFamily(ids, rankOf);
+    expect(ordered[0]).toBe("location.rename_circle_0");
+  });
+
+  it("groups verbs by the app object they act on", () => {
+    expect(verbFamilyOf("location.add_to_circle")).toBe("circles");
+    expect(verbFamilyOf("location.stop_share")).toBe("sharing");
+    expect(verbFamilyOf("location.trigger_sos")).toBe("safety");
+    // An unrecognised noun gets its own family rather than being lumped into
+    // a group it would then compete with and lose to.
+    expect(verbFamilyOf("location.frobnicate")).not.toBe(
+      verbFamilyOf("location.wibble"),
+    );
+  });
+
+  it("keeps every session action backed by a real wired gateway entry", () => {
+    // The global append in prioritizeAvailableActionIds skips any id that
+    // getKaiActionById cannot resolve, so a typo here would not fail loudly --
+    // the action would just never be offered, which is indistinguishable from
+    // the bug this whole change fixes.
+    for (const actionId of GLOBAL_SESSION_ACTION_IDS) {
+      const action = getKaiActionById(actionId);
+      expect(action, `${actionId} is not in the generated gateway`).toBeTruthy();
+      expect(action?.execution_target.status).toBe("wired");
+    }
   });
 });
 
@@ -1340,11 +1432,26 @@ describe("a surface that declares more controls than the context can carry", () 
     expect(
       localOnlyIds(snapshot.available_action_ids).length,
     ).toBeLessThanOrEqual(ACTION_ID_SCREEN_SEGMENT_CAP);
-    // And the openers are what yields, since navigation is admitted from any
-    // screen whether or not this surface submitted it.
-    expect(snapshot.available_action_ids).not.toContain(
-      "location.open_join_circle",
+    // And the openers yield FIRST when the cap bites, since navigation is
+    // admitted from any screen whether or not this surface submitted it.
+    // Asserted as an ordering rather than an exclusion: Location's 32 local
+    // handlers now fit inside ACTION_ID_SCREEN_SEGMENT_CAP, so nothing is
+    // actually dropped here any more. The priority rule is what matters and
+    // it still has to hold -- every local handler ranks ahead of every
+    // opener, so raising the cap can never reorder them back.
+    const ids = snapshot.available_action_ids;
+    const lastLocal = Math.max(
+      ids.indexOf("location.share_selected"),
+      ids.indexOf("location.select_share_recipient"),
+      ids.indexOf("location.pause_updates"),
     );
+    const firstOpener = Math.min(
+      ...["location.open_join_circle", "location.open_create_circle"]
+        .map((actionId) => ids.indexOf(actionId))
+        .filter((index) => index >= 0),
+    );
+    expect(lastLocal).toBeGreaterThanOrEqual(0);
+    expect(firstOpener).toBeGreaterThan(lastLocal);
   });
 
   it("fits every one of Location's real local handlers, not just three of them", () => {

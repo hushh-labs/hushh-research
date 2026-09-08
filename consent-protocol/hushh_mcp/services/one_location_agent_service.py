@@ -34,6 +34,10 @@ from hushh_mcp.operons.location.policy import (
     normalize_source_platform,
 )
 from hushh_mcp.runtime_settings import get_core_security_settings
+from hushh_mcp.services.one_location_public_invite_url import (
+    public_invite_bearer_token,
+    public_invite_url,
+)
 from hushh_mcp.services.people_search_sql import people_query_match_params
 from hushh_mcp.services.ria_status import RIA_VERIFIED_STATUS_SQL
 from hushh_mcp.types import AgentID, UserID
@@ -605,7 +609,7 @@ def _public_invite_token_if_derivable(row: dict[str, Any] | None) -> str | None:
     return token
 
 
-def _public_invite_url(token: str) -> str:
+def _public_invite_url(token: str, owner_label: str = "") -> str:
     """The app-relative page a public live-location link points at.
 
     `/view/`, not `/request/`. The path was named after the submission form the
@@ -619,7 +623,7 @@ def _public_invite_url(token: str) -> str:
     client-side forwarder for the native static export, which has no proxy.
     """
 
-    return f"/one/location/view/{token}"
+    return public_invite_url(token, owner_label)
 
 
 def _circle_invite_url(token: str) -> str:
@@ -2821,7 +2825,7 @@ class OneLocationAgentService:
         if str(row.get("status") or "") == "active":
             token = _public_invite_token_if_derivable(row)
             if token:
-                payload["publicUrl"] = _public_invite_url(token)
+                payload["publicUrl"] = _public_invite_url(token, safe_label)
         return payload
 
     @staticmethod
@@ -5289,8 +5293,10 @@ class OneLocationAgentService:
                         CAST(:require_owned_person_circle AS BOOLEAN) IS FALSE
                         OR (
                           owner_user_id = :owner_user_id
-                          AND system_kind IS NULL
-                          AND NOT is_system
+                          AND (
+                            (system_kind IS NULL AND NOT is_system)
+                            OR system_kind = 'sms'
+                          )
                         )
                       )
                     FOR SHARE
@@ -6668,8 +6674,10 @@ class OneLocationAgentService:
                             WHERE id = CAST(:circle_id AS UUID)
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),
@@ -6694,8 +6702,10 @@ class OneLocationAgentService:
                             WHERE id = ANY(CAST(:circle_ids AS UUID[]))
                               AND owner_user_id = :user_id
                               AND status = 'active'
-                              AND system_kind IS NULL
-                              AND NOT is_system
+                              AND (
+                                (system_kind IS NULL AND NOT is_system)
+                                OR system_kind = 'sms'
+                              )
                             FOR SHARE
                             """
                         ),
@@ -7408,7 +7418,7 @@ class OneLocationAgentService:
                     return {
                         "invite": existing_payload,
                         "publicToken": existing_token,
-                        "publicUrl": _public_invite_url(existing_token),
+                        "publicUrl": existing_payload["publicUrl"],
                         # The caller asked for a link and got one; it is simply
                         # the one that was already live. Named so a client can
                         # tell "created" from "here is the one you have" without
@@ -7491,7 +7501,7 @@ class OneLocationAgentService:
         return {
             "invite": invite,
             "publicToken": raw_token,
-            "publicUrl": _public_invite_url(raw_token),
+            "publicUrl": invite["publicUrl"],
         }
 
     def refresh_public_invite_location(
@@ -7596,7 +7606,7 @@ class OneLocationAgentService:
         for a location rather than shows them one.
         """
 
-        normalized_token = str(public_token or "").strip()
+        normalized_token = public_invite_bearer_token(public_token)
         if len(normalized_token) < 16:
             raise OneLocationAgentError(
                 "LOCATION_PUBLIC_INVITE_INVALID",

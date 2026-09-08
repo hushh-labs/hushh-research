@@ -57,6 +57,13 @@ describe("canonicalPublicInvitePath", () => {
 });
 
 describe("publicInviteUrlLabel", () => {
+  it("preserves the first name and bearer token when copying an existing or legacy link", () => {
+    process.env.NEXT_PUBLIC_APP_URL = "https://uat.one.hushh.ai";
+    const token = `neelesh.${"a".repeat(43)}`;
+    const expected = `https://uat.one.hushh.ai/one/location/view/${token}`;
+    expect(publicInviteUrlLabel(`/one/location/view/${token}`)).toBe(expected);
+    expect(publicInviteUrlLabel(`/one/location/request/${token}`)).toBe(expected);
+  });
   it("absolutises an app-relative link against the configured origin", () => {
     process.env.NEXT_PUBLIC_APP_URL = "https://uat.one.hushh.ai";
     expect(publicInviteUrlLabel("/one/location/view/tok_1")).toBe(

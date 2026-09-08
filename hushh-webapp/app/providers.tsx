@@ -19,6 +19,7 @@ import { StepProgressProvider } from "@/lib/progress/step-progress-context";
 import { StepProgressBar } from "@/components/app-ui/step-progress-bar";
 import { CacheProvider } from "@/lib/cache/cache-context";
 import { ConsentNotificationProvider } from "@/components/consent/notification-provider";
+import { GlobalVoiceActionHandlers } from "@/components/agent/global-voice-action-handlers";
 import { ConsentSheetProvider } from "@/components/consent/consent-sheet-controller";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
@@ -660,6 +661,11 @@ export function Providers({ children }: ProvidersProps) {
         {/* Step-based progress bar at top of viewport */}
         <StepProgressBar />
         <AuthProvider>
+          {/* Session-scoped voice actions ("log me out") live here rather than
+              on Profile: a local handler is only offered while it is mounted,
+              so a page-scoped registration would make the action depend on
+              which tab happened to be open. */}
+          <GlobalVoiceActionHandlers />
           {/* AppShellFrame resolves route-backed tab state through
               useSearchParams(). This boundary must be above that shared shell
               so static/native builds can pre-render every route, including

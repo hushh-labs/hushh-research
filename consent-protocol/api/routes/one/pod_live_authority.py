@@ -210,6 +210,14 @@ class HubVoiceAuthority:
             self._bindings.pop(binding.issued.directive_id, None)
             return {}
 
+    def _executable_actions(self) -> list[str]:
+        # sanitize_live_context derives this from the route and blocking layer.
+        # A present empty/invalid execution set must never fall back to inventory.
+        ids = self._context.get(
+            "executable_action_ids", self._context.get("available_action_ids", [])
+        )
+        return ids if isinstance(ids, list) else []
+
     def _require_action(self, action_id: str, revision: str) -> dict[str, Any]:
         settings = self._context.get("voice_settings") or {}
         action = get_action_gateway_action(action_id)
@@ -217,7 +225,7 @@ class HubVoiceAuthority:
             not action
             or not revision
             or self._context.get("context_revision") != revision
-            or action_id not in self._context.get("available_action_ids", [])
+            or action_id not in self._executable_actions()
             or (action.get("execution_target") or {}).get("status") != "wired"
             or is_voice_entirely_disabled(settings)
             or is_voice_domain_disabled(
@@ -253,7 +261,7 @@ class HubVoiceAuthority:
             _refuse()
         action_id = arguments.get("action_id")
         action = get_action_gateway_action(action_id) if isinstance(action_id, str) else None
-        if not action or action_id not in self._context.get("available_action_ids", []):
+        if not action or action_id not in self._executable_actions():
             _refuse()
         revision = self._context.get("context_revision")
         if not revision or arguments.get("context_revision") != revision:
@@ -392,7 +400,7 @@ class HubVoiceAuthority:
             or binding.state != "issued"
             or binding.issued.expires_at <= datetime.now(UTC)
             or self._context.get("context_revision") != binding.issued.context_revision
-            or binding.issued.action_id not in self._context.get("available_action_ids", [])
+            or binding.issued.action_id not in self._executable_actions()
         ):
             _refuse()
         if (

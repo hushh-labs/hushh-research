@@ -18,6 +18,10 @@ import {
   type VoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import {
+  createVoiceTurnId,
+  logVoiceMetric,
+} from "@/lib/voice/voice-telemetry";
 import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import type {
   OneVoiceTransition,
@@ -47,13 +51,13 @@ export const STRUCTURED_CONTEXT_ARRAY_CAP = 10;
  * subview (which circle dialog is open, which tab, ...) into the surviving
  * slots first, so a crowded screen loses the actions nobody is looking at
  * right now rather than whichever happened to be declared last.
- * AVAILABLE_ACTION_IDS_CAP (18) still bounds the total, so a crowded screen
+ * AVAILABLE_ACTION_IDS_CAP (58) still bounds the total, so a crowded screen
  * trades a few of the 10 GLOBAL_NAV_ACTION_IDS slots for commands that
  * actually do something on it.
  */
-export const ACTION_ID_SCREEN_SEGMENT_CAP = 14;
+export const ACTION_ID_SCREEN_SEGMENT_CAP = 48;
 // A surface's own declared inventory before ranking. Deliberately far above
-// what any surface declares today (Location, the largest, publishes 30), so it
+// what any surface declares today (Location, the largest, publishes 52), so it
 // bounds a runaway publisher without ever deciding which actions the model is
 // allowed to see. That decision belongs to prioritizeAvailableActionIds and the
 // two caps applied after it.
@@ -78,6 +82,21 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
   "route.one_feed",
 ];
 /**
+ * Session verbs that are true wherever the person is standing. Kept separate
+ * from GLOBAL_NAV_ACTION_IDS above because that list is documented as
+ * cross-screen *navigation* -- one id per top-level surface -- and signing out
+ * is not navigation. Both segments are appended the same way and both widen
+ * AVAILABLE_ACTION_IDS_CAP, so the distinction costs nothing at runtime and
+ * keeps each list's rule checkable on its own.
+ *
+ * An id here still has to clear requireMountedLocalHandlers, so a session verb
+ * backed by a local handler must be registered somewhere always-mounted --
+ * components/agent/global-voice-action-handlers.tsx, not a page.
+ */
+export const GLOBAL_SESSION_ACTION_IDS: readonly string[] = [
+  "profile.sign_out",
+];
+/**
  * available_action_ids carries the screen-ranked local segment PLUS the
  * reserved global navigation segment above, so it must be at least as wide
  * as both combined -- not a separately-picked number. It used to be a bare
@@ -93,7 +112,9 @@ export const GLOBAL_NAV_ACTION_IDS: readonly string[] = [
  * agent_tree.py render-time slices); keep them in sync.
  */
 export const AVAILABLE_ACTION_IDS_CAP =
-  ACTION_ID_SCREEN_SEGMENT_CAP + GLOBAL_NAV_ACTION_IDS.length;
+  ACTION_ID_SCREEN_SEGMENT_CAP +
+  GLOBAL_NAV_ACTION_IDS.length +
+  GLOBAL_SESSION_ACTION_IDS.length;
 export const ARRAY_DIMENSION_CAP_ERROR =
   "CONSTRAINT_VIOLATION_DIMENSION_OVERFLOW";
 export const INVALID_ARRAY_TYPE_ERROR = "INVALID_ARRAY_TYPE";
@@ -508,7 +529,7 @@ function readStringArray(
  * at the ordinary screen-owned tier, so an incomplete or stale mapping can
  * only fail to help -- it cannot make today's insertion-order tiebreak worse.
  */
-const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
+export const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
   // Bare /one/location, no open flow: what someone is most likely to ask for
   // without having drilled into a specific circle or share first.
   "one_location:": [
@@ -572,6 +593,80 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
  * Set-insertion order previously made the truncation nondeterministic; this
  * keeps the same cap but makes what survives it intentional.
  */
+/**
+ * The family of app-object a verb acts on, derived from the action id.
+ *
+ * Deliberately a heuristic over the id rather than a new authored field: every
+ * surface would have to be re-authored to add one, and the id already carries
+ * the noun. `location.add_to_circle` is a circle verb, `location.stop_share` a
+ * sharing verb. An id whose noun is unrecognised gets its own family, which is
+ * the safe default -- it competes with itself rather than being lumped in with
+ * an unrelated group and starved by it.
+ */
+export function verbFamilyOf(actionId: string): string {
+  const local = actionId.includes(".")
+    ? actionId.slice(actionId.indexOf(".") + 1)
+    : actionId;
+  const NOUNS: Array<[RegExp, string]> = [
+    [/circle/, "circles"],
+    [/share|sharing|updates/, "sharing"],
+    [/request|invite|ask/, "requests"],
+    [/sos|emergency|check_in|checkin|safety/, "safety"],
+    [/contact|connection|people|person/, "people"],
+    [/location|place|map/, "places"],
+  ];
+  for (const [pattern, family] of NOUNS) {
+    if (pattern.test(local)) return family;
+  }
+  return `other:${local}`;
+}
+
+/**
+ * Round-robin the competing ids across verb families, so a crowded screen
+ * cannot let one family eat every slot.
+ *
+ * Applied ONLY when the cap actually binds. Below the cap this returns its
+ * input unchanged, which matters: reordering an inventory that is going to be
+ * carried in full would churn the snapshot revision for no benefit, and every
+ * screen today is comfortably under the cap. It is here for the screen that
+ * outgrows it next, not for any screen that exists now.
+ *
+ * Rank order is preserved as the outer key: a subview-boosted handler still
+ * outranks an unboosted one from a "fairer" family. Fairness decides who wins
+ * a tie, never who outranks whom.
+ */
+export function interleaveByVerbFamily(
+  competing: string[],
+  rankOf: (actionId: string) => number,
+): string[] {
+  if (competing.length <= ACTION_ID_SCREEN_SEGMENT_CAP) return competing;
+  const byRank = new Map<number, Map<string, string[]>>();
+  competing.forEach((actionId) => {
+    const rank = rankOf(actionId);
+    const families = byRank.get(rank) ?? new Map<string, string[]>();
+    const family = verbFamilyOf(actionId);
+    families.set(family, [...(families.get(family) ?? []), actionId]);
+    byRank.set(rank, families);
+  });
+  const out: string[] = [];
+  for (const rank of [...byRank.keys()].sort((a, b) => a - b)) {
+    // Insertion order of the family map is first-appearance order, so the
+    // result stays deterministic for a given input.
+    const queues = [...(byRank.get(rank) ?? new Map()).values()];
+    let drained = false;
+    while (!drained) {
+      drained = true;
+      for (const queue of queues) {
+        const next = queue.shift();
+        if (next === undefined) continue;
+        out.push(next);
+        drained = false;
+      }
+    }
+  }
+  return out;
+}
+
 function prioritizeAvailableActionIds(
   candidateIds: string[],
   screen: string | null,
@@ -661,18 +756,36 @@ function prioritizeAvailableActionIds(
         action.execution_target.path === "route",
     );
   };
-  const capCompeting = ranked.filter((actionId) => !isCapExempt(actionId));
+  const capCompeting = interleaveByVerbFamily(
+    ranked.filter((actionId) => !isCapExempt(actionId)),
+    rankOf,
+  );
   const capExemptActions = ranked.filter(isCapExempt);
-  if (
-    capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
-    process.env.NODE_ENV !== "production"
-  ) {
+  if (capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP) {
     // Loud, and it names what was lost. This was a console.debug, and the
     // truncation it describes is invisible in the product: a dropped id comes
     // back from the relay as `action_unavailable`, which reads as "this
     // feature is broken" rather than "this screen declared more than the
     // context can carry". Location growing to 19 actions is what found it.
     const dropped = capCompeting.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
+    // Deliberately NOT gated on NODE_ENV. This used to be silenced in
+    // production, which is the only place it matters: a dropped id comes back
+    // from the relay as `action_unavailable`, indistinguishable from a broken
+    // feature. Location shipped for months with 18 actions -- every circle
+    // verb, both check-in families, and trigger_sos -- invisible to the model
+    // and nobody could see it happening.
+    logVoiceMetric({
+      metric: "voice_inventory_truncated",
+      value: dropped.length,
+      turnId: createVoiceTurnId(),
+      tags: {
+        screen: screen || "unknown",
+        subview: subview || "",
+        declared: capCompeting.length,
+        kept: ACTION_ID_SCREEN_SEGMENT_CAP,
+        dropped_ids: dropped.join(","),
+      },
+    });
     console.warn(
       `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${capCompeting.length} ` +
         `local action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +
@@ -694,7 +807,10 @@ function prioritizeAvailableActionIds(
   }
   if (!includeGlobalNavigation) return screenSegment;
   const combined = [...screenSegment];
-  for (const navId of GLOBAL_NAV_ACTION_IDS) {
+  for (const navId of [
+    ...GLOBAL_NAV_ACTION_IDS,
+    ...GLOBAL_SESSION_ACTION_IDS,
+  ]) {
     if (combined.length >= AVAILABLE_ACTION_IDS_CAP) break;
     if (combined.includes(navId)) continue;
     if (!getKaiActionById(navId)) continue;
@@ -1083,7 +1199,7 @@ export function buildOneVoiceContextSnapshot(args: {
     });
   const app = args.appRuntimeState;
   // available_action_ids already comes out of buildStructuredScreenContext
-  // ranked and bounded at AVAILABLE_ACTION_IDS_CAP (18), not the generic
+  // ranked and bounded at AVAILABLE_ACTION_IDS_CAP (58), not the generic
   // 10-item default -- re-reading it through the default here silently
   // re-truncated an already-correct 14-item screen segment back down to 10,
   // in plain Set-insertion order rather than by rank, and cost the two

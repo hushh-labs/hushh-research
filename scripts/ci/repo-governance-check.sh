@@ -52,3 +52,8 @@ python3 .claude/skills/codex-bridge/scripts/test_route_hook.py
 bash .claude/skills/client-env-parity/check.sh
 ./bin/hushh db verify-release-contract
 ./bin/hushh db report-prod-posture
+
+# Every secret bound by deploy/backend.cloudbuild.yaml must be passed by each
+# deploy lane, or recorded as a deliberate omission. An unrecorded gap ships a
+# service missing that environment variable with no error anywhere.
+python3 scripts/ci/check-deploy-secret-coverage.py

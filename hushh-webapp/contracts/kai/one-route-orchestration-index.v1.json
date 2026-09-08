@@ -3388,6 +3388,7 @@
       "voice_contract_file": "app/one/profile/page.voice-action-contract.json",
       "action_ids": [
         "help.open_examples",
+        "profile.sign_out",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
@@ -3527,6 +3528,7 @@
       "voice_contract_file": null,
       "action_ids": [
         "help.open_examples",
+        "profile.sign_out",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",
@@ -3580,6 +3582,7 @@
       "voice_contract_file": null,
       "action_ids": [
         "help.open_examples",
+        "profile.sign_out",
         "route.back",
         "route.profile",
         "route.profile_connected_systems",

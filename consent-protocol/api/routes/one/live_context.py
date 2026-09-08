@@ -300,10 +300,30 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
     interaction_layer = sanitize_interaction_layer(
         payload.get("interaction_layer"), submitted_action_ids
     )
+    # What the model is TOLD about and what it is ALLOWED to run are different
+    # questions, and conflating them made a ranking decision into a refusal.
+    #
+    # submitted_action_ids is the prompt inventory: ranked by the browser and
+    # bounded, because a prompt has a budget. It was also the execution
+    # allowlist, so an action that lost the ranking race came back
+    # action_unavailable -- the app declining to do something it can plainly
+    # do, for no reason the person could see.
+    #
+    # The executable set has no such budget. It is the route index's own
+    # declaration for this exact route: server-derived, already validated
+    # against the generated gateway above, and never client-supplied. Authority
+    # is unchanged -- run_app_action still re-checks screens, guards, vault and
+    # confirmation before parking anything.
+    executable_action_ids = sorted(route_action_ids)
     if interaction_layer and interaction_layer["modality"] in {"modal", "blocking"}:
         layer_action_ids = set(interaction_layer["visible_action_ids"])
         submitted_action_ids = [
             action_id for action_id in submitted_action_ids if action_id in layer_action_ids
+        ]
+        # A blocking layer bounds execution too. Widening the executable set
+        # must not become a way to act behind an open modal.
+        executable_action_ids = [
+            action_id for action_id in executable_action_ids if action_id in layer_action_ids
         ]
     return {
         # The generated index is the server-side source of route policy.  A
@@ -339,6 +359,9 @@ def sanitize_live_context(payload: dict[str, Any]) -> dict[str, Any]:
         "persona": bounded_text(payload.get("persona")),
         "voice_state": bounded_text(payload.get("voice_state"), 32),
         "available_action_ids": submitted_action_ids,
+        # Everything this route may run, unbounded by the prompt budget. See
+        # the note above the interaction-layer filter.
+        "executable_action_ids": executable_action_ids,
         "visible_modules": bounded_text_list(payload.get("visible_modules"), LIVE_MODULE_CAP),
         "visible_control_ids": bounded_text_list(
             payload.get("visible_control_ids"), LIVE_MODULE_CAP

@@ -440,3 +440,45 @@ def test_disabled_domain_blocks_specialist_proposal(authority):
                 }
             }
         )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "executable,allowed", [(["test.action"], True), ([], False), (None, False)]
+)
+async def test_execution_scope_is_independent_of_prompt_inventory(authority, executable, allowed):
+    broker, store, _, _ = authority
+    broker.observe_browser(
+        {
+            "type": "app_context",
+            "appContext": {
+                "context_revision": "rev",
+                "available_action_ids": [] if allowed else ["test.action"],
+                "executable_action_ids": executable,
+            },
+        }
+    )
+    if allowed:
+        await broker.dispatch(
+            {
+                "type": "pod_voice_authority_request",
+                "requestId": "execution-scope",
+                "method": "issue",
+                "arguments": issue_args(),
+            }
+        )
+        assert (
+            broker.validate_outbound(directive())["clientDirective"]["payload"]["actionId"]
+            == "test.action"
+        )
+    else:
+        with pytest.raises(ActionDirectiveAuthorityError):
+            await broker.dispatch(
+                {
+                    "type": "pod_voice_authority_request",
+                    "requestId": "execution-scope",
+                    "method": "issue",
+                    "arguments": issue_args(),
+                }
+            )
+        store.issue.assert_not_awaited()

@@ -387,3 +387,12 @@ tests/services/test_action_retrieval.py
 
 # Migration locking, checksum authority and failure recovery.
 tests/test_migration_authority.py
+
+# Private Live owner authority and the merged route execution contract.
+tests/test_live_context_executable_split.py
+tests/test_one_action_search_contract.py
+tests/test_pod_live_authority.py
+tests/test_pod_live_courier.py
+tests/test_pod_live_relay.py
+tests/test_pod_live_session.py
+tests/test_pod_live_transport.py
