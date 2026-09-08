@@ -50,6 +50,7 @@ import { KAI_MARKET_PATH, ROUTES } from "@/lib/navigation/routes";
 import type { KaiCommandBarIntent } from "@/lib/navigation/kai-command-bar-events";
 import { Icon } from "@/lib/morphy-ux/ui";
 import { cn } from "@/lib/utils";
+import { useVault } from "@/lib/vault/vault-context";
 import {
   RECENT_ACTION_LIMIT,
   readActionUsage,
@@ -315,6 +316,10 @@ export function KaiCommandPalette({
   disabled = false,
   portfolioTickers = [],
 }: KaiCommandPaletteProps) {
+  // The semantic action search is a VAULT_OWNER-authenticated endpoint; the
+  // palette is rendered inside VaultProvider, so the token is available here
+  // without threading it through every caller as a prop.
+  const { vaultOwnerToken } = useVault();
   const [query, setQuery] = useState("");
   const [universe, setUniverse] = useState<TickerUniverseRow[] | null>(
     getTickerUniverseSnapshot(),
@@ -393,6 +398,10 @@ export function KaiCommandPalette({
           limit: 10,
           debounceMs: 180,
           signal: controller.signal,
+          // The semantic endpoint authenticates with a VAULT_OWNER token. A
+          // locked vault means no token, which falls back to local search
+          // rather than failing the palette.
+          vaultOwnerToken,
         });
         if (!cancelled) {
           setSemanticMatches(results);
@@ -406,7 +415,10 @@ export function KaiCommandPalette({
       cancelled = true;
       controller?.abort();
     };
-  }, [open, query, appRuntimeState, surfaceMetadata]);
+    // vaultOwnerToken is a real dependency, not decoration: the effect returns
+    // local-only results while the vault is locked, so unlocking must re-run it
+    // or the palette stays lexical for the rest of the session.
+  }, [open, query, appRuntimeState, surfaceMetadata, vaultOwnerToken]);
 
   useEffect(() => {
     if (!open) return;

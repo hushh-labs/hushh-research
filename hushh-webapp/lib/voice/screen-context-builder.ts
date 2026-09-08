@@ -529,7 +529,7 @@ function readStringArray(
  * at the ordinary screen-owned tier, so an incomplete or stale mapping can
  * only fail to help -- it cannot make today's insertion-order tiebreak worse.
  */
-const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
+export const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
   // Bare /one/location, no open flow: what someone is most likely to ask for
   // without having drilled into a specific circle or share first.
   "one_location:": [
@@ -593,6 +593,80 @@ const SUBVIEW_ACTION_BOOST: Readonly<Record<string, readonly string[]>> = {
  * Set-insertion order previously made the truncation nondeterministic; this
  * keeps the same cap but makes what survives it intentional.
  */
+/**
+ * The family of app-object a verb acts on, derived from the action id.
+ *
+ * Deliberately a heuristic over the id rather than a new authored field: every
+ * surface would have to be re-authored to add one, and the id already carries
+ * the noun. `location.add_to_circle` is a circle verb, `location.stop_share` a
+ * sharing verb. An id whose noun is unrecognised gets its own family, which is
+ * the safe default -- it competes with itself rather than being lumped in with
+ * an unrelated group and starved by it.
+ */
+export function verbFamilyOf(actionId: string): string {
+  const local = actionId.includes(".")
+    ? actionId.slice(actionId.indexOf(".") + 1)
+    : actionId;
+  const NOUNS: Array<[RegExp, string]> = [
+    [/circle/, "circles"],
+    [/share|sharing|updates/, "sharing"],
+    [/request|invite|ask/, "requests"],
+    [/sos|emergency|check_in|checkin|safety/, "safety"],
+    [/contact|connection|people|person/, "people"],
+    [/location|place|map/, "places"],
+  ];
+  for (const [pattern, family] of NOUNS) {
+    if (pattern.test(local)) return family;
+  }
+  return `other:${local}`;
+}
+
+/**
+ * Round-robin the competing ids across verb families, so a crowded screen
+ * cannot let one family eat every slot.
+ *
+ * Applied ONLY when the cap actually binds. Below the cap this returns its
+ * input unchanged, which matters: reordering an inventory that is going to be
+ * carried in full would churn the snapshot revision for no benefit, and every
+ * screen today is comfortably under the cap. It is here for the screen that
+ * outgrows it next, not for any screen that exists now.
+ *
+ * Rank order is preserved as the outer key: a subview-boosted handler still
+ * outranks an unboosted one from a "fairer" family. Fairness decides who wins
+ * a tie, never who outranks whom.
+ */
+export function interleaveByVerbFamily(
+  competing: string[],
+  rankOf: (actionId: string) => number,
+): string[] {
+  if (competing.length <= ACTION_ID_SCREEN_SEGMENT_CAP) return competing;
+  const byRank = new Map<number, Map<string, string[]>>();
+  competing.forEach((actionId) => {
+    const rank = rankOf(actionId);
+    const families = byRank.get(rank) ?? new Map<string, string[]>();
+    const family = verbFamilyOf(actionId);
+    families.set(family, [...(families.get(family) ?? []), actionId]);
+    byRank.set(rank, families);
+  });
+  const out: string[] = [];
+  for (const rank of [...byRank.keys()].sort((a, b) => a - b)) {
+    // Insertion order of the family map is first-appearance order, so the
+    // result stays deterministic for a given input.
+    const queues = [...(byRank.get(rank) ?? new Map()).values()];
+    let drained = false;
+    while (!drained) {
+      drained = true;
+      for (const queue of queues) {
+        const next = queue.shift();
+        if (next === undefined) continue;
+        out.push(next);
+        drained = false;
+      }
+    }
+  }
+  return out;
+}
+
 function prioritizeAvailableActionIds(
   candidateIds: string[],
   screen: string | null,
@@ -682,7 +756,10 @@ function prioritizeAvailableActionIds(
         action.execution_target.path === "route",
     );
   };
-  const capCompeting = ranked.filter((actionId) => !isCapExempt(actionId));
+  const capCompeting = interleaveByVerbFamily(
+    ranked.filter((actionId) => !isCapExempt(actionId)),
+    rankOf,
+  );
   const capExemptActions = ranked.filter(isCapExempt);
   if (capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP) {
     // Loud, and it names what was lost. This was a console.debug, and the

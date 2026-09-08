@@ -6,6 +6,8 @@ import {
   AVAILABLE_ACTION_IDS_CAP,
   GLOBAL_NAV_ACTION_IDS,
   GLOBAL_SESSION_ACTION_IDS,
+  interleaveByVerbFamily,
+  verbFamilyOf,
   INVALID_ARRAY_TYPE_ERROR,
   STRUCTURED_CONTEXT_ARRAY_CAP,
   buildOneVoiceContextSnapshot,
@@ -131,6 +133,58 @@ describe("the action-id cap invariant this file's own comments document", () => 
     // top-level surface, which is what keeps it auditable.
     expect(GLOBAL_SESSION_ACTION_IDS).toContain("profile.sign_out");
     expect(GLOBAL_NAV_ACTION_IDS).not.toContain("profile.sign_out");
+  });
+
+  it("does not reorder an inventory that fits under the cap", () => {
+    // The fairness pass exists for the screen that outgrows the cap next, not
+    // for any screen shipping today -- Location declares 29 local handlers
+    // against 48 slots. Reordering a list that will be carried in full would
+    // churn the snapshot revision (uiRevision feeds context_revision) for no
+    // benefit, so below the cap this must be the identity function.
+    const ids = Array.from({ length: 5 }, (_, i) => `location.thing_${i}`);
+    expect(interleaveByVerbFamily(ids, () => 1)).toEqual(ids);
+  });
+
+  it("stops one verb family eating every slot on a crowded screen", () => {
+    // 60 circle verbs declared before a single sharing verb. Under plain
+    // insertion order the sharing verb sits at index 60 and is dropped by the
+    // 48-slot cap, so "stop sharing my location" becomes unavailable on a
+    // screen that plainly offers it -- the same class of failure as the
+    // truncation this file's telemetry now reports.
+    const crowded = [
+      ...Array.from({ length: 60 }, (_, i) => `location.rename_circle_${i}`),
+      "location.stop_share",
+    ];
+    const ordered = interleaveByVerbFamily(crowded, () => 1);
+    expect(ordered).toHaveLength(crowded.length);
+    expect(new Set(ordered)).toEqual(new Set(crowded));
+    expect(ordered.indexOf("location.stop_share")).toBeLessThan(
+      ACTION_ID_SCREEN_SEGMENT_CAP,
+    );
+  });
+
+  it("lets rank outrank fairness, never the other way round", () => {
+    // A subview-boosted handler is the one the person is looking at. Fairness
+    // decides ties within a rank; it must not promote an unboosted verb above
+    // a boosted one just because its family is under-represented.
+    const ids = [
+      ...Array.from({ length: 60 }, (_, i) => `location.rename_circle_${i}`),
+      "location.stop_share",
+    ];
+    const rankOf = (id: string) => (id === "location.rename_circle_0" ? 0 : 1);
+    const ordered = interleaveByVerbFamily(ids, rankOf);
+    expect(ordered[0]).toBe("location.rename_circle_0");
+  });
+
+  it("groups verbs by the app object they act on", () => {
+    expect(verbFamilyOf("location.add_to_circle")).toBe("circles");
+    expect(verbFamilyOf("location.stop_share")).toBe("sharing");
+    expect(verbFamilyOf("location.trigger_sos")).toBe("safety");
+    // An unrecognised noun gets its own family rather than being lumped into
+    // a group it would then compete with and lose to.
+    expect(verbFamilyOf("location.frobnicate")).not.toBe(
+      verbFamilyOf("location.wibble"),
+    );
   });
 
   it("keeps every session action backed by a real wired gateway entry", () => {

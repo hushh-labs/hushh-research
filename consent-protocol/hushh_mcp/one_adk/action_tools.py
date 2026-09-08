@@ -238,6 +238,27 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
 
 
+def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
+    """Everything the current route may run, independent of the prompt budget.
+
+    The browser ranks and truncates what the model is told about, because a
+    prompt has a budget. Execution does not: an action this route declares is
+    runnable whether or not it won a slot in the inventory. Keeping the two
+    apart is what stops a ranking decision from surfacing as a refusal.
+
+    Server-derived, from the generated route orchestration index, so it cannot
+    be widened by a forged frame. Absent for non-live callers and older
+    payloads, where the caller falls back to the declared inventory.
+    """
+    context = _voice_context(tool_context)
+    if not isinstance(context, dict) or "executable_action_ids" not in context:
+        return None
+    ids = context.get("executable_action_ids")
+    if not isinstance(ids, list):
+        return set()
+    return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+
+
 def _voice_settings(tool_context: ToolContext) -> dict[str, Any]:
     """The person's own restrictions on their already-authorized voice agent.
 
@@ -2714,9 +2735,13 @@ async def run_app_action(
     # browser to run a local handler, so there is no screen inventory for
     # them to be missing from -- the person can be looking at anything.
     # All other actions must be declared by the current surface.
+    # An action this route declares is runnable even when it lost the prompt
+    # ranking race -- being un-mentioned is not the same as being unavailable.
+    executable_action_ids = _executable_action_ids(tool_context)
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
+        and (executable_action_ids is None or clean_id not in executable_action_ids)
         and not is_navigation_action(entry)
         and not _is_backend_direct(clean_id, clean_slots)
     ):
