@@ -18,6 +18,7 @@ vi.mock("next/navigation", () => ({
 function renderPhoneVerificationFlow(options?: {
   startRejects?: boolean;
   confirmVerification?: ReturnType<typeof vi.fn>;
+  currentPhoneNumber?: string | null;
 }) {
   const startVerification = options?.startRejects
     ? vi.fn().mockRejectedValue(new Error("provider unavailable"))
@@ -27,19 +28,25 @@ function renderPhoneVerificationFlow(options?: {
     vi.fn().mockResolvedValue({ uid: "user_1" });
   const onCompleted = vi.fn();
 
-  render(
+  const flow = (currentPhoneNumber?: string | null) => (
     <PhoneVerificationFlow
       mode="link"
+      currentPhoneNumber={currentPhoneNumber}
       startVerification={startVerification}
       confirmVerification={confirmVerification}
       onCompleted={onCompleted}
-    />,
+    />
   );
+
+  const view = render(flow(options?.currentPhoneNumber));
 
   return {
     startVerification,
     confirmVerification,
     onCompleted,
+    // Republishes the flow with a new auth-context phone value, the way
+    // register-phone/page.tsx does when useAuth().phoneNumber settles.
+    rerenderWithPhone: (next?: string | null) => view.rerender(flow(next)),
   };
 }
 
@@ -456,5 +463,121 @@ describe("PhoneVerificationFlow country selector", () => {
     expect(startVerification).toHaveBeenCalledTimes(1);
 
     resolveConfirm({ uid: "user_1" });
+  });
+});
+
+describe("the OTP screen survives a late auth-context update", () => {
+  async function sendCode(
+    handle: ReturnType<typeof renderPhoneVerificationFlow>,
+  ) {
+    const phoneInput = screen.getByRole("textbox", { name: "Phone number" });
+    fireEvent.change(phoneInput, { target: { value: "6505550101" } });
+    fireEvent.submit(phoneInput.closest("form")!);
+    await waitFor(() =>
+      expect(handle.startVerification).toHaveBeenCalledWith("+16505550101", {
+        resendCode: false,
+      }),
+    );
+    return screen.findByRole("textbox", { name: "One-time code" });
+  }
+
+  it("keeps the person on the OTP screen when the backend phone number lands after the code was sent", async () => {
+    // /register-phone always mounts with phoneNumber === null, which is the
+    // exact condition that makes the auth context resolve the verified number
+    // from the backend. That read can settle AFTER the code is sent.
+    const handle = renderPhoneVerificationFlow({ currentPhoneNumber: null });
+    const codeInput = await sendCode(handle);
+    fireEvent.change(codeInput, { target: { value: "1234" } });
+
+    handle.rerenderWithPhone("+16505550101");
+
+    // The sent code is the only thing that matters now. A late identity read
+    // must not take away the one screen that can consume it.
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "One-time code" }),
+      ).not.toBeNull();
+    });
+    expect(
+      screen.getByRole("textbox", { name: "One-time code" }),
+    ).toHaveValue("1234");
+  });
+
+  it("keeps the person on the OTP screen when the context settles from undefined to null", async () => {
+    const handle = renderPhoneVerificationFlow({ currentPhoneNumber: undefined });
+    await sendCode(handle);
+
+    handle.rerenderWithPhone(null);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "One-time code" }),
+      ).not.toBeNull();
+    });
+  });
+
+  it("still re-seeds the form from a changed number before any code is sent", async () => {
+    // The reset must keep working where it is meant to: no code is
+    // outstanding, so a new owner number should still take effect.
+    const handle = renderPhoneVerificationFlow({ currentPhoneNumber: null });
+    expect(
+      screen.getByRole("textbox", { name: "Phone number" }),
+    ).not.toBeNull();
+
+    handle.rerenderWithPhone("+16505550101");
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole("textbox", { name: "Phone number" }),
+      ).toBeNull();
+    });
+  });
+});
+
+describe("the country picker starts on the person's own country", () => {
+  const realLanguage = navigator.language;
+
+  function setBrowserLocale(tag: string) {
+    Object.defineProperty(navigator, "language", {
+      value: tag,
+      configurable: true,
+    });
+  }
+
+  afterEach(() => {
+    setBrowserLocale(realLanguage);
+  });
+
+  it("selects India for a browser reporting en-IN", async () => {
+    // The founder tests from India. This defaulted to "United States (+1)",
+    // so a real Indian mobile was sent as +1<10 digits> -- a different number
+    // entirely. The code went nowhere and the test-number allowlist, which
+    // matches on the full E.164 string, could never match.
+    setBrowserLocale("en-IN");
+    renderPhoneVerificationFlow({ currentPhoneNumber: null });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/India/i)).not.toBeNull();
+    });
+  });
+
+  it("leaves the United States selected for a US browser", async () => {
+    setBrowserLocale("en-US");
+    renderPhoneVerificationFlow({ currentPhoneNumber: null });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue(/United States/i)).not.toBeNull();
+    });
+  });
+
+  it("keeps the country implied by an existing number over the browser locale", async () => {
+    // A person whose account already carries a US number must not have it
+    // silently re-pointed at India just because the browser says en-IN.
+    setBrowserLocale("en-IN");
+    renderPhoneVerificationFlow({ currentPhoneNumber: "+16505550101" });
+
+    await waitFor(() => {
+      expect(screen.queryByDisplayValue(/India/i)).toBeNull();
+    });
   });
 });

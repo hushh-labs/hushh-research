@@ -26,6 +26,9 @@ VERTEX_LOCATIONS_ENV = "HUSHH_VERTEX_LOCATIONS"
 VERTEX_LOCATION_COOLDOWN_SECONDS_ENV = "HUSHH_VERTEX_LOCATION_COOLDOWN_SECONDS"
 _HOSTED_ENVIRONMENTS = {"dev", "uat", "staging", "production", "prod"}
 _PROJECT_ENV_NAMES = (
+    # Managed Vertex can use a separately billed project while the process
+    # remains rooted in its native Cloud Run/Cloud SQL project.
+    "GENAI_GOOGLE_CLOUD_PROJECT",
     "GOOGLE_CLOUD_PROJECT",
     "GCP_PROJECT",
     "GOOGLE_PROJECT",
@@ -204,7 +207,9 @@ def _vertex_project() -> str:
             return project
 
     if _deployment_environment() in _HOSTED_ENVIRONMENTS:
-        raise RuntimeError("Hosted Vertex ADC requires GOOGLE_CLOUD_PROJECT")
+        raise RuntimeError(
+            "Hosted Vertex ADC requires GENAI_GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT"
+        )
 
     try:
         import google.auth
@@ -212,11 +217,11 @@ def _vertex_project() -> str:
         _, detected_project = google.auth.default()
     except Exception as exc:
         raise RuntimeError(
-            "Vertex ADC is unavailable; configure workload ADC and GOOGLE_CLOUD_PROJECT"
+            "Vertex ADC is unavailable; configure workload ADC and GENAI_GOOGLE_CLOUD_PROJECT"
         ) from exc
     project = str(detected_project or "").strip()
     if not project:
-        raise RuntimeError("Vertex ADC requires GOOGLE_CLOUD_PROJECT")
+        raise RuntimeError("Vertex ADC requires GENAI_GOOGLE_CLOUD_PROJECT or GOOGLE_CLOUD_PROJECT")
     return project
 
 

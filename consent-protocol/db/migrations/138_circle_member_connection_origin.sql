@@ -23,6 +23,23 @@ BEGIN;
 ALTER TABLE connection_origins
   DROP CONSTRAINT IF EXISTS connection_origins_origin_kind_check;
 
+-- NOT VALID, because UAT and production replay this file on every deploy.
+--
+-- `origin_kind` gained 'contact_sync' later, in 175. Replaying this migration
+-- re-adds the narrower list above against present-day rows, so the first real
+-- contact_sync row made this line fail with:
+--
+--   check constraint "connection_origins_origin_kind_check"
+--   of relation "connection_origins" is violated by some row
+--
+-- and the whole UAT deploy stopped there, before anything shipped.
+--
+-- NOT VALID applies the rule to new and updated rows without re-validating
+-- existing ones, which is what this migration ever meant: it changes what
+-- future joins create, and explicitly does not backfill. Migration 175 drops
+-- and re-adds this same constraint fully validated with the complete
+-- vocabulary, so the schema still ends up identical -- and a genuinely
+-- unknown origin_kind still fails there, where it should.
 ALTER TABLE connection_origins
   ADD CONSTRAINT connection_origins_origin_kind_check
   CHECK (origin_kind IN (
@@ -31,7 +48,7 @@ ALTER TABLE connection_origins
     'circle_member',
     'legacy_invite',
     'import'
-  ));
+  )) NOT VALID;
 
 -- `circle_member` is pair provenance, not Circle-scoped provenance: one row per
 -- connection regardless of how many Circles the pair later share. The existing

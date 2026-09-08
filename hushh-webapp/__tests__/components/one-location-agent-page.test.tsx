@@ -19,6 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 // The rungs themselves, not a copy of their labels: Ask and Share must offer
 // the same ladder, so the test reads the same list the component does.
 import { ROUTES } from "@/lib/navigation/routes";
+import { presentFeedItem } from "@/lib/feed/feed-item-renderers";
 import {
   OneLocationContactSyncError,
   type OneLocationContactSignalResult,
@@ -65,6 +66,7 @@ const {
   mockWithdrawRequest,
   mockUpdateAutoApprovePreference,
   mockCreatePublicInvite,
+  mockRevokePublicInvite,
   mockCreateCircleInvite,
   mockListCircles,
   mockGetCircle,
@@ -126,6 +128,7 @@ const {
   mockWithdrawRequest: vi.fn(),
   mockUpdateAutoApprovePreference: vi.fn(),
   mockCreatePublicInvite: vi.fn(),
+  mockRevokePublicInvite: vi.fn(),
   mockCreateCircleInvite: vi.fn(),
   mockListCircles: vi.fn(),
   mockGetCircle: vi.fn(),
@@ -414,7 +417,7 @@ vi.mock("@/lib/one-location/service", () => ({
     referRecipient: vi.fn(),
     createPublicInvite: mockCreatePublicInvite,
     createCircleInvite: mockCreateCircleInvite,
-    revokePublicInvite: vi.fn(),
+    revokePublicInvite: mockRevokePublicInvite,
     revokeCircleInvite: vi.fn(),
     // Named-circle surface: the mandatory onboarding invite screen
     // find-or-creates the user's first owned Circle and issues its
@@ -2146,6 +2149,98 @@ describe("OneLocationAgentPage", () => {
     expect(screen.getByRole("button", { name: "Save" })).toBeDisabled();
   });
 
+  it("shows owned SMS Circle in auto-approve circles list and excludes Trusted Circle", async () => {
+    const circleFamily = {
+      id: "circle_family",
+      name: "Family",
+      kind: "family" as const,
+      role: "owner" as const,
+      memberCount: 3,
+      memberLimit: 20,
+    };
+    const circleSms = {
+      id: "circle_sms",
+      name: "SMS Contacts",
+      kind: "other" as const,
+      role: "owner" as const,
+      memberCount: 2,
+      memberLimit: 10,
+      isSystem: true,
+      systemKind: "sms" as const,
+    };
+    const circleTrusted = {
+      id: "circle_trusted",
+      name: "Trusted",
+      kind: "other" as const,
+      role: "owner" as const,
+      memberCount: 15,
+      isSystem: false,
+      systemKind: "trusted" as const,
+    };
+    let serverPreference = {
+      enabled: false,
+      scope: null as { kind: "circles"; circleIds: string[] } | null,
+      enabledAt: null as string | null,
+      ruleVersion: 0,
+    };
+    mockGetState.mockImplementation(async () => ({
+      ...locationState(),
+      ownerGrants: [],
+      circles: [circleFamily, circleSms, circleTrusted],
+      autoApprovePreference: serverPreference,
+    }));
+    mockUpdateAutoApprovePreference.mockImplementation(async ({ enabled, scope }) => {
+      serverPreference = enabled
+        ? {
+            enabled: true,
+            scope,
+            enabledAt: "2026-08-24T09:00:00.000Z",
+            ruleVersion: 1,
+          }
+        : { enabled: false, scope: null, enabledAt: null, ruleVersion: 2 };
+      return serverPreference;
+    });
+
+    mockLocationSearchParams("action=settings");
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow({ expectMain: false });
+    expect(
+      await screen.findByRole("heading", { name: "Settings" }),
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("switch", { name: "Auto-approve requests" }),
+    );
+    expect(
+      screen.getByRole("heading", { name: "Auto-approve for" }),
+    ).toBeTruthy();
+
+    // SMS Contacts and Family circles must be visible as options
+    const smsCheckbox = screen.getByRole("checkbox", { name: /^SMS Contacts/ });
+    const familyCheckbox = screen.getByRole("checkbox", { name: /^Family/ });
+    expect(smsCheckbox).toBeInTheDocument();
+    expect(familyCheckbox).toBeInTheDocument();
+
+    // Trusted Circle must NOT be offered as an auto-approve option
+    expect(screen.queryByRole("checkbox", { name: /^Trusted/ })).not.toBeInTheDocument();
+
+    // Selecting SMS Contacts enables auto-approve for that circle
+    fireEvent.click(smsCheckbox);
+    expect(smsCheckbox).toHaveAttribute("aria-checked", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Turn on" }));
+    await waitFor(() =>
+      expect(mockUpdateAutoApprovePreference).toHaveBeenCalledWith({
+        vaultOwnerToken: "vault-token",
+        enabled: true,
+        scope: {
+          kind: "circles",
+          circleIds: ["circle_sms"],
+        },
+      }),
+    );
+  });
+
   it("stops the automatic queue when the server rule is turned off", async () => {
     let ruleEnabled = true;
     const requests = [
@@ -3352,6 +3447,66 @@ describe("OneLocationAgentPage", () => {
     );
   });
 
+  it.each(["setup", "workspace"] as const)(
+    "resumes the invite step after auth validation and route remount in %s",
+    async (mode) => {
+      const page = render(<OneLocationAgentPage mode={mode} />);
+      await reachLocationOnboardingFinalStep();
+      fireEvent.click(
+        await screen.findByRole("button", { name: "Share", exact: true }),
+      );
+      await waitFor(() => expect(mockCopyToClipboard).toHaveBeenCalled());
+      const contactChecksBeforeReturn =
+        mockSyncOneLocationContactSignals.mock.calls.length;
+      const permissionRequestsBeforeReturn =
+        mockRequestLocationPermission.mock.calls.length;
+      const auth = mockUseRequireAuth.mock.results.at(-1)!.value;
+
+      // Focus after a tab switch/share triggers a loading gate before the same
+      // identity is revalidated. The gate must still hide the protected flow.
+      mockUseRequireAuth.mockReturnValue({ ...auth, loading: true });
+      page.rerender(<OneLocationAgentPage mode={mode} />);
+      await waitFor(() =>
+        expect(screen.queryByTestId("one-location-onboarding")).toBeNull(),
+      );
+      mockUseRequireAuth.mockReturnValue(auth);
+      page.rerender(<OneLocationAgentPage mode={mode} />);
+      await expectLocationInviteStep();
+
+      // Ancestor auth/setup guards also unmount the whole page on app return.
+      page.unmount();
+      render(<OneLocationAgentPage mode={mode} />);
+      await expectLocationInviteStep();
+      expect(
+        screen.queryByRole("heading", {
+          name: "Share your location easily with anyone.",
+        }),
+      ).toBeNull();
+      expect(await locationFinishButton()).toBeEnabled();
+      expect(mockSyncOneLocationContactSignals).toHaveBeenCalledTimes(
+        contactChecksBeforeReturn,
+      );
+      expect(mockRequestLocationPermission).toHaveBeenCalledTimes(
+        permissionRequestsBeforeReturn,
+      );
+    },
+  );
+
+  it("retains the invite checkpoint when setup completion fails", async () => {
+    const onSetupComplete = vi.fn().mockRejectedValue(new Error("Try again"));
+    const page = render(
+      <OneLocationAgentPage mode="setup" onSetupComplete={onSetupComplete} />,
+    );
+    await finishLocationOnboarding();
+    await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
+    expect(
+      window.localStorage.getItem("one_location_onboarding_v2:user_a"),
+    ).toBeNull();
+    page.unmount();
+    render(<OneLocationAgentPage mode="setup" />);
+    await expectLocationInviteStep();
+  });
+
   it("does not replay Location onboarding after setup completes into the workspace", async () => {
     const onSetupComplete = vi.fn();
     const setup = render(
@@ -3361,6 +3516,11 @@ describe("OneLocationAgentPage", () => {
     await finishLocationOnboarding();
 
     await waitFor(() => expect(onSetupComplete).toHaveBeenCalledTimes(1));
+    expect(
+      window.sessionStorage.getItem(
+        "one_location_onboarding_progress_v1:setup:user_a",
+      ),
+    ).toBeNull();
     expect(
       window.localStorage.getItem("one_location_onboarding_v2:user_a"),
     ).toBe("1");
@@ -4512,6 +4672,143 @@ describe("OneLocationAgentPage", () => {
       }
     });
   });
+
+  it.each(["active", "revoked", "expired"])(
+    "lands an incoming Feed share on Shared with me with current status=%s",
+    async (status) => {
+      const active = status === "active";
+      const grant = {
+        id: "grant_feed",
+        ownerUserId: "user_b",
+        recipientUserId: "user_a",
+        ownerDisplayName: "Trusted B",
+        recipientKeyId: "key_a",
+        status,
+        consentScope: "cap.location.live.view",
+        capabilityScopes: ["cap.location.live.view"],
+        durationHours: 1,
+        expiresAt: "2099-01-01T00:00:00.000Z",
+      };
+      window.localStorage.setItem("one_location_onboarding_v2:user_a", "1");
+      mockViewEnvelope.mockResolvedValue({
+        grant: {},
+        envelope: null,
+        status: "waiting",
+      });
+      mockGetState.mockResolvedValue({
+        ...locationState(),
+        ownerGrants: [],
+        receivedGrants:
+          status === "expired"
+            ? [grant]
+            : [
+                grant,
+                {
+                  ...grant,
+                  id: "grant_other_sender",
+                  ownerUserId: "user_d",
+                  ownerDisplayName: "Investor D",
+                  status: "active",
+                },
+              ],
+      });
+      const href = presentFeedItem({
+        id: "feed-1",
+        source_domain: "location",
+        event_type: "location_share_created",
+        actor_label: "Trusted B",
+        metadata: { feed_audience: "recipient", duration_hours: 1 },
+        read: true,
+        created_at: "2026-09-01T00:00:00.000Z",
+      }).href!;
+      mockUseSearchParams.mockReturnValue(
+        new URL(href, "https://app.test").searchParams,
+      );
+      const view = render(<OneLocationAgentPage />);
+      await waitFor(() =>
+        expect(mockRouterReplace).toHaveBeenCalledWith(
+          "/one/location?action=shared-with-me",
+          { scroll: false },
+        ),
+      );
+
+      // Apply the real normalization with a fresh query object, as Next does.
+      // This proves the intent settles and can be left, not just that replace ran.
+      mockUseSearchParams.mockReturnValue(
+        new URLSearchParams("action=shared-with-me"),
+      );
+      mockRouterReplace.mockClear();
+      view.rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Shared with me" }),
+      ).toBeTruthy();
+      if (status !== "expired") {
+        expect(
+          await screen.findByRole("button", {
+            name: "View shared location from Investor D",
+          }),
+        ).toBeTruthy();
+      } else {
+        expect(
+          screen.queryByRole("button", { name: /View shared location from/ }),
+        ).toBeNull();
+        expect(mockViewEnvelope).not.toHaveBeenCalled();
+      }
+      expect(screen.queryByTitle("Live location map preview")).toBeNull();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+
+      if (active) {
+        mockViewEnvelope.mockResolvedValue({
+          grant,
+          envelope: {
+            recipientKeyId: "key_a",
+            algorithm: "ECDH-P256-AES256-GCM",
+            ciphertext: "ciphertext",
+            iv: "iv",
+            senderEphemeralPublicKeyJwk: {
+              kty: "EC",
+              crv: "P-256",
+              x: "x",
+              y: "y",
+            },
+            capturedAt: "2026-09-06T00:00:00.000Z",
+            sourcePlatform: "web",
+          },
+          status: "published",
+        });
+        fireEvent.click(
+          screen.getByRole("button", {
+            name: "View shared location from Trusted B",
+          }),
+        );
+        expect(
+          await screen.findByTitle("Live location map preview"),
+        ).toBeTruthy();
+        expect(mockViewEnvelope).toHaveBeenCalledWith(
+          expect.objectContaining({ grantId: "grant_feed" }),
+        );
+      } else {
+        expect(
+          screen.queryByRole("button", {
+            name: "View shared location from Trusted B",
+          }),
+        ).toBeNull();
+        expect(mockViewEnvelope).not.toHaveBeenCalledWith(
+          expect.objectContaining({ grantId: "grant_feed" }),
+        );
+      }
+
+      mockUseSearchParams.mockReturnValue(new URLSearchParams("view=now"));
+      view.rerender(<OneLocationAgentPage />);
+      expect(
+        await screen.findByRole("heading", { name: "Location" }),
+      ).toBeTruthy();
+      expect(
+        screen.queryByRole("heading", { name: "Shared with me" }),
+      ).toBeNull();
+      expect(mockRouterReplace).not.toHaveBeenCalled();
+    },
+  );
 
   it("warns the recipient when the decrypted location update is stale", async () => {
     const staleGrant = {
@@ -7804,6 +8101,25 @@ describe("OneLocationAgentPage", () => {
     expect(screen.queryByText("Duration")).toBeNull();
     // Ending it stays reachable -- that is the only exit.
     expect(screen.getByRole("button", { name: /Revoke link/i })).toBeTruthy();
+  });
+
+  it("removes revoked link actions even when refreshing the workspace fails", async () => {
+    mockGetState.mockResolvedValue({
+      ...locationState(),
+      publicInvites: [activePublicInvite({ publicUrl: "/one/location/view/neelesh.derived-token-abc" })],
+    });
+    mockRevokePublicInvite.mockResolvedValue({ invite: { status: "revoked" } });
+    render(<OneLocationAgentPage />);
+    await skipLocationEntryFlow();
+    await waitFor(() => expect(mockGetState).toHaveBeenCalled());
+    fireEvent.click(screen.getByRole("button", { name: "Links" }));
+    expect(await screen.findByRole("button", { name: /Copy link/i })).toBeTruthy();
+    mockGetState.mockRejectedValue(new Error("State refresh unavailable"));
+    fireEvent.click(screen.getByRole("button", { name: /Revoke link/i }));
+    await waitFor(() => expect(mockRevokePublicInvite).toHaveBeenCalled());
+    await waitFor(() => expect(screen.queryByRole("button", { name: /^Copy link$/i })).toBeNull());
+    expect(screen.queryByRole("button", { name: /^Share$/i })).toBeNull();
+    expect(screen.getByRole("button", { name: /^Create link$/i })).toBeTruthy();
   });
 
   it("lets a link whose URL cannot be recovered be stopped", async () => {

@@ -95,6 +95,11 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(coordinator.claim(id: invocation.id))
         XCTAssertFalse(coordinator.claim(id: invocation.id))
+        // Claiming bumps the generation, and the completion is recorded against
+        // the claimed invocation -- not the one enqueue() handed back. That
+        // distinction is the whole point of the generation: a completion from
+        // an earlier round cannot satisfy a later one.
+        let claimedGeneration = invocation.generation + 1
         coordinator.complete(
             id: invocation.id,
             outcome: "succeeded",
@@ -102,16 +107,24 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         )
 
         XCTAssertEqual(
-            coordinator.completion(id: invocation.id),
+            coordinator.completion(id: invocation.id, generation: claimedGeneration),
             OneSystemActionCompletion(
                 id: invocation.id,
+                generation: claimedGeneration,
                 outcome: "succeeded",
                 summary: "Created Family.",
                 finishedAt: now
             )
         )
+        // The stale generation must not resolve it.
+        XCTAssertNil(
+            coordinator.completion(id: invocation.id, generation: invocation.generation)
+        )
         coordinator.complete(id: invocation.id, outcome: "failed", summary: "late")
-        XCTAssertEqual(coordinator.completion(id: invocation.id)?.outcome, "succeeded")
+        XCTAssertEqual(
+            coordinator.completion(id: invocation.id, generation: claimedGeneration)?.outcome,
+            "succeeded"
+        )
     }
 
     func testVaultProgressIsObservableWithoutConsumingThePendingAction() async throws {
@@ -133,6 +146,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         XCTAssertEqual(coordinator.pending(), invocation)
         let result = await coordinator.waitForCompletionOrProgress(
             id: invocation.id,
+            generation: invocation.generation,
             timeout: 0.1
         )
         XCTAssertEqual(
@@ -187,7 +201,7 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
         coordinator.cancelAll(outcome: "sign_out", clearEntityIndex: true)
 
         XCTAssertNil(coordinator.pending())
-        XCTAssertNil(coordinator.completion(id: invocation.id))
+        XCTAssertNil(coordinator.completion(id: invocation.id, generation: invocation.generation))
         XCTAssertTrue(coordinator.contacts().isEmpty)
         XCTAssertTrue(coordinator.circles().isEmpty)
     }
@@ -235,18 +249,24 @@ final class OneSystemActionInvocationCoordinatorTests: XCTestCase {
     }
 
     func testActionCatalogMatchesGeneratedLocationContractIdentifiers() {
-        XCTAssertEqual(OneSystemActionID.allCases.count, 17)
+        XCTAssertEqual(OneSystemActionID.allCases.count, 18)
         XCTAssertEqual(OneSystemActionID.shareLocation.rawValue, "location.share_selected")
         XCTAssertEqual(OneSystemActionID.askForLocation.rawValue, "location.send_request")
         XCTAssertEqual(OneSystemActionID.stopShare.rawValue, "location.stop_share")
         XCTAssertFalse(OneSystemActionID.openLocation.requiresVault)
         XCTAssertTrue(OneSystemActionID.resumeLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.openSMSContacts.requiresVault)
-        XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 7)
+        XCTAssertEqual(OneSystemActionID.vaultRequiredActionIDs.count, 8)
         XCTAssertTrue(OneSystemActionID.pauseLocation.requiresVault)
         XCTAssertFalse(OneSystemActionID.pauseLocation.requiresSystemConfirmation)
         XCTAssertTrue(OneSystemActionID.resumeLocation.requiresSystemConfirmation)
         XCTAssertEqual(OneSystemActionID.systemConfirmationRequiredActionIDs.count, 6)
+        // Save My Soul's sending half: reachable from exactly one App Intent,
+        // vault-gated, and deliberately NOT system-confirmation-gated -- the
+        // Action button hold is the confirmation.
+        XCTAssertEqual(OneSystemActionID.triggerSaveMySoul.rawValue, "location.trigger_sos")
+        XCTAssertTrue(OneSystemActionID.triggerSaveMySoul.requiresVault)
+        XCTAssertFalse(OneSystemActionID.triggerSaveMySoul.requiresSystemConfirmation)
     }
 
     @available(iOS 16.0, *)

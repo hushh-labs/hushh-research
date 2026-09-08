@@ -24,6 +24,7 @@ export const ONE_SYSTEM_ACTION_IDS = [
   "location.resume_updates",
   "location.create_circle",
   "location.rename_circle",
+  "location.trigger_sos",
 ] as const;
 
 export type OneSystemActionId = (typeof ONE_SYSTEM_ACTION_IDS)[number];

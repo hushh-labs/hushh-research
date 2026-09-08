@@ -21,7 +21,10 @@ import {
   requestInternalAppNavigation,
 } from "@/lib/utils/browser-navigation";
 import { dispatchFeedStateChanged } from "@/lib/feed/feed-events";
-import { resolveOneLocationNotificationHref } from "@/lib/one-location/notifications";
+import {
+  buildOneLocationWorkflowHref,
+  resolveOneLocationNotificationHref,
+} from "@/lib/one-location/notifications";
 
 // Event name for FCM messages (both web and native dispatch this)
 export const FCM_MESSAGE_EVENT = "fcm-message";
@@ -32,9 +35,24 @@ const ONE_LOCATION_SMS_OPEN_ACTION = "ONE_LOCATION_SMS_OPEN";
 const IOS_DEFAULT_NOTIFICATION_ACTION =
   "com.apple.UNNotificationDefaultActionIdentifier";
 
-export function buildNotificationFeedTarget(
+function incomingLocationShareTarget(
+  data: Record<string, unknown> | undefined,
+): string | null {
+  const type = String(data?.type || "").trim().toLowerCase();
+  // These alerts are sent only to the person receiving location access.
+  // Open the list using current authorization, not stale grant/request intent.
+  // Keep this allowlist aligned with notificationTapTarget in the web worker.
+  if (type === "location_share_created" || type === "location_access_approved") {
+    return buildOneLocationWorkflowHref({ section: "shared" });
+  }
+  return null;
+}
+
+export function buildNotificationTapTarget(
   data: Record<string, unknown> | undefined,
 ): string {
+  const locationTarget = incomingLocationShareTarget(data);
+  if (locationTarget) return locationTarget;
   if (String(data?.type || "").trim().toLowerCase() !== "consent_request") {
     return ROUTES.ONE_FEED;
   }
@@ -47,7 +65,14 @@ export function buildNotificationFeedTarget(
   return search ? `${ROUTES.ONE_FEED}?${search}` : ROUTES.ONE_FEED;
 }
 
-function resolveNotificationFeedTarget(value: unknown): string {
+function resolveNotificationClickTarget(
+  value: unknown,
+  data: Record<string, unknown> | undefined,
+): string {
+  // Older workers send a Feed URL but retain the original typed payload.
+  // Only this known event family may bypass the existing Feed URL boundary.
+  const locationTarget = incomingLocationShareTarget(data);
+  if (locationTarget) return locationTarget;
   const href = typeof value === "string" ? value.trim() : "";
   if (!href || /[\r\n]/.test(href)) return ROUTES.ONE_FEED;
   try {
@@ -454,7 +479,7 @@ function setupWebServiceWorkerBridge(): void {
     if (message?.type === "hushh:fcm_notification_clicked") {
       dispatchFeedStateChanged("action");
       requestInternalAppNavigation({
-        href: resolveNotificationFeedTarget(message.url),
+        href: resolveNotificationClickTarget(message.url, message.data),
         scroll: false,
       });
       if (message.click_id) {
@@ -936,7 +961,7 @@ function setupNativeListeners(): Promise<void> {
             return;
           }
 
-          // A body tap from outside the active app always enters through Feed.
+          // Incoming share alerts open Shared with me; other body taps enter Feed.
           // Explicit consent action buttons retain their confirmation route.
           if (
             actionId === "tap" ||
@@ -945,7 +970,7 @@ function setupNativeListeners(): Promise<void> {
           ) {
             dispatchFeedStateChanged("action");
             requestInternalAppNavigation({
-              href: buildNotificationFeedTarget(data),
+              href: buildNotificationTapTarget(data),
               scroll: false,
             });
             return;

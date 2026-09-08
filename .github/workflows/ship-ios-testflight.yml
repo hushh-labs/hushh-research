@@ -399,6 +399,64 @@ jobs:
             CURRENT_PROJECT_VERSION="${{ steps.build_number.outputs.next_build }}" \
             archive 2>&1 | tee "${RUNNER_TEMP}/xcodebuild-archive.log"
 
+      - name: Assert the archive ships our own debug symbols
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARCHIVE="${RUNNER_TEMP}/App.xcarchive"
+          APP_BIN="${ARCHIVE}/Products/Applications/App.app/App"
+          APP_DSYM="${ARCHIVE}/dSYMs/App.app.dSYM"
+
+          # FirebaseAnalytics, GoogleAppMeasurement, GoogleAppMeasurementIdentitySupport
+          # and GoogleAdsOnDeviceConversion DO ship as their own dynamic libraries in
+          # App.app/Frameworks (verified against the signed .ipa: MH_DYLIB, real UUIDs),
+          # but Google publishes no dSYM for any of them -- the .xcframework contains
+          # none, and none reaches the archive. So exportArchive logs "Upload Symbols
+          # Failed" for each on every run, and crash frames inside those four libraries
+          # genuinely will not symbolicate. That is an accepted loss we cannot close
+          # from here (see R29), not a harmless one. This step exists so that permanent
+          # noise can never hide the failure that matters: OUR dSYM going missing.
+          ALLOWED_WITHOUT_DSYM="FirebaseAnalytics GoogleAppMeasurement GoogleAppMeasurementIdentitySupport GoogleAdsOnDeviceConversion"
+
+          test -f "$APP_BIN" || { echo "::error::No app binary at $APP_BIN"; exit 1; }
+          if [ ! -d "$APP_DSYM" ]; then
+            echo "::error::The archive contains no App.app.dSYM, so crash reports for our own code would arrive unsymbolicated. Check that DEBUG_INFORMATION_FORMAT is dwarf-with-dsym for the Release configuration."
+            exit 1
+          fi
+
+          app_uuids="$(dwarfdump --uuid "$APP_BIN" | awk '{print $2}' | sort)"
+          dsym_uuids="$(dwarfdump --uuid "$APP_DSYM" | awk '{print $2}' | sort)"
+          echo "app binary UUIDs:"; printf '%s\n' "$app_uuids" | sed 's/^/  /'
+          echo "App.app.dSYM UUIDs:"; printf '%s\n' "$dsym_uuids" | sed 's/^/  /'
+
+          [ -n "$app_uuids" ] || { echo "::error::The app binary reports no UUIDs."; exit 1; }
+          if [ "$app_uuids" != "$dsym_uuids" ]; then
+            echo "::error::App.app.dSYM does not match the shipped app binary; crash reports would not symbolicate."
+            exit 1
+          fi
+
+          # Anything that actually ships as its own image must carry symbols.
+          fail=0
+          FW_DIR="${ARCHIVE}/Products/Applications/App.app/Frameworks"
+          if [ -d "$FW_DIR" ]; then
+            for fw in "$FW_DIR"/*.framework; do
+              [ -e "$fw" ] || continue
+              name="$(basename "$fw" .framework)"
+              case " $ALLOWED_WITHOUT_DSYM " in
+                *" $name "*) echo "  skip  $name (vendor static binary; upstream ships no dSYM)"; continue ;;
+              esac
+              if [ -d "${ARCHIVE}/dSYMs/${name}.framework.dSYM" ]; then
+                echo "  ok    $name"
+              else
+                echo "::error::Embedded framework $name ships with no dSYM and is not an approved exception."
+                fail=1
+              fi
+            done
+          fi
+          [ "$fail" -eq 0 ] || exit 1
+
+          echo "OK: App.app.dSYM present and matching; every separately shipped image has symbols or a named exception."
+
       - name: Export & upload to TestFlight
         shell: bash
         run: |

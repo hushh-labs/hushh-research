@@ -55,8 +55,9 @@ export const VOICE_AGENT_EXAMPLE_GROUPS: readonly VoiceAgentExampleGroup[] = [
         actionId: "location.pause_updates",
       },
       {
-        phrase: "Trigger SOS",
-        result: "Opens the emergency SMS screen.",
+        phrase: "Send my SMS alert",
+        result:
+          "Alerts your ready emergency contacts and shares your live location. Say \"open SMS\" to just see the screen.",
         actionId: "location.trigger_sos",
       },
     ],

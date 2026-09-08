@@ -43,6 +43,8 @@ CONSTRAINT_MIGRATIONS = (
     "154_one_location_access_request_duration.sql",
     "169_one_location_auto_approve_preferences.sql",
     "180_one_location_circle_feed_durability.sql",
+    "187_one_location_sms_contact_events.sql",
+    "190_one_location_place_ratings.sql",
 )
 
 # Only these two ADD the constraint without NOT VALID, so only these two

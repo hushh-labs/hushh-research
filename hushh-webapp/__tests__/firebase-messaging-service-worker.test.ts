@@ -32,9 +32,7 @@ function createHarness(options: {
   const handlers = new Map<string, ServiceWorkerHandler>();
   const shown: Array<{ title: string; options?: Record<string, unknown> }> = [];
   const clientMessages: Array<Record<string, unknown>> = [];
-  const clientMessagesByIndex: Array<
-    Array<Record<string, unknown>>
-  > = [];
+  const clientMessagesByIndex: Array<Array<Record<string, unknown>>> = [];
   const openedUrls: string[] = [];
   const navigatedUrls: string[] = [];
   const closedTags: string[] = [];
@@ -345,32 +343,35 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
         renotify: true,
         silent: false,
         vibrate: [240, 120, 240, 120, 520],
-        data: expect.objectContaining({ url: "/one/feed" }),
+        data: expect.objectContaining({ url: "/one/location?section=shared" }),
       }),
     });
   });
 
-  it("routes a warm notification body tap to Feed without document navigation", async () => {
-    const harness = createHarness({
-      acknowledgeVisibleDelivery: true,
-      acknowledgeNotificationClick: true,
-    });
-    await harness.click({
-      type: "location_share_created",
-      grant_id: "old-target",
-    });
+  it.each(["location_share_created", "location_access_approved"])(
+    "routes a warm %s body tap to Shared with me without document navigation",
+    async (type) => {
+      const harness = createHarness({
+        acknowledgeVisibleDelivery: true,
+        acknowledgeNotificationClick: true,
+      });
+      await harness.click({
+        type,
+        grant_id: "old-target",
+      });
 
-    expect(harness.focusCount).toBe(1);
-    expect(harness.openedUrls).toEqual([]);
-    expect(harness.navigatedUrls).toEqual([]);
-    expect(harness.clientMessages).toContainEqual(
-      expect.objectContaining({
-        type: "hushh:fcm_notification_clicked",
-        url: "/one/feed",
-        reason: "notification_click",
-      }),
-    );
-  });
+      expect(harness.focusCount).toBe(1);
+      expect(harness.openedUrls).toEqual([]);
+      expect(harness.navigatedUrls).toEqual([]);
+      expect(harness.clientMessages).toContainEqual(
+        expect.objectContaining({
+          type: "hushh:fcm_notification_clicked",
+          url: "/one/location?section=shared",
+          reason: "notification_click",
+        }),
+      );
+    },
+  );
 
   it("navigates a stale warm client when the click bridge does not acknowledge", async () => {
     const harness = createHarness({ acknowledgeNotificationClick: false });
@@ -420,15 +421,42 @@ describe("Firebase messaging service-worker lifecycle ownership", () => {
     expect(harness.clientMessages).toContainEqual(
       expect.objectContaining({
         type: "hushh:fcm_notification_clicked",
-        url:
-          "/one/feed?notificationRequestId=request%201&notificationBundleId=bundle%261",
+        url: "/one/feed?notificationRequestId=request%201&notificationBundleId=bundle%261",
       }),
     );
   });
 
-  it("opens Feed for a cold notification body tap", async () => {
+  it.each(["location_share_created", "location_access_approved"])(
+    "opens Shared with me for a cold %s body tap",
+    async (type) => {
+      const harness = createHarness({ clientState: "none" });
+      await harness.click({
+        type,
+        request_url: "/one/location?grantId=old&section=people",
+      });
+      expect(harness.openedUrls).toEqual(["/one/location?section=shared"]);
+    },
+  );
+
+  it.each(["location_share_created", "location_access_approved"])(
+    "navigates a stale web client to Shared with me for %s",
+    async (type) => {
+      const harness = createHarness({ acknowledgeNotificationClick: false });
+      await harness.click({ type });
+      expect(harness.navigatedUrls).toEqual(["/one/location?section=shared"]);
+      expect(harness.openedUrls).toEqual([]);
+    },
+  );
+
+  it.each([
+    "location_access_request",
+    "location_share_shortened",
+    "location_share_duration_changed",
+    "location_share_revoked",
+    "location_share_expired",
+  ])("preserves the default destination for %s", async (type) => {
     const harness = createHarness({ clientState: "none" });
-    await harness.click({ type: "location_share_created" });
+    await harness.click({ type });
     expect(harness.openedUrls).toEqual(["/one/feed"]);
   });
 });
