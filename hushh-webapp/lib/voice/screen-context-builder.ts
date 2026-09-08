@@ -18,6 +18,10 @@ import {
   type VoiceSurfaceMetadata,
 } from "@/lib/voice/voice-surface-metadata";
 import { resolveAppRouteLayout } from "@/lib/navigation/app-route-layout";
+import {
+  createVoiceTurnId,
+  logVoiceMetric,
+} from "@/lib/voice/voice-telemetry";
 import { hasMountedLocalOnboardingHandler } from "@/lib/agent/local-onboarding-actions";
 import type {
   OneVoiceTransition,
@@ -663,16 +667,31 @@ function prioritizeAvailableActionIds(
   };
   const capCompeting = ranked.filter((actionId) => !isCapExempt(actionId));
   const capExemptActions = ranked.filter(isCapExempt);
-  if (
-    capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP &&
-    process.env.NODE_ENV !== "production"
-  ) {
+  if (capCompeting.length > ACTION_ID_SCREEN_SEGMENT_CAP) {
     // Loud, and it names what was lost. This was a console.debug, and the
     // truncation it describes is invisible in the product: a dropped id comes
     // back from the relay as `action_unavailable`, which reads as "this
     // feature is broken" rather than "this screen declared more than the
     // context can carry". Location growing to 19 actions is what found it.
     const dropped = capCompeting.slice(ACTION_ID_SCREEN_SEGMENT_CAP);
+    // Deliberately NOT gated on NODE_ENV. This used to be silenced in
+    // production, which is the only place it matters: a dropped id comes back
+    // from the relay as `action_unavailable`, indistinguishable from a broken
+    // feature. Location shipped for months with 18 actions -- every circle
+    // verb, both check-in families, and trigger_sos -- invisible to the model
+    // and nobody could see it happening.
+    logVoiceMetric({
+      metric: "voice_inventory_truncated",
+      value: dropped.length,
+      turnId: createVoiceTurnId(),
+      tags: {
+        screen: screen || "unknown",
+        subview: subview || "",
+        declared: capCompeting.length,
+        kept: ACTION_ID_SCREEN_SEGMENT_CAP,
+        dropped_ids: dropped.join(","),
+      },
+    });
     console.warn(
       `[VOICE_CONTEXT] ${screen || "unknown screen"} declared ${capCompeting.length} ` +
         `local action ids but only ${ACTION_ID_SCREEN_SEGMENT_CAP} fit. ` +

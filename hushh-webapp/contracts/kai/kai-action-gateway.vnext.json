@@ -5941,11 +5941,10 @@
       "surface_id": "one_location",
       "label": "Create a circle",
       "aliases": [
-        "create a circle",
-        "new circle",
-        "make a circle",
-        "start a circle",
-        "create group"
+        "open the create circle screen",
+        "show me circle setup",
+        "take me to create circle",
+        "open create circle"
       ],
       "search_keywords": [
         "create",
@@ -5953,7 +5952,7 @@
         "group",
         "new"
       ],
-      "meaning": "Opens the create-circle screen, where you name a new circle of people to share location with as a group. If the circle's name is already said in the same request (e.g. 'create a circle called Family'), call create_circle directly instead -- it creates the circle without opening this screen.",
+      "meaning": "Opens the create-circle screen, where you name a new circle of people to share location with as a group.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {
@@ -8969,11 +8968,16 @@
       "surface_id": "one_location",
       "label": "Create a new circle",
       "aliases": [
+        "create a circle",
+        "new circle",
+        "make a circle",
+        "start a circle",
         "create a circle called",
         "make a circle called",
-        "start a new circle named",
         "new circle called",
-        "make me a circle"
+        "start a new circle named",
+        "make me a circle",
+        "create group"
       ],
       "search_keywords": [
         "create",
@@ -8982,7 +8986,7 @@
         "new",
         "name"
       ],
-      "meaning": "Creates a circle with the name the person says, without opening the create-circle screen. A new circle starts empty; people join only after they accept an invitation.",
+      "meaning": "Creates a circle with the name the person says, without opening the create-circle screen. If no name was said, asks for one first. A new circle starts empty; people join only after they accept an invitation.",
       "speaker_persona": "one",
       "delegate_agent_id": null,
       "reachability": {

@@ -2483,10 +2483,53 @@ async def run_app_action(
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
     if entry is None:
-        logger.info("one_adk_action_decision action=%s status=unknown_action", clean_id[:128])
+        # A bare "that is not a known action" is a dead end: the model has
+        # nothing to do with it, so it narrates instead of retrying, which is
+        # indistinguishable from a hallucination to the person listening.
+        # Hand back the nearest real actions and ask for exactly one retry.
+        candidates: list[dict[str, str]] = []
+        try:
+            from hushh_mcp.one_adk.action_retrieval import search_actions
+
+            probe = clean_id.replace(".", " ").replace("_", " ").strip()
+            if probe:
+                for item in search_actions(
+                    probe,
+                    {"actions": list_action_gateway_actions()},
+                    limit=5,
+                ):
+                    hit = get_action_gateway_action(item.action_id) or {}
+                    candidates.append(
+                        {
+                            "action_id": item.action_id,
+                            "label": str(hit.get("label") or item.action_id),
+                        }
+                    )
+        except Exception:  # noqa: BLE001 - never let repair break the tool
+            logger.exception("unknown_action_repair_failed")
+
+        logger.info(
+            "one_adk_action_decision action=%s status=unknown_action candidates=%d",
+            clean_id[:128],
+            len(candidates),
+        )
+        if candidates:
+            return {
+                "status": "unknown_action",
+                "candidates": candidates,
+                "message": (
+                    f"'{clean_id}' is not a known app action. Call run_app_action "
+                    "exactly once more using one of the action_id values in "
+                    "candidates, or call report_no_app_action if none of them is "
+                    "what the person asked for. Do not guess a third id."
+                ),
+            }
         return {
             "status": "unknown_action",
-            "message": f"'{clean_id}' is not a known app action.",
+            "message": (
+                f"'{clean_id}' is not a known app action. Call "
+                "report_no_app_action rather than guessing another id."
+            ),
         }
 
     context = _voice_context(tool_context)
@@ -4067,4 +4110,34 @@ async def get_current_time(tool_context: ToolContext) -> dict[str, Any]:
         "weekday": now.strftime("%A"),
         "time_zone": zone_name,
         "spoken": f"{now.strftime('%A, %B')} {now.day}, {now.year} at {clock_time} {zone_label}",
+    }
+
+
+async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]:
+    """Declare that no app action matches what the person asked for.
+
+    Call this instead of guessing an action_id, and instead of silently
+    answering in prose, whenever the request has no matching capability on
+    this screen or anywhere in the app -- including after run_app_action
+    returned unknown_action and none of its candidates fit.
+
+    Answering conversationally is still correct for questions that are not
+    about operating the app (the time, the weather, small talk); this tool is
+    for requests that sounded like an app action but have no action behind
+    them. Declaring it makes "correctly declined" distinguishable from
+    "narrated because it did not know", which is the difference between a
+    measurable miss and an invisible one.
+
+    Args:
+        reason: Short machine-readable note, e.g. "no_matching_action" or
+            "action_exists_but_not_on_this_surface".
+        spoken_reply: What to say to the person, in One's voice.
+    """
+    clean_reason = str(reason or "").strip()[:120] or "no_matching_action"
+    clean_reply = str(spoken_reply or "").strip()[:600]
+    logger.info("one_adk_action_decision status=no_app_action reason=%s", clean_reason)
+    return {
+        "status": "no_app_action",
+        "reason": clean_reason,
+        "message": clean_reply,
     }
