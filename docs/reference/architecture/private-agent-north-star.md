@@ -346,6 +346,14 @@ still needs equivalent operation ownership; pod-held log fencing and provider
 reconciliation must be connected before this phase can finish. No compute, key, grant or owner identity is deleted by reservation.
 
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
+New initialization captures the provider resource name and `createTime` in the existing
+`memory_bank.json` before admitting use; these are observed provider fields, not the
+local record timestamp. The provider fields follow Google's
+[ReasoningEngine resource contract](https://docs.cloud.google.com/vertex-ai/docs/reference/rest/v1beta1/projects.locations.reasoningEngines).
+Erasure refuses missing or mismatched persisted incarnation evidence before provider
+access and requires a matching current observation before deletion. Legacy records
+remain readable but are not silently upgraded into historical erasure proof. This
+does not establish provider-side conditional deletion or inventory uncertain creates.
 It does not activate complete account deletion. Public lifecycle completion still needs
 coordinated owner admission, in-flight provider reconciliation, retained retry authority
 and verified cleanup of all resources. The account service currently refuses destructive

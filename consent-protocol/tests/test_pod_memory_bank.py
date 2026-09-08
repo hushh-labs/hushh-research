@@ -12,6 +12,7 @@ import json
 from types import SimpleNamespace
 
 import pytest
+import requests
 
 from hushh_mcp.services import pod_memory_bank as mb
 
@@ -22,6 +23,15 @@ _TOKEN = "t"  # noqa: S105
 @pytest.fixture(autouse=True)
 def _clean_state(monkeypatch):
     mb.reset_memory_bank_state()
+    monkeypatch.setattr(mb, "_adc_token", lambda: _TOKEN)
+    monkeypatch.setattr(
+        requests,
+        "get",
+        lambda url, **kwargs: _Resp(
+            200,
+            {"name": url.split("/v1beta1/")[1], "createTime": "2026-09-01T00:00:00Z"},
+        ),
+    )
     for name in (
         "POD_MEMORY_BACKEND",
         "POD_MEMORY_BANK_LOCATION",
@@ -187,7 +197,12 @@ async def test_ensure_creates_once_persists_the_record_and_reuses_it(monkeypatch
     monkeypatch.setattr(mb, "find_or_create_engine", _fake_find_or_create)
     store = _Store()
     assert await mb.ensure_memory_bank(store=store) == "555"
-    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["engineId"] == "555"
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["engineId"] == "555"
+    assert record["engineIncarnation"] == {
+        "name": "projects/hussh-one-test/locations/us-central1/reasoningEngines/555",
+        "createTime": "2026-09-01T00:00:00Z",
+    }
     assert mb.memory_bank_status() == {"memoryBankEngine": "555"}
 
     # A fresh process with the record present never talks to the API again.
@@ -388,6 +403,10 @@ def _ready_store(cfg=None, engine_id="91"):
     store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(
         {
             "engineId": engine_id,
+            "engineIncarnation": {
+                "name": f"projects/123/locations/{cfg.location}/reasoningEngines/{engine_id}",
+                "createTime": "2026-09-01T00:00:00Z",
+            },
             "project": cfg.project,
             "location": cfg.location,
             "displayName": cfg.display_name,
@@ -1562,17 +1581,57 @@ async def test_bank_erasure_retry_cannot_change_its_captured_binding(field):
     with pytest.raises(mb.MemoryBankErasurePending):
         await _erase(_tracked_service(store, http), log)
     gets = len(http.gets)
-    with pytest.raises(mb.MemoryBankUnavailable, match="incarnation mismatch"):
+    with pytest.raises(mb.MemoryBankUnavailable, match="incarnation"):
         await _erase(_tracked_service(store, http), log, **{field: "replacement"})
     assert len(http.gets) == gets and len(http.deletes) == 1
 
 
 async def test_bank_erasure_requires_observed_engine_incarnation():
     store, http = _ready_store(), _ErasureHttp()
+    http.created_at = "2026-09-02T00:00:00Z"
     log = await _erasure_log(store)
     with pytest.raises(mb.MemoryBankUnavailable, match="incarnation not observed"):
-        await _erase(_tracked_service(store, http), log, expected_engine_create_time="replacement")
+        await _erase(_tracked_service(store, http), log)
     assert http.deletes == []
+
+
+@pytest.mark.parametrize("receipt", [None, {}, {"name": "foreign", "createTime": "invalid"}])
+async def test_erasure_without_durable_incarnation_never_reaches_provider(receipt):
+    store, http = _ready_store(), _ErasureHttp()
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    if receipt is None:
+        record.pop("engineIncarnation")  # Legacy records retain ordinary compatibility.
+        assert mb._decode_record(json.dumps(record), _cfg()) == "91"
+    else:
+        record["engineIncarnation"] = receipt
+    store.objects[mb.MEMORY_BANK_RECORD_KEY] = json.dumps(record).encode()
+    log = await _erasure_log(store)
+    with pytest.raises(mb.MemoryBankUnavailable, match="incarnation"):
+        await _erase(_tracked_service(store, http), log)
+    assert http.gets == [] and http.deletes == []
+
+
+@pytest.mark.parametrize("invalid", ["timestamp", "engine", "redirect"])
+async def test_new_memory_bank_requires_bound_provider_incarnation(monkeypatch, invalid):
+    _configure(monkeypatch)
+    monkeypatch.setattr(mb, "find_or_create_engine", lambda *args, **kwargs: "555")
+
+    def observe(url, **kwargs):
+        assert url.endswith("/projects/hussh-one-test/locations/us-central1/reasoningEngines/555")
+        assert kwargs["allow_redirects"] is False and kwargs["timeout"] == 30
+        return _Resp(
+            302 if invalid == "redirect" else 200,
+            {
+                "name": url.split("/v1beta1/")[1] + ("-foreign" if invalid == "engine" else ""),
+                "createTime": "invalid" if invalid == "timestamp" else "2026-09-01T00:00:00Z",
+            },
+        )
+
+    monkeypatch.setattr(requests, "get", observe)
+    store = _Store()
+    assert await mb.ensure_memory_bank(store=store) is None
+    assert "memoryBankEngine" not in mb.memory_bank_status()
+    assert json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["status"] == "creating"
 
 
 async def test_lost_bank_delete_acknowledgement_never_repeats_destructive_request():

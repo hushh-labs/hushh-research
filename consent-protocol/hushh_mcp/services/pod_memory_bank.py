@@ -45,6 +45,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
@@ -347,6 +348,49 @@ async def _read_record(store: Any, cfg: MemoryBankConfig) -> Optional[str]:
     return _decode_record(raw, cfg)
 
 
+def _engine_incarnation(body: Any, cfg: MemoryBankConfig, engine_id: str) -> dict[str, str]:
+    """Narrow provider evidence; the local record timestamp is not an incarnation."""
+    if not isinstance(body, dict):
+        raise MemoryBankUnavailable("memory engine incarnation unavailable")
+    name, created = body.get("name"), body.get("createTime")
+    parts = name.split("/") if isinstance(name, str) else []
+    if (
+        len(parts) != 6
+        or parts[0] != "projects"
+        or not _resource_segment(parts[1])
+        or parts[2:] != ["locations", cfg.location, "reasoningEngines", engine_id]
+        or not isinstance(created, str)
+        or not 0 < len(created) <= 64
+        or body.get("error") is not None
+    ):
+        raise MemoryBankUnavailable("memory engine incarnation unavailable")
+    try:
+        timestamp = datetime.fromisoformat(created.replace("Z", "+00:00"))
+        if timestamp.tzinfo is None:
+            raise ValueError("timestamp has no timezone")
+    except ValueError:
+        raise MemoryBankUnavailable("memory engine incarnation unavailable") from None
+    return {"name": name, "createTime": created}
+
+
+def _observe_engine_incarnation(cfg: MemoryBankConfig, engine_id: str) -> dict[str, str]:
+    """Read the configured resource, never a response-supplied URL. Blocking."""
+    import requests  # type: ignore[import-untyped]  # noqa: PLC0415
+
+    try:
+        response = requests.get(
+            f"{_base_url(cfg)}/reasoningEngines/{engine_id}",
+            headers={"Authorization": f"Bearer {_adc_token()}"},
+            timeout=30,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise MemoryBankUnavailable("memory engine observation refused")
+        return _engine_incarnation(_json_object(response), cfg, engine_id)
+    except Exception:
+        raise MemoryBankUnavailable("memory engine observation unavailable") from None
+
+
 def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
     if raw is None:
         return None
@@ -381,6 +425,10 @@ def _decode_record(raw: Any, cfg: MemoryBankConfig) -> Optional[str]:
         or not all(c.isascii() and (c.isalnum() or c in "-_") for c in engine_id)
     ):
         raise MemoryBankUnavailable("invalid memory engine record")
+    if "engineIncarnation" in record:
+        receipt = record["engineIncarnation"]
+        if _engine_incarnation(receipt, cfg, engine_id) != receipt:
+            raise MemoryBankUnavailable("invalid memory engine incarnation record")
     return engine_id
 
 
@@ -489,9 +537,16 @@ async def _write_record(
 ) -> None:
     if store is None:
         raise MemoryBankUnavailable("durable memory record store unavailable")
+    if not _resource_segment(engine_id):
+        raise MemoryBankUnavailable("invalid memory engine identity")
+    # Observe before first admission, then retain the exact provider name/time in
+    # the existing CAS record. Never retrofit today's resource onto a legacy
+    # record and call that historical identity proof.
+    incarnation = await asyncio.to_thread(_observe_engine_incarnation, cfg, engine_id)
     payload = json.dumps(
         {
             "engineId": engine_id,
+            "engineIncarnation": incarnation,
             "project": cfg.project,
             "location": cfg.location,
             "displayName": cfg.display_name,
@@ -501,7 +556,8 @@ async def _write_record(
     await store.put_if_generation(MEMORY_BANK_RECORD_KEY, payload, expected_generation)
     # CAS loss is not proof that another boot stored the same engine. Verify the
     # winning durable record before reporting readiness or enabling retrieval.
-    if await _read_record(store, cfg) != engine_id:
+    observed = await store.get(MEMORY_BANK_RECORD_KEY)
+    if observed != payload or _decode_record(observed, cfg) != engine_id:
         raise MemoryBankUnavailable("memory record persistence conflict")
 
 
@@ -854,6 +910,12 @@ def build_rest_memory_bank_service(
             }
             raw, generation = await store.get_with_generation(MEMORY_BANK_RECORD_KEY)
             record = json.loads(raw)
+            incarnation = record.get("engineIncarnation") if isinstance(record, dict) else None
+            if (
+                _engine_incarnation(incarnation, cfg, engine_id) != incarnation
+                or incarnation["createTime"] != expected_engine_create_time
+            ):
+                raise MemoryBankUnavailable("memory erasure lacks matching incarnation evidence")
             if record.get("status") not in {"erasing", "provider_deleted"}:
                 if _decode_record(raw, cfg) != engine_id:
                     raise MemoryBankUnavailable("memory erasure binding mismatch")
@@ -868,6 +930,11 @@ def build_rest_memory_bank_service(
             state = _erasure_state(record, cfg, engine_id)
             if any(state.get(key) != value for key, value in expected.items()):
                 raise MemoryBankUnavailable("memory erasure attempt or incarnation mismatch")
+            if (
+                "providerProject" in state
+                and state["providerProject"] != incarnation["name"].split("/")[1]
+            ):
+                raise MemoryBankUnavailable("memory erasure provider binding mismatch")
             if "operation" in state:
                 self._provider_project = state["providerProject"]
                 self._operation_path(state["operation"])
@@ -883,7 +950,11 @@ def build_rest_memory_bank_service(
                 if slot is not None and slot["phase"] == "submitting":
                     raise MemoryBankErasurePending("memory generation acknowledgement unresolved")
                 body = await asyncio.to_thread(self._erasure_engine_observation)
-                if body is None or body.get("createTime") != expected_engine_create_time:
+                if (
+                    body is None
+                    or body.get("createTime") != expected_engine_create_time
+                    or body.get("name") != incarnation["name"]
+                ):
                     raise MemoryBankUnavailable("memory erasure incarnation not observed")
                 provider_project = body["name"].split("/")[1]
                 if "providerProject" in state and state["providerProject"] != provider_project:
