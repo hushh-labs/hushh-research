@@ -1347,7 +1347,7 @@ class UserGcpBootstrap:
                 "step": call["step"],
                 "status": getattr(read, "status_code", 0),
                 "ok": False,
-                "detail": f"could not read the policy to merge into: {getattr(read, 'text', '')[:200]}",
+                "detail": "could not read the policy to merge into",
             }
 
         policy = dict(read.json() or {})
@@ -1401,7 +1401,7 @@ class UserGcpBootstrap:
             "step": call["step"],
             "status": code,
             "ok": ok,
-            "detail": "" if ok else getattr(write, "text", "")[:300],
+            "detail": "" if ok else "IAM policy write failed",
             "preserved_bindings": len(existing),
         }
 

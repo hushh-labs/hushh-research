@@ -741,7 +741,7 @@ def test_a_merge_that_changes_nothing_is_reported_as_a_no_op(conditional) -> Non
 
 def test_an_unreadable_policy_fails_rather_than_writing_blind() -> None:
     """Merging into a policy you could not read is overwriting with extra steps."""
-    session = _Session([_Response(403, text="denied")])
+    session = _Session([_Response(403, text="synthetic-private-provider-detail")])
     boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     call = next(c for c in boot.plan_calls(plan) if c["step"] == "iam_pod_sa_on_key")
@@ -749,6 +749,7 @@ def test_an_unreadable_policy_fails_rather_than_writing_blind() -> None:
     result = boot._merge_binding(call, {"Authorization": "Bearer x"})
     assert result["ok"] is False
     assert "could not read" in result["detail"]
+    assert "synthetic-private-provider-detail" not in json.dumps(result)
 
 
 def test_the_vertex_grant_is_the_one_project_level_binding_and_is_marked() -> None:
@@ -1615,3 +1616,20 @@ def test_mail_creation_acknowledgements_preserve_relationships_without_message_c
         assert "cmVuZXctd2F0Y2g=" not in json.dumps(record)
     else:
         assert "resourceObservation" not in step
+
+
+def test_iam_write_failure_does_not_return_provider_details():
+    session = _Session(
+        [
+            _Response(200, {"etag": "synthetic", "bindings": []}),
+            _Response(403, text="synthetic-private-provider-detail"),
+        ]
+    )
+    boot = UserGcpBootstrap(project=USER_PROJECT, token=BORROWED, session=session)
+    plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
+    call = next(c for c in boot.plan_calls(plan) if c["step"] == "iam_pod_sa_on_key")
+    result = boot._merge_binding(call, {})
+    assert result["ok"] is False
+    assert result["status"] == 403
+    assert result["detail"] == "IAM policy write failed"
+    assert "synthetic-private-provider-detail" not in json.dumps(result)
