@@ -353,6 +353,21 @@ export type OneVoiceContextSnapshot = {
     redacted: true;
     excludes: string[];
   };
+  /**
+   * Live per-screen state the surface already computes every render.
+   *
+   * Location has published circle_count, pending_request_count,
+   * permission_state and data_state for months; Profile publishes
+   * phone_verified, pending_consents and a security summary. All of it was
+   * merged into StructuredScreenContext.screen_metadata and then dropped
+   * here, because this type had no member for it -- so the agent could name
+   * every action on a screen while knowing nothing about the screen.
+   *
+   * Scalars only, by contract. Every publisher today emits scalars, and a
+   * flat map is what the backend sanitizer can bound key-by-key; nesting
+   * would have to be truncated blind.
+   */
+  screen_state: Record<string, string | number | boolean | null> | null;
 };
 
 function mapInteractionLayer(
@@ -1282,6 +1297,31 @@ export function buildOneVoiceContextSnapshot(args: {
     navStack,
     routePlaybook.playbookId,
   ]);
+  // Read from screenState, NOT screenMetadata. screenMetadata is a mixed bag
+  // that surfaces also use for internal plumbing -- one publishes a raw cache
+  // key containing a user id, and a test in this suite asserts that value
+  // never reaches the snapshot. Deriving from it would have quietly broken
+  // that invariant for every surface at once. screenState is the half a
+  // surface deliberately offers, so a leak takes a decision rather than an
+  // oversight.
+  //
+  // Non-scalars are dropped rather than stringified: a surface that publishes
+  // an object here is making a contract mistake, and silently flattening it
+  // would hide that while sending something the model cannot use.
+  const screenState = ((): Record<string, string | number | boolean | null> | null => {
+    const out: Record<string, string | number | boolean | null> = {};
+    for (const [key, value] of Object.entries(publishedSurface?.screenState ?? {})) {
+      if (
+        value === null ||
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        out[key] = value;
+      }
+    }
+    return Object.keys(out).length > 0 ? out : null;
+  })();
   const uiRevision = stableRevision([
     structured.ui.visible_modules,
     structured.ui.active_section ?? null,
@@ -1297,6 +1337,11 @@ export function buildOneVoiceContextSnapshot(args: {
     structured.ui.dead_end?.reason ?? null,
     structured.ui.modal_state ?? null,
     structured.ui.focused_widget ?? null,
+    // Live screen state moves the revision, or the app never republishes when
+    // only the state changed. A pending request count going 0 -> 3, or a
+    // permission flipping prompt -> granted, would otherwise produce an
+    // identical revision and the model would keep quoting the old number.
+    screenState,
     availableActionIds,
     visibleControlIds,
     activeInteractionLayer,
@@ -1365,6 +1410,7 @@ export function buildOneVoiceContextSnapshot(args: {
       interaction_layer: activeInteractionLayer,
     },
     available_action_ids: availableActionIds,
+    screen_state: screenState,
     pending_settlement:
       args.state === "acting" || args.state === "navigation_settling",
     cache: {

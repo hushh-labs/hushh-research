@@ -306,6 +306,10 @@ def test_live_context_keeps_only_bounded_redacted_ui_fields():
         # uncapped executable set -- see
         # test_execution_is_not_bounded_by_the_prompt_budget.
         "executable_action_ids": [],
+        # Empty because this payload publishes no screen state. A surface that
+        # does gets a bounded, scalar-only map -- see
+        # test_screen_state_reaches_the_model_bounded.
+        "screen_state": {},
         "visible_modules": ["Portfolio"],
         "visible_control_ids": [],
         "interaction_layer": None,

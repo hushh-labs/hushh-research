@@ -1135,6 +1135,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       vault_ready: context.cache.vault_ready,
       portfolio_ready: context.cache.portfolio_ready,
       onboarding: context.onboarding,
+      // The surface's own live state. Without this line every backend change
+      // for screen_state is dead code on the voice path: this is the only
+      // place the snapshot is serialized to the live socket, and typed chat
+      // takes a different route entirely.
+      screen_state: context.screen_state ?? null,
     });
   }
 
