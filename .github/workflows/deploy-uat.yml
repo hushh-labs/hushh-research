@@ -509,6 +509,24 @@ jobs:
             -o /usr/local/bin/cloud-sql-proxy
           chmod +x /usr/local/bin/cloud-sql-proxy
 
+      - name: Pre-deploy Cloud SQL backup posture gate
+        # UAT replays all 174 migrations against a live database on every
+        # deploy, and two of them DROP TABLE. Until 2026-09-08 this lane had no
+        # automated backups at all, so a destructive migration here was
+        # unrecoverable. Backups and PITR are now on; this gate is what stops
+        # the lane silently going back to unrecoverable if they are ever turned
+        # off again or start failing. Same script and same shape production
+        # already uses (deploy-production.yml) -- not a second mechanism.
+        if: steps.scope.outputs.deploy_backend == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          "${{ env.PROTOCOL_PYTHON }}" scripts/ops/cloudsql_backup_freshness_check.py \
+            --project-id hushh-pda-uat \
+            --instance hushh-uat-pg \
+            --max-age-hours 30 \
+            --report-path /tmp/uat-backup-posture-report.json
+
       - name: Install fail-closed account deletion release fence
         id: install-account-deletion-fence
         if: steps.scope.outputs.deploy_backend == 'true'
