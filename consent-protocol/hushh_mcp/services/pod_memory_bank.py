@@ -44,6 +44,7 @@ import logging
 import os
 import time
 import uuid
+from collections.abc import Coroutine
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Callable, Optional
@@ -58,13 +59,20 @@ _CREATE_WAIT_SECONDS = 180
 _POLL_SECONDS = 3.0
 # Strong references retain already-admitted workers after caller cancellation.
 # This is process-local execution bookkeeping; the durable record owns admission.
-_RECALL_TASKS: set[asyncio.Task] = set()
+_PROVIDER_TASKS: set[asyncio.Task] = set()
 
 
-def _recall_finished(task: asyncio.Task) -> None:
-    _RECALL_TASKS.discard(task)
+def _provider_finished(task: asyncio.Task) -> None:
+    _PROVIDER_TASKS.discard(task)
     if not task.cancelled():
         task.exception()  # Consume a detached failure without logging information.
+
+
+async def _await_admitted_work(work: Coroutine[Any, Any, Any]) -> Any:
+    worker = asyncio.create_task(work)
+    _PROVIDER_TASKS.add(worker)
+    worker.add_done_callback(_provider_finished)
+    return await asyncio.shield(worker)
 
 
 class MemoryBankUnavailable(RuntimeError):
@@ -1185,23 +1193,29 @@ def build_rest_memory_bank_service(
                 "generationOperation": {"attempt": uuid.uuid4().hex, "phase": "submitting"},
             }
             generation = await self._save_state(record, generation)
-            # The durable reservation remains if submission, cancellation or its
-            # acknowledgement fails. It also prevents simultaneous boots/writers
-            # from issuing another mutation against this engine.
-            payload = await asyncio.to_thread(self._post, "memories:generate", body)
-            operation = self._operation_path(payload.get("name"))
-            record = {
-                **record,
-                "generationOperation": {
-                    **record["generationOperation"],
-                    "phase": "pending",
-                    "operation": operation,
-                },
-            }
-            record, generation = await self._save_generation_acknowledgement(record, generation)
-            if payload.get("done") is True:
-                await require_record()
-                await self._finish_operation(record, generation, payload)
+
+            async def generate_and_record_acknowledgement() -> None:
+                payload = await asyncio.to_thread(self._post, "memories:generate", body)
+                operation = self._operation_path(payload.get("name"))
+                acknowledged = {
+                    **record,
+                    "generationOperation": {
+                        **record["generationOperation"],
+                        "phase": "pending",
+                        "operation": operation,
+                    },
+                }
+                acknowledged, updated = await self._save_generation_acknowledgement(
+                    acknowledged, generation
+                )
+                if payload.get("done") is True:
+                    await require_record()
+                    await self._finish_operation(acknowledged, updated, payload)
+
+            # Keep the already-admitted worker alive to retain its acknowledgement
+            # even if the originating turn is cancelled. Unknown outcomes retain
+            # the durable submitting slot; this never authorizes a second POST.
+            await _await_admitted_work(generate_and_record_acknowledgement())
 
         async def add_session_to_memory(self, session: Any) -> None:
             require_owner(getattr(session, "user_id", None))
@@ -1265,10 +1279,7 @@ def build_rest_memory_bank_service(
             # Cancelling the caller must not cancel acknowledgement of a worker
             # that is still running. Only a validated response and exact durable
             # completion clear admission. Process loss or uncertainty retain it.
-            worker = asyncio.create_task(retrieve_and_record_completion())
-            _RECALL_TASKS.add(worker)
-            worker.add_done_callback(_recall_finished)
-            payload = await asyncio.shield(worker)
+            payload = await _await_admitted_work(retrieve_and_record_completion())
             # A durable fence or binding change can land while retrieval is in
             # flight. Do not release its information after admission is revoked.
             # This release check does not prove provider work has drained.

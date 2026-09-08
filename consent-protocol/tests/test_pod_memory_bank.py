@@ -1902,7 +1902,7 @@ async def test_cancelled_recall_clears_only_acknowledged_worker_completion(outco
     worker = None
     try:
         assert await asyncio.to_thread(started.wait, 5)
-        worker = next(iter(mb._RECALL_TASKS))
+        worker = next(iter(mb._PROVIDER_TASKS))
         before = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])["recallOperation"]
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
@@ -1927,7 +1927,7 @@ async def test_cancelled_recall_clears_only_acknowledged_worker_completion(outco
     record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
     assert record["status"] == "erasing"
     assert record["recallOperation"] == (None if outcome == "success" else before)
-    assert not mb._RECALL_TASKS
+    assert not mb._PROVIDER_TASKS
     if outcome == "success":
         with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
             await _erase(restarted, log)
@@ -2042,3 +2042,66 @@ async def test_generation_completion_during_erasure_cannot_admit_another_post():
     assert record["erasure"]["attemptId"] == "erase-attempt"
     assert http.posts == []
     await log.require_fenced(owner_id="ha1_test", attempt_id="erase-attempt")
+
+
+@pytest.mark.parametrize("outcome", ["acknowledged", "transport_unknown", "worker_lost"])
+async def test_cancelled_generation_retains_late_ack_without_resubmission(outcome):
+    import asyncio
+    import threading
+
+    started, release, ended = threading.Event(), threading.Event(), threading.Event()
+    store = _ready_store()
+
+    class HeldGeneration(_RestHttp):
+        def post(self, *args, **kwargs):
+            started.set()
+            try:
+                assert release.wait(timeout=5)
+                if outcome == "transport_unknown":
+                    raise OSError("synthetic private provider diagnostic")
+                return _Resp(200, {"name": "projects/p/locations/us-central1/operations/1"})
+            finally:
+                ended.set()
+
+    task = asyncio.create_task(
+        _tracked_service(store, HeldGeneration()).add_session_to_memory(_rest_session("x"))
+    )
+    worker = None
+    try:
+        assert await asyncio.to_thread(started.wait, 5)
+        worker = next(iter(mb._PROVIDER_TASKS))
+        before = _slot(store).copy()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        assert not worker.done()
+        http = _ErasureHttp()
+        restarted = _tracked_service(store, http)
+        with pytest.raises(mb.MemoryBankGenerationPending):
+            await restarted.add_session_to_memory(_rest_session("retry"))
+        log = await _erasure_log(store)
+        with pytest.raises(mb.MemoryBankErasurePending, match="generation acknowledgement"):
+            await _erase(restarted, log)
+        assert http.posts == [] and http.deletes == []
+        if outcome == "worker_lost":
+            worker.cancel()
+    finally:
+        release.set()
+        assert await asyncio.to_thread(ended.wait, 5)
+        if worker is not None:
+            await asyncio.gather(worker, return_exceptions=True)
+            await asyncio.sleep(0)
+    record = json.loads(store.objects[mb.MEMORY_BANK_RECORD_KEY])
+    assert record["status"] == "erasing"
+    assert record["generationOperation"]["attempt"] == before["attempt"]
+    assert not mb._PROVIDER_TASKS
+    if outcome == "acknowledged":
+        assert record["generationOperation"]["phase"] == "pending"
+        with pytest.raises(mb.MemoryBankErasurePending, match="deletion still pending"):
+            await _erase(restarted, log)
+        assert len(http.deletes) == 1
+    else:
+        assert record["generationOperation"] == before
+        with pytest.raises(mb.MemoryBankErasurePending, match="generation acknowledgement"):
+            await _erase(restarted, log)
+        assert http.deletes == []

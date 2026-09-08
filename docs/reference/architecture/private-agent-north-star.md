@@ -370,7 +370,10 @@ Caller cancellation leaves the admitted worker running so its validated response
 record exact completion, without releasing information to the cancelled caller. While
 that worker runs, or when its response, persistence or process is lost, admission remains
 unresolved without expiry; erasure cannot submit DELETE while recall is outstanding. Generation acknowledgements
-merge their exact slot so concurrent recall writes cannot discard them. Recall rechecks
+merge their exact slot so concurrent recall writes cannot discard them. An admitted
+generation worker also survives caller cancellation to preserve a late provider
+acknowledgement; lost or uncertain submissions remain unresolved and never resubmit.
+Recall rechecks
 its owner-bound record before releasing the result. These are source-level safeguards,
 not deployed drainage evidence: older clients must be drained before claiming coverage
 of previously admitted requests, and unresolved reservations still require reconciliation.
