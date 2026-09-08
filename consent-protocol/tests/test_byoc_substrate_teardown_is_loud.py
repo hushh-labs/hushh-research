@@ -621,3 +621,65 @@ async def test_kms_pagination_failure_preserves_incomplete_result(second_status)
     with pytest.raises(SubstrateDeleteError):
         await _deleter(session)({"type": "kms_key", "id": "one-pod-x-key"})
     assert len(session.calls) == 2
+
+
+@pytest.mark.parametrize("service_account", [False, True])
+@pytest.mark.parametrize("invalid", [None, "etag", "bindings", "version"])
+async def test_iam_cleanup_preserves_conditional_grants_and_requires_write_precondition(
+    service_account, invalid
+):
+    member = _HUSHH
+    action = (
+        dict(_REVOKE)
+        if service_account
+        else {
+            "type": "iam_binding",
+            "id": "synthetic-grant",
+            "role": "roles/iam.serviceAccountTokenCreator",
+            "member": member,
+        }
+    )
+    condition = {
+        "title": "synthetic",
+        "expression": "request.time < timestamp('2030-01-01T00:00:00Z')",
+    }
+    unrelated = {
+        "role": "roles/viewer",
+        "members": ["user:other@example.com"],
+        "condition": condition,
+    }
+    policy = {
+        "version": 3,
+        "etag": "v1",
+        "bindings": [
+            {"role": action["role"], "members": [member]},
+            unrelated,
+        ],
+    }
+    if invalid == "etag":
+        policy.pop("etag")
+    elif invalid == "bindings":
+        policy["bindings"] = None
+    elif invalid == "version":
+        policy["version"] = 1
+    session = _Session()
+    session.rule("POST", ":getIamPolicy", _Resp(200, policy))
+    session.rule("POST", ":setIamPolicy", _Resp(200))
+    if invalid:
+        with pytest.raises(SubstrateDeleteError):
+            await _deleter(session)(action)
+        assert len(session.calls) == 1
+    else:
+        await _deleter(session)(action)
+        assert session.calls[1][2]["json"]["policy"] == {
+            "version": 3,
+            "etag": "v1",
+            "bindings": [unrelated],
+        }
+    read = session.calls[0][2]
+    assert read["allow_redirects"] is False
+    if service_account:
+        assert read["params"] == {"options.requestedPolicyVersion": 3}
+        assert "json" not in read
+    else:
+        assert read["json"] == {"options": {"requestedPolicyVersion": 3}}

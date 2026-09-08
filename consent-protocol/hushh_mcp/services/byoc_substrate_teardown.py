@@ -489,29 +489,59 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
                 return
         raise SubstrateDeleteError("kms version inventory exceeds 32 pages")
 
+    def _policy_without_binding(policy: Any, role: str, member: str) -> Any:
+        if not isinstance(policy, dict) or policy.get("error") is not None:
+            raise SubstrateDeleteError("iam policy inventory invalid")
+        bindings = policy.get("bindings", [])
+        if not isinstance(bindings, list) or any(
+            not isinstance(binding, dict)
+            or not isinstance(binding.get("role"), str)
+            or not binding["role"]
+            or not isinstance(binding.get("members"), list)
+            or any(not isinstance(value, str) or not value for value in binding["members"])
+            for binding in bindings
+        ):
+            raise SubstrateDeleteError("iam policy inventory invalid")
+        if any("condition" in binding for binding in bindings) and policy.get("version") != 3:
+            raise SubstrateDeleteError("iam conditional policy version unavailable")
+        kept, changed = [], False
+        for binding in bindings:
+            if binding["role"] == role and member in binding["members"]:
+                changed = True
+                members = [value for value in binding["members"] if value != member]
+                if members:
+                    kept.append({**binding, "members": members})
+            else:
+                kept.append(binding)
+        if not changed:
+            return None
+        if not isinstance(policy.get("etag"), str) or not policy["etag"].strip():
+            raise SubstrateDeleteError("iam policy concurrency precondition unavailable")
+        return {**policy, "bindings": kept}
+
     def _remove_project_iam_binding(role: str, member: str) -> None:
         # Read-modify-write on the project policy, mirroring bootstrap's merge_binding
         # in reverse. The fetched policy's etag rides along inside `policy`, so a
         # concurrent write 409s and surfaces as a retryable failure, never a clobber.
         base = f"https://cloudresourcemanager.googleapis.com/v1/projects/{project}"
-        got = session.post(f"{base}:getIamPolicy", headers=headers, json={}, timeout=30)
+        got = session.post(
+            f"{base}:getIamPolicy",
+            headers=headers,
+            json={"options": {"requestedPolicyVersion": 3}},
+            timeout=30,
+            allow_redirects=False,
+        )
         if got.status_code != 200:
             raise SubstrateDeleteError(f"project iam getIamPolicy http={got.status_code}")
-        policy = got.json() or {}
-        kept, changed = [], False
-        for b in policy.get("bindings") or []:
-            if b.get("role") == role and member in (b.get("members") or []):
-                changed = True
-                members = [m for m in b["members"] if m != member]
-                if members:
-                    kept.append({**b, "members": members})
-            else:
-                kept.append(b)
-        if not changed:
-            return  # already absent -> idempotent success (retry after SA delete lands here)
-        policy["bindings"] = kept
+        policy = _policy_without_binding(got.json(), role, member)
+        if policy is None:
+            return
         put = session.post(
-            f"{base}:setIamPolicy", headers=headers, json={"policy": policy}, timeout=30
+            f"{base}:setIamPolicy",
+            headers=headers,
+            json={"policy": policy},
+            timeout=30,
+            allow_redirects=False,
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"project iam setIamPolicy http={put.status_code}")
@@ -522,26 +552,26 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
         # that hushh knows nothing about, and dropping them while claiming to revoke
         # one grant is the failure safe-changes R3 exists for.
         base = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{resource}"
-        got = session.post(f"{base}:getIamPolicy", headers=headers, json={}, timeout=30)
+        got = session.post(
+            f"{base}:getIamPolicy",
+            headers=headers,
+            params={"options.requestedPolicyVersion": 3},
+            timeout=30,
+            allow_redirects=False,
+        )
         if got.status_code == 404:
             return  # the account is gone, so the grant on it is too -- idempotent
         if got.status_code != 200:
             raise SubstrateDeleteError(f"sa iam getIamPolicy http={got.status_code}")
-        policy = got.json() or {}
-        kept, changed = [], False
-        for b in policy.get("bindings") or []:
-            if b.get("role") == role and member in (b.get("members") or []):
-                changed = True
-                members = [m for m in b["members"] if m != member]
-                if members:
-                    kept.append({**b, "members": members})
-            else:
-                kept.append(b)
-        if not changed:
-            return  # already revoked -> idempotent success on a retried deletion
-        policy["bindings"] = kept
+        policy = _policy_without_binding(got.json(), role, member)
+        if policy is None:
+            return
         put = session.post(
-            f"{base}:setIamPolicy", headers=headers, json={"policy": policy}, timeout=30
+            f"{base}:setIamPolicy",
+            headers=headers,
+            json={"policy": policy},
+            timeout=30,
+            allow_redirects=False,
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"sa iam setIamPolicy http={put.status_code}")
