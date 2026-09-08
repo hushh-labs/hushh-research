@@ -518,6 +518,8 @@ def build_gcp_deleter(
     retain_kms_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
     secret_erasure_state: dict[str, Any] | None = None,
     retain_secret_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
+    account_erasure_state: dict[str, Any] | None = None,
+    retain_account_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
 ):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 
@@ -543,6 +545,9 @@ def build_gcp_deleter(
     if secret_erasure_state is not None and retain_secret_receipt is None:
         raise SubstrateDeleteError("secret recovery requires durable receipt retention")
     secret_state = deepcopy(secret_erasure_state or {})
+    if account_erasure_state is not None and retain_account_receipt is None:
+        raise SubstrateDeleteError("account recovery requires durable receipt retention")
+    account_state = deepcopy(account_erasure_state or {})
     log = logging.getLogger(__name__)
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
@@ -1069,6 +1074,8 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "service_account" and retain_account_receipt is not None and not observation:
+            raise SubstrateDeleteError("coordinated account cleanup requires creation evidence")
         if kind == "secret" and retain_secret_receipt is not None and not observation:
             raise SubstrateDeleteError("coordinated secret cleanup requires creation evidence")
         if kind == "kms_key" and retain_kms_receipt is not None and not observation:
@@ -1219,6 +1226,65 @@ def build_gcp_deleter(
                 url = (
                     f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{account_id}"
                 )
+                if retain_account_receipt is not None:
+                    from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+
+                    receipt_base = {"resourceObservation": observation}
+                    statuses = {
+                        "admission": "admitted",
+                        "acknowledgement": "acknowledged",
+                        "deletion": "absent",
+                    }
+                    if account_state and (
+                        set(account_state) - set(statuses)
+                        or account_state.get("admission") != {**receipt_base, "status": "admitted"}
+                        or any(
+                            receipt != {**receipt_base, "status": statuses[stage]}
+                            for stage, receipt in account_state.items()
+                        )
+                    ):
+                        raise SubstrateDeleteError("account recovery identity unverified")
+                    if account_state and "acknowledgement" not in account_state:
+                        raise SubstrateDeleteError("account deletion acknowledgement unresolved")
+
+                    def retain_account(stage: str) -> None:
+                        receipt = {**receipt_base, "status": statuses[stage]}
+                        try:
+                            retained = retain_account_receipt(stage, deepcopy(receipt)) is True
+                        except Exception:
+                            retained = False
+                        if not retained:
+                            raise SubstrateDeleteError("account receipt retention unconfirmed")
+                        account_state[stage] = deepcopy(receipt)
+
+                    if not account_state:
+                        current = session.get(
+                            url, headers=headers, timeout=30, allow_redirects=False
+                        )
+                        body = current.json() if current.status_code == 200 else None
+                        if (
+                            not isinstance(body, dict)
+                            or body.get("disabled") is not True
+                            or _service_account_creation_identity(body, rid)
+                            != observation["identity"]
+                        ):
+                            raise SubstrateDeleteError(
+                                "disabled account creation identity unverified"
+                            )
+                        retain_account("admission")
+                        deleted = session.delete(
+                            url, headers=headers, timeout=30, allow_redirects=False
+                        )
+                        if deleted.status_code != 200 or deleted.json() != {}:
+                            raise SubstrateDeleteError(
+                                "account deletion acknowledgement unconfirmed"
+                            )
+                        retain_account("acknowledgement")
+                    absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+                    if absent.status_code != 404:
+                        raise SubstrateDeleteError("service account deletion unverified")
+                    retain_account("deletion")
+                    return
                 _delete(url, "service account")
                 if observation:
                     absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)

@@ -1272,3 +1272,72 @@ async def test_coordinated_secret_cleanup_never_repeats_an_admitted_delete(case)
         with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
             await deleter(action)
         assert session.calls == []
+
+
+@pytest.mark.parametrize(
+    "case", ["deleted", "enabled", "wrong_uid", "admission_lost", "ack_lost", "resume"]
+)
+async def test_coordinated_account_cleanup_requires_disabled_identity_and_never_replays(case):
+    email = "runtime@proj-x.iam.gserviceaccount.com"
+    identity = {
+        "name": f"projects/proj-x/serviceAccounts/{email}",
+        "email": email,
+        "projectId": "proj-x",
+        "uniqueId": "123456789",
+    }
+    observation = {
+        "type": "service_account",
+        "id": email,
+        "disposition": "created",
+        "identity": identity,
+    }
+    action = {"type": "service_account", "id": email, "resourceObservation": observation}
+    base = {"resourceObservation": observation}
+    state = (
+        {
+            "admission": {**base, "status": "admitted"},
+            "acknowledgement": {**base, "status": "acknowledged"},
+        }
+        if case == "resume"
+        else {}
+    )
+    body = {**identity, "disabled": case != "enabled"}
+    if case == "wrong_uid":
+        body["uniqueId"] = "999999999"
+    session = _Session()
+    url = "projects/proj-x/serviceAccounts/123456789"
+    reads = iter([_Resp(404)] if case == "resume" else [_Resp(200, body), _Resp(404)])
+    session.rule("GET", url, lambda url, kwargs: next(reads))
+    session.rule("DELETE", url, _Resp(200))
+    stages = []
+
+    def retain(stage, receipt):
+        stages.append(stage)
+        return not (
+            (case == "admission_lost" and stage == "admission")
+            or (case == "ack_lost" and stage == "acknowledgement")
+        )
+
+    deleter = build_gcp_deleter(
+        token="synthetic",  # noqa: S106
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        account_erasure_state=state,
+        retain_account_receipt=retain,
+    )
+    if case in {"deleted", "resume"}:
+        await deleter(action)
+        assert stages[-1] == "deletion"
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert "deletion" not in stages
+    assert sum(method == "DELETE" for method, _, _ in session.calls) == (
+        1 if case in {"deleted", "ack_lost"} else 0
+    )
+    if case == "ack_lost":
+        session.calls.clear()
+        with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
+            await deleter(action)
+        assert session.calls == []
