@@ -39,7 +39,7 @@ _IMPORT_TIMEOUT_SECONDS = 300.0
 
 
 class PodMigrationTransportError(RuntimeError):
-    """A pod could not be reached, or refused. Carries the pod's own words."""
+    """A pod could not be reached, or refused. Carries only bounded diagnostics."""
 
     def __init__(self, code: str, message: str) -> None:
         super().__init__(message)
@@ -112,27 +112,35 @@ def _post(
     url = f"{pod_url.rstrip('/')}{path}"
     try:
         response = client.post(
-            url, json=payload, headers=_headers(pod_url, hushh_id, minter=minter), timeout=timeout
+            url,
+            json=payload,
+            headers=_headers(pod_url, hushh_id, minter=minter),
+            timeout=timeout,
+            allow_redirects=False,
         )
     except PodMigrationTransportError:
         raise
     except Exception as exc:  # noqa: BLE001 - an unreachable pod is not a 500
         raise PodMigrationTransportError(
             "POD_UNREACHABLE", f"the pod did not answer ({type(exc).__name__})"
-        ) from exc
+        ) from None
 
     status = int(getattr(response, "status_code", 0) or 0)
+    if status != 200:
+        # Error bodies may contain owner information or credentials. In
+        # particular a redirect must never forward the custom hub proof header.
+        raise PodMigrationTransportError(
+            f"POD_REFUSED_{status}", f"the pod refused the request (HTTP {status})"
+        )
     try:
         body = response.json()
-    except Exception:  # noqa: BLE001
-        body = {}
-    if status != 200:
-        # The POD's own words, verbatim. It knows why it refused -- "already has
-        # 4 records", "addressed to pod key X" -- and replacing that with a
-        # generic failure would throw away the only useful sentence in the chain.
-        detail = str((body or {}).get("detail") or f"http {status}")
-        raise PodMigrationTransportError(f"POD_REFUSED_{status}", detail)
-    return dict(body or {})
+        if not isinstance(body, dict):
+            raise ValueError("invalid response shape")
+    except Exception:  # noqa: BLE001 - parser errors can quote the response
+        raise PodMigrationTransportError(
+            "POD_RESPONSE_INVALID", "the pod returned an invalid response"
+        ) from None
+    return body
 
 
 def export_from(

@@ -33,7 +33,8 @@ class _Recorder:
         self.body = body if body is not None else {"headSha": "abc", "recordCount": 2}
         self.calls: list[dict] = []
 
-    def post(self, url, json=None, headers=None, timeout=None):
+    def post(self, url, json=None, headers=None, timeout=None, allow_redirects=True):
+        assert allow_redirects is False, "hub proof must never be forwarded through redirects"
         self.calls.append(
             {"url": url, "json": json, "headers": dict(headers or {}), "timeout": timeout}
         )
@@ -138,16 +139,14 @@ def test_only_the_proof_is_missing_still_refuses(monkeypatch):
 
 
 # --------------------------------------------------------------------------- #
-# The pod's own words survive
+# Refusals retain their status without exposing private response bodies
 # --------------------------------------------------------------------------- #
 
 
-def test_a_pod_refusal_reaches_the_caller_verbatim(minted):
-    """The pod knows why it refused -- "already has 4 records", "addressed to
-    pod key X". Replacing that with a generic failure throws away the only
-    useful sentence in the chain."""
+@pytest.mark.parametrize("status", [302, 307, 308, 403, 409, 500])
+def test_a_pod_refusal_keeps_only_status(minted, status):
     session = _Recorder(
-        status=409, body={"detail": "this pod already has 4 record(s); refusing to import"}
+        status=status, body={"detail": "synthetic-private-key-and-owner-information"}
     )
 
     with pytest.raises(PodMigrationTransportError) as excinfo:
@@ -158,8 +157,22 @@ def test_a_pod_refusal_reaches_the_caller_verbatim(minted):
             session=session,
         )
 
-    assert excinfo.value.code == "POD_REFUSED_409"
-    assert "already has 4 record" in excinfo.value.message
+    assert excinfo.value.code == f"POD_REFUSED_{status}"
+    assert excinfo.value.message == f"the pod refused the request (HTTP {status})"
+    assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize("body", [[], ["private"], "private"])
+def test_invalid_success_body_is_a_sanitized_typed_refusal(minted, body):
+    with pytest.raises(PodMigrationTransportError) as error:
+        import_into(
+            pod_url="https://one-pod-abc.run.app",
+            hushh_id="ha1_abc",
+            bundle={"ciphertext": "..."},
+            session=_Recorder(body=body),
+        )
+    assert error.value.code == "POD_RESPONSE_INVALID"
+    assert "private" not in str(error.value)
 
 
 def test_an_unreachable_pod_is_a_typed_refusal_not_a_crash(minted):
