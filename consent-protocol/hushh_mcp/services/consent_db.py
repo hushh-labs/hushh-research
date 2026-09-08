@@ -788,7 +788,6 @@ class ConsentDBService:
             self._apply_user_filter(query, user_id, user_ids)
             .in_("action", ["CONSENT_GRANTED", "REVOKED", "CONSENT_DENIED"])
             .order("issued_at", desc=True)
-            .order("id", desc=True)
             .execute()
         )
 
@@ -818,7 +817,17 @@ class ConsentDBService:
 
             current_issued = latest_per_agent_scope[key].get("issued_at", 0)
             new_issued = row.get("issued_at", 0)
-            if new_issued > current_issued:
+            # Historical events can share a timestamp; match renewal SQL's id tie-break.
+            current_id = latest_per_agent_scope[key].get("id")
+            new_id = row.get("id")
+            newer_private_tie = (
+                row_agent_id == "personal_agent"
+                and new_issued == current_issued
+                and isinstance(current_id, int)
+                and isinstance(new_id, int)
+                and new_id > current_id
+            )
+            if new_issued > current_issued or newer_private_tie:
                 latest_per_agent_scope[key] = row
 
         # Filter to only active (CONSENT_GRANTED and not expired)
@@ -1166,14 +1175,7 @@ class ConsentDBService:
                 if normalized_agent_id:
                     query = query.eq("agent_id", normalized_agent_id)
                 rows = await asyncio.to_thread(
-                    lambda: (
-                        query.order("issued_at", desc=True)
-                        .order("id", desc=True)
-                        .limit(1)
-                        .execute()
-                        .data
-                        or []
-                    )
+                    lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
                 )
             except DatabaseExecutionError as exc:
                 if not self._is_missing_internal_access_events_error(exc):
@@ -1188,6 +1190,16 @@ class ConsentDBService:
                     actions=["CONSENT_GRANTED", "REVOKED"],
                     limit=1,
                 )
+        elif normalized_agent_id == "personal_agent":
+            response = await asyncio.to_thread(
+                self._get_db().execute_raw,
+                "SELECT action, expires_at, issued_at, token_id FROM consent_audit "
+                "WHERE user_id = :user_id AND agent_id = :agent_id AND scope = :scope "
+                "AND action IN ('CONSENT_GRANTED', 'REVOKED', 'CONSENT_DENIED') "
+                "ORDER BY issued_at DESC, id DESC LIMIT 1",
+                {"user_id": user_id, "agent_id": normalized_agent_id, "scope": normalized_scope},
+            )
+            rows = response.data or []
         else:
             db = self._get_db()
             query = (
@@ -1205,14 +1217,7 @@ class ConsentDBService:
             if normalized_agent_id:
                 query = query.eq("agent_id", normalized_agent_id)
             rows = await asyncio.to_thread(
-                lambda: (
-                    query.order("issued_at", desc=True)
-                    .order("id", desc=True)
-                    .limit(1)
-                    .execute()
-                    .data
-                    or []
-                )
+                lambda: query.order("issued_at", desc=True).limit(1).execute().data or []
             )
 
         if not rows:
@@ -1544,9 +1549,15 @@ class ConsentDBService:
                 logger.info("personal_agent.renewal_refused error_type=%s", type(exc).__name__)
                 raise PermissionError("personal agent renewal authority unavailable") from None
         else:
-            response = await asyncio.to_thread(
-                lambda: db.table("consent_audit").insert(data).execute()
-            )
+            try:
+                response = await asyncio.to_thread(
+                    lambda: db.table("consent_audit").insert(data).execute()
+                )
+            except Exception as exc:
+                if agent_id != "personal_agent":
+                    raise
+                logger.info("personal_agent.event_refused error_type=%s", type(exc).__name__)
+                raise PermissionError("personal agent consent authority unavailable") from None
 
         # Extract event ID from response
         if response.data and len(response.data) > 0:

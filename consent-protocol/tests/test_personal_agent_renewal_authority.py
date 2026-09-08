@@ -263,3 +263,39 @@ async def test_denial_cannot_reuse_an_older_unexpired_grant(pg, monkeypatch):
         assert pg.execute("SELECT count(*) FROM consent_audit WHERE token_id='candidate'") == [(0,)]
     finally:
         engine.dispose()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("later_insert_issued_at", [100, 200])
+async def test_historical_event_order_uses_timestamp_then_id(
+    pg, monkeypatch, later_insert_issued_at
+):
+    from sqlalchemy import create_engine
+
+    from db.db_client import DatabaseClient
+    from hushh_mcp.services.consent_db import ConsentDBService
+
+    # Legacy/imported rows need not have timestamps increasing with insertion id.
+    # Updating fixtures bypasses the new INSERT guard's monotonic timestamp rule.
+    with connect(pg) as conn:
+        insert(conn, event(token="grant", expires_at=int(time.time() * 1000) + 86400000))
+        insert(conn, event("CONSENT_DENIED", token="denial"))
+        with conn.cursor() as cursor:
+            cursor.execute("UPDATE consent_audit SET issued_at=200 WHERE token_id='grant'")
+            cursor.execute(
+                "UPDATE consent_audit SET issued_at=%s WHERE token_id='denial'",
+                (later_insert_issued_at,),
+            )
+    engine = create_engine(f"postgresql+psycopg2://hushh@/postgres?host={pg.dir}&port={pg.port}")
+    ledger = ConsentDBService()
+    monkeypatch.setattr(ledger, "_get_db", lambda: DatabaseClient(engine))
+    try:
+        active = await ledger.get_active_tokens(
+            "synthetic-owner", agent_id="personal_agent", scope="pkm.read"
+        )
+        assert bool(active) is (later_insert_issued_at < 200)
+        assert await ledger.is_token_active(
+            "synthetic-owner", "pkm.read", "personal_agent", token_id="grant"
+        ) is (later_insert_issued_at < 200)
+    finally:
+        engine.dispose()
