@@ -21,7 +21,9 @@ guards, in order, each fail-closed:
    and the pod authenticates the hub without either holding the other's key.
 
 The address is never supplied by the caller -- it comes only from the row the
-hub wrote -- so there is nothing for a caller to point the proxy at.
+hub wrote. Missing hub identity refuses before network access. Redirects are not
+followed and are normalized to a safe 502, so a pod response cannot forward the
+owner's projection, model credential or consent grant to another destination.
 
 Flag-gated: 404 while ``PERSONAL_AGENT_ENABLED`` is off, the same posture as
 every other personal-agent surface.
@@ -92,14 +94,23 @@ async def _proxy_get(url: str, path: str, *, session: Any = None) -> tuple[int, 
 
         client = requests
     token = await run_in_threadpool(_identity_token, url)
-    headers = {"Authorization": f"Bearer {token}"} if token else {}
+    if not token:
+        return 503, {"detail": "pod identity unavailable"}
+    headers = {"Authorization": f"Bearer {token}"}
     try:
         response = await run_in_threadpool(
-            lambda: client.get(f"{url}{path}", headers=headers, timeout=_INFO_TIMEOUT_SECONDS)
+            lambda: client.get(
+                f"{url}{path}",
+                headers=headers,
+                timeout=_INFO_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
         )
     except Exception as exc:  # noqa: BLE001 - a pod that is not up is a 503, not a 500
         logger.info("pod_relay.unreachable %s", type(exc).__name__)
         return 503, {"detail": "pod unreachable"}
+    if 300 <= getattr(response, "status_code", 502) < 400:
+        return 502, {"detail": "pod redirect refused"}
     try:
         body = response.json()
     except Exception:  # noqa: BLE001
@@ -156,21 +167,29 @@ async def _proxy_post(
 
         client = requests
     token = await run_in_threadpool(_identity_token, url)
-    headers = {"Content-Type": "application/json"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
+    if not token:
+        return 503, {"detail": "pod identity unavailable"}
+    headers = {"Content-Type": "application/json", "Authorization": f"Bearer {token}"}
     if consent_token:
         headers["X-Consent-Token"] = consent_token
     headers.update(correlation or {})
     try:
         response = await run_in_threadpool(
             lambda: client.post(
-                f"{url}{path}", json=body, headers=headers, timeout=_TURN_TIMEOUT_SECONDS
+                f"{url}{path}",
+                json=body,
+                headers=headers,
+                timeout=_TURN_TIMEOUT_SECONDS,
+                # A 307/308 could forward the owner's projection, model key and
+                # consent grant to a destination outside the registered pod.
+                allow_redirects=False,
             )
         )
     except Exception as exc:  # noqa: BLE001 - a pod that is not up is a 503, not a 500
         logger.info("pod_relay.turn_unreachable %s", type(exc).__name__)
         return 503, {"detail": "pod unreachable"}
+    if 300 <= getattr(response, "status_code", 502) < 400:
+        return 502, {"detail": "pod redirect refused"}
     try:
         answer = response.json()
     except Exception:  # noqa: BLE001

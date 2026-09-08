@@ -70,7 +70,8 @@ class _Pod:
         self.boom = boom
         self.calls: list[dict] = []
 
-    def post(self, url, json=None, headers=None, timeout=None):
+    def post(self, url, json=None, headers=None, timeout=None, allow_redirects=True):
+        assert allow_redirects is False
         self.calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
         if self.boom:
             raise self.boom
@@ -407,3 +408,17 @@ async def test_the_door_grant_is_never_the_pkm_read_grant(monkeypatch):
     await _turn(session=pod, door_grants=_door_grants)
     assert pod.calls[0]["headers"]["X-Consent-Token"] == "standing-pkm-read"
     assert pod.calls[0]["json"]["dataDoorGrants"]["location"] == "standing-location-view"
+
+
+@pytest.mark.parametrize("redirect_status", [307, 308])
+async def test_redirect_cannot_become_an_authorized_turn(monkeypatch, redirect_status):
+    async def forbidden_authorization(**kwargs):
+        pytest.fail("redirect reached directive authority")
+
+    monkeypatch.setenv("POD_DIRECTIVE_TRANSPORT_ENABLED", "1")
+    monkeypatch.setattr(pod_relay, "_authorize_and_frame_directives", forbidden_authorization)
+    pod = _Pod(status=redirect_status, payload={"text": "untrusted redirect body"})
+    with pytest.raises(HTTPException) as exc:
+        await _turn(session=pod)
+    assert exc.value.status_code == 502
+    assert exc.value.detail == {"detail": "pod redirect refused"}

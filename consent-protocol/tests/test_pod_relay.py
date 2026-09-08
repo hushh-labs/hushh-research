@@ -71,6 +71,7 @@ class _Session:
 @pytest.fixture(autouse=True)
 def _enabled(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
+    monkeypatch.setattr("api.routes.one.pod_relay._identity_token", lambda _: "test-hub-identity")
 
 
 @pytest.mark.asyncio
@@ -181,3 +182,56 @@ async def test_the_relay_404s_while_the_feature_is_off(monkeypatch: pytest.Monke
         )
 
     assert exc.value.status_code == 404
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_missing_hub_identity_never_sends_owner_information(monkeypatch, method):
+    from api.routes.one import pod_relay
+
+    monkeypatch.setattr(pod_relay, "_identity_token", lambda _: None)
+
+    class NoNetwork:
+        def get(self, *args, **kwargs):
+            pytest.fail("request sent without hub identity")
+
+        post = get
+
+    if method == "get":
+        code, body = await pod_relay._proxy_get(_POD_URL, "/pod/info", session=NoNetwork())
+    else:
+        code, body = await pod_relay._proxy_post(
+            _POD_URL,
+            "/api/one/pod/turn",
+            body={"message": "private"},
+            consent_token="test-owner-grant",  # noqa: S106 - synthetic authority fixture
+            session=NoNetwork(),
+        )
+    assert code == 503
+    assert body == {"detail": "pod identity unavailable"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("method", ["get", "post"])
+async def test_pod_redirects_cannot_forward_owner_information(method):
+    from api.routes.one import pod_relay
+
+    class RedirectingPod:
+        def get(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            assert kwargs["headers"]["Authorization"] == "Bearer test-hub-identity"
+            return _Response(307, {"detail": "redirect refused"})
+
+        post = get
+
+    if method == "get":
+        code, _ = await pod_relay._proxy_get(_POD_URL, "/pod/info", session=RedirectingPod())
+    else:
+        code, _ = await pod_relay._proxy_post(
+            _POD_URL,
+            "/api/one/pod/turn",
+            body={"message": "private"},
+            consent_token="test-owner-grant",  # noqa: S106 - synthetic authority fixture
+            session=RedirectingPod(),
+        )
+    assert code == 502
