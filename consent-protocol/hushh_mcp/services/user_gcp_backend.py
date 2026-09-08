@@ -1105,6 +1105,33 @@ class UserGcpBackend:
         )
         await deleter(action)
 
+    async def erase_signing_secret(
+        self,
+        *,
+        action: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        """Reconcile one captured signing secret using the owner's bootstrap authority."""
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("secret erasure authority unavailable")
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        deleter = build_gcp_deleter(
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            secret_erasure_state=state,
+            retain_secret_receipt=retain_receipt,
+        )
+        await deleter(action)
+
     async def erase_mail_resource(
         self,
         *,

@@ -1209,3 +1209,66 @@ async def test_coordinated_kms_cleanup_retains_admission_and_reconciles_without_
             await deleter(action)
         assert all(call[0] == "GET" for call in session.calls)
     assert all(call[2]["allow_redirects"] is False for call in session.calls)
+
+
+@pytest.mark.parametrize("case", ["deleted", "admission_lost", "ack_lost", "resume", "replacement"])
+async def test_coordinated_secret_cleanup_never_repeats_an_admitted_delete(case):
+    name = "projects/proj-x/secrets/signing-key"
+    identity = {"name": name, "projectId": "proj-x", "createTime": "2026-09-08T00:00:00Z"}
+    observation = {
+        "type": "secret",
+        "id": "signing-key",
+        "disposition": "created",
+        "identity": identity,
+    }
+    action = {"type": "secret", "id": "signing-key", "resourceObservation": observation}
+    admission = {"resourceObservation": observation, "etag": '"etag-one"', "status": "admitted"}
+    state = {}
+    if case in {"resume", "replacement"}:
+        state = {"admission": admission, "acknowledgement": {**admission, "status": "acknowledged"}}
+    session = _Session()
+    current = {"name": name, "createTime": identity["createTime"], "etag": admission["etag"]}
+    reads = iter([_Resp(404)] if case == "resume" else [_Resp(200, current), _Resp(404)])
+    session.rule("GET", name, lambda url, kwargs: next(reads))
+    session.rule("DELETE", name, _Resp(200))
+    stages = []
+
+    def retain(stage, receipt):
+        stages.append(stage)
+        assert receipt == {
+            **admission,
+            "status": {
+                "admission": "admitted",
+                "acknowledgement": "acknowledged",
+                "deletion": "absent",
+            }[stage],
+        }
+        return not (
+            (case == "admission_lost" and stage == "admission")
+            or (case == "ack_lost" and stage == "acknowledgement")
+        )
+
+    deleter = build_gcp_deleter(
+        token="synthetic",  # noqa: S106
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        secret_erasure_state=state,
+        retain_secret_receipt=retain,
+    )
+    if case in {"deleted", "resume"}:
+        await deleter(action)
+        assert stages[-1] == "deletion"
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert "deletion" not in stages
+    deletes = [call for call in session.calls if call[0] == "DELETE"]
+    assert len(deletes) == (1 if case in {"deleted", "ack_lost"} else 0)
+    if deletes:
+        assert deletes[0][2]["params"] == {"etag": admission["etag"]}
+    if case == "ack_lost":
+        session.calls.clear()
+        with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
+            await deleter(action)
+        assert session.calls == []

@@ -516,6 +516,8 @@ def build_gcp_deleter(
     retain_bucket_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
     kms_erasure_state: dict[str, Any] | None = None,
     retain_kms_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
+    secret_erasure_state: dict[str, Any] | None = None,
+    retain_secret_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
 ):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 
@@ -538,6 +540,9 @@ def build_gcp_deleter(
     if kms_erasure_state is not None and retain_kms_receipt is None:
         raise SubstrateDeleteError("KMS recovery requires durable receipt retention")
     kms_state = deepcopy(kms_erasure_state or {})
+    if secret_erasure_state is not None and retain_secret_receipt is None:
+        raise SubstrateDeleteError("secret recovery requires durable receipt retention")
+    secret_state = deepcopy(secret_erasure_state or {})
     log = logging.getLogger(__name__)
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
@@ -1064,6 +1069,8 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if kind == "secret" and retain_secret_receipt is not None and not observation:
+            raise SubstrateDeleteError("coordinated secret cleanup requires creation evidence")
         if kind == "kms_key" and retain_kms_receipt is not None and not observation:
             raise SubstrateDeleteError("coordinated KMS cleanup requires creation evidence")
         if kind == "artifact_repository":
@@ -1122,6 +1129,43 @@ def build_gcp_deleter(
                 # A receipt may describe a numeric alias, but must never select
                 # the request's authority boundary. Resolve through the bound project.
                 url = f"https://secretmanager.googleapis.com/v1/projects/{project}/secrets/{rid}"
+
+                def retain_secret(stage: str, receipt: dict[str, Any]) -> None:
+                    try:
+                        retained = retain_secret_receipt(stage, deepcopy(receipt)) is True
+                    except Exception:
+                        retained = False
+                    if not retained:
+                        raise SubstrateDeleteError("secret receipt retention unconfirmed")
+                    secret_state[stage] = deepcopy(receipt)
+
+                if secret_state:
+                    admitted = secret_state.get("admission")
+                    if (
+                        set(secret_state) - {"admission", "acknowledgement", "deletion"}
+                        or not isinstance(admitted, dict)
+                        or set(admitted) != {"resourceObservation", "etag", "status"}
+                        or admitted.get("resourceObservation") != observation
+                        or admitted.get("status") != "admitted"
+                        or not isinstance(admitted.get("etag"), str)
+                        or not 1 <= len(admitted["etag"].strip()) <= 512
+                    ):
+                        raise SubstrateDeleteError("secret recovery identity unverified")
+                    if secret_state.get("acknowledgement") != {
+                        **admitted,
+                        "status": "acknowledged",
+                    }:
+                        raise SubstrateDeleteError("secret deletion acknowledgement unresolved")
+                    if "deletion" in secret_state and secret_state["deletion"] != {
+                        **admitted,
+                        "status": "absent",
+                    }:
+                        raise SubstrateDeleteError("secret deletion receipt invalid")
+                    absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+                    if absent.status_code != 404:
+                        raise SubstrateDeleteError("secret deletion unverified")
+                    retain_secret("deletion", {**admitted, "status": "absent"})
+                    return
                 current = session.get(url, headers=headers, timeout=30, allow_redirects=False)
                 if current.status_code != 200:
                     raise SubstrateDeleteError("secret creation identity unavailable")
@@ -1146,6 +1190,9 @@ def build_gcp_deleter(
                     or len(etag) > 512
                 ):
                     raise SubstrateDeleteError("secret creation identity or etag unverified")
+                admission = {"resourceObservation": observation, "etag": etag, "status": "admitted"}
+                if retain_secret_receipt is not None:
+                    retain_secret("admission", admission)
                 deleted = session.delete(
                     url,
                     headers=headers,
@@ -1153,11 +1200,17 @@ def build_gcp_deleter(
                     timeout=30,
                     allow_redirects=False,
                 )
-                if deleted.status_code not in _OK:
+                if retain_secret_receipt is not None:
+                    if deleted.status_code != 200 or deleted.json() != {}:
+                        raise SubstrateDeleteError("secret deletion acknowledgement unconfirmed")
+                    retain_secret("acknowledgement", {**admission, "status": "acknowledged"})
+                elif deleted.status_code not in _OK:
                     raise SubstrateDeleteError("secret conditional deletion unconfirmed")
                 absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
                 if absent.status_code != 404:
                     raise SubstrateDeleteError("secret deletion unverified")
+                if retain_secret_receipt is not None:
+                    retain_secret("deletion", {**admission, "status": "absent"})
             elif kind == "service_account":
                 # The provider's immutable numeric ID prevents a retry from deleting
                 # a replacement account that reuses the original email. Legacy plans
