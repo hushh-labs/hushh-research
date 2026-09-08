@@ -459,6 +459,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/921_personal_agent_writer_revocation.sql")
     pg.apply_file(ROOT / "db/migrations/parked/922_personal_agent_bucket_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/923_personal_agent_mail_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/924_personal_agent_kms_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -504,6 +505,21 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             "identity": bucket_identity,
         }
     )
+    kms_name = (
+        "projects/synthetic-project/locations/us-central1/keyRings/hushh-one/cryptoKeys/key-one"
+    )
+    kms_observation = {
+        "type": "kms_key",
+        "id": "key-one",
+        "disposition": "created",
+        "identity": {
+            "name": kms_name,
+            "purpose": "ENCRYPT_DECRYPT",
+            "createTime": "2026-09-08T00:00:00Z",
+        },
+    }
+    inventory["plannedResources"].append({"type": "kms_key", "id": "key-one"})
+    inventory["resourceObservations"].append(kms_observation)
     mail_observations = []
     for kind, segment in (
         ("cloud_scheduler_job", "locations/us-central1/jobs"),
@@ -809,7 +825,43 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert not retain_bucket("bucketDeletion", {**bucket, "status": "deleted"})
     assert retain_bucket("bucketAcknowledgement", {**bucket, "status": "acknowledged"})
     assert retain_bucket("bucketAcknowledgement", {**bucket, "status": "acknowledged"})
+    version_name = kms_name + "/cryptoKeyVersions/1"
+    kms_inventory = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "resourceObservation": kms_observation,
+        "versionNames": [version_name],
+    }
+
+    def retain_kms(stage, receipt):
+        return pg.execute(
+            "SELECT retain_erasure_kms_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_kms("inventory", kms_inventory)  # Bucket acknowledgement is insufficient.
     assert retain_bucket("bucketDeletion", {**bucket, "status": "deleted"})
+    assert not retain_kms("inventory", {**kms_inventory, "ownerId": "foreign"})
+    assert not retain_kms("inventory", {**kms_inventory, "versionNames": ["foreign"]})
+    assert not retain_kms(
+        "inventory", {**kms_inventory, "versionNames": [version_name, version_name]}
+    )
+    assert retain_kms("inventory", kms_inventory)
+    assert retain_kms("inventory", kms_inventory)
+    kms_version = {key: value for key, value in kms_inventory.items() if key != "versionNames"}
+    kms_version["versionName"] = version_name
+    assert not retain_kms("completion", {**kms_inventory, "status": "destroyed"})
+    assert not retain_kms("acknowledgement", {**kms_version, "status": "scheduled"})
+    assert retain_kms("admission", {**kms_version, "status": "admitted"})
+    assert not retain_kms("admission", {**kms_version, "status": "admitted"})
+    assert retain_kms("acknowledgement", {**kms_version, "status": "scheduled"})
+    assert not retain_kms("completion", {**kms_inventory, "status": "destroyed"})
+    assert retain_kms("destruction", {**kms_version, "status": "destroyed"})
+    assert retain_kms("completion", {**kms_inventory, "status": "destroyed"})
     saved = provision_row(pg)
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(

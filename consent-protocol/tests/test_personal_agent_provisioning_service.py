@@ -1268,3 +1268,79 @@ async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admissio
         assert events[-1] == ("pubsub_subscription", "admission")
         assert adapter.erase_mail_resource.await_count == 2
     assert registry.deleted == []
+
+
+@pytest.mark.parametrize("failure", [None, "preflight", "admission"])
+async def test_kms_cleanup_binds_checkpoints_and_refuses_unretained_admission(monkeypatch, failure):
+    import asyncio
+
+    service = _svc()
+    registry = service._registry
+    observation = {
+        "type": "kms_key",
+        "id": "key-one",
+        "disposition": "created",
+        "identity": {"name": "synthetic-key"},
+    }
+    reservation = {
+        "ownerId": _UID,
+        "attemptId": "erase-one",
+        "registrySnapshot": {"user_id": _UID},
+        "substrateInventory": {
+            "plannedResources": [{"type": "kms_key", "id": "key-one"}],
+            "resourceObservations": [observation],
+        },
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+
+    async def retain(*, user_id, reservation, stage, receipt):
+        assert user_id == receipt["ownerId"] == _UID
+        assert receipt["attemptId"] == "erase-one"
+        events.append(stage)
+        if failure == stage:
+            return False
+        kms = reservation.get("kmsErasure", {})
+        if stage == "inventory":
+            kms = {**kms, stage: receipt}
+        else:
+            kms = {**kms, "versions": {"version-one": {stage: receipt}}}
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {**reservation, "kmsErasure": kms}
+        return True
+
+    async def erase(*, action, state, retain_receipt):
+        assert action["resourceObservation"] == observation
+        assert state == {}
+        for stage, raw in (
+            ("inventory", {"resourceObservation": observation, "versionNames": ["version-one"]}),
+            (
+                "admission",
+                {
+                    "resourceObservation": observation,
+                    "versionName": "version-one",
+                    "status": "admitted",
+                },
+            ),
+        ):
+            if not await asyncio.to_thread(retain_receipt, stage, raw):
+                raise RuntimeError("retention refused")
+        events.append("provider_destroy")
+
+    adapter = Mock(erase_kms_material=AsyncMock(side_effect=erase))
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", lambda snapshot: adapter)
+    monkeypatch.setattr(service, "_revoke_reserved_runtime_writer", AsyncMock())
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    registry.verify_erasure_kms_preflight = AsyncMock(return_value=failure != "preflight")
+    registry.retain_erasure_kms_receipt = AsyncMock(side_effect=retain)
+    if failure:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_kms_material(user_id=_UID)
+        assert "provider_destroy" not in events
+    else:
+        await service._erase_reserved_kms_material(user_id=_UID)
+        assert events == ["inventory", "admission", "provider_destroy"]
+    if failure == "preflight":
+        adapter.erase_kms_material.assert_not_awaited()
+    assert registry.deleted == []
