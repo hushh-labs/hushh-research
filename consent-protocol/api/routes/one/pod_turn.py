@@ -1,4 +1,4 @@
-"""Owner-gated text turns in the private pod.
+"""Owner-gated text turns and Live transport in the private pod.
 
 Each turn asks the hub to validate consent and revocation, then requires the
 returned owner binding to match this pod. Unavailable authority refuses the turn.
@@ -13,8 +13,9 @@ The hub currently forwards the browser's plaintext projection, so this transport
 is not evidence that the control plane cannot observe turn context.
 
 Mounting and execution require pod mode and HUSSH_POD_TURN_ENABLED. The hub's
-shared turn implementation is separate. Live voice and streaming transport are
-not implemented by this route. Historical First Light findings remain in Git;
+shared turn implementation is separate. The pod Live endpoint reuses the existing
+Live protocol with current consent and erasure checks; signed-in hub admission
+remains closed pending end-to-end wiring. Historical First Light findings remain in Git;
 source wiring alone does not establish deployed recall or lifecycle completion.
 """
 
@@ -25,7 +26,7 @@ import os
 from types import SimpleNamespace
 from typing import Any, Optional
 
-from fastapi import APIRouter, Body, Header, HTTPException
+from fastapi import APIRouter, Body, Header, HTTPException, WebSocket
 from pydantic import BaseModel, ConfigDict, Field
 
 from hushh_mcp.runtime_settings import pod_mode, pod_turn_enabled
@@ -491,3 +492,90 @@ async def pod_turn_route(
 ) -> dict:
     """Run one Agent One turn inside this pod."""
     return await run_pod_turn(payload=payload, consent_token=x_consent_token or "")
+
+
+@router.websocket("/live")
+async def pod_live_route(websocket: WebSocket) -> None:
+    """Pod-only Live entrypoint under the existing IAM and scoped consent door.
+
+    Cloud Run validates the hub's audience-bound IAM before this process. The
+    scoped grant is independently checked against current hub ownership before
+    any bootstrap, then throughout the connection. A browser vault master is
+    never an accepted substitute for this read grant.
+    """
+    import asyncio
+    import re
+
+    from api.routes.one.adk_live import run_one_live_session
+    from api.routes.one.pod_live_session import PodLiveSession
+    from api.routes.one.pod_live_store import PodVoiceDirectiveStore
+    from api.routes.one.pod_live_transport import PodLiveTransport
+    from api.routes.one.relay_auth import one_voice_enabled
+
+    try:
+        _require_enabled()
+        if not one_voice_enabled():
+            raise HTTPException(status_code=503, detail="voice unavailable")
+        consent = str(websocket.headers.get("x-consent-token") or "")
+        session_id = str(websocket.headers.get("x-hussh-voice-session") or "")
+        if (
+            not consent
+            or len(consent) > 4096
+            or not re.fullmatch(r"voice_[a-f0-9]{32}", session_id)
+        ):
+            raise HTTPException(status_code=403, detail="voice binding required")
+        claims = await _validate_consent(consent)
+        private = PodLiveSession(
+            user_id=str(claims.get("user_id") or ""),
+            hushh_id=(os.getenv("HUSSH_ID") or "").strip(),
+            session_id=session_id,
+            consent_token=consent,
+        )
+        await private.require_access()
+    except Exception:
+        await websocket.close(code=1008, reason="Private voice unavailable.")
+        return
+
+    await websocket.accept()
+    async with PodLiveTransport(websocket) as transport:
+
+        async def watch() -> None:
+            while True:
+                await asyncio.sleep(1.0)
+                async with asyncio.timeout(10.0):
+                    await private.require_access()
+
+        live = asyncio.create_task(
+            run_one_live_session(
+                transport,
+                uid=private.user_id,
+                persona_tier="signed_locked",
+                directive_store=PodVoiceDirectiveStore(transport),
+                pod_session=private,
+            )
+        )
+        monitor = asyncio.create_task(watch())
+        tasks = {live, monitor}
+        try:
+            done, _ = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
+            for task in done:
+                task.result()
+        except Exception:
+            # No credential, transcription or raw authority/provider error is
+            # reflected to peers or diagnostics. No retry or shared fallback.
+            pass
+        finally:
+            for task in tasks:
+                task.cancel()
+            await transport.close(code=1008, reason="Private voice connection ended.")
+            _, pending = await asyncio.wait(tasks, timeout=10.0)
+            for task in tasks:
+                if task.done() and not task.cancelled():
+                    task.exception()
+            if pending:
+                logger.error("pod_live.shutdown_incomplete pending=%s", len(pending))
+                for task in pending:
+                    task.cancel()
+                    task.add_done_callback(
+                        lambda finished: None if finished.cancelled() else finished.exception()
+                    )

@@ -80,6 +80,7 @@ from hushh_mcp.one_adk.agent_tree import (
     STATE_CONSENT_TOKEN,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
+    STATE_PKM_CONTEXT,
     STATE_SCREEN,
     STATE_TIMEZONE,
     STATE_USER_ID,
@@ -550,14 +551,22 @@ async def run_one_live_session(
     uid: str | None,
     persona_tier: str,
     directive_store: Any = None,
+    pod_session: Any = None,
 ) -> None:
-    """Run the established protocol with the admitted transport's authority port.
+    """Run one protocol; private execution requires a current pod owner binding."""
+    from api.routes.one.pod_live_session import PodLiveSession, persist_live_session
 
-    Private admission is deliberately still closed while the pod transport and
-    ongoing consent enforcement are assembled. A supplied store changes only
-    directive persistence; it never grants private runtime admission.
-    """
-    if uid or persona_tier in {"signed_locked", "signed_unlocked"}:
+    private = pod_session if isinstance(pod_session, PodLiveSession) else None
+    if private is not None:
+        if uid != private.user_id or directive_store is None:
+            await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
+            return
+        try:
+            await private.require_access()
+        except Exception:
+            await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
+            return
+    elif uid or persona_tier in {"signed_locked", "signed_unlocked"}:
         await _close_quietly(websocket, code=1008, reason=_PRIVATE_VOICE_UNAVAILABLE)
         return
     authority = directive_store if directive_store is not None else get_action_directive_store()
@@ -584,7 +593,7 @@ async def run_one_live_session(
             runtime_credential_transport=runtime_credential_transport,
             runtime_vertex_project=runtime_vertex_project,
             runtime_vertex_location=runtime_vertex_location,
-            public_intro_only=True,
+            public_intro_only=private is None,
         )
     except (ValueError, RuntimeError) as exc:
         # Safe class-only close reasons. Never reflect the credential or a raw
@@ -627,8 +636,10 @@ async def run_one_live_session(
         runtime_vertex_project = None
         runtime_vertex_location = None
     # Ephemeral per-connection session; durable records live in app stores.
-    session_user = uid or f"anon_{secrets.token_hex(8)}"
-    session_id = f"voice_{uuid.uuid4().hex}"
+    session_user = private.hushh_id if private else uid or f"anon_{secrets.token_hex(8)}"
+    session_id = private.session_id if private else f"voice_{uuid.uuid4().hex}"
+    if private:
+        resumption_handle = None
     session = await runner.session_service.create_session(
         app_name=ONE_APP_NAME,
         user_id=session_user,
@@ -637,7 +648,7 @@ async def run_one_live_session(
             STATE_USER_ID: uid or "",
             # Consent tokens arrive via the first app_context frame (they are
             # never placed in URLs); tools fail closed until then.
-            STATE_CONSENT_TOKEN: "",
+            STATE_CONSENT_TOKEN: private.consent_token if private else "",
             STATE_TIMEZONE: "",
             # Live sessions start with an explicit pending marker so action
             # tools can distinguish "browser context not yet arrived" (report
@@ -673,14 +684,12 @@ async def run_one_live_session(
         context_window_compression=genai_types.ContextWindowCompressionConfig(
             sliding_window=genai_types.SlidingWindow(),
         ),
-        # Without this a dropped socket ends the conversation outright: a 1011,
-        # a network blip, or the provider's own scheduled disconnect all lost
-        # everything said so far. The provider issues a handle it will accept
-        # back, so a reconnect continues the same conversation instead of
-        # restarting it. Passing a handle from the browser resumes; passing
-        # none starts fresh and begins issuing handles for next time.
-        session_resumption=genai_types.SessionResumptionConfig(
-            handle=resumption_handle or None,
+        # Private continuations stay disabled until provider handles can be
+        # bound to current owner authority across connections.
+        session_resumption=(
+            None
+            if private
+            else genai_types.SessionResumptionConfig(handle=resumption_handle or None)
         ),
     )
 
@@ -867,7 +876,7 @@ async def run_one_live_session(
             try:
                 await authority.cancel_voice(
                     directive_id=stale_directive_id,
-                    user_id=session_user,
+                    user_id=uid or session_user,
                     session_id=session_id,
                     action_id=stale_action_id,
                 )
@@ -943,8 +952,6 @@ async def run_one_live_session(
                     context_payload.get(key) not in (None, "")
                     for key in (
                         "consent_token",
-                        "pkmContext",
-                        "pkm_context",
                         "runtime_credential",
                         "runtimeCredential",
                         "data_door_grants",
@@ -954,6 +961,16 @@ async def run_one_live_session(
                         websocket, code=1008, reason="Public voice cannot accept private context."
                     )
                     return
+                if private is None and any(
+                    context_payload.get(key) not in (None, "")
+                    for key in ("pkmContext", "pkm_context")
+                ):
+                    await _close_quietly(
+                        websocket, code=1008, reason="Public voice cannot accept private context."
+                    )
+                    return
+                if private:
+                    await private.require_access()
                 context_id = _bounded_text(
                     message.get("contextId") or context_payload.get("context_id"), 128
                 )
@@ -962,6 +979,12 @@ async def run_one_live_session(
                 # must be persisted through append_event (state_delta), never
                 # by mutating session.state directly.
                 state_delta: dict[str, Any] = {}
+                if private:
+                    projection = context_payload.get("pkmContext") or context_payload.get(
+                        "pkm_context"
+                    )
+                    if isinstance(projection, str):
+                        state_delta[STATE_PKM_CONTEXT] = projection.strip()[:20000]
                 timezone_name = context_payload.get("timezone")
                 if isinstance(timezone_name, str) and timezone_name.strip():
                     state_delta[STATE_TIMEZONE] = timezone_name.strip()[:64]
@@ -1186,7 +1209,7 @@ async def run_one_live_session(
                 try:
                     confirmation = await authority.confirm(
                         directive_id=directive_id,
-                        user_id=session_user,
+                        user_id=uid or session_user,
                         session_id=session_id,
                         action_id=action_id,
                         context_revision=context_revision,
@@ -1200,7 +1223,7 @@ async def run_one_live_session(
                     await authority.consume(
                         directive_id=directive_id,
                         receipt=confirmation.receipt,
-                        user_id=session_user,
+                        user_id=uid or session_user,
                         session_id=session_id,
                         action_id=action_id,
                         context_revision=context_revision,
@@ -1271,7 +1294,7 @@ async def run_one_live_session(
                         await authority.settle(
                             directive_id=settlement["directive_id"],
                             receipt=receipt,
-                            user_id=session_user,
+                            user_id=uid or session_user,
                             action_id=settlement["action_id"],
                             context_revision=settlement["context_revision"],
                             status=(
@@ -1284,14 +1307,14 @@ async def run_one_live_session(
                     elif settlement["status"] in {"blocked", "invalid", "failed"}:
                         await authority.cancel_voice(
                             directive_id=settlement["directive_id"],
-                            user_id=session_user,
+                            user_id=uid or session_user,
                             session_id=session_id,
                             action_id=settlement["action_id"],
                         )
                     elif settlement["directive_id"] in issued_direct_run_directives:
                         await authority.settle_direct(
                             directive_id=settlement["directive_id"],
-                            user_id=session_user,
+                            user_id=uid or session_user,
                             action_id=settlement["action_id"],
                             context_revision=settlement["context_revision"],
                             status="succeeded",
@@ -1671,7 +1694,11 @@ async def run_one_live_session(
             # after a drop rather than starting a new one. It is opaque, and
             # never becomes model context.
             resumption_update = getattr(event, "live_session_resumption_update", None)
-            if resumption_update is not None and getattr(resumption_update, "resumable", False):
+            if (
+                private is None
+                and resumption_update is not None
+                and getattr(resumption_update, "resumable", False)
+            ):
                 new_handle = _bounded_text(
                     getattr(resumption_update, "new_handle", None), _RESUMPTION_HANDLE_CAP
                 )
@@ -1799,7 +1826,7 @@ async def run_one_live_session(
                             continue
                         try:
                             issued = await authority.issue(
-                                user_id=session_user,
+                                user_id=uid or session_user,
                                 channel="voice",
                                 session_id=session_id,
                                 action_id=action_id,
@@ -2041,6 +2068,8 @@ async def run_one_live_session(
         # Same lifetime as the session itself: the published live context is
         # per-socket, so it must not outlive the socket that owns it.
         clear_live_voice_context(session_id)
+        if private:
+            await persist_live_session(runner, private)
         await _close_quietly(websocket)
         # Ephemeral session cleanup: without this, InMemorySessionService
         # accumulates one session per voice connection until process restart.
