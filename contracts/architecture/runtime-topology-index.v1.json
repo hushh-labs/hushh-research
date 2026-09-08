@@ -3606,9 +3606,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
           "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3686,9 +3690,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
           "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -3720,9 +3728,13 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.delete_account",
+          "profile.marketplace_visibility.toggle",
           "profile.sign_out",
+          "profile.support.submit_message",
           "route.back",
           "route.profile",
+          "route.profile_access_panel",
           "route.profile_connected_systems",
           "route.profile_pkm_agent_lab",
           "route.profile_referrals_panel",
@@ -5515,21 +5527,21 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "a08d6b4c4e69f01d6b0dd62ed164acdb69feef5b5b8567751897fa18bb23165d",
+    "action_gateway": "d166c8ccd2af62580cfc442bcdff0ae3012fbb7b34d7f7bed9b9c48591e686b1",
     "agent_registry": "a95cf642313b982d945743ec063faf308ecd8f651b740e8d8a5db39786172463",
     "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
     "data_plane": "cacaf54dcb2b0364e2bd24f5ad35fd7d338747abf139d46af62272f30353d587",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "3de2b9070dd83a34d8506a08d937929b8dd54b70ea8b521d28821ce6e504d617",
-    "route_index": "cc036ad8adee2a83d76339ec5ad4ae02dbc83645c1c89d419d28e4dad70253ae",
+    "one_specialist_tools": "008236255a603422ae0e17e93c0105057b05ff356e1bde59c66c3926c66891b7",
+    "route_index": "21e3b0409a509a9561772901a9730117fd95f05b94adc5ce3d59a3fd0ba2aadb",
     "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
-    "surface_map": "5eeedfa18b35043f720e56514534d0496c93db0a8073ad5794ef84d2d0c584ef",
+    "surface_map": "e2ccc2865cc617242b0b13aa5844f4d1b51658c78b03970b4f179db38aa35156",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",
     "world_model_compat": "10fc27eefad30ff56c69ef71a8953b727ab323a6e982ec783711fbbe1c1ee425"
   },
   "summary": {
     "a2a_scope_gated_agents": 5,
-    "actions": 211,
+    "actions": 212,
     "agents": 20,
     "aliases": 3,
     "decision_required": 2,

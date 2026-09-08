@@ -4877,6 +4877,7 @@
         "profile.sign_out",
         "profile.support.submit_message",
         "route.profile",
+        "route.profile_access_panel",
         "route.profile_connected_systems",
         "route.profile_pkm_agent_lab",
         "route.profile_referrals_panel",
@@ -9467,5 +9468,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "e6636098fc93ff4216356ddc13b0e26520b7936325afd9d293c829a39419ce01"
+  "content_sha256": "774f156f4278d99b87bd008b72c5eaa02eb2f8e2a4e4497a9955734b8e1f613a"
 }

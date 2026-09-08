@@ -60,7 +60,9 @@ from hushh_mcp.services.action_gateway import (
     is_navigation_action,
     list_action_gateway_actions,
 )
+from hushh_mcp.services.actor_identity_service import ActorIdentityService
 from hushh_mcp.services.connections_service import ConnectionsError, ConnectionsService
+from hushh_mcp.services.consent_center_service import ConsentCenterService
 from hushh_mcp.services.consent_lifecycle_service import (
     ConsentLifecycleError,
     ConsentLifecycleService,
@@ -99,6 +101,7 @@ from hushh_mcp.services.person_profile_service import (
     PersonProfileService,
 )
 from hushh_mcp.services.personal_knowledge_model_service import get_pkm_service
+from hushh_mcp.services.ria_iam_service import RIAIAMService
 from hushh_mcp.services.spoken_name_resolver import (
     UnresolvedPersonName,
     ambiguous_match_names,
@@ -3077,6 +3080,31 @@ def _navigation_action_for_route(route: str) -> str | None:
     # `route.*` ones are in the browser's global-navigation set, so they are the
     # ones guaranteed to be offered from any screen. Deterministic either way:
     # alphabetical still breaks ties inside each group.
+    if not candidates:
+        # Seven navigation contracts have no route path at all: route.profile,
+        # route.consents and route.analysis_history run through kai_command,
+        # route.back through voice_tool (see is_navigation_action, which counts
+        # them as navigation on the `route.` prefix alone). For those the
+        # destination is declared in reachability.routes rather than in
+        # execution_target.target, so the exact-target match above finds
+        # nothing and the whole destination looks unreachable.
+        #
+        # /one/profile is exactly that case, and it is why every wired Profile
+        # action was a dead end from any other screen: nothing could name a
+        # screen to open first, so "delete my account" said no on Location
+        # while Profile sat one navigation away.
+        #
+        # Restricted to the `route.` prefix on purpose. reachability.routes
+        # says where an action is reachable FROM, which for an ordinary action
+        # is not its destination -- profile.sign_out lists /one/profile too and
+        # would be a nonsense escort.
+        candidates = [
+            action_id
+            for candidate in list_action_gateway_actions()
+            if (action_id := str(candidate.get("action_id") or "").strip()).startswith("route.")
+            and (candidate.get("execution_target") or {}).get("status") == "wired"
+            and clean_route in ((candidate.get("reachability") or {}).get("routes") or [])
+        ]
     return (
         sorted(candidates, key=lambda action: (not action.startswith("route."), action))[0]
         if candidates
@@ -4175,3 +4203,73 @@ async def report_no_app_action(reason: str, spoken_reply: str) -> dict[str, Any]
         "reason": clean_reason,
         "message": clean_reply,
     }
+
+
+async def read_my_profile_status(tool_context: ToolContext) -> dict[str, Any]:
+    """Read the person's own Profile status: verification, consents, marketplace.
+
+    Answers the questions Profile can be asked but could not answer -- "is my
+    phone verified", "how many consents are waiting on me", "is my marketplace
+    profile visible". Location has had read tools for this since #6434; Profile
+    had none, so One could open the Security panel and still not say what was
+    in it.
+
+    Each field is read independently and a failure reports ``None`` for that
+    field alone rather than failing the whole answer. That is deliberate:
+    ``None`` here means "could not determine", never "no". Collapsing an
+    unavailable read into ``False`` would have One state that a phone is
+    unverified because a table was briefly unreachable, which is worse than
+    saying it does not know.
+    """
+    user_id, blocked = await _read_tool_user_id(tool_context)
+    if blocked is not None:
+        return blocked
+    if user_id is None:
+        raise AssertionError("_read_tool_user_id returned no user_id with blocked=None")
+
+    # Not _read_tool_result: that helper's `call` is a zero-arg wrapper around a
+    # *synchronous* service method, and all three services here are async. Same
+    # failure-boundary reasoning -- an exception must never escape a live-session
+    # tool call -- awaited instead of called, following
+    # read_my_pkm_domain_summary.
+    phone_verified: bool | None = None
+    email_verified: bool | None = None
+    try:
+        identities = await ActorIdentityService().get_many([user_id])
+        identity = identities.get(user_id) or {}
+        phone_verified = bool(identity.get("phone_verified"))
+        email_verified = bool(identity.get("email_verified"))
+    except Exception:  # noqa: BLE001 - report the gap, never the internals
+        logger.exception("one_adk_read_tool_failed label=profile_identity reason=unexpected")
+
+    pending_consents: int | None = None
+    try:
+        summary = await ConsentCenterService().get_center_summary(user_id, actor="investor")
+        counts = summary.get("counts") if isinstance(summary, dict) else None
+        if isinstance(counts, dict):
+            pending_consents = int(counts.get("pending") or 0)
+    except Exception:  # noqa: BLE001
+        logger.exception("one_adk_read_tool_failed label=profile_consents reason=unexpected")
+
+    marketplace_visible: bool | None = None
+    try:
+        persona_state = await RIAIAMService().get_persona_state(user_id)
+        if isinstance(persona_state, dict):
+            marketplace_visible = bool(persona_state.get("investor_marketplace_opt_in"))
+    except Exception:  # noqa: BLE001
+        logger.exception("one_adk_read_tool_failed label=profile_persona reason=unexpected")
+
+    result = {
+        "phone_verified": phone_verified,
+        "email_verified": email_verified,
+        "pending_consents": pending_consents,
+        "marketplace_visible": marketplace_visible,
+    }
+    if all(value is None for value in result.values()):
+        # Every read failed. Saying "I don't know" once is honest; reporting
+        # four separate nulls invites the model to narrate around them.
+        return {
+            "status": "failed",
+            "message": "Could not check your profile status right now. Try again in a moment.",
+        }
+    return {"status": "ok", "result": result}
