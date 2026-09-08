@@ -109,22 +109,26 @@ Direct usage is allowed only in:
 
 ## Notification Lifecycle Parity
 
-Web, iOS, and Android share one Feed-first contract for every routine push
-family. While the app is active, receipt refreshes `/one/feed` and the owning
-domain state without a popup toast, foreground system banner, or sound. While
+Web, iOS, and Android share one notification lifecycle contract. While the app
+is active, receipt refreshes `/one/feed` and the owning domain state without a
+popup toast, foreground system banner, or sound. While
 an iOS or Android app is backgrounded or terminated, the operating system owns
 the notification; the same applies when no visible web client can claim it. A
-notification body tap opens `/one/feed` through the shared internal navigation
-event when a warm client exists, preserving the memory-only vault; cold launch
-opens that same route and follows the normal auth/unlock recovery path. On iOS,
-registered consent action buttons remain confirmation-only deep links. Save My
+notification body tap normally opens `/one/feed`. Incoming `location_share_created`
+and `location_access_approved` alerts instead open `/one/location?section=shared`
+(Shared with me). This list-only destination drops historical grant/request IDs;
+current received-share state still controls whether location can be viewed.
+Warm taps use the shared internal navigation event, preserving the memory-only
+vault; startup taps retain that destination until the router mounts and follow
+the normal auth/unlock recovery path. Silent location lifecycle updates remain
+silent, and owner-facing requests and unrelated notifications retain Feed routing.
+On iOS, registered consent action buttons remain confirmation-only deep links. Save My
 Soul is the sole foreground presentation exception and must not produce both a
 native banner and the shared emergency alarm. Capacitor's Firebase Messaging
 router remains the iOS notification delegate and presents only the badge in the
 foreground, while the shared UI owns the emergency card and alarm. Its explicit
 iOS `Open live location` safety action retains a validated direct One Location
-route; ordinary notification body taps still enter Feed. Consent request
-identity survives the Feed handoff so the backend can stop reminders after the
+route. Consent request identity survives the Feed handoff so the backend can stop reminders after the
 user attends the system notification.
 
 ## Gemini runtime configuration parity

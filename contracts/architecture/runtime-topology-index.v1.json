@@ -3606,6 +3606,7 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.sign_out",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3685,6 +3686,7 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.sign_out",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -3718,6 +3720,7 @@
       "voice": {
         "action_ids": [
           "help.open_examples",
+          "profile.sign_out",
           "route.back",
           "route.profile",
           "route.profile_connected_systems",
@@ -5512,13 +5515,13 @@
   "schema_version": "hushh.runtime_topology_index.v1",
   "source_sha256": {
     "a2a_scope_map": "2bcecbbab3b901bfb1cdf76f64ff3a8478975febd5fb4be9ec95a753d3e99bf8",
-    "action_gateway": "cc1d1375e7d3b218c35cea4a0574b89734759f136b736b0cee7b5774cb92d9e9",
+    "action_gateway": "a08d6b4c4e69f01d6b0dd62ed164acdb69feef5b5b8567751897fa18bb23165d",
     "agent_registry": "a95cf642313b982d945743ec063faf308ecd8f651b740e8d8a5db39786172463",
     "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
     "data_plane": "cacaf54dcb2b0364e2bd24f5ad35fd7d338747abf139d46af62272f30353d587",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "532ba6704ef8d398517f58fadcdfc5247fcf59458e59e1bb1806894e88ffaa69",
-    "route_index": "d6e5d26db2399d406965aeefe0551710d7dc836cc78dc2db388ad182b780bda6",
+    "one_specialist_tools": "3de2b9070dd83a34d8506a08d937929b8dd54b70ea8b521d28821ce6e504d617",
+    "route_index": "cc036ad8adee2a83d76339ec5ad4ae02dbc83645c1c89d419d28e4dad70253ae",
     "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
     "surface_map": "5eeedfa18b35043f720e56514534d0496c93db0a8073ad5794ef84d2d0c584ef",
     "topology_contract": "3515551e0cd42c3d17c767dd922111b1bf29f7ac1521d47e2d16ced39c6c1b6a",

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import {
   AlertTriangle,
@@ -29,7 +29,7 @@ import {
   roleSolid,
   type SemanticRole,
 } from "@/lib/morphy-ux/tokens/semantic-roles";
-import { OneLocationService } from "@/lib/one-location/service";
+import { usePublicLocationInvite } from "@/lib/one-location/use-public-location-invite";
 import type {
   OneLocationPublicInvite,
   PlainLocationPoint,
@@ -62,16 +62,6 @@ const LIVE_CHIP = roleSolid("success");
  * the badge stops being informational and starts being a warning.
  */
 const EXPIRING_SOON_MS = 15 * 60 * 1000;
-
-/**
- * How often this page re-reads the link while it is live.
- *
- * The owner publishes their position onto the link every
- * `LIVE_LOCATION_UPDATE_INTERVAL_MS` (20s) while their app is in the
- * foreground. Reading a little faster than that keeps the lag under one
- * publish without asking for points that do not exist yet.
- */
-const LIVE_VIEW_POLL_INTERVAL_MS = 15_000;
 
 /**
  * How far the pin has to move before the map is re-pointed at it.
@@ -284,8 +274,8 @@ function PublicLocationMap({
       ? `Accuracy +/- ${Math.round(point.accuracyM)} m`
       : null;
   return (
-    <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] bg-[color:var(--app-card-surface-default-solid)]">
-      <div className="relative h-64 overflow-hidden bg-muted sm:h-72">
+    <div className="overflow-hidden rounded-[var(--app-card-radius-compact)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)]">
+      <div className="relative h-[clamp(208px,34vw,252px)] overflow-hidden bg-[color:var(--app-card-surface-compact)] sm:h-[clamp(224px,28vw,252px)]">
         <iframe
           key={`live-location-map:${viewportResetKey}`}
           title="Live location map"
@@ -304,7 +294,10 @@ function PublicLocationMap({
           {/* Same foreground as the label beside it: the live dot reads as
               part of the chip, not as a second location colour. */}
           <span className="h-2 w-2 rounded-full bg-current motion-safe:animate-pulse" />
-          <Footnote as="span" className="font-semibold">
+          <Footnote
+            as="span"
+            className="font-semibold !text-[color:var(--app-success-fg)]"
+          >
             {/* "Public location" described who could open the link. The person
                 reading it has already opened it, and what they need to know is
                 whether the pin moves. */}
@@ -323,7 +316,7 @@ function PublicLocationMap({
           <RefreshCw className="h-4 w-4" aria-hidden="true" />
         </Button>
       </div>
-      <div className="space-y-3 p-3.5">
+      <div className="space-y-4 p-4">
         <div className="min-w-0">
           <CardTitle as="p">
             {ownerName ? `${ownerName}'s location` : "Shared location"}
@@ -348,7 +341,7 @@ function PublicLocationMap({
           </div>
         ) : null}
         <div className="grid gap-2">
-          <Button asChild variant="outline" size="sm" className="h-10 rounded-full">
+          <Button asChild variant="default" size="sm" className="h-11 w-full">
             <a
               href={googleMapsDirectionsUrl(point)}
               target="_blank"
@@ -370,7 +363,7 @@ function PublicLocationMap({
  */
 function TrustFooter() {
   return (
-    <footer className="mt-6 flex items-start gap-3 border-t border-border/60 pt-5">
+    <footer className="mt-4 flex items-start gap-3 border-t border-border/60 pt-4">
       <ShieldCheck
         className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground"
         aria-hidden="true"
@@ -391,27 +384,8 @@ export default function PublicLocationViewPageClient() {
     () => String(params?.token || "").trim(),
     [params?.token],
   );
-  const [invite, setInvite] = useState<OneLocationPublicInvite | null>(null);
-  const [publicLocation, setPublicLocation] =
-    useState<PlainLocationPoint | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  /**
-   * Expiry the SERVER agreed to, not the one this browser's clock believes.
-   *
-   * A window that closes while the tab is open has to take the location with
-   * it — nobody reloads a map they are already looking at, and leaving it on
-   * screen means the link outlives its own expiry for as long as the tab does.
-   * But the countdown is `expiresAt - Date.now()`, and a device whose clock
-   * runs a few minutes fast would reach zero while the server was still
-   * happily serving the link. That reads exactly like the reported bug: a link
-   * created for an hour, gone early, for no reason the person can see.
-   *
-   * So the countdown hitting zero asks rather than concludes. Only a link the
-   * server refuses — or one whose server-sent window really is behind us — is
-   * taken off screen.
-   */
-  const [confirmedExpired, setConfirmedExpired] = useState(false);
+  const { invite, publicLocation, loading, error, confirmedExpired } =
+    usePublicLocationInvite(publicToken);
 
   const ownerName = ownerNameOf(invite);
   const remainingMs = useRemainingMs(invite?.expiresAt);
@@ -451,135 +425,11 @@ export default function PublicLocationViewPageClient() {
           ? `${ownerName || "A trusted person"} is sharing live location with you.`
           : `${ownerName || "The sender"} shared this link, but no location is attached to it yet.`;
 
-  useEffect(() => {
-    let cancelled = false;
-    const loadInvite = async () => {
-      setLoading(true);
-      setError(null);
-      try {
-        const response =
-          await OneLocationService.resolvePublicInvite(publicToken);
-        if (!cancelled) {
-          setInvite(response.invite);
-          setPublicLocation(response.publicLocation ?? null);
-        }
-      } catch (loadError) {
-        if (!cancelled) {
-          setError(
-            loadError instanceof Error
-              ? loadError.message
-              : "This live location link is unavailable.",
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    };
-    if (publicToken) {
-      void loadInvite();
-    } else {
-      setError("This live location link is invalid.");
-      setLoading(false);
-    }
-    return () => {
-      cancelled = true;
-    };
-  }, [publicToken]);
-
-  /**
-   * Keep the pin current for as long as the link is.
-   *
-   * The page used to read the link exactly once, on mount, so what it showed
-   * was wherever the sender had been at the moment they pressed Share —
-   * presented, for the next hour, as where they are. The owner's app now
-   * publishes their position onto the link while it is live; this is the half
-   * that puts it on screen.
-   *
-   * Skipped while the tab is hidden: a backgrounded tab watching a map nobody
-   * is looking at is a request the person did not ask for. The next visible
-   * tick catches up in one read.
-   */
-  const hasInvite = Boolean(invite);
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!publicToken || !hasInvite || confirmedExpired) return;
-
-    let cancelled = false;
-    const poll = async () => {
-      if (cancelled) return;
-      if (
-        typeof document !== "undefined" &&
-        document.visibilityState === "hidden"
-      ) {
-        return;
-      }
-      try {
-        const response =
-          await OneLocationService.resolvePublicInvite(publicToken);
-        if (cancelled) return;
-        setInvite(response.invite);
-        setPublicLocation(response.publicLocation ?? null);
-      } catch {
-        // A poll failing is not news. It is usually a dropped connection, and
-        // the terminal states — expiry and revocation — are owned by the
-        // confirmation below, which asks the same question deliberately.
-      }
-    };
-
-    const interval = window.setInterval(
-      () => void poll(),
-      LIVE_VIEW_POLL_INTERVAL_MS,
-    );
-    return () => {
-      cancelled = true;
-      window.clearInterval(interval);
-    };
-  }, [confirmedExpired, hasInvite, publicToken]);
-
-  /**
-   * The countdown reaching zero asks the server, rather than concluding.
-   *
-   * If the link resolves and its window is still ahead of us, this browser's
-   * clock was fast: adopt the server's `expiresAt` and carry on watching. Only
-   * a refusal — or a window the server itself puts behind us — takes the
-   * location off screen.
-   */
-  const countdownExpired = countdownLifecycle === "expired";
-  const confirmExpiry = useCallback(async () => {
-    try {
-      const response =
-        await OneLocationService.resolvePublicInvite(publicToken);
-      const serverExpiryMs = new Date(
-        response.invite?.expiresAt || "",
-      ).getTime();
-      if (Number.isFinite(serverExpiryMs) && serverExpiryMs > Date.now()) {
-        setInvite(response.invite);
-        setPublicLocation(response.publicLocation ?? null);
-        return;
-      }
-      setConfirmedExpired(true);
-    } catch {
-      setConfirmedExpired(true);
-    }
-  }, [publicToken]);
-
-  useEffect(() => {
-    if (!publicToken || !hasInvite) return;
-    if (!countdownExpired || confirmedExpired) return;
-    void confirmExpiry();
-  }, [
-    confirmExpiry,
-    confirmedExpired,
-    countdownExpired,
-    hasInvite,
-    publicToken,
-  ]);
-
   return (
-    <main className="min-h-screen bg-background text-foreground">
-      <div className="mx-auto flex min-h-screen w-full max-w-[720px] flex-col px-5 pb-10 pt-[max(48px,calc(env(safe-area-inset-top)+28px))] sm:px-6 sm:pt-[max(64px,calc(env(safe-area-inset-top)+40px))]">
-        <div className="rounded-[var(--app-card-radius-standard)] bg-[color:var(--app-card-surface-default-solid)] p-5 shadow-none sm:p-6">
-          <div className="space-y-6">
+    <main className="w-full text-foreground">
+      <div className="mx-auto flex w-full max-w-[720px] flex-col px-4 pb-4 pt-[max(24px,calc(env(safe-area-inset-top)+16px))] sm:px-6 sm:pt-[max(40px,calc(env(safe-area-inset-top)+24px))]">
+        <div className="rounded-[var(--app-card-radius-standard)] border border-[color:var(--app-card-border-standard)] bg-[color:var(--app-card-surface-default-solid)] p-4 shadow-[var(--app-card-shadow-standard)] sm:p-6">
+          <div className="space-y-4">
             <div>
               <SectionLabel>Live location</SectionLabel>
               <div className="mt-2 flex items-center gap-3">
@@ -608,13 +458,13 @@ export default function PublicLocationViewPageClient() {
             {loading ? (
               <div className="space-y-3">
                 <Skeleton className="h-11 rounded-xl" />
-                <Skeleton className="h-24 rounded-xl" />
+                <Skeleton className="h-[clamp(208px,34vw,252px)] rounded-[var(--app-card-radius-compact)]" />
                 <Skeleton className="h-10 w-36 rounded-xl" />
               </div>
             ) : null}
 
             {!loading && invite ? (
-              <div className="space-y-4">
+              <div className="space-y-3">
                 <LinkStatusBadge
                   lifecycle={lifecycle}
                   remainingMs={remainingMs}

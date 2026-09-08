@@ -1,6 +1,6 @@
 /**
  * Firebase Cloud Messaging service worker
- * Handles background push and notification click → open the Feed
+ * Handles background push and notification clicks into the owning app surface.
  */
 self.__HUSHH_FCM_DEFAULT_TARGET__ = "/one/feed";
 const pendingForegroundDeliveryAcks = new Map();
@@ -52,10 +52,15 @@ function isSilentNotification(data) {
   return type === "consent_opened" || type === "consent_resolved";
 }
 
-function feedNotificationTarget(data) {
+function notificationTapTarget(data) {
   const type = String(data?.type || "")
     .trim()
     .toLowerCase();
+  // Recipient-only alerts match the native/shared FCM tap handler. Historical
+  // identifiers must not reopen another workflow or imply current access.
+  if (type === "location_share_created" || type === "location_access_approved") {
+    return "/one/location?section=shared";
+  }
   if (type !== "consent_request") {
     return self.__HUSHH_FCM_DEFAULT_TARGET__;
   }
@@ -197,7 +202,7 @@ self.addEventListener("push", function (event) {
       data.webpush?.fcmOptions?.link ||
       data.url ||
       self.__HUSHH_FCM_DEFAULT_TARGET__;
-    const url = self.__HUSHH_FCM_DEFAULT_TARGET__;
+    const url = notificationTapTarget(data.data);
     const notificationIdentity =
       data.data?.message_id ||
       data.data?.request_id ||
@@ -300,7 +305,7 @@ self.addEventListener("push", function (event) {
 self.addEventListener("notificationclick", function (event) {
   event.notification.close();
   const data = event.notification?.data || {};
-  const url = feedNotificationTarget(data);
+  const url = notificationTapTarget(data);
   event.waitUntil(routeNotificationClick(url, "notification_click", data));
 });
 

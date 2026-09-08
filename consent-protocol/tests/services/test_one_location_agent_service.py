@@ -771,6 +771,81 @@ def test_auto_approve_preference_rejects_circles_not_all_owned(
     assert not any("INSERT INTO one_location_auto_approve_preferences" in sql for sql in calls)
 
 
+def test_auto_approve_preference_accepts_owned_sms_circle(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """SMS Circle (system_kind='sms') can be selected as auto-approve scope."""
+    sms_circle_id = "550e8400-e29b-41d4-a716-446655440099"
+    enabled_at = datetime.now(timezone.utc)
+
+    class Result:
+        def __init__(self, *, first=None, rows=None):
+            self._first = first
+            self._rows = rows or []
+
+        def mappings(self):
+            return self
+
+        def first(self):
+            return self._first
+
+        def all(self):
+            return self._rows
+
+    class Connection:
+        def __init__(self):
+            self.calls: list[tuple[str, dict]] = []
+
+        def execute(self, statement, params):
+            sql = str(statement)
+            values = dict(params)
+            self.calls.append((sql, values))
+            if "FROM one_location_circles" in sql and "FOR SHARE" in sql:
+                return Result(first={"id": sms_circle_id}, rows=[{"id": sms_circle_id}])
+            if "INSERT INTO one_location_auto_approve_preferences" in sql:
+                return Result(
+                    first={
+                        "enabled": True,
+                        "scope_kind": "circle",
+                        "circle_id": sms_circle_id,
+                        "circle_ids": None,
+                        "enabled_at": enabled_at,
+                        "rule_version": 1,
+                        "updated_at": enabled_at,
+                    }
+                )
+            return Result()
+
+    connection = Connection()
+
+    @contextmanager
+    def fake_connection():
+        yield connection
+
+    monkeypatch.setattr(
+        one_location_service_module,
+        "get_db_connection",
+        fake_connection,
+    )
+
+    preference = OneLocationAgentService().update_auto_approve_preference(
+        user_id="user_a",
+        enabled=True,
+        scope_kind="circle",
+        circle_id=sms_circle_id,
+    )
+
+    ownership_sql, ownership_params = next(
+        (sql, params)
+        for sql, params in connection.calls
+        if "FROM one_location_circles" in sql and "FOR SHARE" in sql
+    )
+    assert "system_kind = 'sms'" in ownership_sql
+    assert ownership_params["circle_id"] == sms_circle_id
+    assert ownership_params["user_id"] == "user_a"
+    assert preference["scope"] == {"kind": "circle", "circleId": sms_circle_id}
+
+
 def test_first_owned_circle_membership_picks_earliest_match_among_the_set() -> None:
     circle_a, circle_b, circle_c = (
         "550e8400-e29b-41d4-a716-446655440000",
@@ -8188,3 +8263,44 @@ def test_the_viewed_projection_can_be_rolled_back() -> None:
     # Rows already written stay: they are the only record an owner has of who
     # looked.
     assert "DELETE FROM feed_events" not in rollback
+
+
+@pytest.mark.parametrize(
+    "name,slug",
+    [
+        ("Neelesh Meena", "neelesh"),
+        ("Anne-Marie Smith", "anne-marie"),
+        ("O'Connor Jones", "oconnor"),
+        ("Élodie Martin", "élodie"),
+        ("नीलेश मीणा", "नीलेश"),
+    ],
+)
+def test_public_invite_named_url_keeps_bare_token_compatible(name: str, slug: str) -> None:
+    from urllib.parse import unquote
+
+    service = FourUserMemoryService()
+    service.identities["user_a"]["display_name"] = name
+    created = service.create_public_invite(
+        owner_user_id="user_a", duration_hours=1, location_snapshot=PUBLIC_LOCATION_SNAPSHOT
+    )
+    named_token = unquote(created["publicUrl"].rsplit("/", 1)[1])
+    assert named_token == f"{slug}.{created['publicToken']}"
+    assert created["invite"]["publicUrl"] == created["publicUrl"]
+    resolved = service.resolve_public_invite(public_token=named_token)
+    assert resolved == service.resolve_public_invite(public_token=created["publicToken"])
+    assert resolved["invite"]["ownerLabel"] == name
+    # Changing the decorative name cannot change the resolved owner or grant access.
+    assert (
+        service.resolve_public_invite(public_token=f"someone.{created['publicToken']}") == resolved
+    )
+    reused = service.create_public_invite(owner_user_id="user_a", duration_hours=1)
+    assert reused["reused"] is True
+    assert reused["publicUrl"] == created["publicUrl"]
+    assert (
+        service._public_invite_payload(next(iter(service.public_invites.values())))["publicUrl"]
+        == created["publicUrl"]
+    )
+    service.revoke_public_invite(owner_user_id="user_a", invite_id=created["invite"]["id"])
+    with pytest.raises(OneLocationAgentError) as exc:
+        service.resolve_public_invite(public_token=named_token)
+    assert exc.value.status_code == 410

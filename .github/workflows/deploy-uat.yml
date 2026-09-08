@@ -1016,6 +1016,18 @@ jobs:
             --expected-run-id "${{ github.run_id }}" \
             --report-path /tmp/uat-frontend-provenance.json
 
+      - name: Verify protected list secrets were not wiped
+        shell: bash
+        run: |
+          # `gcloud secrets versions add` REPLACES the whole value. A script or
+          # person that writes without reading first deletes every other entry
+          # with no error. HUSHH_UAT_PHONE_TEST_NUMBERS went 59 -> 1 that way on
+          # 2026-09-03 and nobody noticed for five days; it surfaced as "phone
+          # verification is broken". Old versions are the only record, and until
+          # now nothing read them. See R36.
+          python3 scripts/ops/verify_secret_list_invariants.py \
+            --project "${{ env.GCP_PROJECT_ID }}"
+
       - name: Verify UAT runtime env parity
         id: verify-parity-1
         continue-on-error: true

@@ -2592,12 +2592,14 @@ function LocationDetailFlow({
                   title={name}
                   description={
                     single ? (
-                      <div className="space-y-1">
-                        <ActiveShareMetadata grant={single} />
+                      <div className="space-y-1.5">
+                        <div>
+                          <ActiveShareMetadata grant={single} />
+                        </div>
                         {!isSmsTriggeredGrant(single) ? (
                           <button
                             type="button"
-                            className="min-h-8 text-[15px] font-medium text-[color:var(--app-accent)]"
+                            className="inline-flex min-h-[32px] items-center justify-center rounded-full px-3 text-[15px] font-medium leading-[20px] text-[color:var(--app-accent)] transition-colors hover:bg-[color:var(--app-accent)]/10 active:bg-[color:var(--app-accent)]/20 disabled:cursor-wait disabled:opacity-60"
                             onClick={(event) =>
                               onEditLiveShareDurationStart(
                                 single.id,
@@ -2944,7 +2946,7 @@ function ownedUserCircleScopeOptions(
   circles: readonly OneLocationCircleSummary[],
 ): OneLocationCircleSummary[] {
   return circles.filter(
-    (circle) => circle.role === "owner" && circle.systemKind == null,
+    (circle) => circle.role === "owner" && circle.systemKind !== "trusted",
   );
 }
 

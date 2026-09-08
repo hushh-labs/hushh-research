@@ -168,6 +168,7 @@ def test_cross_project_vertex_fallback_is_dev_or_exact_uat_personal_project_only
     assert "##_GENAI_PROJECT_ID=hushh-vertex-personal54" in uat_workflow
     assert "hushh-gemini-bridge" not in uat_workflow
     assert "hushh-gemini-bridge" not in production_workflow
+    assert "_GENAI_PROJECT_ID=hushh-vertex-personal54" in production_workflow
     assert "roles/serviceusage.serviceUsageConsumer" in backend_build
     assert '"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"' in backend_build
     assert backend_build.count('"GOOGLE_CLOUD_PROJECT=${PROJECT_ID}"') == 1

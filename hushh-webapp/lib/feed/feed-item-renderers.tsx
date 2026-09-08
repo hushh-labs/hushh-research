@@ -46,6 +46,11 @@ const DOMAIN_LABEL: Record<FeedSourceDomain, string> = {
   connections: "Connections",
 };
 
+// Incoming history targets the received-share list without forcing a grant.
+// Created-share rows need no grant ID; expired/revoked access is resolved
+// by Shared with me rather than inferred from the historical notification.
+const SHARED_WITH_ME_HREF = buildOneLocationWorkflowHref({ section: "shared" });
+
 /**
  * True when this row is an emergency SOS rather than an ordinary share.
  *
@@ -228,7 +233,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
               ? `Shared location with you for ${shareAmount}`
               : "Shared location with you"
             : "You started sharing location",
-        href: ROUTES.ONE_LOCATION,
+        href: sharedWithMe ? SHARED_WITH_ME_HREF : ROUTES.ONE_LOCATION,
       };
     }
     case "location_share_revoked": {
@@ -420,7 +425,7 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location",
         person: counterpartPerson(item.metadata, who),
         description,
-        href: ROUTES.ONE_LOCATION,
+        href: asRequester ? SHARED_WITH_ME_HREF : ROUTES.ONE_LOCATION,
       };
     }
     case "location_access_denied": {
@@ -459,10 +464,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
           : ownerShortened
             ? "You shortened location access"
             : "Gave back remaining time early",
-        href: buildOneLocationWorkflowHref({
-          grantId: metadataString(item.metadata, "grant_id") || undefined,
-          section: sharedWithMe ? "people" : "shared",
-        }),
+        href: sharedWithMe
+          ? SHARED_WITH_ME_HREF
+          : buildOneLocationWorkflowHref({
+              grantId: metadataString(item.metadata, "grant_id") || undefined,
+              section: "shared",
+            }),
       };
     }
     case "location_share_duration_changed": {
@@ -485,10 +492,12 @@ export function presentFeedItem(item: FeedItem): FeedItemPresentation {
         label: hasWho ? who : "Location",
         person: counterpartPerson(item.metadata, who),
         description,
-        href: buildOneLocationWorkflowHref({
-          grantId: metadataString(item.metadata, "grant_id") || undefined,
-          section: sharedWithMe ? "people" : "shared",
-        }),
+        href: sharedWithMe
+          ? SHARED_WITH_ME_HREF
+          : buildOneLocationWorkflowHref({
+              grantId: metadataString(item.metadata, "grant_id") || undefined,
+              section: "shared",
+            }),
       };
     }
     case "location_access_request_withdrawn": {

@@ -280,6 +280,7 @@ import { ROUTES } from "@/lib/navigation/routes";
 import { navigateTopShellBack } from "@/lib/navigation/top-shell-back";
 import { requestInternalAppNavigation } from "@/lib/utils/browser-navigation";
 import { resolveOnboardingMapPoint } from "@/lib/one-location/onboarding-map-point";
+import { useLocationOnboardingProgress } from "@/lib/one-location/use-onboarding-progress";
 // One rule, one place: Connect owns the Circle screens now and needs the
 // same judgement about what an API failure may say to a person.
 import {
@@ -864,7 +865,6 @@ type OneLocationDurationBucket =
 type OneLocationForegroundOperation = "publish" | "view";
 type OneLocationForegroundTrigger = "manual" | "foreground_interval";
 type OneLocationFocusTarget = OneLocationNotificationSection;
-type OneLocationOnboardingStep = "welcome" | "features" | "place" | "ready";
 type OneLocationOnboardingGate = "checking" | "show" | "hidden";
 type OneLocationNativeTestConfig = ComponentProps<typeof NativeTestBeacon>;
 type OneLocationBackoffBucket =
@@ -2628,8 +2628,11 @@ export function OneLocationAgentPageContent({
 
   const [locationOnboardingGate, setLocationOnboardingGate] =
     useState<OneLocationOnboardingGate>("checking");
-  const [locationOnboardingStep, setLocationOnboardingStep] =
-    useState<OneLocationOnboardingStep>("welcome");
+  const {
+    screen: locationOnboardingStep,
+    setScreen: setLocationOnboardingStep,
+    clearProgress: clearLocationOnboardingProgress,
+  } = useLocationOnboardingProgress(auth.userId, mode);
   const [locationOnboardingBusy, setLocationOnboardingBusy] = useState(false);
   // Saved-place prompt shown once per mounted journey after Location is ready.
   // Active root-setup replay deliberately gets a fresh opportunity.
@@ -4352,7 +4355,6 @@ export function OneLocationAgentPageContent({
     }
 
     if (mode === "setup") {
-      setLocationOnboardingStep("welcome");
       setLocationOnboardingGate("show");
       return;
     }
@@ -4401,9 +4403,8 @@ export function OneLocationAgentPageContent({
       return;
     }
 
-    if (locationOnboardingGate !== "show") {
-      setLocationOnboardingStep("welcome");
-    }
+    // Admission can run again after session validation or query changes.
+    // The account-scoped journey checkpoint owns the current screen.
     setLocationOnboardingGate("show");
   }, [
     auth.loading,
@@ -8659,6 +8660,19 @@ export function OneLocationAgentPageContent({
           inviteId: invite.id,
         });
         setCreatedPublicInvite(null);
+        setStateEntry((current) =>
+          current?.userId === auth.userId
+            ? {
+                ...current,
+                state: {
+                  ...current.state,
+                  publicInvites: (current.state.publicInvites ?? []).filter(
+                    (existing) => existing.id !== invite.id,
+                  ),
+                },
+              }
+            : current,
+        );
         toast.success("Public location link revoked.");
         void refresh().catch(() => null);
       } catch (error) {
@@ -8672,7 +8686,7 @@ export function OneLocationAgentPageContent({
         setBusy(null);
       }
     },
-    [refresh, vaultOwnerToken],
+    [auth.userId, refresh, vaultOwnerToken],
   );
 
   /**
@@ -9941,6 +9955,31 @@ export function OneLocationAgentPageContent({
         circle_count: namedCircles.length,
         has_load_error: Boolean(loadError),
       },
+      // Deliberately offered to the agent, unlike screenMetadata above which
+      // stays browser-local. Every value here already existed in this
+      // component's render and was simply never sent, so One could list every
+      // sharing action while being unable to answer "am I sharing right now".
+      // These are the questions people actually ask this screen.
+      //
+      // Counts and flags only -- no names, no grant ids, no addresses. This
+      // map is rendered into the model's prompt.
+      screenState: {
+        location_tab: hubTab,
+        location_flow: openFlow ?? null,
+        data_state: dataState,
+        permission_state: permission?.state ?? null,
+        pending_request_count: pendingOwnerRequests.length,
+        connection_count: shareRecipientPool.length,
+        circle_count: namedCircles.length,
+        has_load_error: Boolean(loadError),
+        sharing_enabled: locationEnabled,
+        sharing_paused: locationControl.paused === true,
+        active_share_count: activeOwnerGrants.length,
+        live_share_active: Boolean(liveShareStatus),
+        shared_with_me_count: visibleReceivedGrants.length,
+        sos_active: Boolean(sosIncident?.grantIds.length),
+        emergency_contact_count: smsContactUserIds.length,
+      },
     };
   }, [
     busy,
@@ -9955,6 +9994,16 @@ export function OneLocationAgentPageContent({
     // Picking someone clears the dead end, so the metadata has to be rebuilt
     // when the selection changes -- not only when the pool does.
     shareReadySelectedRecipients.length,
+    // Every published value needs its dependency here or the memo serves a
+    // frozen number: a stale count is worse than an absent one, because the
+    // model states it as fact.
+    locationEnabled,
+    locationControl.paused,
+    activeOwnerGrants.length,
+    liveShareStatus,
+    visibleReceivedGrants.length,
+    sosIncident,
+    smsContactUserIds.length,
   ]);
   usePublishVoiceSurfaceMetadata(locationVoiceSurfaceMetadata);
 
@@ -12637,22 +12686,31 @@ export function OneLocationAgentPageContent({
   }, [auth.userId]);
 
   const dismissLocationOnboarding = useCallback(async () => {
-    markLocationOnboardingSeen();
     if (mode === "setup") {
       await onSetupComplete?.();
+      markLocationOnboardingSeen();
+      clearLocationOnboardingProgress();
       return;
     }
+    markLocationOnboardingSeen();
+    clearLocationOnboardingProgress();
     setLocationOnboardingGate("hidden");
     setLocationOnboardingBusy(false);
-  }, [markLocationOnboardingSeen, mode, onSetupComplete]);
+  }, [
+    clearLocationOnboardingProgress,
+    markLocationOnboardingSeen,
+    mode,
+    onSetupComplete,
+  ]);
 
   const skipLocationOnboarding = useCallback(async () => {
     if (mode === "setup") {
       await onSetupSkip?.();
+      clearLocationOnboardingProgress();
       return;
     }
     dismissLocationOnboarding();
-  }, [dismissLocationOnboarding, mode, onSetupSkip]);
+  }, [clearLocationOnboardingProgress, dismissLocationOnboarding, mode, onSetupSkip]);
 
   const handleDismissFirstRunGuide = useCallback(() => {
     setFirstRunGuideDismissed(true);
@@ -12996,6 +13054,7 @@ export function OneLocationAgentPageContent({
       savedLocationSessionUserId,
       saveLocationAddress,
       saveLocationPoint,
+      setLocationOnboardingStep,
       vaultKey,
       vaultOwnerToken,
     ],
@@ -13027,7 +13086,7 @@ export function OneLocationAgentPageContent({
     savedLocationAddressResolutionIdRef.current += 1;
     setSaveLocationAddressLoading(false);
     setLocationOnboardingStep("ready");
-  }, [auth.userId]);
+  }, [auth.userId, setLocationOnboardingStep]);
 
   const searchOnboardingSavedPlaces = useCallback(
     async (input: string) => {

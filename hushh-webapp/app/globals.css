@@ -1066,11 +1066,8 @@ textarea {
      surface it had been borrowing. */
   --app-segmented-track-surface: var(--app-neutral-fill);
   --app-segmented-active-surface: var(--app-card-surface-default-solid);
-  /* Not the accent. A segmented control marks the selection with the PILL --
-     a second signal in accent tint is what tab bars use, and using both makes
-     a segmented strip read as a tab bar. See the scoped `[role="tab"]` rule
-     further down, which is where Location was getting blue from. */
-  --app-segmented-active-foreground: var(--app-label);
+  /* Selected tabs share the app accent across shell and in-page controls. */
+  --app-segmented-active-foreground: var(--app-accent);
   --app-segmented-active-border: transparent;
   --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -3795,7 +3792,7 @@ body:has([data-testid="one-location-onboarding"])
      alone cannot do that in dark mode -- so here the lift comes from the
      surface being lighter than the track, not from the shadow. */
   --app-segmented-active-surface: var(--app-card-surface-default-solid);
-  --app-segmented-active-foreground: var(--app-label);
+  --app-segmented-active-foreground: var(--app-accent);
   --app-segmented-active-border: transparent;
   --app-segmented-active-shadow: 0 1px 2px rgba(0, 0, 0, 0.35);
   --app-shell-surface-bg: var(--app-glass-surface);
@@ -6329,24 +6326,16 @@ body[data-persona-surface="ria"] {
   color: var(--app-label) !important;
 }
 
-/* Accent marks the selection on an UNDERLINE tab bar, where there is no other
-   signal -- Consent Center, RIA, Finance. A segmented strip already marks it
-   with the raised pill, and tinting the label too gave Location's `Now /
-   People / Links` a blue active label while Connect's identical control sat
-   dark, because Connect's label class forces `--app-label`. Two components,
-   two global rules, opposite results, and neither component's own colour ever
-   applied: both lost to these `!important` declarations.
-
-   Scoped by the strip's own `data-top-shell-tab-set`, which `TopShellTabs`
-   already writes, so the underline arm is untouched. */
+/* Selection owns tab-label colour. Typography sets label colours with
+   !important, so inherited component colours alone cannot express selection. */
 [role="tab"][aria-selected="true"] :is(.ui-text-agent-tab-label) {
   color: var(--app-accent) !important;
 }
 
-[data-top-shell-tab-set="location"]
-  [role="tab"][aria-selected="true"]
-  :is(.ui-text-agent-tab-label) {
-  color: var(--app-label) !important;
+[data-ui-role="segmented-tabs"] [role="tab"][aria-selected="true"]
+  :is(.ui-text-form-label) {
+  color: var(--app-segmented-active-foreground) !important;
+  font-weight: 600 !important;
 }
 
 [role="tab"][aria-selected="false"] :is(.ui-text-agent-tab-label) {

@@ -1195,6 +1195,7 @@ async function searchKaiActionsSemantic(
     appRuntimeState?: AppRuntimeState;
     surfaceMetadata?: VoiceSurfaceMetadata | null;
     limit?: number;
+    vaultOwnerToken?: string | null;
   },
   signal?: AbortSignal,
 ): Promise<Array<{
@@ -1204,9 +1205,12 @@ async function searchKaiActionsSemantic(
   semantic?: true;
 }>> {
   const limit = Math.max(1, Math.min(input.limit ?? 10, 20));
-  const url =
-    `/api/one/actions/search?limit=${encodeURIComponent(String(limit))}` +
-    (input.query.trim() ? `&query=${encodeURIComponent(input.query.trim())}` : "");
+  // The endpoint is authenticated with a VAULT_OWNER token, so without one
+  // every call is a 401 that the catch below turns into an empty result set.
+  // Returning early keeps "the vault is locked" distinguishable from "nothing
+  // matched", which is the distinction this whole path lost.
+  if (!input.vaultOwnerToken) return [];
+  const url = "/api/one/actions/search";
 
   const controller = _pendingSemanticAbort;
   if (controller) controller.abort();
@@ -1222,8 +1226,12 @@ async function searchKaiActionsSemantic(
     // nothing on device -- which is exactly where the Siri handoff runs.
     // apiFetch routes to the real backend base URL on native platforms.
     const res = await ApiService.apiFetch(url, {
-      method: "GET",
-      headers: { "Content-Type": "application/json" },
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Hushh-Consent": `Bearer ${input.vaultOwnerToken}`,
+      },
+      body: JSON.stringify({ query: input.query.trim(), limit }),
       signal: signal ?? abort.signal,
       credentials: "include",
     });
@@ -1279,6 +1287,8 @@ export async function searchKaiActionsAsync(input: {
   limit?: number;
   debounceMs?: number;
   signal?: AbortSignal;
+  /** Required for the semantic pass; without it only local search runs. */
+  vaultOwnerToken?: string | null;
 }): Promise<Array<{
   action: KaiActionDefinition;
   availability: KaiActionAvailability;

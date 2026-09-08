@@ -1,12 +1,19 @@
-import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   resolvePublicInvite: vi.fn(),
+  token: "public-token",
 }));
 
 vi.mock("next/navigation", () => ({
-  useParams: () => ({ token: "public-token" }),
+  useParams: () => ({ token: mocks.token }),
 }));
 
 vi.mock("@/lib/one-location/service", () => ({
@@ -14,6 +21,8 @@ vi.mock("@/lib/one-location/service", () => ({
     resolvePublicInvite: mocks.resolvePublicInvite,
   },
 }));
+
+import { ApiError } from "@/lib/services/api-client";
 
 import PublicLocationViewPageClient from "@/app/one/location/view/[token]/page-client";
 
@@ -47,7 +56,10 @@ function invitePayload(
 
 describe("PublicLocationViewPageClient", () => {
   beforeEach(() => {
-    mocks.resolvePublicInvite.mockResolvedValue(invitePayload(2 * 60 * 60 * 1000));
+    mocks.token = "public-token";
+    mocks.resolvePublicInvite.mockResolvedValue(
+      invitePayload(2 * 60 * 60 * 1000),
+    );
   });
 
   afterEach(() => {
@@ -130,7 +142,11 @@ describe("PublicLocationViewPageClient", () => {
 
   it("takes the location off screen when the window closes while the tab is open", async () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
-    mocks.resolvePublicInvite.mockResolvedValue(invitePayload(5_000));
+    mocks.resolvePublicInvite
+      .mockResolvedValueOnce(invitePayload(5_000))
+      .mockRejectedValue(
+        new ApiError("This live location link is no longer active.", 410),
+      );
 
     render(<PublicLocationViewPageClient />);
     expect(await screen.findByTitle("Live location map")).toBeTruthy();
@@ -213,7 +229,7 @@ describe("PublicLocationViewPageClient", () => {
     vi.useFakeTimers({ shouldAdvanceTime: true });
     mocks.resolvePublicInvite.mockResolvedValueOnce(invitePayload(3_000));
     mocks.resolvePublicInvite.mockRejectedValue(
-      new Error("This live location link is no longer active."),
+      new ApiError("This live location link is no longer active.", 410),
     );
 
     render(<PublicLocationViewPageClient />);
@@ -227,6 +243,104 @@ describe("PublicLocationViewPageClient", () => {
       expect(screen.queryByTitle("Live location map")).toBeNull(),
     );
     expect(screen.getByText(/Link expired/)).toBeTruthy();
+  });
+
+  it("removes a revoked map on the next poll even with an hour remaining", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mocks.resolvePublicInvite
+      .mockResolvedValueOnce(invitePayload(60 * 60 * 1000))
+      .mockRejectedValue(
+        new ApiError("This live location link is no longer active.", 410),
+      );
+    render(<PublicLocationViewPageClient />);
+    expect(await screen.findByTitle("Live location map")).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(16_000);
+    });
+    expect(screen.queryByTitle("Live location map")).toBeNull();
+    const requests = mocks.resolvePublicInvite.mock.calls.length;
+    await act(async () => {
+      vi.advanceTimersByTime(30_000);
+    });
+    expect(mocks.resolvePublicInvite).toHaveBeenCalledTimes(requests);
+  });
+
+  it("retains a server-approved link when the same expiry is behind the viewer clock", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const payload = invitePayload(3_000);
+    mocks.resolvePublicInvite.mockResolvedValue(payload);
+    render(<PublicLocationViewPageClient />);
+    expect(await screen.findByTitle("Live location map")).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(16_000);
+    });
+    expect(mocks.resolvePublicInvite.mock.calls.length).toBeGreaterThan(1);
+    expect(screen.getByTitle("Live location map")).toBeTruthy();
+    expect(screen.queryByText(/Link expired/)).toBeNull();
+  });
+
+  it("retries a transient expiry-check failure without declaring the link expired", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    mocks.resolvePublicInvite
+      .mockResolvedValueOnce(invitePayload(3_000))
+      .mockRejectedValueOnce(new ApiError("Temporarily unavailable", 503))
+      .mockResolvedValue(invitePayload(30 * 60 * 1000));
+    render(<PublicLocationViewPageClient />);
+    expect(await screen.findByTitle("Live location map")).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(4_000);
+    });
+    expect(screen.queryByText(/Link expired/)).toBeNull();
+    await act(async () => {
+      vi.advanceTimersByTime(15_000);
+    });
+    expect(mocks.resolvePublicInvite.mock.calls.length).toBeGreaterThan(2);
+    expect(screen.getByTitle("Live location map")).toBeTruthy();
+  });
+
+  it("discards an earlier token's response after navigating to another link", async () => {
+    let resolveOld!: (value: ReturnType<typeof invitePayload>) => void;
+    mocks.resolvePublicInvite
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveOld = resolve;
+        }),
+      )
+      .mockRejectedValue(
+        new ApiError("This live location link is invalid.", 404),
+      );
+    const { rerender } = render(<PublicLocationViewPageClient />);
+    mocks.token = "another-token";
+    rerender(<PublicLocationViewPageClient />);
+    expect(
+      await screen.findByText("This live location link is invalid."),
+    ).toBeTruthy();
+    await act(async () => {
+      resolveOld(invitePayload(60 * 60 * 1000));
+    });
+    expect(screen.queryByTitle("Live location map")).toBeNull();
+    expect(screen.queryByText("Neelesh Meena's live location")).toBeNull();
+  });
+
+  it("does not overlap polls while a previous request is still pending", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    let resolvePoll!: (value: ReturnType<typeof invitePayload>) => void;
+    mocks.resolvePublicInvite
+      .mockResolvedValueOnce(invitePayload(60 * 60 * 1000))
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolvePoll = resolve;
+        }),
+      );
+    render(<PublicLocationViewPageClient />);
+    expect(await screen.findByTitle("Live location map")).toBeTruthy();
+    await act(async () => {
+      vi.advanceTimersByTime(46_000);
+    });
+    expect(mocks.resolvePublicInvite).toHaveBeenCalledTimes(2);
+    await act(async () => {
+      resolvePoll(invitePayload(60 * 60 * 1000));
+    });
   });
 
   it("states what the link carries, and shows no contact detail", async () => {

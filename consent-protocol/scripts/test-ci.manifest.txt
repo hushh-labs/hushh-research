@@ -202,3 +202,8 @@ tests/test_data_model_audit_postgres.py
 tests/test_data_model_audit_script.py
 
 tests/test_third_party_license_evidence.py
+
+# Merged route execution and per-screen context contracts.
+tests/test_live_context_executable_split.py
+tests/test_one_action_search_contract.py
+tests/test_live_context_screen_state.py
