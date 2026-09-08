@@ -27,6 +27,7 @@ class PodLiveSession:
     hushh_id: str
     session_id: str
     consent_token: str = field(repr=False)
+    data_door_grants: dict[str, str] = field(default_factory=dict, repr=False)
     _log: Any = field(default=None, init=False, repr=False, compare=False)
 
     async def require_access(self) -> None:

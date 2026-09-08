@@ -489,14 +489,19 @@ Relay to browser:
 - Vault lock, key removal, mode change, app backgrounding, and reconnect end
   the current BYOK voice connection. A later voice session resolves the current
   encrypted configuration again; no durable relay credential reference exists.
-- The vault owner consent token rides in the post-connect `app_context` frame
-  and lands in ADK session state (`hussh:consent_token`). It is read by
-  specialist turn tools only; it never reaches the model prompt.
-- Locking the vault or revoking consent sends `consent_token: null`, which
-  clears the token from the active ADK session before any later specialist
-  call. A live session never retains its former authority after that update.
-- Specialist tools fail closed: without `hussh:user_id` + consent token in
-  session state they return `needs_auth` instead of calling the specialist.
+- On the private branch, the hub strips browser-supplied consent and specialist
+  grants from `app_context`. The pod receives server-issued `pkm.read` authority
+  and independent location, email and calendar read grants in authenticated
+  connection headers. These remain transient session state, excluded from the
+  memory projection. The specialist broker checks current owner, scope and
+  revocation at each read; a browser context update cannot grant access.
+- Text and Live use the same read-grant issuer. Email's scoped read path cannot
+  fall through to full A2A dispatch if the broker refuses it. Calendar retains
+  its existing calendar tools rather than adding another specialist. These are
+  read summaries, not proof of all specialist actions or calendar query windows.
+- Private consent and erasure admission are checked during the connection.
+  A detected refusal closes it; periodic detection and cancellation do not
+  establish instantaneous revocation or completed underlying provider drainage.
 - Session state writes go through `session_service.append_event` with a
   `state_delta` (the relay's session object is a service copy; direct
   mutation does not persist).

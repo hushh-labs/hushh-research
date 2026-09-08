@@ -9,7 +9,7 @@ from google.adk.sessions import Session
 from google.genai import types
 
 from api.routes.one import pod_live_session as module
-from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, STATE_USER_ID
+from hushh_mcp.one_adk.agent_tree import ONE_APP_NAME, STATE_DATA_DOOR_GRANTS, STATE_USER_ID
 
 
 @pytest.fixture
@@ -20,7 +20,13 @@ def private(monkeypatch):
     monkeypatch.setattr(
         module, "_validate_consent", AsyncMock(return_value={"user_id": "firebase-owner"})
     )
-    return module.PodLiveSession("firebase-owner", "pod-owner", "voice_test", "synthetic-secret")
+    return module.PodLiveSession(
+        "firebase-owner",
+        "pod-owner",
+        "voice_test",
+        "synthetic-secret",
+        {"email": "synthetic-email-read"},
+    )
 
 
 def session(events, owner="pod-owner"):
@@ -122,6 +128,9 @@ async def test_private_runtime_builds_separate_tool_and_memory_identity(private,
     assert create.call_args.kwargs["user_id"] == private.hushh_id
     assert create.call_args.kwargs["session_id"] == private.session_id
     assert create.call_args.kwargs["state"][STATE_USER_ID] == private.user_id
+    assert create.call_args.kwargs["state"][STATE_DATA_DOOR_GRANTS] == {
+        "email": "synthetic-email-read"
+    }
 
 
 @pytest.mark.asyncio

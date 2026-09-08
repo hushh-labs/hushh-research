@@ -526,11 +526,19 @@ async def pod_live_route(websocket: WebSocket) -> None:
         ):
             raise HTTPException(status_code=403, detail="voice binding required")
         claims = await _validate_consent(consent)
+        doors = {}
+        for name in ("location", "email", "calendar"):
+            token = str(websocket.headers.get("x-hussh-" + name + "-grant") or "")
+            if len(token) > 4096:
+                raise HTTPException(status_code=403, detail="specialist grant unavailable")
+            if token:
+                doors[name] = token
         private = PodLiveSession(
             user_id=str(claims.get("user_id") or ""),
             hushh_id=(os.getenv("HUSSH_ID") or "").strip(),
             session_id=session_id,
             consent_token=consent,
+            data_door_grants=doors,
         )
         await private.require_access()
     except Exception:

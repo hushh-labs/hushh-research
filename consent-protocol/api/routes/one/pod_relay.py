@@ -408,6 +408,62 @@ def _not_ready(status: str) -> HTTPException:
     )
 
 
+async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -> dict[str, str]:
+    """Existing independent read grants shared by text and Live pod transports."""
+    data_door_grants: dict[str, str] = {}
+    if pod_data_door_enabled():
+        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
+            PersonalAgentGrantService,
+        )
+
+        door_issuer = (
+            door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
+        )
+        try:
+            location_grant = await door_issuer(user_id)
+            token = str((location_grant or {}).get("token") or "")
+            if token:
+                data_door_grants["location"] = token
+        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
+            logger.info("pod_relay.data_door_grant_skipped %s", type(exc).__name__)
+
+        # The email door grant (the next door in the staged plan). Minted
+        # INDEPENDENTLY via the general standing-scope issuer and best-effort: a
+        # failure here degrades only email's read to runtime_unavailable, never
+        # the turn and never the location door. Same short-TTL, Nav-narrated,
+        # owner-revocable shape as location; the scope is cap.email.inbox.view.
+        try:
+            email_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_EMAIL_INBOX_VIEW,
+                grant_kind="email_inbox_view",
+                scope_description="Read a summary of your inbox to answer email questions",
+            )
+            email_token = str((email_grant or {}).get("token") or "")
+            if email_token:
+                data_door_grants["email"] = email_token
+        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
+            logger.info("pod_relay.data_door_grant_skipped door=email %s", type(exc).__name__)
+        # The calendar door grant (third door). Read-only upcoming events through
+        # the broker; the pod still cannot propose or execute a change from a
+        # keyless runtime, and the summary says where to do that. Independent and
+        # best-effort exactly like email.
+        try:
+            calendar_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
+                grant_kind="calendar_events_view",
+                scope_description="Read your upcoming calendar events to answer schedule questions",
+            )
+            calendar_token = str((calendar_grant or {}).get("token") or "")
+            if calendar_token:
+                data_door_grants["calendar"] = calendar_token
+        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
+            logger.info("pod_relay.data_door_grant_skipped door=calendar %s", type(exc).__name__)
+
+    return data_door_grants
+
+
 async def relay_pod_turn(
     *,
     hushh_id: str,
@@ -481,56 +537,7 @@ async def relay_pod_turn(
     # runtime_unavailable for location -- today's DB-wall behaviour -- so a mint
     # failure must degrade the read, never fail the turn. Behind the flag: off,
     # no grant is couriered and the pod cannot reach the door at all.
-    data_door_grants: dict[str, str] = {}
-    if pod_data_door_enabled():
-        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
-            PersonalAgentGrantService,
-        )
-
-        door_issuer = (
-            door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
-        )
-        try:
-            location_grant = await door_issuer(user_id)
-            token = str((location_grant or {}).get("token") or "")
-            if token:
-                data_door_grants["location"] = token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped %s", type(exc).__name__)
-
-        # The email door grant (the next door in the staged plan). Minted
-        # INDEPENDENTLY via the general standing-scope issuer and best-effort: a
-        # failure here degrades only email's read to runtime_unavailable, never
-        # the turn and never the location door. Same short-TTL, Nav-narrated,
-        # owner-revocable shape as location; the scope is cap.email.inbox.view.
-        try:
-            email_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_EMAIL_INBOX_VIEW,
-                grant_kind="email_inbox_view",
-                scope_description="Read a summary of your inbox to answer email questions",
-            )
-            email_token = str((email_grant or {}).get("token") or "")
-            if email_token:
-                data_door_grants["email"] = email_token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped door=email %s", type(exc).__name__)
-        # The calendar door grant (third door). Read-only upcoming events through
-        # the broker; the pod still cannot propose or execute a change from a
-        # keyless runtime, and the summary says where to do that. Independent and
-        # best-effort exactly like email.
-        try:
-            calendar_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
-                user_id,
-                scope=ConsentScope.CAP_CALENDAR_EVENTS_VIEW,
-                grant_kind="calendar_events_view",
-                scope_description="Read your upcoming calendar events to answer schedule questions",
-            )
-            calendar_token = str((calendar_grant or {}).get("token") or "")
-            if calendar_token:
-                data_door_grants["calendar"] = calendar_token
-        except Exception as exc:  # noqa: BLE001 - a door mint failure degrades the read, never the turn
-            logger.info("pod_relay.data_door_grant_skipped door=calendar %s", type(exc).__name__)
+    data_door_grants = await issue_pod_data_door_grants(user_id, door_grants=door_grants)
 
     body: dict[str, Any] = {
         "message": payload.message,

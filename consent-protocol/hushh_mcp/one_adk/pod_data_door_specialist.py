@@ -27,6 +27,7 @@ today's behaviour, untouched.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -250,7 +251,7 @@ async def serve_specialist_via_data_door(
         client = PodHubClient()
 
     try:
-        projection = client.read_specialist(door_name, scope_token)
+        projection = await asyncio.to_thread(client.read_specialist, door_name, scope_token)
     except Exception as exc:  # noqa: BLE001 - a broker refusal/outage degrades the read, not the turn
         logger.info(
             "one_adk.data_door_read_unavailable agent_id=%s %s", agent_id, type(exc).__name__

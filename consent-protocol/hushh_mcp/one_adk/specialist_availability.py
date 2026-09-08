@@ -75,6 +75,7 @@ def resolve_specialist_availability(
     consent_token: str,
     voice_context: object,
     exact_authority_available: bool = False,
+    scoped_read_only: bool = False,
 ) -> SpecialistAvailabilityV1:
     """Resolve a specialist's callable state from redacted current context.
 
@@ -83,6 +84,8 @@ def resolve_specialist_availability(
     pass it fails closed -- the wrong answer here is the one that reports a specialist
     ready and then refuses it.
     """
+    # scoped_read_only selects the existing email read broker, not A2A authority.
+    # Its caller must refuse broker failure rather than fall through to dispatch.
     context = voice_context if isinstance(voice_context, dict) else {}
     route_family = str(context.get("route_family") or "").strip()
     screen = str(context.get("screen") or "").strip()
@@ -142,7 +145,11 @@ def resolve_specialist_availability(
     # The branch became dead code, the accurate per-specialist messages downstream
     # became unreachable, and admission started answering `ready` for specialists
     # that were about to fail with a raw EXACT_AUTHORITY_REQUIRED.
-    if agent_id in _AUTHORITY_INGRESS_ONLY and not exact_authority_available:
+    if (
+        agent_id in _AUTHORITY_INGRESS_ONLY
+        and not exact_authority_available
+        and not (agent_id == "agent_email" and scoped_read_only)
+    ):
         return result("authority_required", "exact_a2a_authority_required")
 
     if not is_wired_specialist(agent_id):

@@ -126,3 +126,112 @@ def test_the_summary_ignores_inactive_grants_and_resolved_requests():
 
 def test_the_summary_survives_a_degraded_projection():
     assert "could not read" in dds._format_location_summary(None)  # type: ignore[arg-type]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "agent_id,door",
+    [("agent_location", "location"), ("agent_email", "email")],
+)
+async def test_root_specialist_turn_reaches_only_its_scoped_door(monkeypatch, agent_id, door):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.services import pod_hub_client
+
+    broker = _Broker({})
+    monkeypatch.setattr(pod_hub_client, "PodHubClient", lambda: broker)
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
+    dispatch = AsyncMock(side_effect=AssertionError("read must use scoped broker"))
+    monkeypatch.setattr(agent_tree, "dispatch", dispatch)
+    context = SimpleNamespace(
+        state={
+            agent_tree.STATE_USER_ID: "synthetic-owner",
+            agent_tree.STATE_CONSENT_TOKEN: "synthetic-pkm-read",
+            agent_tree.STATE_DATA_DOOR_GRANTS: {door: "synthetic-scoped-read"},
+        }
+    )
+    result = await agent_tree._specialist_turn(agent_id, "Summarize my information", context)
+    assert result.get("source") == "data_door", result
+    assert broker.calls == [(door, "synthetic-scoped-read")]
+    dispatch.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_specialist_read_does_not_block_monitor_or_deliver_projection():
+    import asyncio
+    import threading
+
+    entered, release = threading.Event(), threading.Event()
+
+    class SlowBroker:
+        def read_specialist(self, name, token):
+            entered.set()
+            release.wait(timeout=2)
+            return _PROJECTION
+
+    task = asyncio.create_task(
+        dds.serve_specialist_via_data_door(
+            "agent_location", _Ctx({"location": "synthetic-scope"}), broker=SlowBroker()
+        )
+    )
+    try:
+        assert await asyncio.to_thread(entered.wait, 1)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await asyncio.wait_for(task, 1)
+    finally:
+        release.set()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_calendar_uses_its_existing_read_tool_not_a_second_specialist(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp import runtime_settings
+    from hushh_mcp.agents.calendar import tools
+    from hushh_mcp.services import pod_hub_client
+
+    broker = _Broker({})
+    monkeypatch.setattr(runtime_settings, "pod_mode", lambda: True)
+    monkeypatch.setattr(pod_hub_client, "PodHubClient", lambda: broker)
+    result = await tools.calendar_summary(
+        SimpleNamespace(
+            state={
+                "hussh:user_id": "synthetic-owner",
+                STATE_DATA_DOOR_GRANTS: {"calendar": "synthetic-scope"},
+            }
+        )
+    )
+    assert result.get("source") == "data_door", result
+    assert broker.calls == [("calendar", "synthetic-scope")]
+
+
+@pytest.mark.asyncio
+async def test_email_read_refusal_never_upgrades_to_a2a_dispatch(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.services import pod_hub_client
+
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: True)
+    broker = _Broker(boom=PodHubUnavailable("synthetic revoked"))
+    monkeypatch.setattr(pod_hub_client, "PodHubClient", lambda: broker)
+    dispatch = AsyncMock()
+    monkeypatch.setattr(agent_tree, "dispatch", dispatch)
+    result = await agent_tree._specialist_turn(
+        "agent_email",
+        "Summarize inbox",
+        SimpleNamespace(
+            state={
+                agent_tree.STATE_USER_ID: "synthetic-owner",
+                agent_tree.STATE_CONSENT_TOKEN: "synthetic-pkm-read",
+                STATE_DATA_DOOR_GRANTS: {"email": "synthetic-scope"},
+            }
+        ),
+    )
+    assert result["reason"] == "scoped_read_unavailable"
+    dispatch.assert_not_called()

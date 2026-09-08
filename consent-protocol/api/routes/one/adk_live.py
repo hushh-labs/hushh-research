@@ -78,6 +78,7 @@ from hushh_mcp.one_adk.agent_tree import (
     ONE_LIVE_VOICE_NAME,
     ONE_LIVE_VOICE_OPTIONS,
     STATE_CONSENT_TOKEN,
+    STATE_DATA_DOOR_GRANTS,
     STATE_PENDING_DIRECTIVE,
     STATE_PENDING_TOOL_TRACE,
     STATE_PKM_CONTEXT,
@@ -657,6 +658,7 @@ async def run_one_live_session(
             # Consent tokens arrive via the first app_context frame (they are
             # never placed in URLs); tools fail closed until then.
             STATE_CONSENT_TOKEN: private.consent_token if private else "",
+            STATE_DATA_DOOR_GRANTS: dict(private.data_door_grants) if private else {},
             STATE_TIMEZONE: "",
             # Live sessions start with an explicit pending marker so action
             # tools can distinguish "browser context not yet arrived" (report

@@ -18,7 +18,12 @@ from websockets.asyncio.client import connect
 from api.routes.one.pod_live_authority import HubVoiceAuthority
 from api.routes.one.pod_live_courier import run_live_courier
 from api.routes.one.pod_live_transport import MAX_FRAME_BYTES
-from api.routes.one.pod_relay import _identity_token, _pod_url, _require_enabled
+from api.routes.one.pod_relay import (
+    _identity_token,
+    _pod_url,
+    _require_enabled,
+    issue_pod_data_door_grants,
+)
 from hushh_mcp.consent.token import validate_token_with_db
 from hushh_mcp.constants import ConsentScope
 from hushh_mcp.services.action_directive_ledger import get_action_directive_store
@@ -140,12 +145,23 @@ async def relay_private_live(browser: Any, *, user_id: str) -> None:
             if not identity:
                 raise PermissionError("private voice hub identity unavailable")
             await admission.require_access()
+            doors = await issue_pod_data_door_grants(user_id)
+            door_headers = {}
+            for name, token in doors.items():
+                if (
+                    name not in {"location", "email", "calendar"}
+                    or not isinstance(token, str)
+                    or not 0 < len(token) <= 4096
+                ):
+                    raise ValueError("private specialist grant unavailable")
+                door_headers["X-Hussh-" + name + "-Grant"] = token
         async with NoRedirectConnect(
             _socket_url(admission.url),
             additional_headers={
                 "Authorization": "Bearer " + identity,
                 "X-Consent-Token": admission.token,
                 "X-Hussh-Voice-Session": admission.session_id,
+                **door_headers,
             },
             proxy=None,
             compression=None,

@@ -1138,12 +1138,20 @@ async def _specialist_turn(
     # for specialists that then refused. Pure and cheap -- in-memory token validation,
     # no I/O -- and the same object is dispatched below, so the two cannot disagree.
     task = _task_from_context(tool_context, request)
+    grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
+    scoped_email_read = (
+        pod_mode()
+        and agent_id == "agent_email"
+        and isinstance(grants, dict)
+        and bool(grants.get("email"))
+    )
     availability = resolve_specialist_availability(
         agent_id=agent_id,
         user_id=user_id,
         consent_token=consent_token,
         voice_context=voice_context,
         exact_authority_available=supplies_exact_authority(task.authority if task else None),
+        scoped_read_only=scoped_email_read,
     )
     availability_payload = availability.as_dict()
     if availability.state == "setup_required":
@@ -1240,6 +1248,14 @@ async def _specialist_turn(
         if door_payload is not None:
             door_payload.setdefault("availability", availability_payload)
             return door_payload
+        if scoped_email_read:
+            # A read scope never grants full email task/action authority. A
+            # revoked or unavailable broker must not fall through to A2A.
+            return {
+                "status": "runtime_unavailable",
+                "reason": "scoped_read_unavailable",
+                "message": "Your email read is unavailable. Try again later.",
+            }
 
     try:
         result = await dispatch(agent_id, task)
