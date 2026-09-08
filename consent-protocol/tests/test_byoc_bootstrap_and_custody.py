@@ -700,6 +700,9 @@ def test_a_merge_preserves_bindings_that_were_already_there() -> None:
     plan = UserGcpBackend(user_project=USER_PROJECT, live=False).render_bootstrap_plan(_spec())
     call = next(c for c in boot.plan_calls(plan) if c["step"] == "iam_pod_sa_on_bucket")
 
+    session._responses[1] = _Response(
+        200, {"etag": "after", "bindings": [*existing["bindings"], *call["bindings"]]}
+    )
     result = boot._merge_binding(call, {"Authorization": "Bearer x"})
     assert result["ok"] is True
     written = json.loads(session.calls[1]["data"])
@@ -709,13 +712,29 @@ def test_a_merge_preserves_bindings_that_were_already_there() -> None:
     members = next(b for b in written["bindings"] if b["role"] == "roles/storage.objectViewer")
     assert "user:someone@example.com" in members["members"]
 
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    observation = result["bindingObservations"][0]
+    assert observation["disposition"] == "added"
+    assert observation["beforeEtag"] == "BwXyz"
+    assert observation["afterEtag"] == "after"
+    receipt = SubstrateReceipt(
+        applied=True,
+        tenant_ref=USER_PROJECT + "/us-central1",
+        binding_observations=[{**observation, "private": "must-not-retain"}],
+    )
+    assert receipt.as_record()["bindingObservations"] == [observation]
+
 
 @pytest.mark.parametrize("conditional", [False, True])
 def test_a_merge_that_changes_nothing_is_reported_as_a_no_op(conditional) -> None:
     """A re-run should say 'already bound', not rewrite an identical policy."""
     pod_sa = f"one-pod-{HUSHH_ID.lower()}@{USER_PROJECT}.iam.gserviceaccount.com"
     already = {
-        "bindings": [{"role": "roles/storage.objectAdmin", "members": [f"serviceAccount:{pod_sa}"]}]
+        "etag": "before",
+        "bindings": [
+            {"role": "roles/storage.objectAdmin", "members": [f"serviceAccount:{pod_sa}"]}
+        ],
     }
     if conditional:
         already["version"] = 3
@@ -732,10 +751,12 @@ def test_a_merge_that_changes_nothing_is_reported_as_a_no_op(conditional) -> Non
     assert result["ok"] is True
     if conditional:
         assert len(session.calls) == 2
+        assert result["bindingObservations"] == []  # No after-policy evidence.
         written = json.loads(session.calls[1]["data"])
         assert written["bindings"] == [already["bindings"][0], call["bindings"][0]]
     else:
         assert result["detail"] == "already bound"
+        assert result["bindingObservations"][0]["disposition"] == "already_present"
         assert len(session.calls) == 1, "a no-op must not write"
 
 

@@ -203,6 +203,45 @@ def _secret_creation_identity(
     return identity
 
 
+def _binding_observation(value: Any) -> dict[str, str] | None:
+    """Bounded policy-write provenance; never exclusive ownership or revoke authority."""
+    from urllib.parse import urlsplit
+
+    fields = ("step", "policyResource", "role", "member", "disposition", "beforeEtag", "afterEtag")
+    if not isinstance(value, dict) or any(
+        not isinstance(value.get(key), str) or not value[key].strip() or len(value[key]) > 1024
+        for key in fields
+    ):
+        return None
+    try:
+        url = urlsplit(value["policyResource"])
+    except ValueError:
+        return None
+    if (
+        url.scheme != "https"
+        or url.netloc
+        not in {
+            "cloudkms.googleapis.com",
+            "storage.googleapis.com",
+            "iam.googleapis.com",
+            "cloudresourcemanager.googleapis.com",
+            "artifactregistry.googleapis.com",
+            "secretmanager.googleapis.com",
+            "pubsub.googleapis.com",
+        }
+        or url.query
+        or url.fragment
+        or not url.path.startswith("/v1/")
+        and not url.path.startswith("/storage/v1/")
+        or value["disposition"] not in {"added", "already_present"}
+        or not value["role"].startswith(("roles/", "projects/", "organizations/"))
+        or not value["member"].startswith("serviceAccount:")
+        or any(len(value[key]) > 512 for key in ("beforeEtag", "afterEtag"))
+    ):
+        return None
+    return {key: value[key] for key in fields}
+
+
 @dataclass(frozen=True)
 class SubstrateReceipt:
     """Applied substrate identifiers, including resources adopted during bootstrap.
@@ -232,6 +271,7 @@ class SubstrateReceipt:
     planned_resources: list[dict[str, str]] = field(default_factory=list)
     resource_observations: list[dict[str, Any]] = field(default_factory=list)
     planned_bindings: list[dict[str, str]] | None = None
+    binding_observations: list[dict[str, Any]] = field(default_factory=list)
 
     @property
     def failed_steps(self) -> list[dict[str, Any]]:
@@ -309,6 +349,13 @@ class SubstrateReceipt:
                 )
         if observations:
             record["resourceObservations"] = observations
+        bindings = [
+            item
+            for raw in self.binding_observations
+            if (item := _binding_observation(raw)) is not None
+        ]
+        if bindings:
+            record["bindingObservations"] = bindings
         return record
 
 
@@ -596,6 +643,12 @@ class HushhFederatedSubstrate:
                 step["resourceObservation"]
                 for step in steps
                 if isinstance(step.get("resourceObservation"), dict)
+            ],
+            binding_observations=[
+                item
+                for step in steps
+                for item in (step.get("bindingObservations") or [])
+                if isinstance(item, dict)
             ],
             detail="" if applied else "bootstrap completion unconfirmed",
         )

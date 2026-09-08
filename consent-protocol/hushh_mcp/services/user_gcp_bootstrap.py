@@ -1352,10 +1352,55 @@ class UserGcpBootstrap:
 
         policy = dict(read.json() or {})
         existing = list(policy.get("bindings") or [])
+
+        def observations(after: Any) -> list[dict[str, str]]:
+            from hushh_mcp.services.byoc_substrate import _binding_observation
+
+            if not isinstance(after, dict) or not isinstance(after.get("bindings"), list):
+                return []
+            if after.get("error") is not None or any(
+                not isinstance(item, dict)
+                or not isinstance(item.get("role"), str)
+                or not isinstance(item.get("members"), list)
+                or any(not isinstance(member, str) for member in item["members"])
+                for item in after["bindings"]
+            ):
+                return []
+            result = []
+            for wanted in bindings:
+                if wanted.get("condition") is not None:
+                    continue
+                for member in wanted["members"]:
+                    single = {"role": wanted["role"], "members": [member]}
+                    if not _bindings_equal(after["bindings"], [single]):
+                        continue
+                    item = _binding_observation(
+                        {
+                            "step": call["step"],
+                            "policyResource": call["read_url"],
+                            "role": wanted["role"],
+                            "member": member,
+                            "disposition": "already_present"
+                            if _bindings_equal(existing, [single])
+                            else "added",
+                            "beforeEtag": policy.get("etag"),
+                            "afterEtag": after.get("etag"),
+                        }
+                    )
+                    if item is not None:
+                        result.append(item)
+            return result
+
         if _bindings_equal(existing, bindings):
             # Already granted. Reporting this as a no-op keeps a re-run honest rather
             # than writing an identical policy and calling it a change.
-            return {"step": call["step"], "status": 200, "ok": True, "detail": "already bound"}
+            return {
+                "step": call["step"],
+                "status": 200,
+                "ok": True,
+                "detail": "already bound",
+                "bindingObservations": observations(policy),
+            }
 
         merged = [dict(b) for b in existing]
         for wanted in bindings:
@@ -1403,6 +1448,7 @@ class UserGcpBootstrap:
             "ok": ok,
             "detail": "" if ok else "IAM policy write failed",
             "preserved_bindings": len(existing),
+            "bindingObservations": observations(_json_or_empty(write)) if ok else [],
         }
 
 
