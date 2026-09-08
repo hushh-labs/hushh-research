@@ -19,7 +19,7 @@ import math
 import os
 import re
 import time
-from typing import Any, Optional
+from typing import Any, Callable, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -645,13 +645,25 @@ class GcpRunClient:
         expected_uid: Optional[str] = None,
         timeout_s: float = 60,
         interval_s: float = 1,
+        operation_name: Optional[str] = None,
+        before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
+        on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
     ) -> None:
+        if (
+            operation_name is not None or before_submit is not None or on_acknowledged is not None
+        ) and expected_uid is None:
+            raise ValueError("Durable deletion requires a service incarnation")
+        if (before_submit is None) != (on_acknowledged is None):
+            raise ValueError("Durable deletion requires both retention callbacks")
         if expected_uid is not None:
             self._delete_service_incarnation(
                 name,
                 expected_uid=expected_uid,
                 timeout_s=timeout_s,
                 interval_s=interval_s,
+                operation_name=operation_name,
+                before_submit=before_submit,
+                on_acknowledged=on_acknowledged,
             )
             return
         import requests  # type: ignore[import-untyped]
@@ -668,12 +680,18 @@ class GcpRunClient:
         expected_uid: str,
         timeout_s: float,
         interval_s: float,
+        operation_name: Optional[str] = None,
+        before_submit: Optional[Callable[[dict[str, Any]], bool]] = None,
+        on_acknowledged: Optional[Callable[[dict[str, Any]], bool]] = None,
     ) -> None:
         """Delete only the recorded incarnation and verify absence before return.
 
         v2 exposes the etag deletion precondition. Matching UID before DELETE and
         sending that version's etag prevents a replacement between GET and DELETE
-        from inheriting the deletion. Polling never issues another DELETE.
+        from inheriting the deletion. Retention callbacks enable the existing
+        lifecycle coordinator to record admission and acknowledgement. Supplying
+        its persisted operation resumes polling without another DELETE. The
+        coordinator owns attempt exclusivity and lost-acknowledgement recovery.
         """
         import requests  # type: ignore[import-untyped]
 
@@ -721,12 +739,91 @@ class GcpRunClient:
                 raise RuntimeError("Cloud Run service incarnation changed")
             return value
 
+        parent = f"projects/{self._project}/locations/{self._region}"
+        service_name = f"{parent}/services/{name}"
+
+        def validate_operation(value: Any) -> str:
+            prefix = f"{parent}/operations/"
+            if (
+                not isinstance(value, str)
+                or not value.startswith(prefix)
+                or not re.fullmatch(r"[A-Za-z0-9_-]+", value[len(prefix) :])
+            ):
+                raise RuntimeError("Cloud Run deletion operation identity invalid")
+            return value
+
+        def finish_operation(operation: str) -> None:
+            operation = validate_operation(operation)
+            while True:
+                result = requests.get(
+                    f"https://run.googleapis.com/v2/{operation}",
+                    headers=self._headers(),
+                    timeout=remaining(),
+                    allow_redirects=False,
+                )
+                remaining()
+                if result.status_code != 200:
+                    raise RuntimeError("Cloud Run deletion operation unavailable")
+                body = result.json()
+                if not isinstance(body, dict) or body.get("name") != operation:
+                    raise RuntimeError("Cloud Run deletion operation identity invalid")
+                if "error" in body:
+                    raise RuntimeError("Cloud Run deletion operation failed")
+                if body.get("done") is True:
+                    deleted = body.get("response")
+                    if (
+                        not isinstance(deleted, dict)
+                        or deleted.get("@type") != "type.googleapis.com/google.cloud.run.v2.Service"
+                        or deleted.get("name") != service_name
+                        or deleted.get("uid") != expected_uid
+                        or not isinstance(deleted.get("deleteTime"), str)
+                        or not deleted["deleteTime"].strip()
+                    ):
+                        raise RuntimeError("Cloud Run deletion completion identity invalid")
+                    if observe() is not None:
+                        raise RuntimeError("Cloud Run deletion absence unconfirmed")
+                    return
+                if body.get("done", False) is not False or "response" in body:
+                    raise RuntimeError("Cloud Run deletion operation state invalid")
+                time.sleep(min(interval_s, remaining()))
+
+        # The registry must bind this acknowledgement to the owner/attempt before
+        # supplying it here. Recovery polls only that operation; it never DELETEs.
+        if operation_name is not None:
+            finish_operation(operation_name)
+            return
+
         before = observe()
         if before is None:
+            if before_submit is not None:
+                raise RuntimeError("Cloud Run deletion admission has no live incarnation")
             return
         etag = before.get("etag")
         if not isinstance(etag, str) or not etag.strip():
             raise RuntimeError("Cloud Run deletion precondition unavailable")
+        admission: dict[str, Any] = {
+            "serviceName": service_name,
+            "serviceUid": expected_uid,
+            "etag": etag,
+        }
+        if before_submit is not None:
+            if before.get("name") != service_name:
+                raise RuntimeError("Cloud Run deletion service identity invalid")
+            template = before.get("template")
+            containers = template.get("containers") if isinstance(template, dict) else None
+            generation = before.get("generation")
+            if (
+                not isinstance(generation, str)
+                or not re.fullmatch(r"[1-9][0-9]{0,18}", generation)
+                or not isinstance(containers, list)
+                or len(containers) != 1
+                or not isinstance(containers[0], dict)
+                or not isinstance(containers[0].get("image"), str)
+            ):
+                raise RuntimeError("Cloud Run deletion runtime evidence unavailable")
+            admission.update(generation=int(generation), image=containers[0]["image"])
+            if before_submit(dict(admission)) is not True:
+                raise RuntimeError("Cloud Run deletion admission retention unconfirmed")
         headers = self._headers()
         request_timeout = remaining()
         response = requests.delete(
@@ -738,6 +835,15 @@ class GcpRunClient:
         )
         if response.status_code not in (200, 404):
             raise RuntimeError("Cloud Run incarnation deletion not accepted")
+        if on_acknowledged is not None:
+            if response.status_code != 200:
+                raise RuntimeError("Cloud Run deletion acknowledgement unavailable")
+            body = response.json()
+            operation = validate_operation(body.get("name") if isinstance(body, dict) else None)
+            if on_acknowledged({**admission, "operationName": operation}) is not True:
+                raise RuntimeError("Cloud Run deletion acknowledgement retention unconfirmed")
+            finish_operation(operation)
+            return
         while True:
             if observe() is None:
                 return

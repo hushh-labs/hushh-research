@@ -1024,6 +1024,24 @@ class UserGcpBackend:
             expected_uid=spec.expected_service_uid,
         )
 
+    async def erase_compute(
+        self, spec: PodSpec, *, operation_name=None, before_submit=None, on_acknowledged=None
+    ) -> None:
+        """Delete or resume only the captured incarnation through retained receipts."""
+        if not self._live or not spec.expected_service_uid:
+            raise RuntimeError("erasure compute authority unavailable")
+        import asyncio
+
+        client = await asyncio.to_thread(self._client)
+        await asyncio.to_thread(
+            client.delete_service,
+            _service_name(spec.hushh_id),
+            expected_uid=spec.expected_service_uid,
+            operation_name=operation_name,
+            before_submit=before_submit,
+            on_acknowledged=on_acknowledged,
+        )
+
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:

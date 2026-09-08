@@ -454,11 +454,37 @@ def claim_provision(pg, *, attempt="a" * 32, observed=None, owner="synthetic-own
 def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, invalid):
     pg = provision_pg
     pg.apply_file(ROOT / "db/migrations/parked/918_personal_agent_erasure_memory_binding.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/919_personal_agent_compute_erasure.sql")
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
         "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
-        (json.dumps({"serviceUid": "incarnation"}),),
+        (
+            json.dumps(
+                {
+                    "serviceUid": "incarnation",
+                    "provisionAttempt": {
+                        "version": 1,
+                        "ownerId": "synthetic-owner",
+                        "phase": "provisioned",
+                        "evidence": {
+                            "host_requested": {
+                                "creationAcknowledgement": {
+                                    "backend": "gcp",
+                                    "project": "synthetic-project",
+                                    "region": "us-central1",
+                                    "service": "pod-service",
+                                    "serviceUid": "incarnation",
+                                    "initialGeneration": 1,
+                                    "initialImage": "repo/pod@sha256:" + "a" * 64,
+                                }
+                            }
+                        },
+                    },
+                }
+            ),
+        ),
     )
+    pg.execute("UPDATE personal_agent_registry SET backend='gcp' WHERE user_id='synthetic-owner'")
     reservation = pg.execute(
         "SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')"
     )[0][0]
@@ -530,6 +556,50 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_deletion(completed)
     saved = provision_row(pg)
     assert saved["backend_metadata"]["erasure"]["memoryDeletion"] == completed
+    compute = {
+        "serviceName": "projects/synthetic-project/locations/us-central1/services/pod-service",
+        "serviceUid": "incarnation",
+        "etag": "v1",
+        "generation": 1,
+        "image": "repo/pod@sha256:" + "a" * 64,
+    }
+
+    def retain_compute(stage, value, expected=None):
+        return pg.execute(
+            "SELECT retain_erasure_compute_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(expected or provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(value),
+            ),
+        )[0][0]
+
+    for bad in (
+        {**compute, "generation": 2},
+        {**compute, "serviceUid": "foreign"},
+        {**compute, "image": "mutable:tag"},
+        {**compute, "extra": "private"},
+    ):
+        assert not retain_compute("computeAdmission", bad)
+    expected = provision_row(pg)["backend_metadata"]["erasure"]
+    assert retain_compute("computeAdmission", compute, expected)
+    assert not retain_compute(
+        "computeAdmission", compute, expected
+    )  # Never authorize a second DELETE.
+    ack = {
+        **compute,
+        "operationName": "projects/synthetic-project/locations/us-central1/operations/delete-1",
+    }
+    assert not retain_compute("computeAcknowledgement", {**ack, "etag": "other"})
+    assert not retain_compute(
+        "computeAcknowledgement",
+        {**ack, "operationName": "projects/foreign/locations/us-central1/operations/delete-1"},
+    )
+    assert retain_compute("computeAcknowledgement", ack)
+    assert retain_compute("computeAcknowledgement", ack)
+    assert not retain_compute("computeDeletion", {**ack, "status": "pending"})
+    assert retain_compute("computeDeletion", {**ack, "status": "compute_deleted"})
+    saved = provision_row(pg)
     pg.execute(
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
     )

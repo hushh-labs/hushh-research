@@ -401,12 +401,20 @@ evidence only when the returned image matches a digest-pinned request. Missing o
 metadata still preserves the base service-identity receipt. The coordinator qualifies
 only a completed initial provisioning attempt with fresh memory creation provenance,
 unchanged first generation and the same resolved serving-image digest; adopted engines,
-upgraded pods and unavailable evidence remain incomplete. This qualification does not
-authorize compute or storage cleanup. A separately purpose-bound pod request verifies the
+upgraded pods and unavailable evidence remain incomplete. A separately purpose-bound pod request verifies the
 exact persisted engine binding and invokes the existing reconciler with pod-held credentials.
 Only its validated provider completion is appended to the registry reservation, with active
-guard validation and readback. Account erasure still reports incomplete while other resources
-remain. An already-admitted DELETE worker retains its acknowledgement after caller
+guard validation and readback. Dev migration 919 adds exclusive compute admission and
+append-only operation acknowledgement/completion to the same reservation. After provider
+memory completion, the coordinator verifies the initial service generation, image, UID and
+etag before deletion. A restart polls only the retained operation; missing acknowledgement
+remains unresolved. Callback waits are bounded, and late retention cannot authorize a second
+DELETE. Terminal operation evidence must identify the original service; it does not prove
+storage erasure. Version-specific object deletion and separate retained-object inventory
+checks still require live acceptance, including soft-delete-disabled and missing-bucket
+recovery. Account erasure remains incomplete while storage, keys, grants or owner cleanup
+lack verified outcomes. These compute changes are local and not deployed.
+An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
 cancellation. Lost worker or transport outcomes remain `delete_submitting` and cannot
 resubmit DELETE. These source changes require dev rollout and lifecycle acceptance.
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.

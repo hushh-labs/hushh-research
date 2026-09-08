@@ -829,3 +829,104 @@ async def test_provider_erasure_requires_admission_and_durable_completion(monkey
         assert registry.rows[_UID]["backend_metadata"]["erasure"]["memoryDeletion"] == completion
     assert provider.call_count == (0 if failure in {"owner", "guard"} else 1)
     assert registry.deleted == [] and grant.revokes == []
+
+
+@pytest.mark.parametrize("state", ["new", "acknowledged", "uncertain", "foreign", "timeout"])
+async def test_compute_erasure_resumes_only_acknowledged_work_and_retains_owner(monkeypatch, state):
+    import asyncio
+
+    registry, grant = FakeRegistry(), FakeGrant()
+    receipt = {
+        "serviceName": "projects/p/locations/r/services/pod-one",
+        "serviceUid": "uid-one",
+        "etag": "v1",
+        "generation": 1,
+        "image": "repo/pod@sha256:" + "a" * 64,
+    }
+    ack = {**receipt, "operationName": "projects/p/locations/r/operations/delete-one"}
+    reservation = {
+        "ownerId": "foreign" if state == "foreign" else _UID,
+        "attemptId": "attempt-one",
+        "memoryDeletion": {"status": "provider_deleted"},
+        "registrySnapshot": {
+            "user_id": _UID,
+            "hushh_id": "ha1_owner",
+            "backend": "gcp",
+            "backend_metadata": {"serviceUid": "uid-one"},
+        },
+    }
+    if state in {"acknowledged", "uncertain"}:
+        reservation["computeAdmission"] = receipt
+    if state == "acknowledged":
+        reservation["computeAcknowledgement"] = ack
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+    release_retention = asyncio.Event()
+    late_futures = []
+    if state == "timeout":
+        real_submit = asyncio.run_coroutine_threadsafe
+
+        class ExpiredWait:
+            def result(self, *, timeout):
+                assert timeout == 30
+                raise TimeoutError("synthetic callback deadline")
+
+        def submit(coroutine, loop):
+            late_futures.append(real_submit(coroutine, loop))
+            return ExpiredWait()
+
+        monkeypatch.setattr(asyncio, "run_coroutine_threadsafe", submit)
+
+    async def retain(*, user_id, reservation, stage, receipt):
+        events.append(stage)
+        if state == "timeout":
+            await release_retention.wait()
+        saved = registry.rows[user_id]["backend_metadata"]["erasure"]
+        if stage in saved:
+            return stage != "computeAdmission" and saved[stage] == receipt
+        assert saved == reservation
+        registry.rows[user_id]["backend_metadata"]["erasure"] = {**saved, stage: receipt}
+        return True
+
+    async def erase(spec, *, operation_name, before_submit, on_acknowledged):
+        assert spec.expected_service_uid == "uid-one"
+        if operation_name:
+            assert operation_name == ack["operationName"]
+            events.append("resume")
+        else:
+            assert await asyncio.to_thread(before_submit, receipt)
+            events.append("delete")
+            assert await asyncio.to_thread(on_acknowledged, ack)
+
+    registry.retain_erasure_compute_receipt = AsyncMock(side_effect=retain)
+    backend = Mock(backend_id="gcp", erase_compute=AsyncMock(side_effect=erase))
+    service = PersonalAgentProvisioningService(registry=registry, grant=grant, backend=backend)
+    monkeypatch.setattr(service, "_backend_for", lambda spec: backend)
+    if state == "timeout":
+        with pytest.raises(TimeoutError):
+            await service._erase_reserved_compute(user_id=_UID)
+        release_retention.set()
+        for future in late_futures:
+            await asyncio.wrap_future(future)
+        assert events == ["computeAdmission"]
+        assert "computeAcknowledgement" not in registry.rows[_UID]["backend_metadata"]["erasure"]
+        with pytest.raises(RuntimeError, match="acknowledgement unresolved"):
+            await service._erase_reserved_compute(user_id=_UID)
+        assert backend.erase_compute.await_count == 1
+    elif state in {"uncertain", "foreign"}:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_compute(user_id=_UID)
+        backend.erase_compute.assert_not_called()
+        assert not events
+    else:
+        await service._erase_reserved_compute(user_id=_UID)
+        assert events == (
+            ["computeAcknowledgement", "resume", "computeDeletion"]
+            if state == "acknowledged"
+            else ["computeAdmission", "delete", "computeAcknowledgement", "computeDeletion"]
+        )
+        assert registry.rows[_UID]["backend_metadata"]["erasure"]["computeDeletion"] == {
+            **ack,
+            "status": "compute_deleted",
+        }
+    assert registry.deleted == [] and grant.revokes == []

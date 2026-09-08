@@ -1863,6 +1863,103 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("erasure provider receipt readback unconfirmed")
 
+    async def _erase_reserved_compute(self, *, user_id: str) -> None:
+        """Resume acknowledged compute work before any further pod contact."""
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        row = reservation.get("registrySnapshot") or {}
+        metadata = row.get("backend_metadata") or {}
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or row.get("user_id") != user_id
+            or not reservation.get("memoryDeletion")
+            or not metadata.get("serviceUid")
+        ):
+            raise RuntimeError("erasure compute reservation unavailable")
+        retain = getattr(self._registry, "retain_erasure_compute_receipt", None)
+        if retain is None:
+            raise RuntimeError("erasure compute receipt storage unavailable")
+        if reservation.get("computeDeletion"):
+            if not await retain(
+                user_id=user_id,
+                reservation=reservation,
+                stage="computeDeletion",
+                receipt=reservation["computeDeletion"],
+            ):
+                raise RuntimeError("erasure compute completion unconfirmed")
+            return
+        acknowledgement = reservation.get("computeAcknowledgement")
+        if reservation.get("computeAdmission") and not acknowledgement:
+            raise RuntimeError("erasure compute acknowledgement unresolved")
+        spec = PodSpec(
+            hushh_id=row["hushh_id"],
+            phone_e164_hash=str(row.get("phone_e164_hash") or ""),
+            pod_pubkey=str(row.get("pod_pubkey") or ""),
+            billing_space_id=row.get("billing_space_id"),
+            expected_service_uid=metadata["serviceUid"],
+            deployment_target=row.get("deployment_target"),
+            model_credential_mode=row.get("model_credential_mode"),
+            user_cloud_project=row.get("user_cloud_project"),
+            user_cloud_region=row.get("user_cloud_region"),
+            user_cloud_bootstrap_sa=row.get("user_cloud_bootstrap_sa"),
+        )
+        backend = self._backend_for(spec)
+        if getattr(backend, "backend_id", None) != row.get("backend") or not hasattr(
+            backend, "erase_compute"
+        ):
+            raise RuntimeError("erasure compute backend unavailable")
+        loop = asyncio.get_running_loop()
+
+        async def append(stage: str, receipt: dict) -> bool:
+            nonlocal reservation
+            if not await retain(
+                user_id=user_id, reservation=reservation, stage=stage, receipt=receipt
+            ):
+                return False
+            observed = await self._registry.get(user_id)
+            saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not observed
+                or observed.get("status") != "suspended"
+                or saved.get("ownerId") != user_id
+                or saved.get("attemptId") != reservation.get("attemptId")
+                or saved.get(stage) != receipt
+            ):
+                return False
+            reservation = saved
+            return True
+
+        def callback(stage: str):
+            def persist(receipt: dict) -> bool:
+                # The provider worker remains responsible for a late acknowledgement
+                # if its HTTP caller is cancelled. A lost worker stays unresolved.
+                return asyncio.run_coroutine_threadsafe(append(stage, receipt), loop).result(
+                    timeout=30
+                )
+
+            return persist
+
+        if acknowledgement and not await retain(
+            user_id=user_id,
+            reservation=reservation,
+            stage="computeAcknowledgement",
+            receipt=acknowledgement,
+        ):
+            raise RuntimeError("erasure compute acknowledgement unconfirmed")
+        await backend.erase_compute(
+            spec,
+            operation_name=acknowledgement["operationName"] if acknowledgement else None,
+            before_submit=callback("computeAdmission"),
+            on_acknowledged=callback("computeAcknowledgement"),
+        )
+        acknowledgement = reservation.get("computeAcknowledgement")
+        if not acknowledgement or not await append(
+            "computeDeletion", {**acknowledgement, "status": "compute_deleted"}
+        ):
+            raise RuntimeError("erasure compute completion retention unconfirmed")
+
     async def deprovision(
         self,
         *,
@@ -1871,7 +1968,7 @@ class PersonalAgentProvisioningService:
         revoke: bool = True,
         defer_row_delete: bool = False,
     ) -> dict[str, Any]:
-        """Reconcile pod-held memory erasure while retaining all other resources.
+        """Reconcile qualified memory and compute erasure while retaining recovery resources.
 
         The existing account guard owns retained-resource classification. Retained
         registry resources are reserved for erasure; teardown still reports incomplete.
@@ -1894,17 +1991,21 @@ class PersonalAgentProvisioningService:
             if reserve is not None:
                 try:
                     reservation = await reserve(user_id=user_id)
-                    qualified = await self._fence_reserved_erasure(
-                        user_id=user_id, reservation=reservation
-                    )
-                    await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
+                    if not isinstance(reservation, dict):
+                        raise RuntimeError("erasure reservation unavailable")
+                    if not reservation.get("computeAdmission"):
+                        qualified = await self._fence_reserved_erasure(
+                            user_id=user_id, reservation=reservation
+                        )
+                        await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
+                    await self._erase_reserved_compute(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",
                         type(exc).__name__,
                     )
             # Reserved, unavailable, and absent-registry cases all remain incomplete.
-            # Never remove compute, keys, grants, or owner identity at this phase.
+            # Storage, keys, grants, and owner identity still require verified cleanup.
             raise
         return {
             "status": "unprovisioned",

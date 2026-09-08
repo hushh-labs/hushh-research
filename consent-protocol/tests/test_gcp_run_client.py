@@ -970,3 +970,197 @@ def test_erasure_runtime_observation_binds_revision_digest_and_stable_generation
         result = client.observe_erasure_runtime(name="pod-one", expected_uid="uid-one")
         assert result["generation"] == 1 and result["image"] == image
         assert result["serviceUid"] == "uid-one"
+
+
+@pytest.mark.parametrize("resume", [False, True])
+def test_durable_delete_persists_ack_before_poll_and_resumes_without_delete(monkeypatch, resume):
+    from types import SimpleNamespace
+
+    import requests
+
+    client = _client_no_net()
+    client._project = "synthetic-project"
+    client._region = "us-central1"
+    parent = "projects/synthetic-project/locations/us-central1"
+    service = f"{parent}/services/synthetic-pod"
+    operation = f"{parent}/operations/delete-1"
+    events = []
+    deleted = False
+
+    def get(url, **kwargs):
+        assert kwargs["allow_redirects"] is False
+        if url.endswith(operation):
+            events.append("poll")
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "name": operation,
+                    "done": True,
+                    "response": {
+                        "@type": "type.googleapis.com/google.cloud.run.v2.Service",
+                        "name": service,
+                        "uid": "synthetic-uid",
+                        "deleteTime": "2026-09-08T00:00:00Z",
+                    },
+                },
+            )
+        assert url.endswith(service)
+        return SimpleNamespace(
+            status_code=404 if deleted or resume else 200,
+            json=lambda: {
+                "uid": "synthetic-uid",
+                "etag": "v1",
+                "generation": "1",
+                "name": "projects/synthetic-project/locations/us-central1/services/synthetic-pod",
+                "template": {"containers": [{"image": "repo/pod@sha256:" + "a" * 64}]},
+            },
+        )
+
+    def delete(url, **kwargs):
+        nonlocal deleted
+        assert events == ["admission"]
+        assert kwargs["params"] == {"etag": "v1"}
+        deleted = True
+        events.append("delete")
+        return SimpleNamespace(status_code=200, json=lambda: {"name": operation})
+
+    def admit(receipt):
+        assert receipt == {
+            "serviceName": service,
+            "serviceUid": "synthetic-uid",
+            "etag": "v1",
+            "generation": 1,
+            "image": "repo/pod@sha256:" + "a" * 64,
+        }
+        events.append("admission")
+        return True
+
+    def acknowledge(receipt):
+        assert receipt["operationName"] == operation
+        events.append("ack")
+        return True
+
+    monkeypatch.setattr(requests, "get", get)
+    monkeypatch.setattr(requests, "delete", delete)
+    client.delete_service(
+        "synthetic-pod",
+        expected_uid="synthetic-uid",
+        operation_name=operation if resume else None,
+        before_submit=admit,
+        on_acknowledged=acknowledge,
+    )
+    assert events == (["poll"] if resume else ["admission", "delete", "ack", "poll"])
+
+
+def test_foreign_delete_operation_is_rejected_before_credentials_or_network(monkeypatch):
+    client, deletes = _incarnation_client(monkeypatch, [])
+    with pytest.raises(RuntimeError, match="operation identity invalid"):
+        client.delete_service(
+            "synthetic-pod",
+            expected_uid="synthetic-uid",
+            operation_name="projects/foreign/locations/us-central1/operations/delete-1",
+        )
+    assert not deletes
+
+
+@pytest.mark.parametrize("admitted", [False, True])
+def test_durable_delete_retention_failure_never_polls_or_retries(monkeypatch, admitted):
+    from types import SimpleNamespace
+
+    import requests
+
+    client, deletes = _incarnation_client(
+        monkeypatch,
+        [
+            (
+                200,
+                {
+                    "uid": "synthetic-uid",
+                    "etag": "v1",
+                    "generation": "1",
+                    "name": "projects/synthetic-project/locations/us-central1/services/synthetic-pod",
+                    "template": {"containers": [{"image": "repo/pod@sha256:" + "a" * 64}]},
+                },
+            )
+        ],
+    )
+    operation = "projects/synthetic-project/locations/us-central1/operations/delete-1"
+
+    def delete(url, **kwargs):
+        deletes.append(kwargs["params"])
+        return SimpleNamespace(status_code=200, json=lambda: {"name": operation})
+
+    monkeypatch.setattr(requests, "delete", delete)
+    with pytest.raises(RuntimeError, match="retention unconfirmed"):
+        client.delete_service(
+            "synthetic-pod",
+            expected_uid="synthetic-uid",
+            before_submit=lambda receipt: admitted,
+            on_acknowledged=lambda receipt: False,
+        )
+    assert len(deletes) == int(admitted)
+
+
+@pytest.mark.parametrize(
+    "mutation", ["foreign_uid", "foreign_service", "empty_response", "provider_error", "wrong_done"]
+)
+def test_resumed_delete_requires_exact_terminal_service_without_redelete(monkeypatch, mutation):
+    from types import SimpleNamespace
+
+    import requests
+
+    client, deletes = _incarnation_client(monkeypatch, [])
+    parent = "projects/synthetic-project/locations/us-central1"
+    operation = f"{parent}/operations/delete-1"
+    response = {
+        "@type": "type.googleapis.com/google.cloud.run.v2.Service",
+        "name": f"{parent}/services/synthetic-pod",
+        "uid": "synthetic-uid",
+        "deleteTime": "2026-09-08T00:00:00Z",
+    }
+    body = {"name": operation, "done": True, "response": response}
+    if mutation == "foreign_uid":
+        response["uid"] = "foreign"
+    elif mutation == "foreign_service":
+        response["name"] = f"{parent}/services/foreign"
+    elif mutation == "empty_response":
+        body["response"] = {}
+    elif mutation == "provider_error":
+        body["error"] = {"message": "synthetic private diagnostic"}
+    else:
+        body["done"] = "true"
+    calls = []
+
+    def get(url, **kwargs):
+        assert url.endswith(operation)
+        calls.append(url)
+        return SimpleNamespace(status_code=200, json=lambda: body)
+
+    monkeypatch.setattr(requests, "get", get)
+    with pytest.raises(RuntimeError) as raised:
+        client.delete_service(
+            "synthetic-pod", expected_uid="synthetic-uid", operation_name=operation
+        )
+    assert "synthetic private diagnostic" not in str(raised.value)
+    assert len(calls) == 1
+    assert not deletes
+
+
+@pytest.mark.parametrize(
+    "returned_name", [None, "projects/foreign/locations/us-central1/services/synthetic-pod"]
+)
+def test_durable_delete_requires_observed_service_name_before_admission(monkeypatch, returned_name):
+    from unittest.mock import Mock
+
+    value = {"uid": "synthetic-uid", "etag": "v1", "name": returned_name}
+    client, deletes = _incarnation_client(monkeypatch, [(200, value)])
+    admit = Mock(return_value=True)
+    with pytest.raises(RuntimeError, match="service identity invalid"):
+        client.delete_service(
+            "synthetic-pod",
+            expected_uid="synthetic-uid",
+            before_submit=admit,
+            on_acknowledged=Mock(return_value=True),
+        )
+    admit.assert_not_called()
+    assert not deletes
