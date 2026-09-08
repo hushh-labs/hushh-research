@@ -1069,3 +1069,76 @@ async def test_coordinated_bucket_never_falls_back_to_unreceipted_delete():
     with pytest.raises(SubstrateDeleteError, match="requires creation evidence"):
         await deleter({"type": "gcs_bucket", "id": "unproven-bucket"})
     assert session.calls == []
+
+
+@pytest.mark.parametrize("kind", ["pubsub_topic", "pubsub_subscription", "cloud_scheduler_job"])
+@pytest.mark.parametrize("case", ["deleted", "resume", "uncertain", "ack_refused"])
+def test_mail_cleanup_retains_stages_and_never_replays_uncertain_delete(kind, case):
+    from hushh_mcp.services.byoc_substrate_teardown import reconcile_mail_resource
+
+    segment = {
+        "pubsub_topic": "topics",
+        "pubsub_subscription": "subscriptions",
+        "cloud_scheduler_job": "jobs",
+    }[kind]
+    name = (
+        "projects/proj-x/"
+        + ("locations/us-central1/" if kind == "cloud_scheduler_job" else "")
+        + segment
+        + "/mail-one"
+    )
+    identity = {"name": name}
+    if kind == "pubsub_subscription":
+        identity["topic"] = "projects/proj-x/topics/mail-one"
+    if kind == "cloud_scheduler_job":
+        identity.update(
+            pubsubTarget={"topicName": "projects/proj-x/topics/mail-one"},
+            schedule="0 4 * * *",
+            timeZone="Etc/UTC",
+        )
+    observation = {"type": kind, "id": "mail-one", "disposition": "created", "identity": identity}
+    base = {"resourceObservation": observation}
+    state = {}
+    if case in {"resume", "uncertain"}:
+        state["admission"] = {**base, "status": "admitted"}
+    if case == "resume":
+        state["acknowledgement"] = {**base, "status": "acknowledged"}
+    session = _Session()
+    reads = iter([_Resp(404)] if case == "resume" else [_Resp(200, identity), _Resp(404)])
+    session.rule("GET", name, lambda *_: next(reads))
+    session.rule("DELETE", name, _Resp(200))
+    stages = []
+
+    def retain(stage, receipt):
+        stages.append(stage)
+        assert receipt["resourceObservation"] == observation
+        return not (case == "ack_refused" and stage == "acknowledgement")
+
+    def invoke():
+        reconcile_mail_resource(
+            token="tok",  # noqa: S106 -- scripted provider
+            project="proj-x",
+            region="us-central1",
+            observation=observation,
+            state=state,
+            retain_receipt=retain,
+            session=session,
+        )
+
+    if case in {"uncertain", "ack_refused"}:
+        with pytest.raises(SubstrateDeleteError):
+            invoke()
+        if case == "ack_refused":
+            before = len(session.calls)
+            with pytest.raises(SubstrateDeleteError, match="acknowledgement unresolved"):
+                invoke()
+            assert len(session.calls) == before
+    else:
+        invoke()
+        assert stages == (
+            ["deletion"] if case == "resume" else ["admission", "acknowledgement", "deletion"]
+        )
+    assert sum(method == "DELETE" for method, _, _ in session.calls) == (
+        case in {"deleted", "ack_refused"}
+    )
+    assert all(kwargs["allow_redirects"] is False for _, _, kwargs in session.calls)

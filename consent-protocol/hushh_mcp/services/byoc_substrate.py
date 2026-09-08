@@ -58,6 +58,59 @@ def _bucket_creation_identity(value: Any, expected_name: str) -> dict[str, str] 
     return {key: value[key] for key in ("name", "generation", "projectNumber", "timeCreated")}
 
 
+def _mail_creation_identity(
+    value: Any, resource_type: str, expected_name: str
+) -> dict[str, Any] | None:
+    """Bounded creation acknowledgement, not an immutable provider incarnation."""
+    import re
+
+    if not isinstance(value, dict) or value.get("name") != expected_name:
+        return None
+    segments = {
+        "pubsub_topic": "topics",
+        "pubsub_subscription": "subscriptions",
+        "cloud_scheduler_job": "jobs",
+    }
+    segment = segments.get(resource_type)
+    pattern = (
+        r"projects/([a-z][a-z0-9-]{4,61}[a-z0-9])/"
+        + (r"locations/[a-z0-9-]+/" if resource_type == "cloud_scheduler_job" else "")
+        + str(segment)
+        + r"/[A-Za-z0-9_.~-]{1,255}"
+    )
+    matched = re.fullmatch(pattern, expected_name)
+    if not matched:
+        return None
+    identity: dict[str, Any] = {"name": expected_name}
+    if resource_type == "pubsub_topic":
+        return identity
+    target = value.get("pubsubTarget") if resource_type == "cloud_scheduler_job" else None
+    topic = target.get("topicName") if isinstance(target, dict) else value.get("topic")
+    if (
+        not isinstance(topic, str)
+        or re.fullmatch(
+            rf"projects/{re.escape(matched.group(1))}/topics/[A-Za-z0-9_.~-]{{1,255}}", topic
+        )
+        is None
+    ):
+        return None
+    if resource_type == "pubsub_subscription":
+        return {**identity, "topic": topic}
+    if resource_type != "cloud_scheduler_job":
+        return None
+    if any(
+        not isinstance(value.get(key), str) or not 1 <= len(value[key]) <= 128
+        for key in ("schedule", "timeZone")
+    ):
+        return None
+    return {
+        **identity,
+        "pubsubTarget": {"topicName": topic},
+        "schedule": value["schedule"],
+        "timeZone": value["timeZone"],
+    }
+
+
 def _service_account_creation_identity(value: Any, expected_email: str) -> dict[str, str] | None:
     if not isinstance(value, dict) or value.get("email") != expected_email:
         return None
@@ -210,7 +263,17 @@ class SubstrateReceipt:
             ]
         observations = []
         planned = {(item["type"], item["id"]) for item in self.planned_resources}
+        project, _, region = self.tenant_ref.partition("/")
         validators = {
+            "pubsub_topic": lambda value, rid: _mail_creation_identity(
+                value, "pubsub_topic", f"projects/{project}/topics/{rid}"
+            ),
+            "pubsub_subscription": lambda value, rid: _mail_creation_identity(
+                value, "pubsub_subscription", f"projects/{project}/subscriptions/{rid}"
+            ),
+            "cloud_scheduler_job": lambda value, rid: _mail_creation_identity(
+                value, "cloud_scheduler_job", f"projects/{project}/locations/{region}/jobs/{rid}"
+            ),
             "gcs_bucket": _bucket_creation_identity,
             "service_account": _service_account_creation_identity,
             "secret": lambda value, secret_id: _secret_creation_identity(

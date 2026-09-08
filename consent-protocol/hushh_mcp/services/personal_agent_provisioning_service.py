@@ -2193,6 +2193,112 @@ class PersonalAgentProvisioningService:
             raise RuntimeError("bucket erasure unsupported")
         await erase_bucket(action=action, state=states, retain_receipt=checkpoint)
 
+    async def _erase_reserved_mail_resources(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("mail erasure guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        inventory = reservation.get("substrateInventory") or {}
+        retain = getattr(self._registry, "retain_erasure_mail_receipt", None)
+        preflight = getattr(self._registry, "verify_erasure_mail_preflight", None)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or not reservation.get("writerDisabled")
+            or retain is None
+            or preflight is None
+        ):
+            raise RuntimeError("mail erasure reservation unavailable")
+        if not await preflight(user_id=user_id, reservation=reservation):
+            raise RuntimeError("mail erasure database contract unavailable")
+        erase = getattr(self._reserved_cleanup_backend(snapshot), "erase_mail_resource", None)
+        if erase is None:
+            raise RuntimeError("mail erasure unsupported")
+        attempt = reservation["attemptId"]
+        loop = asyncio.get_running_loop()
+        # Validate all intended mail resources before removing the first one.
+        observations = []
+        for kind in ("cloud_scheduler_job", "pubsub_subscription", "pubsub_topic"):
+            planned = [
+                item
+                for item in inventory.get("plannedResources", [])
+                if isinstance(item, dict) and item.get("type") == kind
+            ]
+            if len(planned) != 1:
+                raise RuntimeError("mail erasure inventory unresolved")
+            captured = [
+                item
+                for item in inventory.get("resourceObservations", [])
+                if isinstance(item, dict)
+                and item.get("type") == kind
+                and item.get("id") == planned[0].get("id")
+                and item.get("disposition") == "created"
+            ]
+            if len(captured) != 1:
+                raise RuntimeError("mail erasure creation evidence unavailable")
+            observations.append(captured[0])
+
+        for observation in observations:
+            kind = observation["type"]
+
+            async def append(stage: str, raw: dict, *, kind: str = kind) -> bool:
+                nonlocal reservation
+                if stage == "admission":
+                    await self._revoke_reserved_runtime_writer(user_id=user_id)
+                observed = await self._registry.get(user_id)
+                saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+                if (
+                    not observed
+                    or observed.get("status") != "suspended"
+                    or saved.get("ownerId") != user_id
+                    or saved.get("attemptId") != attempt
+                    or saved.get("registrySnapshot") != snapshot
+                    or saved.get("substrateInventory") != inventory
+                ):
+                    return False
+                receipt = {**raw, "ownerId": user_id, "attemptId": attempt}
+                if not await retain(
+                    user_id=user_id, reservation=saved, kind=kind, stage=stage, receipt=receipt
+                ):
+                    return False
+                observed = await self._registry.get(user_id)
+                saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+                if (
+                    not observed
+                    or observed.get("status") != "suspended"
+                    or saved.get("ownerId") != user_id
+                    or saved.get("attemptId") != attempt
+                    or saved.get("mailErasure", {}).get(kind, {}).get(stage) != receipt
+                ):
+                    return False
+                reservation = saved
+                return True
+
+            def checkpoint(stage: str, raw: dict, *, append_receipt=append) -> bool:
+                return asyncio.run_coroutine_threadsafe(append_receipt(stage, raw), loop).result(
+                    timeout=30
+                )
+
+            states = {}
+            for stage, receipt in reservation.get("mailErasure", {}).get(kind, {}).items():
+                if (
+                    not isinstance(receipt, dict)
+                    or receipt.get("ownerId") != user_id
+                    or receipt.get("attemptId") != attempt
+                ):
+                    raise RuntimeError("mail recovery owner unverified")
+                states[stage] = {
+                    key: value
+                    for key, value in receipt.items()
+                    if key not in {"ownerId", "attemptId"}
+                }
+            await erase(observation=observation, state=states, retain_receipt=checkpoint)
+
     async def deprovision(
         self,
         *,
@@ -2234,6 +2340,7 @@ class PersonalAgentProvisioningService:
                     await self._erase_reserved_compute(user_id=user_id)
                     await self._retain_reserved_substrate_inventory(user_id=user_id)
                     await self._revoke_reserved_runtime_writer(user_id=user_id)
+                    await self._erase_reserved_mail_resources(user_id=user_id)
                     await self._erase_reserved_bucket(user_id=user_id)
                 except Exception as exc:
                     logger.warning(

@@ -1564,3 +1564,42 @@ def test_operation_polling_binds_identity_and_sanitizes_failure(case):
     assert not any("cloudkms.googleapis.com" in call["url"] for call in session.calls)
     if case == "foreign_initial":
         assert len(session.calls) == 1
+
+
+@pytest.mark.parametrize(
+    "resource_type,step_name",
+    [
+        ("pubsub_topic", "mail_topic"),
+        ("pubsub_subscription", "mail_subscription"),
+        ("cloud_scheduler_job", "watch_renew_job"),
+    ],
+)
+@pytest.mark.parametrize("case", ["created", "adopted", "foreign"])
+def test_mail_creation_acknowledgements_preserve_relationships_without_message_contents(
+    resource_type, step_name, case
+):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    plan = _plan()
+    bootstrap = _boot(_Session())
+    call = next(call for call in bootstrap.plan_calls(plan) if call["step"] == step_name)
+    name = call.get("body", {}).get("name") or call["url"].partition("/v1/")[2]
+    body = {**call.get("body", {}), "name": name, "private": "must-not-retain"}
+    if case == "foreign":
+        body["name"] = name.replace(USER_PROJECT, "foreign-project")
+    result = _boot(
+        _Session(routes={call["url"]: _Response(409 if case == "adopted" else 200, body)})
+    ).apply(plan, dry_run=False)
+    step = next(item for item in result["steps"] if item["step"] == step_name)
+    if case == "created":
+        record = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=[r for r in plan["resources"] if r["type"] == resource_type],
+            resource_observations=[step["resourceObservation"]],
+        ).as_record()
+        assert record["resourceObservations"][0]["identity"]["name"] == name
+        assert "must-not-retain" not in json.dumps(record)
+        assert "cmVuZXctd2F0Y2g=" not in json.dumps(record)
+    else:
+        assert "resourceObservation" not in step

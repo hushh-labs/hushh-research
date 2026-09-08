@@ -1192,3 +1192,79 @@ async def test_bucket_coordinator_rechecks_writer_before_final_admission(monkeyp
         token.assert_not_called()
         provider.assert_not_called()
     assert registry.deleted == []
+
+
+@pytest.mark.parametrize("failure", [None, "preflight", "subscription_admission"])
+async def test_mail_cleanup_orders_dependencies_and_stops_on_unretained_admission(
+    monkeypatch, failure
+):
+    import asyncio
+
+    service = _svc()
+    registry = service._registry
+    kinds = ["cloud_scheduler_job", "pubsub_subscription", "pubsub_topic"]
+    inventory = {
+        "plannedResources": [{"type": kind, "id": "mail-one"} for kind in kinds],
+        "resourceObservations": [
+            {"type": kind, "id": "mail-one", "disposition": "created", "identity": {"name": kind}}
+            for kind in kinds
+        ],
+    }
+    reservation = {
+        "ownerId": _UID,
+        "attemptId": "erase-one",
+        "registrySnapshot": {"user_id": _UID},
+        "substrateInventory": inventory,
+        "writerDisabled": {"status": "disabled"},
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+
+    async def retain(*, user_id, reservation, kind, stage, receipt):
+        assert user_id == _UID
+        events.append((kind, stage))
+        if failure == "subscription_admission" and kind == "pubsub_subscription":
+            return False
+        mail = reservation.get("mailErasure", {})
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {
+            **reservation,
+            "mailErasure": {**mail, kind: {**mail.get(kind, {}), stage: receipt}},
+        }
+        return True
+
+    async def erase(*, observation, state, retain_receipt):
+        assert state == {}
+        for stage, status in (
+            ("admission", "admitted"),
+            ("acknowledgement", "acknowledged"),
+            ("deletion", "absent"),
+        ):
+            if not await asyncio.to_thread(
+                retain_receipt, stage, {"resourceObservation": observation, "status": status}
+            ):
+                raise RuntimeError("retention refused")
+
+    adapter = Mock(erase_mail_resource=AsyncMock(side_effect=erase))
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", lambda snapshot: adapter)
+    monkeypatch.setattr(service, "_revoke_reserved_runtime_writer", AsyncMock())
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    registry.verify_erasure_mail_preflight = AsyncMock(return_value=failure != "preflight")
+    registry.retain_erasure_mail_receipt = AsyncMock(side_effect=retain)
+    if failure:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_mail_resources(user_id=_UID)
+    else:
+        await service._erase_reserved_mail_resources(user_id=_UID)
+        assert events == [
+            (kind, stage)
+            for kind in kinds
+            for stage in ("admission", "acknowledgement", "deletion")
+        ]
+    if failure == "preflight":
+        adapter.erase_mail_resource.assert_not_awaited()
+    if failure == "subscription_admission":
+        assert events[-1] == ("pubsub_subscription", "admission")
+        assert adapter.erase_mail_resource.await_count == 2
+    assert registry.deleted == []

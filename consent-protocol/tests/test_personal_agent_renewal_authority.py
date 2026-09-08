@@ -458,6 +458,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/920_personal_agent_substrate_inventory.sql")
     pg.apply_file(ROOT / "db/migrations/parked/921_personal_agent_writer_revocation.sql")
     pg.apply_file(ROOT / "db/migrations/parked/922_personal_agent_bucket_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/923_personal_agent_mail_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -503,6 +504,30 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             "identity": bucket_identity,
         }
     )
+    mail_observations = []
+    for kind, segment in (
+        ("cloud_scheduler_job", "locations/us-central1/jobs"),
+        ("pubsub_subscription", "subscriptions"),
+        ("pubsub_topic", "topics"),
+    ):
+        identity = {"name": f"projects/synthetic-project/{segment}/mail-one"}
+        if kind == "pubsub_subscription":
+            identity["topic"] = "projects/synthetic-project/topics/mail-one"
+        elif kind == "cloud_scheduler_job":
+            identity.update(
+                pubsubTarget={"topicName": "projects/synthetic-project/topics/mail-one"},
+                schedule="0 4 * * *",
+                timeZone="Etc/UTC",
+            )
+        observation = {
+            "type": kind,
+            "id": "mail-one",
+            "disposition": "created",
+            "identity": identity,
+        }
+        mail_observations.append(observation)
+        inventory["plannedResources"].append({"type": kind, "id": "mail-one"})
+        inventory["resourceObservations"].append(observation)
     pg.execute(
         "INSERT INTO personal_agent_registry(user_id,hushh_id,status,external_agent_id,backend_metadata) "
         "VALUES ('synthetic-owner','ha1_erasure','provisioned','pod-service',%s::jsonb)",
@@ -535,7 +560,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ),
     )
     pg.execute(
-        "UPDATE personal_agent_registry SET backend='gcp', user_cloud_project='synthetic-project', "
+        "UPDATE personal_agent_registry SET backend='gcp', user_cloud_project='synthetic-project', user_cloud_region='us-central1', "
         "user_cloud_bootstrap_sa=%s WHERE user_id='synthetic-owner'",
         (bootstrap_email,),
     )
@@ -728,6 +753,34 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert retain_writer("writerDisabled", disabled)
     assert retain_writer("writerDisabled", disabled)
     assert bucket_preflight()
+
+    def retain_mail(observation, stage, status):
+        return pg.execute(
+            "SELECT retain_erasure_mail_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                observation["type"],
+                stage,
+                json.dumps(
+                    {
+                        "ownerId": "synthetic-owner",
+                        "attemptId": "attempt-one",
+                        "resourceObservation": observation,
+                        "status": status,
+                    }
+                ),
+            ),
+        )[0][0]
+
+    assert not retain_mail(mail_observations[-1], "admission", "admitted")
+    for observation in mail_observations:
+        assert not retain_mail(observation, "deletion", "absent")
+        assert retain_mail(observation, "admission", "admitted")
+        assert not retain_mail(observation, "admission", "admitted")
+        assert not retain_mail(observation, "deletion", "absent")
+        assert retain_mail(observation, "acknowledgement", "acknowledged")
+        assert retain_mail(observation, "deletion", "absent")
+        assert retain_mail(observation, "deletion", "absent")
     bucket = {
         "ownerId": "synthetic-owner",
         "attemptId": "attempt-one",

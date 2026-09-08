@@ -376,6 +376,38 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def verify_erasure_mail_preflight(self, *, user_id: str, reservation: dict) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.verify_erasure_mail_preflight(:owner, :attempt, "
+            "CAST(:expected AS jsonb)) AS verified",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+            },
+        )
+        return bool(response.data and response.data[0].get("verified") is True)
+
+    async def retain_erasure_mail_receipt(
+        self, *, user_id: str, reservation: dict, kind: str, stage: str, receipt: dict
+    ) -> bool:
+        """Retain mail revocation under the existing owner erasure reservation."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_mail_receipt(:owner, :attempt, "
+            "CAST(:expected AS jsonb), :kind, :stage, CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "kind": kind,
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:

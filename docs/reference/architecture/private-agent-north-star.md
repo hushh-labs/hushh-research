@@ -453,7 +453,14 @@ receipt-backed cleanup checks that identity before examining version destruction
 receipts retain creation identity and verified project aliases. Their cleanup requests stay
 bound to the configured project, compare creation identity, use a current etag and verify absence.
 Neither a numeric alias nor a resource name selects another project's cleanup authority.
-Other resource types still lack equivalent ownership evidence, and these changes are not deployed.
+Mail topic, subscription and scheduler creation acknowledgements now retain configured
+names and relationships, excluding message contents. These are not immutable provider
+incarnations; 409 adoption and missing acknowledgements confer no cleanup ownership.
+Dev migration 923 and the owner coordinator retain ordered mail cleanup admission,
+acknowledgement and absence under the same erasure reservation. Preflight checks the
+database contract before provider access, and uncertain deletes never replay. Shared
+image repositories and remaining recovery resources still require reconciliation.
+These lifecycle changes are not deployed.
 The bootstrap applier requires explicit terminal operation evidence; empty responses do not
 prove completion. Polls must match the acknowledged operation and diagnostics omit provider errors. The shared `one-pod` image repository
 must not be deleted solely because its derived name appears in a cleanup plan. Before

@@ -997,6 +997,54 @@ class UserGcpBootstrap:
                         "disposition": "created",
                         "identity": identity,
                     }
+            mail_types = {
+                "mail_topic": "pubsub_topic",
+                "mail_subscription": "pubsub_subscription",
+                "watch_renew_job": "cloud_scheduler_job",
+            }
+            if ok and code in (200, 201) and call["step"] in mail_types:
+                from hushh_mcp.services.byoc_substrate import _mail_creation_identity
+
+                resource_type = mail_types[call["step"]]
+                expected_name = (
+                    (call.get("body") or {}).get("name")
+                    if resource_type == "cloud_scheduler_job"
+                    else call["url"].partition("/v1/")[2]
+                )
+                identity = _mail_creation_identity(
+                    _json_or_empty(response), resource_type, expected_name
+                )
+                request_body = call.get("body") or {}
+                if (
+                    identity
+                    and resource_type == "pubsub_subscription"
+                    and identity["topic"] != request_body.get("topic")
+                ):
+                    identity = None
+                if (
+                    identity
+                    and resource_type == "cloud_scheduler_job"
+                    and any(
+                        identity[key] != request_body.get(key) for key in ("schedule", "timeZone")
+                    )
+                ):
+                    identity = None
+                if (
+                    identity
+                    and resource_type == "cloud_scheduler_job"
+                    and identity["pubsubTarget"]["topicName"]
+                    != request_body.get("pubsubTarget", {}).get("topicName")
+                ):
+                    identity = None
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": resource_type,
+                        "id": expected_name.rsplit("/", 1)[-1],
+                        "disposition": "created",
+                        "identity": identity,
+                    }
+                # Missing acknowledgement conveys no cleanup ownership. Preserve
+                # bootstrap compatibility without qualifying later deletion.
             results.append(result)
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)

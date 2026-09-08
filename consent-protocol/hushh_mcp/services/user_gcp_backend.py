@@ -1078,6 +1078,33 @@ class UserGcpBackend:
         )
         await deleter(action)
 
+    async def erase_mail_resource(
+        self,
+        *,
+        observation: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import reconcile_mail_resource
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("mail cleanup authority unavailable")
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        await asyncio.to_thread(
+            reconcile_mail_resource,
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            observation=observation,
+            state=state,
+            retain_receipt=retain_receipt,
+        )
+
     async def erase_compute(
         self, spec: PodSpec, *, operation_name=None, before_submit=None, on_acknowledged=None
     ) -> None:

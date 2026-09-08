@@ -428,6 +428,89 @@ def revoke_runtime_writer(
     return {**receipt, "status": "disabled"}
 
 
+def reconcile_mail_resource(
+    *,
+    token: str,
+    project: str,
+    region: str,
+    observation: dict[str, Any],
+    state: dict[str, Any],
+    retain_receipt: Callable[[str, dict[str, Any]], bool],
+    session: Any = None,
+) -> None:
+    """Reconcile one acknowledged creation; uncertain deletes never replay.
+
+    These APIs have no immutable incarnation or conditional DELETE token. The
+    coordinator supplies exclusive lifecycle admission and preserves shared resources.
+    """
+    from urllib.parse import quote
+
+    from hushh_mcp.services.byoc_substrate import _mail_creation_identity
+
+    kind = observation.get("type")
+    rid = observation.get("id")
+    paths = {
+        "pubsub_topic": "topics",
+        "pubsub_subscription": "subscriptions",
+        "cloud_scheduler_job": "jobs",
+    }
+    if kind not in paths or not isinstance(rid, str) or observation.get("disposition") != "created":
+        raise SubstrateDeleteError("mail creation observation unavailable")
+    name = (
+        f"projects/{project}/"
+        + (f"locations/{region}/" if kind == "cloud_scheduler_job" else "")
+        + f"{paths[kind]}/{rid}"
+    )
+    identity = _mail_creation_identity(observation.get("identity"), kind, name)
+    if identity is None or identity != observation.get("identity"):
+        raise SubstrateDeleteError("mail creation identity unverified")
+    receipt_base = {"resourceObservation": deepcopy(observation)}
+    admission = state.get("admission")
+    if state and (
+        set(state) - {"admission", "acknowledgement", "deletion"}
+        or admission != {**receipt_base, "status": "admitted"}
+    ):
+        raise SubstrateDeleteError("mail recovery identity unverified")
+    if admission and state.get("acknowledgement") != {**receipt_base, "status": "acknowledged"}:
+        raise SubstrateDeleteError("mail deletion acknowledgement unresolved")
+    if "deletion" in state and state["deletion"] != {**receipt_base, "status": "absent"}:
+        raise SubstrateDeleteError("mail deletion receipt invalid")
+    if session is None:
+        import requests  # type: ignore[import-untyped]
+
+        session = requests
+    service = "cloudscheduler" if kind == "cloud_scheduler_job" else "pubsub"
+    url = f"https://{service}.googleapis.com/v1/{quote(name, safe='/')}"
+    headers = {"Authorization": f"Bearer {token}"}
+
+    def retain(stage: str, status: str) -> None:
+        receipt = {**receipt_base, "status": status}
+        try:
+            retained = retain_receipt(stage, deepcopy(receipt)) is True
+        except Exception:
+            retained = False
+        if not retained:
+            raise SubstrateDeleteError("mail receipt retention unconfirmed")
+        state[stage] = deepcopy(receipt)
+
+    if not admission:
+        observed = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+        if (
+            observed.status_code != 200
+            or _mail_creation_identity(observed.json(), kind, name) != identity
+        ):
+            raise SubstrateDeleteError("mail resource relationship unverified")
+        retain("admission", "admitted")
+        response = session.delete(url, headers=headers, timeout=30, allow_redirects=False)
+        if response.status_code != 200 or response.json() != {}:
+            raise SubstrateDeleteError("mail deletion acknowledgement unconfirmed")
+        retain("acknowledgement", "acknowledged")
+    absent = session.get(url, headers=headers, timeout=30, allow_redirects=False)
+    if absent.status_code != 404:
+        raise SubstrateDeleteError("mail resource absence unverified")
+    retain("deletion", "absent")
+
+
 def build_gcp_deleter(
     *,
     token: str,
