@@ -414,3 +414,60 @@ async def test_erasure_observation_backends_only_read_existing_service(monkeypat
     )
     assert len(reads) == 1 and target["service"] == reads[0]
     assert target["serviceUid"] == "recorded-uid"
+
+
+@pytest.mark.parametrize("kind", ["managed", "user"])
+@pytest.mark.parametrize("refuse_ack", [False, True])
+async def test_owned_creation_retains_location_and_uid_before_readiness(
+    monkeypatch, simulation_lane, kind, refuse_ack
+):
+    from dataclasses import replace
+
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    calls = []
+
+    class Client(_FakeRunClient):
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        service_url = staticmethod(GcpRunClient.service_url)
+
+        def set_invoker_binding(self, name, member):
+            assert "ack" in calls
+
+        def get_service(self, name):
+            return None
+
+        def create_service(self, body, *, adopt_existing):
+            assert adopt_existing is False
+            calls.append("create")
+            return super().create_service(body)
+
+        def wait_ready(self, name, **kw):
+            assert calls[-1] == "ack"
+            calls.append("ready")
+            return super().wait_ready(name, **kw)
+
+    client = Client()
+    backend = _live(client)
+    if kind == "user":
+        backend = UserGcpBackend(
+            user_project="p", user_region="us-central1", image="img:1", live=True
+        )
+        monkeypatch.setattr(backend, "_client", lambda: client)
+        monkeypatch.setattr(backend, "_ensure_pod_image", lambda *args: "sha256:" + "a" * 64)
+
+    def save(receipt):
+        assert receipt == {**backend.provision_target_for(_spec()), "serviceUid": "created-uid"}
+        calls.append("ack")
+        if refuse_ack:
+            raise RuntimeError("acknowledgement lost")
+
+    spec = replace(_spec(), provision_attempt_id="a" * 32, on_provision_ack=save)
+    if refuse_ack:
+        with pytest.raises(RuntimeError, match="acknowledgement lost"):
+            await backend.provision(spec)
+        assert calls == ["create", "ack"]
+    else:
+        await backend.provision(spec)
+        assert calls == ["create", "ack", "ready"]

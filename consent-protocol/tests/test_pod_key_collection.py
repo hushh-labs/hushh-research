@@ -26,13 +26,14 @@ from hushh_mcp.services.pod_key_collector import (
     collect_pod_key_if_pending,
     fetch_pod_public_key,
 )
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase-uid-0123456789abcdefghij"
 _PHONE = "+14155550123"
 _POD_URL = "https://pod-abc-uc.a.run.app"
 
 
-class _FakeRegistry:
+class _FakeRegistry(ProvisionAdmissionFake):
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
 
@@ -147,7 +148,7 @@ async def test_half_a_keypair_is_a_caller_bug_not_a_deferred_key():
 
 @pytest.mark.asyncio
 async def test_a_failed_provision_marks_the_row_failed():
-    """Without this writer 'provisioning_failed' is a state nothing can ever reach."""
+    """A failed owned attempt stays suspended for reconciliation, not ordinary retry."""
 
     class _ExplodingBackend(_FakeBackend):
         async def provision(self, spec: PodSpec) -> BackendHandle:
@@ -161,7 +162,7 @@ async def test_a_failed_provision_marks_the_row_failed():
     with pytest.raises(RuntimeError):
         await service.provision(user_id=_UID, phone_e164=_PHONE)
 
-    assert registry.rows[_UID]["status"] == "provisioning_failed"
+    assert registry.rows[_UID]["status"] == "suspended"
 
 
 @pytest.mark.asyncio

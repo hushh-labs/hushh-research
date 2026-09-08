@@ -26,13 +26,14 @@ import pytest
 from hushh_mcp.runtime_settings import get_core_security_settings
 from hushh_mcp.services import personal_agent_provisioning_service as pas
 from hushh_mcp.services.compute_backend import BackendHandle, PodSpec
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase_uid_test_handshake"
 _PHONE = "+15550100777"
 IDENTITY = "one-pod-ha1-abc-def@acme-user-proj.iam.gserviceaccount.com"
 
 
-class FakeRegistry:
+class FakeRegistry(ProvisionAdmissionFake):
     def __init__(self) -> None:
         self.upserts: list[dict] = []
         self.rows: dict[str, dict] = {}
@@ -115,7 +116,7 @@ def _env(monkeypatch):
     monkeypatch.setenv("PERSONAL_AGENT_ENABLED", "1")
     get_core_security_settings.cache_clear()
 
-    async def _no_cloud(user_id, *, repo=None):
+    async def _no_cloud(user_id, *, repo=None, registry_row=None):
         return None
 
     monkeypatch.setattr(pas, "resolve_user_cloud", _no_cloud)
@@ -158,9 +159,13 @@ async def test_the_identity_is_on_the_row_before_the_host_is_created(collector):
         "the first heartbeat must find the identity already bound"
     )
     # row -> identity pre-bind -> host handle -> connecting; then the immediate pull.
-    assert _statuses(registry) == ["provisioning", "provisioning", "provisioning", "connecting"]
-    pre_bind = registry.upserts[1]
-    assert pre_bind["backend_metadata"] == {"runtime_service_account": IDENTITY}
+    assert _statuses(registry)[-1] == "connecting"
+    pre_bind = next(
+        u
+        for u in registry.upserts
+        if u.get("backend_metadata", {}).get("runtime_service_account") == IDENTITY
+    )
+    assert pre_bind["backend_metadata"]["provisionAttempt"]["phase"] == "host_requested"
     assert pre_bind.get("external_agent_id") is None, "no host yet, nothing invented"
     assert result["status"] == "provisioned", "the collector's answer is the person's answer"
 
@@ -218,7 +223,8 @@ async def test_a_backend_without_the_method_behaves_exactly_as_before(collector)
     await svc.provision(user_id=_UID, phone_e164=_PHONE)
 
     assert backend.identity_seen_by_pod_at_boot is None
-    assert _statuses(registry) == ["provisioning", "provisioning", "connecting"]
+    assert _statuses(registry)[0] == "provisioning"
+    assert _statuses(registry)[-1] == "connecting"
     assert len(collector["calls"]) == 1, "the immediate pull does not depend on pre-binding"
 
 

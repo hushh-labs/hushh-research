@@ -30,13 +30,14 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     record_provisioning_feed_event_safe,
 )
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase_uid_feed_test_123"
 _PHONE = "+14255550188"
 _FEED_MODULE = "hushh_mcp.services.feed_service.FeedService"
 
 
-class FakeRegistry:
+class FakeRegistry(ProvisionAdmissionFake):
     def __init__(self, *, upsert_raises: bool = False):
         self.upserts: list[dict] = []
         self.tombstones: list[dict] = []
@@ -266,11 +267,8 @@ async def test_feed_write_failure_does_not_break_provisioning(monkeypatch):
     # full registry ladder, standing read minted.
     assert RaisingFeedService.calls == 2
     assert result["status"] == "provisioned"
-    assert [u["status"] for u in registry.upserts] == [
-        "provisioning",
-        "provisioning",
-        "provisioned",
-    ]
+    assert registry.upserts[0]["status"] == "provisioning"
+    assert registry.upserts[-1]["status"] == "provisioned"
     assert grant.calls == [_UID]
 
 

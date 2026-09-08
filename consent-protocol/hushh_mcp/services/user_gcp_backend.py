@@ -782,6 +782,14 @@ class UserGcpBackend:
             ),
         }
 
+    def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
+        return {
+            "backend": self.backend_id,
+            "project": self._user_project,
+            "region": self._user_region,
+            "service": _service_name(spec.hushh_id),
+        }
+
     async def provision(self, spec: PodSpec) -> BackendHandle:
         """Create the pod in the USER's project, or describe it when not live.
 
@@ -857,15 +865,38 @@ class UserGcpBackend:
         # copy the image into the user's OWN registry and render the pod to pull THAT
         # digest -- create and replace both consume this one rendered config.
         existing = await asyncio.to_thread(client.get_service, name)
+        if spec.provision_attempt_id and existing is not None:
+            raise RuntimeError("provision requires reconciliation of existing service")
         image_digest = await asyncio.to_thread(
             self._ensure_pod_image, spec, _digest_from_service(existing)
         )
         config = self.render_deploy_config(spec, image_digest=image_digest)
         if existing is None:
             admitted = await _create_once_iam_settles(
-                lambda: asyncio.to_thread(client.create_service, config)
+                lambda: (
+                    asyncio.to_thread(client.create_service, config, adopt_existing=False)
+                    if spec.provision_attempt_id
+                    else asyncio.to_thread(client.create_service, config)
+                )
             )
             service_uid = GcpRunClient.service_uid(admitted)
+            if spec.provision_attempt_id:
+                if (
+                    not service_uid
+                    or (admitted.get("metadata") or {}).get("name") != name
+                    or spec.on_provision_ack is None
+                ):
+                    raise RuntimeError("provision acknowledgement unavailable")
+                await asyncio.to_thread(
+                    spec.on_provision_ack,
+                    {
+                        "service": name,
+                        "serviceUid": service_uid,
+                        "backend": self.backend_id,
+                        "project": self._user_project,
+                        "region": self._user_region,
+                    },
+                )
         else:
             service_uid = GcpRunClient.service_uid(existing)
             await asyncio.to_thread(

@@ -19,6 +19,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     PersonalAgentCloudNotAuthorizedError,
     PersonalAgentProvisioningService,
 )
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 
 class _SpyBackend:
@@ -39,7 +40,7 @@ class _SpyBackend:
         return None
 
 
-class _Registry:
+class _Registry(ProvisionAdmissionFake):
     def __init__(self, row: dict | None) -> None:
         self.row = row
         self.upserts: list[dict] = []

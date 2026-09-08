@@ -21,12 +21,13 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     user_safe_failure_reason,
 )
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase_uid_test_123"
 _PHONE = "+14255550133"
 
 
-class FakeRegistry:
+class FakeRegistry(ProvisionAdmissionFake):
     def __init__(self):
         self.upserts: list[dict] = []
         self.tombstones: list[dict] = []
@@ -35,7 +36,8 @@ class FakeRegistry:
 
     async def upsert(self, **kw):
         self.upserts.append(kw)
-        self.rows[kw["user_id"]] = {"hushh_id": kw["hushh_id"], "external_agent_id": None}
+        row = self.rows.setdefault(kw["user_id"], {"external_agent_id": None})
+        row.update({k: v for k, v in kw.items() if v is not None})
 
     async def get(self, user_id):
         return self.rows.get(user_id)
@@ -155,13 +157,9 @@ async def test_provision_records_mapping():
     assert result["standingReadExpiresAt"] == 9_999_999_999_999
     assert grant.calls == [_UID]
 
-    # Threaded: provisioning (row) -> provisioning (host handle) -> provisioned.
-    assert [u["status"] for u in registry.upserts] == [
-        "provisioning",
-        "provisioning",
-        "provisioned",
-    ]
-    row = registry.upserts[-1]
+    assert registry.upserts[0]["status"] == "provisioning"
+    assert registry.upserts[-1]["status"] == "provisioned"
+    row = registry.rows[_UID]
     assert row["hushh_id"] == ident.mint_hushh_id(_PHONE)
     assert row["phone_e164_hash"] == ident.hash_phone_e164(_PHONE)
     assert row["pod_pubkey"] == pod.public_key_b64
@@ -472,7 +470,9 @@ async def test_provision_threads_backend_handle_into_registry():
     final = registry.upserts[-1]
     assert final["external_agent_id"] == "one-pod-x"
     assert final["backend"] == "gcp"
-    assert final["backend_metadata"] == {"project": "p", "tier": "logical"}
+    assert final["backend_metadata"]["project"] == "p"
+    assert final["backend_metadata"]["tier"] == "logical"
+    assert final["backend_metadata"]["provisionAttempt"]["phase"] == "provisioned"
 
 
 # --- Orphan-address persistence (delete-order V2 hardening) ----------------------
@@ -608,7 +608,7 @@ async def test_a_pod_boot_failure_records_failed_with_its_own_reason(monkeypatch
     # Re-raised UNCHANGED -- the feed is a projection, never an error handler.
     assert excinfo.value is boom
     # The row lands at 'provisioning_failed', legible to the sweep and the owner.
-    assert [u["status"] for u in registry.upserts][-1] == "provisioning_failed"
+    assert [u["status"] for u in registry.upserts][-1] == "suspended"
     # And the feed line carries the boot failure's OWN reason, not 'temporary_issue'.
     failed = [e for e in events if e["event_type"] == FEED_EVENT_FAILED]
     assert len(failed) == 1

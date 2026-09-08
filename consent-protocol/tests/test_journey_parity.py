@@ -49,6 +49,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     PersonalAgentProvisioningService,
 )
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 # The states a person's row passes through on a healthy journey, verified against the
 # code rather than assumed: `provision()` drives `provisioning` then `connecting`, and
@@ -92,7 +93,7 @@ def _env(monkeypatch):
     get_core_security_settings.cache_clear()
 
 
-class _RecordingRegistry:
+class _RecordingRegistry(ProvisionAdmissionFake):
     """Same surface the provisioning service uses, recording the state sequence."""
 
     def __init__(self) -> None:

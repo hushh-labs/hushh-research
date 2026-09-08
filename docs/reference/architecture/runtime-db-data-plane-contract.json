@@ -151,17 +151,15 @@
       "data_class": "workflow_state",
       "lifecycle_status": "parked_flag_off_with_live_environment_drift",
       "exact_tables": [
-        "personal_agent_registry",
         "byoc_setup_jobs",
-        "pod_lifecycle_events",
-        "personal_agent_deletion_tombstones"
+        "pod_lifecycle_events"
       ],
       "primary_access_path": "Feature-flagged personal-agent reservation, BYOC setup, provider provisioning, lifecycle replay, and the parked provider-deprovision intent design",
-      "retention_policy": "Registry and current setup rows exist only while the account exists. Lifecycle events have a 30-day operational TTL and account deletion removes them immediately only when the registry proves status=unprovisioned with no external coordinates, BYOC job, or pending deprovision intent. A lifecycle row without its registry cannot establish that absence and therefore fails closed. The parked personal_agent_deletion_tombstones design has no in-repo consumer, so an existing intent remains a no-ship operational state rather than evidence that provider cleanup will happen.",
+      "retention_policy": "Retain current setup rows while they may own provider work. Lifecycle events use the existing 30-day operational TTL. Registry and deletion-intent retention is owned by the personal_agent_registry family. Orphaned lifecycle state cannot prove resource absence.",
       "deletion_behavior": "AccountService locks all present personal-agent rows and directly deletes only demonstrably unprovisioned state with no provider coordinates. Any BYOC job, orphaned lifecycle row, non-unprovisioned status, external coordinate, or existing personal_agent_deletion_tombstone returns ACCOUNT_DELETION_EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING and rolls back the entire account-deletion transaction. Account deletion cannot report success until an owned provider deprovisioner exists and the external or billable resource is independently proven absent.",
       "trust_boundary": "OAuth tokens remain request-memory-only. Account deletion neither copies arbitrary backend_metadata nor discards provider coordinates that may be required for teardown; those rows stay intact behind the fail-closed response until an approved deprovision path exists.",
       "plaintext_posture": "provider_teardown_metadata_only",
-      "expected_row_growth": "one mutable registry and setup row per opted-in user, bounded 30-day lifecycle events, and parked deprovision intents that must not be activated without an owned consumer and compaction policy"
+      "expected_row_growth": "one current setup row per opted-in owner and bounded lifecycle events; no new per-attempt table"
     },
     {
       "id": "consent_authority_audit",
@@ -1117,12 +1115,12 @@
         "personal_agent_registry",
         "personal_agent_deletion_tombstones"
       ],
-      "primary_access_path": "per-user sovereign-agent provisioning/deprovision and status services (flag-off, PERSONAL_AGENT_ENABLED)",
-      "retention_policy": "Retain the registry row while the agent is provisioned; a deletion tombstone (HusshID hash only) is retained for recycled-phone generation rotation.",
-      "deletion_behavior": "Registry row hard-deleted on deprovision and on account deletion; the tombstone is retained deliberately and carries no personal data beyond a HusshID hash.",
-      "trust_boundary": "Stores an HMAC-hashed phone, the opaque HusshID, and the pod public key only; never a raw phone number and never a private key.",
+      "primary_access_path": "Existing owner-scoped private-agent registry, provisioning, key attachment, upgrade and erasure services; dev-only migrations900-917 and PERSONAL_AGENT_ENABLED",
+      "retention_policy": "Retain the registry, operation attempts and resource evidence while provisioning, recovery, upgrade or erasure remains unresolved; elapsed time does not release admission. Completed provision metadata stays with the registry. Retain existing deletion tombstones for identity-generation suppression and unresolved resource recovery; no in-repo consumer establishes their cleanup.",
+      "deletion_behavior": "Account deletion refuses retained registry metadata and external resources. Erasure admission suspends ordinary access and preserves retry authority; it is not successful cleanup. Only the existing transactional absence guard permits empty-state removal. New provisioning attempts cannot remove or overwrite unresolved operation evidence.",
+      "trust_boundary": "Stores opaque owner/HusshID bindings, keyed phone hashes, public keys, provider coordinates and bounded lifecycle evidence. No raw phone, private key, OAuth token or provider payload belongs in registry metadata. Owner locks and exact-attempt publication govern provisioning; PKM and agent memory remain separate authorities.",
       "plaintext_posture": "metadata_only",
-      "expected_row_growth": "low_per_user"
+      "expected_row_growth": "one registry row per owner; bounded nested attempt/evidence objects, plus deliberately retained deletion intents"
     },
     {
       "id": "agent_prompt_registry",

@@ -233,6 +233,18 @@ async def record_provisioning_feed_event_safe(
 
 
 class _Registry(Protocol):
+    async def claim_provision(self, *, observed: Optional[dict], intent: dict) -> dict: ...
+
+    async def publish_provision(
+        self,
+        *,
+        user_id: str,
+        attempt_id: str,
+        expected_phase: str,
+        next_phase: str,
+        evidence: dict,
+    ) -> bool: ...
+
     async def upsert(
         self,
         *,
@@ -642,120 +654,103 @@ class PersonalAgentProvisioningService:
                     "standingReadExpiresAt": None,
                 }
 
-            # Declared before `_record` closes over it. The first `_record` call happens
-            # before substrate is ensured (the row must exist before any side effect),
-            # and it passes no handle, so it never reads this -- but leaving the name
-            # unbound until later would make that ordering a latent NameError rather
-            # than a stated invariant.
-            # Bound BEFORE _record closes over it: a failure recorded early (before the
-            # person's cloud is resolved) must not raise on a free variable.
-            cloud = None
+            # Resolve against an observation captured before any external side effect.
+            # The transactional claim rejects a changed cloud/host or retained attempt.
+            try:
+                observed = await self._registry.get(user_id)
+            except Exception:
+                raise PersonalAgentCloudNotAuthorizedError(
+                    "The personal agent registry could not be read"
+                ) from None
+            cloud = await resolve_user_cloud(user_id, repo=self._registry, registry_row=observed)
+            if deployment_target is None and cloud is not None:
+                deployment_target = cloud.deployment_target
+                model_credential_mode = model_credential_mode or cloud.model_credential_mode
+            if cloud is not None and cloud.blocks_provisioning:
+                raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
+            intent = {
+                "user_id": user_id,
+                "hushh_id": hushh_id,
+                "phone_e164_hash": phone_hash,
+                "billing_space_id": billing_space_id,
+                "deployment_target": deployment_target,
+                "model_credential_mode": model_credential_mode,
+                "user_cloud_project": cloud.project if cloud else None,
+                "user_cloud_region": cloud.region if cloud else None,
+                "user_cloud_bootstrap_sa": cloud.bootstrap_sa if cloud else None,
+                "pod_pubkey": pod_key.public_key_b64 if pod_key else None,
+                "pod_key_id": pod_key.key_id if pod_key else None,
+                "pod_key_wrapping_alg": pod_key.wrapping_alg if pod_key else None,
+            }
+            intent = {key: value for key, value in intent.items() if value is not None}
+            reservation = await self._registry.claim_provision(observed=observed, intent=intent)
+            phase = "reserved"
             substrate_receipt: Optional[dict[str, Any]] = None
 
-            async def _record(status: str, handle: Optional[BackendHandle] = None) -> None:
-                fields: dict[str, Any] = dict(
-                    user_id=user_id,
-                    hushh_id=hushh_id,
-                    phone_e164_hash=phone_hash,
-                    # None when the key is deferred; the repo drops None fields, so the
-                    # pod-key columns stay at their schema NULLs until the pod registers.
-                    pod_pubkey=pod_key.public_key_b64 if pod_key else None,
-                    pod_key_id=pod_key.key_id if pod_key else None,
-                    pod_key_wrapping_alg=pod_key.wrapping_alg if pod_key else None,
-                    status=status,
-                    # What this pod was actually BUILT as, which is the column's own
-                    # contract. Until now nothing wrote it here: the only writer was
-                    # the BYOC save route, so a row could record a person's CHOICE
-                    # and never what provisioning did with it -- and the hosted tier
-                    # has no equivalent route firing at build time. Passed through
-                    # from the resolved spec, never named here: this is the common
-                    # layer, which `test_deployment_boundary_holds` forbids from
-                    # knowing any provider's name. The repo drops None, so an
-                    # unstated axis leaves the column exactly as it was.
-                    deployment_target=deployment_target,
-                    model_credential_mode=model_credential_mode,
-                    # The join key that makes spend attributable. NOT the owner's
-                    # handle -- an opaque id that is safe to render as a cloud label.
-                    billing_space_id=billing_space_id,
-                    # A failure record must still name the person's cloud, or the registry's
-                    # own check refuses it and the row is left saying "provisioning" forever
-                    # (seen live 2026-09-02).
-                    user_cloud_project=(cloud.project if cloud else None),
-                    user_cloud_region=(cloud.region if cloud else None),
-                    user_cloud_bootstrap_sa=(cloud.bootstrap_sa if cloud else None),
+            async def _record(
+                status: str,
+                handle: Optional[BackendHandle] = None,
+                *,
+                next_phase: Optional[str] = None,
+                target: Optional[dict] = None,
+            ) -> None:
+                nonlocal phase
+                target_phase = next_phase or (
+                    "failed" if status == "provisioning_failed" else status
                 )
+                fields: dict[str, Any] = {}
+                metadata: dict[str, Any] = {}
                 if handle is not None:
-                    # None handle fields are dropped by the repo, so NullBackend (all-None)
-                    # leaves the row's host columns at their schema NULLs -- behavior
-                    # identical to the pre-threading Phase-0 stamp.
-                    # The substrate receipt travels INSIDE backend_metadata rather than
-                    # replacing it: the backend's own metadata (liveness mode, tenancy,
-                    # ingress) and the record of what was created in the tenant's project
-                    # are different facts about the same pod, and the row has one JSONB
-                    # column for both. Merged rather than overwritten so neither erases
-                    # the other.
-                    merged_metadata = dict(handle.backend_metadata or {})
-                    if substrate_receipt is not None:
-                        merged_metadata["substrateReceipt"] = substrate_receipt
+                    metadata.update(handle.backend_metadata or {})
                     fields.update(
                         external_agent_id=handle.external_agent_id,
                         a2a_route=handle.a2a_route,
                         backend=handle.backend,
-                        backend_metadata=merged_metadata or None,
                         attestation_ref=handle.attestation_ref,
-                        # The backend is the only component that knows the minScale
-                        # this pod actually got, so it is the only honest source for
-                        # how this pod's silence should later be read.
-                        liveness_mode=(handle.backend_metadata or {}).get("livenessMode"),
+                        liveness_mode=metadata.get("livenessMode"),
                     )
-                await self._registry.upsert(**fields)
+                if substrate_receipt is not None:
+                    metadata["substrateReceipt"] = substrate_receipt
+                if metadata:
+                    fields["backend_metadata"] = metadata
+                fields = {key: value for key, value in fields.items() if value is not None}
+                published = await self._registry.publish_provision(
+                    user_id=user_id,
+                    attempt_id=reservation["attemptId"],
+                    expected_phase=phase,
+                    next_phase=target_phase,
+                    evidence={"registry": fields, **({"target": target} if target else {})},
+                )
+                if not published:
+                    raise RuntimeError(
+                        "personal agent provision publication requires reconciliation"
+                    )
+                phase = target_phase
 
             record = _record
-
-            # Record the mapping BEFORE any host or token side effect: a registry failure
-            # can never orphan a live host or a live standing grant (SECURITY-REVIEW.md M3).
-            await _record("provisioning")
             await record_provisioning_feed_event_safe(
                 user_id=user_id, event_type=FEED_EVENT_PROVISIONING
             )
-            # Stand the host up on the selected compute backend. Inert for NullBackend
-            # (default) and for the gcp/anypoint adapters in plan mode; a real host only
-            # materializes when a backend is enabled live. Done BEFORE the mint so a host
-            # failure leaves the row visibly stuck in ``provisioning`` for reconcile,
-            # never a live grant with no host.
-            # Resolved HERE rather than at each call site, deliberately. All three
-            # production callers -- the phone-verify seam, the reconcile retry and the
-            # owner-authorized route -- omitted both axes, and two of them are
-            # fire-and-forget. A future caller WILL forget the argument again, and the
-            # failure that follows is a pod built in hushh's project for someone who
-            # authorized their own, with no error anywhere. Making the service
-            # responsible removes the class instead of fixing three instances of it.
-            #
-            # An explicit argument still wins, so a caller who genuinely knows better
-            # (tests, an operator re-homing one person) is not overridden.
-            # Through the INJECTED registry, not a fresh one. This service takes its
-            # registry as a constructor argument precisely so the whole flow is
-            # exercisable with no database; resolving the cloud against a
-            # separately-constructed repo would bypass that seam, and -- worse -- a
-            # registry that is merely unreachable would read as "this person has no
-            # cloud" and provision them onto the deployment default.
-            cloud = await resolve_user_cloud(user_id, repo=self._registry)
-            if deployment_target is None and cloud is not None:
-                deployment_target = cloud.deployment_target
-                model_credential_mode = model_credential_mode or cloud.model_credential_mode
+            owner_loop = asyncio.get_running_loop()
 
-            # Asked of the cloud, never branched on a provider name here. This file is
-            # the common layer and may not name a cloud (test_deployment_boundary_holds);
-            # `blocks_provisioning` carries that knowledge where it belongs.
-            if cloud is not None and cloud.blocks_provisioning:
-                # Refuse rather than fall back. Falling back would build this person's
-                # agent on hushh's compute and hushh's bill after they explicitly chose
-                # otherwise, and the product would show them a working agent.
-                # The reason comes from the cloud, not from here: an unreadable
-                # registry and an unauthorized project both stop provisioning, and
-                # telling the second person's story to the first would send them to
-                # re-run a grant they already made.
-                raise PersonalAgentCloudNotAuthorizedError(cloud.refusal_reason)
+            def persist_creation_ack(receipt: dict[str, Any]) -> None:
+                if any(
+                    not isinstance(receipt.get(k), str) or not receipt[k]
+                    for k in ("service", "serviceUid", "project", "region", "backend")
+                ):
+                    raise RuntimeError("provision acknowledgement invalid")
+                future = asyncio.run_coroutine_threadsafe(
+                    self._registry.publish_provision(
+                        user_id=user_id,
+                        attempt_id=reservation["attemptId"],
+                        expected_phase="host_requested",
+                        next_phase="host_requested",
+                        evidence={"creationAcknowledgement": receipt},
+                    ),
+                    owner_loop,
+                )
+                if future.result(timeout=30) is not True:
+                    raise RuntimeError("provision acknowledgement not admitted for continuation")
 
             # Narrative emitters, closed over the ids the backends deliberately do not
             # hold. Both run on worker threads (the backend's _run closure and the
@@ -784,6 +779,8 @@ class PersonalAgentProvisioningService:
 
             spec = PodSpec(
                 hushh_id=hushh_id,
+                provision_attempt_id=reservation["attemptId"],
+                on_provision_ack=persist_creation_ack,
                 phone_e164_hash=phone_hash,
                 # Becomes the `hussh-billing-space` cost label. Opaque by
                 # construction: a label is readable by anyone with project billing
@@ -820,6 +817,8 @@ class PersonalAgentProvisioningService:
             # file passing tests/test_deployment_boundary_holds.py.
             substrate = self._substrate_for(spec)
             receipt = await substrate.ensure(spec)
+            substrate_receipt = receipt.as_record() if receipt.resource_ids else None
+            await _record("provisioning", next_phase="substrate")
             if not receipt.applied and substrate.ensurer_id != "none":
                 # Stop rather than provision onto infrastructure that is not there. The
                 # row stays in `provisioning` for the reconcile sweep, and the message
@@ -843,30 +842,29 @@ class PersonalAgentProvisioningService:
             # (no provider named) and optional (a backend without the method
             # behaves exactly as before).
             identity_of = getattr(backend, "runtime_identity_for", None)
-            if identity_of is not None:
-                expected_identity = str(identity_of(spec) or "").strip()
-                if expected_identity:
-                    await _record(
-                        "provisioning",
-                        handle=BackendHandle(
-                            backend=getattr(backend, "backend_id", None),
-                            backend_metadata={"runtime_service_account": expected_identity},
-                        ),
-                    )
+            expected_identity = str(identity_of(spec) or "").strip() if identity_of else ""
+            identity_handle = BackendHandle(
+                backend=getattr(backend, "backend_id", None),
+                backend_metadata={"runtime_service_account": expected_identity}
+                if expected_identity
+                else {},
+            )
+            target_of = getattr(backend, "provision_target_for", None)
+            await _record(
+                "provisioning",
+                handle=identity_handle if expected_identity else None,
+                next_phase="host_requested",
+                target=target_of(spec) if target_of else None,
+            )
             handle = await backend.provision(spec)
-            # The receipt rides along on the row: identifiers, plan digest and the grant
-            # that authorised them -- never attributes, never key material. This is the
-            # teardown inventory, and without it nothing records what was created in a
-            # customer's project, so nothing can clean it up.
-            substrate_receipt = receipt.as_record() if receipt.resource_ids else None
-            await _record("provisioning", handle=handle)
+            await _record("provisioning", handle=handle, next_phase="host_acknowledged")
+            await _record("connecting", handle=handle)
 
             if pod_key is None:
                 # The host exists; the pod now has to boot and hand us its public key.
                 # Stop here rather than minting: a standing pkm.read with no pod to
                 # hold it is read authority granted to nobody, which is the one
                 # ordering SECURITY-REVIEW.md M3 exists to prevent.
-                await _record("connecting", handle=handle)
                 await record_provisioning_feed_event_safe(
                     user_id=user_id, event_type=FEED_EVENT_CONNECTING
                 )
@@ -1011,14 +1009,24 @@ class PersonalAgentProvisioningService:
         if existing is None:
             raise ValueError("no personal-agent row for this user")
 
+        provision_attempt = (existing.get("backend_metadata") or {}).get("provisionAttempt")
+        if provision_attempt is not None and (
+            provision_attempt.get("ownerId") != user_id
+            or provision_attempt.get("phase") not in {"connecting", "provisioned"}
+            or (existing.get("backend_metadata") or {}).get("erasure") is not None
+        ):
+            raise ValueError("personal agent key registration requires reconciliation")
+
         recorded_key = str(existing.get("pod_pubkey") or "").strip()
         if recorded_key:
-            if compare_digest(recorded_key, pod_key.public_key_b64):
+            if compare_digest(recorded_key, pod_key.public_key_b64) and (
+                provision_attempt is None or provision_attempt.get("phase") == "provisioned"
+            ):
                 return {
                     "hushhId": existing.get("hushh_id"),
                     "status": existing.get("status"),
                 }
-            if not allow_rotation:
+            if not allow_rotation and not compare_digest(recorded_key, pod_key.public_key_b64):
                 # Constant-time compared above, and refused: see the docstring.
                 raise ValueError("a different pod public key is already registered")
             if str(existing.get("status") or "").strip() == "provisioned":
@@ -1049,6 +1057,27 @@ class PersonalAgentProvisioningService:
             raise ValueError("personal-agent row is missing its identity fields")
 
         async def _record(status: str) -> None:
+            nonlocal recorded_key
+            if provision_attempt is not None:
+                phase = "failed" if status == "provisioning_failed" else status
+                published = await self._registry.publish_provision(
+                    user_id=user_id,
+                    attempt_id=provision_attempt["attemptId"],
+                    expected_phase="connecting",
+                    next_phase=phase,
+                    evidence={
+                        "expectedPodKey": recorded_key or None,
+                        "registry": {
+                            "pod_pubkey": pod_key.public_key_b64,
+                            "pod_key_id": pod_key.key_id,
+                            "pod_key_wrapping_alg": pod_key.wrapping_alg,
+                        },
+                    },
+                )
+                if not published:
+                    raise RuntimeError("personal agent key publication requires reconciliation")
+                recorded_key = pod_key.public_key_b64
+                return
             await self._registry.upsert(
                 user_id=user_id,
                 hushh_id=hushh_id,

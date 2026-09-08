@@ -487,6 +487,14 @@ class GcpBackend:
             },
         }
 
+    def provision_target_for(self, spec: PodSpec) -> dict[str, Any]:
+        return {
+            "backend": self.backend_id,
+            "project": self._project,
+            "region": self._region,
+            "service": _service_name(spec.hushh_id),
+        }
+
     async def provision(self, spec: PodSpec) -> BackendHandle:
         """Provision the user's pod. Plan mode computes the handle from the rendered
         config with no side effect; live mode is credential-gated (not yet wired)."""
@@ -769,8 +777,28 @@ class GcpBackend:
         name = str(config["metadata"]["name"])
 
         def _run() -> tuple[bool, Optional[str], bool, str]:
-            admitted = client.create_service(config)
+            admitted = (
+                client.create_service(config, adopt_existing=False)
+                if spec.provision_attempt_id
+                else client.create_service(config)
+            )
             service_uid = GcpRunClient.service_uid(admitted)
+            if spec.provision_attempt_id:
+                if (
+                    not service_uid
+                    or (admitted.get("metadata") or {}).get("name") != name
+                    or spec.on_provision_ack is None
+                ):
+                    raise RuntimeError("provision acknowledgement unavailable")
+                spec.on_provision_ack(
+                    {
+                        "service": name,
+                        "serviceUid": service_uid,
+                        "backend": self.backend_id,
+                        "project": self._project,
+                        "region": self._region,
+                    }
+                )
             # Narrative per stage, on this worker thread, through the spec's opaque
             # callback -- this closure was the identical opacity the BYOC substrate
             # had: three long operations under one `provisioning`. Order matters and

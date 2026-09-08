@@ -152,7 +152,7 @@ async def test_refused_deletion_then_recycled_phone_preserves_both_owners(cycle,
     assert registry.rows[_OWNER_B]["hushh_id"] == gen1
 
 
-async def test_reap_then_reprovision_preserves_identity(cycle):
+async def test_compute_only_reap_does_not_authorize_reprovision(cycle):
     registry, backend, svc = cycle
 
     # 1. Provision: generation 0, host live.
@@ -195,12 +195,10 @@ async def test_reap_then_reprovision_preserves_identity(cycle):
     assert registry.deleted == []
     assert registry.rows[_OWNER_A]["hushh_id"] == gen0
 
-    # 3. Re-provision the SAME owner and phone. No tombstone exists, so
-    #    _next_free_generation lands back on 0: the SAME HusshID, so the new
-    #    host addresses the same pods/{hushh_id} prefix and the person's
-    #    records are still theirs.
-    second = await _provision(svc, user_id=_OWNER_A)
-    assert second["hushhId"] == first["hushhId"] == gen0
-    assert [s.hushh_id for s in backend.provisioned] == [gen0, gen0]
-    assert backend.live_hosts == {f"one-pod-{gen0}"}
+    # Compute absence does not clear durable operation ownership or memory.
+    # The simulated host-only reap cannot authorize another provision.
+    with pytest.raises(RuntimeError, match="attempt retained"):
+        await _provision(svc, user_id=_OWNER_A)
+    assert [s.hushh_id for s in backend.provisioned] == [gen0]
+    assert backend.live_hosts == set()
     assert registry.rows[_OWNER_A]["hushh_id"] == gen0

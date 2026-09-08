@@ -171,6 +171,87 @@ class PersonalAgentRegistryRepo:
     def _db(self) -> Any:
         return self._client if self._client is not None else get_db()
 
+    async def claim_provision(self, *, observed: Optional[dict], intent: dict) -> dict:
+        """Reserve one durable attempt before any substrate or host operation.
+
+        A refusal or lost acknowledgement must not reach a provider. This does
+        not rediscover or take over an uncertain attempt, even after a restart.
+        """
+        owner = str(intent.get("user_id") or "")
+        attempt = uuid.uuid4().hex
+        try:
+            result = await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.claim_personal_agent_provision(:owner,:attempt,"
+                "CAST(:observed AS jsonb),CAST(:intent AS jsonb)) AS reservation",
+                {
+                    "owner": owner,
+                    "attempt": attempt,
+                    "observed": json.dumps(observed, default=str),
+                    "intent": json.dumps(intent),
+                },
+            )
+            reservation = result.data[0]["reservation"] if result.data else None
+            if (
+                not isinstance(reservation, dict)
+                or reservation.get("ownerId") != owner
+                or reservation.get("attemptId") != attempt
+                or reservation.get("phase") != "reserved"
+                or reservation.get("intent") != intent
+            ):
+                raise ValueError("unacknowledged provision reservation")
+            return reservation
+        except Exception:
+            raise RuntimeError("personal agent provision admission unavailable") from None
+
+    async def publish_provision(
+        self,
+        *,
+        user_id: str,
+        attempt_id: str,
+        expected_phase: str,
+        next_phase: str,
+        evidence: dict,
+    ) -> bool:
+        """Retain exact-attempt evidence without overwriting heartbeat metadata."""
+        result = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.publish_personal_agent_provision(:owner,:attempt,:expected,"
+            ":next,CAST(:evidence AS jsonb)) AS published",
+            {
+                "owner": user_id,
+                "attempt": attempt_id,
+                "expected": expected_phase,
+                "next": next_phase,
+                "evidence": json.dumps(evidence),
+            },
+        )
+        published = bool(result.data and result.data[0].get("published") is True)
+        if not published and (expected_phase, next_phase) in {
+            ("reserved", "substrate"),
+            ("host_requested", "host_acknowledged"),
+            ("host_requested", "host_requested"),
+        }:
+            await asyncio.to_thread(
+                self._db().execute_raw,
+                "SELECT public.retain_personal_agent_provision_ack(:owner,CAST(:receipt AS jsonb))",
+                {
+                    "owner": user_id,
+                    "receipt": json.dumps(
+                        {
+                            "version": 1,
+                            "ownerId": user_id,
+                            "attemptId": attempt_id,
+                            "expectedPhase": expected_phase,
+                            "nextPhase": next_phase,
+                            "evidence": evidence,
+                        }
+                    ),
+                },
+            )
+        # Retention is not permission to continue ordinary provisioning.
+        return published
+
     async def retain_erasure_upgrade_ack(self, *, user_id: str, lease: str, receipt: dict) -> bool:
         """Append late provider evidence without reopening the reserved owner."""
         response = await asyncio.to_thread(

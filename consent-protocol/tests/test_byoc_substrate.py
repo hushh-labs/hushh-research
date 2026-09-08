@@ -41,6 +41,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
     SubstrateNotReadyError,
     user_safe_failure_reason,
 )
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 
 @pytest.fixture(autouse=True)
@@ -214,7 +215,7 @@ class _RecordingBackend:
         return True
 
 
-class _FakeRegistry:
+class _FakeRegistry(ProvisionAdmissionFake):
     """Same surface as test_personal_agent_provisioning_service's FakeRegistry.
 
     `tombstone_exists` is load-bearing: `provision` consults it through

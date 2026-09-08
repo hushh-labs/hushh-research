@@ -31,6 +31,7 @@ from hushh_mcp.services.pod_key_collector import (
     collect_pod_key_if_pending,
     refresh_pod_key,
 )
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 _UID = "firebase-uid-0123456789abcdefghij"
 _PHONE = "+14155550123"
@@ -40,7 +41,7 @@ _POD_URL = "https://pod-abc-uc.a.run.app"
 # --- fakes shared with test_pod_key_collection ---------------------------------------
 
 
-class _FakeRegistry:
+class _FakeRegistry(ProvisionAdmissionFake):
     def __init__(self) -> None:
         self.rows: dict[str, dict] = {}
 

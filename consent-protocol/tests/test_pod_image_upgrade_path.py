@@ -483,7 +483,7 @@ def service_env(monkeypatch):
     get_core_security_settings.cache_clear()
     from hushh_mcp.services import personal_agent_provisioning_service as pas
 
-    async def _no_cloud(user_id, *, repo=None):
+    async def _no_cloud(user_id, *, repo=None, registry_row=None):
         return None
 
     narrative: list[dict] = []

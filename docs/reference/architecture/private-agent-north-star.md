@@ -341,8 +341,17 @@ Ordinary result publication remains refused. A bounded late upgrade acknowledgem
 can now be appended to the reservation only when it matches the captured token,
 service incarnation and target; conflicting replacement is refused and identical
 replay is idempotent. The ordinary upgrade stops after retention. This is evidence
-preservation, not proof the provider drained. Late provisioning/resource creation
-still needs equivalent operation ownership; pod-held log fencing and provider
+preservation, not proof the provider drained. Additive dev migration917 reserves
+provisioning in the existing registry before substrate work, binding the observed
+owner/cloud snapshot without timeout takeover. Stage publication compares the
+attempt and phase, preserves heartbeat metadata, and retains substrate evidence
+before host creation. Managed/BYOC creation refuses name-only adoption and retains
+intended project/region/service plus the returned service UID before IAM/readiness.
+Failed attempts stay suspended, retaining fleet capacity and recovery authority.
+Deferred key publication compares the attempt and observed key. Late creation
+evidence can be retained under failed or erasure admission without resuming the
+ordinary operation. These controls do not establish deployed recovery, drainage
+or complete cleanup. Pod-held log fencing and provider
 reconciliation must finish before lifecycle completion. A provisioned snapshot with
 no held upgrade can now reach the pod's log fence: the hub observes the captured
 service UID, current controller generation and one fully serving revision, rereads

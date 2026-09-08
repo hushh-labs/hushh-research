@@ -33,6 +33,7 @@ from hushh_mcp.services.personal_agent_provisioning_service import (
 )
 from hushh_mcp.services.pod_connector_keypair_service import generate_pod_keypair
 from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+from tests.personal_agent_registry_fake import ProvisionAdmissionFake
 
 MIN_SCALE = "autoscaling.knative.dev/minScale"
 
@@ -180,7 +181,7 @@ async def test_discover_records_the_tier_the_adopted_pod_actually_runs_at(
 # -- end to end: the ROW records economy (the assertion that would have caught it) --
 
 
-class _FakeRegistry:
+class _FakeRegistry(ProvisionAdmissionFake):
     def __init__(self):
         self.upserts: list[dict] = []
         self.rows: dict[str, dict] = {}
