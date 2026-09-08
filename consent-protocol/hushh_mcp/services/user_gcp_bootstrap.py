@@ -935,6 +935,25 @@ class UserGcpBootstrap:
                             "disposition": "created",
                             "identity": identity,
                         }
+            if ok and code in (200, 201) and call["step"] == "pod_service_account":
+                from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+
+                account_id = (call.get("body") or {}).get("accountId")
+                expected_email = f"{account_id}@{self._project}.iam.gserviceaccount.com"
+                account_body = _json_or_empty(response)
+                if ("email" in account_body and account_body["email"] != expected_email) or (
+                    "projectId" in account_body and account_body["projectId"] != self._project
+                ):
+                    ok = False
+                    result.update(ok=False, detail="service account creation identity mismatch")
+                identity = _service_account_creation_identity(account_body, expected_email)
+                if identity:
+                    result["resourceObservation"] = {
+                        "type": "service_account",
+                        "id": expected_email,
+                        "disposition": "created",
+                        "identity": identity,
+                    }
             results.append(result)
             logger.info("byoc_bootstrap.step step=%s status=%s ok=%s", call["step"], code, ok)
             _observe(call["step"], ok)

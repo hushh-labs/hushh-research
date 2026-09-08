@@ -94,6 +94,29 @@ def _bucket_creation_identity(value: Any, expected_name: str) -> dict[str, str] 
     return {key: value[key] for key in ("name", "generation", "projectNumber", "timeCreated")}
 
 
+def _service_account_creation_identity(value: Any, expected_email: str) -> dict[str, str] | None:
+    if not isinstance(value, dict) or value.get("email") != expected_email:
+        return None
+    project = expected_email.partition("@")[2].removesuffix(".iam.gserviceaccount.com")
+    uid = value.get("uniqueId")
+    if (
+        not project
+        or value.get("projectId") != project
+        or not isinstance(uid, str)
+        or not 1 <= len(uid) <= 32
+        or not uid.isascii()
+        or not uid.isdigit()
+        or int(uid) <= 0
+        or value.get("name")
+        not in {
+            f"projects/{project}/serviceAccounts/{expected_email}",
+            f"projects/{project}/serviceAccounts/{uid}",
+        }
+    ):
+        return None
+    return {key: value[key] for key in ("name", "email", "projectId", "uniqueId")}
+
+
 @dataclass(frozen=True)
 class SubstrateReceipt:
     """Applied substrate identifiers, including resources adopted during bootstrap.
@@ -145,21 +168,28 @@ class SubstrateReceipt:
                 {"type": item["type"], "id": item["id"]} for item in self.planned_resources
             ]
         observations = []
-        bucket_ids = {item["id"] for item in self.planned_resources if item["type"] == "gcs_bucket"}
+        planned = {(item["type"], item["id"]) for item in self.planned_resources}
+        validators = {
+            "gcs_bucket": _bucket_creation_identity,
+            "service_account": _service_account_creation_identity,
+        }
         for observation in self.resource_observations:
             if (
                 not isinstance(observation, dict)
-                or observation.get("type") != "gcs_bucket"
+                or not isinstance(observation.get("type"), str)
+                or observation["type"] not in validators
                 or observation.get("disposition") != "created"
                 or not isinstance(observation.get("id"), str)
-                or observation["id"] not in bucket_ids
+                or (observation["type"], observation["id"]) not in planned
             ):
                 continue
-            identity = _bucket_creation_identity(observation.get("identity"), observation["id"])
+            identity = validators[observation["type"]](
+                observation.get("identity"), observation["id"]
+            )
             if identity:
                 observations.append(
                     {
-                        "type": "gcs_bucket",
+                        "type": observation["type"],
                         "id": observation["id"],
                         "disposition": "created",
                         "identity": identity,

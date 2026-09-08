@@ -1372,3 +1372,43 @@ def test_bucket_creation_observation_requires_acknowledged_incarnation(case):
         assert "must-not-retain" not in json.dumps(step)
     else:
         assert "resourceObservation" not in step
+
+
+@pytest.mark.parametrize("case", ["created", "adopted", "foreign", "missing_uid"])
+def test_service_account_creation_receipt_binds_unique_identity(case):
+    from hushh_mcp.services.byoc_substrate import SubstrateReceipt
+
+    plan = _plan()
+    email = next(r["id"] for r in plan["resources"] if r["type"] == "service_account")
+    body = {
+        "name": f"projects/{USER_PROJECT}/serviceAccounts/{email}",
+        "email": email,
+        "projectId": USER_PROJECT,
+        "uniqueId": "123456789012345678901",
+        "private": "must-not-retain",
+    }
+    if case == "foreign":
+        body["projectId"] = "foreign-project"
+    elif case == "missing_uid":
+        body.pop("uniqueId")
+    session = _Session(
+        routes={
+            f"iam.googleapis.com/v1/projects/{USER_PROJECT}/serviceAccounts": _Response(
+                409 if case == "adopted" else 200, body
+            )
+        }
+    )
+    result = _boot(session).apply(plan, dry_run=False)
+    step = next(step for step in result["steps"] if step["step"] == "pod_service_account")
+    assert step["ok"] is (case != "foreign")
+    if case == "created":
+        receipt = SubstrateReceipt(
+            True,
+            f"{USER_PROJECT}/us-central1",
+            planned_resources=[{"type": "service_account", "id": email}],
+            resource_observations=[step["resourceObservation"]],
+        ).as_record()
+        assert receipt["resourceObservations"][0]["identity"]["uniqueId"] == body["uniqueId"]
+        assert "must-not-retain" not in json.dumps(receipt)
+    else:
+        assert "resourceObservation" not in step

@@ -419,8 +419,10 @@ resources; that alone does not prove exclusive creation. New source retains plan
 resource types and selectively records acknowledged bucket creation with its generation,
 project number and creation time. Adopted buckets and missing evidence gain no creation
 claim; contradictory returned bucket names fail bootstrap. Only bounded identity fields
-are retained, never provider response bodies. Other resource types still lack equivalent
-ownership evidence, and these receipt changes are not deployed. The shared `one-pod` image repository
+are retained, never provider response bodies. Pod service-account creation likewise retains
+validated project/email and the stable numeric identity; adoption or missing identity creates
+no ownership claim. Other resource types still lack equivalent ownership evidence, and
+these receipt changes are not deployed. The shared `one-pod` image repository
 must not be deleted solely because its derived name appears in a cleanup plan. Before
 connecting substrate cleanup, retain typed inventory and resource-specific ownership
 alongside the existing erasure reservation, then persist partial outcomes before releasing
