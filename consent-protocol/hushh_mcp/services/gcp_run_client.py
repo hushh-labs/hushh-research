@@ -363,6 +363,54 @@ class GcpRunClient:
         return result
 
     @staticmethod
+    def erasure_fence_target(
+        service: dict[str, Any], *, name: str, expected_uid: str
+    ) -> dict[str, str]:
+        """Observe a single serving revision for a fence, not deletion authority."""
+        from urllib.parse import urlsplit
+
+        GcpRunClient.require_service_uid(service, expected_uid)
+        status = service.get("status") or {}
+        revision = status.get("latestReadyRevisionName")
+        url = GcpRunClient.service_url(service) or ""
+        address = urlsplit(url)
+        traffic = status.get("traffic") or []
+        generation = (service.get("metadata") or {}).get("generation")
+        observed = status.get("observedGeneration")
+        if (
+            type(generation) is not int
+            or generation < 1
+            or type(observed) is not int
+            or observed != generation
+            or (service.get("metadata") or {}).get("name") != name
+            or not isinstance(revision, str)
+            or not revision.startswith(name + "-")
+            or status.get("latestCreatedRevisionName") != revision
+            or len(traffic) != 1
+            or traffic[0].get("revisionName") != revision
+            or type(traffic[0].get("percent")) is not int
+            or traffic[0]["percent"] != 100
+            or address.scheme != "https"
+            or not address.hostname
+            or address.username
+            or address.password
+            or address.query
+            or address.fragment
+            or address.path not in ("", "/")
+            or not any(
+                c.get("type") == "Ready" and str(c.get("status")).lower() == "true"
+                for c in status.get("conditions") or []
+            )
+        ):
+            raise RuntimeError("erasure serving incarnation unavailable")
+        return {
+            "service": name,
+            "serviceUid": expected_uid,
+            "revision": revision,
+            "podUrl": url.rstrip("/"),
+        }
+
+    @staticmethod
     def upgrade_acknowledgement(
         service: dict[str, Any], *, name: str, expected_uid: str, attempt_id: str
     ) -> dict[str, Any]:

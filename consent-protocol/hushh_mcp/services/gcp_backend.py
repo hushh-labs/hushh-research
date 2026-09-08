@@ -524,6 +524,18 @@ class GcpBackend:
             attestation_ref=("pending-attestation" if spec.tier == TIER_DEDICATED else None),
         )
 
+    async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
+        if not self._live or not spec.expected_service_uid:
+            raise RuntimeError("erasure compute authority unavailable")
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        name = str(self.render_deploy_config(spec)["metadata"]["name"])
+        client = self._client or self._build_client()
+        service = await asyncio.to_thread(client.get_service, name)
+        return GcpRunClient.erasure_fence_target(
+            service, name=name, expected_uid=spec.expected_service_uid
+        )
+
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:

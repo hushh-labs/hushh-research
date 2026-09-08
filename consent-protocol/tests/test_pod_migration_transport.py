@@ -317,3 +317,33 @@ def test_a_minter_that_returns_none_refuses_rather_than_sending_half_a_request()
         )
     assert excinfo.value.code == "HUB_IDENTITY_UNAVAILABLE"
     assert session.calls == []
+
+
+@pytest.mark.parametrize("matched", [True, False])
+def test_erasure_fence_proof_and_acknowledgement_bind_exact_attempt(minted, matched):
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    payload = {
+        "hushhId": "ha1_owner",
+        "attemptId": "attempt-one",
+        "service": "pod-one",
+        "serviceUid": "uid-one",
+        "revision": "pod-one-00001",
+    }
+    reply = {"status": "fenced", **payload}
+    if not matched:
+        reply["attemptId"] = "foreign"
+    session = _Recorder(body=reply)
+    if matched:
+        assert (
+            transport.fence_for_erasure(
+                pod_url="https://pod-one.run.app", payload=payload, session=session
+            )
+            == reply
+        )
+    else:
+        with pytest.raises(PodMigrationTransportError):
+            transport.fence_for_erasure(
+                pod_url="https://pod-one.run.app", payload=payload, session=session
+            )
+    assert minted == ["https://pod-one.run.app", erasure_proof_audience(payload)]

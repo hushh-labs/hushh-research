@@ -379,3 +379,38 @@ def test_render_omits_empty_service_account():
     assert "serviceAccountName" not in no_sa["spec"]["template"]["spec"]
     with_sa = _backend().render_deploy_config(_spec())  # _backend sets a service account
     assert with_sa["spec"]["template"]["spec"]["serviceAccountName"] == "sa@proj-x.iam"
+
+
+@pytest.mark.parametrize("kind", ["managed", "user"])
+async def test_erasure_observation_backends_only_read_existing_service(monkeypatch, kind):
+    from dataclasses import replace
+    from types import SimpleNamespace
+
+    from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+    reads = []
+
+    def read(name):
+        reads.append(name)
+        return {
+            "metadata": {"name": name, "uid": "recorded-uid", "generation": 1},
+            "status": {
+                "url": "https://pod-one.run.app",
+                "observedGeneration": 1,
+                "latestReadyRevisionName": name + "-00001",
+                "latestCreatedRevisionName": name + "-00001",
+                "traffic": [{"revisionName": name + "-00001", "percent": 100}],
+                "conditions": [{"type": "Ready", "status": "True"}],
+            },
+        }
+
+    client = SimpleNamespace(get_service=read)
+    backend = _live(client)
+    if kind == "user":
+        backend = UserGcpBackend(user_project="owner-project", image="image", live=True)
+        monkeypatch.setattr(backend, "_client", lambda: client)
+    target = await backend.observe_erasure_target(
+        replace(_spec(), expected_service_uid="recorded-uid")
+    )
+    assert len(reads) == 1 and target["service"] == reads[0]
+    assert target["serviceUid"] == "recorded-uid"

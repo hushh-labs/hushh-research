@@ -73,10 +73,12 @@ def _mint_id_token(audience: str) -> Optional[str]:
         return None
 
 
-def _headers(pod_url: str, hushh_id: str, *, minter: Any = None) -> dict[str, str]:
+def _headers(
+    pod_url: str, hushh_id: str, *, minter: Any = None, proof_audience: Optional[str] = None
+) -> dict[str, str]:
     mint = minter or _mint_id_token
     invoke = mint(pod_url)
-    proof = mint(hub_proof_audience(hushh_id))
+    proof = mint(proof_audience or hub_proof_audience(hushh_id))
     if not invoke or not proof:
         # Refuse rather than send a half-authenticated request. A call missing
         # the proof would be rejected by the pod as a 403, which reads like a
@@ -102,6 +104,7 @@ def _post(
     timeout: float,
     session: Any = None,
     minter: Any = None,
+    proof_audience: Optional[str] = None,
 ) -> dict[str, Any]:
     client: Any = session
     if client is None:
@@ -114,7 +117,7 @@ def _post(
         response = client.post(
             url,
             json=payload,
-            headers=_headers(pod_url, hushh_id, minter=minter),
+            headers=_headers(pod_url, hushh_id, minter=minter, proof_audience=proof_audience),
             timeout=timeout,
             allow_redirects=False,
         )
@@ -141,6 +144,29 @@ def _post(
             "POD_RESPONSE_INVALID", "the pod returned an invalid response"
         ) from None
     return body
+
+
+def fence_for_erasure(
+    *, pod_url: str, payload: dict[str, Any], session: Any = None, token_minter: Any = None
+) -> dict[str, Any]:
+    """Carry the hub's exact reserved attempt; never a general migration proof."""
+    from api.routes.one.pod_migration import erasure_proof_audience
+
+    result = _post(
+        pod_url,
+        "/pod/migration/erasure/fence",
+        payload["hushhId"],
+        payload,
+        timeout=60,
+        session=session,
+        minter=token_minter,
+        proof_audience=erasure_proof_audience(payload),
+    )
+    if result != {"status": "fenced", **payload}:
+        raise PodMigrationTransportError(
+            "POD_RESPONSE_INVALID", "erasure fence acknowledgement mismatch"
+        )
+    return result
 
 
 def export_from(

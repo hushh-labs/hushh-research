@@ -48,6 +48,55 @@ def _mount_log(monkeypatch, log):
     monkeypatch.setattr(pod_migration, "_commit_log", lambda: log)
 
 
+@pytest.mark.parametrize(
+    "mismatch", [None, "hushhId", "service", "serviceUid", "attemptId", "revision", "proof"]
+)
+async def test_erasure_fence_requires_bound_attempt_and_running_incarnation(
+    monkeypatch, tmp_path, mismatch
+):
+    from hushh_mcp.services import scheduler_identity
+    from hushh_mcp.services.pod_commit_log import PodLogFenced
+
+    payload = dict(
+        hushhId="ha1_owner",
+        attemptId="attempt-1",
+        service="pod-owner",
+        serviceUid="uid-1",
+        revision="pod-owner-00001",
+    )
+    monkeypatch.setenv("HUSSH_POD_MIGRATION_ENABLED", "1")
+    for key, env in (("hushhId", "HUSSH_ID"), ("service", "K_SERVICE"), ("revision", "K_REVISION")):
+        monkeypatch.setenv(env, payload[key])
+    expected_audience = pod_migration.erasure_proof_audience(payload)
+
+    def verify(**kwargs):
+        if mismatch == "proof" or kwargs["audience"] != expected_audience:
+            raise scheduler_identity.SchedulerIdentityError("refused")
+
+    monkeypatch.setattr(scheduler_identity, "verify_scheduler_request", verify)
+    log = PodCommitLog(LocalObjectStore(str(tmp_path)), b"S" * 32, owner_id="ha1_owner")
+    _mount_log(monkeypatch, log)
+    if mismatch in payload:
+        payload[mismatch] = "foreign"
+    body = pod_migration.ErasureFenceRequest(**payload)
+    if mismatch:
+        with pytest.raises(HTTPException) as error:
+            await pod_migration.fence_erasure(body, "Bearer proof")
+        assert error.value.status_code == 403
+        await log.require_open()
+    else:
+        assert await pod_migration.fence_erasure(body, "Bearer proof") == {
+            "status": "fenced",
+            **payload,
+        }
+        assert await pod_migration.fence_erasure(body, "Bearer proof") == {
+            "status": "fenced",
+            **payload,
+        }
+        with pytest.raises(PodLogFenced):
+            await log.replay()
+
+
 # --------------------------------------------------------------------------- #
 # Dark by default
 # --------------------------------------------------------------------------- #

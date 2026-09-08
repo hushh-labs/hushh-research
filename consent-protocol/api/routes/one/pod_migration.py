@@ -42,6 +42,8 @@ memories is not a thing this code is allowed to attempt.
 
 from __future__ import annotations
 
+import hashlib
+import json
 import logging
 import os
 from typing import Any, Optional
@@ -93,7 +95,7 @@ def hub_proof_audience(hushh_id: str) -> str:
     return f"hussh-pod-migration:{str(hushh_id or '').strip()}"
 
 
-def _require_hub_caller(proof: Optional[str]) -> None:
+def _require_hub_caller(proof: Optional[str], *, audience: Optional[str] = None) -> None:
     """Fail-closed hub-caller check, on top of Cloud Run's IAM invoker binding.
 
     Defence in depth, not the only defence: a pod is created with a single
@@ -124,7 +126,7 @@ def _require_hub_caller(proof: Optional[str]) -> None:
     try:
         verify_scheduler_request(
             authorization_header=proof,
-            audience=hub_proof_audience(hushh_id),
+            audience=audience or hub_proof_audience(hushh_id),
             allowed_emails=allowed,
         )
     except SchedulerIdentityError as exc:
@@ -170,6 +172,48 @@ class ExportRequest(BaseModel):
     recipientPublicKey: str = Field(min_length=32, max_length=128)
     recipientKeyId: str = Field(min_length=4, max_length=128)
     recipientWrappingAlg: str = Field(default="X25519-AES256-GCM", max_length=64)
+
+
+class ErasureFenceRequest(BaseModel):
+    """A reserved lifecycle attempt, bound to one observed serving incarnation."""
+
+    hushhId: str = Field(min_length=1, max_length=128)
+    attemptId: str = Field(min_length=1, max_length=128)
+    service: str = Field(min_length=1, max_length=128)
+    serviceUid: str = Field(min_length=1, max_length=128)
+    revision: str = Field(min_length=1, max_length=128)
+
+
+def erasure_proof_audience(payload: dict[str, Any]) -> str:
+    digest = hashlib.sha256(
+        json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
+    ).hexdigest()
+    return f"{hub_proof_audience(str(payload['hushhId']))}:erasure:{digest}"
+
+
+@router.post("/erasure/fence")
+async def fence_erasure(
+    body: ErasureFenceRequest,
+    x_hussh_hub_proof: str | None = Header(default=None, alias="X-Hussh-Hub-Proof"),
+) -> dict:
+    """Close this owner's log; this is not permission to delete any resources."""
+    _require_enabled()
+    payload = body.model_dump()
+    if any(
+        payload[key] != str(os.getenv(env) or "").strip()
+        for key, env in (
+            ("hushhId", "HUSSH_ID"),
+            ("service", "K_SERVICE"),
+            ("revision", "K_REVISION"),
+        )
+    ):
+        raise HTTPException(status_code=403, detail="erasure fence refused")
+    _require_hub_caller(x_hussh_hub_proof, audience=erasure_proof_audience(payload))
+    try:
+        await _commit_log().fence_for_erasure(owner_id=body.hushhId, attempt_id=body.attemptId)
+    except Exception:
+        raise HTTPException(status_code=409, detail="erasure fence incomplete") from None
+    return {"status": "fenced", **payload}
 
 
 @router.post("/export")

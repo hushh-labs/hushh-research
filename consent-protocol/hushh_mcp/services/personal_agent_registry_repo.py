@@ -180,7 +180,7 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
-    async def reserve_erasure(self, *, user_id: str) -> None:
+    async def reserve_erasure(self, *, user_id: str) -> dict:
         """Retain the current resource snapshot and close ordinary pod admission."""
         try:
             response = await asyncio.to_thread(
@@ -190,6 +190,7 @@ class PersonalAgentRegistryRepo:
             )
             if not response.data or not isinstance(response.data[0].get("reservation"), dict):
                 raise RuntimeError("erasure reservation not acknowledged")
+            return dict(response.data[0]["reservation"])
         except Exception:
             raise RuntimeError("personal agent erasure admission unavailable") from None
 

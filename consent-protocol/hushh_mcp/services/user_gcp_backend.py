@@ -961,6 +961,20 @@ class UserGcpBackend:
             },
         )
 
+    async def observe_erasure_target(self, spec: PodSpec) -> dict[str, str]:
+        if not self._live or not spec.expected_service_uid:
+            raise RuntimeError("erasure compute authority unavailable")
+        import asyncio
+
+        from hushh_mcp.services.gcp_run_client import GcpRunClient
+
+        name = _service_name(spec.hushh_id)
+        client = await asyncio.to_thread(self._client)
+        service = await asyncio.to_thread(client.get_service, name)
+        return GcpRunClient.erasure_fence_target(
+            service, name=name, expected_uid=spec.expected_service_uid
+        )
+
     async def observe_upgrade(
         self, spec: PodSpec, receipt: dict[str, Any]
     ) -> Optional[BackendHandle]:

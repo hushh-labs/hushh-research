@@ -856,3 +856,40 @@ def test_upgrade_receipt_reconciliation_never_submits_a_replacement(outcome):
         )
         assert ready is {"True": True, "False": False}.get(outcome)
     assert run.polls == 1
+
+
+@pytest.mark.parametrize("mismatch", [None, "uid", "revision", "traffic", "url", "stale"])
+def test_erasure_target_requires_exact_single_serving_incarnation(mismatch):
+    service = {
+        "metadata": {"name": "pod-one", "uid": "uid-one", "generation": 2},
+        "status": {
+            "observedGeneration": 2,
+            "url": "https://pod-one.run.app",
+            "latestReadyRevisionName": "pod-one-00001",
+            "latestCreatedRevisionName": "pod-one-00001",
+            "traffic": [{"revisionName": "pod-one-00001", "percent": 100}],
+            "conditions": [{"type": "Ready", "status": "True"}],
+        },
+    }
+    if mismatch == "stale":
+        service["status"]["observedGeneration"] = 1
+    elif mismatch == "uid":
+        service["metadata"]["uid"] = "foreign"
+    elif mismatch == "revision":
+        service["status"]["latestCreatedRevisionName"] = "pod-one-00002"
+    elif mismatch == "traffic":
+        service["status"]["traffic"][0]["percent"] = 50
+    elif mismatch == "url":
+        service["status"]["url"] = "https://secret@pod-one.run.app"
+    if mismatch:
+        with pytest.raises(RuntimeError):
+            GcpRunClient.erasure_fence_target(service, name="pod-one", expected_uid="uid-one")
+    else:
+        assert GcpRunClient.erasure_fence_target(
+            service, name="pod-one", expected_uid="uid-one"
+        ) == {
+            "service": "pod-one",
+            "serviceUid": "uid-one",
+            "revision": "pod-one-00001",
+            "podUrl": "https://pod-one.run.app",
+        }

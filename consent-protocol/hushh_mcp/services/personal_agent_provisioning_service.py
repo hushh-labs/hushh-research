@@ -1681,6 +1681,74 @@ class PersonalAgentProvisioningService:
         )
         return {"hushhId": hushh_id, "status": status or "connecting", "adopted": True}
 
+    async def _fence_reserved_erasure(self, *, user_id: str, reservation: dict) -> None:
+        """Fence one observed pod under its immutable registry reservation."""
+        from hushh_mcp.services.pod_migration_transport import fence_for_erasure
+
+        if (
+            not isinstance(reservation, dict)
+            or reservation.get("ownerId") != user_id
+            or reservation.get("version") != 1
+            or reservation.get("phase") != "reserved"
+            or not isinstance(reservation.get("attemptId"), str)
+            or not reservation["attemptId"]
+        ):
+            raise RuntimeError("erasure reservation unavailable")
+        row = reservation.get("registrySnapshot")
+        if (
+            not isinstance(row, dict)
+            or row.get("user_id") != user_id
+            or row.get("status") != "provisioned"
+        ):
+            raise RuntimeError("erasure host snapshot unavailable")
+        metadata = row.get("backend_metadata") or {}
+        if metadata.get("upgradeLease") is not None or not metadata.get("serviceUid"):
+            raise RuntimeError("erasure compute attempt unresolved")
+        hushh_id = row.get("hushh_id")
+        if not hushh_id or hushh_id != reservation.get("hushhId"):
+            raise RuntimeError("erasure owner identity unavailable")
+        spec = PodSpec(
+            hushh_id=hushh_id,
+            phone_e164_hash=str(row.get("phone_e164_hash") or ""),
+            pod_pubkey=str(row.get("pod_pubkey") or ""),
+            billing_space_id=row.get("billing_space_id"),
+            expected_service_uid=metadata["serviceUid"],
+            deployment_target=row.get("deployment_target"),
+            model_credential_mode=row.get("model_credential_mode"),
+            user_cloud_project=row.get("user_cloud_project"),
+            user_cloud_region=row.get("user_cloud_region"),
+            user_cloud_bootstrap_sa=row.get("user_cloud_bootstrap_sa"),
+        )
+        backend = self._backend_for(spec)
+        observe = getattr(backend, "observe_erasure_target", None)
+        if observe is None or getattr(backend, "backend_id", None) != row.get("backend"):
+            raise RuntimeError("erasure backend observation unavailable")
+        target = await observe(spec)
+        if (
+            target.get("serviceUid") != metadata["serviceUid"]
+            or target.get("service") != (metadata.get("service") or row.get("external_agent_id"))
+            or target.get("podUrl") != str(metadata.get("url") or "").rstrip("/")
+        ):
+            raise RuntimeError("erasure compute observation mismatch")
+        current = await self._registry.get(user_id)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or (current.get("backend_metadata") or {}).get("erasure") != reservation
+        ):
+            raise RuntimeError("erasure reservation changed")
+        await asyncio.to_thread(
+            fence_for_erasure,
+            pod_url=target["podUrl"],
+            payload={
+                "hushhId": hushh_id,
+                "attemptId": reservation["attemptId"],
+                "service": target["service"],
+                "serviceUid": target["serviceUid"],
+                "revision": target["revision"],
+            },
+        )
+
     async def deprovision(
         self,
         *,
@@ -1711,7 +1779,8 @@ class PersonalAgentProvisioningService:
             reserve = getattr(self._registry, "reserve_erasure", None)
             if reserve is not None:
                 try:
-                    await reserve(user_id=user_id)
+                    reservation = await reserve(user_id=user_id)
+                    await self._fence_reserved_erasure(user_id=user_id, reservation=reservation)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

@@ -343,7 +343,15 @@ service incarnation and target; conflicting replacement is refused and identical
 replay is idempotent. The ordinary upgrade stops after retention. This is evidence
 preservation, not proof the provider drained. Late provisioning/resource creation
 still needs equivalent operation ownership; pod-held log fencing and provider
-reconciliation must be connected before this phase can finish. No compute, key, grant or owner identity is deleted by reservation.
+reconciliation must finish before lifecycle completion. A provisioned snapshot with
+no held upgrade can now reach the pod's log fence: the hub observes the captured
+service UID, current controller generation and one fully serving revision, rereads
+the immutable erasure reservation, and binds its OIDC proof to the exact owner,
+attempt and observed incarnation. The pod checks its HusshID/service/revision and
+the scoped proof before fencing. Migration capability must be enabled; unsupported
+or unavailable targets remain incomplete. This is a fence-only phase: service UID
+is the hub's verified observation, not independent pod attestation, and it does not
+prove provider drainage. No compute, key, grant or owner identity is deleted by reservation.
 
 Internal Memory Bank erasure reconciliation records durable progress under a log fence.
 Pod startup can resume observation of an acknowledged deletion from that durable record
