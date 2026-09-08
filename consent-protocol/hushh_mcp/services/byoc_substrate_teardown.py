@@ -138,7 +138,10 @@ async def execute_teardown(
         try:
             await deleter(action)
         except Exception as exc:  # noqa: BLE001 - record and continue; the rest may still delete
-            failed.append({**action, "reason": (str(exc) or type(exc).__name__)[:300]})
+            # Transport/SDK exceptions can embed bearer tokens, signed URLs or
+            # response bodies. Only this module's bounded diagnostics are receipts.
+            reason = str(exc) if isinstance(exc, SubstrateDeleteError) else "cleanup_unavailable"
+            failed.append({**action, "reason": reason})
             continue
         deleted.append(action)
     return {
@@ -572,8 +575,8 @@ def build_gcp_deleter(*, token: str, project: str, region: str, session: Any = N
             else:
                 # A plan entry nothing knows how to delete must fail the completeness
                 # check, honoring plan_teardown's "never silently dropped" promise.
-                log.warning("byoc_teardown.unknown_resource type=%s id=%s", kind, rid)
-                raise SubstrateDeleteError(f"unknown resource type {kind}")
+                log.warning("byoc_teardown.unknown_resource")
+                raise SubstrateDeleteError("unknown resource type")
 
         await asyncio.to_thread(_run)
 

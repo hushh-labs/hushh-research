@@ -341,7 +341,7 @@ async def test_iam_binding_removed_via_read_modify_write():
 async def test_unknown_resource_type_is_a_failure():
     # A plan entry nothing knows how to delete must fail the completeness check --
     # plan_teardown promises a new resource kind is never silently dropped.
-    with pytest.raises(SubstrateDeleteError, match="unknown resource type something_new"):
+    with pytest.raises(SubstrateDeleteError, match="unknown resource type"):
         await _deleter(_Session())({"type": "something_new", "id": "x", "op": "delete"})
 
 

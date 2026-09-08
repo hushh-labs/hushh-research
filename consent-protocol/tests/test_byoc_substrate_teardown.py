@@ -124,7 +124,9 @@ async def test_execute_records_failures_and_continues(monkeypatch):
     async def _deleter(action):
         attempted.append(action["id"])
         if action["id"] == "b":
-            raise RuntimeError("bucket http=403")
+            raise RuntimeError(
+                "synthetic provider URL?token=private-value response=private-information"
+            )
 
     plan = [
         {"type": "cloud_scheduler_job", "id": "s", "op": "delete"},
@@ -136,7 +138,9 @@ async def test_execute_records_failures_and_continues(monkeypatch):
     assert result["complete"] is False
     # the failure is recorded with its reason, never minted into "deleted"
     assert [a["id"] for a in result["failed"]] == ["b", "k"]
-    assert result["failed"][0]["reason"] == "bucket http=403"
+    assert result["failed"][0]["reason"] == "cleanup_unavailable"
+    assert "private-value" not in str(result)
+    assert "private-information" not in str(result)
     assert result["failed"][1]["reason"] == "deferred_until_dependencies_erased"
     assert [a["id"] for a in result["deleted"]] == ["s"]
     # Recovery authority is retained until the failed dependency is erased.

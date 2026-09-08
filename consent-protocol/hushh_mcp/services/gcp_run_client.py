@@ -755,10 +755,12 @@ class GcpRunClient:
         def finish_operation(operation: str) -> None:
             operation = validate_operation(operation)
             while True:
+                headers = self._headers()
+                request_timeout = remaining()
                 result = requests.get(
                     f"https://run.googleapis.com/v2/{operation}",
-                    headers=self._headers(),
-                    timeout=remaining(),
+                    headers=headers,
+                    timeout=request_timeout,
                     allow_redirects=False,
                 )
                 remaining()
