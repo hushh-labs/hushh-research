@@ -484,6 +484,10 @@ Dev migration 932 records intentional repository retention after writer-grant re
 Dev migration 933 groups original bootstrap authorization receipts in the existing reservation.
 The coordinator removes other captured grants before the actual minting credential's grant,
 rejects duplicate mutation admission, and reconciles completed retries without minting.
+Dev migration 934 additionally requires every resource in the captured inventory to match its
+recorded terminal outcome or explicit repository retention before bootstrap release.
+Unknown, duplicate or uncovered resources keep recovery access reserved. This coverage
+check supplements receipt validity; it is not account-deletion authority.
 Final account removal remains unconnected. These source changes are not deployed and do not establish live erasure.
 The existing live drill remains unavailable until disposable ownership and complete cleanup
 satisfy those same contracts.

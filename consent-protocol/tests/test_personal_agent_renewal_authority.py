@@ -600,6 +600,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/933_personal_agent_bootstrap_grant_erasure.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/933_personal_agent_bootstrap_grant_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/934_personal_agent_erasure_resource_coverage.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/934_personal_agent_erasure_resource_coverage.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/934_personal_agent_erasure_resource_coverage.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -637,7 +642,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "plannedResources": [
             {"type": "service_account", "id": runtime_email},
             {"type": "gcs_bucket", "id": "synthetic-bucket"},
-            {"type": "artifact_repository", "id": "shared-repository"},
+            {"type": "cloud_run_service", "id": "pod-service"},
         ],
         "resourceObservations": [
             {
@@ -1412,6 +1417,36 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]), recovery_member),
         )[0][0]
 
+    covered = provision_row(pg)["backend_metadata"]["erasure"]
+
+    def coverage(value):
+        return pg.execute(
+            "SELECT erasure_planned_resources_covered(%s::jsonb), "
+            "expected_erasure_bootstrap_release('synthetic-owner',%s::jsonb,%s)",
+            (json.dumps(value), json.dumps(value), recovery_member),
+        )[0]
+
+    assert coverage(covered)[0] is True
+    assert coverage(covered)[1] is not None
+    for extra in (
+        {"type": "artifact_repository", "id": "shared-repository"},
+        {"type": "gcs_bucket", "id": "unreconciled-bucket"},
+        {"type": "unknown_resource", "id": "unknown-one"},
+        covered["substrateInventory"]["plannedResources"][0],
+    ):
+        candidate = json.loads(json.dumps(covered))
+        candidate["substrateInventory"]["plannedResources"].append(extra)
+        assert coverage(candidate) == (False, None)
+    for field in ("computeDeletion", "bucketDeletion", "repositoryRetention"):
+        candidate = json.loads(json.dumps(covered))
+        del candidate[field]
+        assert coverage(candidate) == (False, None)
+    candidate = json.loads(json.dumps(covered))
+    candidate["bucketDeletion"]["bucketIdentity"]["name"] = "different-bucket"
+    assert coverage(candidate) == (False, None)
+    candidate = json.loads(json.dumps(covered))
+    candidate["kmsErasure"]["completion"]["status"] = "scheduled"
+    assert coverage(candidate) == (False, None)
     assert reserve_bootstrap()
     assert reserve_bootstrap()
     release = provision_row(pg)["backend_metadata"]["erasure"]["bootstrapGrantRelease"]
