@@ -28,10 +28,9 @@ coverage.xml
 **/.coverage
 **/coverage.xml
 
-# Development files
-.env
-.env.local
-.env.*.local
+# Development environment files must never enter uploaded build contexts.
+.env*
+**/.env*
 
 # IDE
 .vscode/
