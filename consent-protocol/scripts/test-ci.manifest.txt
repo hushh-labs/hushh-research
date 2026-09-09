@@ -207,3 +207,7 @@ tests/test_third_party_license_evidence.py
 tests/test_live_context_executable_split.py
 tests/test_one_action_search_contract.py
 tests/test_live_context_screen_state.py
+
+tests/test_adk_dispatch.py
+
+tests/test_information_chat_service.py
