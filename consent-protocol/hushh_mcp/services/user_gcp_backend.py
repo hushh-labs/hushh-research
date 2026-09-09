@@ -1259,6 +1259,54 @@ class UserGcpBackend:
             }
         )
 
+    async def erase_bootstrap_grant(
+        self,
+        *,
+        evidence: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        """Release one admitted bootstrap grant through the existing revoker.
+
+        The coordinator must admit the complete setup-history group and order
+        the current impersonation grant last. This adapter grants no admission.
+        """
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("bootstrap grant erasure authority unavailable")
+        identity = evidence.get("bootstrapIdentity") or {}
+        binding = evidence.get("bindingObservation") or {}
+        if identity.get("projectId") != self._user_project:
+            raise RuntimeError("bootstrap grant project mismatch")
+        # Never acquire a token merely to replay a completed deletion. The
+        # lifecycle coordinator must validate retained completion in the registry.
+        if state.get("deletion"):
+            raise RuntimeError("bootstrap grant completion requires registry reconciliation")
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        deleter = build_gcp_deleter(
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            grant_authorization_receipt=evidence,
+            grant_erasure_state=state,
+            retain_grant_receipt=retain_receipt,
+        )
+        await deleter(
+            {
+                "type": "service_account_iam_binding",
+                "id": "bootstrap-impersonation-grant",
+                "resource": identity.get("uniqueId"),
+                "role": "roles/iam.serviceAccountTokenCreator",
+                "member": binding.get("member"),
+            }
+        )
+
     async def observe_repository_inventory(self, *, identity: dict[str, str]) -> dict[str, Any]:
         """Observe shared images under retained bootstrap authority, without deletion."""
         import asyncio

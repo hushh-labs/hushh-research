@@ -347,3 +347,22 @@ async def test_a_slow_boot_still_returns_a_deploying_handle(monkeypatch):
     assert handle.status == "deploying"
     # The path continued past the verdict check: the gateway invite still happened.
     assert client.invited
+
+
+@pytest.mark.asyncio
+async def test_completed_bootstrap_release_never_mints_another_token(monkeypatch):
+    def mint(**kwargs):
+        raise AssertionError("completed release must be reconciled in the registry")
+
+    monkeypatch.setattr("hushh_mcp.services.user_gcp_bootstrap.mint_bootstrap_token", mint)
+    backend = UserGcpBackend(
+        user_project="acme-user-proj",
+        bootstrap_sa="bootstrap@acme-user-proj.iam.gserviceaccount.com",
+        live=True,
+    )
+    with pytest.raises(RuntimeError, match="registry reconciliation"):
+        await backend.erase_bootstrap_grant(
+            evidence={"bootstrapIdentity": {"projectId": "acme-user-proj"}},
+            state={"deletion": {"status": "observed_absent"}},
+            retain_receipt=lambda *_: True,
+        )

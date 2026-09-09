@@ -81,8 +81,10 @@ def _deleter(session: _Session):
         "already_present",
     ],
 )
-@pytest.mark.parametrize("target", ["bootstrap", "repository"])
-async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_replay(case, target):
+@pytest.mark.parametrize("target", ["bootstrap", "repository", "backend"])
+async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_replay(
+    case, target, monkeypatch
+):
     identity = {
         "name": "projects/proj-x/serviceAccounts/one-bootstrap@proj-x.iam.gserviceaccount.com",
         "projectId": "proj-x",
@@ -200,11 +202,31 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
         grant_erasure_state=state,
         retain_grant_receipt=retain,
     )
+    if target == "backend":
+        from hushh_mcp.services.user_gcp_backend import UserGcpBackend
+
+        monkeypatch.setattr(
+            "hushh_mcp.services.user_gcp_bootstrap.mint_bootstrap_token",
+            lambda **kwargs: "synthetic",
+        )
+        monkeypatch.setattr(
+            "hushh_mcp.services.byoc_substrate_teardown.build_gcp_deleter",
+            lambda **kwargs: build_gcp_deleter(session=session, **kwargs),
+        )
+        backend = UserGcpBackend(user_project="proj-x", bootstrap_sa=identity["email"], live=True)
+        if case == "foreign":
+            evidence["bootstrapIdentity"] = {**identity, "projectId": "foreign-project"}
+
+        async def deleter(_action):
+            await backend.erase_bootstrap_grant(
+                evidence=evidence, state=state, retain_receipt=retain
+            )
+
     if case in {"success", "pending_absent"}:
         await deleter(action)
         assert retained[-1][1]["status"] == "observed_absent"
     else:
-        with pytest.raises(SubstrateDeleteError):
+        with pytest.raises((SubstrateDeleteError, RuntimeError)):
             await deleter(action)
         assert all(stage != "deletion" for stage, _ in retained)
     writes = [call for call in session.calls if ":setIamPolicy" in call[1]]
