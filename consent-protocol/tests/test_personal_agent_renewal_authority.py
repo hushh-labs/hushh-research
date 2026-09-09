@@ -574,6 +574,12 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     pg.apply_file(ROOT / "db/migrations/parked/926_personal_agent_runtime_account_erasure.sql")
     pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
     pg.apply_file(ROOT / "db/migrations/parked/927_personal_agent_project_grant_fence.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/928_byoc_authorization_receipts.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/929_personal_agent_runtime_grant_erasure.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/929_personal_agent_runtime_grant_erasure.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/929_personal_agent_runtime_grant_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -597,6 +603,17 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     inventory = {
         "version": "byoc.substrate.receipt.v1",
         "applied": True,
+        "bindingObservations": [
+            {
+                "step": "iam_pod_sa_vertex",
+                "policyResource": "https://cloudresourcemanager.googleapis.com/v1/projects/synthetic-project:getIamPolicy",
+                "role": "roles/aiplatform.user",
+                "member": f"serviceAccount:{runtime_email}",
+                "disposition": "added",
+                "beforeEtag": "before",
+                "afterEtag": "after",
+            }
+        ],
         "plannedResources": [
             {"type": "service_account", "id": runtime_email},
             {"type": "gcs_bucket", "id": "synthetic-bucket"},
@@ -1153,6 +1170,44 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         with pytest.raises(psycopg2.errors.InsufficientPrivilege):
             upsert.result(timeout=5)
     assert reserve_grants()
+    grant_receipt = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "runtimeIdentity": runtime_identity,
+        "bindingObservation": inventory["bindingObservations"][0],
+        "status": "admitted",
+    }
+
+    def retain_runtime_grant(stage, receipt):
+        return pg.execute(
+            "SELECT retain_erasure_runtime_grant_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
+    assert not retain_runtime_grant("admission", {**grant_receipt, "ownerId": "foreign-owner"})
+    assert not retain_runtime_grant(
+        "admission",
+        {
+            **grant_receipt,
+            "bindingObservation": {
+                **grant_receipt["bindingObservation"],
+                "disposition": "already_present",
+            },
+        },
+    )
+    assert retain_runtime_grant("admission", grant_receipt)
+    assert not retain_runtime_grant("admission", grant_receipt)
+    assert retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
+    assert retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
+    assert (
+        "acknowledgement"
+        not in provision_row(pg)["backend_metadata"]["erasure"]["runtimeGrantErasure"]
+    )
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
             "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-two','synthetic-project')"
@@ -1187,6 +1242,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
     )
     assert not retain_writer("writerDisabled", disabled)
+    assert not retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
     assert not bucket_preflight()
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.

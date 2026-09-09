@@ -1405,6 +1405,8 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
             service, method, AsyncMock(side_effect=AssertionError("earlier phase replayed"))
         )
     terminal = AsyncMock()
+    grant = AsyncMock()
+    monkeypatch.setattr(service, "_erase_reserved_runtime_grant", grant)
     monkeypatch.setattr(service, "_erase_reserved_runtime_account", terminal)
     monkeypatch.setattr(
         AccountService,
@@ -1414,6 +1416,101 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
     with pytest.raises(PersonalAgentDeprovisioningRequiredError):
         await service.deprovision(user_id=_UID)
     terminal.assert_awaited_once_with(user_id=_UID)
+    grant.assert_awaited_once_with(user_id=_UID)
     for method in earlier:
         getattr(service, method).assert_not_awaited()
     assert service._registry.deleted == []
+
+
+@pytest.mark.parametrize(
+    "failure", [None, "foreign_owner", "preflight", "readback", "admission", "owner_changed"]
+)
+async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
+    monkeypatch, failure
+):
+    import asyncio
+    from copy import deepcopy
+
+    service = _svc()
+    registry = service._registry
+    identity = {
+        "email": "runtime@synthetic-project.iam.gserviceaccount.com",
+        "uniqueId": "123456789012345678901",
+    }
+    binding = {"step": "iam_pod_sa_vertex", "member": f"serviceAccount:{identity['email']}"}
+    reservation = {
+        "ownerId": "foreign-owner" if failure == "foreign_owner" else _UID,
+        "attemptId": "erase-one",
+        "registrySnapshot": {"user_id": _UID, "user_cloud_project": "synthetic-project"},
+        "substrateInventory": {"bindingObservations": [binding]},
+        "writerDisabled": {"runtimeIdentity": identity},
+    }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    events = []
+
+    async def reserve(*, user_id, reservation):
+        assert user_id == _UID
+        if failure == "preflight":
+            return False
+        if failure != "readback":
+            registry.rows[_UID]["backend_metadata"]["erasure"] = {
+                **reservation,
+                "grantRelease": {
+                    "ownerId": _UID,
+                    "attemptId": "erase-one",
+                    "project": "synthetic-project",
+                    "status": "reserved",
+                },
+            }
+        return True
+
+    async def retain(*, user_id, reservation, stage, receipt):
+        assert user_id == receipt["ownerId"] == _UID
+        assert receipt["attemptId"] == "erase-one"
+        assert receipt["runtimeIdentity"] == identity
+        assert receipt["bindingObservation"] == binding
+        events.append(stage)
+        if failure == stage:
+            return False
+        registry.rows[_UID]["backend_metadata"]["erasure"] = {
+            **reservation,
+            "runtimeGrantErasure": {**reservation.get("runtimeGrantErasure", {}), stage: receipt},
+        }
+        return True
+
+    async def erase(*, evidence, state, retain_receipt):
+        assert evidence == {"runtimeIdentity": identity, "bindingObservation": binding}
+        assert state == {}
+        if failure == "owner_changed":
+            changed = deepcopy(registry.rows[_UID]["backend_metadata"]["erasure"])
+            changed["ownerId"] = "foreign-owner"
+            registry.rows[_UID]["backend_metadata"]["erasure"] = changed
+        if not await asyncio.to_thread(
+            retain_receipt, "admission", {**evidence, "status": "admitted"}
+        ):
+            raise RuntimeError("admission refused")
+        events.append("provider_mutation")
+        assert await asyncio.to_thread(
+            retain_receipt, "deletion", {**evidence, "status": "observed_absent"}
+        )
+
+    registry.reserve_erasure_grant_release = AsyncMock(side_effect=reserve)
+    registry.retain_erasure_runtime_grant_receipt = AsyncMock(side_effect=retain)
+    adapter = Mock(erase_runtime_grant=AsyncMock(side_effect=erase))
+    backend = Mock(return_value=adapter)
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", backend)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    if failure:
+        with pytest.raises(RuntimeError):
+            await service._erase_reserved_runtime_grant(user_id=_UID)
+        assert "provider_mutation" not in events
+    else:
+        await service._erase_reserved_runtime_grant(user_id=_UID)
+        assert events == ["admission", "provider_mutation", "deletion"]
+    if failure in {"foreign_owner", "preflight", "readback"}:
+        backend.assert_not_called()
+    if failure == "foreign_owner":
+        registry.reserve_erasure_grant_release.assert_not_awaited()
+    assert registry.deleted == []
