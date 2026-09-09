@@ -173,6 +173,7 @@ async function buildFixture(): Promise<string> {
   fs.writeFileSync(
     path.join(dir, "fixture.html"),
     `<!doctype html><html><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="stylesheet" href="fixture.css">
 <style>
   /* The two tokens this contract turns on, READ OUT OF app/globals.css at test

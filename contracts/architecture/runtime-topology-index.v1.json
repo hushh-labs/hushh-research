@@ -829,12 +829,13 @@
     {
       "data_class": "workflow_state",
       "exact_tables": [
-        "feed_events"
+        "feed_events",
+        "feed_event_counterparts"
       ],
       "id": "feed_events",
       "lifecycle_status": "current",
       "owner": "backend-runtime-governance",
-      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking"
+      "primary_access_path": "One Feed route: cross-domain activity list, unread badge, and read-state tracking. Counterpart identity uses audit primary keys, indexed grant IDs, or indexed owner/recipient event candidates with exact source and audience checks; current photos join the identity cache."
     },
     {
       "data_class": "audit_regulated",
@@ -5530,9 +5531,9 @@
     "action_gateway": "d166c8ccd2af62580cfc442bcdff0ae3012fbb7b34d7f7bed9b9c48591e686b1",
     "agent_registry": "a95cf642313b982d945743ec063faf308ecd8f651b740e8d8a5db39786172463",
     "cache_manifest": "b31f78f31d803a4e997352218fa633e6896a26fe75f19b6de12648b501159ed0",
-    "data_plane": "cacaf54dcb2b0364e2bd24f5ad35fd7d338747abf139d46af62272f30353d587",
+    "data_plane": "e24f14cb2162791a1f025a620c8547cb565b5f2be2c73d6b4ea562ab09668920",
     "in_process_dispatch": "be849e9fc6ab347ebbbfd84bfaa7fb528f29c71bc76b11c38f1c40642c51883a",
-    "one_specialist_tools": "008236255a603422ae0e17e93c0105057b05ff356e1bde59c66c3926c66891b7",
+    "one_specialist_tools": "f5777d2754a66846cbb5f0d820911b540cdd90318e91059b1ae11c644873437f",
     "route_index": "21e3b0409a509a9561772901a9730117fd95f05b94adc5ce3d59a3fd0ba2aadb",
     "route_layout": "5df348a7ca9785aacc47b20a6e8434375bae432718ce2dbd30e83a59a6a8abb4",
     "surface_map": "e2ccc2865cc617242b0b13aa5844f4d1b51658c78b03970b4f179db38aa35156",

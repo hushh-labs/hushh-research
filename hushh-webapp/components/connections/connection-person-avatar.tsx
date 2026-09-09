@@ -37,11 +37,13 @@ export function connectionAvatarInitials(label: string): string {
  *
  * Reported as "circle and Connections dono ka thoda alag alag feel ho rha hai".
  */
-export type ConnectionPersonAvatarSize = "compact" | "comfortable" | "profile";
+export type ConnectionPersonAvatarSize =
+  "compact" | "comfortable" | "list" | "profile";
 
 const AVATAR_SIZE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
   compact: "h-7 w-7",
   comfortable: "h-[34px] w-[34px]",
+  list: "h-10 w-10",
   profile: "h-16 w-16",
 };
 
@@ -49,6 +51,7 @@ const AVATAR_SIZE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
 const AVATAR_BADGE_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
   compact: "size-[13px]",
   comfortable: "size-[15px]",
+  list: "size-[15px]",
   profile: "size-[19px]",
 };
 
@@ -56,12 +59,14 @@ const AVATAR_BADGE_GLYPH_CLASSNAME: Record<ConnectionPersonAvatarSize, string> =
   {
     compact: "size-[11px]",
     comfortable: "size-[13px]",
+    list: "size-[13px]",
     profile: "size-[17px]",
   };
 
 const AVATAR_FALLBACK_CLASSNAME: Record<ConnectionPersonAvatarSize, string> = {
   compact: "text-xs",
   comfortable: "text-xs",
+  list: "text-sm",
   profile: "text-3xl",
 };
 
@@ -71,6 +76,7 @@ export function ConnectionPersonAvatar({
   verified = false,
   size = "comfortable",
   className,
+  testId,
 }: {
   photoUrl?: string | null;
   label: string;
@@ -81,9 +87,11 @@ export function ConnectionPersonAvatar({
    */
   size?: ConnectionPersonAvatarSize;
   className?: string;
+  testId?: string;
 }) {
   return (
     <Avatar
+      key={photoUrl?.trim() || "initials"}
       className={cn(
         "relative shrink-0",
         AVATAR_SIZE_CLASSNAME[size],
@@ -91,9 +99,20 @@ export function ConnectionPersonAvatar({
       )}
       data-photo-url={photoUrl ?? undefined}
       data-avatar-size={size}
+      data-testid={testId}
     >
-      {photoUrl ? <AvatarImage src={photoUrl} alt="" /> : null}
-      <AvatarFallback className={AVATAR_FALLBACK_CLASSNAME[size]}>
+      {photoUrl?.trim() ? (
+        <AvatarImage
+          key={photoUrl}
+          src={photoUrl.trim()}
+          alt=""
+          referrerPolicy="no-referrer"
+        />
+      ) : null}
+      <AvatarFallback
+        aria-hidden="true"
+        className={AVATAR_FALLBACK_CLASSNAME[size]}
+      >
         {connectionAvatarInitials(label)}
       </AvatarFallback>
       {verified ? (

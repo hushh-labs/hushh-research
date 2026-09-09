@@ -75,10 +75,7 @@ export interface ConnectionPage {
 }
 
 export type ContactSyncMatchOutcome =
-  | "auto_connected"
-  | "already_connected"
-  | "request_required"
-  | "suppressed";
+  "auto_connected" | "already_connected" | "request_required" | "suppressed";
 
 export interface ContactSyncLookup {
   /** Opaque, invocation-local correlation id. Never derived from phone data. */
@@ -154,6 +151,7 @@ export interface ConnectionRequest {
   message: string | null;
   counterpartUserId: string;
   counterpartDisplayName: string | null;
+  counterpartPhotoUrl?: string | null;
   scopes?: ConnectionScopeProposal[];
 }
 
@@ -193,7 +191,8 @@ export interface ConnectionInformationScope {
   domain: string | null;
   path: string | null;
   wildcard: boolean;
-  match_reason: "listed" | "exact_domain_match" | "substring_match" | "fuzzy_match";
+  match_reason:
+    "listed" | "exact_domain_match" | "substring_match" | "fuzzy_match";
 }
 
 export interface ConnectionInformationScopeCatalog {
@@ -238,7 +237,8 @@ async function jsonOrThrow<T>(response: Response): Promise<T> {
         ? payload.detail.trim()
         : payload.detail &&
             typeof payload.detail === "object" &&
-            typeof (payload.detail as { message?: unknown }).message === "string" &&
+            typeof (payload.detail as { message?: unknown }).message ===
+              "string" &&
             (payload.detail as { message: string }).message.trim()
           ? (payload.detail as { message: string }).message.trim()
           : null;
@@ -458,8 +458,12 @@ export class ConnectionsService {
       `/api/one/connections/${encodeURIComponent(opts.counterpartUserId)}/information-scopes?${params.toString()}`,
       { method: "GET", headers: authHeaders(opts.idToken) },
     );
-    const payload = await jsonOrThrow<ConnectionInformationScopeCatalog>(response);
-    return { counterpartUserId: payload.counterpartUserId, items: payload.items ?? [] };
+    const payload =
+      await jsonOrThrow<ConnectionInformationScopeCatalog>(response);
+    return {
+      counterpartUserId: payload.counterpartUserId,
+      items: payload.items ?? [],
+    };
   }
 
   static async sendRequest(opts: {
@@ -489,11 +493,16 @@ export class ConnectionsService {
   static async getVoicePreferences(opts: {
     idToken: string;
   }): Promise<ConnectionVoicePreference> {
-    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
-      method: "GET",
-      headers: authHeaders(opts.idToken),
-    });
-    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    const response = await ApiService.apiFetch(
+      "/api/one/connect/voice-preferences",
+      {
+        method: "GET",
+        headers: authHeaders(opts.idToken),
+      },
+    );
+    const payload = await jsonOrThrow<{
+      preferences: ConnectionVoicePreference;
+    }>(response);
     return payload.preferences;
   }
 
@@ -501,14 +510,19 @@ export class ConnectionsService {
     idToken: string;
     shareScopesFromLastRequest: boolean;
   }): Promise<ConnectionVoicePreference> {
-    const response = await ApiService.apiFetch("/api/one/connect/voice-preferences", {
-      method: "PATCH",
-      headers: authHeaders(opts.idToken),
-      body: JSON.stringify({
-        share_scopes_from_last_request: opts.shareScopesFromLastRequest,
-      }),
-    });
-    const payload = await jsonOrThrow<{ preferences: ConnectionVoicePreference }>(response);
+    const response = await ApiService.apiFetch(
+      "/api/one/connect/voice-preferences",
+      {
+        method: "PATCH",
+        headers: authHeaders(opts.idToken),
+        body: JSON.stringify({
+          share_scopes_from_last_request: opts.shareScopesFromLastRequest,
+        }),
+      },
+    );
+    const payload = await jsonOrThrow<{
+      preferences: ConnectionVoicePreference;
+    }>(response);
     return payload.preferences;
   }
 

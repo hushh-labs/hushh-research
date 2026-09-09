@@ -864,14 +864,17 @@ class TestOpenScreen:
     @pytest.mark.asyncio
     async def test_normalizes_screen_names(self):
         state: dict = {}
-        result = await open_screen("Connected Systems", _tool_context(state))
+        # Keep the normalization contract independent of optional products.
+        # Connected Systems is correctly absent when the CRM product flag is
+        # disabled, which made this generic test fail in a valid local runtime.
+        result = await open_screen("Personal Data", _tool_context(state))
         assert result["status"] == "ok"
-        assert result["route"] == APP_ROUTES["connected_systems"]
-        assert state[f"{STATE_PENDING_DIRECTIVE}:connected_systems"] == {
+        assert result["route"] == APP_ROUTES["personal_data"]
+        assert state[f"{STATE_PENDING_DIRECTIVE}:personal_data"] == {
             "kind": "navigate",
             "payload": {
-                "route": APP_ROUTES["connected_systems"],
-                "screen": "connected_systems",
+                "route": APP_ROUTES["personal_data"],
+                "screen": "personal_data",
             },
         }
 
@@ -1827,6 +1830,7 @@ class TestBackendDirectLocationShareSelected:
             "recipient_key_id": "k1",
             "duration_hours": 2.0,
             "duration_mode": "timed",
+            "require_recipient_phone_verified": False,
             "enforce_connection": True,
         }
         publish_key = f"{_STATE_PENDING_DIRECTIVE}:location.share_selected:publish"

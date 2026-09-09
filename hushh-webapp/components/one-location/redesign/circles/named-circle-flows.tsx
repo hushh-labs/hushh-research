@@ -62,6 +62,8 @@ import {
   CIRCLE_MEMBERS_CARD_SCROLL_CLASSNAME,
   CIRCLE_MEMBERS_CARD_SHELL_CLASSNAME,
   CIRCLE_MEMBER_ACTION_CLASSNAME,
+  CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
+  CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
   CIRCLE_MEMBER_AVATAR_CLASSNAME,
   CIRCLE_MEMBER_NAME_CLASSNAME,
   CIRCLE_MEMBER_NAME_ROW_CLASSNAME,
@@ -534,6 +536,7 @@ export function CirclesSection({
             >
               <SectionLabel
                 as="h3"
+                compact
                 className="px-[6px] text-[13px] font-normal leading-[18px] text-[color:var(--app-secondary-label)]"
               >
                 {group.title}
@@ -670,8 +673,7 @@ export function CreateCircleFlow({
           placeholder="Family, close friends, project team"
           className={cn(
             "h-[52px] w-full rounded-[14px] border border-transparent bg-[color:var(--app-card-surface-default-solid)] px-4 text-[17px] leading-[22px] shadow-[var(--app-card-shadow-standard)] outline-none transition focus:border-[color:var(--app-accent)] focus:ring-2 focus:ring-[color:var(--app-accent-ring)] dark:shadow-none",
-            showNameError &&
-              "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
+            showNameError && "ring-2 ring-[#FF3B30]/35 focus:ring-[#FF3B30]/35",
           )}
         />
         {nameHelpText ? (
@@ -679,7 +681,8 @@ export function CreateCircleFlow({
             id={nameHelpId}
             className={cn(
               "block text-[13px] leading-[18px] text-[color:var(--app-secondary-label)]",
-              showNameError && "font-medium text-[color:var(--app-destructive)]",
+              showNameError &&
+                "font-medium text-[color:var(--app-destructive)]",
             )}
           >
             {nameHelpText}
@@ -934,7 +937,8 @@ export function JoinCircleFlow({
               <UsersRound className="h-5 w-5" />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">                {preview.name}
+              <p className="whitespace-normal text-[17px] font-semibold leading-[22px] text-foreground [overflow-wrap:anywhere]">
+                {preview.name}
               </p>
               <p className="text-[14px] leading-5 text-[color:var(--app-secondary-label)]">
                 {preview.ownerDisplayName} ·{" "}
@@ -1097,16 +1101,23 @@ function CircleMemberRow({
   // The one second line that is asking for something rather than reporting.
   const secondaryNeedsSetup =
     member.role !== "owner" && !member.secureLocationReady;
+  const hasRelationshipControl = Boolean(pendingLabel || actionCta);
 
   return (
     <div className={CIRCLE_MEMBER_ROW_CLASSNAME}>
       <ConnectionPersonAvatar
         label={member.displayName}
         photoUrl={member.photoUrl}
+        size="list"
         verified={Boolean(member.isRia)}
         className={CIRCLE_MEMBER_AVATAR_CLASSNAME}
       />
-      <div className="min-w-0 flex-1">
+      <div
+        className={cn(
+          "min-w-0 flex-1",
+          hasRelationshipControl && CIRCLE_MEMBER_ACTION_COPY_CLASSNAME,
+        )}
+      >
         <p className={CIRCLE_MEMBER_NAME_ROW_CLASSNAME}>
           <span className={CIRCLE_MEMBER_NAME_CLASSNAME}>
             {member.displayName}
@@ -1132,7 +1143,12 @@ function CircleMemberRow({
           <span className="sr-only">Connected on One</span>
         ) : null}
       </div>
-      <div className={CIRCLE_MEMBER_TRAILING_CLASSNAME}>
+      <div
+        className={cn(
+          CIRCLE_MEMBER_TRAILING_CLASSNAME,
+          hasRelationshipControl && CIRCLE_MEMBER_STACKED_ACTION_CLASSNAME,
+        )}
+      >
         {pendingLabel && !canCancelRequest ? (
           <span
             className="px-1 text-[13px] font-medium leading-5 text-muted-foreground"
@@ -1215,7 +1231,9 @@ function CircleMemberRow({
           displayName={member.displayName}
           profileHref={
             member.publicPersonRef
-              ? buildPersonProfileRoute(member.publicPersonRef, { from: ROUTES.ONE_LOCATION })
+              ? buildPersonProfileRoute(member.publicPersonRef, {
+                  from: ROUTES.ONE_LOCATION,
+                })
               : null
           }
           initials={circleInitials(member.displayName)}
@@ -2274,8 +2292,10 @@ export function CircleDetailFlow({
                             return (
                               <SettingsRow
                                 key={connection.userId}
+                                layout="person"
                                 leading={
                                   <ConnectionPersonAvatar
+                                    size="list"
                                     photoUrl={connection.photoUrl ?? null}
                                     label={connection.displayName}
                                     verified={Boolean(connection.isRia)}
@@ -2392,6 +2412,7 @@ export function CircleDetailFlow({
                           {pendingInvites.map((invite) => (
                             <SettingsRow
                               key={invite.id}
+                              layout="person"
                               leading={
                                 <ConnectionPersonAvatar
                                   label={
@@ -2399,7 +2420,7 @@ export function CircleDetailFlow({
                                     "One connection"
                                   }
                                   photoUrl={invite.inviteePhotoUrl}
-                                  className="h-10 w-10"
+                                  size="list"
                                 />
                               }
                               title={
@@ -2465,9 +2486,11 @@ export function CircleDetailFlow({
           >
             <div className="flex items-baseline justify-between gap-3 px-1.5">
               <SectionLabel
-                id={CIRCLE_MEMBERS_HEADING_ID}
+                as="div"
+                compact
                 role="heading"
                 aria-level={2}
+                id={CIRCLE_MEMBERS_HEADING_ID}
               >
                 Members
               </SectionLabel>

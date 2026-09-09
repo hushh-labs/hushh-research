@@ -146,6 +146,42 @@ async def test_ledger_requires_verified_baseline(tmp_path: Path):
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("mode", [MigrationMode.REPLAY, MigrationMode.LEDGER])
+async def test_concurrent_index_opt_in_runs_outside_transaction(tmp_path: Path, mode):
+    (tmp_path / "114_existing.sql").write_text("SELECT 114", encoding="utf-8")
+    sql = (
+        "-- migration: transactional=false\n"
+        "CREATE INDEX CONCURRENTLY IF NOT EXISTS test_idx ON test_table(id);\n"
+    )
+    (tmp_path / "203_index.sql").write_text(sql, encoding="utf-8")
+    entries = build_manifest_entries(tmp_path, ("114_existing.sql", "203_index.sql"))
+    assert entries[0].transactional is True
+    assert entries[1].transactional is False
+
+    class ConcurrentConnection(FakeConnection):
+        async def execute(self, statement, *args):
+            if statement == sql:
+                assert not self.in_transaction
+            return await super().execute(statement, *args)
+
+    conn = ConcurrentConnection()
+    conn.rows["baseline:114"] = {
+        "migration_id": "baseline:114",
+        "filename": "release_migration_manifest.json@114",
+        "checksum_sha256": manifest_checksum(entries[:1]),
+        "status": "baseline",
+        "baseline_through": 114,
+    }
+    await apply_manifest_entries(conn, entries, mode=mode)
+    assert sql in conn.executed_sql
+    if mode is MigrationMode.LEDGER:
+        assert conn.rows["203"]["status"] == "applied"
+    else:
+        assert "203" not in conn.rows
+    assert conn.locked is False
+
+
+@pytest.mark.asyncio
 async def test_checksum_drift_fails_before_sql_execution(tmp_path: Path):
     entries = _entries(tmp_path)
     conn = FakeConnection()

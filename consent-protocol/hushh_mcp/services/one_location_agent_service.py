@@ -790,6 +790,29 @@ def _classify_share_kind(reason: str | None) -> str:
     return "check_in"
 
 
+def requires_recipient_phone_verification(
+    *,
+    share_kind: str | None,
+    reason: str | None,
+) -> bool:
+    """Keep the verified-phone gate on the emergency SMS lane only.
+
+    Ordinary private shares are authorized by an active One relationship and
+    encrypted to the recipient's active Location key.  Requiring an unrelated
+    phone claim after the recipient picker has already proved both facts makes
+    a connected, cryptographically ready Google-only account impossible to
+    share with.  SOS is different: its recipient list is explicitly the SMS
+    contact list, so that lane keeps the verified-phone requirement.
+
+    Classify legacy callers from ``reason`` exactly as grant creation does, so
+    an older ``sos_panic`` request cannot bypass the SMS protection merely by
+    omitting ``shareKind``.
+    """
+
+    resolved_kind = share_kind or _classify_share_kind(reason)
+    return _is_sos_lane(resolved_kind)
+
+
 def _is_until_stopped_share(duration_mode: str | None) -> bool:
     return duration_mode == _UNTIL_STOPPED_DURATION_MODE
 
@@ -4555,9 +4578,16 @@ class OneLocationAgentService:
             },
         )
         if not row:
+            resolved_unavailable_message = unavailable_message
+            if resolved_unavailable_message is None and require_phone_verified:
+                identity = self._identity_row(recipient_user_id)
+                if identity and not bool(identity.get("phone_verified")):
+                    resolved_unavailable_message = (
+                        "Ask this SMS contact to verify their phone before receiving alerts."
+                    )
             raise OneLocationAgentError(
                 "LOCATION_RECIPIENT_UNAVAILABLE",
-                unavailable_message
+                resolved_unavailable_message
                 or (
                     # Two lines in a toast. The old copy explained the whole
                     # mechanism and ran to four; what the reader needs is the
@@ -4963,10 +4993,6 @@ class OneLocationAgentService:
         self._recipient_key_row(
             recipient_user_id=contact_user_id,
             require_phone_verified=True,
-            unavailable_message=(
-                "This connection must finish Location setup before they can be "
-                "added as an SMS contact."
-            ),
         )
         self._add_sms_contact_with_locked_eligibility(
             owner_user_id=owner_user_id,

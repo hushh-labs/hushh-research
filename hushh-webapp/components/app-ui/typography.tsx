@@ -171,11 +171,17 @@ export function SectionTitle({ as = "h2", ...props }: RoleTextProps) {
   );
 }
 
-export function SectionLabel({ as = "div", ...props }: RoleTextProps) {
+export function SectionLabel({
+  as = "div",
+  compact = false,
+  className,
+  ...props
+}: RoleTextProps & { compact?: boolean }) {
   return (
     <SemanticText
       as={as}
       roleClassName={TYPOGRAPHY_CLASSNAMES.sectionLabel}
+      className={cn(compact && "ui-text-section-label-compact", className)}
       {...props}
     />
   );
@@ -221,10 +227,15 @@ export function BodyText({ as = "p", ...props }: RoleTextProps) {
   );
 }
 
-export function RowLabel(props: RoleTextProps) {
+export function RowLabel({
+  compact = false,
+  className,
+  ...props
+}: RoleTextProps & { compact?: boolean }) {
   return (
     <SemanticText
       roleClassName={TYPOGRAPHY_CLASSNAMES.rowLabel}
+      className={cn(compact && "ui-text-row-label-compact", className)}
       {...props}
     />
   );
@@ -239,11 +250,17 @@ export function MediumRowLabel(props: RoleTextProps) {
   );
 }
 
-export function RowDescription({ as = "p", ...props }: RoleTextProps) {
+export function RowDescription({
+  as = "p",
+  compact = false,
+  className,
+  ...props
+}: RoleTextProps & { compact?: boolean }) {
   return (
     <SemanticText
       as={as}
       roleClassName={TYPOGRAPHY_CLASSNAMES.rowDescription}
+      className={cn(compact && "ui-text-row-description-compact", className)}
       {...props}
     />
   );
@@ -309,19 +326,13 @@ export function HelperText({ as = "p", ...props }: RoleTextProps) {
 
 export function InputValue(props: RoleTextProps) {
   return (
-    <SemanticText
-      roleClassName={TYPOGRAPHY_CLASSNAMES.inputValue}
-      {...props}
-    />
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.inputValue} {...props} />
   );
 }
 
 export function StatusText(props: RoleTextProps) {
   return (
-    <SemanticText
-      roleClassName={TYPOGRAPHY_CLASSNAMES.statusText}
-      {...props}
-    />
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.statusText} {...props} />
   );
 }
 
@@ -336,10 +347,7 @@ export function ButtonLabel(props: RoleTextProps) {
 
 export function TabLabel(props: RoleTextProps) {
   return (
-    <SemanticText
-      roleClassName={TYPOGRAPHY_CLASSNAMES.tabLabel}
-      {...props}
-    />
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.tabLabel} {...props} />
   );
 }
 
@@ -354,18 +362,12 @@ export function AgentTabLabel(props: RoleTextProps) {
 
 export function CaptionText(props: RoleTextProps) {
   return (
-    <SemanticText
-      roleClassName={TYPOGRAPHY_CLASSNAMES.caption}
-      {...props}
-    />
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.caption} {...props} />
   );
 }
 
 export function LegalText(props: RoleTextProps) {
   return (
-    <SemanticText
-      roleClassName={TYPOGRAPHY_CLASSNAMES.legal}
-      {...props}
-    />
+    <SemanticText roleClassName={TYPOGRAPHY_CLASSNAMES.legal} {...props} />
   );
 }

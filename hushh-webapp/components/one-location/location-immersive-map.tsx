@@ -3825,7 +3825,7 @@ export function LocationImmersiveMap({
                     ) : null}
                     {checkInActionAvailable ? (
                       <Button
-                        className="h-auto min-h-0 min-w-0 px-1 py-1 text-sm font-semibold underline underline-offset-4"
+                        className="h-auto min-h-11 min-w-0 px-1 py-1 text-sm font-semibold underline underline-offset-4"
                         variant="link"
                         aria-label={
                           nearbyPresenceState.presence

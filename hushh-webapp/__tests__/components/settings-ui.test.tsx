@@ -92,7 +92,7 @@ describe("SettingsRow", () => {
     );
 
     const rowShell = container.querySelector('[data-testid="settings-row"]');
-    expect(rowShell?.className).toContain("[--settings-row-py:10px]");
+    expect(rowShell?.className).toContain("[--settings-row-py:8px]");
     expect(screen.queryByTestId("settings-row-description")).toBeNull();
   });
 
@@ -103,6 +103,7 @@ describe("SettingsRow", () => {
 
     const title = container.querySelector('[data-slot="settings-row-title"]');
     expect(title?.className).toContain("ui-text-row-label");
+    expect(title?.className).toContain("ui-text-row-label-compact");
     expect(title?.getAttribute("data-ui-role")).toBe("body");
     expect(title?.className).not.toContain("font-semibold");
   });
@@ -120,6 +121,21 @@ describe("SettingsRow", () => {
     expect(globalsCss).toContain(
       "font-weight: var(--type-row-label-weight) !important;",
     );
+  });
+
+  it("keeps compact workspace headings and rows below the global title ladder", () => {
+    const globalsCss = readFileSync(
+      join(process.cwd(), "app/globals.css"),
+      "utf8",
+    );
+
+    expect(globalsCss).toContain("--type-section-label-compact-size: 14px;");
+    expect(globalsCss).toContain("--type-row-label-compact-size: 16px;");
+    expect(globalsCss).toContain(
+      '.app-page-shell[data-app-density="compact"] .ui-text-section-label-compact',
+    );
+    expect(globalsCss).toContain('[data-settings-density="compact"]');
+    expect(globalsCss).toContain('[data-slot="settings-group-heading"] {');
   });
 
   it("keeps row descriptions visually subordinate to page subtitles and body text", () => {
@@ -242,10 +258,29 @@ describe("SettingsRow", () => {
     const rows = container.querySelectorAll('[data-testid="settings-row"]');
 
     expect(group?.getAttribute("data-inset-separators")).toBe("true");
-    expect(rows[0]?.className).toContain("[--settings-row-py:10px]");
+    expect(rows[0]?.className).toContain("[--settings-row-py:8px]");
     expect(
       rows[0]?.querySelector('[data-slot="settings-row-icon"]')?.className,
     ).not.toContain("sm:h-10");
+  });
+
+  it("defaults embedded groups to the compact mobile list recipe", () => {
+    const { container } = render(
+      <SettingsGroup embedded title="Access history">
+        <SettingsRow title="Active access" description="Until you stop" />
+      </SettingsGroup>,
+    );
+
+    const heading = container.querySelector(
+      '[data-slot="settings-group-heading"]',
+    );
+    const row = container.querySelector('[data-testid="settings-row"]');
+
+    expect(heading?.className).toContain("ui-text-section-label-compact");
+    expect(row?.className).toContain("[--settings-row-py:8px]");
+    expect(
+      row?.querySelector('[data-slot="settings-row-title"]')?.className,
+    ).toContain("ui-text-row-label-compact");
   });
 
   it("supports asChild rows without losing row content", () => {
@@ -339,12 +374,14 @@ describe("SegmentedTabs", () => {
     expect(active.className).toContain("rounded-[12px]");
     expect(active.className).not.toContain("press-scale");
 
-    // Preserve the current shared UAT material while retaining selected-state contrast.
-    expect(root?.className).toContain("bg-[color:var(--app-card-surface-compact)]");
-    expect(root?.className).toContain("border-[color:var(--app-card-border-standard)]");
+    // Preserve main's current segmented material and the keyboard contract below.
+    expect(root?.className).toContain("bg-[color:var(--app-segmented-track-surface)]");
+    expect(root?.className).toContain("border-0");
+    expect(root?.className).not.toContain("var(--app-card-surface-compact)");
     expect(active.className).toContain("shadow-[var(--app-segmented-active-shadow)]");
-    expect(active.className).toContain("border-[color:var(--app-segmented-active-border)]");
-    expect(active.className).toContain("font-normal");
+    expect(active.className).toContain("border-transparent");
+    expect(active.className).toContain("font-semibold");
+    expect(active.className).not.toContain("font-normal");
   });
 
   it("supports roving Arrow, Home, and End focus with accessible tab names", () => {
