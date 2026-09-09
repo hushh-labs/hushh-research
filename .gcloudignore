@@ -92,3 +92,7 @@ assets/
 # Re-inclusion has to come AFTER the `*.sh` that excludes it -- gitignore semantics are
 # last-match-wins -- so do not move this above that line.
 !scripts/deploy/backend-deploy.sh
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json

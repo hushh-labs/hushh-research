@@ -208,3 +208,7 @@ consent-protocol/agent-validation-*.json
 
 # Local working artifacts (founder evidence registers etc.) — never repo content.
 outputs/
+
+# GitHub Actions authentication files are never source or image inputs.
+gha-creds-*.json
+**/gha-creds-*.json
