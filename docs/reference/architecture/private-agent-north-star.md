@@ -533,7 +533,14 @@ source/destination manifest graphs against successful pod-build log outputs. It 
 `declaredSourceCommit`, not verified source custody: submitted build configuration and
 log text do not prove the governed recipe or uploaded source. Even a complete output
 match remains `unresolved` and cannot release bootstrap access. Raw build logs stay in
-process memory. The comparison inventories manifests, not every physical blob.
+process memory. The comparison inventories manifests, not every physical blob. Add
+`--verify-source` to compare the generation-pinned source archive against its recorded
+SHA-256 and this checkout's Git history without extracting it. This verifies tracked
+uploaded content/modes and the submitted recipe; the receipt lists extra and omitted
+paths and hashes the uploaded inventory. Non-regular entries, oversized archives,
+changed tracked files, or unrecognized execution fields refuse. Extra/missing files
+remain explicit and common-executable classification is still unresolved; source
+comparison does not prove reproducibility or complete application functionality.
 
 The stored observation is not fresh classification. Durable classification and a current
 repository check are still required before bootstrap release. The enumeration follows the

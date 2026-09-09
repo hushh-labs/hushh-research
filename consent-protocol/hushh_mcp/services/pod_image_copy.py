@@ -451,7 +451,14 @@ def _manifest_graph(
 
 
 def observe_common_image_build(
-    *, project: str, location: str, build_id: str, source_ref: str, token: str, session: Any
+    *,
+    project: str,
+    location: str,
+    build_id: str,
+    source_ref: str,
+    token: str,
+    session: Any,
+    source_verifier: Any = None,
 ) -> dict[str, Any]:
     """Read successful pod-build provenance and its digest-verified source graph.
 
@@ -559,8 +566,10 @@ def observe_common_image_build(
     digest = next(iter(digests))
     if reference.startswith("sha256:") and reference != digest:
         raise ImageCopyError("pod build digest mismatch")
+    source_evidence = source_verifier(build) if source_verifier is not None else None
     return {
         "buildName": build_name,
+        "sourceComparison": source_evidence,
         "declaredSourceCommit": commit,
         "sourceRepository": f"{host}/{repo}",
         "rootDigest": digest,

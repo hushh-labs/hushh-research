@@ -290,3 +290,124 @@ async def test_adopt_orphan_skips_an_empty_service_without_calling_the_adopter()
     r = await adopt_orphan("   ", adopter=_adopter)
     assert r["action"] == "skipped"
     assert calls == []  # reconnecting needs a service name; never guess
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["match", "archive_digest", "source_content", "extra_execution_field", "automap", "symlink"],
+)
+def test_source_archive_comparison_refuses_unverified_inputs(monkeypatch, case):
+    import base64
+    import hashlib
+    import io
+    import json
+    import subprocess
+    import tarfile
+
+    from hushh_mcp.services.pod_image_copy import ImageCopyError
+    from scripts.ops.pod_reconcile import _verify_build_source
+
+    revision = "a" * 40
+    source = b"verified application source"
+    recipe = {"steps": [{"id": "build-pod-image", "name": "builder", "args": ["build"]}]}
+    recipe_bytes = json.dumps(recipe).encode()
+    files = {"consent-protocol/app.py": source, "deploy/backend.cloudbuild.yaml": recipe_bytes}
+    tree = b"".join(
+        b"100644 blob "
+        + hashlib.sha1(
+            b"blob " + str(len(content)).encode() + b"\0" + content, usedforsecurity=False
+        )
+        .hexdigest()
+        .encode()
+        + b"\t"
+        + name.encode()
+        + b"\0"
+        for name, content in files.items()
+    )
+    archive_bytes = io.BytesIO()
+    with tarfile.open(fileobj=archive_bytes, mode="w:gz") as archive:
+        for name, content in files.items():
+            if case == "source_content" and name.endswith("app.py"):
+                content = b"changed source"
+            entry = tarfile.TarInfo(name)
+            entry.size = len(content)
+            entry.mode = 0o644
+            if case == "symlink" and name.endswith("app.py"):
+                entry.type = tarfile.SYMTYPE
+                entry.linkname = "/outside"
+                entry.size = 0
+            archive.addfile(entry, io.BytesIO(content))
+    compressed = archive_bytes.getvalue()
+    digest = hashlib.sha256(compressed).digest()
+    build = {
+        "id": "build",
+        "projectId": "project",
+        "substitutions": {"_DEPLOY_SHA": revision},
+        "steps": [{**recipe["steps"][0], "status": "SUCCESS"}],
+        "sourceProvenance": {
+            "resolvedStorageSource": {
+                "bucket": "source-bucket",
+                "object": "source.tgz",
+                "generation": "123",
+            },
+            "fileHashes": {
+                "gs://source-bucket/source.tgz#123": {
+                    "fileHash": [
+                        {
+                            "type": "SHA256",
+                            "value": base64.b64encode(
+                                digest if case != "archive_digest" else b"x" * 32
+                            ).decode(),
+                        }
+                    ]
+                }
+            },
+        },
+    }
+    if case == "automap":
+        build["options"] = {"automapSubstitutions": True}
+    if case == "extra_execution_field":
+        build["steps"][0]["env"] = ["BASH_ENV=/unverified"]
+
+    def git(args, **kwargs):
+        operation = args[3]
+        if operation == "rev-parse":
+            return revision.encode() + b"\n"
+        if operation == "ls-tree":
+            return tree
+        assert operation == "show"
+        return recipe_bytes
+
+    monkeypatch.setattr(subprocess, "check_output", git)
+
+    class Response:
+        status_code = 200
+
+        def iter_content(self, **kwargs):
+            yield compressed
+
+        def close(self):
+            pass
+
+    class Session:
+        def get(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            assert kwargs["params"]["generation"] == "123"
+            return Response()
+
+    def verify():
+        return _verify_build_source(
+            build,
+            checkout="synthetic-checkout",
+            token="synthetic",  # noqa: S106 -- fake transport only
+            session=Session(),
+        )
+
+    if case == "match":
+        result = verify()
+        assert result["uploadedTrackedFiles"] == 2
+        assert result["recipeMatches"] and result["completeGitTree"]
+        assert result["extraPaths"] == result["omittedPaths"] == []
+    else:
+        with pytest.raises(ImageCopyError):
+            verify()
