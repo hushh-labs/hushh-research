@@ -28,7 +28,9 @@ describe("RIA shared header regression contract", () => {
   });
 
   it("keeps the consent workspace on the shared page header", () => {
-    const consentCenterPage = read("components/consent/consent-center-page.tsx");
+    const consentCenterPage = read(
+      "components/consent/consent-center-page.tsx",
+    );
 
     expect(consentCenterPage).toContain("AppPageShell");
     expect(consentCenterPage).toContain("SettingsDetailPanel");
@@ -45,7 +47,7 @@ describe("RIA shared header regression contract", () => {
     expect(globals).toContain("--ria-selected-tint: var(--app-accent-surface)");
   });
 
-  it("gives RiaPageShell an \"agent\"-width default, not the wider \"standard\"", () => {
+  it('gives RiaPageShell an "agent"-width default, not the wider "standard"', () => {
     // The one place this now needs to be right: every caller that does not
     // pass its own `width` -- Profile, the client account/request detail
     // pages, RiaClientWorkspace, and the Marketplace RIA public profile --
@@ -64,7 +66,7 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).toContain("SurfaceCard");
     expect(riaPicks).toContain('tableClassName="w-full min-w-[640px]"');
     expect(riaPicks).toContain('tableClassName="w-full min-w-[700px]"');
-    expect(riaPicks).toContain("density=\"compact\"");
+    expect(riaPicks).toContain('density="compact"');
     expect(riaPicks).toContain("stickyHeader");
   });
 
@@ -83,11 +85,42 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).not.toContain('width="standard"');
     expect(riaClients).not.toContain('width="expanded"');
     expect(riaPicks).not.toContain('width="expanded"');
-    expect(riaClients).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
-    expect(riaPicks).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
+    expect(riaClients).toContain(
+      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
+    );
+    expect(riaPicks).toContain(
+      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
+    );
     expect(riaClients).toContain("<SurfaceStack");
     expect(riaClients).toContain('className="gap-8"');
     expect(riaPicks).toContain("<SurfaceStack");
     expect(riaPicks).toContain('className="gap-6"');
+  });
+
+  it("renders the shared RIA route selector after each primary page header", () => {
+    const riaProfile = read("app/ria/profile/page.tsx");
+    const riaClients = read("app/ria/clients/page.tsx");
+    const riaPicks = read("app/ria/picks/page.tsx");
+    const riaShell = read("components/ria/ria-page-shell.tsx");
+    const topShellTabs = read("lib/navigation/top-shell-tabs.ts");
+    const providers = read("app/providers.tsx");
+
+    for (const source of [riaProfile, riaClients, riaPicks]) {
+      expect(source).toContain("RiaRouteSelector");
+    }
+    expect(
+      riaShell.indexOf("<AppPageHeaderRegion") <
+        riaShell.indexOf("<AppPageContentRegion"),
+    ).toBe(true);
+    expect(
+      riaClients.indexOf("<PageHeader") <
+        riaClients.indexOf("<RiaRouteSelector"),
+    ).toBe(true);
+    expect(
+      riaPicks.indexOf("<PageHeader") < riaPicks.indexOf("<RiaRouteSelector"),
+    ).toBe(true);
+
+    expect(topShellTabs).toContain("export function resolveRiaRouteTabSet");
+    expect(providers).toContain("resolveRiaRouteTabSet(");
   });
 });
