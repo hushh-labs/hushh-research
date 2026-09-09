@@ -72,7 +72,7 @@ That page is the canonical public source for:
 - the promoted UAT endpoint
 - remote vs npm bridge usage
 - host setup examples
-- five public tools; no advertised resources
+- public tools and resources
 
 This doc covers runtime details, contributor-local fallback, and operational notes.
 
@@ -143,8 +143,7 @@ For national phone numbers, callers may also provide:
 
 If no country hint is provided, national phone numbers stay ambiguous and are not auto-parsed to any default region.
 
-The public catalog advertises no resources. Direct reads of these known
-informational URIs remain available for compatibility in supported profiles:
+Read-only self-documentation resources:
 
 - `hushh://info/server`
 - `hushh://info/protocol`

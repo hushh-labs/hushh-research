@@ -13,7 +13,6 @@ def _build_app() -> FastAPI:
 
 
 def test_health_reports_one_led_agent_model(monkeypatch):
-    monkeypatch.setenv("HUSSH_POD_MODE", "0")
     monkeypatch.setattr(
         health,
         "_one_runtime_dependency_evidence",

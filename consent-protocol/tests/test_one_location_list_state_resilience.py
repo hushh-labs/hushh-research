@@ -40,11 +40,6 @@ def _isolate_list_state_dependencies(monkeypatch):
         },
     )
     monkeypatch.setattr(
-        OneLocationAgentService,
-        "get_sos_voice_preference",
-        lambda self, *, user_id: {"defaultAction": "open", "updatedAt": None},
-    )
-    monkeypatch.setattr(
         OneLocationCircleService,
         "list_circles",
         lambda self, *, user_id: [],  # noqa: ARG005

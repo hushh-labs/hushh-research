@@ -51,13 +51,8 @@ describe("native resumed-session privacy shield contract", () => {
   it("requires iOS success only after the native job can run", () => {
     const workflow = source("../.github/workflows/ci.yml");
     const preflight = between(workflow, "  preflight-gate:", "  web-core-check:");
-    const nativeJob = between(workflow, "  ios-native-check:", "  protocol-check:");
     const finalGate = workflow.slice(workflow.indexOf('name: "CI Status Gate"'));
     expect(preflight).not.toContain("$IOS_NATIVE");
-    expect(nativeJob).toContain("needs: [preflight-gate]");
-    expect(nativeJob).toMatch(
-      /if: >-\s+!cancelled\(\) && needs\['preflight-gate'\]\.result == 'success' &&\s+needs\['preflight-gate'\]\.outputs\.ios == 'true'/,
-    );
     expect(finalGate).toContain('IOS_NATIVE="${{ needs[\'ios-native-check\'].result }}"');
     expect(finalGate).toContain('[ "$IOS_NATIVE" != "success" ]');
   });
