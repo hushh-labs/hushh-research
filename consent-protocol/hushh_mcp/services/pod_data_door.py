@@ -53,6 +53,12 @@ from typing import Any, Awaitable, Callable, Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from hushh_mcp.services.pod_marketplace_read import (
+    MarketplaceReadOptions,
+    project_marketplace_read,
+    read_marketplace_metadata,
+)
+
 
 class CalendarReadOptions(BaseModel):
     """Bounded primary-calendar reads; never owner selection or mutations."""
@@ -485,6 +491,10 @@ def project_nav_state(raw: dict[str, Any]) -> dict[str, Any]:
 #: the read/write boundary is structural, not a runtime check that could be
 #: fooled. Adding a specialist here is a deliberate, reviewable act.
 POD_DATA_DOOR_READS: dict[str, PodDataDoorRead] = {
+    "marketplace": PodDataDoorRead(
+        name="marketplace",
+        project=lambda raw: project_marketplace_read(raw["items"], MarketplaceReadOptions()),
+    ),
     "nav": PodDataDoorRead(name="nav", project=project_nav_state),
     "location": PodDataDoorRead(name="location", project=project_location_state),
     "email": PodDataDoorRead(name="email", project=project_email_state),
@@ -615,7 +625,12 @@ async def _read_nav(owner_id: str) -> dict[str, Any]:
     }
 
 
+async def _read_marketplace(owner_id: str) -> dict[str, Any]:
+    return await read_marketplace_metadata(owner_id, MarketplaceReadOptions())
+
+
 _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
+    "marketplace": _read_marketplace,
     "nav": _read_nav,
     "location": _read_location,
     "email": _read_email,
@@ -624,7 +639,11 @@ _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
 
 
 async def run_pod_data_door_read(
-    name: str, *, owner_id: str, calendar_read: CalendarReadOptions | None = None
+    name: str,
+    *,
+    owner_id: str,
+    calendar_read: CalendarReadOptions | None = None,
+    marketplace_read: MarketplaceReadOptions | None = None,
 ) -> dict[str, Any]:
     """Run an allow-listed read for ``owner_id`` and return its egress projection.
 
@@ -638,6 +657,10 @@ async def run_pod_data_door_read(
     spec = POD_DATA_DOOR_READS.get(name)
     if spec is None:
         raise KeyError(name)
+    if marketplace_read is not None:
+        if name != "marketplace" or calendar_read is not None:
+            raise ValueError("marketplace options require marketplace read")
+        return await read_marketplace_metadata(owner_id, marketplace_read)
     if calendar_read is not None:
         if name != "calendar":
             raise ValueError("calendar options require calendar read")

@@ -330,3 +330,146 @@ def test_missing_pod_information_port_never_constructs_shared_service(monkeypatc
     with HushhContext(user_id="owner", consent_token="owner-token"):  # noqa: S106
         with pytest.raises(RuntimeError, match="unavailable in this pod"):
             getattr(information_tools, factory)()
+
+
+@pytest.mark.parametrize("strict", [False, True])
+async def test_marketplace_demand_failure_is_not_empty_for_strict_reads(strict):
+    from unittest.mock import AsyncMock
+
+    service = MarketplaceInformationService(
+        pkm_service=object(),
+        request_service=SimpleNamespace(
+            list_requests=AsyncMock(side_effect=RuntimeError("private"))
+        ),
+        strict_reads=strict,
+    )
+    if strict:
+        with pytest.raises(RuntimeError, match="Marketplace demand unavailable"):
+            await service._demand_snapshot(user_id="owner")
+    else:
+        assert (await service._demand_snapshot(user_id="owner"))["hasBuyers"] is False
+
+
+@pytest.mark.parametrize(
+    "method", ["get_index_v2", "get_domain_manifest", "list_public_profile_projections"]
+)
+async def test_strict_pkm_metadata_refuses_storage_failure(method, caplog):
+    from unittest.mock import AsyncMock, MagicMock
+
+    from hushh_mcp.services.personal_knowledge_model_service import PersonalKnowledgeModelService
+
+    service = PersonalKnowledgeModelService(strict_reads=True)
+    service._db = MagicMock()
+    service._execute_query = AsyncMock(side_effect=RuntimeError("synthetic-private-value"))
+    kwargs = {"user_id": "owner"}
+    if method != "get_index_v2":
+        kwargs["domain"] = "personal_data"
+    with pytest.raises(RuntimeError, match="unavailable"):
+        await getattr(service, method)(**kwargs)
+    assert "synthetic-private-value" not in caplog.text
+
+
+async def test_pod_information_dispatch_runs_shared_tools_with_local_model(monkeypatch):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.adk_bridge import _register_builtin_specialists
+    from hushh_mcp.adk_bridge.contract import A2AAuthorityContext, A2ATask
+    from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime, dispatch
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import (
+        information_chat_service,
+        pod_consent_client,
+        pod_memory_service,
+        pod_specialist_runtime,
+    )
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+    from hushh_mcp.services.pod_hub_client import PodHubClient
+
+    shared_reads = []
+
+    def forbidden_shared_service():
+        shared_reads.append(True)
+        raise AssertionError("Pod fallback cannot construct shared storage")
+
+    monkeypatch.setattr(
+        information_chat_service, "MarketplaceInformationService", forbidden_shared_service
+    )
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-owner")
+
+    async def verify(token, *, expected_scope):
+        scopes = {"read": "pkm.read", "view": "cap.pkm.marketplace.view"}
+        return ConsentVerdict(scopes.get(token) == expected_scope, True, "owner", "pod-owner")
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+    log = SimpleNamespace(_owner_id="pod-owner", require_open=AsyncMock())
+    monkeypatch.setattr(pod_memory_service, "_resolve_log", lambda: log)
+    store = _FakeStore()
+    storage = []
+
+    def local_store(**kwargs):
+        storage.append(kwargs)
+        return store
+
+    monkeypatch.setattr(pod_specialist_runtime, "PodAgentChatStore", local_store)
+    responses = iter(
+        [_fc_response("list_published_slices", {}), _text_response("Nothing published.")]
+    )
+
+    async def generate(**kwargs):
+        return next(responses)
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+    monkeypatch.setattr(factory, "build_managed_runtime_client", lambda provider: client)
+    reads = []
+
+    def read(_self, name, token, **kwargs):
+        reads.append((name, token, kwargs))
+        return {"items": []}
+
+    monkeypatch.setattr(PodHubClient, "read_specialist", read)
+    runtime = pod_specialist_runtime.build_pod_specialist_runtime(
+        user_id="owner",
+        hushh_id="pod-owner",
+        consent_token="read",  # noqa: S106
+        provider="gemini",
+        model="synthetic",
+        runtime_mode="user_adc",
+        credential=None,
+        credential_transport="developer_api",
+        vertex_project=None,
+        vertex_location=None,
+        data_door_grants={"marketplace": "view"},
+    )
+    _register_builtin_specialists()
+    with bind_specialist_runtime(runtime):
+        result = await dispatch(
+            "agent_personal_information",
+            A2ATask(
+                user_id="owner",
+                consent_token="read",  # noqa: S106 -- synthetic scope token
+                conversation_id="thread",  # noqa: S106
+                message="Publish my information",
+                authority=A2AAuthorityContext(
+                    "owner",
+                    "owner",
+                    "thread",
+                    "first_party",
+                    invocation_capabilities=("cap.one.invoke",),
+                ),
+            ),
+        )
+    assert result.text == "Nothing published."
+    assert shared_reads == []
+    assert result.state_changed is False
+    assert storage[0]["log"] is log
+    assert storage[0]["agent_id"] == "agent_personal_information"
+    assert reads[0][:2] == ("marketplace", "view")
+    assert reads[0][2]["marketplace_read"]["operation"] == "published"
+    assert len(store.added) == 1
+    reads.clear()
+    with pytest.raises(PermissionError):
+        await pod_specialist_runtime.PodMarketplaceReadPort("owner", "view").list_published_slices(
+            user_id="foreign"
+        )
+    assert reads == []

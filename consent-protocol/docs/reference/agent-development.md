@@ -53,7 +53,7 @@ For a specialist that needs pod support:
    live provider or genuine process-restart result. Reuse existing tests and
    `config/pod-completion-ledger.yaml`; do not create a second readiness checklist.
 
-Location and Nav illustrate these seams, with qualified implementation limits in
+Location, Nav and Personal Information queries illustrate these seams, with qualified implementation limits in
 [the pod data-door reference](../../../docs/reference/architecture/pod-data-door.md#shared-fleet-integration-8-september-2026).
 That reference records remaining adapters and transitional broker reads; it does
 not declare the entire fleet complete. The

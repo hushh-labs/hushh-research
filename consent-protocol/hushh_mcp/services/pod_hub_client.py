@@ -163,7 +163,12 @@ class PodHubClient:
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
 
     def read_specialist(
-        self, name: str, scope_token: str, *, calendar_read: dict[str, Any] | None = None
+        self,
+        name: str,
+        scope_token: str,
+        *,
+        calendar_read: dict[str, Any] | None = None,
+        marketplace_read: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         """Read a DB-backed specialist's state THROUGH the hub broker (the data door).
 
@@ -185,6 +190,8 @@ class PodHubClient:
         payload: dict[str, Any] = {"scopeToken": scope_token}
         if calendar_read is not None:
             payload["calendarRead"] = calendar_read
+        if marketplace_read is not None:
+            payload["marketplaceRead"] = marketplace_read
         response = self.post(f"/api/one/pod/specialist/{name}/read", json=payload)
         status = getattr(response, "status_code", 502)
         if status != 200:

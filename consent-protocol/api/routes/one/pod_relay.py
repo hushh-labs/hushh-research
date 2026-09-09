@@ -426,6 +426,18 @@ async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -
     except Exception as exc:
         logger.info("pod_relay.data_door_grant_skipped door=invoke %s", type(exc).__name__)
     if pod_data_door_enabled():
+        try:
+            marketplace_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.CAP_PKM_MARKETPLACE_VIEW,
+                grant_kind="marketplace_view",
+                scope_description="Read publication metadata and potential marketplace earnings",
+            )
+            marketplace_token = str((marketplace_grant or {}).get("token") or "")
+            if marketplace_token:
+                data_door_grants["marketplace"] = marketplace_token
+        except Exception as exc:
+            logger.info("pod_relay.data_door_grant_skipped door=marketplace %s", type(exc).__name__)
         door_issuer = (
             door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
         )

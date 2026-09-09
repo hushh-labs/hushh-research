@@ -296,7 +296,11 @@ class InformationChatService:
         client_action = self._build_publish_action(directives)
         # Deterministic publish card: if the model didn't stage one but the user
         # clearly asked to publish/monetize, attach it ourselves (topic-tailored).
-        if client_action is None and not errored:
+        from hushh_mcp.runtime_settings import pod_mode
+
+        # A pod must reach publication metadata through its scoped authored tool.
+        # Preserve the legacy shared fallback while excluding injected runtimes.
+        if client_action is None and not errored and not self._service_ports and not pod_mode():
             intent, topic = _publish_intent_topic(message)
             if intent:
                 try:

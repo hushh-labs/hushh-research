@@ -209,7 +209,10 @@ class PersonalKnowledgeModelService:
         with the user's vault key before storage.
     """
 
-    def __init__(self, write_engine: Optional["PkmWriteEngine"] = None):
+    def __init__(
+        self, write_engine: Optional["PkmWriteEngine"] = None, *, strict_reads: bool = False
+    ):
+        self._strict_reads = strict_reads
         self._db = None
         self._domain_registry = None
         self._scope_generator = None
@@ -1788,7 +1791,9 @@ class PersonalKnowledgeModelService:
                 last_upgraded_at=last_upgraded_at,
             )
         except Exception as e:
-            logger.error("pkm.get_index.error: %s", e)
+            logger.error("pkm.get_index.error: %s", type(e).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM discovery unavailable") from None
             return None
 
     async def upsert_index_v2(self, index: PersonalKnowledgeModelIndex) -> bool:
@@ -2047,12 +2052,9 @@ class PersonalKnowledgeModelService:
             )
             return manifest_row
         except Exception as e:
-            logger.error(
-                "Error getting domain manifest for user=%s domain=%s: %s",
-                user_id,
-                domain,
-                e,
-            )
+            logger.error("pkm.domain_manifest.error: %s", type(e).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM manifest unavailable") from None
             return None
 
     async def record_mutation_event(
@@ -3375,7 +3377,9 @@ class PersonalKnowledgeModelService:
                 .order("updated_at", desc=True)
             )
         except Exception as exc:
-            logger.warning("Public-profile projection status lookup failed: %s", exc)
+            logger.warning("Public-profile projection status lookup failed: %s", type(exc).__name__)
+            if self._strict_reads:
+                raise RuntimeError("PKM publication status unavailable") from None
             return []
         return [dict(row) for row in (result.data or []) if isinstance(row, dict)]
 

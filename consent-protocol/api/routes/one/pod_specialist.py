@@ -62,6 +62,7 @@ from hushh_mcp.services.pod_access_audit import (
     resolve_serving_owner_hushh_id,
 )
 from hushh_mcp.services.pod_data_door import CalendarReadOptions
+from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
 
 logger = logging.getLogger(__name__)
 
@@ -72,6 +73,7 @@ router = APIRouter(prefix="/api/one/pod/specialist", tags=["personal-agent"])
 #: weaker scope, it reuses the real one and the relay mints it per turn with a
 #: short TTL. A name absent here has no door and is refused before any read.
 _REQUIRED_SCOPE: dict[str, str] = {
+    "marketplace": "cap.pkm.marketplace.view",
     "nav": "agent.nav.review",
     "location": "cap.location.live.view",
     "email": "cap.email.inbox.view",
@@ -87,6 +89,7 @@ class PodSpecialistReadRequest(BaseModel):
     scope_token: str = Field(..., alias="scopeToken", min_length=1, max_length=4096)
 
     calendar_read: CalendarReadOptions | None = Field(default=None, alias="calendarRead")
+    marketplace_read: MarketplaceReadOptions | None = Field(default=None, alias="marketplaceRead")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -119,6 +122,9 @@ async def broker_specialist_read(
 
     if payload.calendar_read is not None and name != "calendar":
         raise HTTPException(status_code=422, detail="calendar options require calendar read")
+
+    if payload.marketplace_read is not None and name != "marketplace":
+        raise HTTPException(status_code=422, detail="marketplace options require marketplace read")
 
     asserted = await verify_pod_identity(request, authorization)
     if not asserted:
@@ -175,6 +181,8 @@ async def broker_specialist_read(
         # I/O); await it. An injected sync test double is still supported -- only
         # await when the call actually returned an awaitable.
         options = {"calendar_read": payload.calendar_read} if payload.calendar_read else {}
+        if payload.marketplace_read is not None:
+            options["marketplace_read"] = payload.marketplace_read
         projection = run_read(name, owner_id=owner_id, **options)
         if inspect.isawaitable(projection):
             projection = await projection

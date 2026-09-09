@@ -341,3 +341,42 @@ async def test_nav_read_requires_its_scope_and_serving_owner(flags_on, monkeypat
         )
         assert result["name"] == "nav"
         reader.assert_awaited_once_with("nav", owner_id="u-owner")
+
+
+@pytest.mark.parametrize("case", ["allowed", "foreign", "revoked", "wrong_scope"])
+async def test_marketplace_broker_requires_live_owner_view_before_reader(
+    monkeypatch, flags_on, case
+):
+    from unittest.mock import AsyncMock
+
+    from fastapi import HTTPException
+
+    _identity(monkeypatch, "pod-owner")
+    read = AsyncMock(return_value={"items": []})
+    payload = broker.PodSpecialistReadRequest(
+        scopeToken="scope-jwt", marketplaceRead={"operation": "published"}
+    )
+    kwargs = dict(
+        validator=_validator(
+            scope="cap.pkm.marketplace.manage"
+            if case == "wrong_scope"
+            else "cap.pkm.marketplace.view",
+            valid=case != "revoked",
+        ),
+        registry=_registry({"u-owner": "other-pod" if case == "foreign" else "pod-owner"}),
+        reader=read,
+    )
+    if case != "allowed":
+        with pytest.raises(HTTPException) as exc:
+            await broker.broker_specialist_read(
+                _Request(), "marketplace", "Bearer pod", payload, **kwargs
+            )
+        assert exc.value.status_code == 403
+        read.assert_not_awaited()
+    else:
+        result = await broker.broker_specialist_read(
+            _Request(), "marketplace", "Bearer pod", payload, **kwargs
+        )
+        assert result == {"name": "marketplace", "state": {"items": []}}
+        assert read.await_args.kwargs["owner_id"] == "u-owner"
+        assert read.await_args.kwargs["marketplace_read"].operation == "published"

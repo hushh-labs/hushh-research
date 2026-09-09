@@ -287,3 +287,32 @@ async def test_the_door_read_forces_read_only_so_it_never_mutates_the_owner_db(m
     monkeypatch.setattr(svc, "OneLocationAgentService", _FakeService)
     await door._read_location("u-owner")
     assert seen["read_only"] is True, "the door read must force read-only"
+
+
+def test_marketplace_projection_drops_unknown_values_and_refuses_invalid_metadata():
+    from hushh_mcp.services.pod_marketplace_read import (
+        MarketplaceReadOptions,
+        project_marketplace_read,
+    )
+
+    row = {
+        "domain": "personal_data",
+        "domainTitle": "Personal",
+        "label": "Interests",
+        "scopeHandle": "scope-one",
+        "attributeCount": 2,
+        "publicProfileHandle": "profile-one",
+        "private_key": "must-drop",
+        "raw_pkm": {"sensitive": "must-drop"},
+    }
+    projected = project_marketplace_read([row], MarketplaceReadOptions())
+    assert "must-drop" not in str(projected)
+    assert projected["items"][0]["scopeHandle"] == "scope-one"
+    with pytest.raises(ValueError):
+        project_marketplace_read(
+            [{**row, "label": {"credential": "must-drop"}}], MarketplaceReadOptions()
+        )
+    with pytest.raises(ValueError):
+        project_marketplace_read([row] * 101, MarketplaceReadOptions())
+    with pytest.raises(ValueError):
+        MarketplaceReadOptions(operation="approve")

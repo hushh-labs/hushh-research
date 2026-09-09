@@ -43,8 +43,9 @@ flowchart TB
 2. **Fail-closed projection.** Every read is rebuilt through an ALLOW-LIST of fields to
    KEEP, never a deny-list. A field added upstream is dropped by omission. Raw
    addresses, opaque resource handles (Gmail thread/message ids), live join links,
-   ciphertext ids, and above all message BODIES and the owner's wrapped private key
-   never appear on a keep-list, so they cannot cross.
+   ciphertext ids, message bodies and wrapped private keys cannot cross. Explicit
+   owner publication scope/profile handles may appear in marketplace metadata;
+   they support the existing publish card and do not carry decryption authority.
 3. **Per-turn, owner-revocable, Nav-narrated scope.** The relay mints a short-TTL
    standing grant for the specialist's narrow read scope (never `vault.owner`, which
    would give the pod everything) and couriers it to the pod; the broker re-validates
@@ -95,9 +96,17 @@ and serving HusshID. Missing adapters never select shared service singletons.
 
 Email retains its transitional scoped summary. Email/Connections still lack
 the real first-party encrypted-export/confirmation handoff and pod information
-adapters needed for their full shared loops. Personal Information has no pod
-service adapter. These are remaining implementation gaps, not completed fleet
-acceptance. Local tests with synthetic authority/model transports prove Location
+adapters needed for their full shared loops. Personal Information now runs its
+existing model/tool loop with the pod model and sealed chat store. Its publication,
+publishable-slice and potential-earnings queries use `cap.pkm.marketplace.view`
+through the existing broker. Projections drop unknown fields and reject malformed
+metadata; strict read errors remain unavailable instead of empty. The response is
+limited to 100 items and the service call to 15 seconds; underlying SQL reads are
+not row-bounded by those limits. No marketplace-manage token or request-mutation
+adapter is supplied. The legacy deterministic publish-card fallback is disabled
+for pod/injected execution; the scoped authored tool owns those cards.
+
+These are locally verified changes, not deployed fleet acceptance. Local tests with synthetic authority/model transports prove Location
 dispatch, directives and fresh-log reconstruction; they do not prove a process
 restart, live providers, deployed parity or the ledger's zero-hub-read assertion.
 
@@ -143,9 +152,11 @@ Adding a door is a deliberate, reviewable act across these points:
    async; a sync DB read wraps in `asyncio.to_thread`.
 3. **Broker** — `api/routes/one/pod_specialist.py`: `_REQUIRED_SCOPE["X"] = "cap.X..."`
    (reuse the owner's real scope; the broker already awaits the async read).
-4. **Specialist map + summary** — `hushh_mcp/one_adk/pod_data_door_specialist.py`:
-   `_SPECIALIST_DOOR_NAMES["agent_X"] = "X"` and a deterministic `_format_X_summary`
-   registered in `_SUMMARIZERS`.
+4. **Shared specialist dependency** — bind its existing service through
+   `hushh_mcp/services/pod_specialist_runtime.py`, preserving the authored tools,
+   scoped context and sealed history. The summary maps in
+   `pod_data_door_specialist.py` document older transitional reads; new shared
+   loops must not add a parallel deterministic agent.
 5. **Relay grant** — `api/routes/one/pod_relay.py`: mint the scope via
    `issue_or_reuse_standing_scope(...)` (best-effort, INDEPENDENT: a mint failure for
    one door degrades only that door, never the turn or another door) and courier it
