@@ -53,7 +53,16 @@ def main() -> int:
         "--source-image",
         help="compare observed image manifests to this declared application source; requires --repository-created-at",
     )
+    ap.add_argument(
+        "--build-id",
+        action="append",
+        default=[],
+        help="successful source pod build to verify; repeat for historical versions",
+    )
+    ap.add_argument("--build-location", default="global")
     args = ap.parse_args()
+    if args.build_id and not args.source_image:
+        ap.error("--build-id requires --source-image")
     if args.source_image and not args.repository_created_at:
         ap.error("--source-image requires --repository-created-at")
     if args.repository_created_at:
@@ -62,7 +71,9 @@ def main() -> int:
 
         from hushh_mcp.services.gcp_run_client import load_operator_credentials
         from hushh_mcp.services.pod_image_copy import (
+            compare_repository_build_outputs,
             compare_repository_images,
+            observe_common_image_build,
             observe_repository_images,
         )
 
@@ -88,6 +99,25 @@ def main() -> int:
                         source_token=credentials.token,
                         destination_token=credentials.token,
                         session=session,
+                    )
+                if args.build_id:
+                    # The source ref is validated by the observer before requests.
+                    source_project = args.source_image.split("/")[1]
+                    builds = [
+                        observe_common_image_build(
+                            project=source_project,
+                            location=args.build_location,
+                            build_id=build_id,
+                            source_ref=args.source_image,
+                            token=credentials.token,
+                            session=session,
+                        )
+                        for build_id in args.build_id
+                    ]
+                    result["buildOutputComparison"] = compare_repository_build_outputs(
+                        inventory=result,
+                        comparison=result["sourceComparison"],
+                        builds=builds,
                     )
             print(json.dumps(result, sort_keys=True))
             return 0

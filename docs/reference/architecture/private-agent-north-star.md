@@ -527,6 +527,14 @@ or permission to delete shared storage. Dev migration 931 and the existing coord
 retain this unresolved observation in the owner erasure reservation after the recorded
 repository-writer grant is removed. Identical retries validate and read back the retained
 observation; it cannot be replaced or removed, and rollback refuses retained evidence.
+Optional `--source-image <source-ref> --build-id <id>` (repeat the build ID for
+historical versions; `--build-location` defaults to `global`) compares digest-verified
+source/destination manifest graphs against successful pod-build log outputs. It emits
+`declaredSourceCommit`, not verified source custody: submitted build configuration and
+log text do not prove the governed recipe or uploaded source. Even a complete output
+match remains `unresolved` and cannot release bootstrap access. Raw build logs stay in
+process memory. The comparison inventories manifests, not every physical blob.
+
 The stored observation is not fresh classification. Durable classification and a current
 repository check are still required before bootstrap release. The enumeration follows the
 [Artifact Registry Docker image list contract](https://docs.cloud.google.com/artifact-registry/docs/reference/rest/v1/projects.locations.repositories.dockerImages/list).

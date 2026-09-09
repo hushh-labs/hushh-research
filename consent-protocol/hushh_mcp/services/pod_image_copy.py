@@ -413,6 +413,207 @@ def copy_image(source_ref: str, dest_ref: str, token: str, session: Any = None) 
         _copy_single_manifest(src, dst, d_ref, token, session)
 
 
+def _manifest_graph(
+    host: str, repo: str, root: str, token: str, session: Any
+) -> list[dict[str, Any]]:
+    pending = [(root, 0)]
+    seen: dict[str, list[str]] = {}
+    while pending:
+        digest, depth = pending.pop()
+        if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+            raise ImageCopyError("manifest graph digest invalid")
+        if digest in seen:
+            continue
+        if depth > 4 or len(seen) >= 128:
+            raise ImageCopyError("manifest graph limit exceeded")
+        body, media = _get_manifest(host, repo, digest, token, session)
+        if media not in _MANIFEST_LIST_TYPES and media not in {
+            "application/vnd.oci.image.manifest.v1+json",
+            "application/vnd.docker.distribution.manifest.v2+json",
+        }:
+            raise ImageCopyError("manifest graph media type unsupported")
+        manifest = json.loads(body)
+        if not isinstance(manifest, dict):
+            raise ImageCopyError("manifest graph malformed")
+        children = []
+        if media in _MANIFEST_LIST_TYPES:
+            entries = manifest.get("manifests")
+            if not isinstance(entries, list) or not entries or len(entries) > 128:
+                raise ImageCopyError("manifest graph children malformed")
+            for entry in entries:
+                child = entry.get("digest") if isinstance(entry, dict) else None
+                if not isinstance(child, str) or not re.fullmatch(r"sha256:[0-9a-f]{64}", child):
+                    raise ImageCopyError("manifest graph child digest invalid")
+                children.append(child)
+                pending.append((child, depth + 1))
+        seen[digest] = sorted(set(children))
+    return [{"digest": digest, "children": seen[digest]} for digest in sorted(seen)]
+
+
+def observe_common_image_build(
+    *, project: str, location: str, build_id: str, source_ref: str, token: str, session: Any
+) -> dict[str, Any]:
+    """Read successful pod-build provenance and its digest-verified source graph.
+
+    Build configuration declares its source commit; it does not prove source custody.
+    This is build/output evidence, not repository ownership or erasure authority.
+    Raw build records and logs stay in memory; only bounded provenance is returned.
+    """
+    if (
+        not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project)
+        or not re.fullmatch(r"[a-z][a-z0-9-]{0,62}", location)
+        or not re.fullmatch(r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", build_id)
+    ):
+        raise ImageCopyError("build identity invalid")
+    host, repo, reference = _parse_ref(source_ref)
+    if host != "gcr.io" or repo != f"{project}/consent-protocol-pod":
+        raise ImageCopyError("build source repository unsupported")
+    build_name = f"projects/{project}/locations/{location}/builds/{build_id}"
+    response = session.get(
+        f"https://cloudbuild.googleapis.com/v1/{build_name}",
+        headers=_headers(token),
+        timeout=30,
+        allow_redirects=False,
+    )
+    if response.status_code != 200:
+        raise ImageCopyError("build evidence unavailable")
+    build = response.json()
+    if (
+        not isinstance(build, dict)
+        or "error" in build
+        or build.get("id") != build_id
+        or build.get("projectId") != project
+        or build.get("status") != "SUCCESS"
+    ):
+        raise ImageCopyError("successful build identity unverified")
+    substitutions = build.get("substitutions") or {}
+    commit = substitutions.get("_DEPLOY_SHA")
+    if (
+        not isinstance(commit, str)
+        or not re.fullmatch(r"[0-9a-f]{40}", commit)
+        or substitutions.get("_BUILD_POD_IMAGE") != "true"
+    ):
+        raise ImageCopyError("pod build source unverified")
+    if (
+        substitutions.get("_DEPLOY_ENV") != "dev"
+        or substitutions.get("_IMAGE_TAG") != f"dev-{commit}"
+    ):
+        raise ImageCopyError("pod build environment unverified")
+    steps = build.get("steps") or []
+    if sum(isinstance(step, dict) and step.get("id") == "build-pod-image" for step in steps) != 1:
+        raise ImageCopyError("pod build step unverified")
+    query = f'resource.type="build" AND resource.labels.project_id="{project}" AND resource.labels.build_id="{build_id}" AND textPayload:"exporting manifest list"'
+    page_token = None
+    seen_tokens: set[str] = set()
+    digests: set[str] = set()
+    for _ in range(20):
+        payload: dict[str, Any] = {
+            "resourceNames": [f"projects/{project}"],
+            "filter": query,
+            "pageSize": 100,
+        }
+        if page_token:
+            payload["pageToken"] = page_token
+        response = session.post(
+            "https://logging.googleapis.com/v2/entries:list",
+            headers=_headers(token),
+            json=payload,
+            timeout=30,
+            allow_redirects=False,
+        )
+        if response.status_code != 200:
+            raise ImageCopyError("build log evidence unavailable")
+        page = response.json()
+        if (
+            not isinstance(page, dict)
+            or "error" in page
+            or not isinstance(page.get("entries", []), list)
+        ):
+            raise ImageCopyError("build log evidence malformed")
+        for entry in page.get("entries", []):
+            resource = entry.get("resource") or {}
+            labels = resource.get("labels") or {}
+            step = (entry.get("labels") or {}).get("build_step", "")
+            if (
+                resource.get("type") != "build"
+                or labels.get("build_id") != build_id
+                or labels.get("project_id") != project
+            ):
+                raise ImageCopyError("build log identity mismatch")
+            if not re.fullmatch(r'Step #[0-9]+ - "build-pod-image"', step):
+                continue
+            text = entry.get("textPayload", "")
+            digests.update(
+                re.findall(r"exporting manifest list (sha256:[0-9a-f]{64})(?=\s|$)", text)
+            )
+        page_token = page.get("nextPageToken")
+        if not page_token:
+            break
+        if not isinstance(page_token, str) or len(page_token) > 8192 or page_token in seen_tokens:
+            raise ImageCopyError("build log pagination invalid")
+        seen_tokens.add(page_token)
+    else:
+        raise ImageCopyError("build log pagination incomplete")
+    if len(digests) != 1:
+        raise ImageCopyError("pod build output ambiguous or absent")
+    digest = next(iter(digests))
+    if reference.startswith("sha256:") and reference != digest:
+        raise ImageCopyError("pod build digest mismatch")
+    return {
+        "buildName": build_name,
+        "declaredSourceCommit": commit,
+        "sourceRepository": f"{host}/{repo}",
+        "rootDigest": digest,
+        "manifestGraph": _manifest_graph(host, repo, digest, token, session),
+        "status": "SUCCESS",
+    }
+
+
+def compare_repository_build_outputs(
+    *, inventory: dict[str, Any], comparison: dict[str, Any], builds: list[dict[str, Any]]
+) -> dict[str, Any]:
+    """Match observed build outputs without inferring governed source provenance.
+
+    Inputs must come from the authenticated observers in this module, not a
+    caller-supplied assertion. Unfinished copies stream the same application
+    blobs; this does not claim a physical-byte inventory or repository deletion.
+    """
+    expected = {image["uri"] for image in inventory["images"]}
+    results = comparison.get("images", [])
+    if (
+        inventory.get("paginationComplete") is not True
+        or len(results) != len(expected)
+        or {item.get("uri") for item in results} != expected
+    ):
+        raise ImageCopyError("image classification coverage incomplete")
+    approved: dict[str, dict[str, Any]] = {}
+    for build in builds:
+        if build.get("status") != "SUCCESS" or build.get("sourceRepository") != comparison.get(
+            "sourceRepository"
+        ):
+            raise ImageCopyError("image build source mismatch")
+        for node in build["manifestGraph"]:
+            approved[node["digest"]] = node
+    for result in results:
+        graph = result.get("manifestGraph") or []
+        if (
+            result.get("manifestEquivalent") is not True
+            or not graph
+            or any(approved.get(node["digest"]) != node for node in graph)
+        ):
+            raise ImageCopyError("repository image lacks common build evidence")
+    return {
+        "repositoryIdentity": inventory["repositoryIdentity"],
+        "classification": "unresolved",
+        "buildOutputMatch": True,
+        "sourceProvenanceVerified": False,
+        "images": results,
+        "builds": builds,
+        "scope": "observed_application_manifests",
+        "physicalByteErasure": False,
+    }
+
+
 def compare_repository_images(
     *,
     inventory: dict[str, Any],
@@ -446,42 +647,6 @@ def compare_repository_images(
     if not isinstance(images, list) or len(images) > 10000:
         raise ImageCopyError("repository inventory malformed")
 
-    def graph(host: str, repo: str, root: str, token: str) -> list[dict[str, Any]]:
-        pending = [(root, 0)]
-        seen: dict[str, list[str]] = {}
-        while pending:
-            digest, depth = pending.pop()
-            if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
-                raise ImageCopyError("manifest graph digest invalid")
-            if digest in seen:
-                continue
-            if depth > 4 or len(seen) >= 128:
-                raise ImageCopyError("manifest graph limit exceeded")
-            body, media = _get_manifest(host, repo, digest, token, session)
-            if media not in _MANIFEST_LIST_TYPES and media not in {
-                "application/vnd.oci.image.manifest.v1+json",
-                "application/vnd.docker.distribution.manifest.v2+json",
-            }:
-                raise ImageCopyError("manifest graph media type unsupported")
-            manifest = json.loads(body)
-            if not isinstance(manifest, dict):
-                raise ImageCopyError("manifest graph malformed")
-            children = []
-            if media in _MANIFEST_LIST_TYPES:
-                entries = manifest.get("manifests")
-                if not isinstance(entries, list) or not entries or len(entries) > 128:
-                    raise ImageCopyError("manifest graph children malformed")
-                for entry in entries:
-                    child = entry.get("digest") if isinstance(entry, dict) else None
-                    if not isinstance(child, str) or not re.fullmatch(
-                        r"sha256:[0-9a-f]{64}", child
-                    ):
-                        raise ImageCopyError("manifest graph child digest invalid")
-                    children.append(child)
-                    pending.append((child, depth + 1))
-            seen[digest] = sorted(set(children))
-        return [{"digest": digest, "children": seen[digest]} for digest in sorted(seen)]
-
     results = []
     for image in images:
         uri = image.get("uri") if isinstance(image, dict) else None
@@ -495,8 +660,8 @@ def compare_repository_images(
             )
             continue
         try:
-            source_graph = graph(source_host, source_repo, digest, source_token)
-            destination_graph = graph(host, repo, digest, destination_token)
+            source_graph = _manifest_graph(source_host, source_repo, digest, source_token, session)
+            destination_graph = _manifest_graph(host, repo, digest, destination_token, session)
             if source_graph != destination_graph:
                 raise ImageCopyError("manifest graph mismatch")
             results.append({"uri": uri, "manifestEquivalent": True, "manifestGraph": source_graph})
@@ -602,5 +767,7 @@ __all__ = [
     "compare_repository_images",
     "image_exists",
     "observe_repository_images",
+    "observe_common_image_build",
+    "compare_repository_build_outputs",
     "resolve_source_digest",
 ]

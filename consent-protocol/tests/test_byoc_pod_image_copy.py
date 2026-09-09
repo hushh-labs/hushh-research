@@ -445,7 +445,7 @@ def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(ca
             project=USER_PROJECT,
             region=REGION,
             expected_identity=identity,
-            token="synthetic",  # noqa: S106 -- scripted session, no usable credential
+            token="synthetic",  # noqa: S106 -- fake transport only  # noqa: S106 -- scripted session, no usable credential
             session=Session(),
         )
 
@@ -551,3 +551,106 @@ def test_repository_source_comparison_verifies_both_graphs_with_separate_credent
             )
         if case == "other_package":
             assert not calls
+
+
+@pytest.mark.parametrize(
+    "case",
+    ["match", "failed_build", "foreign_log", "other_step", "corrupt_source", "unclassified_image"],
+)
+def test_common_build_classification_requires_verified_output_and_complete_inventory(case):
+    project = "hushh-pda-dev"
+    build_id = "2d9115b0-3ee2-4918-be73-a51eeeadb545"
+    commit = "a" * 40
+    leaf = b'{"schemaVersion":2,"layers":[]}'
+    digest = "sha256:" + hashlib.sha256(leaf).hexdigest()
+    uri = f"{DEST}@{digest}"
+    inventory = {
+        "repositoryIdentity": {
+            "name": f"projects/{USER_PROJECT}/locations/{REGION}/repositories/one-pod"
+        },
+        "paginationComplete": True,
+        "images": [{"uri": uri}],
+    }
+
+    class Session:
+        def get(self, url, **kwargs):
+            assert kwargs["allow_redirects"] is False
+            if url.startswith("https://cloudbuild.googleapis.com/"):
+                return _Resp(
+                    200,
+                    json_body={
+                        "id": build_id,
+                        "projectId": project,
+                        "status": "FAILURE" if case == "failed_build" else "SUCCESS",
+                        "steps": [{"id": "build-pod-image"}],
+                        "substitutions": {
+                            "_DEPLOY_SHA": commit,
+                            "_BUILD_POD_IMAGE": "true",
+                            "_DEPLOY_ENV": "dev",
+                            "_IMAGE_TAG": "dev-" + commit,
+                        },
+                    },
+                )
+            assert url.endswith(digest)
+            return _Resp(
+                200,
+                content=b"corrupt" if case == "corrupt_source" else leaf,
+                headers={"Content-Type": "application/vnd.oci.image.manifest.v1+json"},
+            )
+
+        def post(self, url, **kwargs):
+            assert url == "https://logging.googleapis.com/v2/entries:list"
+            assert kwargs["allow_redirects"] is False
+            return _Resp(
+                200,
+                json_body={
+                    "entries": [
+                        {
+                            "resource": {
+                                "type": "build",
+                                "labels": {
+                                    "project_id": project,
+                                    "build_id": "foreign" if case == "foreign_log" else build_id,
+                                },
+                            },
+                            "labels": {
+                                "build_step": 'Step #1 - "build-backend-image"'
+                                if case == "other_step"
+                                else 'Step #1 - "build-pod-image"'
+                            },
+                            "textPayload": f"#12 exporting manifest list {digest} done",
+                        }
+                    ]
+                },
+            )
+
+    def run():
+        build = pod_image_copy.observe_common_image_build(
+            project=project,
+            location="global",
+            build_id=build_id,
+            source_ref=SOURCE,
+            token="synthetic",  # noqa: S106 -- fake transport only
+            session=Session(),
+        )
+        comparison = pod_image_copy.compare_repository_images(
+            inventory=inventory,
+            source_ref=SOURCE,
+            source_token="synthetic",  # noqa: S106 -- fake transport only
+            destination_token="synthetic",  # noqa: S106 -- fake transport only
+            session=Session(),
+        )
+        if case == "unclassified_image":
+            inventory["images"].append({"uri": f"{DEST}@sha256:" + "f" * 64})
+        return pod_image_copy.compare_repository_build_outputs(
+            inventory=inventory, comparison=comparison, builds=[build]
+        )
+
+    if case == "match":
+        result = run()
+        assert result["classification"] == "unresolved"
+        assert result["physicalByteErasure"] is False
+        assert result["builds"][0]["rootDigest"] == digest
+    else:
+        with pytest.raises(pod_image_copy.ImageCopyError):
+            run()
