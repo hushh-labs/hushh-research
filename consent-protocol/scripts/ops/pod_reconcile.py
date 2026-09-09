@@ -49,13 +49,22 @@ def main() -> int:
         "--repository-created-at",
         help="read-only one-pod image inventory; require the retained repository creation timestamp",
     )
+    ap.add_argument(
+        "--source-image",
+        help="compare observed image manifests to this declared application source; requires --repository-created-at",
+    )
     args = ap.parse_args()
+    if args.source_image and not args.repository_created_at:
+        ap.error("--source-image requires --repository-created-at")
     if args.repository_created_at:
         import requests
         from google.auth.transport.requests import Request
 
         from hushh_mcp.services.gcp_run_client import load_operator_credentials
-        from hushh_mcp.services.pod_image_copy import observe_repository_images
+        from hushh_mcp.services.pod_image_copy import (
+            compare_repository_images,
+            observe_repository_images,
+        )
 
         try:
             credentials = load_operator_credentials()
@@ -72,6 +81,14 @@ def main() -> int:
                     token=credentials.token,
                     session=session,
                 )
+                if args.source_image:
+                    result["sourceComparison"] = compare_repository_images(
+                        inventory=result,
+                        source_ref=args.source_image,
+                        source_token=credentials.token,
+                        destination_token=credentials.token,
+                        session=session,
+                    )
             print(json.dumps(result, sort_keys=True))
             return 0
         except Exception as exc:

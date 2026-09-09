@@ -169,7 +169,7 @@ class _Session:
                 return resp
         return _Resp(404)
 
-    def get(self, url, headers=None, timeout=None, stream=None):
+    def get(self, url, headers=None, timeout=None, stream=None, allow_redirects=True):
         return self._answer("GET", url)
 
     def post(self, url, headers=None, timeout=None, allow_redirects=True):
@@ -462,3 +462,92 @@ def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(ca
         url.startswith("https://artifactregistry.googleapis.com/v1/" + identity["name"])
         for url, _ in calls
     )
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "match",
+        "missing_source",
+        "corrupt_child",
+        "other_package",
+        "foreign_destination",
+        "foreign_source",
+        "redirect",
+    ],
+)
+def test_repository_source_comparison_verifies_both_graphs_with_separate_credentials(case):
+    leaf = b'{"schemaVersion":2,"layers":[]}'
+    leaf_digest = "sha256:" + hashlib.sha256(leaf).hexdigest()
+    root = json.dumps({"manifests": [{"digest": leaf_digest}]}).encode()
+    root_digest = "sha256:" + hashlib.sha256(root).hexdigest()
+    uri = f"{DEST}@{root_digest}"
+    if case == "other_package":
+        uri = uri.replace("consent-protocol-pod@", "unrelated-package@")
+    if case == "foreign_destination":
+        uri = "foreign.example/package@" + root_digest
+    inventory = {
+        "repositoryIdentity": {
+            "name": f"projects/{USER_PROJECT}/locations/{REGION}/repositories/one-pod"
+        },
+        "paginationComplete": True,
+        "images": [{"uri": uri}],
+    }
+    calls = []
+
+    class Session:
+        def get(self, url, **kwargs):
+            calls.append(url)
+            source = url.startswith("https://gcr.io/")
+            assert kwargs["allow_redirects"] is False
+            if case == "redirect":
+                return _Resp(302, headers={"Location": "https://foreign.example/manifest"})
+            assert kwargs["headers"]["Authorization"] == "Bearer " + (
+                "source-token" if source else "destination-token"
+            )
+            assert "/manifests/v2.1.0" not in url
+            if source and case == "missing_source":
+                return _Resp(404)
+            is_root = url.endswith(root_digest)
+            content = root if is_root else leaf
+            if not source and not is_root and case == "corrupt_child":
+                content = b"corrupted"
+            return _Resp(
+                200,
+                content=content,
+                headers={
+                    "Content-Type": "application/vnd.oci.image.index.v1+json"
+                    if is_root
+                    else "application/vnd.oci.image.manifest.v1+json"
+                },
+            )
+
+    def compare():
+        return pod_image_copy.compare_repository_images(
+            inventory=inventory,
+            source_ref="foreign.example/private:tag" if case == "foreign_source" else SOURCE,
+            source_token="source-token",  # noqa: S106 -- scripted provider credential
+            destination_token="destination-token",  # noqa: S106 -- scripted provider credential
+            session=Session(),
+        )
+
+    if case in {"foreign_destination", "foreign_source"}:
+        with pytest.raises(pod_image_copy.ImageCopyError):
+            compare()
+        assert not calls
+    else:
+        result = compare()
+        assert result["classification"] == "unresolved"
+        assert result["blobContentsChecked"] is False
+        assert result["images"][0]["manifestEquivalent"] is (case == "match")
+        if case == "match":
+            assert len(calls) == 4
+            assert result["images"][0]["manifestGraph"] == sorted(
+                [
+                    {"digest": root_digest, "children": [leaf_digest]},
+                    {"digest": leaf_digest, "children": []},
+                ],
+                key=lambda node: node["digest"],
+            )
+        if case == "other_package":
+            assert not calls

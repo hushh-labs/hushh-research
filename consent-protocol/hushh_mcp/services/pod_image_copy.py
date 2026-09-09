@@ -319,6 +319,7 @@ def _get_manifest(
         _manifest_url(host, repository, reference),
         headers=_headers(token, {"Accept": _MANIFEST_ACCEPT}),
         timeout=60,
+        allow_redirects=False,
     )
     if getattr(resp, "status_code", 0) != 200:
         raise ImageCopyError(
@@ -412,6 +413,104 @@ def copy_image(source_ref: str, dest_ref: str, token: str, session: Any = None) 
         _copy_single_manifest(src, dst, d_ref, token, session)
 
 
+def compare_repository_images(
+    *,
+    inventory: dict[str, Any],
+    source_ref: str,
+    source_token: str,
+    destination_token: str,
+    session: Any,
+) -> dict[str, Any]:
+    """Compare observed digests to one declared source; never infer ownership.
+
+    Both sides are read by digest. Matching graphs prove manifest equivalence;
+    blob contents, trusted build provenance and unreferenced uploads remain unchecked.
+    """
+    source_host, source_repo, _ = _parse_ref(source_ref)
+    if not (
+        source_host in {"gcr.io", "us.gcr.io", "eu.gcr.io", "asia.gcr.io"}
+        or re.fullmatch(r"[a-z][a-z0-9-]*-docker\.pkg\.dev", source_host)
+    ):
+        raise ImageCopyError("application source registry unsupported")
+    if not re.fullmatch(r"[a-z0-9][a-z0-9._/-]*", source_repo):
+        raise ImageCopyError("application source repository invalid")
+    identity = inventory.get("repositoryIdentity") or {}
+    scope = re.fullmatch(
+        r"projects/([a-z][a-z0-9-]{4,28}[a-z0-9])/locations/([a-z][a-z0-9-]*)/repositories/one-pod",
+        str(identity.get("name", "")),
+    )
+    if scope is None or inventory.get("paginationComplete") is not True:
+        raise ImageCopyError("repository inventory incomplete")
+    destination_prefix = f"{scope[2]}-docker.pkg.dev/{scope[1]}/one-pod/"
+    images = inventory.get("images")
+    if not isinstance(images, list) or len(images) > 10000:
+        raise ImageCopyError("repository inventory malformed")
+
+    def graph(host: str, repo: str, root: str, token: str) -> list[dict[str, Any]]:
+        pending = [(root, 0)]
+        seen: dict[str, list[str]] = {}
+        while pending:
+            digest, depth = pending.pop()
+            if not re.fullmatch(r"sha256:[0-9a-f]{64}", digest):
+                raise ImageCopyError("manifest graph digest invalid")
+            if digest in seen:
+                continue
+            if depth > 4 or len(seen) >= 128:
+                raise ImageCopyError("manifest graph limit exceeded")
+            body, media = _get_manifest(host, repo, digest, token, session)
+            if media not in _MANIFEST_LIST_TYPES and media not in {
+                "application/vnd.oci.image.manifest.v1+json",
+                "application/vnd.docker.distribution.manifest.v2+json",
+            }:
+                raise ImageCopyError("manifest graph media type unsupported")
+            manifest = json.loads(body)
+            if not isinstance(manifest, dict):
+                raise ImageCopyError("manifest graph malformed")
+            children = []
+            if media in _MANIFEST_LIST_TYPES:
+                entries = manifest.get("manifests")
+                if not isinstance(entries, list) or not entries or len(entries) > 128:
+                    raise ImageCopyError("manifest graph children malformed")
+                for entry in entries:
+                    child = entry.get("digest") if isinstance(entry, dict) else None
+                    if not isinstance(child, str) or not re.fullmatch(
+                        r"sha256:[0-9a-f]{64}", child
+                    ):
+                        raise ImageCopyError("manifest graph child digest invalid")
+                    children.append(child)
+                    pending.append((child, depth + 1))
+            seen[digest] = sorted(set(children))
+        return [{"digest": digest, "children": seen[digest]} for digest in sorted(seen)]
+
+    results = []
+    for image in images:
+        uri = image.get("uri") if isinstance(image, dict) else None
+        if not isinstance(uri, str) or not uri.startswith(destination_prefix):
+            raise ImageCopyError("repository image scope invalid")
+        host, repo, digest = _parse_ref(uri)
+        # The copy path owns this package only. Other packages stay unresolved.
+        if repo != f"{scope[1]}/one-pod/consent-protocol-pod":
+            results.append(
+                {"uri": uri, "manifestEquivalent": False, "reason": "unclassified_package"}
+            )
+            continue
+        try:
+            source_graph = graph(source_host, source_repo, digest, source_token)
+            destination_graph = graph(host, repo, digest, destination_token)
+            if source_graph != destination_graph:
+                raise ImageCopyError("manifest graph mismatch")
+            results.append({"uri": uri, "manifestEquivalent": True, "manifestGraph": source_graph})
+        except Exception as exc:
+            results.append({"uri": uri, "manifestEquivalent": False, "reason": type(exc).__name__})
+    return {
+        "sourceRepository": f"{source_host}/{source_repo}",
+        "images": results,
+        "classification": "unresolved",
+        "unreferencedUploadsChecked": False,
+        "blobContentsChecked": False,
+    }
+
+
 def observe_repository_images(
     *, project: str, region: str, expected_identity: dict[str, str], token: str, session: Any
 ) -> dict[str, Any]:
@@ -500,6 +599,7 @@ __all__ = [
     "ImageCopyError",
     "attached_identity",
     "copy_image",
+    "compare_repository_images",
     "image_exists",
     "observe_repository_images",
     "resolve_source_digest",
