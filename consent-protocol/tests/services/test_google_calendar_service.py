@@ -249,3 +249,25 @@ def test_calendar_execute_rejects_conflicts_that_changed_after_review(
     monkeypatch.setattr(service, "_find_conflicts", changed_conflicts)
     with pytest.raises(GoogleConnectionError, match="availability changed"):
         asyncio.run(service.execute(user_id="user-1", proposal_id="gcal_example"))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "calendars",
+    [None, {}, {"primary": {"errors": [{"reason": "notFound"}]}}, {"primary": {"busy": [{}]}}],
+)
+async def test_find_openings_never_treats_failed_availability_as_free(monkeypatch, calendars):
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.google_calendar_service import GoogleCalendarService
+    from hushh_mcp.services.google_connection_service import GoogleConnectionError
+
+    service = GoogleCalendarService()
+    monkeypatch.setattr(service, "_request", AsyncMock(return_value={"calendars": calendars}))
+    with pytest.raises(GoogleConnectionError):
+        await service.find_openings(
+            user_id="synthetic-owner",
+            start_at="2026-10-01T09:00:00Z",
+            end_at="2026-10-01T12:00:00Z",
+            duration_minutes=30,
+        )

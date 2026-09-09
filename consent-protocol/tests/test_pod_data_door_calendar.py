@@ -293,7 +293,7 @@ async def test_calendar_summary_reads_through_the_door_in_pod_mode(bridge) -> No
 
 
 @pytest.mark.asyncio
-async def test_no_door_for_this_turn_reads_in_process_as_before(bridge) -> None:
+async def test_private_door_refusal_never_reads_in_process(bridge) -> None:
     from hushh_mcp.agents.calendar import tools
 
     bridge["payload"] = None
@@ -304,8 +304,8 @@ async def test_no_door_for_this_turn_reads_in_process_as_before(bridge) -> None:
         return {"status": "ok", "events": []}
 
     out = await tools._run_calendar_read(_Ctx({tools._STATE_USER_ID: "u-owner"}), _db_call)
-    assert bridge["door_calls"] == ["agent_calendar"] and seen == ["u-owner"]
-    assert out == {"status": "ok", "events": []}
+    assert bridge["door_calls"] == ["agent_calendar"] and seen == []
+    assert out["status"] == "failed"
 
 
 @pytest.mark.asyncio
@@ -319,3 +319,92 @@ async def test_the_hub_never_consults_the_door(bridge) -> None:
 
     out = await tools._run_calendar_read(_Ctx({tools._STATE_USER_ID: "u-owner"}), _db_call)
     assert bridge["door_calls"] == [] and out["events"] == ["hub read"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("operation", ["events", "availability", "openings"])
+async def test_explicit_calendar_read_preserves_window_operation_and_projection(
+    monkeypatch, operation
+):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.agents.calendar import tools
+    from hushh_mcp.services import google_calendar_service, pod_hub_client
+
+    service = SimpleNamespace(
+        list_events=AsyncMock(return_value={"events": [], "has_more": True, "secret": "drop"}),
+        freebusy=AsyncMock(return_value={"calendars": {"primary": {"busy": []}}, "secret": "drop"}),
+        find_openings=AsyncMock(return_value={"openings": [], "secret": "drop"}),
+    )
+    monkeypatch.setattr(google_calendar_service, "get_google_calendar_service", lambda: service)
+
+    # Exercise the actual hub reader after a synthetic authenticated owner binding.
+    class Client:
+        def read_specialist(self, name, scope_token, *, calendar_read):
+            import asyncio
+
+            assert scope_token == "synthetic-scope"
+            return asyncio.run(
+                door.run_pod_data_door_read(
+                    name,
+                    owner_id="synthetic-owner",
+                    calendar_read=door.CalendarReadOptions.model_validate(calendar_read),
+                )
+            )
+
+    monkeypatch.setattr(pod_hub_client, "PodHubClient", Client)
+    monkeypatch.setattr("hushh_mcp.runtime_settings.pod_mode", lambda: True)
+    ctx = _Ctx(
+        {
+            tools._STATE_USER_ID: "synthetic-owner",
+            pod_side.STATE_DATA_DOOR_GRANTS: {"calendar": "synthetic-scope"},
+        }
+    )
+    kwargs = {"start_at": "2026-10-01T09:00:00+05:30", "end_at": "2026-10-03T09:00:00+05:30"}
+    call = {
+        "events": tools.calendar_events,
+        "availability": tools.calendar_availability,
+        "openings": tools.calendar_free_slots,
+    }[operation]
+    if operation == "openings":
+        kwargs.update(duration_minutes=45, limit=2)
+    result = await call(ctx, **kwargs)
+    assert result["status"] == "ok" and result["operation"] == operation
+    assert result["range_start"] == kwargs["start_at"] and result["range_end"] == kwargs["end_at"]
+    assert "secret" not in result
+    chosen = {
+        "events": service.list_events,
+        "availability": service.freebusy,
+        "openings": service.find_openings,
+    }[operation]
+    assert chosen.await_args.kwargs["user_id"] == "synthetic-owner"
+    assert chosen.await_args.kwargs["start_at"] == kwargs["start_at"]
+    assert (
+        sum(
+            method.await_count
+            for method in (service.list_events, service.freebusy, service.find_openings)
+        )
+        == 1
+    )
+    if operation == "events":
+        assert result["coverage_complete"] is False
+
+
+@pytest.mark.parametrize(
+    "change",
+    [
+        {"start_at": "2026-10-01T09:00:00"},
+        {"end_at": "2026-12-01T09:00:00Z"},
+        {"end_at": "2026-09-01T09:00:00Z"},
+        {"operation": "openings"},
+        {"owner_id": "foreign-owner"},
+    ],
+)
+def test_calendar_options_reject_unbounded_or_ambient_authority(change):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError):
+        door.CalendarReadOptions.model_validate(
+            {"start_at": "2026-10-01T09:00:00Z", "end_at": "2026-10-02T09:00:00Z", **change}
+        )

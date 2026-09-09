@@ -224,6 +224,7 @@ async def serve_specialist_via_data_door(
     tool_context: Any,
     *,
     broker: Any = None,
+    calendar_read: dict[str, Any] | None = None,
 ) -> dict[str, Any] | None:
     """Answer a DB-backed specialist through the hub broker, or return None.
 
@@ -251,12 +252,23 @@ async def serve_specialist_via_data_door(
         client = PodHubClient()
 
     try:
-        projection = await asyncio.to_thread(client.read_specialist, door_name, scope_token)
+        options = {"calendar_read": calendar_read} if calendar_read is not None else {}
+        projection = await asyncio.to_thread(
+            client.read_specialist, door_name, scope_token, **options
+        )
     except Exception as exc:  # noqa: BLE001 - a broker refusal/outage degrades the read, not the turn
         logger.info(
             "one_adk.data_door_read_unavailable agent_id=%s %s", agent_id, type(exc).__name__
         )
         return None
+
+    if calendar_read is not None:
+        # Explicit reads return structured coverage, never a fixed-window summary.
+        return {
+            "status": "ok" if projection.get("connected") else "unavailable",
+            "source": "data_door",
+            "state": projection,
+        }
 
     summarizer = _SUMMARIZERS.get(door_name)
     if summarizer is None:

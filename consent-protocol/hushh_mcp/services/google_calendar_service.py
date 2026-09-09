@@ -155,6 +155,7 @@ class GoogleCalendarService:
                 if isinstance(item, dict)
             ],
             "time_zone": response.get("timeZone"),
+            "has_more": bool(response.get("nextPageToken")),
         }
 
     async def freebusy(
@@ -173,10 +174,32 @@ class GoogleCalendarService:
             access="read",
             payload={"timeMin": start, "timeMax": end, "items": [{"id": value} for value in ids]},
         )
+        calendars = response.get("calendars")
+        for calendar_id in ids:
+            calendar = calendars.get(calendar_id) if isinstance(calendars, dict) else None
+            if (
+                not isinstance(calendar, dict)
+                or calendar.get("errors")
+                or not isinstance(calendar.get("busy"), list)
+            ):
+                raise GoogleConnectionError("Calendar availability unavailable", status_code=502)
+            for interval in calendar["busy"]:
+                if (
+                    not isinstance(interval, dict)
+                    or not isinstance(interval.get("start"), str)
+                    or not isinstance(interval.get("end"), str)
+                ):
+                    raise GoogleConnectionError(
+                        "Calendar availability unavailable", status_code=502
+                    )
+                if self._iso(interval["start"]) >= self._iso(interval["end"]):
+                    raise GoogleConnectionError(
+                        "Calendar availability unavailable", status_code=502
+                    )
         return {
             "time_min": start,
             "time_max": end,
-            "calendars": response.get("calendars", {}),
+            "calendars": calendars,
             "time_zone": response.get("timeZone"),
         }
 

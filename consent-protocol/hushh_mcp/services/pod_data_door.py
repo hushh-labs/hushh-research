@@ -49,7 +49,32 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any, Awaitable, Callable, Literal, Optional
+
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
+
+
+class CalendarReadOptions(BaseModel):
+    """Bounded primary-calendar reads; never owner selection or mutations."""
+
+    model_config = ConfigDict(extra="forbid")
+    operation: Literal["events", "availability", "openings"] = "events"
+    start_at: AwareDatetime
+    end_at: AwareDatetime
+    duration_minutes: int | None = Field(default=None, ge=5, le=720)
+    limit: int = Field(default=3, ge=1, le=20)
+
+    @model_validator(mode="after")
+    def bounded_window(self) -> "CalendarReadOptions":
+        window = self.end_at - self.start_at
+        if not timedelta(0) < window <= timedelta(days=31):
+            raise ValueError("calendar window must be positive and at most 31 days")
+        if self.operation == "openings" and self.duration_minutes is None:
+            raise ValueError("opening duration required")
+        if self.operation != "openings" and self.duration_minutes is not None:
+            raise ValueError("duration only applies to openings")
+        return self
+
 
 # --- Location egress allowlists -------------------------------------------------
 # Only these fields may EVER reach a pod through the door. Everything else in the
@@ -339,6 +364,56 @@ def project_calendar_state(raw: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def project_calendar_read(raw: dict[str, Any], options: CalendarReadOptions) -> dict[str, Any]:
+    """Project only the selected read, with explicit query coverage."""
+    result = project_calendar_state(raw)
+    result.update(
+        range_start=options.start_at.isoformat(),
+        range_end=options.end_at.isoformat(),
+        operation=options.operation,
+    )
+    if options.operation == "events":
+        result["coverage_complete"] = bool(result["connected"] and raw.get("has_more") is False)
+        return result
+    if not result["connected"]:
+        return result
+    result.pop("events", None)
+    if options.operation == "availability":
+        calendars = raw.get("calendars")
+        primary = calendars.get("primary") if isinstance(calendars, dict) else None
+        if (
+            not isinstance(primary, dict)
+            or primary.get("errors")
+            or not isinstance(primary.get("busy"), list)
+        ):
+            raise ValueError("primary calendar availability unavailable")
+        result["busy"] = [
+            {"start": item["start"], "end": item["end"]}
+            for item in primary["busy"]
+            if isinstance(item, dict)
+            and isinstance(item.get("start"), str)
+            and isinstance(item.get("end"), str)
+        ]
+        if len(result["busy"]) != len(primary["busy"]):
+            raise ValueError("calendar availability malformed")
+    else:
+        openings = raw.get("openings")
+        if not isinstance(openings, list):
+            raise ValueError("calendar openings unavailable")
+        result["duration_minutes"] = options.duration_minutes
+        result["openings"] = [
+            {key: item[key] for key in ("start_at", "end_at", "available_until")}
+            for item in openings[: options.limit]
+            if isinstance(item, dict)
+            and all(
+                isinstance(item.get(key), str) for key in ("start_at", "end_at", "available_until")
+            )
+        ]
+        if len(result["openings"]) != len(openings[: options.limit]):
+            raise ValueError("calendar openings malformed")
+    return result
+
+
 @dataclass(frozen=True)
 class PodDataDoorRead:
     """One read the door exposes: a name, and the projection its output passes
@@ -418,7 +493,9 @@ _CALENDAR_LOOKBACK = timedelta(hours=1)
 _CALENDAR_HORIZON = timedelta(hours=36)
 
 
-async def _read_calendar(owner_id: str) -> dict[str, Any]:
+async def _read_calendar(
+    owner_id: str, options: CalendarReadOptions | None = None
+) -> dict[str, Any]:
     """Read the owner's UPCOMING events through the hub (OAuth, read-only).
 
     Same contract as the email reader: the two EXPECTED "no live read" cases
@@ -432,13 +509,27 @@ async def _read_calendar(owner_id: str) -> dict[str, Any]:
     from hushh_mcp.services.google_connection_service import GoogleConnectionError
 
     now = datetime.now(timezone.utc)
+    start_at = options.start_at.isoformat() if options else (now - _CALENDAR_LOOKBACK).isoformat()
+    end_at = options.end_at.isoformat() if options else (now + _CALENDAR_HORIZON).isoformat()
     try:
-        listed = await get_google_calendar_service().list_events(
-            user_id=owner_id,
-            start_at=(now - _CALENDAR_LOOKBACK).isoformat(),
-            end_at=(now + _CALENDAR_HORIZON).isoformat(),
-            max_results=20,
-        )
+        service = get_google_calendar_service()
+        if options and options.operation == "availability":
+            listed = await service.freebusy(user_id=owner_id, start_at=start_at, end_at=end_at)
+        elif options and options.operation == "openings":
+            listed = await service.find_openings(
+                user_id=owner_id,
+                start_at=start_at,
+                end_at=end_at,
+                duration_minutes=int(options.duration_minutes or 0),
+                limit=options.limit,
+            )
+        else:
+            listed = await service.list_events(
+                user_id=owner_id,
+                start_at=start_at,
+                end_at=end_at,
+                max_results=100 if options else 20,
+            )
     except GoogleConnectionError as exc:
         # The connection service says 403 for BOTH "never connected" ("Connect
         # Google Calendar first") and "connected without this permission"
@@ -451,7 +542,12 @@ async def _read_calendar(owner_id: str) -> dict[str, Any]:
         if status in (401, 403):
             return {"connected": False, "reason": "needs_reauth", "events": []}
         raise
-    return {"connected": True, **(listed if isinstance(listed, dict) else {})}
+    return {
+        "connected": True,
+        **(listed if isinstance(listed, dict) else {}),
+        "range_start": start_at,
+        "range_end": end_at,
+    }
 
 
 _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
@@ -461,7 +557,9 @@ _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
 }
 
 
-async def run_pod_data_door_read(name: str, *, owner_id: str) -> dict[str, Any]:
+async def run_pod_data_door_read(
+    name: str, *, owner_id: str, calendar_read: CalendarReadOptions | None = None
+) -> dict[str, Any]:
     """Run an allow-listed read for ``owner_id`` and return its egress projection.
 
     Async so an OAuth-backed reader can await network I/O without blocking the
@@ -474,6 +572,11 @@ async def run_pod_data_door_read(name: str, *, owner_id: str) -> dict[str, Any]:
     spec = POD_DATA_DOOR_READS.get(name)
     if spec is None:
         raise KeyError(name)
+    if calendar_read is not None:
+        if name != "calendar":
+            raise ValueError("calendar options require calendar read")
+        raw = await _read_calendar(owner_id, calendar_read)
+        return project_calendar_read(raw, calendar_read)
     raw = await _READERS[name](owner_id)
     return spec.project(raw)
 

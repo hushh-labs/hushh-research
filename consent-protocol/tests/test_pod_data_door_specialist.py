@@ -29,8 +29,9 @@ class _Broker:
         self._boom = boom
         self.calls: list[tuple] = []
 
-    def read_specialist(self, name, scope_token):
+    def read_specialist(self, name, scope_token, **options):
         self.calls.append((name, scope_token))
+        self.options = options
         if self._boom:
             raise self._boom
         return self._projection
@@ -207,6 +208,13 @@ async def test_calendar_uses_its_existing_read_tool_not_a_second_specialist(monk
     )
     assert result.get("source") == "data_door", result
     assert broker.calls == [("calendar", "synthetic-scope")]
+    from datetime import datetime, timedelta
+
+    query = broker.options["calendar_read"]
+    assert query["operation"] == "events"
+    assert datetime.fromisoformat(query["end_at"]) - datetime.fromisoformat(
+        query["start_at"]
+    ) == timedelta(days=7)
 
 
 @pytest.mark.asyncio

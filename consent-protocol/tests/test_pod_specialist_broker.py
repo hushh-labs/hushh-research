@@ -276,3 +276,40 @@ async def test_registry_failure_is_unavailable_and_never_reaches_reader(flags_on
     assert exc.value.status_code == 503
     assert exc.value.detail == "consent authority is unavailable"
     assert seen == {}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("pod_owner", ["hushh-owner", "foreign-owner"])
+async def test_calendar_options_reach_reader_only_after_owner_binding(
+    flags_on, monkeypatch, pod_owner
+):
+    from unittest.mock import AsyncMock
+
+    _identity(monkeypatch, pod_owner)
+    reader = AsyncMock(return_value={"connected": True})
+    payload = broker.PodSpecialistReadRequest.model_validate(
+        {
+            "scopeToken": "synthetic-scope",
+            "calendarRead": {
+                "operation": "availability",
+                "start_at": "2026-10-01T00:00:00Z",
+                "end_at": "2026-10-02T00:00:00Z",
+            },
+        }
+    )
+    args = (_Request(), "calendar", "Bearer synthetic", payload)
+    kwargs = dict(
+        validator=_validator(scope="cap.calendar.events.view"),
+        registry=_registry({"u-owner": "hushh-owner"}),
+        reader=reader,
+    )
+    if pod_owner != "hushh-owner":
+        with pytest.raises(broker.HTTPException) as exc:
+            await broker.broker_specialist_read(*args, **kwargs)
+        assert exc.value.status_code == 403
+        reader.assert_not_called()
+    else:
+        await broker.broker_specialist_read(*args, **kwargs)
+        reader.assert_awaited_once_with(
+            "calendar", owner_id="u-owner", calendar_read=payload.calendar_read
+        )

@@ -61,6 +61,7 @@ from hushh_mcp.services.pod_access_audit import (
     PodAccessUnavailable,
     resolve_serving_owner_hushh_id,
 )
+from hushh_mcp.services.pod_data_door import CalendarReadOptions
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +84,8 @@ class PodSpecialistReadRequest(BaseModel):
     taken from the pod -- so the body cannot be used to read someone else."""
 
     scope_token: str = Field(..., alias="scopeToken", min_length=1, max_length=4096)
+
+    calendar_read: CalendarReadOptions | None = Field(default=None, alias="calendarRead")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -112,6 +115,9 @@ async def broker_specialist_read(
     if required_scope is None:
         # A name with no door. Refuse before reading anything adjacent.
         raise HTTPException(status_code=404, detail="no such specialist read")
+
+    if payload.calendar_read is not None and name != "calendar":
+        raise HTTPException(status_code=422, detail="calendar options require calendar read")
 
     asserted = await verify_pod_identity(request, authorization)
     if not asserted:
@@ -167,7 +173,8 @@ async def broker_specialist_read(
         # run_pod_data_door_read is async (an OAuth-backed reader awaits network
         # I/O); await it. An injected sync test double is still supported -- only
         # await when the call actually returned an awaitable.
-        projection = run_read(name, owner_id=owner_id)
+        options = {"calendar_read": payload.calendar_read} if payload.calendar_read else {}
+        projection = run_read(name, owner_id=owner_id, **options)
         if inspect.isawaitable(projection):
             projection = await projection
     except KeyError as exc:

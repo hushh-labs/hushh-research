@@ -162,7 +162,9 @@ class PodHubClient:
         except Exception as exc:  # noqa: BLE001
             raise PodHubUnavailable(f"hub unreachable: {type(exc).__name__}") from exc
 
-    def read_specialist(self, name: str, scope_token: str) -> dict[str, Any]:
+    def read_specialist(
+        self, name: str, scope_token: str, *, calendar_read: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         """Read a DB-backed specialist's state THROUGH the hub broker (the data door).
 
         This is the pod's egress to ``POST /api/one/pod/specialist/{name}/read``.
@@ -180,9 +182,10 @@ class PodHubClient:
         """
         if not scope_token:
             raise PodHubUnavailable("no data-door scope token for this specialist")
-        response = self.post(
-            f"/api/one/pod/specialist/{name}/read", json={"scopeToken": scope_token}
-        )
+        payload: dict[str, Any] = {"scopeToken": scope_token}
+        if calendar_read is not None:
+            payload["calendarRead"] = calendar_read
+        response = self.post(f"/api/one/pod/specialist/{name}/read", json=payload)
         status = getattr(response, "status_code", 502)
         if status != 200:
             raise PodHubUnavailable(f"hub refused specialist read name={name} status={status}")
@@ -193,4 +196,19 @@ class PodHubClient:
         state = body.get("state") if isinstance(body, dict) else None
         if not isinstance(state, dict):
             raise PodHubUnavailable("hub returned no specialist state")
+        if calendar_read is not None:
+            from datetime import datetime
+
+            try:
+                matches = (
+                    name == "calendar" and state.get("operation") == calendar_read["operation"]
+                )
+                for requested, returned in (("start_at", "range_start"), ("end_at", "range_end")):
+                    matches = matches and datetime.fromisoformat(
+                        state[returned].replace("Z", "+00:00")
+                    ) == datetime.fromisoformat(calendar_read[requested].replace("Z", "+00:00"))
+                if not matches:
+                    raise ValueError("calendar coverage mismatch")
+            except (KeyError, TypeError, ValueError, AttributeError) as exc:
+                raise PodHubUnavailable("hub did not confirm requested calendar coverage") from exc
         return state

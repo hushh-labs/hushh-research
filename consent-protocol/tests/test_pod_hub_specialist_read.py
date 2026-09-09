@@ -101,3 +101,29 @@ def test_an_empty_scope_token_raises_before_any_call():
     with pytest.raises(PodHubUnavailable):
         _client(session).read_specialist("location", "")
     assert session.calls == [], "must not call the hub without a scope token"
+
+
+@pytest.mark.parametrize(
+    "state",
+    [
+        {"connected": True, "events": []},
+        {
+            "connected": True,
+            "operation": "events",
+            "range_start": "2026-10-01T00:00:00Z",
+            "range_end": "2026-10-02T00:00:00Z",
+        },
+    ],
+)
+def test_calendar_read_rejects_old_or_mismatched_hub_coverage(state):
+    client = _client(_Session(_Resp(200, {"state": state})))
+    with pytest.raises(PodHubUnavailable, match="coverage"):
+        client.read_specialist(
+            "calendar",
+            "synthetic-scope",
+            calendar_read={
+                "operation": "events",
+                "start_at": "2026-10-01T00:00:00Z",
+                "end_at": "2026-10-08T00:00:00Z",
+            },
+        )

@@ -302,6 +302,18 @@ The maintained architecture reference is [Personal Gmail Information Requests](.
 
 ### One Google Calendar
 
+Private-pod Calendar reads use the existing owner-bound
+`POST /api/one/pod/specialist/calendar/read` broker. Its optional `calendarRead`
+contains `operation` (`events`, `availability`, or `openings`), offset-qualified
+`start_at`/`end_at` spanning at most 31 days, and for openings a 5–720 minute
+`duration_minutes` with `limit` 1–20. No owner selector or write operation is
+accepted. The pod verifies the returned operation and range; older hub responses
+without coverage fail safely. Event results expose `coverage_complete` because
+provider pagination may truncate the bounded result. Failed free/busy responses
+cannot become free slots. These are transitional consented hub reads, not proof
+of pod-native specialist execution.
+
+
 Calendar is a live Google provider integration. Connection lifecycle uses
 Firebase identity; event reads and all action proposals require `VAULT_OWNER`.
 Create, reschedule, and cancel are always two-step: a short-lived proposal is
