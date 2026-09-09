@@ -1737,3 +1737,26 @@ async def test_repository_inventory_retains_unresolved_owner_observation(monkeyp
     if failure in {"owner", "retry"}:
         observe.assert_not_awaited()
     assert registry.deleted == []
+
+
+async def test_deprovision_returns_only_after_authoritative_completion(monkeypatch):
+    from hushh_mcp.services.account_service import (
+        AccountService,
+        PersonalAgentDeprovisioningRequiredError,
+    )
+
+    registry = FakeRegistry()
+    registry.reserve_erasure = AsyncMock(
+        return_value={"bootstrapGrantRelease": {"status": "reserved"}}
+    )
+    service = PersonalAgentProvisioningService(registry=registry, grant=FakeGrant())
+    cleanup = AsyncMock()
+    monkeypatch.setattr(service, "_erase_reserved_bootstrap_grants", cleanup)
+    check = Mock(side_effect=[PersonalAgentDeprovisioningRequiredError("pending"), None])
+    monkeypatch.setattr(AccountService, "assert_personal_agent_external_resources_absent", check)
+    result = await service.deprovision(user_id=_UID)
+    assert result["rowDeleteDeferred"] is True
+    assert result["noOp"] is False
+    assert check.call_count == 2
+    cleanup.assert_awaited_once_with(user_id=_UID)
+    assert registry.deleted == []

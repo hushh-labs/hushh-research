@@ -421,6 +421,9 @@ def provision_pg(pg):
         "900_personal_agent_registry.sql",
         "905_personal_agent_liveness.sql",
         "906_personal_agent_user_cloud.sql",
+        "907_pod_lifecycle_events.sql",
+        "908_personal_agent_tombstone_metadata.sql",
+        "911_pod_migration_jobs.sql",
         "912_personal_agent_status_migrating.sql",
         "914_personal_agent_billing_space_id.sql",
         "916_personal_agent_erasure_admission.sql",
@@ -605,6 +608,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/934_personal_agent_erasure_resource_coverage.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/934_personal_agent_erasure_resource_coverage.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/935_personal_agent_erasure_finalization.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/935_personal_agent_erasure_finalization.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -1575,6 +1583,134 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,memoryBinding}' WHERE user_id='synthetic-owner'"
         )
     assert provision_row(pg) == saved
+
+    # Final account authority: completed cloud receipts are necessary but never
+    # substitute for the existing full-account identity cleanup intent.
+    assert pg.execute("SELECT personal_agent_erasure_complete('foreign-owner')")[0][0] is False
+    assert pg.execute("SELECT personal_agent_erasure_complete('synthetic-owner')")[0][0] is True
+    assert pg.execute("SELECT finalize_personal_agent_erasure('synthetic-owner')")[0][0] is False
+    for table in ("personal_agent_registry", "byoc_setup_jobs"):
+        with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+            pg.execute(f"DELETE FROM {table} WHERE user_id='synthetic-owner'")
+    for statement in (
+        "INSERT INTO pod_migration_jobs(user_id,job_id,hushh_id,target_project) VALUES ('synthetic-owner','pending','ha1_erasure','other-project')",
+        "INSERT INTO pod_lifecycle_events(user_id,seq,hushh_id,event,stage,registry_status) VALUES ('synthetic-owner',1,'different-owner-pod','stage','starting','provisioned')",
+        "INSERT INTO personal_agent_deletion_tombstones(hushh_id,status) VALUES ('ha1_erasure','deprovision_requested')",
+        "UPDATE byoc_setup_jobs SET status='failed' WHERE user_id='synthetic-owner'",
+    ):
+        with connect(pg) as conn, conn.cursor() as cursor:
+            cursor.execute(statement)
+            cursor.execute("SELECT personal_agent_erasure_complete('synthetic-owner')")
+            assert cursor.fetchone()[0] is False
+            conn.rollback()
+    # Simulate malformed imported evidence under an administrative rollback-only
+    # transaction; re-enable the real guard before evaluating final authority.
+    for path, value in (
+        ("{erasure,memoryDeletion}", None),
+        ("{erasure,kmsErasure,completion,status}", "scheduled"),
+        ("{erasure,bootstrapGrantErasure," + recovery_key + ",deletion,ownerId}", "foreign-owner"),
+    ):
+        with connect(pg) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                "ALTER TABLE personal_agent_registry DISABLE TRIGGER zz_personal_agent_erasure_registry"
+            )
+            cursor.execute(
+                "UPDATE personal_agent_registry SET backend_metadata=jsonb_set(backend_metadata,%s::text[],%s::jsonb) WHERE user_id='synthetic-owner'",
+                (path, json.dumps(value)),
+            )
+            cursor.execute(
+                "ALTER TABLE personal_agent_registry ENABLE TRIGGER zz_personal_agent_erasure_registry"
+            )
+            cursor.execute("SELECT personal_agent_erasure_complete('synthetic-owner')")
+            assert cursor.fetchone()[0] is False
+            conn.rollback()
+    pg.execute(
+        "INSERT INTO account_deletion_tombstones(user_id_hash,firebase_uid,cleanup_status) "
+        "VALUES ('sha256:'||encode(digest('synthetic-owner','sha256'),'hex'),'synthetic-owner','pending')"
+    )
+    # Archive insertion cannot be asserted independently of the exact live chain.
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "INSERT INTO personal_agent_deletion_tombstones(hushh_id,external_agent_id,status,metadata) "
+            "VALUES ('ha1_erasure','pod-service','erasure_completed',%s::jsonb)",
+            (json.dumps({"ownerId": "synthetic-owner", "status": "complete"}),),
+        )
+    # Force a failure after archive insertion and setup deletion. The whole
+    # caller transaction must restore both authority rows and remove the archive.
+    pg.execute(
+        "CREATE FUNCTION synthetic_finalization_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic finalization failure'; END $$"
+    )
+    pg.execute(
+        "CREATE TRIGGER zzzz_synthetic_finalization_failure BEFORE DELETE ON personal_agent_registry FOR EACH ROW EXECUTE FUNCTION synthetic_finalization_failure()"
+    )
+    with pytest.raises(psycopg2.errors.RaiseException, match="synthetic finalization failure"):
+        pg.execute("SELECT finalize_personal_agent_erasure('synthetic-owner')")
+    assert provision_row(pg) == saved
+    assert (
+        pg.execute("SELECT count(*) FROM byoc_setup_jobs WHERE user_id='synthetic-owner'")[0][0]
+        == 1
+    )
+    assert (
+        pg.execute(
+            "SELECT count(*) FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'"
+        )[0][0]
+        == 0
+    )
+    pg.execute("DROP TRIGGER zzzz_synthetic_finalization_failure ON personal_agent_registry")
+    pg.execute("DROP FUNCTION synthetic_finalization_failure()")
+    with connect(pg) as conn, conn.cursor() as cursor:
+        cursor.execute("SELECT finalize_personal_agent_erasure('synthetic-owner')")
+        assert cursor.fetchone()[0] is True
+        conn.rollback()
+    assert provision_row(pg) == saved
+    assert (
+        pg.execute(
+            "SELECT count(*) FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'"
+        )[0][0]
+        == 0
+    )
+    assert pg.execute("SELECT finalize_personal_agent_erasure('synthetic-owner')")[0][0] is True
+    for table in (
+        "personal_agent_registry",
+        "byoc_setup_jobs",
+        "pod_lifecycle_events",
+        "pod_migration_jobs",
+    ):
+        assert (
+            pg.execute(f"SELECT count(*) FROM {table} WHERE user_id='synthetic-owner'")[0][0] == 0
+        )
+    archive = pg.execute(
+        "SELECT metadata FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'"
+    )[0][0]
+    assert archive["ownerId"] == "synthetic-owner"
+    assert archive["attemptId"] == "attempt-one"
+    assert (
+        archive["reservationSha256"]
+        == pg.execute(
+            "SELECT encode(sha256(convert_to(%s::jsonb::text,'UTF8')),'hex')",
+            (json.dumps(saved["backend_metadata"]["erasure"]),),
+        )[0][0]
+    )
+    assert "registrySnapshot" not in json.dumps(archive)
+    assert "authorization_attempts" not in json.dumps(archive)
+    for statement in (
+        "UPDATE personal_agent_deletion_tombstones SET metadata='{}'::jsonb WHERE status='erasure_completed'",
+        "DELETE FROM personal_agent_deletion_tombstones WHERE status='erasure_completed'",
+        "INSERT INTO personal_agent_registry(user_id,hushh_id,status) VALUES ('synthetic-owner','ha1_new','pending')",
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('synthetic-owner','late','synthetic-project')",
+        "INSERT INTO pod_migration_jobs(user_id,job_id,hushh_id,target_project) VALUES ('synthetic-owner','late','ha1_erasure','other-project')",
+        "INSERT INTO pod_lifecycle_events(user_id,seq,hushh_id,event,stage,registry_status) VALUES ('synthetic-owner',1,'ha1_erasure','stage','starting','provisioned')",
+    ):
+        with pytest.raises(psycopg2.Error):
+            pg.execute(statement)
+    with pytest.raises(psycopg2.errors.RaiseException, match="requires preservation"):
+        with connect(pg) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                (
+                    ROOT
+                    / "db/migrations/rollback/935_personal_agent_erasure_finalization.rollback.sql"
+                ).read_text()
+            )
 
 
 def provision_row(pg):

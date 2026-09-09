@@ -911,13 +911,13 @@ class AccountService:
         conn,
         *,
         params: dict[str, Any],
+        finalize_erasure: bool = False,
     ) -> dict[str, bool]:
-        """Assert absence without deleting recovery state.
+        """Verify absence or qualified erasure under the caller's owner locks.
 
-        The personal-agent migrations are parked in the release tree but exist in
-        some live environments. A provisioned pod or an in-flight BYOC project can
-        outlive its database row. No in-repo worker consumes the parked deletion
-        tombstones, so any state that may own external resources must fail closed.
+        Only the account transaction requests finalization. The SQL authority
+        validates terminal receipts and archives them before removing recovery
+        rows atomically; missing migrations and uncertain outcomes remain refused.
         """
         state_tables = (
             "byoc_setup_jobs",
@@ -995,6 +995,26 @@ class AccountService:
 
         registry = dict((registry_row or {}).get("registry") or {})
         status = str(registry.get("status") or "").strip().lower()
+        erasure = (registry.get("backend_metadata") or {}).get("erasure")
+        if isinstance(erasure, dict) and erasure:
+            # Parked private migrations must never become a prerequisite for the
+            # shared runtime's ordinary unprovisioned-account deletion path.
+            available = conn.execute(
+                text(
+                    "SELECT to_regprocedure('public.personal_agent_erasure_complete(text)') "
+                    "IS NOT NULL AND "
+                    "to_regprocedure('public.finalize_personal_agent_erasure(text)') IS NOT NULL"
+                )
+            ).scalar()
+            if available is True:
+                statement = (
+                    "SELECT public.finalize_personal_agent_erasure(:user_id)"
+                    if finalize_erasure
+                    else "SELECT public.personal_agent_erasure_complete(:user_id)"
+                )
+                if conn.execute(text(statement), params).scalar() is True:
+                    return table_presence
+            raise PersonalAgentDeprovisioningRequiredError(PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE)
         external_coordinate_fields = (
             "space_id",
             "external_agent_id",
@@ -1061,13 +1081,17 @@ class AccountService:
         if not user_id:
             raise ValueError("user_id is required")
         with get_db_connection() as conn:
+            # Match erasure writers before taking registry/setup row locks.
+            AccountDeletionLifecycleService._lock_user_ids_in_transaction(conn, user_ids=(user_id,))
             self._assert_personal_agent_external_resources_absent(conn, params={"user_id": user_id})
 
     def _delete_personal_agent_state(
         self, conn, *, params: dict[str, Any], results: dict[str, bool]
     ) -> None:
         """Keep absence assertion and account-state deletion in one transaction."""
-        table_presence = self._assert_personal_agent_external_resources_absent(conn, params=params)
+        table_presence = self._assert_personal_agent_external_resources_absent(
+            conn, params=params, finalize_erasure=True
+        )
         results["personal_agent_external_resources_absent"] = True
         for table_name, present in table_presence.items():
             if present:
@@ -1781,6 +1805,33 @@ class AccountService:
             }
 
     async def _delete_full_account(
+        self,
+        user_id: str,
+        *,
+        requested_target: DeleteAccountTarget,
+    ) -> Dict[str, Any]:
+        """Attempt one cleanup outside the transaction, then revalidate once."""
+        result = await self._delete_full_account_transaction(
+            user_id, requested_target=requested_target
+        )
+        if result.get("error_code") != PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE:
+            return result
+        from hushh_mcp.services.personal_agent_provisioning_service import (
+            PersonalAgentProvisioningService,
+        )
+
+        try:
+            await PersonalAgentProvisioningService().deprovision(user_id=user_id)
+        except Exception as exc:
+            logger.warning("account.erasure_pending error_type=%s", type(exc).__name__)
+            return result
+        # The first transaction has rolled back. The second independently checks
+        # completion and archives evidence; a provider result cannot bypass it.
+        return await self._delete_full_account_transaction(
+            user_id, requested_target=requested_target
+        )
+
+    async def _delete_full_account_transaction(
         self,
         user_id: str,
         *,

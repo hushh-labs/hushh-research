@@ -488,7 +488,13 @@ Dev migration 934 additionally requires every resource in the captured inventory
 recorded terminal outcome or explicit repository retention before bootstrap release.
 Unknown, duplicate or uncovered resources keep recovery access reserved. This coverage
 check supplements receipt validity; it is not account-deletion authority.
-Final account removal remains unconnected. These source changes are not deployed and do not establish live erasure.
+Dev migration 935 connects qualified erasure to the existing account transaction.
+It validates terminal receipts and coverage, archives selected receipts and reservation/history
+hashes in the existing deletion tombstone, then removes recovery rows atomically. The existing
+account-deletion intent and identity-write guards prevent resurrection. Account deletion makes
+at most one cleanup attempt outside the transaction and revalidates before retrying. Missing
+migrations, historical migration jobs and unresolved obligations retain the existing refusal.
+These source changes are not deployed and do not establish live erasure.
 The existing live drill remains unavailable until disposable ownership and complete cleanup
 satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
@@ -513,7 +519,7 @@ Erasure refuses missing or mismatched persisted incarnation evidence before prov
 access and requires a matching current observation before deletion. Legacy records
 remain readable but are not silently upgraded into historical erasure proof. This
 does not establish provider-side conditional deletion or inventory uncertain creates.
-It does not activate complete account deletion. Public lifecycle completion still needs
+Provider incarnation evidence alone does not authorize account deletion. Public lifecycle completion still needs
 coordinated owner admission, in-flight provider reconciliation, retained retry authority
 and verified cleanup of all resources. The account service currently refuses destructive
 teardown while required external resources remain; this containment must not be described

@@ -662,7 +662,7 @@ async def test_full_account_delete_returns_stable_external_resource_block_withou
     )
 
     with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
-        result = await service._delete_full_account("user-123", requested_target="both")
+        result = await service._delete_full_account_transaction("user-123", requested_target="both")
 
     assert result["success"] is False
     assert result["account_deleted"] is False
@@ -1302,3 +1302,140 @@ async def test_reset_account_demotes_system_circle_before_deleting_it(monkeypatc
     ]
     for fragment in spine_fragments:
         assert fragment not in "\n".join(executed_sql)
+
+
+@pytest.mark.parametrize("finalize", [False, True])
+@pytest.mark.parametrize(
+    "available,qualified", [(True, True), (True, False), (False, True), (True, None)]
+)
+def test_reserved_account_erasure_uses_database_authority(
+    monkeypatch, finalize, available, qualified
+):
+    service = AccountService()
+    conn = MagicMock()
+    statements = []
+    monkeypatch.setattr(
+        service, "_table_exists", lambda _conn, name: name == "personal_agent_registry"
+    )
+
+    def execute(statement, params=None):
+        sql = str(statement)
+        statements.append(sql)
+        result = MagicMock()
+        if "to_jsonb(registry)" in sql:
+            return _mapped_result(
+                {
+                    "registry": {
+                        "user_id": "owner-one",
+                        "status": "suspended",
+                        "backend_metadata": {
+                            "erasure": {"ownerId": "owner-one", "attemptId": "attempt-one"}
+                        },
+                    }
+                }
+            )
+        if "to_regprocedure" in sql:
+            result.scalar.return_value = available
+        elif "SELECT public." in sql:
+            assert params == {"user_id": "owner-one"}
+            result.scalar.return_value = qualified
+        return result
+
+    conn.execute.side_effect = execute
+    results = {}
+
+    def invoke():
+        if finalize:
+            service._delete_personal_agent_state(
+                conn, params={"user_id": "owner-one"}, results=results
+            )
+        else:
+            service._assert_personal_agent_external_resources_absent(
+                conn, params={"user_id": "owner-one"}
+            )
+
+    if available and qualified is True:
+        invoke()
+        function = (
+            "finalize_personal_agent_erasure" if finalize else "personal_agent_erasure_complete"
+        )
+        assert any(f"SELECT public.{function}" in sql for sql in statements)
+        if finalize:
+            assert results["personal_agent_external_resources_absent"] is True
+            assert next(
+                i for i, sql in enumerate(statements) if "finalize_personal_agent_erasure(:" in sql
+            ) < next(i for i, sql in enumerate(statements) if "DELETE FROM" in sql)
+        else:
+            assert all(
+                "DELETE FROM" not in sql and "SELECT public.finalize" not in sql
+                for sql in statements
+            )
+    else:
+        with pytest.raises(RuntimeError, match="EXTERNAL_RESOURCES_REQUIRE_DEPROVISIONING"):
+            invoke()
+        assert all("DELETE FROM" not in sql for sql in statements)
+        assert results == {}
+        if not available:
+            assert all("SELECT public." not in sql for sql in statements)
+
+
+def test_erasure_preflight_locks_owner_before_registry(monkeypatch):
+    service = AccountService()
+    conn = MagicMock()
+    observed = []
+    monkeypatch.setattr(
+        "hushh_mcp.services.account_service.AccountDeletionLifecycleService._lock_user_ids_in_transaction",
+        lambda _conn, *, user_ids: observed.append(("owner_locks", user_ids)),
+    )
+    monkeypatch.setattr(
+        service,
+        "_assert_personal_agent_external_resources_absent",
+        lambda _conn, *, params: observed.append(("registry", params["user_id"])),
+    )
+    with patch("hushh_mcp.services.account_service.get_db_connection", return_value=_db(conn)):
+        service.assert_personal_agent_external_resources_absent("owner-one")
+    assert observed == [("owner_locks", ("owner-one",)), ("registry", "owner-one")]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "outcome", ["complete", "pending", "exception", "already_complete", "database_failure"]
+)
+async def test_full_account_cleanup_attempt_is_bounded(monkeypatch, outcome):
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.account_service import PersonalAgentDeprovisioningRequiredError
+
+    service = AccountService()
+    blocked = {"success": False, "error_code": PERSONAL_AGENT_DEPROVISION_REQUIRED_CODE}
+    completed = {"success": True, "account_deleted": True}
+    first = (
+        completed
+        if outcome == "already_complete"
+        else {"success": False}
+        if outcome == "database_failure"
+        else blocked
+    )
+    transaction = AsyncMock(side_effect=[first, completed])
+    cleanup = AsyncMock()
+    if outcome == "pending":
+        cleanup.side_effect = PersonalAgentDeprovisioningRequiredError("pending")
+    elif outcome == "exception":
+        cleanup.side_effect = RuntimeError("synthetic failure")
+    monkeypatch.setattr(service, "_delete_full_account_transaction", transaction)
+    monkeypatch.setattr(
+        "hushh_mcp.services.personal_agent_provisioning_service.PersonalAgentProvisioningService",
+        lambda: SimpleNamespace(deprovision=cleanup),
+    )
+    result = await service._delete_full_account("owner-one", requested_target="investor")
+    if outcome in {"already_complete", "database_failure"}:
+        cleanup.assert_not_awaited()
+        assert result == first
+    else:
+        cleanup.assert_awaited_once_with(user_id="owner-one")
+        assert result == (completed if outcome == "complete" else blocked)
+    assert transaction.await_count == (2 if outcome == "complete" else 1)
+    for call in transaction.await_args_list:
+        assert call.args == ("owner-one",)
+        assert call.kwargs == {"requested_target": "investor"}

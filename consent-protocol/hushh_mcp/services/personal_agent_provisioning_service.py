@@ -2978,6 +2978,16 @@ class PersonalAgentProvisioningService:
                         await self._erase_reserved_repository_grant(user_id=user_id)
                         await self._retain_reserved_repository_inventory(user_id=user_id)
                     await self._erase_reserved_bootstrap_grants(user_id=user_id)
+                    # Phase returns alone are not completion evidence. Keep the
+                    # registry until the account transaction archives the proof.
+                    await asyncio.to_thread(
+                        AccountService().assert_personal_agent_external_resources_absent, user_id
+                    )
+                    return {
+                        "status": "unprovisioned",
+                        "noOp": False,
+                        "rowDeleteDeferred": True,
+                    }
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",
