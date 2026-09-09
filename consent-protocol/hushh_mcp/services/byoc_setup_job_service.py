@@ -41,6 +41,7 @@ flag promotes with it (scripts/deploy/backend-deploy.sh carries the note).
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -113,6 +114,23 @@ class ByocSetupJobRepo:
             self._db().table(_JOBS).update(row).eq("user_id", user_id).execute()
         else:
             self._db().table(_JOBS).insert(row).execute()
+
+    async def retain_authorization(
+        self, *, user_id: str, job_id: str, intent: dict, receipt: dict | None = None
+    ) -> bool:
+        """Retain admission/late acknowledgement without replacing setup history."""
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_byoc_authorization(:owner,:job,CAST(:intent AS jsonb),"
+            "CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "job": job_id,
+                "intent": json.dumps(intent),
+                "receipt": json.dumps(receipt) if receipt is not None else None,
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
 
     async def park_cloud(
         self,
@@ -311,6 +329,28 @@ async def run_setup_job(
             await jobs.advance(user_id=user_id, job_id=job_id, stage="applying_iam")
 
         loop = asyncio.get_running_loop()
+        intent = {
+            "ownerId": user_id,
+            "jobId": job_id,
+            "project": project,
+            "bootstrapEmail": bootstrap_sa,
+            "callerEmail": caller_sa,
+        }
+        if not await jobs.retain_authorization(user_id=user_id, job_id=job_id, intent=intent):
+            raise ByocAuthorizeError(
+                "Cloud authorization admission unavailable",
+                status_code=409,
+                code="AUTHORIZE_FAILED",
+            )
+        acknowledged = False
+
+        async def retain_authorized(receipt: dict) -> bool:
+            nonlocal acknowledged
+            acknowledged = await jobs.retain_authorization(
+                user_id=user_id, job_id=job_id, intent=intent, receipt=receipt
+            )
+            return acknowledged
+
         await asyncio.to_thread(
             apply_authorization,
             project=project,
@@ -320,7 +360,14 @@ async def run_setup_job(
             on_apis_enabled=lambda: asyncio.run_coroutine_threadsafe(
                 _mark_applying(), loop
             ).result(),
+            on_authorized=lambda receipt: asyncio.run_coroutine_threadsafe(
+                retain_authorized(receipt), loop
+            ).result(timeout=30),
         )
+        if not acknowledged:
+            raise ByocAuthorizeError(
+                "Cloud authorization receipt unavailable", status_code=502, code="AUTHORIZE_FAILED"
+            )
 
         await jobs.advance(user_id=user_id, job_id=job_id, stage="settling_grant")
         # Late-bound so tests (and future tuning) can shrink the window by

@@ -448,6 +448,116 @@ def claim_provision(pg, *, attempt="a" * 32, observed=None, owner="synthetic-own
     )[0][0]
 
 
+def test_setup_authorization_survives_retry_and_rejects_foreign_receipts(provision_pg):
+    pg = provision_pg
+    pg.apply_file(ROOT / "db/migrations/parked/909_byoc_setup_jobs.sql")
+    for path in sorted((ROOT / "db/migrations/parked").glob("*.sql")):
+        if 918 <= int(path.name.split("_", 1)[0]) <= 928:
+            pg.apply_file(path)
+    pg.apply_file(ROOT / "db/migrations/rollback/928_byoc_authorization_receipts.rollback.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/928_byoc_authorization_receipts.sql")
+    pg.execute(
+        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('synthetic-owner','first','synthetic-project')"
+    )
+    intent = {
+        "ownerId": "synthetic-owner",
+        "jobId": "first",
+        "project": "synthetic-project",
+        "bootstrapEmail": "one-bootstrap@synthetic-project.iam.gserviceaccount.com",
+        "callerEmail": "hub@synthetic-hub.iam.gserviceaccount.com",
+    }
+
+    def retain(receipt=None, owner="synthetic-owner"):
+        return pg.execute(
+            "SELECT retain_byoc_authorization(%s,'first',%s::jsonb,%s::jsonb)",
+            (owner, json.dumps(intent), json.dumps(receipt) if receipt is not None else None),
+        )[0][0]
+
+    with connect(pg) as admission, ThreadPoolExecutor(max_workers=1) as pool:
+        with admission.cursor() as cursor:
+            cursor.execute(
+                "SELECT retain_byoc_authorization('synthetic-owner','first',%s::jsonb)",
+                (json.dumps(intent),),
+            )
+            assert cursor.fetchone()[0]
+
+        def rollback_schema():
+            with connect(pg, application_name="synthetic-authorization-rollback") as conn:
+                with conn.cursor() as cursor:
+                    cursor.execute("SET statement_timeout='5s'")
+                    cursor.execute(
+                        (
+                            ROOT
+                            / "db/migrations/rollback/928_byoc_authorization_receipts.rollback.sql"
+                        ).read_text()
+                    )
+
+        rollback = pool.submit(rollback_schema)
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if pg.execute(
+                "SELECT count(*) FROM pg_stat_activity WHERE application_name='synthetic-authorization-rollback' AND wait_event_type='Lock'"
+            )[0][0]:
+                break
+            time.sleep(0.02)
+        else:
+            pytest.fail("rollback did not wait for authorization retention")
+        admission.commit()
+        with pytest.raises(psycopg2.errors.RaiseException, match="require preservation"):
+            rollback.result(timeout=5)
+    assert not retain()  # An admitted attempt cannot replay provider authorization.
+    pg.execute(
+        "UPDATE byoc_setup_jobs SET job_id='second',stages='[]',stage='starting' WHERE user_id='synthetic-owner'"
+    )
+    identity = {
+        "name": "projects/synthetic-project/serviceAccounts/" + intent["bootstrapEmail"],
+        "projectId": "synthetic-project",
+        "email": intent["bootstrapEmail"],
+        "uniqueId": "123456789012345678901",
+    }
+    receipt = {
+        "bootstrapIdentity": identity,
+        "bindingObservation": {
+            "step": "authorize_bootstrap_impersonation",
+            "policyResource": "https://iam.googleapis.com/v1/" + identity["name"] + ":getIamPolicy",
+            "role": "roles/iam.serviceAccountTokenCreator",
+            "member": "serviceAccount:" + intent["callerEmail"],
+            "disposition": "added",
+            "beforeEtag": "before",
+            "afterEtag": "after",
+        },
+    }
+    assert not retain(receipt, owner="foreign-owner")
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        retain({**receipt, "bootstrapIdentity": {**identity, "uniqueId": "invalid"}})
+    assert retain(receipt)  # Late acknowledgement remains bound to its original attempt.
+    assert retain(receipt)
+    for mutation in ("authorization_attempts='{}'", "user_id='foreign-owner'"):
+        with pytest.raises((psycopg2.errors.InsufficientPrivilege, psycopg2.errors.CheckViolation)):
+            pg.execute(
+                "UPDATE byoc_setup_jobs SET " + mutation + " WHERE user_id='synthetic-owner'"
+            )
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='synthetic-owner'")
+    pg.execute(
+        "UPDATE byoc_setup_jobs SET project_id='different-project',status='recorded' WHERE user_id='synthetic-owner'"
+    )
+    assert (
+        pg.execute("SELECT project_grant_release_is_exclusive('other-owner','synthetic-project')")[
+            0
+        ][0]
+        is False
+    )
+    assert (
+        pg.execute("SELECT project_grant_release_is_exclusive('other-owner','unrelated-project')")[
+            0
+        ][0]
+        is True
+    )
+    pg.execute("ALTER TABLE byoc_setup_jobs DISABLE TRIGGER zz_byoc_authorization_attempts")
+    assert not retain(receipt)
+
+
 @pytest.mark.parametrize(
     "invalid", [None, "owner", "attempt", "engine", "extra", "guard", "provenance"]
 )

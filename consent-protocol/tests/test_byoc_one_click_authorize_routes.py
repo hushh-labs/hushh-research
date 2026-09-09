@@ -64,6 +64,16 @@ class _FakeJobRepo:
         row = _FakeJobRepo.store.get(user_id)
         return dict(row) if row else None
 
+    async def retain_authorization(self, *, user_id, job_id, intent, receipt=None):
+        row = _FakeJobRepo.store.get(user_id)
+        if not row or row["job_id"] != job_id:
+            return False
+        row.setdefault("authorization_attempts", {})[job_id] = {
+            "intent": intent,
+            "receipt": receipt,
+        }
+        return True
+
     async def advance(self, *, user_id, job_id, stage):
         from hushh_mcp.services.byoc_setup_job_service import JobSuperseded
 
@@ -127,6 +137,7 @@ def _patch_chain(monkeypatch, oauth, calls, *, billing=None):
         on_apis_enabled = kw.get("on_apis_enabled")
         if on_apis_enabled is not None:
             on_apis_enabled()
+        kw["on_authorized"]({"synthetic": "provider receipt tested separately"})
         return {}
 
     monkeypatch.setattr(oauth, "apply_authorization", _authorize)
@@ -199,6 +210,29 @@ async def test_a_typed_refusal_lands_on_the_record_not_a_500(monkeypatch):
     assert row["status"] == "failed"
     assert row["error_code"] == "NEEDS_BILLING"
     assert row["error_message"] == "no billing"
+    assert "save" not in calls
+
+
+@pytest.mark.parametrize("refuse_receipt", [False, True])
+async def test_authorization_retention_refusal_stops_setup(monkeypatch, refuse_receipt):
+    from hushh_mcp.services import byoc_oauth_authorizer as oauth
+
+    calls = []
+    _patch_chain(monkeypatch, oauth, calls)
+
+    async def refuse(self, *, receipt=None, **kwargs):
+        return refuse_receipt and receipt is None
+
+    monkeypatch.setattr(_FakeJobRepo, "retain_authorization", refuse)
+    await runtime_route.complete_byoc_authorize(
+        request=None,
+        body=runtime_route.ByocAuthorizeCompleteRequest(code="c", state="s"),
+        firebase_uid="u1",
+    )
+    row = await _wait_terminal("u1")
+    assert row["status"] == "failed"
+    assert row["error_code"] == "AUTHORIZE_FAILED"
+    assert ("authorize" in calls) is refuse_receipt
     assert "save" not in calls
 
 
