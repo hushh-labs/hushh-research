@@ -28,7 +28,9 @@ describe("RIA shared header regression contract", () => {
   });
 
   it("keeps the consent workspace on the shared page header", () => {
-    const consentCenterPage = read("components/consent/consent-center-page.tsx");
+    const consentCenterPage = read(
+      "components/consent/consent-center-page.tsx",
+    );
 
     expect(consentCenterPage).toContain("AppPageShell");
     expect(consentCenterPage).toContain("SettingsDetailPanel");
@@ -45,7 +47,7 @@ describe("RIA shared header regression contract", () => {
     expect(globals).toContain("--ria-selected-tint: var(--app-accent-surface)");
   });
 
-  it("gives RiaPageShell an \"agent\"-width default, not the wider \"standard\"", () => {
+  it('gives RiaPageShell an "agent"-width default, not the wider "standard"', () => {
     // The one place this now needs to be right: every caller that does not
     // pass its own `width` -- Profile, the client account/request detail
     // pages, RiaClientWorkspace, and the Marketplace RIA public profile --
@@ -64,7 +66,7 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).toContain("SurfaceCard");
     expect(riaPicks).toContain('tableClassName="w-full min-w-[640px]"');
     expect(riaPicks).toContain('tableClassName="w-full min-w-[700px]"');
-    expect(riaPicks).toContain("density=\"compact\"");
+    expect(riaPicks).toContain('density="compact"');
     expect(riaPicks).toContain("stickyHeader");
   });
 
@@ -83,11 +85,29 @@ describe("RIA shared header regression contract", () => {
     expect(riaPicks).not.toContain('width="standard"');
     expect(riaClients).not.toContain('width="expanded"');
     expect(riaPicks).not.toContain('width="expanded"');
-    expect(riaClients).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
-    expect(riaPicks).toContain('<AppPageHeaderRegion className="pt-2 sm:pt-3">');
+    expect(riaClients).toContain(
+      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
+    );
+    expect(riaPicks).toContain(
+      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
+    );
     expect(riaClients).toContain("<SurfaceStack");
     expect(riaClients).toContain('className="gap-8"');
     expect(riaPicks).toContain("<SurfaceStack");
     expect(riaPicks).toContain('className="gap-6"');
+  });
+
+  it("omits the redundant RIA eyebrow from the Profile page header only", () => {
+    const riaProfile = read("app/ria/profile/page.tsx");
+    const riaClients = read("app/ria/clients/page.tsx");
+    const riaPicks = read("app/ria/picks/page.tsx");
+
+    expect(riaProfile).toContain('title="Profile"');
+    expect(riaProfile).toContain(
+      'description="Manage your advisor profile and verification details."',
+    );
+    expect(riaProfile).not.toContain('eyebrow="RIA"');
+    expect(riaClients).toContain("eyebrow={RIA_COPY.clients.eyebrow}");
+    expect(riaPicks).toContain("eyebrow={RIA_COPY.picks.eyebrow}");
   });
 });
