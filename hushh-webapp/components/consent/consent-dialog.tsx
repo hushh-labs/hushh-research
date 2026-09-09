@@ -22,7 +22,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/lib/morphy-ux/morphy";
-import { Shield, CheckCircle, XCircle, Clock, Lock } from "lucide-react";
+import { Shield, CheckCircle, Clock, Lock } from "lucide-react";
 import { HushhLoader } from "@/components/app-ui/hushh-loader";
 import { Icon } from "@/lib/morphy-ux/ui";
 
@@ -130,12 +130,12 @@ export function ConsentDialog({
         <DialogHeader>
           <div className="flex items-center gap-3 mb-2">
             <div className="h-12 w-12 rounded-full bg-linear-to-br from-[var(--morphy-primary-start)] to-[var(--morphy-primary-end)] flex items-center justify-center text-2xl shadow-lg">
-              {request.agentIcon || "🤖"}
+              {request.agentIcon || "🤫"}
             </div>
             <div>
               <DialogTitle className="text-lg">{request.agentName}</DialogTitle>
               <DialogDescription className="text-sm">
-                is requesting permission
+                wants your go-ahead
               </DialogDescription>
             </div>
           </div>
@@ -179,7 +179,7 @@ export function ConsentDialog({
           {request.dataFields && request.dataFields.length > 0 && (
             <div className="space-y-2">
               <p className="text-sm font-medium text-muted-foreground">
-                This will include:
+                {request.agentName} will be able to see:
               </p>
               <ul className="text-sm space-y-1">
                 {request.dataFields.map((field, i) => (
@@ -195,15 +195,21 @@ export function ConsentDialog({
           {/* Expiry Info */}
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Icon icon={Clock} size="sm" />
-            <span>Permission expires in {request.expiresInDays || 7} days</span>
+            <span>
+              Ends on its own in {request.expiresInDays || 7} days. You can undo it anytime.
+            </span>
           </div>
         </div>
 
         {/* Security Note */}
         <div className="text-xs text-muted-foreground bg-gray-50 dark:bg-gray-900 p-3 rounded-lg">
-          🔐 Your information will be encrypted end-to-end. Only you can decrypt it.
+          🔐 Encrypted end-to-end. Only you can open it.
         </div>
 
+        {/* Decline is a first-class, equal-weight, non-punitive choice: "Not now"
+            keeps the door open and never reads as an error. Allow carries the
+            accent only because it is the affirmative action, not because decline
+            is discouraged. */}
         <DialogFooter className="flex gap-2 sm:gap-2">
           <Button
             variant="none"
@@ -211,8 +217,7 @@ export function ConsentDialog({
             disabled={isGranting || loading}
             className="flex-1"
           >
-            <Icon icon={XCircle} size="sm" className="mr-2" />
-            Deny
+            Not now
           </Button>
           <Button
             onClick={handleGrant}
@@ -222,7 +227,7 @@ export function ConsentDialog({
             {isGranting ? (
               <>
               <HushhLoader variant="compact" className="mr-2 text-white" />
-                Granting...
+                One moment…
               </>
             ) : (
               <>
@@ -242,13 +247,63 @@ export function ConsentDialog({
 // ============================================================================
 
 import { useCallback } from "react";
+import { createRoot } from "react-dom/client";
 
 export interface UseConsentReturn {
   requestConsent: (request: ConsentRequest) => Promise<boolean>;
 }
 
 /**
- * Hook to request consent in components
+ * Imperatively present the branded consent moment and resolve with the user's
+ * decision. This replaces the previous `window.confirm()` stub so every caller
+ * gets the designed dialog — the consent-first promise must never degrade to a
+ * raw OS prompt. Renders into a detached container so no provider wiring or
+ * layout change is required at the call site.
+ */
+export function showConsentDialog(request: ConsentRequest): Promise<boolean> {
+  if (typeof document === "undefined") return Promise.resolve(false);
+
+  return new Promise<boolean>((resolve) => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    let settled = false;
+
+    const settle = (result: boolean) => {
+      if (settled) return;
+      settled = true;
+      resolve(result);
+      // Let the dialog's close animation finish before unmounting.
+      setTimeout(() => {
+        root.unmount();
+        container.remove();
+      }, 200);
+    };
+
+    function ConsentHost() {
+      const [open, setOpen] = useState(true);
+      return (
+        <ConsentDialog
+          open={open}
+          request={request}
+          onGrant={async () => {
+            setOpen(false);
+            settle(true);
+          }}
+          onDeny={() => {
+            setOpen(false);
+            settle(false);
+          }}
+        />
+      );
+    }
+
+    root.render(<ConsentHost />);
+  });
+}
+
+/**
+ * Hook to request consent in components.
  *
  * Usage:
  * const { requestConsent } = useConsent();
@@ -261,13 +316,7 @@ export interface UseConsentReturn {
  */
 export function useConsent(): UseConsentReturn {
   const requestConsent = useCallback(
-    async (request: ConsentRequest): Promise<boolean> => {
-      // This would integrate with a global consent manager
-      // For now, we'll use a simple confirm (to be replaced with dialog)
-      return window.confirm(
-        `${request.agentName} wants to: ${request.scopeDescription}\n\nAllow?`
-      );
-    },
+    (request: ConsentRequest): Promise<boolean> => showConsentDialog(request),
     []
   );
 

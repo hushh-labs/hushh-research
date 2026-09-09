@@ -28,6 +28,18 @@ describe("One Voice Login onboarding contracts", () => {
     expect([...actions.keys()]).toEqual([
       "auth.sign_in_google",
       "auth.sign_in_apple",
+      // Enterprise / government IdPs are declared statically (the registry is
+      // static); only the ones enabled for the environment are ever mounted.
+      "auth.sign_in_sso_microsoft",
+      "auth.sign_in_sso_okta",
+      "auth.sign_in_sso_google_workspace",
+      "auth.sign_in_sso_ping",
+      "auth.sign_in_sso_onelogin",
+      "auth.sign_in_sso_duo",
+      "auth.sign_in_sso_salesforce",
+      "auth.sign_in_sso_amazon",
+      "auth.sign_in_sso_login_gov",
+      "auth.sign_in_sso_idme",
       "auth.open_terms",
       "auth.open_privacy",
       "auth.close_legal",

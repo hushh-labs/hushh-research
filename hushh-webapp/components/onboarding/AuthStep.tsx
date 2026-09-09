@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { ArrowLeft, Shield } from "lucide-react";
+import { ArrowLeft, Building2, Shield } from "lucide-react";
 import { AuthService } from "@/lib/services/auth-service";
 import { ApiService } from "@/lib/services/api-service";
 import { useAuth } from "@/lib/firebase/auth-context";
@@ -34,6 +34,7 @@ import {
 } from "@/lib/navigation/routes";
 import { type KaiLegalDocumentType } from "@/lib/legal/kai-legal-content";
 import { trackEvent } from "@/lib/observability/client";
+import { type AuthMethod } from "@/lib/observability/events";
 import {
   resolveGrowthEntrySurface,
   resolveGrowthJourneyForPath,
@@ -44,6 +45,11 @@ import {
   useNativeTestConfig,
 } from "@/lib/testing/native-test";
 import { resolveLocalReviewerCredentials } from "@/lib/testing/local-reviewer-auth";
+import {
+  SSO_PROVIDER_BY_ID,
+  enabledEnterpriseProviders,
+  type SsoProvider,
+} from "@/lib/auth/sso-providers";
 
 // Firebase error codes that mean the user deliberately dismissed the provider
 // popup. These are not real failures, so we stay silent for them and only toast
@@ -66,7 +72,18 @@ const GOOGLE_BTN_CLASS =
 const REVIEWER_BTN_CLASS =
   "!bg-transparent !text-[#6b6b70] border border-black/10 shadow-none hover:!bg-black/[0.03] dark:!text-white/60 dark:border-white/15 dark:hover:!bg-white/[0.05]";
 
-type AuthProviderId = "google" | "apple";
+/**
+ * "google" and "apple" use the native/platform sign-in paths. Every other id is
+ * an enterprise or government IdP federated through Identity Platform, and its
+ * shape follows Firebase's conventions (built-in social are bare, OIDC are
+ * "oidc.*", SAML are "saml.*") — see lib/auth/sso-providers.ts.
+ */
+type AuthProviderId =
+  | "google"
+  | "apple"
+  | "microsoft.com"
+  | `oidc.${string}`
+  | `saml.${string}`;
 type ProviderAttemptPhase =
   "launching" | "provider_open" | "attention_required" | "settling";
 type ProviderAttempt = {
@@ -78,6 +95,65 @@ type ProviderAttempt = {
   phase: ProviderAttemptPhase;
   startedAt: number;
 };
+
+/**
+ * Human name for a provider, used in status and error copy. Enterprise ids
+ * resolve to their registry label ("Okta"), so a person is never told that
+ * "Google sign-in was cancelled" after tapping Okta.
+ */
+function authProviderLabel(provider: AuthProviderId): string {
+  if (provider === "apple") return "Apple";
+  if (provider === "google") return "Google";
+  return SSO_PROVIDER_BY_ID[provider]?.label ?? "Enterprise";
+}
+
+/**
+ * Stable slug for an enterprise provider id, matching the governed action and
+ * control ids in app/login/page.voice-action-contract.json
+ * ("oidc.login-gov" -> "login_gov" -> auth.sign_in_sso_login_gov).
+ */
+function ssoSlug(providerId: string): string {
+  const base = providerId.startsWith("oidc.")
+    ? providerId.slice("oidc.".length)
+    : (providerId.split(".")[0] ?? providerId);
+  return base.replace(/-/g, "_");
+}
+
+/**
+ * Analytics identity for a provider. Enterprise/government IdPs all report as
+ * "sso" so the event enum stays low-cardinality as providers are enabled.
+ */
+function authMethodFor(provider: AuthProviderId): AuthMethod {
+  return provider === "google" || provider === "apple" ? provider : "sso";
+}
+
+/**
+ * Registers the governed voice handler for one enterprise provider.
+ *
+ * A component rather than a loop because `useLocalOnboardingActionHandler` is a
+ * hook: rendering one instance per enabled provider keeps hook order stable
+ * inside each instance, which calling it in a map would not.
+ */
+function SsoVoiceActionHandler({
+  provider,
+  onLogin,
+}: {
+  provider: SsoProvider;
+  onLogin: (
+    providerId: AuthProviderId,
+    context: { initiator: "tap" | "voice_confirmation"; directiveId?: string | null },
+  ) => Promise<unknown>;
+}) {
+  useLocalOnboardingActionHandler(
+    `auth.sign_in_sso_${ssoSlug(provider.id)}`,
+    (_slots, context) =>
+      onLogin(provider.id as AuthProviderId, {
+        initiator: "voice_confirmation",
+        directiveId: context?.directiveId ?? null,
+      }) as never,
+  );
+  return null;
+}
 
 function isAuthCancel(error: unknown): boolean {
   const code =
@@ -239,7 +315,7 @@ export function AuthStep({
         updateProviderAttemptPhase(active.id, "attention_required");
         attentionResolversRef.current.get(active.id)?.({
           status: "started",
-          summary: `${active.provider === "apple" ? "Apple" : "Google"} sign-in still needs attention. You can retry securely.`,
+          summary: `${authProviderLabel(active.provider)} sign-in still needs attention. You can retry securely.`,
         });
         attentionResolversRef.current.delete(active.id);
       }, 750);
@@ -667,14 +743,16 @@ export function AuthStep({
         startedAt: Date.now(),
       };
       publishProviderAttempt(attempt);
-      trackEvent("auth_started", { action: provider });
+      trackEvent("auth_started", { action: authMethodFor(provider) });
 
       // This call must remain before any await/timer. The direct button and
       // provider-specific Agent Bar action both enter here with a trusted tap.
       const providerPromise =
         provider === "google"
           ? AuthService.signInWithGoogle()
-          : AuthService.signInWithApple();
+          : provider === "apple"
+            ? AuthService.signInWithApple()
+            : AuthService.signInWithSso(provider);
       updateProviderAttemptPhase(attempt.id, "provider_open");
 
       const attentionPromise = new Promise<{
@@ -696,7 +774,7 @@ export function AuthStep({
           const authenticatedUser = authResult.user;
           if (!authenticatedUser) {
             trackEvent("auth_failed", {
-              action: provider,
+              action: authMethodFor(provider),
               result: "error",
               error_class: "missing_user",
             });
@@ -706,7 +784,7 @@ export function AuthStep({
             );
             return {
               status: "failed" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} did not return a user session.`,
+              summary: `${authProviderLabel(provider)} did not return a user session.`,
             };
           }
           const settlementId = beginPostAuthSettlement(authenticatedUser);
@@ -720,7 +798,7 @@ export function AuthStep({
               };
             }
             trackEvent("auth_succeeded", {
-              action: provider,
+              action: authMethodFor(provider),
               result: "success",
             });
             // Welcome on the first sign-in, welcome back afterwards. The server
@@ -732,7 +810,7 @@ export function AuthStep({
                 journey: growthJourney,
                 step: "auth_completed",
                 entrySurface: growthEntrySurface,
-                authMethod: provider,
+                authMethod: authMethodFor(provider),
                 dedupeKey: `growth:${growthJourney}:auth_completed:${provider}`,
                 dedupeWindowMs: 5_000,
               });
@@ -745,7 +823,7 @@ export function AuthStep({
             );
             return {
               status: "succeeded" as const,
-              summary: `${provider === "apple" ? "Apple" : "Google"} sign-in completed.`,
+              summary: `${authProviderLabel(provider)} sign-in completed.`,
               routeAfter,
             };
           } finally {
@@ -764,7 +842,7 @@ export function AuthStep({
             debugError(`[AuthStep] ${provider} login failed`, error);
           }
           trackEvent("auth_failed", {
-            action: provider,
+            action: authMethodFor(provider),
             result: "error",
             error_class:
               error && typeof error === "object" && "code" in error
@@ -773,14 +851,14 @@ export function AuthStep({
           });
           if (!cancelled) {
             morphyToast.error(
-              `Could not sign in with ${provider === "apple" ? "Apple" : "Google"}.`,
+              `Could not sign in with ${authProviderLabel(provider)}.`,
               { description: authErrorMessage(error) },
             );
           }
           return {
             status: cancelled ? ("blocked" as const) : ("failed" as const),
             summary: cancelled
-              ? `${provider === "apple" ? "Apple" : "Google"} sign-in was cancelled.`
+              ? `${authProviderLabel(provider)} sign-in was cancelled.`
               : authErrorMessage(error),
           };
         })
@@ -1024,6 +1102,12 @@ export function AuthStep({
   // sign-in choice. Keeping this control behind the explicit test bridge
   // prevents local/UAT configuration from leaking a fixture account into the
   // product UI while preserving the native runner's observable test mode.
+  // Enterprise / government IdPs, shown only when actually enabled for this
+  // environment so a person never taps a button that dead-ends in
+  // "ask your admin". Rendered under the social providers because most people
+  // arriving here are consumers; those who work somewhere find their own IdP.
+  const enterpriseProviders = enabledEnterpriseProviders();
+
   const showReviewer = nativeTestConfig.enabled && nativeReviewerVisible;
 
   return (
@@ -1151,6 +1235,30 @@ export function AuthStep({
                   className={cn(
                     option.id === "apple" ? APPLE_BTN_CLASS : GOOGLE_BTN_CLASS,
                   )}
+                />
+              ))}
+
+              {enterpriseProviders.map((provider) => (
+                <SsoVoiceActionHandler
+                  key={`voice_${provider.id}`}
+                  provider={provider}
+                  onLogin={handleProviderLogin}
+                />
+              ))}
+
+              {enterpriseProviders.map((provider) => (
+                <AuthProviderButton
+                  key={provider.id}
+                  label={`Continue with ${provider.label}`}
+                  icon={<Icon icon={Building2} size="md" />}
+                  onClick={() => {
+                    void handleProviderLogin(provider.id as AuthProviderId, {
+                      initiator: "tap",
+                    });
+                  }}
+                  disabled={providerBusy}
+                  voiceControlId={`auth_sso_${ssoSlug(provider.id)}`}
+                  className={GOOGLE_BTN_CLASS}
                 />
               ))}
 

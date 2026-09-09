@@ -16,11 +16,13 @@ import { PHONE_CONFLICT_COPY } from "@/lib/mail/account-activity-copy";
 import { getApps, initializeApp } from "firebase/app";
 import {
   type ApplicationVerifier,
+  type AuthProvider,
   type ConfirmationResult,
   GoogleAuthProvider,
   getAuth,
   inMemoryPersistence,
   OAuthProvider,
+  SAMLAuthProvider,
   PhoneAuthProvider,
   linkWithCredential,
   setPersistence,
@@ -33,6 +35,7 @@ import {
   onAuthStateChanged,
 } from "firebase/auth";
 import { app, auth } from "@/lib/firebase/config";
+import { isSamlProviderId } from "@/lib/auth/sso-providers";
 import {
   FirebaseAuthentication,
   ProviderId,
@@ -806,6 +809,85 @@ export class AuthService {
     } catch (error) {
       if (!this.isExpectedPopupClose(error)) {
         this.debugError("❌ [AuthService] Web sign-in failed", error);
+      }
+      throw error;
+    }
+  }
+
+  // ==================== Enterprise / Government SSO ====================
+
+  /**
+   * Build the Firebase provider for an SSO id.
+   *
+   * Google is a built-in OAuth provider. SAML IdPs (id "saml.*") federate via
+   * SAMLAuthProvider. Everything else — Microsoft (built-in), Okta, Google
+   * Workspace, Ping, OneLogin, Duo, Salesforce, Amazon, Login.gov, ID.me —
+   * comes through as an OIDC/OAuth provider by its configured id.
+   *
+   * Provider ids MUST match the Identity Platform console exactly
+   * (see lib/auth/sso-providers.ts).
+   */
+  private static createSsoProvider(
+    providerId: string,
+    customParameters?: Record<string, string>,
+  ): AuthProvider {
+    if (providerId === "google.com") {
+      return this.createWebProvider("google");
+    }
+    if (isSamlProviderId(providerId)) {
+      return new SAMLAuthProvider(providerId);
+    }
+    const provider = new OAuthProvider(providerId);
+    try {
+      provider.addScope("email");
+    } catch {
+      /* provider may not support scopes */
+    }
+    // Per-tenant routing for brokered providers: the organisation must travel
+    // with the authorize request or the person lands on a generic picker
+    // instead of their own company's login screen.
+    if (customParameters && Object.keys(customParameters).length > 0) {
+      try {
+        provider.setCustomParameters(customParameters);
+      } catch {
+        /* provider may not support custom parameters */
+      }
+    }
+    return provider;
+  }
+
+  /**
+   * Sign in with an enterprise or government identity provider.
+   *
+   * Lets a person claim their Agent One on day 0 with the identity they already
+   * carry at work or with the government, instead of creating yet another
+   * account. If the provider is not enabled in the Identity Platform project
+   * yet, Firebase throws and we surface a message a human can act on rather
+   * than a raw Firebase error code.
+   */
+  static async signInWithSso(
+    providerId: string,
+    customParameters?: Record<string, string>,
+  ): Promise<AuthResult> {
+    this.debugLog(`🏢 [AuthService] Starting SSO sign-in (${providerId})`);
+
+    try {
+      const provider = this.createSsoProvider(providerId, customParameters);
+      const result = await signInWithPopup(auth, provider);
+      const idToken = await result.user.getIdToken();
+
+      this.debugLog("✅ [AuthService] SSO sign-in complete");
+
+      return { user: result.user, idToken };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/operation-not-allowed|configuration-not-found|invalid-provider/i.test(message)) {
+        throw new Error(
+          "That sign-in isn't enabled for Hussh yet — ask your admin to turn it on.",
+        );
+      }
+      if (!this.isExpectedPopupClose(error)) {
+        this.debugError("❌ [AuthService] SSO sign-in failed", error);
       }
       throw error;
     }

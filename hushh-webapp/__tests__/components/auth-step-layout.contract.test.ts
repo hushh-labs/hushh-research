@@ -89,3 +89,37 @@ describe("AuthStep layout contract", () => {
     expect(source).not.toContain("min-h-[100dvh]");
   });
 });
+
+describe("AuthStep enterprise SSO contract", () => {
+  const source = () =>
+    readFileSync(
+      join(process.cwd(), "components/onboarding/AuthStep.tsx"),
+      "utf8",
+    );
+
+  it("routes non-social providers through the SSO sign-in path", () => {
+    // google/apple keep their platform paths; everything else federates.
+    expect(source()).toContain("AuthService.signInWithSso(provider)");
+  });
+
+  it("only offers enterprise providers that are enabled for this environment", () => {
+    // Guards against rendering a button that dead-ends in "ask your admin".
+    expect(source()).toContain("enabledEnterpriseProviders()");
+  });
+
+  it("names the provider a person actually tapped in status and error copy", () => {
+    const text = source();
+    expect(text).toContain("authProviderLabel(");
+    // The old ternary would have called Okta "Google".
+    expect(text).not.toContain('? "Apple" : "Google"');
+  });
+
+  it("gives every enterprise button a governed voice control id", () => {
+    // Must match app/login/page.voice-action-contract.json (auth_sso_<slug>).
+    expect(source()).toContain("`auth_sso_${ssoSlug(provider.id)}`");
+  });
+
+  it("reports enterprise sign-in as a single low-cardinality analytics method", () => {
+    expect(source()).toContain("authMethodFor(provider)");
+  });
+});
