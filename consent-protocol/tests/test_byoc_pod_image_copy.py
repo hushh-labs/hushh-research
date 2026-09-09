@@ -373,3 +373,89 @@ def test_multiarch_copy_verifies_child_before_publishing_index(corrupt_child):
         pod_image_copy.copy_image(SOURCE, f"{DEST}@{index_digest}", "tok", session)
         writes = [url.rsplit("/", 1)[-1] for method, url in session.calls if method == "PUT"]
         assert writes == [child_digest, index_digest]
+
+
+@pytest.mark.parametrize(
+    "case",
+    [
+        "success",
+        "denied",
+        "replaced",
+        "repeated",
+        "foreign",
+        "duplicate",
+        "malformed",
+        "error_envelope",
+    ],
+)
+def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(case):
+    identity = {
+        "name": f"projects/{USER_PROJECT}/locations/{REGION}/repositories/one-pod",
+        "format": "DOCKER",
+        "createTime": "2026-09-08T00:00:00Z",
+    }
+    image = {
+        "name": identity["name"] + "/dockerImages/consent-protocol-pod@" + DIGEST,
+        "uri": DEST + "@" + DIGEST,
+        "tags": ["not-retained"],
+    }
+    calls = []
+    identity_reads = 0
+
+    class Session:
+        def get(self, url, **kwargs):
+            nonlocal identity_reads
+            calls.append((url, kwargs))
+            assert kwargs["allow_redirects"] is False
+            if not url.endswith("/dockerImages"):
+                identity_reads += 1
+                return _Resp(
+                    200,
+                    json_body={
+                        **identity,
+                        "createTime": "2026-09-09T00:00:00Z"
+                        if case == "replaced" and identity_reads == 2
+                        else identity["createTime"],
+                    },
+                )
+            if case == "denied":
+                return _Resp(403)
+            if case == "error_envelope":
+                return _Resp(200, json_body={"error": {"message": "synthetic"}})
+            if not kwargs["params"]["pageToken"]:
+                return _Resp(200, json_body={"dockerImages": [], "nextPageToken": "next"})
+            entry = {**image, "uri": "foreign@" + DIGEST} if case == "foreign" else image
+            return _Resp(
+                200,
+                json_body={
+                    "dockerImages": None
+                    if case == "malformed"
+                    else [entry, entry]
+                    if case == "duplicate"
+                    else [entry],
+                    "nextPageToken": "next" if case == "repeated" else "",
+                },
+            )
+
+    def observe():
+        return pod_image_copy.observe_repository_images(
+            project=USER_PROJECT,
+            region=REGION,
+            expected_identity=identity,
+            token="synthetic",  # noqa: S106 -- scripted session, no usable credential
+            session=Session(),
+        )
+
+    if case == "success":
+        result = observe()
+        assert result["classification"] == "unresolved"
+        assert result["paginationComplete"] is True
+        assert result["images"] == [{key: image[key] for key in ("name", "uri")}]
+        assert identity_reads == 2
+    else:
+        with pytest.raises(pod_image_copy.ImageCopyError):
+            observe()
+    assert all(
+        url.startswith("https://artifactregistry.googleapis.com/v1/" + identity["name"])
+        for url, _ in calls
+    )

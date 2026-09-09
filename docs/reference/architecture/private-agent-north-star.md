@@ -514,6 +514,19 @@ as successful erasure. Verify no resurrection through replay, restore or regener
 before claiming the lifecycle complete. Substrate cleanup rejects malformed inventory
 before any deletion; silently dropping an entry cannot count as complete cleanup.
 
+
+The existing read-only reconciler can enumerate a captured `one-pod` repository:
+from `consent-protocol/`, run `PYTHONPATH=. uv run python scripts/ops/pod_reconcile.py
+--project <project> --region <region> --repository-created-at <retained-createTime>`
+as one command. It uses the existing operator credential loader, checks the repository
+incarnation before and after bounded pagination, and emits image names/URIs without tags.
+Access failures, malformed responses, duplicate entries and repeated page tokens refuse
+rather than report an empty inventory. Every successful observation remains `unresolved`:
+it is not an atomic snapshot, an inventory of incomplete uploads, ownership evidence,
+or permission to delete shared storage. Durable classification in the existing erasure
+reservation is still required before bootstrap release. The enumeration follows the
+[Artifact Registry Docker image list contract](https://docs.cloud.google.com/artifact-registry/docs/reference/rest/v1/projects.locations.repositories.dockerImages/list).
+
 ## What this changes about the work
 
 1. **Pod-native persistent memory is on the critical path**, not deferred. An agent that

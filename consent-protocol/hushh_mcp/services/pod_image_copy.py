@@ -25,7 +25,7 @@ import hashlib
 import json
 import re
 from typing import Any, Optional
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import unquote, urljoin, urlsplit, urlunsplit
 
 _METADATA_IDENTITY = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default"
@@ -412,10 +412,94 @@ def copy_image(source_ref: str, dest_ref: str, token: str, session: Any = None) 
         _copy_single_manifest(src, dst, d_ref, token, session)
 
 
+def observe_repository_images(
+    *, project: str, region: str, expected_identity: dict[str, str], token: str, session: Any
+) -> dict[str, Any]:
+    """Read a captured repository incarnation without granting cleanup authority.
+
+    Pagination is bounded and complete or raises. Repository identity is checked
+    on both sides of listing. This is not an atomic image snapshot, an ownership
+    claim, or an inventory of incomplete uploads/unreferenced blobs.
+    """
+    from hushh_mcp.services.byoc_substrate import _artifact_repository_creation_identity
+
+    if not re.fullmatch(r"[a-z][a-z0-9-]{4,28}[a-z0-9]", project) or not re.fullmatch(
+        r"[a-z][a-z0-9-]{0,62}", region
+    ):
+        raise ImageCopyError("repository scope invalid")
+    name = f"projects/{project}/locations/{region}/repositories/one-pod"
+    identity = _artifact_repository_creation_identity(expected_identity, name)
+    if identity is None or identity != expected_identity:
+        raise ImageCopyError("repository identity required")
+    base = f"https://artifactregistry.googleapis.com/v1/{name}"
+
+    def read(url: str, params: dict | None = None) -> dict:
+        response = session.get(
+            url, headers=_headers(token), params=params, timeout=30, allow_redirects=False
+        )
+        if response.status_code != 200:
+            raise ImageCopyError("repository inventory unavailable")
+        body = response.json()
+        if not isinstance(body, dict) or "error" in body:
+            raise ImageCopyError("repository inventory malformed")
+        return body
+
+    def verify_identity() -> None:
+        if _artifact_repository_creation_identity(read(base), name) != identity:
+            raise ImageCopyError("repository incarnation changed")
+
+    verify_identity()
+    images: dict[str, dict[str, str]] = {}
+    seen_tokens: set[str] = set()
+    page_token = ""
+    uri_prefix = f"{region}-docker.pkg.dev/{project}/one-pod/"
+    for _ in range(100):
+        page = read(f"{base}/dockerImages", {"pageSize": 100, "pageToken": page_token})
+        entries = page.get("dockerImages", [])
+        if not isinstance(entries, list):
+            raise ImageCopyError("repository image list malformed")
+        for entry in entries:
+            image_name = entry.get("name") if isinstance(entry, dict) else None
+            uri = entry.get("uri") if isinstance(entry, dict) else None
+            if (
+                not isinstance(image_name, str)
+                or not isinstance(uri, str)
+                or len(image_name) > 2048
+                or len(uri) > 2048
+                or not image_name.startswith(name + "/dockerImages/")
+                or not uri.startswith(uri_prefix)
+                or unquote(image_name.removeprefix(name + "/dockerImages/"))
+                != uri.removeprefix(uri_prefix)
+                or not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", uri.removeprefix(uri_prefix))
+                or image_name in images
+            ):
+                raise ImageCopyError("repository image identity unresolved")
+            images[image_name] = {"name": image_name, "uri": uri}
+            if len(images) > 10000:
+                raise ImageCopyError("repository inventory limit exceeded")
+        next_token = page.get("nextPageToken", "")
+        if not isinstance(next_token, str) or len(next_token) > 8192:
+            raise ImageCopyError("repository pagination malformed")
+        if not next_token:
+            verify_identity()
+            return {
+                "repositoryIdentity": identity,
+                "images": [images[key] for key in sorted(images)],
+                "paginationComplete": True,
+                "classification": "unresolved",
+            }
+        if next_token in seen_tokens:
+            raise ImageCopyError("repository pagination repeated")
+        seen_tokens.add(next_token)
+        page_token = next_token
+    raise ImageCopyError("repository inventory limit exceeded")
+
+
 __all__ = [
     "ImageCopyError",
     "attached_identity",
     "copy_image",
     "image_exists",
+    "observe_repository_images",
     "resolve_source_digest",
 ]

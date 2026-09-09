@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 
 from hushh_mcp.services.pod_reconcile import classify_fleet_registry_mismatch
 
@@ -44,7 +45,38 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Fleet-first orphan reconciliation (report only).")
     ap.add_argument("--project", default="hushh-pda-dev")
     ap.add_argument("--region", default="us-central1")
+    ap.add_argument(
+        "--repository-created-at",
+        help="read-only one-pod image inventory; require the retained repository creation timestamp",
+    )
     args = ap.parse_args()
+    if args.repository_created_at:
+        import requests
+        from google.auth.transport.requests import Request
+
+        from hushh_mcp.services.gcp_run_client import load_operator_credentials
+        from hushh_mcp.services.pod_image_copy import observe_repository_images
+
+        try:
+            credentials = load_operator_credentials()
+            credentials.refresh(Request())
+            with requests.Session() as session:
+                result = observe_repository_images(
+                    project=args.project,
+                    region=args.region,
+                    expected_identity={
+                        "name": f"projects/{args.project}/locations/{args.region}/repositories/one-pod",
+                        "format": "DOCKER",
+                        "createTime": args.repository_created_at,
+                    },
+                    token=credentials.token,
+                    session=session,
+                )
+            print(json.dumps(result, sort_keys=True))
+            return 0
+        except Exception as exc:
+            print(json.dumps({"classification": "unresolved", "error_type": type(exc).__name__}))
+            return 77
 
     names = _fleet_service_names(args.project, args.region)
     rows = asyncio.run(_registry_rows())
