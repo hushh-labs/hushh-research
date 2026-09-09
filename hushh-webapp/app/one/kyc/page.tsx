@@ -40,7 +40,6 @@ import { AsyncActionStatus } from "@/components/system/async-action-status";
 import { CapabilityExploreCard } from "@/components/onboarding/setup/capability-explore-card";
 import { PkmSectionPreview } from "@/components/profile/pkm-section-preview";
 import { KycIdentityPreface } from "@/components/onboarding/setup/kyc-identity-preface";
-import { CapabilityVaultPrerequisite } from "@/components/vault/capability-vault-prerequisite";
 import {
   isKycIdentityPrefaceComplete,
 } from "@/lib/services/kyc-identity-profile-pkm-service";
@@ -59,7 +58,6 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { VaultLockGuard } from "@/components/vault/vault-lock-guard";
 import { useAuth, useRequireAuth } from "@/hooks/use-auth";
 import { isApplePrivateRelayEmail } from "@/lib/auth/private-relay";
 import {
@@ -371,17 +369,10 @@ export default function OneKycPage({
         }
         dataState={auth.user ? "loaded" : "loading"}
       />
-      <VaultLockGuard>
-        <CapabilityVaultPrerequisite
-          capabilityLabel="KYC"
-          routeKey={ROUTES.ONE_KYC}
-        >
-          <OneKycWorkspace
-            onSetupReadinessChange={onSetupReadinessChange}
-            voicePublisherRole={voicePublisherRole}
-          />
-        </CapabilityVaultPrerequisite>
-      </VaultLockGuard>
+      <OneKycWorkspace
+        onSetupReadinessChange={onSetupReadinessChange}
+        voicePublisherRole={voicePublisherRole}
+      />
     </>
   );
 }

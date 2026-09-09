@@ -478,7 +478,7 @@ describe("One setup hub terminal action contract", () => {
     );
   });
 
-  it("requires a vault before collecting KYC identity information", () => {
+  it("requires a vault before saving KYC identity information", () => {
     const kycPrefaceSource = readFileSync(
       join(
         process.cwd(),
@@ -510,7 +510,13 @@ describe("One setup hub terminal action contract", () => {
       "utf8",
     );
     expect(emailSetupSource).toContain("CapabilityVaultPrerequisite");
-    expect(kycRouteSource).toContain("CapabilityVaultPrerequisite");
+    expect(kycRouteSource).toContain("<KycIdentityPreface");
+    const vaultGuard = kycPrefaceSource.indexOf("if (!isVaultUnlocked || !vaultKey || !vaultOwnerToken)");
+    const save = kycPrefaceSource.indexOf("KycIdentityProfilePkmService.saveProfile");
+    expect(vaultGuard).toBeGreaterThanOrEqual(0);
+    expect(save).toBeGreaterThan(vaultGuard);
+    expect(kycPrefaceSource.slice(vaultGuard, save)).toContain("setVaultDialogOpen(true)");
+    expect(kycPrefaceSource.slice(vaultGuard, save)).toContain("return;");
 
     const existingVaultOnlySurfaces = [
       "app/one/setup/kai/page.tsx",

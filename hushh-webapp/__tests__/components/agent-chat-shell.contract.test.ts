@@ -69,6 +69,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain("h-[min(38dvh,18rem)]");
     expect(workspace).toContain("sm:h-[min(48dvh,30rem)]");
     expect(workspace).not.toContain("composerLong ?");
+    expect(workspace).toContain("composerExpanded ?");
     expect(workspace).not.toContain("Expanded message</span>");
     expect(workspace).not.toContain("Writing in expanded composer");
   });
@@ -97,6 +98,7 @@ describe("private-agent chat shell contract", () => {
     expect(workspace).toContain('aria-live="polite"');
     expect(workspace).toContain("title={statusText || undefined}");
     expect(workspace).not.toContain("{statusText ? (");
+    expect(workspace).toContain("{statusText}");
   });
 
   it("minimizes the legacy full-page /agent route to One home, not Profile, when there is no referrer to retrace to", () => {

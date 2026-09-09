@@ -857,9 +857,13 @@ describe("Connect — People", () => {
         await screen.findByText("Person 0");
       }
       const before = mocks.searchDirectory.mock.calls.length;
-      act(() => {
-        expect(enter()).toBe(true);
-        enter();
+      // Both directories render "Person 0". That text can still belong to
+      // the previous list while the new sentinel's observer is attaching.
+      await waitFor(() => {
+        act(() => {
+          expect(enter()).toBe(true);
+          enter();
+        });
       });
       await screen.findByText("Person 20");
       expect(screen.getByText("Person 0")).toBeTruthy();

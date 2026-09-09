@@ -384,4 +384,41 @@ describe("VaultFlow create validation", () => {
 
     await waitFor(() => expect(onSignOut).toHaveBeenCalledTimes(1));
   });
+
+  it("keeps a cancelled passkey attempt inline and does not auto-prompt again", async () => {
+    isNativePlatformMock = true;
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(
+      vaultState("generated_default_native_passkey_prf", [
+        passphraseWrapper,
+        nativePasskeyWrapper,
+      ]),
+    );
+    unlockGeneratedDefaultVaultMock.mockRejectedValueOnce(
+      Object.assign(new Error("The operation was not allowed."), {
+        name: "NotAllowedError",
+      }),
+    );
+
+    const onSuccess = vi.fn();
+    const { rerender } = render(
+      <VaultFlow user={user} onSuccess={onSuccess} />,
+    );
+
+    expect(
+      await screen.findByText(
+        "Passkey unlock was cancelled. Use your Vault Key or Recovery Key below.",
+      ),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Try passkey again" }),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
+
+    rerender(<VaultFlow user={user} onSuccess={onSuccess} />);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
+    expect(onSuccess).not.toHaveBeenCalled();
+  });
 });
