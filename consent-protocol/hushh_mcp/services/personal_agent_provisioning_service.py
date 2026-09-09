@@ -2601,15 +2601,27 @@ class PersonalAgentProvisioningService:
         )
 
     async def _erase_reserved_runtime_grant(self, *, user_id: str) -> None:
+        await self._erase_reserved_grant(user_id=user_id, repository=False)
+
+    async def _erase_reserved_repository_grant(self, *, user_id: str) -> None:
+        await self._erase_reserved_grant(user_id=user_id, repository=True)
+
+    async def _erase_reserved_grant(self, *, user_id: str, repository: bool) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
 
         if not personal_agent_substrate_teardown_enabled():
             raise RuntimeError("runtime grant erasure guarded")
+        state_key = "repositoryGrantErasure" if repository else "runtimeGrantErasure"
+        retain_name = (
+            "retain_erasure_repository_grant_receipt"
+            if repository
+            else "retain_erasure_runtime_grant_receipt"
+        )
         current = await self._registry.get(user_id)
         reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
         snapshot = reservation.get("registrySnapshot") or {}
         reserve = getattr(self._registry, "reserve_erasure_grant_release", None)
-        retain = getattr(self._registry, "retain_erasure_runtime_grant_receipt", None)
+        retain = getattr(self._registry, retain_name, None)
         if (
             not current
             or current.get("status") != "suspended"
@@ -2640,17 +2652,37 @@ class PersonalAgentProvisioningService:
             raise RuntimeError("runtime grant reservation readback unconfirmed")
         inventory = saved.get("substrateInventory") or {}
         identity = (saved.get("writerDisabled") or {}).get("runtimeIdentity") or {}
+        if repository:
+            observations = [
+                o
+                for o in inventory.get("resourceObservations", [])
+                if isinstance(o, dict)
+                and o.get("type") == "artifact_repository"
+                and o.get("id") == "one-pod"
+                and o.get("disposition") == "created"
+            ]
+            if len(observations) != 1:
+                raise RuntimeError("repository grant creation provenance unresolved")
+            identity = observations[0].get("identity") or {}
         bindings = [
             b
             for b in inventory.get("bindingObservations", [])
             if isinstance(b, dict)
-            and b.get("step") == "iam_pod_sa_vertex"
-            and b.get("member") == f"serviceAccount:{identity.get('email')}"
+            and b.get("step")
+            == ("artifact_repo_grant_copy_writer" if repository else "iam_pod_sa_vertex")
+            and (repository or b.get("member") == f"serviceAccount:{identity.get('email')}")
         ]
         if len(bindings) != 1:
             raise RuntimeError("runtime grant provenance unresolved")
-        evidence = {"runtimeIdentity": identity, "bindingObservation": bindings[0]}
-        erase = getattr(self._reserved_cleanup_backend(snapshot), "erase_runtime_grant", None)
+        evidence = {
+            "repositoryIdentity" if repository else "runtimeIdentity": identity,
+            "bindingObservation": bindings[0],
+        }
+        erase = getattr(
+            self._reserved_cleanup_backend(snapshot),
+            "erase_repository_grant" if repository else "erase_runtime_grant",
+            None,
+        )
         if erase is None:
             raise RuntimeError("runtime grant erasure unsupported")
         loop = asyncio.get_running_loop()
@@ -2677,14 +2709,14 @@ class PersonalAgentProvisioningService:
                 and observed.get("status") == "suspended"
                 and state.get("ownerId") == user_id
                 and state.get("attemptId") == attempt
-                and (state.get("runtimeGrantErasure") or {}).get(stage) == receipt
+                and (state.get(state_key) or {}).get(stage) == receipt
             )
 
         def checkpoint(stage: str, raw: dict) -> bool:
             return asyncio.run_coroutine_threadsafe(append(stage, raw), loop).result(timeout=30)
 
         states = {}
-        for stage, receipt in (saved.get("runtimeGrantErasure") or {}).items():
+        for stage, receipt in (saved.get(state_key) or {}).items():
             if (
                 not isinstance(receipt, dict)
                 or receipt.get("ownerId") != user_id
@@ -2742,6 +2774,7 @@ class PersonalAgentProvisioningService:
                         await self._erase_reserved_signing_secret(user_id=user_id)
                     await self._erase_reserved_runtime_account(user_id=user_id)
                     await self._erase_reserved_runtime_grant(user_id=user_id)
+                    await self._erase_reserved_repository_grant(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

@@ -44,6 +44,7 @@
     "926_personal_agent_runtime_account_erasure.sql",
     "927_personal_agent_project_grant_fence.sql",
     "928_byoc_authorization_receipts.sql",
-    "929_personal_agent_runtime_grant_erasure.sql"
+    "929_personal_agent_runtime_grant_erasure.sql",
+    "930_personal_agent_repository_grant_erasure.sql"
   ]
 }

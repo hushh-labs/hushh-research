@@ -580,6 +580,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/929_personal_agent_runtime_grant_erasure.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/929_personal_agent_runtime_grant_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/930_personal_agent_repository_grant_erasure.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/930_personal_agent_repository_grant_erasure.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/930_personal_agent_repository_grant_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -628,6 +633,32 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             }
         ],
     }
+    repository_identity = {
+        "name": "projects/synthetic-project/locations/us-central1/repositories/one-pod",
+        "format": "DOCKER",
+        "createTime": "2026-09-08T00:00:00Z",
+    }
+    repository_binding = {
+        "step": "artifact_repo_grant_copy_writer",
+        "policyResource": "https://artifactregistry.googleapis.com/v1/"
+        + repository_identity["name"]
+        + ":getIamPolicy",
+        "role": "roles/artifactregistry.writer",
+        "member": "serviceAccount:original-hub@hub-project.iam.gserviceaccount.com",
+        "disposition": "added",
+        "beforeEtag": "before",
+        "afterEtag": "after",
+    }
+    inventory["plannedResources"].append({"type": "artifact_repository", "id": "one-pod"})
+    inventory["resourceObservations"].append(
+        {
+            "type": "artifact_repository",
+            "id": "one-pod",
+            "disposition": "created",
+            "identity": repository_identity,
+        }
+    )
+    inventory["bindingObservations"].append(repository_binding)
     inventory["resourceObservations"].append(
         {
             "type": "gcs_bucket",
@@ -1200,6 +1231,25 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             },
         },
     )
+    repository_receipt = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "repositoryIdentity": repository_identity,
+        "bindingObservation": repository_binding,
+        "status": "admitted",
+    }
+
+    def retain_repository(stage, receipt):
+        return pg.execute(
+            "SELECT retain_erasure_repository_grant_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_repository("admission", repository_receipt)
     assert retain_runtime_grant("admission", grant_receipt)
     assert not retain_runtime_grant("admission", grant_receipt)
     assert retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
@@ -1208,6 +1258,28 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "acknowledgement"
         not in provision_row(pg)["backend_metadata"]["erasure"]["runtimeGrantErasure"]
     )
+    assert not retain_repository("admission", {**repository_receipt, "ownerId": "foreign-owner"})
+    assert not retain_repository(
+        "admission",
+        {
+            **repository_receipt,
+            "repositoryIdentity": {**repository_identity, "createTime": "2026-09-09T00:00:00Z"},
+        },
+    )
+    assert not retain_repository(
+        "admission",
+        {
+            **repository_receipt,
+            "bindingObservation": {
+                **repository_binding,
+                "member": "serviceAccount:foreign@hub-project.iam.gserviceaccount.com",
+            },
+        },
+    )
+    assert retain_repository("admission", repository_receipt)
+    assert not retain_repository("admission", repository_receipt)
+    assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
+    assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
             "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-two','synthetic-project')"
@@ -1243,6 +1315,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     )
     assert not retain_writer("writerDisabled", disabled)
     assert not retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
+    assert not retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
     assert not bucket_preflight()
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.

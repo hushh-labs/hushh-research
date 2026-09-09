@@ -1222,6 +1222,43 @@ class UserGcpBackend:
             }
         )
 
+    async def erase_repository_grant(
+        self,
+        *,
+        evidence: dict[str, Any],
+        state: dict[str, Any],
+        retain_receipt: Callable[[str, dict[str, Any]], bool],
+    ) -> None:
+        """Reconcile the recorded repository writer grant; preserve shared storage."""
+        import asyncio
+
+        from hushh_mcp.services.byoc_substrate_teardown import build_gcp_deleter
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("runtime grant erasure authority unavailable")
+        binding = evidence["bindingObservation"]
+        token = await asyncio.to_thread(
+            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+        )
+        deleter = build_gcp_deleter(
+            token=token,
+            project=self._user_project,
+            region=self._user_region,
+            grant_authorization_receipt=evidence,
+            grant_erasure_state=state,
+            retain_grant_receipt=retain_receipt,
+        )
+        await deleter(
+            {
+                "type": "artifact_repository_iam_binding",
+                "id": "repository-writer-grant",
+                "resource": "one-pod",
+                "role": "roles/artifactregistry.writer",
+                "member": binding["member"],
+            }
+        )
+
     async def erase_compute(
         self, spec: PodSpec, *, operation_name=None, before_submit=None, on_acknowledged=None
     ) -> None:
