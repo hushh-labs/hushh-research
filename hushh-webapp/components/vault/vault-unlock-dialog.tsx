@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useLayoutEffect, useState } from "react";
+import { useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 import type { User } from "firebase/auth";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -45,6 +45,11 @@ type VaultUnlockDialogProps = {
 // vault callers safe: one unmount cannot restore chrome while another vault
 // sheet is still open.
 const activeVaultUnlockSurfaces = new Map<string, "standard" | "hard_gate">();
+const VAULT_HARD_GATE_EVENT = "vault-hard-gate-visibility-changed";
+
+function hasActiveHardGate(): boolean {
+  return Array.from(activeVaultUnlockSurfaces.values()).includes("hard_gate");
+}
 
 function syncVaultUnlockSurfaceDataset() {
   if (typeof document === "undefined") return;
@@ -77,18 +82,54 @@ export function VaultUnlockDialog({
   const surfaceId = useId();
   const [recoveryKeyDisclosureActive, setRecoveryKeyDisclosureActive] =
     useState(false);
+  const [suppressedByHardGate, setSuppressedByHardGate] = useState(false);
+  const onOpenChangeRef = useRef(onOpenChange);
   const effectiveDismissible =
     dismissible && !recoveryKeyDisclosureActive;
 
+  useEffect(() => {
+    onOpenChangeRef.current = onOpenChange;
+  }, [onOpenChange]);
+
   useLayoutEffect(() => {
-    if (!open) return;
+    if (!open) {
+      setSuppressedByHardGate(false);
+      return;
+    }
+
+    const handleHardGateVisibility = (event: Event) => {
+      if (surfaceVariant === "hard_gate") return;
+      const visible = (event as CustomEvent<{ visible?: boolean }>).detail?.visible;
+      setSuppressedByHardGate(Boolean(visible));
+      if (visible) {
+        onOpenChangeRef.current?.(false);
+      }
+    };
 
     activeVaultUnlockSurfaces.set(surfaceId, surfaceVariant);
     syncVaultUnlockSurfaceDataset();
+    window.addEventListener(VAULT_HARD_GATE_EVENT, handleHardGateVisibility);
+
+    if (surfaceVariant === "standard" && hasActiveHardGate()) {
+      setSuppressedByHardGate(true);
+      onOpenChangeRef.current?.(false);
+    }
+
+    if (surfaceVariant === "hard_gate") {
+      window.dispatchEvent(
+        new CustomEvent(VAULT_HARD_GATE_EVENT, { detail: { visible: true } }),
+      );
+    }
 
     return () => {
+      window.removeEventListener(VAULT_HARD_GATE_EVENT, handleHardGateVisibility);
       activeVaultUnlockSurfaces.delete(surfaceId);
       syncVaultUnlockSurfaceDataset();
+      if (surfaceVariant === "hard_gate" && !hasActiveHardGate()) {
+        window.dispatchEvent(
+          new CustomEvent(VAULT_HARD_GATE_EVENT, { detail: { visible: false } }),
+        );
+      }
     };
   }, [open, surfaceId, surfaceVariant]);
 
@@ -101,6 +142,10 @@ export function VaultUnlockDialog({
   // The unlock flow is a stable upper-viewport credential layout, never a
   // bottom sheet. This prevents a native keyboard from moving the entire vault
   // surface; VaultFlow scrolls its own form content when needed.
+  if (!open || suppressedByHardGate) {
+    return null;
+  }
+
   return (
     <Dialog
       open={open}

@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { InlineLoadingState } from "@/components/app-ui/inline-loading-state";
-import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import { RiaProfileSection } from "@/components/ria/profile/ria-profile-section";
 import { RiaPageShell } from "@/components/ria/ria-page-shell";
 import { Button } from "@/components/ui/button";
@@ -60,9 +59,7 @@ export default function RiaProfilePage() {
 
   return (
     <RiaPageShell
-      title="Profile"
-      description="Manage your advisor profile and verification details."
-      icon={null}
+      title="RIA"
       titleRole="agent"
       nativeTest={{
         routeId: "ria-profile",
@@ -75,8 +72,6 @@ export default function RiaProfilePage() {
         dataState: authLoading || loading ? "loading" : "loaded",
       }}
     >
-      <RiaRouteSelector />
-
       {authLoading || loading ? (
         <InlineLoadingState label="Loading profile…" />
       ) : loadError && !status ? (

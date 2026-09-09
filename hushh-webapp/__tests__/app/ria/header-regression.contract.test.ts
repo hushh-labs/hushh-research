@@ -17,12 +17,12 @@ describe("RIA shared header regression contract", () => {
     const riaPicks = read("app/ria/picks/page.tsx");
 
     // `/ria` deliberately remains a thin compatibility redirect. The canonical
-    // Profile tab owns the shared RIA shell and header contract.
+    // workspace tabs share one RIA shell and header contract.
     expect(riaHome).toContain("ClientRedirect");
     expect(riaHome).toContain("ROUTES.RIA_PROFILE");
     expect(riaProfile).toContain("RiaPageShell");
-    expect(riaClients).toContain("PageHeader");
-    expect(riaPicks).toContain("PageHeader");
+    expect(riaClients).toContain("RiaPageShell");
+    expect(riaPicks).toContain("RiaPageShell");
     expect(riaPicks).toContain("SegmentedTabs");
     expect(riaPicks).toContain("showMyListActionRail");
   });
@@ -43,6 +43,7 @@ describe("RIA shared header regression contract", () => {
 
     expect(riaShell).toContain("<PageHeader");
     expect(riaShell).toContain('accent="ria"');
+    expect(riaShell).toContain("<RiaRouteSelector");
     expect(globals).toContain("--ria-gold: var(--app-accent)");
     expect(globals).toContain("--ria-selected-tint: var(--app-accent-surface)");
   });
@@ -74,81 +75,84 @@ describe("RIA shared header regression contract", () => {
     const riaProfile = read("app/ria/profile/page.tsx");
     const riaClients = read("app/ria/clients/page.tsx");
     const riaPicks = read("app/ria/picks/page.tsx");
+    const riaShell = read("components/ria/ria-page-shell.tsx");
 
     // "agent" (880px), not "standard" (1440px) -- Connect and Marketplace are
     // directory-browsing surfaces at that wider measure; RIA is a workspace,
     // closer in shape to Location's primary surface. See ria-page-shell.tsx.
     expect(riaProfile).toContain("RiaPageShell");
-    expect(riaClients).toContain('width="agent"');
-    expect(riaPicks).toContain('width="agent"');
+    expect(riaClients).toContain("RiaPageShell");
+    expect(riaPicks).toContain("RiaPageShell");
     expect(riaClients).not.toContain('width="standard"');
     expect(riaPicks).not.toContain('width="standard"');
     expect(riaClients).not.toContain('width="expanded"');
     expect(riaPicks).not.toContain('width="expanded"');
-    expect(riaClients).toContain(
-      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
+    expect(riaClients).not.toContain("<AppPageHeaderRegion");
+    expect(riaPicks).not.toContain("<AppPageHeaderRegion");
+    expect(riaClients).not.toContain("<PageHeader");
+    expect(riaPicks).not.toContain("<PageHeader");
+    expect(riaClients).toContain('stackClassName="gap-8"');
+    expect(riaPicks).toContain('stackClassName="gap-6"');
+    expect(riaShell).toContain(
+      '<AppPageHeaderRegion className={cn("pt-2 sm:pt-3", headerClassName)}>',
     );
-    expect(riaPicks).toContain(
-      '<AppPageHeaderRegion className="pt-2 sm:pt-3">',
-    );
-    expect(riaClients).toContain("<SurfaceStack");
-    expect(riaClients).toContain('className="gap-8"');
-    expect(riaPicks).toContain("<SurfaceStack");
-    expect(riaPicks).toContain('className="gap-6"');
+    expect(riaShell).toContain("<SurfaceStack");
   });
 
-  it("renders the shared RIA route selector after each primary page header", () => {
+  it("renders the shared RIA route selector under the stable shell header", () => {
     const riaProfile = read("app/ria/profile/page.tsx");
     const riaClients = read("app/ria/clients/page.tsx");
     const riaPicks = read("app/ria/picks/page.tsx");
     const riaShell = read("components/ria/ria-page-shell.tsx");
+    const riaLayout = read("app/ria/layout.tsx");
     const topShellTabs = read("lib/navigation/top-shell-tabs.ts");
     const providers = read("app/providers.tsx");
 
     for (const source of [riaProfile, riaClients, riaPicks]) {
-      expect(source).toContain("RiaRouteSelector");
+      expect(source).not.toContain("RiaRouteSelector");
     }
+    expect(riaLayout).toContain("RiaPrimaryWorkspaceShell");
+    expect(riaShell).toContain("RiaPrimaryWorkspaceContext");
     expect(
       riaShell.indexOf("<AppPageHeaderRegion") <
         riaShell.indexOf("<AppPageContentRegion"),
     ).toBe(true);
     expect(
-      riaClients.indexOf("<PageHeader") <
-        riaClients.indexOf("<RiaRouteSelector"),
-    ).toBe(true);
-    expect(
-      riaPicks.indexOf("<PageHeader") < riaPicks.indexOf("<RiaRouteSelector"),
+      riaShell.indexOf("<PageHeader") < riaShell.indexOf("<RiaRouteSelector"),
     ).toBe(true);
 
     expect(topShellTabs).toContain("export function resolveRiaRouteTabSet");
     expect(providers).toContain("resolveRiaRouteTabSet(");
   });
 
-  it("keeps the primary RIA headers clean across Profile, Clients, and Picks", () => {
+  it("keeps one stable RIA heading across Profile, Clients, and Picks", () => {
     const riaProfile = read("app/ria/profile/page.tsx");
     const riaClients = read("app/ria/clients/page.tsx");
     const riaPicks = read("app/ria/picks/page.tsx");
     const riaShell = read("components/ria/ria-page-shell.tsx");
 
     expect(riaShell).toContain("icon?: LucideIcon | null");
+    expect(riaShell).toContain('title="RIA"');
 
-    expect(riaProfile).toContain('title="Profile"');
-    expect(riaProfile).toContain(
+    for (const source of [riaProfile, riaClients, riaPicks]) {
+      expect(source).toContain('title="RIA"');
+    }
+    expect(riaProfile).not.toContain('title="Profile"');
+    expect(riaProfile).not.toContain(
       'description="Manage your advisor profile and verification details."',
     );
-    expect(riaProfile).toContain("icon={null}");
     expect(riaProfile).not.toContain('eyebrow="RIA"');
 
-    expect(riaClients).toContain("title={RIA_COPY.clients.title}");
-    expect(riaClients).toContain("description={RIA_COPY.clients.description}");
+    expect(riaClients).not.toContain("title={RIA_COPY.clients.title}");
+    expect(riaClients).not.toContain("description={RIA_COPY.clients.description}");
     expect(riaClients).not.toContain("eyebrow={RIA_COPY.clients.eyebrow}");
     expect(riaClients).not.toContain("icon={UserRound}");
     expect(riaClients).not.toContain(
       '<Badge variant="secondary" className="text-[10px]">',
     );
 
-    expect(riaPicks).toContain("title={RIA_COPY.picks.title}");
-    expect(riaPicks).toContain("description={RIA_COPY.picks.description}");
+    expect(riaPicks).not.toContain("title={RIA_COPY.picks.title}");
+    expect(riaPicks).not.toContain("description={RIA_COPY.picks.description}");
     expect(riaPicks).not.toContain("eyebrow={RIA_COPY.picks.eyebrow}");
     expect(riaPicks).not.toContain("icon={FileSpreadsheet}");
   });

@@ -141,6 +141,7 @@ steps:
           --build-arg NEXT_PUBLIC_BACKEND_URL=$$BACKEND_URL_VAL \
           --build-arg NEXT_PUBLIC_DEVELOPER_API_URL=$$BACKEND_URL_VAL \
           --build-arg NEXT_PUBLIC_APP_URL=$$NEXT_PUBLIC_APP_URL_VAL \
+          --build-arg NEXT_PUBLIC_PASSKEY_RP_ID=${_PASSKEY_RP_ID} \
           --build-arg NEXT_PUBLIC_APP_ENV=${_APP_ENV} \
           --build-arg NEXT_PUBLIC_OBSERVABILITY_ENABLED=true \
           --build-arg NEXT_PUBLIC_ONE_WALLET_CARD_ENABLED=${_ONE_WALLET_CARD_ENABLED} \
@@ -245,6 +246,9 @@ substitutions:
   _FRONTEND_RUNTIME_SERVICE_ACCOUNT: ""
   _REGION: us-central1
   _APP_ENV: production
+  # Passkeys are shared between hosted web surfaces. The RP ID is deliberately
+  # canonical so UAT/dev can use passkeys enrolled on one.hushh.ai.
+  _PASSKEY_RP_ID: one.hushh.ai
   # Wallet Profile owner entry point. Empty/false keeps the Profile row hidden;
   # the backend ONE_WALLET_CARD_ENABLED flag still decides whether it works.
   _ONE_WALLET_CARD_ENABLED: "false"

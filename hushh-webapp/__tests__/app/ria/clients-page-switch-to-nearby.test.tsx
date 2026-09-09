@@ -46,6 +46,7 @@ vi.mock("@/components/ria/nearby/nearby-around-you", () => ({
 }));
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
+  RiaPageShell: ({ children }: { children: React.ReactNode }) => children,
   RiaCompatibilityState: ({ children }: { children: React.ReactNode }) => children,
   RiaVerificationGate: ({ children }: { children: React.ReactNode }) => children,
 }));

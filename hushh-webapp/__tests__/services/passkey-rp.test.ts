@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import { normalizeRpHost, resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import {
+  isPasskeyRpIdCompatibleWithHost,
+  normalizeRpHost,
+  resolvePasskeyRpId,
+} from "@/lib/vault/passkey-rp";
 
 const ORIGINAL_ENV = { ...process.env };
 
@@ -59,5 +63,26 @@ describe("passkey RP resolution", () => {
     });
 
     expect(rpId).toBe("one.hushh.ai");
+  });
+
+  it("accepts the shared parent RP for a hosted UAT origin", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost(
+        "uat.one.hushh.ai",
+        "one.hushh.ai",
+      ),
+    ).toBe(true);
+  });
+
+  it("does not accept a child RP from the canonical origin", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("one.hushh.ai", "uat.one.hushh.ai"),
+    ).toBe(false);
+  });
+
+  it("rejects unrelated RP IDs even when their text is a suffix", () => {
+    expect(
+      isPasskeyRpIdCompatibleWithHost("notone.hushh.ai", "one.hushh.ai"),
+    ).toBe(false);
   });
 });

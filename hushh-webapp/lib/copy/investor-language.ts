@@ -81,6 +81,13 @@ export function toInvestorVaultUnlockError(value: unknown): string {
   const lowered = raw.toLowerCase();
 
   if (
+    lowered.includes("relying party id is not a registrable domain suffix") ||
+    lowered.includes(".well-known/webauthn")
+  ) {
+    return "This passkey is registered for a different site. Open the site where you enrolled it, or use your Passphrase or Recovery key below.";
+  }
+
+  if (
     lowered.includes("vault_passkey_rp_mismatch") ||
     lowered.includes("rp id is not allowed") ||
     lowered.includes("different domain")

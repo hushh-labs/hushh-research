@@ -1,9 +1,14 @@
 "use client";
 
-import type { ComponentPropsWithoutRef, ReactNode } from "react";
+import {
+  createContext,
+  useContext,
+  type ComponentPropsWithoutRef,
+  type ReactNode,
+} from "react";
 import type { LucideIcon } from "lucide-react";
 import { BriefcaseBusiness, ShieldAlert, ShieldCheck, TriangleAlert } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { usePersonaState } from "@/lib/persona/persona-context";
 import { ROUTES } from "@/lib/navigation/routes";
@@ -25,6 +30,7 @@ import {
   PageHeader,
   SectionHeader,
 } from "@/components/app-ui/page-sections";
+import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import {
   SurfaceCard,
   SurfaceInset,
@@ -34,6 +40,56 @@ import {
 } from "@/components/app-ui/surfaces";
 import { cn } from "@/lib/utils";
 
+const RIA_AGENT_HEADER_CLASSNAME =
+  "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center";
+
+const RiaPrimaryWorkspaceContext = createContext(false);
+
+function isRiaPrimaryWorkspacePath(pathname: string | null): boolean {
+  const normalizedPathname = pathname?.replace(/\/+$/, "") || "/";
+  return (
+    normalizedPathname === ROUTES.RIA_PROFILE ||
+    normalizedPathname === ROUTES.RIA_CLIENTS ||
+    normalizedPathname === ROUTES.RIA_PICKS
+  );
+}
+
+/**
+ * Persistent shell for the three primary RIA workspace routes.
+ *
+ * `/ria/layout.tsx` survives pathname changes between Profile, Clients, and
+ * Picks. Keeping the identity header and route selector here means those
+ * elements stay mounted while each route page replaces only its content.
+ */
+export function RiaPrimaryWorkspaceShell({
+  children,
+}: {
+  children: ReactNode;
+}) {
+  const pathname = usePathname();
+
+  if (!isRiaPrimaryWorkspacePath(pathname)) return <>{children}</>;
+
+  return (
+    <RiaPrimaryWorkspaceContext.Provider value>
+      <AppPageShell as="main" fitContent width="agent">
+        <AppPageHeaderRegion className="pt-2 sm:pt-3">
+          <PageHeader
+            title="RIA"
+            icon={BriefcaseBusiness}
+            accent="ria"
+            titleRole="agent"
+            actionsInlineMobile
+            className={RIA_AGENT_HEADER_CLASSNAME}
+          />
+          <RiaRouteSelector className="mt-4 sm:mt-5" />
+        </AppPageHeaderRegion>
+        {children}
+      </AppPageShell>
+    </RiaPrimaryWorkspaceContext.Provider>
+  );
+}
+
 export function RiaPageShell({
   eyebrow,
   title,
@@ -41,6 +97,7 @@ export function RiaPageShell({
   actions,
   icon = BriefcaseBusiness,
   statusPanel,
+  showRouteSelector = false,
   children,
   // "standard" (90rem / 1440px) matched Connect and Marketplace, but those
   // are directory-browsing surfaces; RIA's own screens are read-and-act
@@ -66,6 +123,7 @@ export function RiaPageShell({
   actions?: ReactNode;
   icon?: LucideIcon | null;
   statusPanel?: ReactNode;
+  showRouteSelector?: boolean;
   children: ReactNode;
   width?: AppPageShellWidth;
   titleRole?: "page" | "agent";
@@ -89,6 +147,22 @@ export function RiaPageShell({
     errorMessage?: string | null;
   };
 }) {
+  const isInsidePrimaryWorkspace = useContext(RiaPrimaryWorkspaceContext);
+
+  if (isInsidePrimaryWorkspace) {
+    return (
+      <>
+        {nativeTest ? <NativeTestBeacon {...nativeTest} /> : null}
+        <AppPageContentRegion className={contentClassName}>
+          <SurfaceStack className={stackClassName}>
+            {statusPanel ? <div>{statusPanel}</div> : null}
+            {children}
+          </SurfaceStack>
+        </AppPageContentRegion>
+      </>
+    );
+  }
+
   return (
     <AppPageShell
       as="main"
@@ -109,10 +183,13 @@ export function RiaPageShell({
           titleRole={titleRole}
           className={
             titleRole === "agent"
-              ? "[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-actions]]:!self-center [&_[data-slot=page-header-row]]:!items-center"
+              ? RIA_AGENT_HEADER_CLASSNAME
               : undefined
           }
         />
+        {showRouteSelector ? (
+          <RiaRouteSelector className="mt-4 sm:mt-5" />
+        ) : null}
       </AppPageHeaderRegion>
 
       <AppPageContentRegion className={contentClassName}>

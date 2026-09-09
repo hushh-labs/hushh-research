@@ -1,5 +1,6 @@
 import { VaultService, type VaultWrapper } from "@/lib/services/vault-service";
 import { authenticateWithPrf } from "@/lib/vault/prf-auth";
+import { isPasskeyRpIdCompatibleWithHost } from "@/lib/vault/passkey-rp";
 import { wrapExportKeyForConnector } from "@/lib/vault/export-encrypt";
 
 export const TRUSTED_DEVICE_VAULT_HANDOFF_ALG = "X25519-AES256-GCM";
@@ -65,8 +66,7 @@ function compatiblePasskeyWrapper(
     ) {
       return false;
     }
-    const rpId = wrapper.passkeyRpId.trim().toLowerCase();
-    return normalizedHost === rpId || normalizedHost.endsWith(`.${rpId}`);
+    return isPasskeyRpIdCompatibleWithHost(normalizedHost, wrapper.passkeyRpId);
   });
   return (
     compatible.sort((left, right) => {

@@ -91,6 +91,16 @@ if ! grep -q -- '--set-env-vars=NEXT_PUBLIC_APP_ENV=' "$frontend_cloudbuild"; th
   exit 1
 fi
 
+if ! grep -q -- '--build-arg NEXT_PUBLIC_PASSKEY_RP_ID=${_PASSKEY_RP_ID}' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must pin the shared passkey RP ID into the web image."
+  exit 1
+fi
+
+if ! grep -q '^  _PASSKEY_RP_ID: one.hushh.ai$' "$frontend_cloudbuild"; then
+  echo "frontend Cloud Build must default the hosted passkey RP ID to one.hushh.ai."
+  exit 1
+fi
+
 frontend_timeout_seconds="$(
   grep -Eo -- '--timeout=[0-9]+' "$frontend_cloudbuild" | head -n 1 | cut -d= -f2 || true
 )"

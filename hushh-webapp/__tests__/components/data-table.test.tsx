@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
 import type { ColumnDef } from "@tanstack/react-table";
 
@@ -143,5 +143,126 @@ describe("DataTable", () => {
     expect(
       document.querySelector('[data-slot="surface-data-table-shell"]'),
     ).toHaveClass("hidden", "md:block");
+  });
+
+  it("renders compact mobile pagination for card tables", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(30)}
+        enableSearch={false}
+        initialPageSize={8}
+        pageSizeOptions={[8, 16, 24]}
+        renderMobileCard={(row) => (
+          <article data-testid="mobile-row-card">{row.name}</article>
+        )}
+      />,
+    );
+
+    const mobilePagination = document.querySelector(
+      '[data-slot="data-table-mobile-pagination"]',
+    );
+    const desktopFooter = document.querySelector(
+      '[data-slot="data-table-page-controls"]',
+    )?.parentElement;
+    const mobile = within(mobilePagination as HTMLElement);
+
+    expect(mobilePagination).toHaveClass("md:hidden");
+    expect(
+      mobile.getByRole("button", { name: "Go to previous page" }),
+    ).toBeTruthy();
+    expect(mobile.getByText("Page 1")).toBeTruthy();
+    expect(mobile.getByRole("button", { name: "Go to next page" })).toBeTruthy();
+    expect(mobilePagination?.textContent).not.toContain("Showing");
+    expect(desktopFooter).toHaveClass("hidden", "md:flex");
+  });
+
+  it("keeps dense page numbers out of mobile card pagination", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(30)}
+        enableSearch={false}
+        initialPageSize={8}
+        pageSizeOptions={[8, 16, 24]}
+        renderMobileCard={(row) => (
+          <article data-testid="mobile-row-card">{row.name}</article>
+        )}
+      />,
+    );
+    const mobilePagination = document.querySelector(
+      '[data-slot="data-table-mobile-pagination"]',
+    );
+    const mobilePageNumberLinks = mobilePagination?.querySelectorAll(
+      '[data-slot="pagination-link"]',
+    );
+
+    expect(mobilePageNumberLinks).toHaveLength(0);
+  });
+
+  it("pages compact mobile card tables with previous and next controls", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(30)}
+        enableSearch={false}
+        initialPageSize={8}
+        renderMobileCard={(row) => (
+          <article data-testid="mobile-row-card">{row.name}</article>
+        )}
+      />,
+    );
+
+    const mobilePagination = document.querySelector(
+      '[data-slot="data-table-mobile-pagination"]',
+    ) as HTMLElement;
+    const mobileList = document.querySelector(
+      '[data-slot="data-table-mobile-list"]',
+    ) as HTMLElement;
+    const mobile = within(mobilePagination);
+    const mobileRows = within(mobileList);
+
+    expect(mobile.getByText("Page 1")).toBeTruthy();
+    expect(
+      mobile.getByRole("button", { name: "Go to previous page" }),
+    ).toBeDisabled();
+    expect(mobileRows.getByText("Row 1")).toBeTruthy();
+
+    fireEvent.click(mobile.getByRole("button", { name: "Go to next page" }));
+
+    expect(mobile.getByText("Page 2")).toBeTruthy();
+    expect(mobileRows.getByText("Row 9")).toBeTruthy();
+    expect(mobileRows.queryByText("Row 1")).toBeNull();
+
+    fireEvent.click(mobile.getByRole("button", { name: "Go to previous page" }));
+
+    expect(mobile.getByText("Page 1")).toBeTruthy();
+    expect(mobileRows.getByText("Row 1")).toBeTruthy();
+  });
+
+  it("disables compact mobile next on the last card page", () => {
+    render(
+      <DataTable
+        columns={columns}
+        data={makeRows(9)}
+        enableSearch={false}
+        initialPageSize={8}
+        renderMobileCard={(row) => (
+          <article data-testid="mobile-row-card">{row.name}</article>
+        )}
+      />,
+    );
+
+    const mobilePagination = document.querySelector(
+      '[data-slot="data-table-mobile-pagination"]',
+    ) as HTMLElement;
+    const mobile = within(mobilePagination);
+
+    fireEvent.click(mobile.getByRole("button", { name: "Go to next page" }));
+
+    expect(mobile.getByText("Page 2")).toBeTruthy();
+    expect(
+      mobile.getByRole("button", { name: "Go to next page" }),
+    ).toBeDisabled();
   });
 });

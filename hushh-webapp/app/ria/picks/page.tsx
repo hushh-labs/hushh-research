@@ -20,26 +20,21 @@ import {
 import { toast } from "sonner";
 
 import {
-  AppPageContentRegion,
-  AppPageHeaderRegion,
-  AppPageShell,
-} from "@/components/app-ui/app-page-shell";
-import {
   CommandPickerField,
   PopupTextEditorField,
   type CommandPickerOption,
 } from "@/components/app-ui/command-fields";
 import { DataTable } from "@/components/app-ui/data-table";
-import { PageHeader } from "@/components/app-ui/page-sections";
 import {
   SurfaceCard,
   SurfaceCardContent,
   SurfaceInset,
-  SurfaceStack,
 } from "@/components/app-ui/surfaces";
-import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import { SegmentedTabs } from "@/components/profile/settings-ui";
-import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
+import {
+  RiaCompatibilityState,
+  RiaPageShell,
+} from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
 import {
   Table,
@@ -2685,13 +2680,10 @@ export default function RiaPicksPage() {
   }
 
   return (
-    <AppPageShell
-      as="main"
-      // Matches RiaPageShell's own default -- see its comment. The wide
-      // tables inside this screen already gate themselves behind
-      // `hidden md:block` and their own horizontal scroll, so narrowing the
-      // shell does not affect them.
-      width="agent"
+    <RiaPageShell
+      title="RIA"
+      titleRole="agent"
+      stackClassName="gap-6"
       nativeTest={{
         routeId: "/ria/picks",
         marker: "native-route-ria-picks",
@@ -2705,19 +2697,6 @@ export default function RiaPicksPage() {
         errorMessage: picksResource.error,
       }}
     >
-      <AppPageHeaderRegion className="pt-2 sm:pt-3">
-        <PageHeader
-          title={RIA_COPY.picks.title}
-          description={RIA_COPY.picks.description}
-          accent="ria"
-          titleRole="agent"
-        />
-      </AppPageHeaderRegion>
-
-      <AppPageContentRegion>
-        <SurfaceStack className="gap-6">
-          <RiaRouteSelector />
-
           <div data-testid="ria-picks-primary">
             <SegmentedTabs
               value={source}
@@ -3235,8 +3214,6 @@ export default function RiaPicksPage() {
               ) : null}
             </>
           }
-        </SurfaceStack>
-      </AppPageContentRegion>
-    </AppPageShell>
+    </RiaPageShell>
   );
 }

@@ -60,7 +60,7 @@ describe("RiaRouteSelector", () => {
       "/ria/clients",
       expect.any(Function),
       "tap",
-      "full",
+      "contextual",
     );
   });
 });
