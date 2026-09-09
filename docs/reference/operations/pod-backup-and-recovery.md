@@ -255,20 +255,17 @@ nothing manages that key's lifecycle today. For a consent-first product that owe
 removal on request, per-record or per-epoch key derivation is not an optimisation; it is
 the mechanism by which "delete my information" becomes a true statement.
 
-**Update 2026-09-02 — erasure after a UI pod deletion.** Observed on dev: a person
-deleted their pod from the app (registry row gone, `deprovision_requested` tombstone
-written), then deleted their account ten minutes later, and their own project still held
-`one-bootstrap@` with ten admin roles, the `hushh-one` keyring and the `one-pod` artifact
-repo. `_teardown_byoc_substrate` answered "nothing BYOC here" the moment the row was
-missing, so the substrate teardown never ran and the only record that anything was left
-was a `unreclaimed=true` tombstone. Closed in code: the deprovision tombstone now always
-carries the cloud coordinates for a `user_gcp` row (project, region, bootstrap account,
-target), and account deletion rebuilds its anchor from `byoc_setup_jobs` plus
-`PersonalAgentRegistryRepo.latest_tombstone_for_project(...)` when the row is gone. The
-30-day `pod_lifecycle_events` log is also purged at erasure instead of waiting on its
-TTL. Guard: `consent-protocol/tests/test_byoc_substrate_teardown_rowless.py`. The
-person's project itself is still never deleted by hushh; on 2026-09-02 the owner deleted
-it by hand with `gcloud projects delete` (30-day undelete window).
+**Historical incident, 2026-09-02 — erasure after a UI pod deletion.** The dev
+incident recorded a removed registry row followed by account deletion while owner-cloud
+resources survived. A later rowless helper attempted to recover coordinates from setup
+jobs and deletion tombstones, but it was disconnected from the active account route.
+That helper and its obsolete tests were retired on 2026-09-08; they are not evidence of
+current recovery behavior. The existing owner reservation now retains cleanup authority,
+and account deletion refuses unresolved external resources. See the
+[private-agent erasure contract](../architecture/private-agent-north-star.md).
+`tests/test_personal_agent_provisioning_service.py` verifies preservation of registry and
+tombstones on refusal; HTTP refusal tests verify that account identity survives.
+The owner's cloud project remains owner-controlled and is never deleted by this workflow.
 
 **Update 2026-09-04 — hushh gives its own access back at erasure.** The observation
 above named `one-bootstrap@` with ten admin roles as residue, and the fix that followed

@@ -32,7 +32,6 @@ tests/services/test_one_location_agent_service.py
 tests/services/test_pkm_service_store_domain_data.py
 tests/test_a2a_agent_card_well_known.py
 tests/test_account_delete_scope_proposals.py
-tests/test_account_substrate_tombstone.py
 tests/test_adk_a2a_compliance_script.py
 tests/test_advisors_coordinate_privacy.py
 tests/test_advisors_runtime_config_wiring.py
@@ -55,8 +54,6 @@ tests/test_byoc_substrate.py
 tests/test_byoc_substrate_teardown.py
 tests/test_byoc_substrate_teardown_is_loud.py
 tests/test_byoc_substrate_teardown_surfacing.py
-tests/test_byoc_substrate_teardown_tombstone.py
-tests/test_byoc_substrate_teardown_rowless.py
 tests/test_byoc_cloud_parked_before_record.py
 tests/test_byoc_substrate_first_light_gaps.py
 tests/test_user_cloud_parked_fallback.py
