@@ -29,10 +29,24 @@ def _ctx() -> HushhContext:
 
 
 def _service() -> MarketplaceInformationService:
+    context = _ctx()
+    if "marketplace_information" in context.service_ports:
+        return context.service_ports["marketplace_information"]
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        raise RuntimeError("Marketplace information is unavailable in this pod")
     return MarketplaceInformationService()
 
 
 def _requests() -> MarketplaceRequestService:
+    context = _ctx()
+    if "marketplace_requests" in context.service_ports:
+        return context.service_ports["marketplace_requests"]
+    from hushh_mcp.runtime_settings import pod_mode
+
+    if pod_mode():
+        raise RuntimeError("Marketplace requests are unavailable in this pod")
     return MarketplaceRequestService()
 
 
