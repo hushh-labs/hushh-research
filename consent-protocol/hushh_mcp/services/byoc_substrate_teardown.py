@@ -1254,6 +1254,7 @@ def build_gcp_deleter(
                     or action.get("role") != "roles/iam.serviceAccountTokenCreator"
                     or binding["member"] != action.get("member")
                     or binding["step"] != "authorize_bootstrap_impersonation"
+                    or binding["disposition"] != "added"
                     or binding["policyResource"]
                     != f"https://iam.googleapis.com/v1/{identity['name']}:getIamPolicy"
                 ):

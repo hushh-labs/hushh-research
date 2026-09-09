@@ -78,6 +78,7 @@ def _deleter(session: _Session):
         "pending_absent",
         "readback_present",
         "policy_denied",
+        "already_present",
     ],
 )
 @pytest.mark.parametrize("target", ["bootstrap", "repository"])
@@ -130,6 +131,8 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
             resource="one-pod",
             role="roles/artifactregistry.writer",
         )
+    if case == "already_present":
+        evidence["bindingObservation"]["disposition"] = "already_present"
     conditional = {
         "role": action["role"],
         "members": [member],
@@ -208,7 +211,7 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
     assert len(writes) == (1 if case in {"success", "ack_refused", "readback_present"} else 0)
     if writes:
         assert writes[0][2]["json"]["policy"]["bindings"] == [conditional]
-    if case == "foreign":
+    if case in {"foreign", "already_present"}:
         assert session.calls == []
     else:
         path = (
