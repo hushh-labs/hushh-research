@@ -278,6 +278,7 @@ def apply_authorization(
     session: Any = None,
     sleep: Any = time.sleep,
     on_apis_enabled: Any = None,
+    on_authorized: Any = None,
 ) -> dict[str, Any]:
     """Run the script's exact plan under the PERSON's own identity.
 
@@ -427,6 +428,7 @@ def apply_authorization(
         (b for b in sa_bindings if b.get("role") == _TOKEN_CREATOR_ROLE and "condition" not in b),
         None,
     )
+    grant_was_present = entry is not None and caller_member in entry.get("members", [])
     if entry is None:
         sa_bindings.append({"role": _TOKEN_CREATOR_ROLE, "members": [caller_member]})
         sa_policy["bindings"] = sa_bindings
@@ -446,6 +448,68 @@ def apply_authorization(
             "grant hushh's one permission",
         )
 
+    # Capture the exact principal and account incarnation while owner OAuth
+    # authority is still available. Current deployment configuration is not
+    # historical evidence of which principal received this permission.
+    observed_policy = checked_policy(
+        session.post(
+            f"{sa_url}:getIamPolicy",
+            headers=headers,
+            params={"options.requestedPolicyVersion": 3},
+            timeout=30,
+        ),
+        "verify the bootstrap account's policy",
+    )
+    from hushh_mcp.services.byoc_substrate import (
+        _binding_observation,
+        _service_account_creation_identity,
+    )
+
+    identity = _service_account_creation_identity(
+        _check(
+            session.get(sa_url, headers=headers, timeout=30),
+            "verify the bootstrap account identity",
+        ),
+        sa_email,
+    )
+    binding = _binding_observation(
+        {
+            "step": "authorize_bootstrap_impersonation",
+            "policyResource": f"{sa_url}:getIamPolicy",
+            "role": _TOKEN_CREATOR_ROLE,
+            "member": caller_member,
+            "disposition": "already_present" if grant_was_present else "added",
+            "beforeEtag": sa_policy["etag"],
+            "afterEtag": observed_policy["etag"],
+        }
+    )
+    if (
+        identity is None
+        or identity["projectId"] != project
+        or binding is None
+        or not any(
+            b["role"] == _TOKEN_CREATOR_ROLE
+            and "condition" not in b
+            and caller_member in b["members"]
+            for b in observed_policy.get("bindings", [])
+        )
+    ):
+        raise ByocAuthorizeError(
+            "The bootstrap permission could not be verified; try again",
+            status_code=502,
+            code="AUTHORIZE_FAILED",
+        )
+    authorization_receipt = {"bootstrapIdentity": identity, "bindingObservation": binding}
+    if on_authorized is not None:
+        from copy import deepcopy
+
+        if on_authorized(deepcopy(authorization_receipt)) is not True:
+            raise ByocAuthorizeError(
+                "The bootstrap permission receipt could not be retained; try again",
+                status_code=502,
+                code="AUTHORIZE_FAILED",
+            )
+
     # 5. The script's closing assertion: the bootstrap account has NO exportable keys.
     keys = _check(
         session.get(
@@ -461,7 +525,11 @@ def apply_authorization(
         )
 
     logger.info("byoc_oauth.authorized project=%s services=%d", project, len(REQUIRED_SERVICES))
-    return {"project": project, "bootstrapServiceAccount": sa_email}
+    return {
+        "project": project,
+        "bootstrapServiceAccount": sa_email,
+        "authorizationReceipt": authorization_receipt,
+    }
 
 
 # ---------------------------------------------------------------------------

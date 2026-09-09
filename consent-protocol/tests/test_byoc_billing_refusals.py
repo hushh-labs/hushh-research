@@ -19,7 +19,9 @@ import pytest
 from hushh_mcp.services import byoc_oauth_authorizer as oauth
 
 
-@pytest.mark.parametrize("invalid", [None, "etag", "bindings", "version"])
+@pytest.mark.parametrize(
+    "invalid", [None, "etag", "bindings", "version", "readback", "identity", "retention"]
+)
 def test_authorization_preserves_conditional_grants_and_requires_policy_preconditions(invalid):
     from hushh_mcp.services.user_gcp_bootstrap import BOOTSTRAP_ROLES
 
@@ -53,6 +55,8 @@ def test_authorization_preserves_conditional_grants_and_requires_policy_precondi
         def post(self, url, **kwargs):
             if url.endswith(":getIamPolicy"):
                 self.reads.append((url, kwargs))
+                if "/serviceAccounts/" in url and len(self.writes) == 2 and invalid != "readback":
+                    return _Response(200, {**deepcopy(self.writes[1]), "etag": "account-after"})
                 return _Response(
                     200, deepcopy(sa_policy if "/serviceAccounts/" in url else project_policy)
                 )
@@ -61,8 +65,18 @@ def test_authorization_preserves_conditional_grants_and_requires_policy_precondi
             return _Response(200, {"done": True})
 
         def get(self, url, **kwargs):
-            assert url.endswith("/keys")
-            return _Response(200, {})
+            if url.endswith("/keys"):
+                return _Response(200, {})
+            return _Response(
+                200,
+                {
+                    "name": f"projects/synthetic-project/serviceAccounts/{bootstrap}",
+                    "projectId": "synthetic-project",
+                    "email": bootstrap,
+                    "uniqueId": "invalid" if invalid == "identity" else "123456789012345678901",
+                    "private": "must-not-retain",
+                },
+            )
 
     session = Session()
     arguments = {
@@ -71,12 +85,32 @@ def test_authorization_preserves_conditional_grants_and_requires_policy_precondi
         "caller_sa": caller,
         "session": session,
     }
-    if invalid:
+    if invalid in {"etag", "bindings", "version"}:
         with pytest.raises(oauth.ByocAuthorizeError, match="safely verified"):
             oauth.apply_authorization(**arguments)
         assert not session.writes
         return
-    oauth.apply_authorization(**arguments)
+    receipts = []
+
+    def retain(receipt):
+        receipts.append(receipt)
+        return True
+
+    if invalid == "retention":
+        with pytest.raises(oauth.ByocAuthorizeError, match="could not be retained"):
+            oauth.apply_authorization(**arguments, on_authorized=lambda receipt: False)
+        return
+    if invalid:
+        with pytest.raises(oauth.ByocAuthorizeError, match="could not be verified"):
+            oauth.apply_authorization(**arguments, on_authorized=retain)
+        assert not receipts
+        return
+    result = oauth.apply_authorization(**arguments, on_authorized=retain)
+    assert receipts == [result["authorizationReceipt"]]
+    assert receipts[0]["bindingObservation"]["member"] == f"serviceAccount:{caller}"
+    assert receipts[0]["bindingObservation"]["disposition"] == "added"
+    assert receipts[0]["bindingObservation"]["afterEtag"] == "account-after"
+    assert "private" not in receipts[0]["bootstrapIdentity"]
     assert session.reads[0][1]["json"] == {"options": {"requestedPolicyVersion": 3}}
     assert session.reads[1][1]["params"] == {"options.requestedPolicyVersion": 3}
     assert session.writes[0]["etag"] == "project-before"
