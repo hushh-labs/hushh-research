@@ -9,8 +9,11 @@ Verified live against the GitHub org on 2026-09-01.
 - Project number: **79**
 - Project title: **Hussh Action Items**
 - Default repo: `hushh-labs/hushh-research`
-- Default creation status: `Accepted` (an item created deliberately by an agent or
-  teammate is already triaged; `Inbox` is for untriaged intake).
+- Default creation status: `Inbox`. Creating an item is intake, not acceptance,
+  including work entered by founders, the CTO, or coding agents. Move to
+  `Accepted` only when the user explicitly requests or confirms triage acceptance.
+- New intake has no automatic dates. Open-ended work stays unassigned, with
+  `Lead`, `Owner`, and `Target Fix Date` unset unless the user specifies them.
 
 ## Status lifecycle
 

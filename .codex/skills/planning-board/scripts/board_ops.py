@@ -35,7 +35,7 @@ BOARD_PROFILES: dict[str, dict[str, Any]] = {
     "action-items": {
         "number": 79,
         "title": "Hussh Action Items",
-        "default_status": "Accepted",
+        "default_status": "Inbox",
     },
 }
 DEFAULT_BOARD = "engineering-core"
@@ -481,8 +481,8 @@ def issue_create(args: argparse.Namespace) -> None:
         repo=args.repo,
         issue_number=issue_number,
         status=args.status or DEFAULT_STATUS,
-        start_date=args.start_date,
-        target_date=args.target_date,
+        start_date=args.start_date or (today_iso() if PROJECT_NUMBER == 73 else None),
+        target_date=args.target_date or (next_day_iso() if PROJECT_NUMBER == 73 else None),
         labels=parsed_labels,
         sync_current_sprint=True,
         hierarchy=hierarchy,
@@ -982,8 +982,8 @@ def build_parser() -> argparse.ArgumentParser:
     create.add_argument("--body", required=True)
     create.add_argument("--assignee")
     create.add_argument("--status", default=None)
-    create.add_argument("--start-date", default=today_iso())
-    create.add_argument("--target-date", default=next_day_iso())
+    create.add_argument("--start-date", help="Defaults to today for Engineering Core; unset for Action Items")
+    create.add_argument("--target-date", help="Defaults to tomorrow for Engineering Core; unset for Action Items")
     create.add_argument("--labels")
     create.add_argument("--hierarchy")
     create.add_argument(
