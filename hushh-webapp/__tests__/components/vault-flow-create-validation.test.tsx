@@ -73,6 +73,7 @@ type TestVaultWrapper = {
   iv: string;
   passkeyCredentialId?: string;
   passkeyPrfSalt?: string;
+  passkeyRpId?: string;
 };
 
 type TestVaultState = {
@@ -95,6 +96,7 @@ const passkeyWrapper: TestVaultWrapper = {
   iv: "iv-passkey",
   passkeyCredentialId: "credential-1",
   passkeyPrfSalt: "passkey-salt",
+  passkeyRpId: "one.hushh.ai",
 };
 
 const nativePasskeyWrapper: TestVaultWrapper = {
@@ -104,6 +106,7 @@ const nativePasskeyWrapper: TestVaultWrapper = {
   iv: "iv-native-passkey",
   passkeyCredentialId: "native-credential-1",
   passkeyPrfSalt: "native-passkey-salt",
+  passkeyRpId: "one.hushh.ai",
 };
 
 function vaultState(
@@ -407,18 +410,88 @@ describe("VaultFlow create validation", () => {
 
     expect(
       await screen.findByText(
-        "Passkey unlock was cancelled. Use your Vault Key or Recovery Key below.",
+        "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
       ),
     ).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "Try passkey again" }),
+      screen.getByRole("button", { name: "Passkey" }),
     ).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Try passkey again" })).toBeNull();
+    expect(screen.getByLabelText("Vault passphrase")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Unlock" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Recovery key" })).toBeTruthy();
 
     rerender(<VaultFlow user={user} onSuccess={onSuccess} />);
     await new Promise((resolve) => setTimeout(resolve, 20));
     expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
+    expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledWith(
+      expect.objectContaining({ passkeyRpId: "one.hushh.ai" }),
+    );
     expect(onSuccess).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Passkey" }));
+    await waitFor(() =>
+      expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(2),
+    );
+  });
+
+  it("shares cancellation across overlapping native unlock surfaces", async () => {
+    isNativePlatformMock = true;
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(
+      vaultState("generated_default_native_passkey_prf", [
+        passphraseWrapper,
+        nativePasskeyWrapper,
+      ]),
+    );
+    unlockGeneratedDefaultVaultMock.mockRejectedValue(
+      "Passkey authentication failed: The operation was canceled by the user",
+    );
+
+    render(
+      <>
+        <VaultFlow user={user} onSuccess={vi.fn()} />
+        <VaultFlow user={user} onSuccess={vi.fn()} />
+      </>,
+    );
+
+    expect(
+      (await screen.findAllByText(
+        "Passkey unlock was cancelled. Choose Passphrase or Recovery key below, or tap Passkey to try again.",
+      )).length,
+    ).toBe(2);
+    expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByLabelText("Vault passphrase")).toHaveLength(2);
+  });
+
+  it("explains a localhost RP ID mismatch without reopening the passkey prompt", async () => {
+    isNativePlatformMock = true;
+    const domainMismatchUser = {
+      uid: "user-passkey-domain-mismatch",
+    } as Parameters<typeof VaultFlow>[0]["user"];
+    checkVaultMock.mockResolvedValue(true);
+    getVaultStateMock.mockResolvedValue(
+      vaultState("generated_default_native_passkey_prf", [
+        passphraseWrapper,
+        nativePasskeyWrapper,
+      ]),
+    );
+    unlockGeneratedDefaultVaultMock.mockRejectedValueOnce(
+      new Error(
+        "SecurityError: The relying party ID is not a registrable domain suffix of, nor equal to current domain. Subsequently attempt to fetch .well-known/webauthn claimed RP failed.",
+      ),
+    );
+
+    render(<VaultFlow user={domainMismatchUser} onSuccess={vi.fn()} />);
+
+    expect(
+      await screen.findByText(
+        "This passkey is registered for a different site. Open the site where you enrolled it, or use your Passphrase or Recovery key below.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Passkey" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Passphrase" })).toBeTruthy();
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unlockGeneratedDefaultVaultMock).toHaveBeenCalledTimes(1);
   });
 });

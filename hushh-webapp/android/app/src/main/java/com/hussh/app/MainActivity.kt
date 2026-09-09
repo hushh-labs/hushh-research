@@ -28,6 +28,7 @@ import com.hussh.app.plugins.HushhSync.HushhSyncPlugin
 import com.hussh.app.plugins.HushhAccount.HushhAccountPlugin
 import com.hussh.app.plugins.HushhLocation.HushhLocationPlugin
 import com.hussh.app.plugins.HushhContacts.HushhContactsPlugin
+import com.hussh.app.plugins.HushhInvitations.HushhInvitationsPlugin
 import com.hussh.app.plugins.HushhNotifications.HushhNotificationsPlugin
 import com.hussh.app.plugins.HushhSessionPrivacy.HushhSessionPrivacyPlugin
 import com.hussh.app.plugins.Kai.KaiPlugin
@@ -93,6 +94,7 @@ class MainActivity : BridgeActivity() {
         registerPlugin(HushhAccountPlugin::class.java) // Account management (deletion)
         registerPlugin(HushhLocationPlugin::class.java) // Foreground location capture
         registerPlugin(HushhContactsPlugin::class.java) // Contact matching
+        registerPlugin(HushhInvitationsPlugin::class.java) // User-confirmed invitations
         registerPlugin(HushhSessionPrivacyPlugin::class.java) // Resume-time session privacy shield
         
         Log.d("MainActivity", "All 13 plugins registered successfully")

@@ -270,7 +270,7 @@ describe("CircleInvitePeopleSheet", () => {
     );
     fireEvent.click(
       within(
-        screen.getByTestId("one-location-circle-grow-eligible-neel-user"),
+        await screen.findByTestId("one-location-circle-grow-eligible-neel-user"),
       ).getByRole("button"),
     );
     fireEvent.click(screen.getByRole("button", { name: "Invite 2 people" }));

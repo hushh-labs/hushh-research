@@ -314,6 +314,51 @@ export function DataTable<TData, TValue>({
         </div>
       ) : null}
 
+      {renderMobileCard && hasMultiplePages ? (
+        <nav
+          aria-label="Table pagination"
+          aria-live="polite"
+          aria-atomic="true"
+          className="grid grid-cols-[1fr_auto_1fr] items-center gap-3 px-1 pt-1 text-sm text-muted-foreground md:hidden"
+          data-no-route-swipe
+          data-slot="data-table-mobile-pagination"
+        >
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!table.getCanPreviousPage()}
+            onClick={() => {
+              if (table.getCanPreviousPage()) {
+                table.previousPage();
+              }
+            }}
+            aria-label="Go to previous page"
+            className="justify-self-start"
+          >
+            Previous
+          </Button>
+          <span className="whitespace-nowrap text-center font-medium text-foreground">
+            Page {currentPage}
+          </span>
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            disabled={!table.getCanNextPage()}
+            onClick={() => {
+              if (table.getCanNextPage()) {
+                table.nextPage();
+              }
+            }}
+            aria-label="Go to next page"
+            className="justify-self-end"
+          >
+            Next
+          </Button>
+        </nav>
+      ) : null}
+
       <div
         className={cn(
           surfaceDataTableShellClassName,
@@ -452,7 +497,12 @@ export function DataTable<TData, TValue>({
       </div>
 
       {hasMultiplePages && (
-        <div className="flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between">
+        <div
+          className={cn(
+            "flex flex-col gap-3 pt-2 sm:flex-row sm:items-center sm:justify-between",
+            renderMobileCard && "hidden md:flex",
+          )}
+        >
           <div
             aria-live="polite"
             aria-atomic="true"

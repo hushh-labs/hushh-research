@@ -814,10 +814,73 @@ describe("RiaOnboardingPage", () => {
     });
   });
 
-  it("loads an existing draft but still opens at the welcome step", async () => {
+  it("restores a saved step 2 draft after remount", async () => {
+    let savedDraft: Record<string, unknown> | null = null;
+    mocks.draftService.load.mockImplementation(async () => savedDraft);
+    mocks.draftService.save.mockImplementation(async (_userId, draft) => {
+      savedDraft = draft;
+    });
+
+    const firstRender = render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-welcome")).toBeTruthy();
+    });
+
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("continue-btn"));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+    await waitFor(() => {
+      expect(savedDraft).toEqual(
+        expect.objectContaining({ currentStepId: "license_number" }),
+      );
+    });
+
+    firstRender.unmount();
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-license")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+  });
+
+  it("restores a valid saved later setup step and preserves draft fields", async () => {
     mocks.draftService.load.mockResolvedValue({
       currentStepId: "services",
       onboardingType: "firm",
+      licenseNumber: "111222",
+      licenseVerificationStatus: "found",
+      advisorName: "Saved Advisor",
+      verifiedLicensePrefillKey: "auto:111222",
+      servicesOffered: [],
+      feeStructure: [],
+      city: "Austin",
+      pinZip: "78701",
+    });
+
+    render(<RiaOnboardingPage />);
+
+    await waitFor(() => {
+      expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("step-services")).toBeTruthy();
+    });
+    expect(screen.queryByTestId("step-welcome")).toBeNull();
+    expect(screen.getByTestId("services-city").textContent).toBe("Austin");
+    expect(screen.getByTestId("services-pin-zip").textContent).toBe("78701");
+  });
+
+  it("clamps an invalid persisted later step to the nearest valid prerequisite", async () => {
+    mocks.draftService.load.mockResolvedValue({
+      currentStepId: "review",
+      onboardingType: "individual",
       licenseNumber: "111222",
       licenseVerificationStatus: "found",
       advisorName: "Saved Advisor",
@@ -829,17 +892,9 @@ describe("RiaOnboardingPage", () => {
     render(<RiaOnboardingPage />);
 
     await waitFor(() => {
-      expect(mocks.draftService.load).toHaveBeenCalledWith("user-ria-1");
+      expect(screen.getByTestId("step-services")).toBeTruthy();
     });
-
-    // Entering RIA setup never resumes mid-wizard — the saved step pointer is
-    // ignored so step 1 (and its cinematic intro) is never skipped...
-    await waitFor(() => {
-      expect(screen.getByTestId("step-welcome")).toBeTruthy();
-    });
-    expect(screen.queryByTestId("step-services")).toBeNull();
-    // ...while every other saved field still prefills the flow.
-    expect(screen.getByTestId("welcome-type").textContent).toBe("firm");
+    expect(screen.queryByTestId("step-review")).toBeNull();
   });
 
   it("drafts a bio from verified onboarding fields", async () => {

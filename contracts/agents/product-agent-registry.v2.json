@@ -1934,7 +1934,7 @@
         "voice": true,
         "web": true
       },
-      "system_instruction_sha256": "179a2a1db4c7f8a23ca09bd7ef83eca631e51c664651a9f22b31ebd981fceeae",
+      "system_instruction_sha256": "bc6bf795c019546bb1414aab403fb1e0ab11a892e293773ab33ae01b0a7d1fc3",
       "telemetry_namespace": "agent.one",
       "tools": [],
       "ui_type": "chat",

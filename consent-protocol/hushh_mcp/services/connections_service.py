@@ -3285,12 +3285,25 @@ class ConnectionsService:
             "audience": normalized_audience,
         }
 
+    def begin_contact_sync(self) -> datetime:
+        """Use the database clock before asynchronous matching or graph waits."""
+        row = self._execute_one("SELECT clock_timestamp() AS started_at")
+        started_at = (row or {}).get("started_at")
+        if not isinstance(started_at, datetime) or started_at.tzinfo is None:
+            raise ConnectionsError(
+                "CONTACT_SYNC_TRANSACTION_UNAVAILABLE",
+                "Contact sync is temporarily unavailable.",
+                status_code=503,
+            )
+        return started_at
+
     def sync_contact_matches(
         self,
         user_id: str,
         *,
         phone_lookups: list[dict[str, Any]],
         matches: list[dict[str, Any]],
+        sync_started_at: datetime | None = None,
     ) -> dict[str, Any]:
         """Materialize eligible contact matches without broadening consent.
 
@@ -3395,7 +3408,11 @@ class ConnectionsService:
                 """
                 SELECT
                   connection.id, connection.user_a_id, connection.user_b_id,
-                  connection.status,
+                  connection.status, connection.revoked_at,
+                  CASE connection.revoked_by_side
+                    WHEN 'a' THEN connection.user_a_id
+                    WHEN 'b' THEN connection.user_b_id
+                  END AS revoked_by_user_id, connection.revoked_by_at,
                   CASE
                     WHEN connection.user_a_id = :requester_id THEN connection.user_b_id
                     ELSE connection.user_a_id
@@ -3618,10 +3635,25 @@ class ConnectionsService:
                     # target may be recognized only through an already-active
                     # edge. New and revoked pairs remain undisclosed.
                     continue
-                elif existing_status == "revoked":
-                    # A disconnect is an explicit suppression tombstone even
-                    # for a pair that predated contact-sync provenance.
-                    outcome = "suppressed"
+                elif existing_status == "revoked" and existing is not None:
+                    # A fresh explicit sync can undo only this requester's own
+                    # earlier disconnect. Episode equality also fails closed
+                    # after an older binary writes a newer revocation.
+                    revoked_at = existing.get("revoked_at")
+                    if (
+                        existing.get("revoked_by_user_id") == requester_id
+                        and isinstance(revoked_at, datetime)
+                        and revoked_at.tzinfo is not None
+                        and existing.get("revoked_by_at") == revoked_at
+                        and sync_started_at is not None
+                        and revoked_at < sync_started_at
+                    ):
+                        activations.append(
+                            {**directory_activation, "reconnect_revoked_at": revoked_at}
+                        )
+                        activation_required_target_ids.add(target_user_id)
+                    else:
+                        outcome = "suppressed"
                 else:
                     # Matching materializes the social relationship only. It
                     # does not activate a pending scope proposal or create a
@@ -3646,6 +3678,7 @@ class ConnectionsService:
                         transaction_connection,
                         requester_user_id=requester_id,
                         activations=activations,
+                        sync_started_at=sync_started_at,
                     )
                 )
                 if activated_target_ids:
@@ -3771,9 +3804,8 @@ class ConnectionsService:
                 """,
                 {"a": user_a, "b": user_b},
             )
-            # Persist the disconnect in the provenance ledger. In particular,
-            # a revoked canonical row is the contact-sync suppression tombstone
-            # even when this pair predates the contact_sync origin kind.
+            # Revoke provenance independently of the new explicit-sync choice.
+            # Reconnecting never restores revoked scope grants or named Circles.
             self._execute_many(
                 """
                 UPDATE connection_origins
@@ -3790,17 +3822,39 @@ class ConnectionsService:
             )
             conn = self._execute_one(
                 """
+                WITH episode AS MATERIALIZED (SELECT clock_timestamp() AS revoked_at)
                 UPDATE connections
-                SET status = 'revoked', revoked_at = NOW(), updated_at = NOW()
+                SET status = 'revoked', revoked_at = episode.revoked_at, updated_at = NOW(),
+                    revoked_by_side = CASE WHEN user_a_id = :actor_user_id THEN 'a'
+                      WHEN user_b_id = :actor_user_id THEN 'b' END,
+                    revoked_by_at = episode.revoked_at
+                FROM episode
                 WHERE id = :id AND status = 'active'
-                RETURNING id, revoked_at
+                RETURNING id, connections.revoked_at
                 """,
-                {"id": (connection_id or "").strip()},
+                {"id": (connection_id or "").strip(), "actor_user_id": user_id},
             )
             if conn:
                 self._end_one_location_circle_memberships(
                     user_a_id=str(user_a or ""),
                     user_b_id=str(user_b or ""),
+                )
+                # Each named-Circle origin removal recomputes the aggregate.
+                # Multiple origins can temporarily reactivate it and replace
+                # revoked_at. The explicit disconnect owns the final state and
+                # its original actor episode, within this same graph gate.
+                self._execute_one(
+                    """
+                    UPDATE connections
+                    SET status = 'revoked', revoked_at = :episode,
+                        revoked_by_at = :episode,
+                        revoked_by_side = CASE WHEN user_a_id = :actor THEN 'a'
+                          WHEN user_b_id = :actor THEN 'b' END,
+                        updated_at = NOW()
+                    WHERE id = :id
+                    RETURNING id
+                    """,
+                    {"id": conn["id"], "episode": conn["revoked_at"], "actor": user_id},
                 )
                 user_a_id = str(user_a or "")
                 user_b_id = str(user_b or "")

@@ -50,6 +50,7 @@ fi
 
 if has_match '^hushh-webapp/(lib/voice/|components/agent/|scripts/voice/|__tests__/.*(voice|agent)|app/api/(kai|one)/.*(voice|realtime)|\.voice-action-contract\.json)'; then
   run_check "voice gateway" npm run verify:voice-gateway
+  run_check "One Voice runtime evaluations" npm run verify:one-voice
   ran=1
 fi
 

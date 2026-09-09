@@ -40,6 +40,7 @@ import {
 } from "@/lib/navigation/routes";
 import { useLocalOnboardingActionHandler } from "@/lib/agent/local-onboarding-actions";
 import { usePublishVoiceSurfaceMetadata } from "@/lib/voice/voice-surface-metadata";
+import { VOICE_CONFIRM_DATA_KEY } from "@/lib/voice/voice-action-card";
 
 type Props = { personRef: string; initialProfile: PublicPersonProfile | null };
 
@@ -383,10 +384,30 @@ export function PersonProfilePage({ personRef, initialProfile }: Props) {
     status: (await updateRelationship("cancel")) ? "succeeded" : "failed",
     summary: "Connection request cancellation finished.",
   }), { enabled: viewerProfile?.relationship.status === "pending_outgoing" });
-  useLocalOnboardingActionHandler("people.profile.remove_connection", async () => ({
-    status: (await updateRelationship("remove")) ? "succeeded" : "failed",
-    summary: "Connection removal finished.",
-  }), { enabled: viewerProfile?.relationship.status === "connected" });
+  useLocalOnboardingActionHandler("people.profile.remove_connection", async (_slots, context) => {
+    const displayName = profile?.displayName || "this person";
+    if (!context?.directiveId && !context?.humanConfirmationToken) {
+      return {
+        status: "blocked" as const,
+        summary: `Removing your connection with ${displayName} needs a confirmation.`,
+        data: {
+          [VOICE_CONFIRM_DATA_KEY]: {
+            actionId: "people.profile.remove_connection",
+            slots: {},
+            prompt: `Remove your connection with ${displayName}?`,
+            subject: { name: displayName, detail: null },
+            consequence:
+              "Ends the connection with this person. Existing consent remains governed separately.",
+            confirmLabel: "Remove",
+          },
+        },
+      };
+    }
+    return {
+      status: (await updateRelationship("remove")) ? "succeeded" : "failed",
+      summary: "Connection removal finished.",
+    };
+  }, { enabled: viewerProfile?.relationship.status === "connected" });
   useLocalOnboardingActionHandler("people.profile.review_information_request", async () => {
     if (!selectedScopeRefs.size) {
       return { status: "blocked", summary: "Select at least one field before reviewing the request." };

@@ -8819,8 +8819,8 @@
         ]
       },
       "shell": {
-        "app_page_shell": true,
-        "page_header": true,
+        "app_page_shell": false,
+        "page_header": false,
         "settings_ui": true,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
@@ -9131,8 +9131,8 @@
         ]
       },
       "shell": {
-        "app_page_shell": true,
-        "page_header": true,
+        "app_page_shell": false,
+        "page_header": false,
         "settings_ui": false,
         "shared_loader": false,
         "back_button_pattern": "shared-shell"
@@ -9468,5 +9468,5 @@
       "thread_and_consent_contract": null
     }
   ],
-  "content_sha256": "774f156f4278d99b87bd008b72c5eaa02eb2f8e2a4e4497a9955734b8e1f613a"
+  "content_sha256": "d1098b2de80bbe0158e600f7402734be520eab7614fbc67ed7a32283a52e4df0"
 }

@@ -34,6 +34,24 @@ export function normalizeRpHost(host: string | null | undefined): string | null 
   return normalized;
 }
 
+/**
+ * A WebAuthn RP ID may be the current host or one of its registrable suffixes.
+ * Keep this check centralized so wrapper selection and trusted-device flows
+ * apply the same origin-boundary rule.
+ */
+export function isPasskeyRpIdCompatibleWithHost(
+  hostname: string | null | undefined,
+  rpId: string | null | undefined,
+): boolean {
+  const normalizedHost = normalizeRpHost(hostname);
+  const normalizedRpId = normalizeRpHost(rpId);
+  if (!normalizedHost || !normalizedRpId) return false;
+  return (
+    normalizedHost === normalizedRpId ||
+    normalizedHost.endsWith(`.${normalizedRpId}`)
+  );
+}
+
 export function resolvePasskeyRpId(options: ResolvePasskeyRpIdOptions): string {
   const explicitRp = normalizeRpHost(process.env.NEXT_PUBLIC_PASSKEY_RP_ID);
   if (explicitRp) {

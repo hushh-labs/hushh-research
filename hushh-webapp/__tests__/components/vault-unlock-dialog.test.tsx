@@ -166,6 +166,7 @@ describe("VaultUnlockDialog", () => {
   });
 
   it("suppresses persistent shell chrome until the last vault surface closes", () => {
+    const onStandardOpenChange = vi.fn();
     const first = render(
       <VaultUnlockDialog
         user={user}
@@ -180,6 +181,7 @@ describe("VaultUnlockDialog", () => {
       <VaultUnlockDialog
         user={user}
         open
+        onOpenChange={onStandardOpenChange}
         onSuccess={vi.fn()}
         title="Unlock required"
         description="Unlock your vault before continuing."
@@ -190,6 +192,8 @@ describe("VaultUnlockDialog", () => {
     expect(document.documentElement.hasAttribute("data-vault-unlock-hard-gate")).toBe(true);
     expect(document.body.hasAttribute("data-vault-unlock-active")).toBe(true);
     expect(document.body.hasAttribute("data-vault-unlock-hard-gate")).toBe(true);
+    expect(document.querySelectorAll('[data-vault-unlock-surface]').length).toBe(1);
+    expect(onStandardOpenChange).toHaveBeenCalledWith(false);
 
     first.unmount();
     expect(document.documentElement.hasAttribute("data-vault-unlock-active")).toBe(true);

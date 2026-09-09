@@ -427,6 +427,31 @@ describe("SegmentedTabs", () => {
     fireEvent.keyDown(brokerage, { key: "ArrowLeft" });
     expect(handleValueChange).not.toHaveBeenCalled();
   });
+
+  it("supports the scoped Location-style agent navigation variant", () => {
+    const { container } = render(
+      <SegmentedTabs
+        value="overview"
+        onValueChange={() => {}}
+        variant="agent-top"
+        options={[
+          { value: "overview", label: "Overview" },
+          { value: "receipts", label: "Receipts" },
+        ]}
+      />,
+    );
+
+    const root = container.firstElementChild;
+    const active = screen.getByRole("tab", { name: "Overview" });
+    const label = active.querySelector('[data-ui-contract="required-title"]');
+
+    expect(root).toHaveAttribute("data-ui-variant", "agent-top");
+    expect(root?.className).toContain("h-9");
+    expect(root?.className).toContain("rounded-[10px]");
+    expect(active.className).toContain("rounded-[8px]");
+    expect(active.className).toContain("mx-0.5");
+    expect(label).toHaveClass("ui-text-agent-tab-label");
+  });
 });
 
 describe("SettingsDetailPanel", () => {

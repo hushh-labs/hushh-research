@@ -97,7 +97,7 @@ describe("TopShellRouteSwipe", () => {
     expect(navigation.push).not.toHaveBeenCalled();
   });
 
-  it("keeps a committed RIA drag on the compositor until the shared route transition commits", () => {
+  it("keeps the persistent RIA shell static while committing a tab drag", () => {
     navigation.pathname = "/ria/profile";
     const view = render(
       <TopShellRouteSwipe tabSet={RIA_TABS}>
@@ -127,9 +127,9 @@ describe("TopShellRouteSwipe", () => {
       "/ria/clients",
       expect.any(Function),
       "tap",
-      "full",
+      "contextual",
     );
-    expect(surface?.style.transform).not.toBe("translate3d(0, 0, 0)");
+    expect(surface?.style.transform).toBe("");
     expect(navigation.scrollToTop).not.toHaveBeenCalled();
 
     const navigate = navigation.begin.mock.calls[0]?.[1] as (() => void) | undefined;
@@ -139,7 +139,7 @@ describe("TopShellRouteSwipe", () => {
     expect(navigation.push).toHaveBeenCalledWith("/ria/clients", {
       scroll: false,
     });
-    expect(surface?.style.transform).toBe("translate3d(0, 0, 0)");
+    expect(surface?.style.transform).toBe("");
   });
 
   it("does not navigate beyond the first RIA tab", () => {

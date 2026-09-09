@@ -33,6 +33,9 @@ const iosUsageDescriptionKeys = [
 ].map((match) => match[1]);
 const allowedIosUsageDescriptionKeys = new Set([
   "NSMicrophoneUsageDescription",
+  // Native speech recognition is an optional adapter, but the declaration is
+  // mandatory before any iOS transcript provider can be enabled.
+  "NSSpeechRecognitionUsageDescription",
   "NSLocationWhenInUseUsageDescription",
   // Background location sharing (One Location) needs Always authorization.
   "NSLocationAlwaysAndWhenInUseUsageDescription",
@@ -58,6 +61,12 @@ const micUsageMatch = infoPlist.match(
 );
 if (!micUsageMatch?.[1]?.trim()) {
   fail("iOS Info.plist must include non-empty NSMicrophoneUsageDescription.");
+}
+const speechUsageMatch = infoPlist.match(
+  /<key>NSSpeechRecognitionUsageDescription<\/key>\s*<string>([^<]+)<\/string>/
+);
+if (!speechUsageMatch?.[1]?.trim()) {
+  fail("iOS Info.plist must include non-empty NSSpeechRecognitionUsageDescription.");
 }
 const locationUsageMatch = infoPlist.match(
   /<key>NSLocationWhenInUseUsageDescription<\/key>\s*<string>([^<]+)<\/string>/

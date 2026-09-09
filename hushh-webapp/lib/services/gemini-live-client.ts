@@ -12,8 +12,14 @@ import type {
   OneVoiceTransportStartOptions,
   RealtimeVoiceTransport,
 } from "@/lib/voice/one-voice-transport";
+import {
+  BoundedTranscriptBuffer,
+  type OneVoiceSpeechAdapter,
+  type TranscriptEvent,
+} from "@/lib/voice/transcript-events";
 import { mapAgentVoiceStatusToOneVoiceState } from "@/lib/voice/voice-ui-state-machine";
 import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
+import { emitLocalRuntimeEvent } from "@/lib/voice/local-runtime-observability";
 
 /**
  * Browser client for Gemini Live full-duplex voice.
@@ -25,11 +31,15 @@ import { createVoiceTurnId, logVoiceMetric } from "@/lib/voice/voice-telemetry";
  *      telemetry, or model context.
  *   2. The relay owns the Live setup and announces readiness with a
  *      {"setupComplete": {}} frame.
- *   3. Capture mic audio as 16 kHz mono PCM16 and stream it up.
+ *   3. Prefer the platform speech adapter for transcript input. When no
+ *      adapter is available, capture mic audio as 16 kHz mono PCM16 and
+ *      stream it up as the provider-backed fallback.
  *   4. Play back the 24 kHz PCM16 audio Gemini streams down, and surface input
  *      and output amplitude + a coarse status so the UI waveform can react.
  *
- * This is the only realtime full-duplex voice transport; the chat
+ * This is the only realtime full-duplex voice transport; platform speech
+ * adapters feed its input contract, and unresolved adapter transcripts become
+ * real `user_text` turns. The chat
  * Agent Bar owns the only interactive audio path; Agent Chat delegates voice
  * requests here and has no STT/TTS fallback transport.
  */
@@ -115,6 +125,28 @@ function describeMicError(error: unknown): string {
         ? `Voice could not start: ${error.message}`
         : "Voice could not start. Check your microphone and try again.";
   }
+}
+
+function isSpeechAdapterUnavailable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error || "");
+  return [
+    "speech_unsupported",
+    "speech_on_device_unavailable",
+    "speech_locale_unavailable",
+    "speech_local_unavailable",
+    "speech_local_model_missing",
+    "local_runtime_unsupported_browser",
+    "local_runtime_unsupported_device",
+    "local_runtime_insufficient_memory",
+    "local_runtime_insufficient_storage",
+    "local_runtime_network_required",
+    "local_runtime_download_failed",
+    "local_runtime_pack_not_installed",
+    "local_runtime_pack_not_compatible",
+    "local_runtime_inference_failed",
+    "local_asr_entrypoint_unsupported",
+    "local_asr_runtime_asset_missing",
+  ].some((code) => message.includes(code));
 }
 
 /**
@@ -225,6 +257,18 @@ function readNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
+function readStringArray(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  return Array.from(
+    new Set(
+      value.filter(
+        (item): item is string =>
+          typeof item === "string" && Boolean(item.trim()),
+      ),
+    ),
+  ).slice(0, 64);
+}
+
 /**
  * Upper bound on the setup handshake (socket open + runtime_bootstrap + relay
  * run_live + first {"setupComplete": {}}). Generous enough to absorb a cold
@@ -291,6 +335,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
    */
   private initialContextReady = false;
   private initialContextInFlight = false;
+  /** One bounded external request waiting for the initial context barrier. */
+  private pendingUserText: string | null = null;
+  private pendingRealtimeAudioFrames: Uint8Array[] = [];
+  /** Final adapter transcripts held until the redacted context barrier. */
+  private pendingSpeechEvents = new BoundedTranscriptBuffer(8);
+  private speechAdapter: OneVoiceSpeechAdapter | null = null;
+  private executableActionIds: string[] | null = null;
   /** Consent token for One's specialist tools; rides only in app_context frames. */
   private consentToken: string | null = null;
   private visitorActivitySent = false;
@@ -298,7 +349,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   private lastRealtimeAudioSentAt = 0;
   /** Frames discarded as backlog. Non-zero means the main thread stalled. */
   private droppedBacklogFrames = 0;
+  /** Start-to-first-capture timing for the hardware capture SLO. */
+  private captureStartedAt: number | null = null;
+  private captureMetricLogged = false;
   private consecutiveSpeechFrames = 0;
+  private speechOnsetReady = false;
   private bufferedVisitorSpeechFrames: Uint8Array[] = [];
   /**
    * True while the model's turn is open (audio received since the last
@@ -325,6 +380,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     string,
     (result: OneVoiceContextApplyResult) => void
   >();
+  private contextReadyWaiters = new Set<(ready: boolean) => void>();
+  private localActionProposalWaiters = new Map<
+    string,
+    { resolve: (accepted: boolean) => void; timer: ReturnType<typeof setTimeout> }
+  >();
   private actionConfirmationWaiters = new Map<
     string,
     {
@@ -336,6 +396,192 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
   constructor(handlers: GeminiLiveHandlers = {}) {
     this.handlers = handlers;
+  }
+
+  /**
+   * Queue a real user turn until the socket and the initial redacted app
+   * context are ready. Native/Siri request text is never app-composed speech
+   * and is held only in this live client instance.
+   */
+  sendUserText(text: string): boolean {
+    const normalized = text.trim().slice(0, 4_000);
+    if (!normalized || this.closed) return false;
+    this.pendingUserText = normalized;
+    this.flushPendingUserText();
+    return true;
+  }
+
+  waitForContextReady(options: {
+    signal?: AbortSignal;
+    timeoutMs?: number;
+  } = {}): Promise<boolean> {
+    if (this.initialContextReady) return Promise.resolve(true);
+    if (this.closed) return Promise.resolve(false);
+    return new Promise((resolve) => {
+      let settled = false;
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      const onAbort = () => finish(false);
+      const finish = (ready: boolean) => {
+        if (settled) return;
+        settled = true;
+        if (timer !== null) clearTimeout(timer);
+        options.signal?.removeEventListener("abort", onAbort);
+        this.contextReadyWaiters.delete(finish);
+        resolve(ready);
+      };
+      this.contextReadyWaiters.add(finish);
+      timer = setTimeout(() => finish(false), options.timeoutMs ?? 2_000);
+      options.signal?.addEventListener("abort", onAbort, { once: true });
+      if (this.initialContextReady) finish(true);
+    });
+  }
+
+  proposeLocalAction(input: {
+    actionId: string;
+    slots?: Record<string, unknown>;
+    contextRevision: string;
+    needsConfirmation: boolean;
+    trustedActivationRequired?: boolean;
+    goalId?: string | null;
+  }): Promise<boolean> {
+    if (
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete ||
+      !this.initialContextReady
+    ) {
+      return Promise.resolve(false);
+    }
+    const proposalId = `local_${createVoiceTurnId()}`;
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => {
+        this.localActionProposalWaiters.delete(proposalId);
+        resolve(false);
+      }, 5_000);
+      this.localActionProposalWaiters.set(proposalId, { resolve, timer });
+      this.ws?.send(
+        JSON.stringify({
+          type: "action_propose",
+          actionProposal: {
+            proposalId,
+            actionId: input.actionId,
+            slots: input.slots || {},
+            contextRevision: input.contextRevision,
+            needsConfirmation: input.needsConfirmation,
+            trustedActivationRequired: input.trustedActivationRequired === true,
+            goalId: input.goalId || null,
+          },
+        }),
+      );
+    });
+  }
+
+  getExecutableActionIds(): readonly string[] | null {
+    return this.executableActionIds;
+  }
+
+  private flushPendingUserText(): void {
+    const text = this.pendingUserText;
+    if (
+      !text ||
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete ||
+      !this.initialContextReady
+    ) {
+      return;
+    }
+    this.pendingUserText = null;
+    this.suppressModelAudio = false;
+    this.ws.send(JSON.stringify({ type: "user_text", text }));
+  }
+
+  private emitSpeechTranscript(event: TranscriptEvent): void {
+    if (this.closed || !event.text) return;
+    const eventOptions = this.nextEventOptions();
+    if (event.kind === "final" && this.state === "listening") {
+      this.setState("thinking");
+    }
+    if (event.kind === "partial") {
+      this.handlers.onEvent?.({
+        type: "transcript_partial",
+        provider: this.provider,
+        text: event.text,
+        confidence: event.confidence ?? null,
+        transcriptProvider: event.provider,
+        onDevice: event.onDevice,
+        sessionId: eventOptions.sessionId,
+        sourceId: eventOptions.sourceId,
+        sourceSeq: eventOptions.sourceSeq,
+      });
+      return;
+    }
+    if (event.kind !== "final") return;
+    this.handlers.onEvent?.({
+      type: "transcript_final",
+      provider: this.provider,
+      text: event.text,
+      confidence: event.confidence ?? null,
+      source: "input",
+      transcriptProvider: event.provider,
+      onDevice: event.onDevice,
+      sessionId: eventOptions.sessionId,
+      sourceId: eventOptions.sourceId,
+      sourceSeq: eventOptions.sourceSeq,
+    });
+  }
+
+  private handleSpeechAdapterEvent(event: TranscriptEvent): void {
+    if (this.closed) return;
+    if (!this.captureMetricLogged) {
+      this.captureMetricLogged = true;
+      logVoiceMetric({
+        metric: "time_to_capture_ms",
+        value: Math.max(
+          0,
+          performance.now() - (this.captureStartedAt ?? performance.now()),
+        ),
+        turnId: createVoiceTurnId(),
+        tags: {
+          provider: this.provider,
+          speech_provider: event.provider,
+          on_device: event.onDevice,
+        },
+      });
+    }
+    if (event.kind === "error") {
+      this.fail("Speech input failed. Please try again.");
+      return;
+    }
+    if (event.kind === "end") return;
+    if (event.kind === "final" && !this.initialContextReady) {
+      this.pendingSpeechEvents.push(event);
+      return;
+    }
+    this.emitSpeechTranscript(event);
+  }
+
+  private flushPendingSpeechEvents(): void {
+    for (const event of this.pendingSpeechEvents.drain()) {
+      this.emitSpeechTranscript(event);
+    }
+  }
+
+  private enqueueRealtimeAudio(pcm: Uint8Array): void {
+    const maxFrames = 24;
+    if (this.pendingRealtimeAudioFrames.length >= maxFrames) {
+      this.pendingRealtimeAudioFrames.shift();
+    }
+    this.pendingRealtimeAudioFrames.push(pcm);
+  }
+
+  private flushPendingRealtimeAudio(): void {
+    if (!this.initialContextReady || this.pendingRealtimeAudioFrames.length === 0) {
+      return;
+    }
+    const frames = this.pendingRealtimeAudioFrames;
+    this.pendingRealtimeAudioFrames = [];
+    for (const frame of frames) this.sendRealtimeAudio(frame, false);
   }
 
   private setState(next: GeminiLiveVoiceState) {
@@ -369,15 +615,21 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
   async start(options?: OneVoiceTransportStartOptions): Promise<void> {
     if (this.ws) return;
+    this.captureStartedAt = performance.now();
+    this.captureMetricLogged = false;
     this.sessionId = createGeminiLiveSessionId();
     this.sourceSeq = 0;
     this.visitorActivitySent = false;
     this.lastRealtimeAudioSentAt = 0;
     this.droppedBacklogFrames = 0;
     this.consecutiveSpeechFrames = 0;
+    this.speechOnsetReady = false;
     this.bufferedVisitorSpeechFrames = [];
     this.initialContextReady = false;
     this.initialContextInFlight = false;
+    this.pendingRealtimeAudioFrames = [];
+    this.pendingSpeechEvents.clear();
+    this.speechAdapter = options?.speechAdapter ?? null;
     this.setState("connecting");
 
     const context = options?.context ?? null;
@@ -406,6 +658,39 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       this.runtimeCredentialTransport === "vertex_api_key"
         ? options?.runtimeVertexLocation?.trim() || null
         : null;
+    try {
+      if (this.speechAdapter) {
+        const adapter = this.speechAdapter;
+        adapter.setCallbacks({
+          onEvent: (event) => this.handleSpeechAdapterEvent(event),
+        });
+        try {
+          await adapter.start({
+            sessionId: this.sessionId,
+            onDevice: true,
+            allowNetwork: false,
+          });
+        } catch (error) {
+          if (!isSpeechAdapterUnavailable(error)) throw error;
+          emitLocalRuntimeEvent({
+            event: "cloud_fallback_triggered",
+            provider: adapter.provider,
+            reason: error instanceof Error ? error.message : "speech_adapter_unavailable",
+          });
+          await adapter.cancel().catch(() => undefined);
+          this.speechAdapter = null;
+          await this.openMicrophone();
+        }
+      } else {
+        await this.openMicrophone();
+      }
+    } catch (error) {
+      this.fail(describeMicError(error));
+      return;
+    }
+
+    if (this.closed) return;
+
     let relayUrl: string;
     try {
       relayUrl =
@@ -414,13 +699,6 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       this.fail(
         error instanceof Error ? error.message : "Could not start One voice.",
       );
-      return;
-    }
-
-    try {
-      await this.openMicrophone();
-    } catch (error) {
-      this.fail(describeMicError(error));
       return;
     }
 
@@ -474,13 +752,22 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
 
     this.captureNode.port.onmessage = (event) => {
       const frame = event.data as Float32Array;
-      if (
-        !this.setupComplete ||
-        !this.initialContextReady ||
-        !this.ws ||
-        this.ws.readyState !== WebSocket.OPEN
-      ) {
-        return;
+      // The microphone is intentionally opened before relay setup. Keep
+      // processing frames while the socket/setup/context handshake catches
+      // up so the bounded onset/audio buffers can preserve the first words.
+      // Only a stopped client may discard a capture frame here.
+      if (this.closed) return;
+      if (!this.captureMetricLogged) {
+        this.captureMetricLogged = true;
+        logVoiceMetric({
+          metric: "time_to_capture_ms",
+          value: Math.max(
+            0,
+            performance.now() - (this.captureStartedAt ?? performance.now()),
+          ),
+          turnId: createVoiceTurnId(),
+          tags: { provider: this.provider },
+        });
       }
       const level = Math.min(1, rms(frame) * 4);
       this.handlers.onInputLevel?.(level);
@@ -503,12 +790,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
   }
 
   private sendRealtimeAudio(pcm: Uint8Array, paced = true): void {
+    if (this.closed) return;
     if (
       !this.ws ||
       this.ws.readyState !== WebSocket.OPEN ||
-      !this.setupComplete
-    )
+      !this.setupComplete ||
+      !this.initialContextReady
+    ) {
+      if (this.visitorActivitySent) this.enqueueRealtimeAudio(pcm);
       return;
+    }
     // Never stream faster than real time.
     //
     // The capture worklet runs on the audio thread and posts a frame every
@@ -576,12 +867,25 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     if (this.visitorActivitySent) return true;
     if (level >= VISITOR_ACTIVITY_LEVEL) {
       this.consecutiveSpeechFrames += 1;
+      const maxFrames = 24;
+      if (this.bufferedVisitorSpeechFrames.length >= maxFrames) {
+        this.bufferedVisitorSpeechFrames.shift();
+      }
       this.bufferedVisitorSpeechFrames.push(pcm);
     } else {
-      this.consecutiveSpeechFrames = 0;
-      this.bufferedVisitorSpeechFrames = [];
+      // Once a speech onset has been detected, retain its bounded PCM window
+      // while the socket/setup/context handshake catches up. Clearing it on a
+      // short pause used to lose the first sentence when the relay took longer
+      // than the user's first utterance.
+      if (!this.speechOnsetReady) {
+        this.consecutiveSpeechFrames = 0;
+        this.bufferedVisitorSpeechFrames = [];
+      }
     }
-    if (this.consecutiveSpeechFrames < VISITOR_ACTIVITY_FRAMES) return false;
+    if (this.consecutiveSpeechFrames >= VISITOR_ACTIVITY_FRAMES) {
+      this.speechOnsetReady = true;
+    }
+    if (!this.speechOnsetReady) return false;
     if (
       !this.ws ||
       this.ws.readyState !== WebSocket.OPEN ||
@@ -594,12 +898,33 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       this.sendRealtimeAudio(bufferedFrame, false);
     }
     this.bufferedVisitorSpeechFrames = [];
+    this.speechOnsetReady = false;
     // A visitor who starts speaking should be able to barge in over an
     // already-playing idle cue. The interruption fence drops stale audio.
     if (this.modelTurnOpen || this.state === "speaking") {
       this.interrupt();
     }
     return false;
+  }
+
+  private flushBufferedSpeechOnset(): void {
+    if (
+      this.visitorActivitySent ||
+      !this.speechOnsetReady ||
+      !this.ws ||
+      this.ws.readyState !== WebSocket.OPEN ||
+      !this.setupComplete ||
+      !this.initialContextReady
+    ) {
+      return;
+    }
+    this.visitorActivitySent = true;
+    this.ws.send(JSON.stringify({ type: "voice_activity_start" }));
+    for (const bufferedFrame of this.bufferedVisitorSpeechFrames) {
+      this.sendRealtimeAudio(bufferedFrame, false);
+    }
+    this.bufferedVisitorSpeechFrames = [];
+    this.speechOnsetReady = false;
   }
 
   private clearSetupTimeout(): void {
@@ -760,11 +1085,42 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     const contextAck = readRecord(message.appContextAccepted);
     const contextId = readString(contextAck?.contextId);
     if (contextId) {
+      this.executableActionIds = readStringArray(
+        contextAck?.executableActionIds,
+      );
       this.acknowledgedContextIds.add(contextId);
       const resolve = this.contextAckWaiters.get(contextId);
       if (resolve) {
         this.contextAckWaiters.delete(contextId);
-        resolve({ status: "acknowledged", contextId });
+        resolve({
+          status: "acknowledged",
+          contextId,
+          executableActionIds: this.executableActionIds,
+        });
+      }
+      return;
+    }
+
+    const localProposalAccepted = readRecord(message.localActionProposalAccepted);
+    const acceptedProposalId = readString(localProposalAccepted?.proposalId);
+    if (acceptedProposalId) {
+      const waiter = this.localActionProposalWaiters.get(acceptedProposalId);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        this.localActionProposalWaiters.delete(acceptedProposalId);
+        waiter.resolve(true);
+      }
+      return;
+    }
+
+    const localProposalRejected = readRecord(message.localActionProposalRejected);
+    const rejectedProposalId = readString(localProposalRejected?.proposalId);
+    if (rejectedProposalId) {
+      const waiter = this.localActionProposalWaiters.get(rejectedProposalId);
+      if (waiter) {
+        clearTimeout(waiter.timer);
+        this.localActionProposalWaiters.delete(rejectedProposalId);
+        waiter.resolve(false);
       }
       return;
     }
@@ -1106,7 +1462,12 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
           return;
         }
         this.initialContextReady = true;
+        for (const resolve of this.contextReadyWaiters) resolve(true);
         this.setState("listening");
+        this.flushPendingSpeechEvents();
+        this.flushBufferedSpeechOnset();
+        this.flushPendingRealtimeAudio();
+        this.flushPendingUserText();
       },
     );
   }
@@ -1127,6 +1488,8 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       persona: context.persona.active,
       voice_state: context.voice.state,
       available_action_ids: context.available_action_ids,
+      executable_action_ids:
+        context.executable_action_ids ?? context.available_action_ids,
       visible_modules: context.ui.visible_modules,
       visible_control_ids: context.ui.visible_control_ids,
       interaction_layer: context.ui.interaction_layer ?? null,
@@ -1180,7 +1543,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       return { status: "cancelled", contextId: contextId || null };
     }
     if (this.acknowledgedContextIds.has(contextId)) {
-      return { status: "acknowledged", contextId };
+      return {
+        status: "acknowledged",
+        contextId,
+        executableActionIds: this.executableActionIds ?? [],
+      };
     }
     if (!this.updateContext(settledContext)) {
       return { status: this.closed ? "closed" : "cancelled", contextId };
@@ -1207,7 +1574,11 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       this.contextAckWaiters.set(contextId, finish);
       options.signal?.addEventListener("abort", abort, { once: true });
       if (this.acknowledgedContextIds.has(contextId)) {
-        finish({ status: "acknowledged", contextId });
+        finish({
+          status: "acknowledged",
+          contextId,
+          executableActionIds: this.executableActionIds ?? [],
+        });
       }
     });
   }
@@ -1475,6 +1846,16 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
     this.clearSetupTimeout();
     this.initialContextReady = false;
     this.initialContextInFlight = false;
+    this.captureStartedAt = null;
+    this.captureMetricLogged = false;
+    this.pendingUserText = null;
+    this.pendingRealtimeAudioFrames = [];
+    this.pendingSpeechEvents.clear();
+    const speechAdapter = this.speechAdapter;
+    this.speechAdapter = null;
+    void speechAdapter?.cancel().catch(() => undefined);
+    this.speechOnsetReady = false;
+    this.bufferedVisitorSpeechFrames = [];
     this.runtimeCredential = null;
     this.runtimeVertexProject = null;
     this.runtimeVertexLocation = null;
@@ -1482,6 +1863,13 @@ export class GeminiLiveClient implements RealtimeVoiceTransport {
       resolve({ status: "closed", contextId });
     }
     this.contextAckWaiters.clear();
+    for (const resolve of this.contextReadyWaiters) resolve(false);
+    this.contextReadyWaiters.clear();
+    for (const waiter of this.localActionProposalWaiters.values()) {
+      clearTimeout(waiter.timer);
+      waiter.resolve(false);
+    }
+    this.localActionProposalWaiters.clear();
     for (const waiter of this.actionConfirmationWaiters.values()) {
       clearTimeout(waiter.timer);
       waiter.reject(new Error("Voice session closed before confirmation."));

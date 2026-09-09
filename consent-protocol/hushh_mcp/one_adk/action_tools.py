@@ -12,7 +12,9 @@ loaded through ``hushh_mcp.services.action_gateway``) is the routing authority:
   never be bypassed by the model picking the wrong lane.
 - ``manual_only`` actions are refused with where-to-do-it guidance;
   ``confirm_required`` actions park a directive flagged
-  ``needsConfirmation`` so the app runs its confirmation surface.
+  ``needsConfirmation`` so the app runs its confirmation surface. A governed
+  ``allow_direct`` mutation is treated the same way; generated policy cannot
+  bypass the directive ledger.
 
 ``list_app_actions`` exposes the manifest as an on-demand ranked index
 (bounded) instead of bloating the system instruction with 94 entries.
@@ -80,8 +82,10 @@ from hushh_mcp.services.live_voice_context import (
     read_completed_action,
     read_failed_action,
     read_live_voice_context,
+    read_unknown_action_attempts,
     record_completed_action,
     record_failed_action,
+    record_unknown_action_attempt,
 )
 from hushh_mcp.services.one_email_kyc_service import OneEmailKycService
 from hushh_mcp.services.one_location_agent_service import (
@@ -233,12 +237,22 @@ def _available_action_ids(tool_context: ToolContext) -> set[str] | None:
     empty list deliberately means no executable controls are available.
     """
     context = _voice_context(tool_context)
-    if not isinstance(context, dict) or "available_action_ids" not in context:
+    if not isinstance(context, dict):
         return None
     ids = context.get("available_action_ids")
-    if not isinstance(ids, list):
-        return set()
-    return {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+    available = (
+        {str(value).strip() for value in ids if isinstance(value, str) and value.strip()}
+        if isinstance(ids, list)
+        else set()
+    )
+    executable = context.get("executable_action_ids")
+    if isinstance(executable, list):
+        available.update(
+            str(value).strip() for value in executable if isinstance(value, str) and value.strip()
+        )
+    if "available_action_ids" in context or "executable_action_ids" in context:
+        return available
+    return None
 
 
 def _executable_action_ids(tool_context: ToolContext) -> set[str] | None:
@@ -309,6 +323,44 @@ def _missing_required_slot(entry: dict[str, Any], slots: dict[str, Any]) -> dict
     return None
 
 
+_GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS: frozenset[str] = frozenset(
+    {
+        # Backend-direct actions must still obtain the directive-ledger proof
+        # before their browser-visible handler can mutate state.
+        "location.leave_circle",
+        "location.delete_circle",
+        "location.stop_share",
+        "location.approve_request",
+        "location.decline_request",
+        "location.create_circle",
+        "location.add_to_circle",
+        "location.rename_circle",
+        "location.checkout_nearby",
+        # These are mounted local handlers rather than backend-direct calls,
+        # but they are still destructive. Without the ledger flag, the
+        # browser would pass the ordinary directive id as execution context
+        # and the handler would mistake that correlation id for approval.
+        "location.remove_emergency_contact",
+        "location.remove_from_circle",
+        "location.delete_saved_location",
+        "connect.remove_connection",
+        "connect.cancel_request",
+        "connect.send_request",
+        "connect.accept_request",
+        "connect.reject_request",
+        "location.send_request",
+        "location.share_selected",
+        "consent.request",
+        "consent.deny",
+        "consent.revoke",
+        "consent.cancel_request",
+        # This action is also available on the profile surface, where its
+        # mounted handler must receive the same ledger-bound context.
+        "people.profile.remove_connection",
+    }
+)
+
+
 def _directive_flags(
     entry: dict[str, Any] | None, *, require_tap_confirmation: bool = False
 ) -> dict[str, bool]:
@@ -323,33 +375,24 @@ def _directive_flags(
             "needsConfirmation": True,
             "trustedActivationRequired": True,
         }
+    action_id = str(entry.get("action_id") or "").strip()
     trusted_activation = str(entry.get("activation_policy") or "") == "trusted_activation_required"
     confirm_required = str(entry.get("execution_policy") or "") == "confirm_required"
-    # Voice does not ask by default. `confirm_required` no longer raises a card
-    # on its own, because being asked "are you sure?" after saying a thing out
-    # loud is the thing people find most tiring about talking to this app --
-    # and a spoken yes to a question One just asked adds no information the
-    # sentence did not already carry. Product owner's call, made explicitly
-    # and more than once.
+    # `trusted_activation_required` is a different kind of thing from an
+    # ordinary confirmation: the provider window must be opened by a fresh
+    # human gesture. The two provider sign-ins open a browser popup, which
+    # platforms permit only during a fresh human gesture.
     #
-    # `trusted_activation_required` survives, and is a different kind of thing.
-    # The two provider sign-ins open a browser popup, which platforms permit
-    # only during a fresh user gesture; removing that would not streamline
-    # sign-in, it would break it. Two actions of 151.
-    #
-    # `require_tap_confirmation` is the person's own opt-in override of that
-    # default, not a second exception to it -- Voice settings, off by default,
-    # same posture as the disabled-domains restriction next to it. Once on, a
-    # `confirm_required` action needs the tap the browser already knows how to
-    # raise for `trusted_activation_required`; nothing new on the client side.
-    #
-    # What this costs when the override is off (still the default), stated
-    # rather than buried: a misheard sentence runs a `confirm_required` action
-    # directly, including submitting a phone code and starting a location
-    # share. The mitigation is elsewhere and deliberate -- destructive actions
-    # resolve exactly one named target or refuse, and ambiguity names the
-    # candidates rather than picking one.
-    needs_confirmation = trusted_activation or (require_tap_confirmation and confirm_required)
+    # `require_tap_confirmation` controls how an already-issued confirmation
+    # is completed. It must not turn the generated `confirm_required` policy
+    # on or off: every such action needs the directive-ledger path, and
+    # governed destructive `allow_direct` actions are added to that boundary
+    # explicitly.
+    needs_confirmation = (
+        trusted_activation
+        or confirm_required
+        or action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS
+    )
     return {
         "needsConfirmation": needs_confirmation,
         "trustedActivationRequired": trusted_activation,
@@ -386,11 +429,10 @@ BACKEND_DIRECT_ACTION_IDS: frozenset[str] = frozenset(
     }
 )
 
-# Consent lifecycle actions are backend-direct and gated by a spoken yes (the
-# `confirmed` slot), like connect.remove_connection. They have no local handler
-# on any page, so the person's tap-confirmation preference must never park a
-# browser directive for them: there would be nothing on screen to run it, and
-# the action would silently die. The spoken confirmation is the gate.
+# Consent lifecycle ids remain listed for compatibility with the backend
+# service seam, but the live action contract routes them through the browser's
+# directive ledger and mounted handler. No model-provided `confirmed` slot is
+# accepted as authorization.
 BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS: frozenset[str] = frozenset(
     {
         "consent.request",
@@ -455,23 +497,6 @@ _BackendDirectError = (
 )
 
 
-class _BackendDirectConfirmationNeeded(Exception):  # noqa: N818 - control-flow signal, not a failure
-    """Raised to ask the model to confirm before mutating, not to report a failure.
-
-    connect.remove_connection is the one BACKEND_DIRECT_ACTION_IDS action with
-    a hand-written two-step confirm gate independent of the contract's
-    execution_policy (it is allow_direct; the browser's local handler always
-    asked anyway, because removing a connection has no undo). Bypassing the
-    browser means bypassing its confirm card too, so this reimplements the
-    same two-step shape conversationally: the first call raises this, which
-    _run_backend_direct_action turns into a `blocked` status carrying the
-    question to ask; the model is expected to ask it, hear a real yes, and
-    call again with `confirmed: true` in slots. Deliberately NOT recorded via
-    record_failed_action -- asking a question is not a failure, and the
-    already-failed guard must not stop the confirmed retry from going through.
-    """
-
-
 async def _verify_backend_direct_authorization(
     tool_context: ToolContext,
 ) -> tuple[bool, str, str]:
@@ -523,16 +548,27 @@ async def _run_backend_direct_action(
     *,
     label: str,
 ) -> dict[str, Any]:
-    """Execute a BACKEND_DIRECT_ACTION_IDS action against the service layer directly.
+    """Compatibility seam that refuses governed direct execution.
 
-    No client_directive is parked and no browser round trip happens. On
-    success/failure this records the same completed/failed bookkeeping the
-    settlement path would have, so the existing already_completed/
-    already_failed loop-guard at the top of run_app_action still works with
-    no browser involved at all.
+    The action ids remain named for generated-contract compatibility, but
+    current mutations must use the browser directive ledger and its mounted
+    confirmation handler. This guard is retained so a future caller cannot
+    accidentally revive a direct model-to-service path.
     """
     session_id = getattr(getattr(tool_context, "session", None), "id", None)
     fingerprint = _slot_fingerprint(clean_slots)
+    if clean_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
+        # Defense in depth: these ids must be routed through a clientDirective
+        # and the ActionDirectiveStore. Never let a future caller revive the
+        # old model-writable confirmation path by invoking this helper directly.
+        logger.warning(
+            "one_adk_action_decision action=%s status=ledger_confirmation_required",
+            clean_id,
+        )
+        return {
+            "status": "blocked",
+            "message": "This action must be confirmed in the Agent One app before it can run.",
+        }
     authorized, user_id, reason = await _verify_backend_direct_authorization(tool_context)
     if not authorized:
         logger.info("one_adk_action_decision action=%s status=unauthorized", clean_id)
@@ -547,9 +583,6 @@ async def _run_backend_direct_action(
         result_message, result_subject = await _execute_backend_direct_mutation(
             clean_id, clean_slots, user_id, tool_context
         )
-    except _BackendDirectConfirmationNeeded as exc:
-        logger.info("one_adk_action_decision action=%s status=confirmation_needed", clean_id)
-        return {"status": "blocked", "message": str(exc)}
     except _BackendDirectError as exc:
         record_failed_action(session_id, clean_id, fingerprint, exc.message)
         logger.info("one_adk_action_decision action=%s status=failed reason=%s", clean_id, exc.code)
@@ -808,6 +841,12 @@ async def _execute_backend_direct_mutation(
     ``publish_location_envelopes`` directive alongside the mutation -- every
     other branch ignores it.
     """
+    if action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
+        # This compatibility seam is intentionally not executable for any
+        # currently governed mutation. A direct caller must fail closed just
+        # like run_app_action, which constructs the ledger-backed directive.
+        raise AssertionError(f"{action_id} must be executed through the directive ledger")
+
     if action_id in ("location.leave_circle", "location.delete_circle"):
         circle_service = OneLocationCircleService()
         spoken_circle = str(slots.get("circle") or "").strip()
@@ -1339,16 +1378,6 @@ async def _execute_backend_direct_mutation(
                 raise ConnectionsError(
                     "CONNECTION_NOT_FOUND",
                     f"{raw_people or 'That person'} is not one of your connections.",
-                )
-            display_names = [
-                str(c.get("displayName") or "this person") for c in resolution.resolved
-            ]
-            confirmed = bool(slots.get("confirmed") is True)
-            if not confirmed:
-                raise _BackendDirectConfirmationNeeded(
-                    f"Ask: remove your connection{'s' if len(display_names) > 1 else ''} with "
-                    f"{join_names_for_speech(display_names)}? Only call this action again with "
-                    "confirmed set to true after they say yes -- do not assume, and do not ask twice."
                 )
             removed_names: list[str] = []
             failed_names = []
@@ -2100,7 +2129,7 @@ async def list_pending_information_requests(tool_context: ToolContext) -> dict[s
         "nextStep": (
             "Say who is asking and for what. The browser is showing each request as a card "
             "with Approve and Deny; approving is the owner's tap. To decline one from here, "
-            "name it, get a yes, then run consent.deny with its requestId and confirmed true."
+            "name it, get a yes, then use the in-app confirmation control to deny it."
             if pending
             else "Nothing is waiting on them right now."
         ),
@@ -2120,7 +2149,7 @@ async def propose_information_request(
     fields to that person's requestable catalog by label or domain, checks the
     purpose and duration, and parks a proposal. Nothing is sent: read the
     proposal back, and only after a yes run_app_action("consent.request") with
-    the proposalId and confirmed true. If connectorReady is false the request
+    the proposal id through the in-app confirmation control. If connectorReady is false the request
     cannot be sent from chat yet; open profilePath once to set up the secure
     connector.
     """
@@ -2210,7 +2239,7 @@ async def propose_information_request(
                 "Read back who you are asking, what you are asking for, why, and for how long, in "
                 "plain words, then ask for a yes. Name the things themselves, never a path or an id. "
                 "After the yes, call run_app_action with action_id consent.request and slots "
-                "{proposal_id, confirmed: true}. Say nothing was sent until that result confirms it."
+                "the in-app confirmation control. Say nothing was sent until that result confirms it."
                 if connector_ready
                 else "The owner's secure key is not ready yet, so nothing can be asked for. "
                 "Say exactly that in plain words, tell them to unlock their private agent and try "
@@ -2237,8 +2266,9 @@ async def propose_information_request(
 async def _execute_consent_lifecycle_action(
     action_id: str, slots: dict[str, Any], user_id: str, tool_context: ToolContext
 ) -> tuple[str, dict[str, str] | None]:
-    """The four consent transitions One may run after a spoken yes."""
-    confirmed = bool(slots.get("confirmed") is True)
+    """Legacy service seam; live consent actions use the directive ledger."""
+    if action_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS:
+        raise AssertionError(f"{action_id} must be executed through the directive ledger")
     if action_id == "consent.request":
         proposal_id = str(slots.get("proposal_id") or "").strip()
         proposals = tool_context.state.get(_STATE_INFORMATION_REQUEST_PROPOSALS) or {}
@@ -2250,12 +2280,6 @@ async def _execute_consent_lifecycle_action(
             )
         name = str(proposal.get("displayName") or "this person")
         labels = list(proposal.get("labels") or [])
-        if not confirmed:
-            raise _BackendDirectConfirmationNeeded(
-                f"Ask: send {name} a request for {join_names_for_speech(labels)} "
-                f"for {proposal.get('durationHours')} hours, purpose: {proposal.get('purpose')}? "
-                "Only call this action again with confirmed set to true after they say yes."
-            )
         connector = await OneEmailKycService().get_client_connector(user_id=user_id)
         connector_key_id = str(
             ((connector or {}).get("connector") or {}).get("connector_key_id") or ""
@@ -2306,11 +2330,6 @@ async def _execute_consent_lifecycle_action(
                 "CONSENT_REQUEST_ID_REQUIRED",
                 "Say which request to deny; list_pending_information_requests names them.",
             )
-        if not confirmed:
-            raise _BackendDirectConfirmationNeeded(
-                "Ask: deny that request? Only call this action again with confirmed set to true "
-                "after they say yes."
-            )
         result = await ConsentLifecycleService().deny_pending_request(user_id, request_id)
         return f"Denied that request. {result.get('message') or ''}".strip(), None
 
@@ -2320,11 +2339,6 @@ async def _execute_consent_lifecycle_action(
         if not revoke_request_id and not scope:
             raise ConsentLifecycleError(
                 "CONSENT_REVOKE_TARGET_REQUIRED", "Say which grant to revoke."
-            )
-        if not confirmed:
-            raise _BackendDirectConfirmationNeeded(
-                "Ask: revoke that access now? Only call this action again with confirmed set to "
-                "true after they say yes."
             )
         await ConsentLifecycleService().revoke_active_grant(
             user_id, scope=scope, request_id=revoke_request_id
@@ -2340,11 +2354,6 @@ async def _execute_consent_lifecycle_action(
             raise ConsentLifecycleError(
                 "INFORMATION_REQUEST_ID_REQUIRED",
                 "Say which request to cancel; the ones you sent are on that person's profile.",
-            )
-        if not confirmed:
-            raise _BackendDirectConfirmationNeeded(
-                "Ask: cancel that request? Only call this action again with confirmed set to true "
-                "after they say yes."
             )
         try:
             await InformationRequestService().cancel(requester_user_id=user_id, bundle_id=bundle_id)
@@ -2513,11 +2522,38 @@ async def run_app_action(
     clean_id = str(action_id or "").strip()
     clean_slots = {k: v for k, v in (slots or {}).items() if v not in (None, "")}
     entry = get_action_gateway_action(clean_id)
+    if entry is not None and (
+        clean_id in _GOVERNED_LEDGER_CONFIRMATION_ACTION_IDS
+        or str(entry.get("execution_policy") or "") == "confirm_required"
+    ):
+        # Confirmation is minted by the directive ledger after the visible
+        # app card is approved. A model-produced slot, including a truthful
+        # boolean, is not authority and must not cross the action boundary.
+        clean_slots.pop("confirmed", None)
     if entry is None:
-        # A bare "that is not a known action" is a dead end: the model has
-        # nothing to do with it, so it narrates instead of retrying, which is
-        # indistinguishable from a hallucination to the person listening.
-        # Hand back the nearest real actions and ask for exactly one retry.
+        session_id = getattr(getattr(tool_context, "session", None), "id", None)
+        record_unknown_action_attempt(session_id, clean_id)
+        attempt = read_unknown_action_attempts(session_id, clean_id)
+        if attempt >= 2:
+            logger.info(
+                "one_adk_action_decision action=%s status=no_app_action attempts=%s",
+                clean_id[:128],
+                attempt,
+            )
+            return {
+                "status": "no_app_action",
+                "message": (
+                    f"'{clean_id}' is not a generated Agent One action and was already "
+                    "refused once. Call report_no_app_action now; do not "
+                    "guess a replacement or retry it again."
+                ),
+                "next_tool": "report_no_app_action",
+            }
+
+        # Give the model one bounded repair chance against the generated
+        # catalog. The second unknown attempt above fails closed, so semantic
+        # recovery can never become an unbounded retry loop or a second action
+        # authority.
         candidates: list[dict[str, str]] = []
         try:
             from hushh_mcp.one_adk.action_retrieval import search_actions
@@ -2536,12 +2572,13 @@ async def run_app_action(
                             "label": str(hit.get("label") or item.action_id),
                         }
                     )
-        except Exception:  # noqa: BLE001 - never let repair break the tool
+        except Exception:  # noqa: BLE001 - repair must not break the tool
             logger.exception("unknown_action_repair_failed")
 
         logger.info(
-            "one_adk_action_decision action=%s status=unknown_action candidates=%d",
+            "one_adk_action_decision action=%s status=unknown_action attempts=%s candidates=%s",
             clean_id[:128],
+            attempt,
             len(candidates),
         )
         if candidates:
@@ -2549,18 +2586,19 @@ async def run_app_action(
                 "status": "unknown_action",
                 "candidates": candidates,
                 "message": (
-                    f"'{clean_id}' is not a known app action. Call run_app_action "
-                    "exactly once more using one of the action_id values in "
-                    "candidates, or call report_no_app_action if none of them is "
-                    "what the person asked for. Do not guess a third id."
+                    f"'{clean_id}' is not a known generated app action. Call "
+                    "run_app_action exactly once more using one of the action_id "
+                    "values in candidates, or call report_no_app_action if none "
+                    "matches the person's request. Do not guess a third id."
                 ),
             }
         return {
             "status": "unknown_action",
             "message": (
-                f"'{clean_id}' is not a known app action. Call "
+                f"'{clean_id}' is not a known generated app action. Call "
                 "report_no_app_action rather than guessing another id."
             ),
+            "next_tool": "report_no_app_action",
         }
 
     context = _voice_context(tool_context)
@@ -2737,22 +2775,17 @@ async def run_app_action(
         }
 
     available_action_ids = _available_action_ids(tool_context)
-    # Navigation actions (route.*, allow_direct) are invocable from any
-    # screen by design; the browser's per-screen inventory does not bound
-    # them. Backend-direct actions are the same in spirit: they mutate
-    # through the service layer directly and were never going to ask the
-    # browser to run a local handler, so there is no screen inventory for
-    # them to be missing from -- the person can be looking at anything.
-    # All other actions must be declared by the current surface.
-    # An action this route declares is runnable even when it lost the prompt
-    # ranking race -- being un-mentioned is not the same as being unavailable.
     executable_action_ids = _executable_action_ids(tool_context)
+    # Navigation actions are invocable from any screen by design. Every other
+    # action, including the former backend-direct compatibility set, must be
+    # declared by the current executable surface. The generated contract now
+    # routes governed mutations through the browser directive ledger, so a
+    # service helper must not make an off-screen local handler look reachable.
     if (
         available_action_ids is not None
         and clean_id not in available_action_ids
         and (executable_action_ids is None or clean_id not in executable_action_ids)
         and not is_navigation_action(entry)
-        and not _is_backend_direct(clean_id, clean_slots)
     ):
         # A journey entry action is legitimately off-screen right now, but it is
         # not out of reach: start_app_goal navigates to its authored destination
@@ -2812,7 +2845,6 @@ async def run_app_action(
         and action_screens
         and current_screen not in action_screens
         and not is_navigation_action(entry)
-        and not _is_backend_direct(clean_id, clean_slots)
     ):
         label = str(entry.get("label") or clean_id)
         where = sorted(action_screens)[0]
@@ -2849,35 +2881,21 @@ async def run_app_action(
         # bodies, exports, and scopes are resolved by the mounted KYC handler.
         clean_slots = {"instruction": instruction}
 
-    # Whether an action must be confirmed is the CONTRACT's call.
-    #
-    # This was hardcoded True, and so was its counterpart in the browser
-    # (`agent-bar.tsx`). The two are ONE invariant expressed on both sides of
-    # the trust boundary and must always be changed together: the browser
-    # decides whether to raise a card, this decides whether the ledger will
-    # accept a settlement without a confirm. Changing only the browser half
-    # made every allow_direct action run and then fail settlement, because the
-    # directive it was settling had been parked here as needing a confirm.
-    #
-    # allow_direct issues ready to run. Everything else still waits, and two
-    # cases deliberately keep waiting whatever the policy says: an action the
-    # gateway does not know (unknown is not a licence) and
-    # trusted_activation_required, whose provider window the browser will only
-    # open on a fresh human gesture.
+    # Whether an action must be confirmed starts with the generated contract.
+    # Governed destructive/backend-direct ids add a safety override for
+    # legacy `allow_direct` entries. This value is stamped into the directive
+    # and read by the browser, so the relay and the visible executor share one
+    # ledger decision rather than independently interpreting the action.
     flags = _directive_flags(
         entry,
         require_tap_confirmation=voice_settings.get("require_tap_confirmation") is True,
     )
     trusted_activation = flags["trustedActivationRequired"]
     needs_confirmation = flags["needsConfirmation"]
-    if clean_id in BACKEND_DIRECT_VERBAL_CONFIRMATION_IDS:
-        needs_confirmation = False
-
-    # Backend-direct actions never reach the directive-parking path below --
-    # once no confirmation is owed (the ordinary case; the person's own
-    # require_tap_confirmation preference still routes through the normal
-    # browser confirm card, unchanged), the mutation happens right here and
-    # the browser is never involved.
+    # Current backend-direct ids are governed by the ledger, so they take the
+    # same directive-parking path as every other confirmation-required action.
+    # The compatibility branch below is intentionally unreachable for the
+    # current generated set and remains defense-in-depth for future ids.
     if (
         _is_backend_direct(clean_id, clean_slots)
         and not needs_confirmation

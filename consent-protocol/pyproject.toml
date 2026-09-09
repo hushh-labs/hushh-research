@@ -29,6 +29,7 @@ dependencies = [
     # from 1.x (2.0's breaking changes were Interactions-API-only).
     "google-genai>=2.9,<3",
     "google-auth>=2.14.1",
+    "google-cloud-secret-manager>=2.20.0",
     "google-cloud-storage>=2.18.2",
     "grpcio==1.76.0",
     "grpcio-status==1.76.0",

@@ -6,6 +6,7 @@ const {
   mockHasVault,
   mockGetVault,
   mockMutation,
+  mockResolveRpId,
   nativePlatform,
   sessionStore,
   cacheStore,
@@ -15,6 +16,7 @@ const {
   mockHasVault: vi.fn(),
   mockGetVault: vi.fn(),
   mockMutation: vi.fn(),
+  mockResolveRpId: vi.fn(),
   nativePlatform: { current: false },
   sessionStore: new Map<string, string>(),
   cacheStore: new Map<string, unknown>(),
@@ -84,7 +86,18 @@ vi.mock("@/lib/vault/passphrase-key", () => ({
 }));
 
 vi.mock("@/lib/vault/passkey-rp", () => ({
-  resolvePasskeyRpId: () => null,
+  isPasskeyRpIdCompatibleWithHost: (
+    hostname: string | null | undefined,
+    rpId: string | null | undefined,
+  ) => {
+    const normalizedHost = hostname?.trim().toLowerCase();
+    const normalizedRpId = rpId?.trim().toLowerCase();
+    return !!normalizedHost && !!normalizedRpId && (
+      normalizedHost === normalizedRpId ||
+      normalizedHost.endsWith(`.${normalizedRpId}`)
+    );
+  },
+  resolvePasskeyRpId: (...args: unknown[]) => mockResolveRpId(...args),
 }));
 
 vi.mock("@/lib/services/api-client", () => ({
@@ -200,6 +213,7 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockResolveRpId.mockReturnValue(null);
     nativePlatform.current = false;
     sessionStore.clear();
     cacheStore.clear();
@@ -207,6 +221,35 @@ describe("VaultService.checkVault (web) — session-restore / 401 handling", () 
     VaultService.invalidateVaultStateCache();
     fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("selects a canonical RP wrapper on a hosted subdomain", () => {
+    mockResolveRpId.mockReturnValue("uat.one.hushh.ai");
+    const state = {
+      vaultKeyHash: "hash",
+      primaryMethod: "generated_default_web_prf" as const,
+      primaryWrapperId: "canonical",
+      recoveryEncryptedVaultKey: "recovery",
+      recoverySalt: "recovery-salt",
+      recoveryIv: "recovery-iv",
+      wrappers: [
+        {
+          method: "generated_default_web_prf" as const,
+          wrapperId: "canonical",
+          encryptedVaultKey: "encrypted",
+          salt: "salt",
+          iv: "iv",
+          passkeyRpId: "one.hushh.ai",
+        },
+      ],
+    };
+
+    expect(
+      VaultService.getWrapperByMethod(state, "generated_default_web_prf"),
+    ).toMatchObject({
+      wrapperId: "canonical",
+      passkeyRpId: "one.hushh.ai",
+    });
   });
 
   it("waits briefly for a still-restoring session, then fails closed instead of guessing hasVault=false", async () => {

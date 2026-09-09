@@ -9,7 +9,10 @@ import {
   unlockVaultWithPassphrase as webUnlockVault,
   unlockVaultWithRecoveryKey as webUnlockRecall,
 } from "@/lib/vault/passphrase-key";
-import { resolvePasskeyRpId } from "@/lib/vault/passkey-rp";
+import {
+  isPasskeyRpIdCompatibleWithHost,
+  resolvePasskeyRpId,
+} from "@/lib/vault/passkey-rp";
 import { auth } from "@/lib/firebase/config";
 import { apiJson } from "@/lib/services/api-client";
 import {
@@ -604,19 +607,35 @@ export class VaultService {
       if (!requested) return null;
       if (!shouldPreferRp || !rpId) return requested;
       const wrapperRpId = this.normalizeNullableString(requested.passkeyRpId);
-      if (!wrapperRpId || wrapperRpId === rpId) return requested;
+      if (
+        !wrapperRpId ||
+        isPasskeyRpIdCompatibleWithHost(rpId, wrapperRpId)
+      ) {
+        return requested;
+      }
       return (
         all.find(
           (wrapper) =>
-            this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
+            isPasskeyRpIdCompatibleWithHost(
+              rpId,
+              this.normalizeNullableString(wrapper.passkeyRpId),
+            ),
         ) ?? null
       );
     }
 
     if (shouldPreferRp && rpId) {
-      const rpMatch = all.find(
-        (wrapper) => this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
-      );
+      const rpMatch =
+        all.find(
+          (wrapper) =>
+            this.normalizeNullableString(wrapper.passkeyRpId) === rpId,
+        ) ??
+        all.find((wrapper) =>
+          isPasskeyRpIdCompatibleWithHost(
+            rpId,
+            this.normalizeNullableString(wrapper.passkeyRpId),
+          ),
+        );
       if (rpMatch) return rpMatch;
 
       // If wrappers are explicitly pinned to other RP IDs, fail closed and fall

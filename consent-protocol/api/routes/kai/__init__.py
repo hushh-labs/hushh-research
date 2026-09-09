@@ -25,6 +25,7 @@ from .consent import router as consent_router
 from .decisions import router as decisions_router
 from .gmail import router as gmail_router
 from .health import router as health_router
+from .local_runtime import router as local_runtime_router
 from .losers import router as losers_router
 from .market_insights import router as market_insights_router
 from .plaid import router as plaid_router
@@ -39,6 +40,7 @@ kai_router = APIRouter(prefix="/api/kai", tags=["kai"])
 # The verify-route-contracts script checks for literal strings in this file.
 KAI_ROUTE_CONTRACT_PATHS = [
     "/health",
+    "/local-runtime/capability",
     "/chat",
     "/chat/history/{conversation_id}",
     "/chat/conversations/{user_id}",
@@ -118,6 +120,7 @@ kai_router.include_router(analyze_router)
 kai_router.include_router(stream_router)
 kai_router.include_router(decisions_router)
 kai_router.include_router(losers_router)
+kai_router.include_router(local_runtime_router)
 kai_router.include_router(market_insights_router)
 kai_router.include_router(support_router)
 

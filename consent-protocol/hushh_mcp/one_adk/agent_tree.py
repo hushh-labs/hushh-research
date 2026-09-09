@@ -413,7 +413,7 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "from every screen and are always available even when not listed in the "
     "current inventory. Treat route language separately from domain work: "
     "'take me to location' selects route.one_location, while 'share my location' "
-    "runs location.share_selected directly, below; 'take me to KYC' selects "
+    "selects the governed location action below; 'take me to KYC' selects "
     "route.one_kyc, while a question about KYC workflow status is not navigation. "
     "When the user "
     "asks to analyze, "
@@ -475,17 +475,14 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "means for these: one call naming three people IS one action-producing "
     "tool call, fully within that rule, not three calls squeezed into one "
     "turn.\n\n"
-    # Sharing a location with named people. Resolution, ambiguity-checking,
-    # and the grant itself all now happen in ONE backend-direct call --
-    # location.share_selected resolves 'person' server-side against the same
-    # connections list the app matches against, so there is no separate pick
-    # step to navigate to first, and it runs from any screen. This replaced a
-    # three-call navigate-then-pick-then-share journey (select_share_recipient
-    # -> continue_app_goal -> share_selected); that journey still exists for
-    # the tap-driven composer, but is no longer how a NAMED request is served.
+    # Sharing a location with named people. Resolution and ambiguity checking
+    # happen in one canonical action call, but execution remains bounded by
+    # the current executable surface. If the action is not in that inventory,
+    # use its authored journey so the app opens the right composer first.
     "To share location with someone the person NAMES ('share my location with "
     "Sarah for an hour', 'share with Alex and Sam for 2 hours'), this runs "
-    "directly, from wherever you are. ASK FOR IT OUT LOUD first, naming "
+    "from the current executable surface, or use its authored journey when it "
+    "is not available there. ASK FOR IT OUT LOUD first, naming "
     "everyone and the duration -- 'Share your location with Sarah for one "
     "hour?' -- then STOP and wait for yes, the same rule as any other "
     "confirm_required action. Once you have it, call run_app_action with "
@@ -499,13 +496,11 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "person, relay exactly that for the names it could not match and ask "
     "again for just those; never guess, and never re-ask about a name that "
     "already went through.\n\n"
-    # Asking is the mirror of sharing, and resolves the same way: one
-    # backend-direct call handles every named person, not a separate
-    # pick-then-ask journey (select_ask_recipient still exists for the
-    # tap-driven composer, unchanged, but is not how a named request is
-    # served).
+    # Asking is the mirror of sharing: one canonical action call handles every
+    # named person, subject to the current executable surface or its authored
+    # journey before any request is issued.
     "Requesting someone's location ('ask Neelesh where he is', 'request "
-    "Sarah and Priya's location') runs directly too, the same shape as "
+    "Sarah and Priya's location') uses the same governed action shape as "
     "sharing: ASK FOR IT OUT LOUD first -- 'Ask Sarah and Priya where they "
     "are?' -- then STOP and wait for yes. Once you have it, call "
     "run_app_action with action id 'location.send_request' and slots "
@@ -519,15 +514,17 @@ ONE_IDENTITY_INSTRUCTION: str = (
     # reporting an invitation as a completed add: joining is the other
     # person's decision, and calling it done asserts a consent nobody gave.
     "Circles are named groups the person shares location with. Creating one "
-    "and adding people to one both run directly, from wherever you are -- "
-    "do NOT navigate anywhere first for either. To make one, call "
+    "and adding people to one use the current executable surface and their "
+    "authored journeys. If either action is not available on the current "
+    "screen, call start_app_goal rather than issuing an off-screen directive. "
+    "To make one, call "
     "run_app_action with 'location.create_circle' and slots {'name': <the "
     "name exactly as you heard it>}. To add people, call run_app_action "
     "with 'location.add_to_circle' and slots {'person': <every name "
     "exactly as you heard it, together>, 'circle': <circle name as heard>} "
     "-- also governed by the MULTI-PERSON RULE above. Removing someone is "
-    "different: 'location.remove_from_circle' is NOT backend-direct, so it "
-    "is still an authored journey -- call start_app_goal and let it open "
+    "different: 'location.remove_from_circle' is destructive, so it is an "
+    "authored journey -- call start_app_goal and let it open "
     "Location, then continue_app_goal once the destination settles, with "
     "slots {'person': <name as heard>, 'circle': <circle name as heard>}. "
     "This one stays one name per call, since removing is destructive and "
@@ -540,12 +537,14 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "join only if they accept. Say what the settlement says -- 'Invited Sarah "
     "to Family' -- and never say a person was added, is in the circle, or can "
     "see the location until a settlement says so.\n\n"
-    # Connect. connect.send_request runs directly too, from any screen, and
-    # always resolves every named person in one call -- it always needs at
-    # least one name; the app will not accept the call without one.
+    # Connect. connect.send_request resolves every named person in one call,
+    # subject to the current executable surface or its authored journey. It
+    # always needs at least one name; the app will not accept the call without
+    # one.
     "Connecting with someone the person NAMES ('connect with Ankit', 'send "
-    "a connection request to Ankit and Kushal') runs directly, from "
-    "wherever you are. ASK FOR IT OUT LOUD first, naming everyone -- 'Send "
+    "a connection request to Ankit and Kushal') uses the governed action from "
+    "the current executable surface, or its authored journey when needed. "
+    "ASK FOR IT OUT LOUD first, naming everyone -- 'Send "
     "a connection request to Ankit and Kushal?' -- then STOP and wait for "
     "yes. Once you have it, call run_app_action with action id "
     "'connect.send_request' and slots {'person': <every name exactly as "
@@ -555,6 +554,10 @@ ONE_IDENTITY_INSTRUCTION: str = (
     "a request pending, relay exactly that for just that name; never "
     "guess, and never claim a request was sent for a name the result did "
     "not confirm.\n\n"
+    "If a generated action id is unknown, call list_app_actions with the person's "
+    "words and do not invent a replacement. If the same unknown id is refused "
+    "again, call report_no_app_action and explain that no matching app control "
+    "is available.\n\n"
     "When an action needs confirmation, ASK FOR IT OUT LOUD as one short "
     "yes-or-no question naming what will happen and whatever makes it "
     "specific -- who, how long, how much: 'Share your location with Sarah for "
@@ -739,13 +742,19 @@ def _one_runtime_instruction(context: Any) -> str:
         )
 
     available_action_ids = voice_context.get("available_action_ids")
+    executable_action_ids = voice_context.get("executable_action_ids")
+    combined_action_ids: list[str] = []
+    if isinstance(available_action_ids, list):
+        combined_action_ids.extend(
+            value for value in available_action_ids if isinstance(value, str)
+        )
+    if isinstance(executable_action_ids, list):
+        combined_action_ids.extend(
+            value for value in executable_action_ids if isinstance(value, str)
+        )
     verified_action_ids = (
-        [
-            str(action_id).strip()
-            for action_id in available_action_ids[:AVAILABLE_ACTION_IDS_CAP]
-            if isinstance(action_id, str) and str(action_id).strip()
-        ]
-        if isinstance(available_action_ids, list)
+        [action_id.strip() for action_id in dict.fromkeys(combined_action_ids) if action_id.strip()]
+        if combined_action_ids
         else []
     )
 
@@ -785,10 +794,10 @@ def _one_runtime_instruction(context: Any) -> str:
             action_id for action_id in verified_action_ids if action_id not in layer_action_ids
         ]
 
-    # Render every executable id the browser published (bounded upstream at
-    # AVAILABLE_ACTION_IDS_CAP by the app_context sanitizer). Rendering fewer
-    # than the allowlist previously made ids 11+ executable but invisible,
-    # which read as "actions not detected" in conversation.
+    # Render the bounded executable ids the browser published. The execution
+    # inventory is allowed to exceed the ranked prompt inventory so a real
+    # lower-ranked control remains executable; list_app_actions retrieves any
+    # controls that do not fit in this prompt segment.
     action_lines: list[str] = []
     rendered_ids: set[str] = set()
     for action_id in prompt_action_ids[:AVAILABLE_ACTION_IDS_CAP]:
@@ -906,7 +915,8 @@ def _one_runtime_instruction(context: Any) -> str:
         + f"Primary generated action reference: {primary_action or 'none'}\n"
         + f"Completion boundary: {completion or 'Wait for browser settlement.'}\n"
         + f"Out-of-scope behavior: {out_of_scope or 'Answer naturally without inventing controls.'}\n"
-        + "The generated action gateway, current available actions, and runtime guards "
+        + "The generated action gateway, current available actions, executable action "
+        "inventory, and runtime guards "
         + "remain the only execution authority."
         + action_inventory
         + screen_state_instruction
@@ -1503,7 +1513,9 @@ def build_one_intro_text_agent(*, model: Any | None = None) -> LlmAgent:
             "Never claim access to personal information, PKM, "
             "email, location, consent records, CRM records, or any completed action. "
             "For protected or mutating work, explain that unlocking the vault and the "
-            "relevant in-app review are required."
+            "relevant in-app review are required. If no generated route action matches "
+            "the request, say that the capability is not available here yet; never "
+            "invent a route or silently hand the request to another executor."
         ),
         tools=[run_intro_navigation_action, list_intro_navigation_actions],
     )

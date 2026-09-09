@@ -113,6 +113,9 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
 
     // Keep active passkey authorization flows alive until delegate completion.
     private var activePasskeyFlows: [String: NSObject] = [:]
+    // AuthenticationServices presents one credential sheet at a time. Keep
+    // overlapping vault surfaces from starting a second authorization flow.
+    private var activePasskeyAuthenticationOperationId: String?
     
     // MARK: - Key Derivation (PBKDF2)
     @objc func deriveKey(_ call: CAPPluginCall) {
@@ -743,7 +746,12 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         }
 
         let credentialId = call.getString("credentialId")?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard activePasskeyAuthenticationOperationId == nil else {
+            call.reject("A passkey authentication is already in progress.")
+            return
+        }
         let operationId = UUID().uuidString
+        activePasskeyAuthenticationOperationId = operationId
         let coordinator = NativePasskeyFlowCoordinator(
             mode: .authenticate(
                 userId: userId,
@@ -755,6 +763,7 @@ public class HushhVaultPlugin: CAPPlugin, CAPBridgedPlugin {
         ) { [weak self] result in
             guard let self else { return }
             self.activePasskeyFlows.removeValue(forKey: operationId)
+            self.activePasskeyAuthenticationOperationId = nil
             switch result {
             case .success(let payload):
                 call.resolve(payload)

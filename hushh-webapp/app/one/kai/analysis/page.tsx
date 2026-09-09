@@ -1227,6 +1227,7 @@ export function KaiAnalysisPageContent() {
                   value={workspaceTab}
                   onValueChange={handleWorkspaceTabChange}
                   options={workspaceTabOptions}
+                  variant="agent-top"
                   className="mx-auto w-full"
                 />
               </div>

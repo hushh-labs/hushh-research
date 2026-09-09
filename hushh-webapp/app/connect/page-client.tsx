@@ -61,6 +61,7 @@ import {
 } from "@/components/ui/popover";
 import { useRequireAuth } from "@/hooks/use-auth";
 import { ContactSyncResultsSheet } from "@/components/one-location/contact-sync-results-sheet";
+import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
 import { ContactDiscoverabilityConsentDialog } from "@/components/connections/contact-discoverability-consent-dialog";
 import { useContactSync } from "@/lib/contacts/use-contact-sync";
 import { useDebouncedValue } from "@/hooks/use-debounced-value";
@@ -745,6 +746,8 @@ export default function ConnectPageClient() {
     [user],
   );
 
+  const [connectionsRefreshError, setConnectionsRefreshError] = useState(false);
+
   const loadOutgoingRequestIds = useCallback(async () => {
     if (!user) return;
     try {
@@ -792,6 +795,7 @@ export default function ConnectPageClient() {
         if (requestId !== connectionsRequestRef.current) return false;
 
         if (result) {
+          setConnectionsRefreshError(false);
           setConnections(result.items);
           setConnectionsPage(result.page);
           setConnectionsHasMore(result.hasMore);
@@ -806,6 +810,7 @@ export default function ConnectPageClient() {
           setConnectionsHasMore(true);
           setConnectionsTotalCount((current) => Math.max(0, current - 1));
         }
+        if (!result) setConnectionsRefreshError(true);
         return true;
       } finally {
         if (connectionsFirstPageRequestRef.current === requestId) {
@@ -844,11 +849,11 @@ export default function ConnectPageClient() {
     // AuthContext hydrates the verified backend phone independently for
     // native/UAT verification paths where Firebase User.phoneNumber is empty.
     accountPhoneNumber: phoneNumber ?? user?.phoneNumber,
+    accountEmail: user?.email,
     resolveVerifiedAccountPhoneNumber: resolveVerifiedPhoneNumber,
     userId: user?.uid,
-    // Awaited, and its boolean dropped: the hook only needs to know the
-    // refresh finished before it announces the outcome, so the toast never
-    // claims a connection the list behind it has not caught up to.
+    // Await the display refresh. A failed read preserves the successful sync
+    // and exposes a retry beside the list rather than repeating the import.
     //
     // The audience is read from a ref rather than captured. A sync is long
     // enough to switch tabs under, and the hook snapshots its options once at
@@ -1247,7 +1252,7 @@ export default function ConnectPageClient() {
           connectionId: connection.connectionId,
         });
         await refreshConnectionsFirstPage({
-          audience: connectionAudience,
+          audience: connectionAudienceRef.current,
           removedConnection: true,
         });
         CacheSyncService.onConnectionGraphMutated(user.uid);
@@ -1269,7 +1274,7 @@ export default function ConnectPageClient() {
         setPendingRemoveId(null);
       }
     },
-    [connectionAudience, refreshConnectionsFirstPage, user],
+    [refreshConnectionsFirstPage, user],
   );
 
   const handleLoadMoreConnections = useCallback(async () => {
@@ -2152,13 +2157,9 @@ export default function ConnectPageClient() {
 
   useLocalOnboardingActionHandler(
     "connect.remove_connection",
-    async (slots) => {
+    async (slots, context) => {
       const spokenName =
         typeof slots.person === "string" ? slots.person.trim() : "";
-      // Set by the card's destructive button and by nothing else. Voice never
-      // carries it, so a spoken sentence can raise this question but can never
-      // answer its own question.
-      const confirmed = slots.confirmed === true;
       const chosenConnectionId =
         typeof slots.connectionId === "string" ? slots.connectionId.trim() : "";
       if (!user) {
@@ -2216,7 +2217,7 @@ export default function ConnectPageClient() {
           };
         }
         const connection = matches[0]!;
-        if (!confirmed) {
+        if (!context?.directiveId && !context?.humanConfirmationToken) {
           // Ask before, not after. A name misheard once is a connection gone
           // with no undo, and this is the one action here where being wrong
           // cannot be walked back.
@@ -2531,6 +2532,15 @@ export default function ConnectPageClient() {
                             }
                             testId="connect-my-connections-group"
                           >
+                            {connectionsRefreshError && (
+                              <SettingsRow
+                                title="Could not refresh connections"
+                                description="Your list may be out of date. Tap to retry."
+                                onClick={handleRefreshConnections}
+                                disabled={connectionsRefreshingFirstPage}
+                                density="compact"
+                              />
+                            )}
                             {sortedConnections.length === 0 ? (
                               <SettingsRow
                                 // No description. "Connections appear here." explained what
@@ -2703,6 +2713,7 @@ export default function ConnectPageClient() {
                           ) : null}
 
                           <div className="space-y-4">
+                            {!isAdvisorTab && contactSync.available ? <ContactInvitationNotice /> : null}
                             <SettingsGroup
                               titleControl={directorySelector}
                               // People only. This one JSX node also renders the RIAs

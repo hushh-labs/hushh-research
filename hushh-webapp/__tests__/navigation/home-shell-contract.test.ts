@@ -27,7 +27,8 @@ describe("home shell contract", () => {
     expect(resolveTopShellMetrics("/one/location?action=share").hasTabs).toBe(
       false,
     );
-    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(true);
+    // RIA renders its route selector inside the module, like Location.
+    expect(resolveTopShellMetrics(ROUTES.RIA_PICKS).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.PROFILE).hasTabs).toBe(false);
     expect(resolveTopShellMetrics(ROUTES.CONNECT).hasTabs).toBe(false);
   });

@@ -176,7 +176,8 @@
     "201_account_deletion_tombstones.sql",
     "202_feed_counterpart_identity.sql",
     "203_feed_counterpart_recipient_index.sql",
-    "204_feed_counterpart_indexed_lookup.sql"
+    "204_feed_counterpart_indexed_lookup.sql",
+    "205_contact_sync_disconnect_actor.sql"
   ],
   "environment_overlays": {
     "uat": [
@@ -304,7 +305,8 @@
       "201_account_deletion_tombstones.sql",
       "202_feed_counterpart_identity.sql",
       "203_feed_counterpart_recipient_index.sql",
-      "204_feed_counterpart_indexed_lookup.sql"
+      "204_feed_counterpart_indexed_lookup.sql",
+      "205_contact_sync_disconnect_actor.sql"
     ],
     "pkm": [
       "030_pkm_cutover.sql",
@@ -348,6 +350,7 @@
   },
   "rollback_migrations": {
     "203_feed_counterpart_recipient_index.sql": "rollback/203_feed_counterpart_recipient_index.rollback.sql",
-    "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql"
+    "204_feed_counterpart_indexed_lookup.sql": "rollback/204_feed_counterpart_indexed_lookup.rollback.sql",
+    "205_contact_sync_disconnect_actor.sql": "rollback/205_contact_sync_disconnect_actor.rollback.sql"
   }
 }

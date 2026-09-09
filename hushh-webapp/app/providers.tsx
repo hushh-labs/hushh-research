@@ -30,6 +30,7 @@ import { TopShellRouteSwipe } from "@/components/app-ui/top-shell-route-swipe";
 import { AgentPopoverProvider } from "@/components/agent/agent-popover-provider";
 import { AgentRuntimeStateProvider } from "@/lib/agent/agent-runtime-context";
 import { SiriOneVoiceHandoff } from "@/components/agent/siri-one-voice-handoff";
+import { SiriOneRequestHandoff } from "@/components/agent/siri-one-request-handoff";
 import { SiriOneActionHandoff } from "@/components/agent/siri-one-action-handoff";
 import { SiriOneEntityIndexPublisher } from "@/components/agent/siri-one-entity-index-publisher";
 import { AgentVoiceEdgeGlow } from "@/components/agent/agent-voice-edge-glow";
@@ -500,6 +501,7 @@ function AppShellFrame({ children }: ProvidersProps) {
           <AgentRuntimeStateProvider>
             <AgentPopoverProvider>
               <SiriOneVoiceHandoff />
+              <SiriOneRequestHandoff />
               <SiriOneActionHandoff />
               <SiriOneEntityIndexPublisher />
               <NativeTestRouter />

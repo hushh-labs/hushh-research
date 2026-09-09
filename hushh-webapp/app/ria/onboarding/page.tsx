@@ -29,6 +29,7 @@ import {
   getRiaOnboardingStepIndex,
   isRiaOnboardingStepId,
   normalizeRiaOnboardingDraft,
+  resolveRestorableRiaOnboardingStepId,
   resolveRiaOnboardingStepId,
   type RiaOnboardingDraft,
   type RiaOnboardingFlowOptions,
@@ -403,19 +404,26 @@ export default function RiaOnboardingPage({
           });
         }
 
-        // Opening RIA setup always lands on step 1. The saved draft still
-        // prefills every field, but its step pointer is deliberately ignored so
-        // entering the flow never drops the user mid-wizard (and never skips the
-        // welcome step's cinematic intro). Only an explicit
-        // ?edit=license / ?step= / ?reinitiate deep-link may land elsewhere.
+        // Resume an incomplete setup from the last locally persisted wizard
+        // step, but clamp it to the first unmet prerequisite so a stale draft
+        // can never skip required verification/service input. Explicit reset
+        // and edit deep-links keep their authored destinations.
         const preferredStepId = requestedStepIdRef.current;
+        const stepResolutionOptions = {
+          licenseVerificationSatisfied:
+            alreadyVerified || resolvedDraft.licenseVerificationStatus === "found",
+        };
         const currentStepId = preferredStepId
-          ? resolveRiaOnboardingStepId(resolvedDraft, preferredStepId, {
-              licenseVerificationSatisfied:
-                alreadyVerified ||
-                resolvedDraft.licenseVerificationStatus === "found",
-            })
-          : "welcome";
+          ? resolveRiaOnboardingStepId(
+              resolvedDraft,
+              preferredStepId,
+              stepResolutionOptions,
+            )
+          : resolveRestorableRiaOnboardingStepId(
+              resolvedDraft,
+              resolvedDraft.currentStepId,
+              stepResolutionOptions,
+            );
 
         setStatus(nextStatus);
         setDraft({ ...resolvedDraft, currentStepId });

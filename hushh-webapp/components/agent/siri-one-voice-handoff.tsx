@@ -30,7 +30,10 @@ import {
 // tier recomputation.
 const VAULT_UNLOCK_EVENT = "vault-unlocked";
 
-const ACCEPTANCE_TIMEOUT_MS = 30_000;
+// Keep the web acceptance timer identical to the native claim fence. After
+// this point Siri has detached from the launch handshake, so a late start is
+// not allowed to create a microphone session.
+const ACCEPTANCE_TIMEOUT_MS = 25_000;
 
 function logLifecycle(
   state: string,
@@ -145,7 +148,20 @@ export function SiriOneVoiceHandoff(): null {
       const outcome = (event as CustomEvent<AgentConversationOutcome>).detail;
       const invocation = claimedRef.current;
       if (!invocation || outcome?.requestId !== invocation.id) return;
-      void complete(invocation, outcome.outcome);
+      void (async () => {
+        if (outcome.outcome === "accepted") {
+          const appOwned = await OneVoiceInvocationBridge.reportProgress({
+            id: invocation.id,
+            state: "app_owned",
+          });
+          if (!appOwned.reported) {
+            snapKaiBottomChromeVisible();
+            await complete(invocation, "handoff_timeout");
+            return;
+          }
+        }
+        await complete(invocation, outcome.outcome);
+      })();
     };
     window.addEventListener(AGENT_CONVERSATION_OUTCOME_EVENT, onOutcome);
     return () =>
@@ -157,6 +173,7 @@ export function SiriOneVoiceHandoff(): null {
     const state = resolveSiriOneVoiceHandoffState({
       now: Date.now(),
       expiresAt: pending.expiresAt,
+      handoffDeadlineAt: pending.handoffDeadlineAt,
       visible: document.visibilityState === "visible",
       authLoading,
       signedIn: Boolean(user),
@@ -169,6 +186,10 @@ export function SiriOneVoiceHandoff(): null {
     });
     if (state === "expired") {
       void complete(pending, "expired");
+      return;
+    }
+    if (state === "handoff_timeout") {
+      void complete(pending, "handoff_timeout");
       return;
     }
     if (
@@ -218,13 +239,20 @@ export function SiriOneVoiceHandoff(): null {
           const active = claimedRef.current;
           if (!active || active.id !== pending.id) return;
           snapKaiBottomChromeVisible();
-          logLifecycle("fallback_shown", active, "failed");
-          void complete(active, "failed");
+          logLifecycle("fallback_shown", active, "handoff_timeout");
+          void complete(active, "handoff_timeout");
         }, ACCEPTANCE_TIMEOUT_MS);
       },
     );
     return () => {
       cancelled = true;
+      const active = claimedRef.current;
+      if (active) {
+        void OneVoiceInvocationBridge.reportProgress({
+          id: active.id,
+          state: "detached",
+        });
+      }
     };
   }, [
     authLoading,

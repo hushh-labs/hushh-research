@@ -190,6 +190,7 @@ export function RoundTabsCard({
               value: agent,
               label: AGENT_CONFIG[agent].label,
             }))}
+            variant="agent-top"
             className="mb-4 w-full"
             ariaLabel={`${title} analysts`}
           />

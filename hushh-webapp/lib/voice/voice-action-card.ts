@@ -164,6 +164,7 @@ export const VOICE_DISAMBIGUATION_DATA_KEY = "disambiguation";
 export const VOICE_CONFIRM_DATA_KEY = "confirm";
 
 let current: VoiceCardRequest | null = null;
+let activeConfirmationToken: { actionId: string; token: string } | null = null;
 const listeners = new Set<() => void>();
 
 function emit() {
@@ -172,6 +173,17 @@ function emit() {
 
 export function publishVoiceCard(next: VoiceCardRequest | null) {
   current = next;
+  activeConfirmationToken =
+    next?.kind === "confirm"
+      ? {
+          actionId: next.actionId,
+          token:
+            typeof crypto !== "undefined" &&
+            typeof crypto.randomUUID === "function"
+              ? crypto.randomUUID()
+              : `${Date.now().toString(36)}_${Math.random().toString(36).slice(2)}`,
+        }
+      : null;
   emit();
 }
 
@@ -182,7 +194,18 @@ export function readVoiceCard(): VoiceCardRequest | null {
 export function clearVoiceCard() {
   if (current === null) return;
   current = null;
+  activeConfirmationToken = null;
   emit();
+}
+
+/** Consume the in-memory token belonging to the currently visible card. */
+export function consumeVoiceConfirmToken(actionId: string): string | null {
+  if (!activeConfirmationToken || activeConfirmationToken.actionId !== actionId) {
+    return null;
+  }
+  const token = activeConfirmationToken.token;
+  activeConfirmationToken = null;
+  return token;
 }
 
 export function subscribeToVoiceCard(listener: () => void): () => void {

@@ -1,0 +1,176 @@
+name: Publish One Voice Model Packs
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment environment with its approved model bucket"
+        required: true
+        default: "uat"
+        type: choice
+        options:
+          - uat
+          - production
+      operation:
+        description: "Publish packs from this merged SHA, or promote the prior valid pack set"
+        required: true
+        default: "publish"
+        type: choice
+        options:
+          - publish
+          - rollback
+      include_fluid_audio:
+        description: "Publish the separately approved FluidAudio pack with this source (default false)"
+        required: false
+        default: false
+        type: boolean
+      fluid_audio_source_object:
+        description: "Approved source ZIP object below one-voice/fluid-audio-source/ in this environment's model bucket"
+        required: false
+        type: string
+      fluid_audio_version:
+        description: "Reviewed FluidAudio pack version, for example 1.0.0"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: one-voice-model-packs-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: ${{ inputs.operation == 'rollback' && 'Roll back' || 'Build and publish' }} One Voice packs
+    runs-on: ubuntu-latest
+    environment: ${{ inputs.environment }}
+    timeout-minutes: 60
+    env:
+      PACK_ENVIRONMENT: ${{ inputs.environment }}
+      PACK_PROJECT: ${{ inputs.environment == 'production' && 'hushh-pda' || 'hushh-pda-uat' }}
+      PACK_BUCKET: ${{ inputs.environment == 'production' && 'hushh-pda-one-voice-model-packs' || 'hushh-pda-uat-one-voice-model-packs' }}
+      PACK_REGISTRY_SECRET: HUSHH_LOCAL_RUNTIME_PACK_REGISTRY
+      PACK_PREFIX: one-voice/model-packs
+    steps:
+      - name: Require the main branch
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${GITHUB_REF_NAME}" != "main" ]]; then
+            echo "Model-pack activation is allowed from merged main only." >&2
+            exit 1
+          fi
+
+      - name: Checkout exact source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+          ref: ${{ github.sha }}
+
+      - name: Validate workload-identity configuration
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}"
+          test -n "${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}"
+
+      - name: Set up Python
+        if: inputs.operation == 'publish'
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.13"
+
+      - name: Set up uv
+        if: inputs.operation == 'publish'
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+
+      - name: Authenticate to Google Cloud through workload identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.PACK_PROJECT }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Build and verify model artifacts
+        if: inputs.operation == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/one-voice-model-packs"
+          bash scripts/voice/build-one-voice-model-packs.sh "$RUNNER_TEMP/one-voice-model-packs"
+          python3 scripts/voice/test_fluid_audio_model_pack.py
+          python3 scripts/voice/test_build_one_voice_model_pack_registry.py
+
+      - name: Materialize an explicitly approved FluidAudio source archive
+        if: inputs.operation == 'publish' && inputs.include_fluid_audio == true
+        shell: bash
+        env:
+          SOURCE_OBJECT: ${{ inputs.fluid_audio_source_object }}
+          FLUID_VERSION: ${{ inputs.fluid_audio_version }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_OBJECT" =~ ^one-voice/fluid-audio-source/[A-Za-z0-9][A-Za-z0-9._/-]{0,500}[.]zip$ ]] \
+            && [[ "$SOURCE_OBJECT" != *".."* ]] \
+            && [[ "$SOURCE_OBJECT" != *"//"* ]] || {
+              echo "FluidAudio source object must be a normalized approved ZIP path." >&2
+              exit 1
+            }
+          [[ "$FLUID_VERSION" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || {
+            echo "FluidAudio version is malformed." >&2
+            exit 1
+          }
+          source_archive="$RUNNER_TEMP/one-voice-model-packs/fluid-audio-approved-source.zip"
+          gcloud storage cp --project="$PACK_PROJECT" \
+            "gs://$PACK_BUCKET/$SOURCE_OBJECT" "$source_archive" >/dev/null
+          test -s "$source_archive"
+          {
+            echo "FLUID_AUDIO_SOURCE_ARCHIVE=$source_archive"
+            echo "FLUID_AUDIO_VERSION=$FLUID_VERSION"
+          } >> "$GITHUB_ENV"
+
+      - name: Publish immutable artifacts and activate registry
+        if: inputs.operation == 'publish'
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/voice/publish-one-voice-model-packs.sh \
+            "$PACK_ENVIRONMENT" \
+            "$PACK_BUCKET" \
+            "$PACK_REGISTRY_SECRET" \
+            "$PACK_PREFIX" \
+            "$RUNNER_TEMP/one-voice-model-packs" \
+            "$GITHUB_SHA" \
+            | tee "$RUNNER_TEMP/one-voice-model-publish-summary.json"
+
+      - name: Promote prior registry pack set
+        if: inputs.operation == 'rollback'
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry_dir="$(mktemp -d "$RUNNER_TEMP/one-voice-registry-rollback.XXXXXX")"
+          trap 'rm -rf "$registry_dir"' EXIT
+          gcloud secrets versions access latest "$PACK_REGISTRY_SECRET" \
+            --project="$PACK_PROJECT" --out-file="$registry_dir/current.json"
+          python3 scripts/voice/rollback-one-voice-model-pack-registry.py \
+            --input "$registry_dir/current.json" \
+            --output "$registry_dir/rollback.json" \
+            | tee "$RUNNER_TEMP/one-voice-model-publish-summary.json"
+          gcloud secrets versions add "$PACK_REGISTRY_SECRET" \
+            --project="$PACK_PROJECT" --data-file="$registry_dir/rollback.json" >/dev/null
+
+      - name: Upload redacted publication summary
+        uses: actions/upload-artifact@v6
+        with:
+          name: one-voice-model-${{ inputs.operation }}-summary-${{ github.run_id }}
+          path: ${{ runner.temp }}/one-voice-model-publish-summary.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,232 @@
+name: One Voice Physical Device Gate
+
+on:
+  workflow_call:
+    inputs:
+      release_sha:
+        description: Exact green main SHA whose microphone startup is measured.
+        required: true
+        type: string
+    outputs:
+      release_sha:
+        description: Exact source SHA proved by the attached iPhone.
+        value: ${{ jobs.hardware-capture.outputs.release_sha }}
+      p95_time_to_capture_ms:
+        description: Redacted p95 microphone capture latency from the attached iPhone.
+        value: ${{ jobs.hardware-capture.outputs.p95_time_to_capture_ms }}
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Exact green main SHA to measure (blank selects main).
+        required: false
+        type: string
+
+permissions:
+  contents: read
+  checks: read
+  id-token: write
+
+concurrency:
+  group: ios-voice-device-gate
+  cancel-in-progress: false
+
+jobs:
+  hardware-capture:
+    name: iPhone One Voice capture p95
+    runs-on: [self-hosted, macOS, ios-voice-device]
+    environment: uat
+    timeout-minutes: 60
+    outputs:
+      release_sha: ${{ steps.resolve.outputs.sha }}
+      p95_time_to_capture_ms: ${{ steps.evidence.outputs.p95_time_to_capture_ms }}
+    env:
+      GCP_PROJECT_ID: hushh-pda-uat
+      IOS_BUNDLE_ID: com.hushh.app
+      HUSHH_ENABLE_IOS_VOICE_DEVICE_BENCHMARK: "true"
+      IOS_VOICE_BENCHMARK_REPETITIONS: "30"
+      IOS_VOICE_CAPTURE_P95_MS: "300"
+      IOS_VOICE_DEVICE_TIER: ${{ vars.IOS_VOICE_DEVICE_TIER }}
+
+    steps:
+      - name: Refuse non-main dispatches
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_NAME" != "main" ]; then
+            echo "Refusing hardware proof from '$GITHUB_REF_NAME'; dispatch from main only." >&2
+            exit 1
+          fi
+
+      - name: Check out main for release resolution
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: main
+
+      - name: Authorize manual dispatching actor
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/assert-governed-actor.py --surface uat --actor "$GITHUB_ACTOR"
+
+      - name: Resolve and validate release SHA
+        id: resolve
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          REQUIRED_BRANCH: main
+          REQUIRE_CI_SUCCESS: "1"
+          REQUIRED_CHECK_NAME: Main Post-Merge Smoke Gate
+        run: |
+          set -euo pipefail
+          REQUESTED="${{ inputs.release_sha || github.event.inputs.sha || '' }}"
+          git fetch --no-tags origin main
+          if [ -z "$REQUESTED" ]; then
+            SHA="$(git rev-parse origin/main)"
+          else
+            SHA="$(git rev-parse "$REQUESTED^{commit}")"
+          fi
+          bash scripts/ci/require-deploy-sha-on-main.sh "$SHA"
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+
+      - name: Check out exact release SHA
+        shell: bash
+        run: |
+          set -euo pipefail
+          git checkout --detach "${{ steps.resolve.outputs.sha }}"
+          git --no-pager log -1 --oneline
+
+      - name: Select Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: "26.3"
+
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: hushh-webapp/package-lock.json
+
+      - name: Install web dependencies
+        shell: bash
+        run: npm ci --prefix hushh-webapp
+
+      - name: Validate workload identity configuration
+        shell: bash
+        env:
+          WIF_PROVIDER: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          DEPLOY_SERVICE_ACCOUNT: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          DEVICE_TIER: ${{ vars.IOS_VOICE_DEVICE_TIER }}
+        run: |
+          set -euo pipefail
+          test -n "$WIF_PROVIDER" || { echo "Missing UAT GCP_WORKLOAD_IDENTITY_PROVIDER." >&2; exit 1; }
+          test -n "$DEPLOY_SERVICE_ACCOUNT" || { echo "Missing UAT GCP_DEPLOY_SERVICE_ACCOUNT." >&2; exit 1; }
+          [[ "$DEVICE_TIER" =~ ^[A-Za-z0-9_-]{1,32}$ ]] || {
+            echo "Missing or invalid redacted IOS_VOICE_DEVICE_TIER." >&2
+            exit 1
+          }
+
+      - name: Authenticate to Google Cloud with workload identity
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+          project_id: ${{ env.GCP_PROJECT_ID }}
+          create_credentials_file: true
+          export_environment_variables: true
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Materialize UAT iOS build contract
+        shell: bash
+        run: bash scripts/ci/materialize-ios-uat-build-contract.sh
+
+      - name: Decode App Store Connect signing key
+        shell: bash
+        run: |
+          set -euo pipefail
+          get() {
+            gcloud secrets versions access latest --secret="$1" --project="$GCP_PROJECT_ID" 2>/dev/null || true
+          }
+          for name in APPSTORE_CONNECT_API_KEY_P8_B64 APPSTORE_CONNECT_KEY_ID APPSTORE_CONNECT_ISSUER_ID; do
+            gcloud secrets describe "$name" --project="$GCP_PROJECT_ID" >/dev/null 2>&1 || {
+              echo "Missing required GCP secret: $name." >&2
+              exit 1
+            }
+          done
+          ASC_KEY_ID="$(get APPSTORE_CONNECT_KEY_ID)"
+          ASC_ISSUER_ID="$(get APPSTORE_CONNECT_ISSUER_ID)"
+          test -n "$ASC_KEY_ID" && test -n "$ASC_ISSUER_ID" || {
+            echo "App Store Connect signing identity is incomplete." >&2
+            exit 1
+          }
+          echo "::add-mask::$ASC_KEY_ID"
+          echo "::add-mask::$ASC_ISSUER_ID"
+          umask 077
+          get APPSTORE_CONNECT_API_KEY_P8_B64 | openssl base64 -d -A > "$RUNNER_TEMP/asc.p8"
+          chmod 600 "$RUNNER_TEMP/asc.p8"
+          grep -q "BEGIN PRIVATE KEY" "$RUNNER_TEMP/asc.p8" || {
+            echo "Decoded App Store Connect key is invalid." >&2
+            exit 1
+          }
+          {
+            echo "IOS_TEST_AUTH_KEY_PATH=$RUNNER_TEMP/asc.p8"
+            echo "IOS_TEST_AUTH_KEY_ID=$ASC_KEY_ID"
+            echo "IOS_TEST_AUTH_ISSUER_ID=$ASC_ISSUER_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Prepare exact UAT native project
+        shell: bash
+        run: npm run --prefix hushh-webapp ios:prepare:uat
+
+      - name: Resolve Swift packages
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -resolvePackageDependencies \
+            -project hushh-webapp/ios/App/App.xcodeproj \
+            -scheme App
+
+      - name: Run strict automated physical-device gate
+        id: benchmark
+        working-directory: hushh-webapp
+        shell: bash
+        env:
+          IOS_EXPECTED_SOURCE_SHA: ${{ steps.resolve.outputs.sha }}
+        run: bash ./scripts/native/ios-voice-device-benchmark.sh
+
+      - name: Validate aggregate evidence fields
+        id: evidence
+        shell: bash
+        env:
+          RESULT_PATH: ${{ steps.benchmark.outputs.result_path }}
+        run: |
+          set -euo pipefail
+          test -n "$RESULT_PATH" && test -f "$RESULT_PATH" || {
+            echo "The hardware gate supplied no aggregate result." >&2
+            exit 1
+          }
+          p95="$(node -e 'const fs=require("fs"); const p=JSON.parse(fs.readFileSync(process.env.RESULT_PATH,"utf8")); process.stdout.write(String(p.p95_time_to_capture_ms));')"
+          echo "p95_time_to_capture_ms=$p95" >> "$GITHUB_OUTPUT"
+
+      - name: Upload redacted aggregate timing evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: one-voice-device-capture-${{ steps.resolve.outputs.sha }}
+          if-no-files-found: error
+          retention-days: 14
+          path: ${{ steps.benchmark.outputs.result_path }}
+
+      - name: Remove runner-only release inputs
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f "$RUNNER_TEMP/asc.p8" "GoogleService-Info.plist" \
+            hushh-webapp/.env.native.ios.local \
+            "${{ steps.benchmark.outputs.result_path }}"

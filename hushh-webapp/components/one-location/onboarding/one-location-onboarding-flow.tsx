@@ -1,5 +1,7 @@
 "use client";
 
+import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
+
 import {
   useCallback,
   useEffect,
@@ -1232,6 +1234,7 @@ function ContactsScreen({
                 ? "Your matched ONE contacts and connection results are ready."
                 : "You can always find people later from the People tab."}
           </p>
+          <ContactInvitationNotice />
 
           {primed ? (
             <>

@@ -28,6 +28,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.security.SecureRandom
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.crypto.Cipher
 import javax.crypto.Mac
 import javax.crypto.SecretKeyFactory
@@ -50,6 +51,10 @@ class HushhVaultPlugin : Plugin() {
 
     private val TAG = "HushhVault"
     private val pluginScope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    // Credential Manager presents a process-wide UI surface. Keep duplicate
+    // callers from opening a second Google Password Manager prompt while the
+    // first request is still resolving or being cancelled.
+    private val passkeyAuthenticationInFlight = AtomicBoolean(false)
     private val accountNotFoundCode = "AUTH_ACCOUNT_NOT_FOUND"
     private val maxLifecyclePayloadDepth = 6
     private val maxLifecyclePayloadNodes = 64
@@ -968,12 +973,18 @@ class HushhVaultPlugin : Plugin() {
             return
         }
 
+        if (!passkeyAuthenticationInFlight.compareAndSet(false, true)) {
+            call.reject("A passkey authentication is already in progress.")
+            return
+        }
+
         authenticatePasskeyPrfInternal(
             userId = userId,
             rpId = rpId,
             credentialId = credentialId,
             prfSalt = prfSalt,
             onSuccess = { resolvedCredentialId, vaultKeyHex ->
+                passkeyAuthenticationInFlight.set(false)
                 call.resolve(
                     JSObject().apply {
                         put("credentialId", resolvedCredentialId)
@@ -982,6 +993,7 @@ class HushhVaultPlugin : Plugin() {
                 )
             },
             onError = { errorMessage ->
+                passkeyAuthenticationInFlight.set(false)
                 call.reject(errorMessage)
             }
         )
@@ -1607,11 +1619,28 @@ class HushhVaultPlugin : Plugin() {
                 }
                 onSuccess(resolvedCredentialId, deriveVaultKeyHex(prfOutput, prfSalt))
             } catch (error: GetCredentialException) {
-                onError("Passkey authentication failed: ${error.message ?: error.javaClass.simpleName}")
+                if (isPasskeyCancellation(error)) {
+                    onError("Passkey authentication cancelled.")
+                } else {
+                    onError("Passkey authentication failed: ${error.message ?: error.javaClass.simpleName}")
+                }
             } catch (e: Exception) {
-                onError("Passkey authentication failed: ${e.message}")
+                if (isPasskeyCancellation(e)) {
+                    onError("Passkey authentication cancelled.")
+                } else {
+                    onError("Passkey authentication failed: ${e.message}")
+                }
             }
         }
+    }
+
+    private fun isPasskeyCancellation(error: Throwable): Boolean {
+        val typeName = error.javaClass.simpleName
+        val message = error.message.orEmpty()
+        return typeName.contains("Cancellation", ignoreCase = true) ||
+            typeName.contains("Canceled", ignoreCase = true) ||
+            message.contains("cancel", ignoreCase = true) ||
+            message.contains("abort", ignoreCase = true)
     }
 
     private fun hexStringToByteArray(hex: String): ByteArray {

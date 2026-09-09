@@ -42,6 +42,11 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             300,
             accuracy: 0.001
         )
+        XCTAssertEqual(
+            invocation.handoffDeadlineAt.timeIntervalSince(invocation.createdAt),
+            25,
+            accuracy: 0.001
+        )
 
         let data = try XCTUnwrap(defaults.data(forKey: storageKey))
         let object = try XCTUnwrap(
@@ -56,6 +61,15 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
         XCTAssertNil(object["route"])
         XCTAssertNil(object["userId"])
         XCTAssertNil(object["token"])
+
+        XCTAssertEqual(
+            invocation.bridgePayload["handoffDeadlineAt"] as? Int64,
+            Int64(invocation.handoffDeadlineAt.timeIntervalSince1970 * 1_000)
+        )
+        XCTAssertTrue(invocation.bridgePayload["claimedAt"] is NSNull)
+        XCTAssertTrue(invocation.bridgePayload["appOwnedAt"] is NSNull)
+        XCTAssertEqual(invocation.bridgePayload["detached"] as? Bool, false)
+        XCTAssertTrue(invocation.bridgePayload["outcome"] is NSNull)
     }
 
     func testTamperedKindOrSourceIsRejected() throws {
@@ -98,6 +112,36 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
 
         XCTAssertTrue(coordinator.claim(id: invocation.id))
         XCTAssertFalse(coordinator.claim(id: invocation.id))
+        XCTAssertNil(coordinator.pending())
+    }
+
+    func testClaimCannotStartAfterTheUnifiedHandoffDeadline() {
+        let coordinator = makeCoordinator()
+        let invocation = coordinator.enqueue()
+        now = now.addingTimeInterval(26)
+
+        XCTAssertFalse(coordinator.claim(id: invocation.id))
+        XCTAssertNil(coordinator.pending())
+    }
+
+    func testDetachmentBeforeAppOwnershipRemovesClaim() {
+        let coordinator = makeCoordinator()
+        let invocation = coordinator.enqueue()
+
+        XCTAssertTrue(coordinator.claim(id: invocation.id))
+        XCTAssertTrue(coordinator.reportProgress(id: invocation.id, state: "detached"))
+        coordinator.complete(id: invocation.id, outcome: "accepted")
+        XCTAssertNil(coordinator.pending())
+    }
+
+    func testAppOwnershipSurvivesDetachmentUntilCompletion() {
+        let coordinator = makeCoordinator()
+        let invocation = coordinator.enqueue()
+
+        XCTAssertTrue(coordinator.claim(id: invocation.id))
+        XCTAssertTrue(coordinator.reportProgress(id: invocation.id, state: "app_owned"))
+        XCTAssertTrue(coordinator.reportProgress(id: invocation.id, state: "detached"))
+        coordinator.complete(id: invocation.id, outcome: "accepted")
         XCTAssertNil(coordinator.pending())
     }
 
@@ -150,7 +194,7 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
 #endif
     }
 
-    func testAppIntentAvailabilityContractsCompileFromAnIOS15Target() {
+    func testAppIntentAvailabilityContractsCompileFromTheIOS17DeploymentTarget() {
 #if canImport(AppIntents)
         if #available(iOS 16.0, *) {
             XCTAssertTrue(TalkToHusshOneIntent.openAppWhenRun)
@@ -186,5 +230,116 @@ final class OneVoiceInvocationCoordinatorTests: XCTestCase {
             Bundle.main.object(forInfoDictionaryKey: "CFBundleSpokenName") as? String,
             "Agent One"
         )
+    }
+
+    func testRequestClaimReturnsTextOnlyAfterMetadataOnlyDiscovery() throws {
+        let store = TestOneSystemRequestStore()
+        let coordinator = OneSystemRequestInvocationCoordinator(
+            store: store,
+            keyPrefix: "test.one.request",
+            now: { [unowned self] in self.now },
+            currentUserID: { "owner-a" }
+        )
+
+        XCTAssertEqual(coordinator.captureRequest("enable location"), .captured)
+        let pending = try XCTUnwrap(coordinator.pending())
+        XCTAssertNil(pending.bridgePayload["text"] as? String)
+        XCTAssertEqual(pending.bridgePayload["detached"] as? Bool, false)
+        XCTAssertEqual(
+            (pending.bridgePayload["handoffDeadlineAt"] as? Int64 ?? 0)
+                - (pending.bridgePayload["createdAt"] as? Int64 ?? 0),
+            25_000
+        )
+
+        let claimed = try XCTUnwrap(coordinator.claimRecord(id: pending.id))
+        XCTAssertEqual(claimed.text, "enable location")
+        XCTAssertNil(coordinator.claimRecord(id: pending.id))
+    }
+
+    func testRequestOwnerChangeClearsStalePendingState() throws {
+        let store = TestOneSystemRequestStore()
+        var owner = "owner-a"
+        let coordinator = OneSystemRequestInvocationCoordinator(
+            store: store,
+            keyPrefix: "test.one.request.owner",
+            now: { [unowned self] in self.now },
+            currentUserID: { owner }
+        )
+
+        XCTAssertEqual(coordinator.captureRequest("old request"), .captured)
+        owner = "owner-b"
+        XCTAssertNil(coordinator.pending())
+        XCTAssertEqual(coordinator.captureRequest("new request"), .captured)
+        XCTAssertEqual(coordinator.pending()?.text, "new request")
+    }
+
+    func testRequestDetachmentBeforeAppOwnershipRemovesClaim() throws {
+        let store = TestOneSystemRequestStore()
+        let coordinator = OneSystemRequestInvocationCoordinator(
+            store: store,
+            keyPrefix: "test.one.request.detach",
+            now: { [unowned self] in self.now },
+            currentUserID: { "owner-a" }
+        )
+
+        XCTAssertEqual(coordinator.captureRequest("do this"), .captured)
+        let pending = try XCTUnwrap(coordinator.pending())
+        XCTAssertNotNil(coordinator.claimRecord(id: pending.id))
+        XCTAssertTrue(coordinator.reportProgress(id: pending.id, state: "detached"))
+        coordinator.complete(id: pending.id, outcome: "completed", summary: "ignored")
+        XCTAssertEqual(coordinator.captureRequest("do another thing"), .captured)
+    }
+
+    func testRequestCannotBeClaimedAfterTheUnifiedHandoffDeadline() throws {
+        let store = TestOneSystemRequestStore()
+        let coordinator = OneSystemRequestInvocationCoordinator(
+            store: store,
+            keyPrefix: "test.one.request.deadline",
+            now: { [unowned self] in self.now },
+            currentUserID: { "owner-a" }
+        )
+
+        XCTAssertEqual(coordinator.captureRequest("enable location"), .captured)
+        let pending = try XCTUnwrap(coordinator.pending())
+        now = now.addingTimeInterval(26)
+
+        XCTAssertNil(coordinator.claimRecord(id: pending.id))
+        XCTAssertNil(coordinator.pending())
+    }
+
+    func testRequestCancellationIsScopedToTheRequestedInvocation() throws {
+        let store = TestOneSystemRequestStore()
+        let coordinator = OneSystemRequestInvocationCoordinator(
+            store: store,
+            keyPrefix: "test.one.request.cancel",
+            now: { [unowned self] in self.now },
+            currentUserID: { "owner-a" }
+        )
+
+        XCTAssertEqual(coordinator.captureRequest("first"), .captured)
+        let pending = try XCTUnwrap(coordinator.pending())
+        coordinator.cancelRequest(id: UUID().uuidString)
+        XCTAssertEqual(coordinator.pending()?.id, pending.id)
+
+        coordinator.cancelRequest(id: pending.id)
+        XCTAssertNil(coordinator.pending())
+    }
+}
+
+private final class TestOneSystemRequestStore: OneSystemRequestStoring {
+    private var values: [String: Data] = [:]
+
+    func data(for key: String) -> Data? {
+        values[key]
+    }
+
+    @discardableResult
+    func set(_ data: Data, for key: String) -> Bool {
+        values[key] = data
+        return true
+    }
+
+    func remove(_ key: String) {
+        values.removeValue(forKey: key)
     }
 }

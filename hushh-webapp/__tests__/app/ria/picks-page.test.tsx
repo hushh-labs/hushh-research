@@ -175,6 +175,9 @@ vi.mock("@/components/profile/settings-ui", () => ({
 }));
 
 vi.mock("@/components/ria/ria-page-shell", () => ({
+  RiaPageShell: ({ children }: { children: React.ReactNode }) => (
+    <div>{children}</div>
+  ),
   RiaCompatibilityState: ({
     title,
     description,

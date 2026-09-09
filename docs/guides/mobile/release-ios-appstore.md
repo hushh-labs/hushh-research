@@ -116,8 +116,11 @@ export/upload, or version/build validation):
 7. **Decode the App Store Connect API key** (`.p8` + Key ID + Issuer ID) from `hushh-pda-uat` Secret
    Manager into a `chmod 600` temp file; validates it is a real PEM; masks the identifiers.
 8. **Create + unlock a dedicated signing keychain** (Apple-managed cloud signing needs one).
-9. **Prepare the iOS project against UAT.** `ios:prepare:uat` runs `cap:build` + `cap:sync:ios` and
-   asserts the bundled backend host is the UAT host.
+9. **Prepare the iOS project against UAT.** `ios:prepare:uat` runs `cap:build` + `cap:sync:ios`,
+   verifies the staged `manifest.webmanifest`, native permission declarations, privacy manifest,
+   App Intents registration, and consent-plugin registration, then asserts the bundled backend host
+   is the UAT host. The release workflow repeats the generated voice gateway, Siri, native plugin,
+   and local voice evaluation checks immediately before archiving.
 10. **Resolve the next build number.** `resolve-ios-build-number.py` mints an ES256 JWT and returns
     `max(latest ASC build for 1.3.6, pbxproj CURRENT_PROJECT_VERSION) + 1` — monotonic against both
     App Store history and the committed value. (TestFlight and the App Store share one build-number
@@ -127,17 +130,24 @@ export/upload, or version/build validation):
     `aps-environment` development → production for the released binary only; the committed pbxproj
     stays on `App/App.entitlements`, so local/dev builds are unaffected). Signs with
     `-allowProvisioningUpdates` + the ASC API key; injects the resolved `CURRENT_PROJECT_VERSION`.
-12. **Export + upload to App Store Connect** via `ios/ExportOptions/AppStoreConnect.plist`
+12. **Verify the archived product.** The automated product-asset gate reopens the archived
+    `App.app` and requires `Info.plist`, `PrivacyInfo.xcprivacy`, `Metadata.appintents`, and
+    `public/manifest.webmanifest`. It also requires microphone, speech-recognition, Face ID, and
+    location usage declarations, and fails if model weights are embedded in the base bundle.
+    Native audio capture permission is an operating-system permission; it is not action consent.
+    Action authority remains inside Agent One's generated gateway, consent policy, directive ledger,
+    and verified backend settlement.
+13. **Export + upload to App Store Connect** via `ios/ExportOptions/AppStoreConnect.plist`
     (`destination=upload`). On `--dry-run`, PlistBuddy rewrites `destination` to `export` so the
     step signs and produces the `.ipa` without uploading.
-13. **Prepare the App Store version (set What's New, attach build, one-click submit).**
+14. **Prepare the App Store version (set What's New, attach build, one-click submit).**
     `submit-appstore-version.py` finds/creates an **editable App Store version with
     `releaseType=MANUAL`** (so it never auto-releases to the public), **sets the version's
     `whatsNew`** localization from `--whats-new` (Apple requires this per version — an empty field is
     what blocks "Add for Review"), waits for the uploaded build to reach `processingState=VALID`, and
     **attaches** it. It is skipped entirely on `--dry-run`. When `submit_for_review=true`, it also
     creates/reuses a review submission, adds this version, and marks it submitted (**irreversible**).
-14. **Upload artifacts + job summary.** `.ipa`, dSYMs, and `xcodebuild` logs are archived; the
+15. **Upload artifacts + job summary.** `.ipa`, dSYMs, and `xcodebuild` logs are archived; the
     summary reports SHA, version, build number, backend (`UAT (hushh-pda-uat)`), and mode.
 
 ## Required secrets and permissions

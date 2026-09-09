@@ -18,7 +18,6 @@ import {
   getCapabilityStatusDisplay,
   type CapabilityStatusTone,
 } from "@/lib/onboarding/capability-status-display";
-import { isAndroid } from "@/lib/capacitor/platform";
 import { getCapabilitySetupCopy } from "@/lib/onboarding/capability-setup-copy";
 import { buildOneSetupCapabilityRoute } from "@/lib/navigation/routes";
 import { OneSetupCompletionHintService } from "@/lib/services/one-setup-completion-hint-service";
@@ -119,10 +118,6 @@ function readPersistedRosterView(): AgentRosterView {
   } catch {
     return "list";
   }
-}
-
-function readNativeAndroidRosterSurface(): boolean {
-  return typeof window !== "undefined" && isAndroid();
 }
 
 function positiveNumber(value: unknown): number | null {
@@ -677,9 +672,6 @@ export function OneAgentRoster({
   );
   const modes = buildModes(capabilityStatusById, cachedMetrics, setupDismissed);
   const [view, setView] = useState<AgentRosterView>(readPersistedRosterView);
-  const [usesAndroidCompositorGuard] = useState(
-    readNativeAndroidRosterSurface,
-  );
   const [animateViewChange, setAnimateViewChange] = useState(false);
   const [query, setQuery] = useState("");
   const visibleModes = useMemo(() => {
@@ -744,14 +736,7 @@ export function OneAgentRoster({
       <div
         key={view}
         data-testid="one-agents-view-content"
-        data-no-auto-fade={usesAndroidCompositorGuard ? "true" : undefined}
-        className={cn(
-          usesAndroidCompositorGuard &&
-            "isolate overflow-hidden [clip-path:inset(0)] [contain:layout_paint]",
-          animateViewChange &&
-            !usesAndroidCompositorGuard &&
-            "motion-step-enter",
-        )}
+        className={cn(animateViewChange && "motion-step-enter")}
       >
         {view === "grid" ? (
           <div

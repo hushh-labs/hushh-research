@@ -9,6 +9,7 @@ WEB_DIR="$REPO_ROOT/hushh-webapp"
 cd "$WEB_DIR"
 npm run test:ci
 npm run verify:voice-gateway
+npm run verify:one-voice
 npm run verify:surface-map
 npm run verify:capacitor:static
 # The tri-flow signature check: TypeScript registerPlugin interfaces against

@@ -306,6 +306,24 @@ export function resolveRiaOnboardingStepId(
   return findFirstIncompleteRiaOnboardingStepId(draft, options);
 }
 
+export function resolveRestorableRiaOnboardingStepId(
+  draft: RiaOnboardingDraft,
+  persistedStepId?: RiaOnboardingStepId | null,
+  options?: RiaOnboardingFlowOptions,
+): RiaOnboardingStepId {
+  const steps = buildRiaOnboardingSteps(draft, options);
+  const fallbackStepId = findFirstIncompleteRiaOnboardingStepId(draft, options);
+  const normalizedPersistedStepId = normalizeRiaOnboardingStepId(persistedStepId);
+  if (!normalizedPersistedStepId) return fallbackStepId;
+
+  const persistedIndex = steps.findIndex((step) => step.id === normalizedPersistedStepId);
+  const fallbackIndex = steps.findIndex((step) => step.id === fallbackStepId);
+  if (persistedIndex < 0) return fallbackStepId;
+  if (fallbackIndex < 0) return normalizedPersistedStepId;
+
+  return steps[Math.min(persistedIndex, fallbackIndex)]?.id || fallbackStepId;
+}
+
 export function findFirstIncompleteRiaOnboardingStepId(
   draft: RiaOnboardingDraft,
   options?: RiaOnboardingFlowOptions,

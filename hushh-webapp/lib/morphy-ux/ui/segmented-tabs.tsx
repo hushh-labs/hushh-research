@@ -10,6 +10,8 @@ export interface SegmentedTabOption {
   accessibleLabel?: string;
 }
 
+export type SegmentedTabsVariant = "default" | "agent-top";
+
 export function SegmentedTabs({
   value,
   onValueChange,
@@ -18,6 +20,7 @@ export function SegmentedTabs({
   disabled = false,
   className,
   ariaLabel,
+  variant = "default",
 }: {
   value: string;
   onValueChange: (value: string) => void;
@@ -27,6 +30,8 @@ export function SegmentedTabs({
   disabled?: boolean;
   className?: string;
   ariaLabel?: string;
+  /** Opt into the compact Location-style navigation presentation. */
+  variant?: SegmentedTabsVariant;
 }) {
   const tabRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const resolvedDesktopColumns = Math.max(options.length, 1);
@@ -39,9 +44,13 @@ export function SegmentedTabs({
     <div
       role="tablist"
       data-ui-role="segmented-tabs"
+      data-ui-variant={variant}
       aria-label={ariaLabel}
       className={cn(
-        "relative grid min-h-11 w-full rounded-[14px] p-0.5 backdrop-blur-xl [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        "relative grid w-full p-0.5 [grid-template-columns:repeat(var(--segmented-mobile-cols),minmax(0,1fr))] sm:[grid-template-columns:repeat(var(--segmented-desktop-cols),minmax(0,1fr))]",
+        variant === "agent-top"
+          ? "h-9 min-h-0 rounded-[10px]"
+          : "min-h-11 rounded-[14px] backdrop-blur-xl",
         "border-0 bg-[color:var(--app-segmented-track-surface)] shadow-none",
         className,
       )}
@@ -91,9 +100,15 @@ export function SegmentedTabs({
               if (next.value !== value) onValueChange(next.value);
             }}
             className={cn(
-              "relative isolate flex min-h-10 min-w-0 items-center justify-center overflow-hidden rounded-[12px] border px-3 py-2 text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)] sm:px-4",
+              "relative isolate flex min-w-0 items-center justify-center overflow-hidden border text-center transition-[background-color,border-color,box-shadow,color] duration-150 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--app-accent-ring)]",
+              variant === "agent-top"
+                ? "h-full min-h-0 rounded-[8px] px-1 py-0 min-[360px]:px-2 sm:px-3"
+                : "min-h-10 rounded-[12px] px-3 py-2 sm:px-4",
               isActive
-                ? "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]"
+                ? cn(
+                    "z-10 border-transparent bg-[color:var(--app-segmented-active-surface)] text-[color:var(--app-segmented-active-foreground)] font-semibold shadow-[var(--app-segmented-active-shadow)]",
+                    variant === "agent-top" && "mx-0.5",
+                  )
                 : "border-transparent bg-transparent text-[color:var(--app-secondary-label)] [@media(hover:hover)]:hover:bg-[color:var(--app-neutral-fill)]",
               disabled && "cursor-not-allowed opacity-60",
             )}
@@ -114,7 +129,11 @@ export function SegmentedTabs({
               data-ui-contract="required-title"
               data-ui-truncation="forbid"
               data-ui-id={`segmented-tab-${option.value}`}
-              className="ui-text-form-label relative z-10 block min-w-0 truncate text-center"
+              className={
+                variant === "agent-top"
+                  ? "ui-text-agent-tab-label relative z-10 block min-w-0 truncate text-center"
+                  : "ui-text-form-label relative z-10 block min-w-0 truncate text-center"
+              }
             >
               {option.label}
             </span>

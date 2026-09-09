@@ -29,18 +29,16 @@
 
 import type { HushhContactsReadResult } from "@/lib/capacitor";
 import { isNative } from "@/lib/capacitor/platform";
+import { contactInvitationsEnabled } from "@/lib/contacts/invitation-candidates";
 import type { MarketplaceContactSource } from "@/lib/marketplace/contact-matching";
 
 const PEOPLE_CONNECTIONS_URL =
   "https://people.googleapis.com/v1/people/me/connections";
 
 /**
- * Exactly the two fields the pipeline consumes.
- *
- * `contact-matching.ts` reads `displayName` and `phoneNumbers` and nothing
- * else — `HushhContactRecord.emailAddresses` is declared and never used. Asking
- * for photos, addresses or organisations would be collecting data we have no
- * use for, from people who are not our users.
+ * Baseline matching fields. The invitation flag adds emailAddresses solely
+ * for session-local personal invitation selection. No additional OAuth scope,
+ * server-side read, persistent sync token or contact cache is introduced.
  */
 const PERSON_FIELDS = "names,phoneNumbers";
 
@@ -112,6 +110,7 @@ type PeoplePerson = {
   resourceName?: string | null;
   names?: PeopleName[];
   phoneNumbers?: PeoplePhone[];
+  emailAddresses?: { value?: string | null }[];
 };
 type PeopleConnectionsResponse = {
   connections?: PeoplePerson[];
@@ -193,7 +192,7 @@ export function googlePeopleContactSource(
 
     do {
       const url = new URL(PEOPLE_CONNECTIONS_URL);
-      url.searchParams.set("personFields", PERSON_FIELDS);
+      url.searchParams.set("personFields", contactInvitationsEnabled() ? `${PERSON_FIELDS},emailAddresses` : PERSON_FIELDS);
       url.searchParams.set("pageSize", String(PAGE_SIZE));
       url.searchParams.set("sources", READ_SOURCE);
       if (pageToken) url.searchParams.set("pageToken", pageToken);
@@ -214,6 +213,7 @@ export function googlePeopleContactSource(
           id: String(person.resourceName || "") || null,
           displayName: displayNameOf(person),
           phoneNumbers,
+          ...(contactInvitationsEnabled() ? { hasPhoneEntries: (person.phoneNumbers ?? []).length > 0, emailAddresses: (person.emailAddresses ?? []).map((email) => String(email.value ?? "")).filter(Boolean) } : {}),
         });
       }
 

@@ -1,5 +1,7 @@
 "use client";
 
+import { ContactInvitationNotice } from "@/components/connections/contact-invitation-notice";
+
 /**
  * LocationRedesignHub — mobile-first re-skin of the One Location feature.
  *
@@ -4331,6 +4333,7 @@ export function PeopleHub({
 
   return (
     <div data-testid="one-location-people-hub">
+      <ContactInvitationNotice />
       <div className="w-full space-y-4 sm:space-y-5">
         {!hasSearch ? (
           <CircleSummaryGroup
