@@ -201,53 +201,36 @@ function evidenceUrlParts(url: string): URL | null {
   }
 }
 
-function evidenceCikFromUrl(parsed: URL | null): string | null {
-  if (!parsed) return null;
-
-  const queryCik = parsed.searchParams.get("CIK");
-  if (queryCik) return queryCik.trim() || null;
-
-  const pathCik = parsed.pathname.match(/CIK(\d+)\.json$/i)?.[1];
-  return pathCik || null;
-}
-
 function primaryEvidenceForm(
   forms?: Array<{ form?: string | null; last_filed_at?: string | null }>
-): { form: string | null; lastFiledAt: string | null } {
+): string | null {
   const first = Array.isArray(forms) ? forms[0] : null;
-  return {
-    form: String(first?.form || "").trim() || null,
-    lastFiledAt: String(first?.last_filed_at || "").trim() || null,
-  };
+  return String(first?.form || "").trim() || null;
 }
 
-function evidenceLabel(params: {
+function isForm13F(form: string | null): boolean {
+  return Boolean(form && form.toUpperCase().startsWith("13F"));
+}
+
+function isSecForm13FUrl(params: {
   parsed: URL | null;
   url: string;
   forms?: Array<{ form?: string | null; last_filed_at?: string | null }>;
-  fallbackIndex: number;
-}): string {
-  const { form, lastFiledAt } = primaryEvidenceForm(params.forms);
-  const accession = normalizeSecAccession(params.url);
-  if (accession) return form ? `SEC Form ${form} - ${accession}` : `SEC filing - ${accession}`;
-
+}): boolean {
+  const form = primaryEvidenceForm(params.forms);
   const host = params.parsed?.hostname.toLowerCase() || "";
-  const path = params.parsed?.pathname || "";
-  const cik = evidenceCikFromUrl(params.parsed);
+  const path = params.parsed?.pathname.toLowerCase() || "";
 
-  if (host === "data.sec.gov" && /\/submissions\/CIK\d+\.json$/i.test(path)) {
-    return cik ? `SEC submissions - CIK ${cik}` : "SEC submissions";
-  }
+  if (host && !host.endsWith("sec.gov")) return false;
+  if (path.includes("form13f")) return true;
+  return isForm13F(form) && Boolean(normalizeSecAccession(params.url));
+}
 
-  if (host.endsWith("sec.gov") && path.toLowerCase().includes("/edgar/browse/")) {
-    return cik ? `SEC company page - CIK ${cik}` : "SEC company page";
-  }
-
-  if (host.endsWith("sec.gov") && form) {
-    return lastFiledAt ? `SEC Form ${form} - ${lastFiledAt}` : `SEC Form ${form}`;
-  }
-
-  return `SEC filing ${params.fallbackIndex}`;
+function evidenceLabel(params: {
+  url: string;
+}): string {
+  const accession = normalizeSecAccession(params.url);
+  return accession ? `SEC Form 13F - ${accession}` : "SEC Form 13F";
 }
 
 function evidenceIdentity(url: string): string {
@@ -260,8 +243,10 @@ function evidenceIdentity(url: string): string {
 
 export function marketplaceInvestorEvidenceLinks(
   evidence: MarketplaceInvestor["evidence"],
-  limit = 3
+  limit = 1
 ): MarketplaceEvidenceLink[] {
+  if (limit <= 0) return [];
+
   const sourceUrls = Array.isArray(evidence?.source_urls) ? evidence.source_urls : [];
   const links: MarketplaceEvidenceLink[] = [];
   const seen = new Set<string>();
@@ -270,6 +255,9 @@ export function marketplaceInvestorEvidenceLinks(
     const url = normalizeEvidenceUrl(sourceUrl);
     if (!url) continue;
 
+    const parsed = evidenceUrlParts(url);
+    if (!isSecForm13FUrl({ parsed, url, forms: evidence?.forms })) continue;
+
     const id = evidenceIdentity(url);
     if (seen.has(id)) continue;
 
@@ -277,15 +265,12 @@ export function marketplaceInvestorEvidenceLinks(
     links.push({
       id,
       label: evidenceLabel({
-        parsed: evidenceUrlParts(url),
         url,
-        forms: evidence?.forms,
-        fallbackIndex: links.length + 1,
       }),
       url,
     });
 
-    if (links.length >= limit) break;
+    if (links.length >= Math.min(limit, 1)) break;
   }
 
   return links;
