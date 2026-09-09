@@ -179,3 +179,67 @@ def test_email_is_wired_consistently_across_the_three_maps() -> None:
     assert "email" in door.POD_DATA_DOOR_READS
     assert _SPECIALIST_DOOR_NAMES["agent_email"] == "email"
     assert "email" in _SUMMARIZERS
+
+
+@pytest.mark.asyncio
+async def test_bounded_search_projects_only_declared_summary_fields():
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from hushh_mcp.services.pod_email_read import EmailReadOptions, read_email_metadata
+
+    source = AsyncMock(
+        return_value=[
+            {
+                "subject": "Invoice",
+                "from": "Billing",
+                "snippet": "Ready",
+                "received_at": None,
+                "thread_id": "hidden",
+                "from_email": "hidden@example.test",
+                "body": "hidden",
+            }
+        ]
+    )
+    result = await read_email_metadata(
+        "owner",
+        EmailReadOptions(operation="search", query="subject:invoice", limit=1),
+        service=SimpleNamespace(search_inbox=source),
+    )
+    assert result == {
+        "results": [
+            {
+                "subject": "Invoice",
+                "from": "Billing",
+                "snippet": "Ready",
+                "received_at": None,
+            }
+        ]
+    }
+    source.assert_awaited_once_with(user_id="owner", query="subject:invoice", limit=1)
+    source.return_value *= 2
+    with pytest.raises(ValueError):
+        await read_email_metadata(
+            "owner",
+            EmailReadOptions(operation="search", query="invoice", limit=1),
+            service=SimpleNamespace(search_inbox=source),
+        )
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        {"operation": "search"},
+        {"operation": "search", "query": " "},
+        {"operation": "nudges", "query": "invoice"},
+        {"limit": 0},
+        {"limit": 26},
+        {"owner_id": "foreign"},
+        {"operation": "delete"},
+    ],
+)
+def test_email_options_cannot_select_owner_or_unbounded_operation(options):
+    from hushh_mcp.services.pod_email_read import EmailReadOptions
+
+    with pytest.raises(ValueError):
+        EmailReadOptions.model_validate(options)

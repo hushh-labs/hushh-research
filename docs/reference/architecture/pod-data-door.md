@@ -94,9 +94,20 @@ substituted for invocation or mutation authority. Shared tools in pod mode
 revalidate the authored scope remotely and require the current Firebase owner
 and serving HusshID. Missing adapters never select shared service singletons.
 
-Email retains its transitional scoped summary. Email/Connections still lack
-the real first-party encrypted-export/confirmation handoff and pod information
-adapters needed for their full shared loops. Personal Information now runs its
+Email runs its existing read-only model/tool loop with pod model and sealed
+history dependencies. An ingress-injected callback verifies the owner and live
+`cap.email.inbox.view` before/after execution; the model and history store also
+revalidate. Unbound callers retain the existing export guard. The OAuth source
+is the existing hub broker, not a fabricated encrypted export. Queries select
+`nudges` or `search`, at most 25 summaries, a 500-character search expression
+and a 15-second service deadline. Search exposes subject, sender (which may be
+a fallback address), up to 200 characters of body-derived snippet and received
+time. It excludes raw bodies, attachments, thread handles and separate address
+fields. There is no send or mailbox-mutation adapter. The old nudge summary
+remains a compatibility path when no specialist runtime is bound.
+
+Connections still needs its real read/proposal and confirmation handoff.
+Personal Information now runs its
 existing model/tool loop with the pod model and sealed chat store. Its publication,
 publishable-slice and potential-earnings queries use `cap.pkm.marketplace.view`
 through the existing broker. Projections drop unknown fields and reject malformed
@@ -113,13 +124,14 @@ restart, live providers, deployed parity or the ledger's zero-hub-read assertion
 | Specialist | Door | Read | Notes |
 |---|---|---|---|
 | location | **OPEN** | `list_state(read_only=True)` (sync DB) | first door; suppresses even expiry housekeeping |
-| email | **OPEN** | `list_nudges` (async, OAuth) | inbox attention summary; `cap.email.inbox.view` |
-| calendar | **OPEN** (2026-09-02) | `list_events` (async, OAuth, 36h window) | upcoming events, titles and times only; `cap.calendar.events.view`; read-only, the summary points at the Calendar screen for changes |
+| email | **OPEN** | `list_nudges`, bounded `search_inbox` (OAuth) | shared Email loop in a bound pod runtime; `cap.email.inbox.view` |
+| calendar | **OPEN** | events, availability and openings (OAuth) | bounded query window; `cap.calendar.events.view`; no calendar mutations |
+| nav | **OPEN** | active/previous consent metadata | existing Nav handler; `agent.nav.review` |
+| marketplace | **OPEN** | publication, publishable-slice and earnings metadata | shared Information loop; `cap.pkm.marketplace.view` |
 
 Calendar is the first **in-process tool** behind a door. Location and email are dispatched specialists, so the hook at the specialist seam (`agent_tree._specialist_turn`) serves them; the calendar tools run inside the orchestrator and never reach that seam. The bridge is `agents/calendar/tools._serve_via_door`: in pod mode every calendar read tool consults the door first and reads in-process only when no door is open for the turn (off, no grant, broker refusal). The hub never consults it. Finance follows the same recipe.
-| nav, connections | next | dispatch specialists (hook fires) | same recipe as email |
-| calendar | designed | `list_events` (async, OAuth) | in-process tool, needs the tool→broker bridge below |
-| finance/Kai | designed (partial) | `get_status` connection status (sync DB) | see the finance split |
+Connections and Finance retain their separately recorded adapter gaps; an open
+read broker does not grant action authority.
 
 **The finance split.** Finance data is three-way: (a) connection status — which
 brokerages are connected, account/holdings COUNTS, sync state — is server-readable

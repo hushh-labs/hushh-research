@@ -86,7 +86,7 @@ def _register_builtin_specialists() -> None:
     register_specialist(
         "agent_email",
         _email,
-        service_handler=_with_service("hushh_mcp.adk_bridge.email_agent", "EmailAgentA2A"),
+        service_handler=_runtime_handle,
     )
     register_specialist(
         "agent_connections",

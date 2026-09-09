@@ -62,6 +62,7 @@ from hushh_mcp.services.pod_access_audit import (
     resolve_serving_owner_hushh_id,
 )
 from hushh_mcp.services.pod_data_door import CalendarReadOptions
+from hushh_mcp.services.pod_email_read import EmailReadOptions
 from hushh_mcp.services.pod_marketplace_read import MarketplaceReadOptions
 
 logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ class PodSpecialistReadRequest(BaseModel):
 
     calendar_read: CalendarReadOptions | None = Field(default=None, alias="calendarRead")
     marketplace_read: MarketplaceReadOptions | None = Field(default=None, alias="marketplaceRead")
+    email_read: EmailReadOptions | None = Field(default=None, alias="emailRead")
 
     model_config = ConfigDict(populate_by_name=True)
 
@@ -125,6 +127,9 @@ async def broker_specialist_read(
 
     if payload.marketplace_read is not None and name != "marketplace":
         raise HTTPException(status_code=422, detail="marketplace options require marketplace read")
+
+    if payload.email_read is not None and name != "email":
+        raise HTTPException(status_code=422, detail="email options require email read")
 
     asserted = await verify_pod_identity(request, authorization)
     if not asserted:
@@ -181,6 +186,8 @@ async def broker_specialist_read(
         # I/O); await it. An injected sync test double is still supported -- only
         # await when the call actually returned an awaitable.
         options = {"calendar_read": payload.calendar_read} if payload.calendar_read else {}
+        if payload.email_read is not None:
+            options["email_read"] = payload.email_read
         if payload.marketplace_read is not None:
             options["marketplace_read"] = payload.marketplace_read
         projection = run_read(name, owner_id=owner_id, **options)

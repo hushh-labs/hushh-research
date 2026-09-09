@@ -53,6 +53,7 @@ from typing import Any, Awaitable, Callable, Literal, Optional
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, model_validator
 
+from hushh_mcp.services.pod_email_read import EmailReadOptions, read_email_metadata
 from hushh_mcp.services.pod_marketplace_read import (
     MarketplaceReadOptions,
     project_marketplace_read,
@@ -644,6 +645,7 @@ async def run_pod_data_door_read(
     owner_id: str,
     calendar_read: CalendarReadOptions | None = None,
     marketplace_read: MarketplaceReadOptions | None = None,
+    email_read: EmailReadOptions | None = None,
 ) -> dict[str, Any]:
     """Run an allow-listed read for ``owner_id`` and return its egress projection.
 
@@ -657,6 +659,10 @@ async def run_pod_data_door_read(
     spec = POD_DATA_DOOR_READS.get(name)
     if spec is None:
         raise KeyError(name)
+    if email_read is not None:
+        if name != "email" or calendar_read is not None or marketplace_read is not None:
+            raise ValueError("email options require email read")
+        return await read_email_metadata(owner_id, email_read)
     if marketplace_read is not None:
         if name != "marketplace" or calendar_read is not None:
             raise ValueError("marketplace options require marketplace read")

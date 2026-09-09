@@ -402,3 +402,7 @@ tests/test_personal_agent_renewal_authority.py
 tests/test_information_chat_service.py
 tests/test_adk_dispatch.py
 tests/test_pod_agent_chat_store.py
+
+tests/test_email_chat_service.py
+
+tests/test_email_agent_a2a.py

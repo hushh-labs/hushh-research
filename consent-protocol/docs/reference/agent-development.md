@@ -20,6 +20,13 @@ Invocation authority never implies private-data access or mutation authority.
 
 ## One authored fleet, explicit runtime dependencies
 
+Email reuses `EmailChatService` with an injected Gmail read port, model and
+sealed store. Its runtime wrapper validates live owner/email scope before and
+after execution; this read-only OAuth path does not manufacture export refs or
+permit sends. Keep default shared callers' export guard intact. See the
+[broker contract](../../../docs/reference/architecture/pod-data-door.md) for
+query and projection limits.
+
 Use the same manifest, specialist wrapper, model/tool loop and result contract in
 shared execution and a private pod. A topology setting selects dependencies; it
 does not supply missing consent, information adapters or persistence. Registration

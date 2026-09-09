@@ -88,6 +88,32 @@ class PodMarketplaceReadPort:
         return (await self._read(user_id, operation="earnings", power=power, mood=mood))["result"]
 
 
+class PodEmailReadPort:
+    def __init__(self, owner_user_id: str, scope_token: str) -> None:
+        self._owner = owner_user_id
+        self._scope_token = scope_token
+
+    async def _read(self, user_id: str, **options: Any) -> dict:
+        if user_id != self._owner:
+            raise PermissionError("Email owner mismatch")
+        from hushh_mcp.services.pod_email_read import EmailReadOptions
+        from hushh_mcp.services.pod_hub_client import PodHubClient
+
+        query = EmailReadOptions.model_validate(options)
+        return await asyncio.to_thread(
+            PodHubClient().read_specialist,
+            "email",
+            self._scope_token,
+            email_read=query.model_dump(),
+        )
+
+    async def list_nudges(self, *, user_id: str, limit: int = 10) -> dict:
+        return await self._read(user_id, operation="nudges", limit=limit)
+
+    async def search_inbox(self, *, user_id: str, query: str, limit: int = 10) -> list[dict]:
+        return (await self._read(user_id, operation="search", query=query, limit=limit))["results"]
+
+
 def build_pod_specialist_runtime(
     *,
     user_id: str,
@@ -162,7 +188,7 @@ def build_pod_specialist_runtime(
 
             return ConnectedSystemsAgentA2A()
         # Never substitute a hub singleton when an owner adapter is absent.
-        if agent_id not in {"agent_location", "agent_personal_information"}:
+        if agent_id not in {"agent_location", "agent_personal_information", "agent_email"}:
             raise RuntimeError("Pod specialist information adapter unavailable")
         if log is None:
             from hushh_mcp.services.pod_memory_service import _resolve_log
@@ -172,6 +198,48 @@ def build_pod_specialist_runtime(
             raise RuntimeError("Pod conversation persistence unavailable")
         await require_access()
         from google.genai import types
+
+        if agent_id == "agent_email":
+            from hushh_mcp.adk_bridge.email_agent import EmailAgentA2A
+            from hushh_mcp.services.email_chat_service import EmailChatService
+
+            async def email_access() -> None:
+                await require_access()
+                verdict = await require_owner_scope(
+                    data_door_grants.get("email", ""),
+                    expected_scope="cap.email.inbox.view",
+                    user_id=user_id,
+                )
+                if verdict.hushh_id != hushh_id:
+                    raise PermissionError("Email pod owner mismatch")
+
+            async def authorize_email(task: Any) -> None:
+                if task.user_id != user_id:
+                    raise PermissionError("Email owner mismatch")
+                await email_access()
+
+            async def email_model(contents: Any, config: Any) -> Any:
+                await email_access()
+                result = await model_call(contents, config)
+                await email_access()
+                return result
+
+            return EmailAgentA2A(
+                require_read=authorize_email,
+                service=EmailChatService(
+                    chat_store=PodAgentChatStore(
+                        owner_user_id=user_id,
+                        hushh_id=hushh_id,
+                        log=log,
+                        require_access=email_access,
+                        agent_id=agent_id,
+                        model=model,
+                    ),
+                    gmail_service=PodEmailReadPort(user_id, data_door_grants.get("email", "")),
+                    model_call=email_model,
+                    genai_types=types,
+                ),
+            )
 
         if agent_id == "agent_personal_information":
             from hushh_mcp.services.information_chat_service import InformationChatService

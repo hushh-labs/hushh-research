@@ -227,8 +227,9 @@ assertions:
     statement: "The DB-backed specialists execute inside the pod rather than reaching a central service."
     falsifiable: true
     blocked_by: >-
-      Scoped location, email and calendar reads are connected through the existing
-      hub information door; private text/Live compose the result inside the pod.
+      Location, Nav, Information queries and read-only Email reuse the shared
+      specialist implementations with pod dependencies. Their scoped reads and
+      calendar reads still use the existing hub information door.
       This remains transitional: pod-native specialist information execution is
       required by the north star and is not proven by successful hub-backed reads.
       Actual deployed specialist execution, exact exports for other specialists and
@@ -244,6 +245,12 @@ assertions:
         - consent-protocol/api/routes/one/pod_turn.py
         - consent-protocol/hushh_mcp/services/pod_pkm_resolver.py
         - consent-protocol/hushh_mcp/one_adk/pod_data_door_specialist.py
+        - consent-protocol/hushh_mcp/services/pod_specialist_runtime.py
+        - consent-protocol/hushh_mcp/services/pod_email_read.py
+        - consent-protocol/hushh_mcp/services/pod_marketplace_read.py
+        - consent-protocol/hushh_mcp/services/pod_data_door.py
+        - consent-protocol/hushh_mcp/adk_bridge/dispatch.py
+        - consent-protocol/hushh_mcp/adk_bridge/email_agent.py
         - consent-protocol/hushh_mcp/one_adk/agent_tree.py
         - consent-protocol/api/routes/one/pod_relay.py
         - consent-protocol/api/routes/one/pod_live_authority.py

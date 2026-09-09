@@ -1316,13 +1316,13 @@ async def _specialist_turn(
         # Other scoped reads retain their explicit transitional broker contract.
         door_payload = (
             None
-            if agent_id == "agent_location" and specialist_runtime_bound()
+            if agent_id in {"agent_location", "agent_email"} and specialist_runtime_bound()
             else await serve_specialist_via_data_door(agent_id, tool_context)
         )
         if door_payload is not None:
             door_payload.setdefault("availability", availability_payload)
             return door_payload
-        if scoped_email_read:
+        if scoped_email_read and not specialist_runtime_bound():
             # A read scope never grants full email task/action authority. A
             # revoked or unavailable broker must not fall through to A2A.
             return {
