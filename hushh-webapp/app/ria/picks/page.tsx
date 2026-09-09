@@ -38,6 +38,7 @@ import {
   SurfaceInset,
   SurfaceStack,
 } from "@/components/app-ui/surfaces";
+import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
@@ -2719,6 +2720,8 @@ export default function RiaPicksPage() {
 
       <AppPageContentRegion>
         <SurfaceStack className="gap-6">
+          <RiaRouteSelector />
+
           <div data-testid="ria-picks-primary">
             <SegmentedTabs
               value={source}
@@ -2744,7 +2747,7 @@ export default function RiaPicksPage() {
             mobileColumns={2}
           />
 
-          {(
+          {
             <>
               {showMyListActionRail ? (
                 <SurfaceCard>
@@ -3235,7 +3238,7 @@ export default function RiaPicksPage() {
                 </div>
               ) : null}
             </>
-          )}
+          }
         </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>

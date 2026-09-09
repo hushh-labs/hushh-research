@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   resolvePublicKnowledgeTopShellTabSet,
+  resolveRiaRouteTabSet,
   resolveTopShellTabSet,
 } from "@/lib/navigation/top-shell-tabs";
 import { resolveTopShellRouteProfile } from "@/components/app-ui/top-shell-metrics";
@@ -66,27 +67,31 @@ describe("top shell contextual tabs", () => {
     });
   });
 
-  it("renders RIA workspace tabs through the same fixed top shell", () => {
-    expect(resolveTopShellTabSet("/ria")).toMatchObject({
+  it("keeps RIA workspace tabs below the page header instead of in the fixed top shell", () => {
+    expect(resolveTopShellTabSet("/ria")).toBeNull();
+    expect(resolveTopShellTabSet("/ria/profile")).toBeNull();
+    expect(resolveTopShellTabSet("/ria/clients")).toBeNull();
+    expect(resolveTopShellTabSet("/ria/picks")).toBeNull();
+    expect(resolveTopShellRouteProfile("/ria/clients").model).toMatchObject({
+      mode: "bar",
+    });
+
+    expect(resolveRiaRouteTabSet("/ria")).toMatchObject({
       id: "ria",
       label: "RIA workspace",
       activeValue: "profile",
     });
-    expect(resolveTopShellTabSet("/ria/profile")).toMatchObject({
+    expect(resolveRiaRouteTabSet("/ria/profile")).toMatchObject({
       id: "ria",
       activeValue: "profile",
     });
-    expect(resolveTopShellTabSet("/ria/clients")).toMatchObject({
+    expect(resolveRiaRouteTabSet("/ria/clients")).toMatchObject({
       id: "ria",
       activeValue: "clients",
     });
-    expect(resolveTopShellTabSet("/ria/picks")).toMatchObject({
+    expect(resolveRiaRouteTabSet("/ria/picks")).toMatchObject({
       id: "ria",
       activeValue: "picks",
-    });
-    expect(resolveTopShellRouteProfile("/ria/clients").model).toMatchObject({
-      mode: "bar-with-tabs",
-      tabs: { id: "ria", activeValue: "clients" },
     });
   });
 
@@ -165,7 +170,7 @@ describe("top shell contextual tabs", () => {
     ["/one/location?view=people", "bar"],
     ["/one/kai?tab=analysis", "bar-with-tabs"],
     ["/one/consent?tab=history", "bar-with-tabs"],
-    ["/ria/picks", "bar-with-tabs"],
+    ["/ria/picks", "bar"],
   ] as const)("resolves %s as %s", (routeKey, expectedMode) => {
     const profile = resolveTopShellRouteProfile(routeKey);
     expect(profile.model.mode).toBe(expectedMode);
