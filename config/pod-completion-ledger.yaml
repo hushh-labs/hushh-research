@@ -252,12 +252,16 @@ assertions:
       observation_requirements:
         specialist_execution_attributed_to_pod: {equals: true}
         consented_success: {equals: true}
+        native_specialist_executions: {minimum: 1}
+        hub_specialist_information_reads: {maximum: 0}
       reproduce: consent-protocol/scripts/ops/pod_parity_probe.py
       expires_after_days: 30
       pending: >-
         Static tests now cover scoped reads and proposal handoff. They do not prove
         actual provider success, per-hop export authority or deployed execution;
-        earn a current receipt by exercising the connected path on a disposable pod.
+        A transitional hub-backed response cannot earn this assertion. Measure
+        native specialist executions and hub information reads independently on
+        a disposable pod; do not infer locality from the response status.
 
   - id: consent-chain-detects-a-wipe
     requirement: Authority

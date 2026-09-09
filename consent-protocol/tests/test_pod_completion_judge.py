@@ -615,3 +615,22 @@ def test_receipt_timestamp_date_is_normalized_to_utc(structured_receipt):
     artifact["completed_at"] = instant.astimezone(_dt.timezone(_dt.timedelta(hours=-7))).isoformat()
     check["verified_on"] = yesterday.isoformat()
     assert judge_mod.judge([write()]).finished
+
+
+@pytest.mark.parametrize("native_calls,hub_reads", [(None, None), (0, 0), (1, 1)])
+def test_transitional_specialist_receipt_cannot_prove_pod_native_execution(
+    structured_receipt, native_calls, hub_reads
+):
+    artifact, check, write, _ = structured_receipt
+    ledger = yaml.safe_load(_LEDGER.read_text())
+    specialist = next(a for a in ledger["assertions"] if a["id"] == "specialists-run-in-pod")
+    check["observation_requirements"] = specialist["check"]["observation_requirements"]
+    artifact["observations"] = {
+        "specialist_execution_attributed_to_pod": True,
+        "consented_success": True,
+    }
+    if native_calls is not None:
+        artifact["observations"].update(
+            native_specialist_executions=native_calls, hub_specialist_information_reads=hub_reads
+        )
+    assert judge_mod.judge([write()]).failing
