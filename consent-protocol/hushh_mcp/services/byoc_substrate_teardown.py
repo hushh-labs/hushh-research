@@ -520,6 +520,9 @@ def build_gcp_deleter(
     retain_secret_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
     account_erasure_state: dict[str, Any] | None = None,
     retain_account_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
+    grant_authorization_receipt: dict[str, Any] | None = None,
+    grant_erasure_state: dict[str, Any] | None = None,
+    retain_grant_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
 ):
     """A real deleter over Google's REST surfaces, bound to ONE project.
 
@@ -548,6 +551,30 @@ def build_gcp_deleter(
     if account_erasure_state is not None and retain_account_receipt is None:
         raise SubstrateDeleteError("account recovery requires durable receipt retention")
     account_state = deepcopy(account_erasure_state or {})
+    if grant_erasure_state is not None and retain_grant_receipt is None:
+        raise SubstrateDeleteError("grant recovery requires durable receipt retention")
+    grant_state = deepcopy(grant_erasure_state or {})
+    grant_evidence = deepcopy(grant_authorization_receipt or {})
+
+    def _retain_grant(stage: str) -> None:
+        if retain_grant_receipt is None:
+            return
+        status = {
+            "admission": "admitted",
+            "acknowledgement": "acknowledged",
+            "deletion": "observed_absent",
+        }[stage]
+        receipt = {**grant_evidence, "status": status}
+        if grant_state.get(stage) == receipt:
+            return
+        try:
+            retained = retain_grant_receipt(stage, deepcopy(receipt))
+        except Exception:
+            raise SubstrateDeleteError("grant receipt retention unavailable") from None
+        if retained is not True:
+            raise SubstrateDeleteError("grant receipt retention unconfirmed")
+        grant_state[stage] = receipt
+
     log = logging.getLogger(__name__)
     headers = {"Authorization": f"Bearer {token}"}
     _OK = (200, 204, 404)
@@ -1054,6 +1081,21 @@ def build_gcp_deleter(
         # that hushh knows nothing about, and dropping them while claiming to revoke
         # one grant is the failure safe-changes R3 exists for.
         base = f"https://iam.googleapis.com/v1/projects/{project}/serviceAccounts/{resource}"
+        if retain_grant_receipt is not None:
+            from hushh_mcp.services.byoc_substrate import _service_account_creation_identity
+
+            observed_identity = session.get(
+                base, headers=headers, timeout=30, allow_redirects=False
+            )
+            expected_identity = grant_evidence["bootstrapIdentity"]
+            if (
+                observed_identity.status_code != 200
+                or _service_account_creation_identity(
+                    observed_identity.json(), expected_identity["email"]
+                )
+                != expected_identity
+            ):
+                raise SubstrateDeleteError("bootstrap grant account identity unverified")
         got = session.post(
             f"{base}:getIamPolicy",
             headers=headers,
@@ -1062,12 +1104,21 @@ def build_gcp_deleter(
             allow_redirects=False,
         )
         if got.status_code == 404:
+            if retain_grant_receipt is not None:
+                raise SubstrateDeleteError("bootstrap grant policy absence unverified")
             return  # the account is gone, so the grant on it is too -- idempotent
         if got.status_code != 200:
             raise SubstrateDeleteError(f"sa iam getIamPolicy http={got.status_code}")
         policy = _policy_without_binding(got.json(), role, member)
         if policy is None:
+            _retain_grant("admission")
+            _retain_grant("deletion")
             return
+        if retain_grant_receipt is not None and grant_state:
+            raise SubstrateDeleteError(
+                "bootstrap grant outcome unresolved; policy write not replayed"
+            )
+        _retain_grant("admission")
         put = session.post(
             f"{base}:setIamPolicy",
             headers=headers,
@@ -1077,6 +1128,7 @@ def build_gcp_deleter(
         )
         if put.status_code != 200:
             raise SubstrateDeleteError(f"sa iam setIamPolicy http={put.status_code}")
+        _retain_grant("acknowledgement")
         observed = session.post(
             f"{base}:getIamPolicy",
             headers=headers,
@@ -1089,6 +1141,7 @@ def build_gcp_deleter(
             or _policy_without_binding(observed.json(), role, member) is not None
         ):
             raise SubstrateDeleteError("sa iam grant removal unverified")
+        _retain_grant("deletion")
 
     async def _deleter(action: dict) -> None:
         import asyncio  # noqa: PLC0415
@@ -1098,6 +1151,45 @@ def build_gcp_deleter(
         kind = action["type"]
         rid = action["id"]
         observation = action.get("resourceObservation")
+        if retain_grant_receipt is not None:
+            from hushh_mcp.services.byoc_substrate import (
+                _binding_observation,
+                _service_account_creation_identity,
+            )
+
+            raw = grant_evidence if isinstance(grant_evidence, dict) else {}
+            raw_identity = raw.get("bootstrapIdentity") or {}
+            identity = (
+                _service_account_creation_identity(raw_identity, raw_identity.get("email", ""))
+                if isinstance(raw_identity, dict)
+                else None
+            )
+            binding = _binding_observation(raw.get("bindingObservation"))
+            if (
+                kind != "service_account_iam_binding"
+                or not identity
+                or not binding
+                or identity["projectId"] != project
+                or action.get("resource") != identity["uniqueId"]
+                or action.get("role") != "roles/iam.serviceAccountTokenCreator"
+                or binding["role"] != action.get("role")
+                or binding["member"] != action.get("member")
+                or binding["step"] != "authorize_bootstrap_impersonation"
+                or binding["policyResource"]
+                != f"https://iam.googleapis.com/v1/{identity['name']}:getIamPolicy"
+                or raw != {"bootstrapIdentity": identity, "bindingObservation": binding}
+            ):
+                raise SubstrateDeleteError("bootstrap grant authorization evidence invalid")
+            expected_status = {
+                "admission": "admitted",
+                "acknowledgement": "acknowledged",
+                "deletion": "observed_absent",
+            }
+            if any(
+                stage not in expected_status or receipt != {**raw, "status": expected_status[stage]}
+                for stage, receipt in grant_state.items()
+            ) or (grant_state and "admission" not in grant_state):
+                raise SubstrateDeleteError("bootstrap grant recovery evidence invalid")
         if kind == "service_account" and retain_account_receipt is not None and not observation:
             raise SubstrateDeleteError("coordinated account cleanup requires creation evidence")
         if kind == "secret" and retain_secret_receipt is not None and not observation:

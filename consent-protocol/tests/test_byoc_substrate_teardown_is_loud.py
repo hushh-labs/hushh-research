@@ -66,6 +66,120 @@ def _deleter(session: _Session):
     )
 
 
+@pytest.mark.parametrize(
+    "case",
+    [
+        "success",
+        "foreign",
+        "replaced",
+        "admission_refused",
+        "ack_refused",
+        "pending_present",
+        "pending_absent",
+        "readback_present",
+        "policy_denied",
+    ],
+)
+async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_replay(case):
+    identity = {
+        "name": "projects/proj-x/serviceAccounts/one-bootstrap@proj-x.iam.gserviceaccount.com",
+        "projectId": "proj-x",
+        "email": "one-bootstrap@proj-x.iam.gserviceaccount.com",
+        "uniqueId": "123456789012345678901",
+    }
+    member = "serviceAccount:recorded-hub@hub-project.iam.gserviceaccount.com"
+    evidence = {
+        "bootstrapIdentity": identity,
+        "bindingObservation": {
+            "step": "authorize_bootstrap_impersonation",
+            "policyResource": "https://iam.googleapis.com/v1/" + identity["name"] + ":getIamPolicy",
+            "role": "roles/iam.serviceAccountTokenCreator",
+            "member": member,
+            "disposition": "added",
+            "beforeEtag": "before",
+            "afterEtag": "after",
+        },
+    }
+    action = {
+        "type": "service_account_iam_binding",
+        "id": "synthetic-grant",
+        "resource": identity["uniqueId"],
+        "role": "roles/iam.serviceAccountTokenCreator",
+        "member": "serviceAccount:foreign@hub-project.iam.gserviceaccount.com"
+        if case == "foreign"
+        else member,
+    }
+    conditional = {
+        "role": action["role"],
+        "members": [member],
+        "condition": {"title": "unrelated", "expression": "false"},
+    }
+    present = {
+        "version": 3,
+        "etag": "current",
+        "bindings": [{"role": action["role"], "members": [member]}, conditional],
+    }
+    absent = {"version": 3, "etag": "observed", "bindings": [conditional]}
+    session = _Session()
+    session.rule(
+        "GET",
+        "/serviceAccounts/",
+        _Resp(
+            200,
+            {**identity, "uniqueId": "999999999999999999999"} if case == "replaced" else identity,
+        ),
+    )
+    reads = iter(
+        [
+            _Resp(
+                403 if case == "policy_denied" else 200,
+                absent if case == "pending_absent" else present,
+            ),
+            _Resp(200, present if case == "readback_present" else absent),
+        ]
+    )
+    session.rule("POST", ":getIamPolicy", lambda url, kwargs: next(reads))
+    session.rule("POST", ":setIamPolicy", _Resp(200, absent))
+    state = {"admission": {**evidence, "status": "admitted"}} if case.startswith("pending_") else {}
+    retained = []
+
+    def retain(stage, receipt):
+        retained.append((stage, receipt))
+        return not (
+            case == "admission_refused"
+            and stage == "admission"
+            or case == "ack_refused"
+            and stage == "acknowledgement"
+        )
+
+    deleter = build_gcp_deleter(
+        token="synthetic",  # noqa: S106 -- scripted provider, no usable credential
+        project="proj-x",
+        region="us-central1",
+        session=session,
+        grant_authorization_receipt=evidence,
+        grant_erasure_state=state,
+        retain_grant_receipt=retain,
+    )
+    if case in {"success", "pending_absent"}:
+        await deleter(action)
+        assert retained[-1][1]["status"] == "observed_absent"
+    else:
+        with pytest.raises(SubstrateDeleteError):
+            await deleter(action)
+        assert all(stage != "deletion" for stage, _ in retained)
+    writes = [call for call in session.calls if ":setIamPolicy" in call[1]]
+    assert len(writes) == (1 if case in {"success", "ack_refused", "readback_present"} else 0)
+    if writes:
+        assert writes[0][2]["json"]["policy"]["bindings"] == [conditional]
+    if case == "foreign":
+        assert session.calls == []
+    else:
+        assert all("/serviceAccounts/" + identity["uniqueId"] in call[1] for call in session.calls)
+    if case == "pending_absent":
+        assert [stage for stage, _ in retained] == ["deletion"]
+
+
 async def test_shared_artifact_repository_refuses_without_provider_access(monkeypatch):
     monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
     session = _Session()
