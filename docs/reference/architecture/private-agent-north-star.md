@@ -523,8 +523,12 @@ incarnation before and after bounded pagination, and emits image names/URIs with
 Access failures, malformed responses, duplicate entries and repeated page tokens refuse
 rather than report an empty inventory. Every successful observation remains `unresolved`:
 it is not an atomic snapshot, an inventory of incomplete uploads, ownership evidence,
-or permission to delete shared storage. Durable classification in the existing erasure
-reservation is still required before bootstrap release. The enumeration follows the
+or permission to delete shared storage. Dev migration 931 and the existing coordinator
+retain this unresolved observation in the owner erasure reservation after the recorded
+repository-writer grant is removed. Identical retries validate and read back the retained
+observation; it cannot be replaced or removed, and rollback refuses retained evidence.
+The stored observation is not fresh classification. Durable classification and a current
+repository check are still required before bootstrap release. The enumeration follows the
 [Artifact Registry Docker image list contract](https://docs.cloud.google.com/artifact-registry/docs/reference/rest/v1/projects.locations.repositories.dockerImages/list).
 
 ## What this changes about the work

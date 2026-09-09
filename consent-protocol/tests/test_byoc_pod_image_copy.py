@@ -386,6 +386,7 @@ def test_multiarch_copy_verifies_child_before_publishing_index(corrupt_child):
         "duplicate",
         "malformed",
         "error_envelope",
+        "encoded",
     ],
 )
 def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(case):
@@ -425,6 +426,8 @@ def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(ca
             if not kwargs["params"]["pageToken"]:
                 return _Resp(200, json_body={"dockerImages": [], "nextPageToken": "next"})
             entry = {**image, "uri": "foreign@" + DIGEST} if case == "foreign" else image
+            if case == "encoded":
+                entry = {**image, "name": image["name"].replace("@", "%40")}
             return _Resp(
                 200,
                 json_body={
@@ -446,7 +449,7 @@ def test_repository_inventory_is_scoped_paginated_and_never_cleanup_authority(ca
             session=Session(),
         )
 
-    if case == "success":
+    if case in {"success", "encoded"}:
         result = observe()
         assert result["classification"] == "unresolved"
         assert result["paginationComplete"] is True

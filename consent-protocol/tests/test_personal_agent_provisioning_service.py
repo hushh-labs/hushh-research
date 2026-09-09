@@ -1407,6 +1407,8 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
     terminal = AsyncMock()
     grant = AsyncMock()
     repository_grant = AsyncMock()
+    repository_inventory = AsyncMock()
+    monkeypatch.setattr(service, "_retain_reserved_repository_inventory", repository_inventory)
     monkeypatch.setattr(service, "_erase_reserved_repository_grant", repository_grant)
     monkeypatch.setattr(service, "_erase_reserved_runtime_grant", grant)
     monkeypatch.setattr(service, "_erase_reserved_runtime_account", terminal)
@@ -1420,6 +1422,7 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
     terminal.assert_awaited_once_with(user_id=_UID)
     grant.assert_awaited_once_with(user_id=_UID)
     repository_grant.assert_awaited_once_with(user_id=_UID)
+    repository_inventory.assert_awaited_once_with(user_id=_UID)
     for method in earlier:
         getattr(service, method).assert_not_awaited()
     assert service._registry.deleted == []
@@ -1542,4 +1545,64 @@ async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
         backend.assert_not_called()
     if failure == "foreign_owner":
         registry.reserve_erasure_grant_release.assert_not_awaited()
+    assert registry.deleted == []
+
+
+@pytest.mark.parametrize("failure", [None, "owner", "retain", "readback", "retry"])
+async def test_repository_inventory_retains_unresolved_owner_observation(monkeypatch, failure):
+    from copy import deepcopy
+    from types import SimpleNamespace
+
+    service = _svc()
+    registry = service._registry
+    identity = {"name": "synthetic-repository", "format": "DOCKER", "createTime": "synthetic"}
+    observation = {
+        "repositoryIdentity": identity,
+        "images": [],
+        "paginationComplete": True,
+        "classification": "unresolved",
+    }
+    reservation = {
+        "ownerId": "foreign" if failure == "owner" else _UID,
+        "attemptId": "erase-one",
+        "registrySnapshot": {"user_id": _UID},
+        "repositoryGrantErasure": {
+            "deletion": {
+                "ownerId": _UID,
+                "attemptId": "erase-one",
+                "status": "observed_absent",
+                "repositoryIdentity": identity,
+            }
+        },
+    }
+    bound = {**observation, "ownerId": _UID, "attemptId": "erase-one"}
+    if failure == "retry":
+        reservation["repositoryInventory"] = bound
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    observe = AsyncMock(return_value=observation)
+    monkeypatch.setattr(
+        service,
+        "_reserved_cleanup_backend",
+        lambda snapshot: SimpleNamespace(observe_repository_inventory=observe),
+    )
+    monkeypatch.setenv("PERSONAL_AGENT_SUBSTRATE_TEARDOWN_ENABLED", "1")
+
+    async def retain(**kwargs):
+        if failure == "retain":
+            return False
+        if failure != "readback":
+            registry.rows[_UID]["backend_metadata"]["erasure"]["repositoryInventory"] = deepcopy(
+                kwargs["receipt"]
+            )
+        return True
+
+    registry.retain_erasure_repository_inventory = AsyncMock(side_effect=retain)
+    if failure in {"owner", "retain", "readback"}:
+        with pytest.raises(RuntimeError):
+            await service._retain_reserved_repository_inventory(user_id=_UID)
+    else:
+        await service._retain_reserved_repository_inventory(user_id=_UID)
+        assert registry.rows[_UID]["backend_metadata"]["erasure"]["repositoryInventory"] == bound
+    if failure in {"owner", "retry"}:
+        observe.assert_not_awaited()
     assert registry.deleted == []

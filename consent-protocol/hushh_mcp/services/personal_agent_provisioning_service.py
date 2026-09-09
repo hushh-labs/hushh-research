@@ -2726,6 +2726,52 @@ class PersonalAgentProvisioningService:
             states[stage] = {k: v for k, v in receipt.items() if k not in {"ownerId", "attemptId"}}
         await erase(evidence=evidence, state=states, retain_receipt=checkpoint)
 
+    async def _retain_reserved_repository_inventory(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("repository inventory guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        deletion = (reservation.get("repositoryGrantErasure") or {}).get("deletion") or {}
+        retain = getattr(self._registry, "retain_erasure_repository_inventory", None)
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+            or deletion.get("ownerId") != user_id
+            or deletion.get("attemptId") != reservation.get("attemptId")
+            or deletion.get("status") != "observed_absent"
+            or retain is None
+        ):
+            raise RuntimeError("repository inventory reservation unavailable")
+        receipt = reservation.get("repositoryInventory")
+        if receipt is None:
+            observe = getattr(
+                self._reserved_cleanup_backend(snapshot), "observe_repository_inventory", None
+            )
+            if observe is None:
+                raise RuntimeError("repository inventory unsupported")
+            observed = await observe(identity=deletion["repositoryIdentity"])
+            receipt = {**observed, "ownerId": user_id, "attemptId": reservation["attemptId"]}
+        # The database validates the frozen identity and prior cleanup, including
+        # idempotent retries. This observation cannot release recovery authority.
+        if not await retain(user_id=user_id, reservation=reservation, receipt=receipt):
+            raise RuntimeError("repository inventory retention refused")
+        current = await self._registry.get(user_id)
+        saved = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or saved.get("ownerId") != user_id
+            or saved.get("attemptId") != reservation.get("attemptId")
+            or saved.get("registrySnapshot") != snapshot
+            or saved.get("repositoryInventory") != receipt
+        ):
+            raise RuntimeError("repository inventory readback unconfirmed")
+
     async def deprovision(
         self,
         *,
@@ -2775,6 +2821,7 @@ class PersonalAgentProvisioningService:
                     await self._erase_reserved_runtime_account(user_id=user_id)
                     await self._erase_reserved_runtime_grant(user_id=user_id)
                     await self._erase_reserved_repository_grant(user_id=user_id)
+                    await self._retain_reserved_repository_inventory(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

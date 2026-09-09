@@ -585,6 +585,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/930_personal_agent_repository_grant_erasure.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/930_personal_agent_repository_grant_erasure.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/931_personal_agent_repository_inventory.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/931_personal_agent_repository_inventory.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/931_personal_agent_repository_inventory.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -1278,8 +1283,66 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     )
     assert retain_repository("admission", repository_receipt)
     assert not retain_repository("admission", repository_receipt)
+    repository_inventory = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "repositoryIdentity": repository_identity,
+        "images": [
+            {
+                "name": repository_identity["name"]
+                + "/dockerImages/consent-protocol-pod@sha256:"
+                + "a" * 64,
+                "uri": "us-central1-docker.pkg.dev/synthetic-project/one-pod/consent-protocol-pod@sha256:"
+                + "a" * 64,
+            }
+        ],
+        "paginationComplete": True,
+        "classification": "unresolved",
+    }
+
+    def retain_image_inventory(receipt):
+        return pg.execute(
+            "SELECT retain_erasure_repository_inventory('synthetic-owner','attempt-one',%s::jsonb,%s::jsonb)",
+            (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]), json.dumps(receipt)),
+        )[0][0]
+
+    assert not retain_image_inventory(repository_inventory)
     assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
     assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
+    for mutation in (
+        {"ownerId": "foreign"},
+        {"attemptId": "foreign"},
+        {"classification": "complete"},
+        {"paginationComplete": False},
+        {"repositoryIdentity": {**repository_identity, "createTime": "2026-09-09T00:00:00Z"}},
+        {"images": [{"name": "foreign", "uri": "foreign"}]},
+        {
+            "images": [
+                {
+                    **repository_inventory["images"][0],
+                    "name": repository_inventory["images"][0]["name"].replace(
+                        "consent-protocol-pod@", "other-package@"
+                    ),
+                }
+            ]
+        },
+        {"images": repository_inventory["images"] * 2},
+    ):
+        assert not retain_image_inventory({**repository_inventory, **mutation})
+    assert retain_image_inventory(repository_inventory)
+    assert retain_image_inventory(repository_inventory)
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,repositoryInventory}' WHERE user_id='synthetic-owner'"
+        )
+    with pytest.raises(psycopg2.errors.RaiseException, match="requires preservation"):
+        with connect(pg) as rollback_conn, rollback_conn.cursor() as cursor:
+            cursor.execute(
+                (
+                    ROOT
+                    / "db/migrations/rollback/931_personal_agent_repository_inventory.rollback.sql"
+                ).read_text()
+            )
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
             "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) VALUES ('other-owner','setup-two','synthetic-project')"
@@ -1316,6 +1379,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert not retain_writer("writerDisabled", disabled)
     assert not retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
     assert not retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
+    assert not retain_image_inventory(repository_inventory)
     assert not bucket_preflight()
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.

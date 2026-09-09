@@ -1259,6 +1259,33 @@ class UserGcpBackend:
             }
         )
 
+    async def observe_repository_inventory(self, *, identity: dict[str, str]) -> dict[str, Any]:
+        """Observe shared images under retained bootstrap authority, without deletion."""
+        import asyncio
+
+        import requests
+
+        from hushh_mcp.services.pod_image_copy import observe_repository_images
+        from hushh_mcp.services.user_gcp_bootstrap import mint_bootstrap_token
+
+        if not self._live or not self._user_project or not self._bootstrap_sa:
+            raise RuntimeError("repository inventory authority unavailable")
+
+        def observe() -> dict[str, Any]:
+            token = mint_bootstrap_token(
+                bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            )
+            with requests.Session() as session:
+                return observe_repository_images(
+                    project=self._user_project,
+                    region=self._user_region,
+                    expected_identity=identity,
+                    token=token,
+                    session=session,
+                )
+
+        return await asyncio.to_thread(observe)
+
     async def erase_compute(
         self, spec: PodSpec, *, operation_name=None, before_submit=None, on_acknowledged=None
     ) -> None:

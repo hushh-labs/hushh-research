@@ -471,10 +471,11 @@ def observe_repository_images(
                 or unquote(image_name.removeprefix(name + "/dockerImages/"))
                 != uri.removeprefix(uri_prefix)
                 or not re.fullmatch(r"[^\s@]+@sha256:[0-9a-f]{64}", uri.removeprefix(uri_prefix))
-                or image_name in images
+                or unquote(image_name) in images
             ):
                 raise ImageCopyError("repository image identity unresolved")
-            images[image_name] = {"name": image_name, "uri": uri}
+            canonical_name = unquote(image_name)
+            images[canonical_name] = {"name": canonical_name, "uri": uri}
             if len(images) > 10000:
                 raise ImageCopyError("repository inventory limit exceeded")
         next_token = page.get("nextPageToken", "")
