@@ -18,6 +18,24 @@ from hushh_mcp.one_adk.agent_tree import STATE_DATA_DOOR_GRANTS
 from hushh_mcp.services.pod_hub_client import PodHubUnavailable
 
 
+@pytest.fixture
+def invocation_authority(monkeypatch):
+    from types import SimpleNamespace
+
+    from hushh_mcp.adk_bridge import delegation
+
+    async def validate(agent_id, token):
+        assert agent_id == "agent_one"
+        assert token == "synthetic-invoke"
+        return SimpleNamespace(
+            ok=True,
+            user_id="synthetic-owner",
+            required_scope=SimpleNamespace(value="cap.one.invoke"),
+        )
+
+    monkeypatch.setattr(delegation, "validate_a2a_consent_token_with_db", validate)
+
+
 class _Ctx:
     def __init__(self, grants: dict | None):
         self.state = {STATE_DATA_DOOR_GRANTS: grants} if grants is not None else {}
@@ -134,7 +152,9 @@ def test_the_summary_survives_a_degraded_projection():
     "agent_id,door",
     [("agent_location", "location"), ("agent_email", "email")],
 )
-async def test_root_specialist_turn_reaches_only_its_scoped_door(monkeypatch, agent_id, door):
+async def test_root_specialist_turn_reaches_only_its_scoped_door(
+    monkeypatch, agent_id, door, invocation_authority
+):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -150,7 +170,10 @@ async def test_root_specialist_turn_reaches_only_its_scoped_door(monkeypatch, ag
         state={
             agent_tree.STATE_USER_ID: "synthetic-owner",
             agent_tree.STATE_CONSENT_TOKEN: "synthetic-pkm-read",
-            agent_tree.STATE_DATA_DOOR_GRANTS: {door: "synthetic-scoped-read"},
+            agent_tree.STATE_DATA_DOOR_GRANTS: {
+                door: "synthetic-scoped-read",
+                "invoke": "synthetic-invoke",
+            },
         }
     )
     result = await agent_tree._specialist_turn(agent_id, "Summarize my information", context)
@@ -218,7 +241,7 @@ async def test_calendar_uses_its_existing_read_tool_not_a_second_specialist(monk
 
 
 @pytest.mark.asyncio
-async def test_email_read_refusal_never_upgrades_to_a2a_dispatch(monkeypatch):
+async def test_email_read_refusal_never_upgrades_to_a2a_dispatch(monkeypatch, invocation_authority):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
@@ -237,7 +260,7 @@ async def test_email_read_refusal_never_upgrades_to_a2a_dispatch(monkeypatch):
             state={
                 agent_tree.STATE_USER_ID: "synthetic-owner",
                 agent_tree.STATE_CONSENT_TOKEN: "synthetic-pkm-read",
-                STATE_DATA_DOOR_GRANTS: {"email": "synthetic-scope"},
+                STATE_DATA_DOOR_GRANTS: {"email": "synthetic-scope", "invoke": "synthetic-invoke"},
             }
         ),
     )

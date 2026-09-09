@@ -89,6 +89,10 @@ from hushh_mcp.services.one_location_circle_service import OneLocationCircleServ
 
 class TestAgentTreeShape:
     @pytest.fixture(autouse=True)
+    def shared_runtime(self, monkeypatch):
+        monkeypatch.setattr(_tree, "pod_mode", lambda: False)
+
+    @pytest.fixture(autouse=True)
     def _managed_live_key(self, monkeypatch: pytest.MonkeyPatch):
         """The canonical live model rides the developer_api transport, so
         building the voice head requires the Hussh-managed live key; tests
@@ -506,6 +510,10 @@ def _tool_context(state: dict) -> SimpleNamespace:
 
 
 class TestSpecialistTurn:
+    @pytest.fixture(autouse=True)
+    def shared_runtime(self, monkeypatch):
+        monkeypatch.setattr(_tree, "pod_mode", lambda: False)
+
     @pytest.mark.asyncio
     async def test_fails_closed_without_auth_state(self):
         result = await _specialist_turn("agent_location", "what needs a reply", _tool_context({}))

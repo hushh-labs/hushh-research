@@ -30,7 +30,9 @@ unavoidable cost; it is describing a design defect that has a known-good alterna
 from __future__ import annotations
 
 import ast
+import io
 import re
+import tokenize
 from pathlib import Path
 
 import pytest
@@ -92,7 +94,14 @@ def _code_without_comments_or_docstrings(source: str) -> str:
         if number in docstrings:
             continue
         kept.append(line.split("#", 1)[0])
-    return "\n".join(kept).lower()
+    # Python's lambda keyword is neutral syntax; provider strings and names
+    # still participate in the boundary check.
+    tokens = tokenize.generate_tokens(io.StringIO("\n".join(kept)).readline)
+    return " ".join(
+        token.string
+        for token in tokens
+        if not (token.type == tokenize.NAME and token.string == "lambda")
+    ).lower()
 
 
 @pytest.mark.parametrize("rel", _LAYER_ONE)
@@ -172,3 +181,9 @@ def test_the_backend_protocol_stays_small() -> None:
         "update the boundary ADR in the same change, or find a way to carry the fact "
         "on BackendHandle instead."
     )
+
+
+def test_provider_scan_distinguishes_python_lambda_from_provider_references() -> None:
+    assert "lambda" not in _code_without_comments_or_docstrings("key = lambda value: value")
+    assert "lambda" in _code_without_comments_or_docstrings('backend = "lambda"')
+    assert "lambda" in _code_without_comments_or_docstrings("client.invoke_lambda()")

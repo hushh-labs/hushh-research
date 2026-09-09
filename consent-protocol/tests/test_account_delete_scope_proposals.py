@@ -14,7 +14,7 @@ from hushh_mcp.services.account_service import AccountService
 
 
 def _full_account_source() -> str:
-    return inspect.getsource(AccountService._delete_full_account)
+    return inspect.getsource(AccountService._delete_full_account_transaction)
 
 
 def test_scope_proposal_tables_have_registered_delete_queries() -> None:

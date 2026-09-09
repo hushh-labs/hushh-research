@@ -365,6 +365,7 @@ async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
         "calendar": "standing-cap.calendar.events.view",
         "invoke": "standing-cap.one.invoke",
         "nav": "standing-agent.nav.review",
+        "marketplace": "standing-cap.pkm.marketplace.view",
     }
 
 
@@ -400,6 +401,7 @@ async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
         "calendar": "standing-cap.calendar.events.view",
         "invoke": "standing-cap.one.invoke",
         "nav": "standing-agent.nav.review",
+        "marketplace": "standing-cap.pkm.marketplace.view",
     }
 
 

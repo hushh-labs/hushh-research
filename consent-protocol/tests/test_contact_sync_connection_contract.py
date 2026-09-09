@@ -1137,7 +1137,7 @@ def test_directory_policy_locks_explicit_inserts_without_locking_default_hydrati
 def test_account_deletion_explicitly_purges_the_fk_free_abuse_budget() -> None:
     query = str(AccountService()._delete_by_user_queries["contact_sync_lookup_budgets"])
     assert "DELETE FROM contact_sync_lookup_budgets WHERE user_id = :user_id" in query
-    full_delete_source = inspect.getsource(AccountService._delete_full_account)
+    full_delete_source = inspect.getsource(AccountService._delete_full_account_transaction)
     reset_source = inspect.getsource(AccountService._clear_user_data_tables)
     assert '"contact_sync_lookup_budgets"' in full_delete_source
     assert '"contact_sync_lookup_budgets"' not in reset_source

@@ -87,6 +87,9 @@ async def test_a_refusal_inside_the_job_surfaces_its_own_code(monkeypatch):
     finished: list[dict] = []
 
     class _JobRepo:
+        async def retain_authorization(self, **kwargs):
+            return True
+
         async def advance(self, **kwargs):
             return None
 
@@ -101,6 +104,10 @@ async def test_a_refusal_inside_the_job_surfaces_its_own_code(monkeypatch):
     async def _granted(*a, **k):
         return True
 
+    def _authorize(**kwargs):
+        assert kwargs["on_authorized"]({"authorized": True})
+        return {"services": 0}
+
     await jobs_mod.run_setup_job(
         user_id="uid-1",
         job_id="job-1",
@@ -111,7 +118,7 @@ async def test_a_refusal_inside_the_job_surfaces_its_own_code(monkeypatch):
         bootstrap_account_id="one-bootstrap",
         ensure_project=lambda **k: {"projectId": "hussh-one-abc"},
         ensure_billing=lambda **k: {"linked": True},
-        apply_authorization=lambda **k: {"services": 0},
+        apply_authorization=_authorize,
         wait_for_grant=_granted,
         save=_save,
         repo=_JobRepo(),
