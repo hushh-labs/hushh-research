@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 from typing import Any, Optional
+from urllib.parse import urljoin, urlsplit, urlunsplit
 
 _METADATA_IDENTITY = (
     "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default"
@@ -258,9 +259,8 @@ def _copy_blob(
         )
     # Two-step upload: open a session, then PUT the bytes with the digest. The most
     # compatible push flow across Docker/AR registries.
-    start = session.post(
-        f"https://{d_host}/v2/{d_repo}/blobs/uploads/", headers=_headers(token), timeout=60
-    )
+    upload_base = f"https://{d_host}/v2/{d_repo}/blobs/uploads/"
+    start = session.post(upload_base, headers=_headers(token), timeout=60, allow_redirects=False)
     if getattr(start, "status_code", 0) not in (201, 202):
         raise ImageCopyError(
             f"could not start blob upload for {digest}: HTTP {getattr(start, 'status_code', '?')}",
@@ -270,19 +270,34 @@ def _copy_blob(
     location = (getattr(start, "headers", {}) or {}).get("Location", "")
     if not location:
         raise ImageCopyError(f"blob upload for {digest} returned no upload location")
-    if location.startswith("/"):
-        location = f"https://{d_host}{location}"
-    sep = "&" if "?" in location else "?"
+    # An upload Location is provider input, not permission to forward credentials.
+    try:
+        if not isinstance(location, str) or any(ord(char) <= 32 for char in location):
+            raise ValueError("invalid upload location")
+        target = urlsplit(urljoin(upload_base, location))
+        if (
+            target.scheme != "https"
+            or target.netloc != d_host
+            or target.username is not None
+            or target.password is not None
+            or target.fragment
+        ):
+            raise ValueError("foreign upload location")
+    except ValueError:
+        raise ImageCopyError("registry upload location outside destination authority") from None
+    query = target.query + ("&" if target.query else "") + f"digest={digest}"
+    location = urlunsplit((target.scheme, target.netloc, target.path, query, ""))
     body = (
         pull.iter_content(chunk_size=_CHUNK)
         if hasattr(pull, "iter_content")
         else getattr(pull, "content", b"")
     )
     put = session.put(
-        f"{location}{sep}digest={digest}",
+        location,
         headers=_headers(token, {"Content-Type": "application/octet-stream"}),
         data=body,
         timeout=600,
+        allow_redirects=False,
     )
     if getattr(put, "status_code", 0) not in (201, 204):
         raise ImageCopyError(

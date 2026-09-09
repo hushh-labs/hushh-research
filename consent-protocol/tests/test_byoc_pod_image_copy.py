@@ -169,10 +169,10 @@ class _Session:
     def get(self, url, headers=None, timeout=None, stream=None):
         return self._answer("GET", url)
 
-    def post(self, url, headers=None, timeout=None):
+    def post(self, url, headers=None, timeout=None, allow_redirects=True):
         return self._answer("POST", url)
 
-    def put(self, url, headers=None, data=None, timeout=None):
+    def put(self, url, headers=None, data=None, timeout=None, allow_redirects=True):
         return self._answer("PUT", url)
 
     def request(self, method, url, headers=None, timeout=None):
@@ -273,3 +273,50 @@ def test_copy_image_copies_config_and_layers_then_the_manifest_last() -> None:
 def test_copy_image_requires_a_digest_pinned_destination() -> None:
     with pytest.raises(pod_image_copy.ImageCopyError):
         pod_image_copy.copy_image(SOURCE, f"{DEST}:sometag", "tok", _Session({}))
+
+
+@pytest.mark.parametrize(
+    "location",
+    [
+        "https://foreign.example/upload",
+        "http://us-central1-docker.pkg.dev/upload",
+        "//foreign.example/upload",
+        "https://user@us-central1-docker.pkg.dev/upload",
+        "https://us-central1-docker.pkg.dev/upload#fragment",
+        " https://us-central1-docker.pkg.dev/upload",
+        "/upload/xyz",
+        "https://us-central1-docker.pkg.dev/upload/xyz?state=opaque",
+    ],
+)
+def test_blob_upload_keeps_credentials_at_destination(location):
+    from unittest.mock import Mock
+
+    session = Mock()
+    session.request.return_value = _Resp(404)
+    session.get.return_value = _Resp(200, chunks=[b"synthetic-layer"])
+    session.post.return_value = _Resp(202, headers={"Location": location})
+    session.put.return_value = _Resp(201)
+    accepted = location in {
+        "/upload/xyz",
+        "https://us-central1-docker.pkg.dev/upload/xyz?state=opaque",
+    }
+    args = (
+        ("source.example", "image"),
+        ("us-central1-docker.pkg.dev", "project/repo/image"),
+        DIGEST,
+        "synthetic-token",
+        session,
+    )
+    if accepted:
+        pod_image_copy._copy_blob(*args)
+        url = session.put.call_args.args[0]
+        assert url.startswith("https://us-central1-docker.pkg.dev/upload/xyz?")
+        assert url.endswith("digest=" + DIGEST)
+        if "state=opaque" in location:
+            assert "state=opaque&" in url
+        assert session.put.call_args.kwargs["allow_redirects"] is False
+    else:
+        with pytest.raises(pod_image_copy.ImageCopyError, match="outside destination authority"):
+            pod_image_copy._copy_blob(*args)
+        session.put.assert_not_called()
+    assert session.post.call_args.kwargs["allow_redirects"] is False
