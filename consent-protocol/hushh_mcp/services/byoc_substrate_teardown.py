@@ -297,31 +297,21 @@ def substrate_resources(
 def _hushh_access_revocation(
     project: str, bootstrap_sa: str, hushh_caller: str
 ) -> list[dict[str, Any]]:
-    """Give back the one permission the person granted hushh. Deliberately not a delete.
+    """Describe a legacy candidate bootstrap impersonation grant to revoke.
 
-    Everything above is the person's own infrastructure. This is different in kind: it
-    is hushh's standing ability to impersonate `one-bootstrap@<their project>`, an
-    account holding ten admin-class roles -- storage.admin, secretmanager.admin,
-    cloudkms.admin, run.admin among them -- inside a project belonging to somebody who
-    has just deleted their account. Teardown removed the pod's service account and
-    never touched this, so hushh kept minting 900-second tokens as an admin in an
-    ex-customer's cloud, indefinitely, with the product showing the account as erased.
+    This naming helper is not ownership evidence or a completed account-erasure
+    path. Its environment fallback is retained for compatibility; coordinated
+    cleanup must use the immutable original setup receipt, recorded numeric
+    account identity and grantee instead.
 
-    WHY THE GRANT AND NOT THE ACCOUNT
+    Revoke the impersonation binding only after all bootstrap-dependent cleanup
+    is reconciled. Keep the owner's bootstrap account. Acknowledged revocation
+    and observed policy absence are separate receipts; inability to mint a token
+    after revocation does not establish absence. Already-issued credentials are
+    not proven invalid by deleting the binding.
 
-    Deleting `one-bootstrap@` would be a larger irreversible act in a project hushh does
-    not own, and it is not what ends hushh's access -- the binding is. Removing exactly
-    the binding leaves the person holding their own account, to delete or reuse as they
-    choose, and leaves hushh with nothing. `authorize_byoc_project.sh` documents this
-    same command as the revoke; account deletion now performs it on the person's behalf
-    rather than leaving it as homework nobody knows they have.
-
-    The honest bound, unchanged from that script: a token already minted lives out its
-    remaining 900 seconds, because Google does not revoke issued access tokens. So this
-    ends future authority, and at most fifteen more minutes of the old.
-
-    Emitted only when both identities are known. A binding with an empty member would
-    match nothing and mint a clean-erasure summary over an access that survived.
+    Emit a candidate only when both identities are available. The caller must
+    still establish ownership, dependency safety and durable admission.
     """
     caller = (hushh_caller or "").strip()
     if not caller:
@@ -524,15 +514,13 @@ def build_gcp_deleter(
     grant_erasure_state: dict[str, Any] | None = None,
     retain_grant_receipt: Callable[[str, dict[str, Any]], bool] | None = None,
 ):
-    """A real deleter over Google's REST surfaces, bound to ONE project.
+    """Build project-scoped provider cleanup with resource-specific evidence.
 
-    Runs under the person's bootstrap-impersonated token, which is the whole
-    posture: hushh can only remove what the person's own grant lets it touch,
-    and only until they revoke it. Every call treats 404-already-gone as
-    success -- a teardown that fails on already-deleted is not idempotent, and
-    account deletion retries would wedge on their own progress. Everything else
-    RAISES ``SubstrateDeleteError``: a bucket 409-not-empty is a FAILURE, not
-    success, because a refusal minted as success is how a teardown summary lies.
+    The caller supplies the owner's bootstrap-impersonated token. Coordinated
+    deletion requires retained admission and resource-specific identity checks;
+    HTTP 404 is accepted only where that resource's contract establishes absence.
+    A missing IAM policy or denied access does not establish grant erasure.
+    Shared repositories remain unresolved and are never deleted here.
     """
     if session is None:
         import requests as session  # noqa: PLC0415
