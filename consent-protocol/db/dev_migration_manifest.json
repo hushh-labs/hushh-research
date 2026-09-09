@@ -47,6 +47,7 @@
     "929_personal_agent_runtime_grant_erasure.sql",
     "930_personal_agent_repository_grant_erasure.sql",
     "931_personal_agent_repository_inventory.sql",
-    "932_personal_agent_repository_retention.sql"
+    "932_personal_agent_repository_retention.sql",
+    "933_personal_agent_bootstrap_grant_erasure.sql"
   ]
 }

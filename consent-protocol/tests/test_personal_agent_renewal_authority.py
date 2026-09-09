@@ -595,6 +595,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/932_personal_agent_repository_retention.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/932_personal_agent_repository_retention.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/933_personal_agent_bootstrap_grant_erasure.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/933_personal_agent_bootstrap_grant_erasure.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/933_personal_agent_bootstrap_grant_erasure.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -613,7 +618,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "name": f"projects/synthetic-project/serviceAccounts/{bootstrap_email}",
         "email": bootstrap_email,
         "projectId": "synthetic-project",
-        "uniqueId": "987654321",
+        "uniqueId": "9876543210",
     }
     inventory = {
         "version": "byoc.substrate.receipt.v1",
@@ -764,6 +769,45 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         "user_cloud_bootstrap_sa=%s WHERE user_id='synthetic-owner'",
         (bootstrap_email,),
     )
+    # Admit and acknowledge genuine setup history before the project release fence.
+    bootstrap_receipts = {}
+    for job_id, caller, disposition in (
+        ("job-a", "older@hub-project.iam.gserviceaccount.com", "added"),
+        ("job-b", "older@hub-project.iam.gserviceaccount.com", "already_present"),
+        ("job-c", "original-hub@hub-project.iam.gserviceaccount.com", "added"),
+    ):
+        pg.execute(
+            "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id) "
+            "VALUES ('synthetic-owner',%s,'synthetic-project') "
+            "ON CONFLICT(user_id) DO UPDATE SET job_id=excluded.job_id,status='running'",
+            (job_id,),
+        )
+        intent = {
+            "ownerId": "synthetic-owner",
+            "jobId": job_id,
+            "project": "synthetic-project",
+            "bootstrapEmail": bootstrap_email,
+            "callerEmail": caller,
+        }
+        authorization = {
+            "bootstrapIdentity": bootstrap_identity,
+            "bindingObservation": {
+                "step": "authorize_bootstrap_impersonation",
+                "policyResource": f"https://iam.googleapis.com/v1/{bootstrap_identity['name']}:getIamPolicy",
+                "role": "roles/iam.serviceAccountTokenCreator",
+                "member": f"serviceAccount:{caller}",
+                "disposition": disposition,
+                "beforeEtag": f"before-{job_id}",
+                "afterEtag": f"after-{job_id}",
+            },
+        }
+        for evidence in (None, authorization):
+            assert pg.execute(
+                "SELECT retain_byoc_authorization('synthetic-owner',%s,%s::jsonb,%s::jsonb)",
+                (job_id, json.dumps(intent), json.dumps(evidence) if evidence else None),
+            )[0][0]
+        bootstrap_receipts[job_id] = authorization
+    pg.execute("UPDATE byoc_setup_jobs SET status='recorded' WHERE user_id='synthetic-owner'")
     reservation = pg.execute(
         "SELECT reserve_personal_agent_erasure('synthetic-owner','attempt-one')"
     )[0][0]
@@ -1141,11 +1185,9 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             ),
         )
     pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='other-owner'")
-    pg.execute(
-        "INSERT INTO byoc_setup_jobs(user_id,job_id,project_id,status) VALUES ('synthetic-owner','failed-setup','synthetic-project','failed')"
-    )
+    pg.execute("UPDATE byoc_setup_jobs SET status='failed' WHERE user_id='synthetic-owner'")
     assert not reserve_grants()  # A failed setup may retain an uncertain provider call.
-    pg.execute("DELETE FROM byoc_setup_jobs WHERE user_id='synthetic-owner'")
+    pg.execute("UPDATE byoc_setup_jobs SET status='recorded' WHERE user_id='synthetic-owner'")
     # Hold setup admission uncommitted. Release must wait for its project fence,
     # then see the newly committed dependency instead of revoking underneath it.
     with connect(pg) as setup_conn:
@@ -1362,6 +1404,69 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         assert not retain_shared({**retention, **change})
     assert retain_shared(retention)
     assert retain_shared(retention)
+    recovery_member = bootstrap_receipts["job-c"]["bindingObservation"]["member"]
+
+    def reserve_bootstrap():
+        return pg.execute(
+            "SELECT reserve_erasure_bootstrap_grants('synthetic-owner','attempt-one',%s::jsonb,%s)",
+            (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]), recovery_member),
+        )[0][0]
+
+    assert reserve_bootstrap()
+    assert reserve_bootstrap()
+    release = provision_row(pg)["backend_metadata"]["erasure"]["bootstrapGrantRelease"]
+    older_key = (
+        bootstrap_identity["uniqueId"]
+        + "|"
+        + bootstrap_receipts["job-a"]["bindingObservation"]["member"]
+    )
+    recovery_key = bootstrap_identity["uniqueId"] + "|" + recovery_member
+    assert release["recoveryGrantKey"] == recovery_key
+    assert set(release["groups"]) == {older_key, recovery_key}
+    assert release["groups"][older_key] == {
+        **bootstrap_receipts["job-a"],
+        "jobIds": ["job-a", "job-b"],
+    }
+    assert release["groups"][recovery_key] == {**bootstrap_receipts["job-c"], "jobIds": ["job-c"]}
+
+    def retain_bootstrap(key, stage, status, *, owner="synthetic-owner"):
+        evidence = release["groups"][key]
+        receipt = {k: evidence[k] for k in ("bootstrapIdentity", "bindingObservation")}
+        receipt.update(ownerId=owner, attemptId="attempt-one", status=status)
+        return pg.execute(
+            "SELECT retain_erasure_bootstrap_grant_receipt('synthetic-owner','attempt-one',%s::jsonb,%s,%s,%s::jsonb)",
+            (
+                json.dumps(provision_row(pg)["backend_metadata"]["erasure"]),
+                key,
+                stage,
+                json.dumps(receipt),
+            ),
+        )[0][0]
+
+    assert not retain_bootstrap(recovery_key, "admission", "admitted")
+    assert not retain_bootstrap(older_key, "admission", "admitted", owner="foreign-owner")
+    assert retain_bootstrap(older_key, "admission", "admitted")
+    assert not retain_bootstrap(older_key, "admission", "admitted")
+    assert not retain_bootstrap(recovery_key, "admission", "admitted")
+    assert retain_bootstrap(older_key, "deletion", "observed_absent")
+    assert retain_bootstrap(older_key, "deletion", "observed_absent")
+    assert retain_bootstrap(recovery_key, "admission", "admitted")
+    assert not retain_bootstrap(recovery_key, "admission", "admitted")
+    assert retain_bootstrap(recovery_key, "acknowledgement", "acknowledged")
+    assert retain_bootstrap(recovery_key, "deletion", "observed_absent")
+    assert reserve_bootstrap()
+    with pytest.raises(psycopg2.errors.InsufficientPrivilege):
+        pg.execute(
+            "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,bootstrapGrantRelease}' WHERE user_id='synthetic-owner'"
+        )
+    with pytest.raises(psycopg2.errors.RaiseException, match="retained"):
+        with connect(pg) as conn, conn.cursor() as cursor:
+            cursor.execute(
+                (
+                    ROOT
+                    / "db/migrations/rollback/933_personal_agent_bootstrap_grant_erasure.rollback.sql"
+                ).read_text()
+            )
     with pytest.raises(psycopg2.errors.RaiseException):
         with connect(pg) as conn:
             with conn.cursor() as cursor:

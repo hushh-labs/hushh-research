@@ -1379,6 +1379,117 @@ async def test_recovery_cleanup_binds_checkpoints_and_refuses_unretained_admissi
     assert registry.deleted == []
 
 
+@pytest.mark.parametrize("mode", ["ordered", "completed_retry", "credential_mismatch"])
+async def test_bootstrap_grant_cleanup_preserves_recovery_authority(monkeypatch, mode):
+    import asyncio
+    from copy import deepcopy
+
+    service = _svc()
+    registry = service._registry
+    member = "serviceAccount:recovery@example.invalid"
+    # The recovery grant sorts first alphabetically: execution must explicitly
+    # keep it until the other grants have durable absence receipts.
+    groups = {
+        key: {"bootstrapIdentity": {"member": key}, "bindingObservation": {"role": "test"}}
+        for key in ("z-other", "a-recovery", "m-other")
+    }
+    release = {
+        "ownerId": _UID,
+        "attemptId": "erase-bootstrap",
+        "recoveryMember": member,
+        "recoveryGrantKey": "a-recovery",
+        "status": "reserved",
+        "groups": groups,
+    }
+    reservation = {
+        "ownerId": _UID,
+        "attemptId": "erase-bootstrap",
+        "registrySnapshot": {"user_id": _UID},
+        "bootstrapGrantRelease": release,
+        "bootstrapGrantErasure": {},
+    }
+    if mode == "completed_retry":
+        reservation["bootstrapGrantErasure"] = {
+            key: {
+                "deletion": {
+                    **evidence,
+                    "ownerId": _UID,
+                    "attemptId": "erase-bootstrap",
+                    "status": "observed_absent",
+                }
+            }
+            for key, evidence in groups.items()
+        }
+    registry.rows[_UID] = {"status": "suspended", "backend_metadata": {"erasure": reservation}}
+    registry.reserve_erasure_bootstrap_grants = AsyncMock(return_value=True)
+    events = []
+
+    async def retain(*, user_id, reservation, grant_key, stage, receipt):
+        assert user_id == receipt["ownerId"] == _UID
+        assert receipt["attemptId"] == "erase-bootstrap"
+        saved = deepcopy(reservation)
+        saved["bootstrapGrantErasure"].setdefault(grant_key, {})[stage] = receipt
+        registry.rows[_UID]["backend_metadata"]["erasure"] = saved
+        events.append((stage, grant_key))
+        return True
+
+    async def erase(*, evidence, state, retain_receipt):
+        key = evidence["bootstrapIdentity"]["member"]
+        assert state == {}
+        if key == "a-recovery":
+            completed = registry.rows[_UID]["backend_metadata"]["erasure"]["bootstrapGrantErasure"]
+            assert all(
+                completed[other]["deletion"]["status"] == "observed_absent"
+                for other in ("m-other", "z-other")
+            )
+        assert await asyncio.to_thread(
+            retain_receipt, "admission", {**evidence, "status": "admitted"}
+        )
+        events.append(("provider", key))
+        assert await asyncio.to_thread(
+            retain_receipt, "deletion", {**evidence, "status": "observed_absent"}
+        )
+
+    registry.retain_erasure_bootstrap_grant_receipt = AsyncMock(side_effect=retain)
+    backend = Mock(
+        bootstrap_release_member=Mock(
+            return_value="other-credential" if mode == "credential_mismatch" else member
+        ),
+        erase_bootstrap_grant=AsyncMock(side_effect=erase),
+    )
+    factory = Mock(return_value=backend)
+    if mode == "completed_retry":
+        factory.side_effect = AssertionError(
+            "completed retry constructed a credential-backed client"
+        )
+    monkeypatch.setattr(service, "_reserved_cleanup_backend", factory)
+    monkeypatch.setattr(
+        "hushh_mcp.runtime_settings.personal_agent_substrate_teardown_enabled", lambda: True
+    )
+    if mode == "credential_mismatch":
+        with pytest.raises(RuntimeError, match="bootstrap recovery credential changed"):
+            await service._erase_reserved_bootstrap_grants(user_id=_UID)
+        backend.erase_bootstrap_grant.assert_not_awaited()
+        registry.retain_erasure_bootstrap_grant_receipt.assert_not_awaited()
+    else:
+        await service._erase_reserved_bootstrap_grants(user_id=_UID)
+    registry.reserve_erasure_bootstrap_grants.assert_awaited_once_with(
+        user_id=_UID, reservation=reservation, recovery_member=member
+    )
+    if mode == "ordered":
+        assert events == [
+            (stage, key)
+            for key in ("m-other", "z-other", "a-recovery")
+            for stage in ("admission", "provider", "deletion")
+        ]
+        assert backend.bootstrap_release_member.call_count == 3
+    elif mode == "completed_retry":
+        factory.assert_not_called()
+        backend.erase_bootstrap_grant.assert_not_awaited()
+        registry.retain_erasure_bootstrap_grant_receipt.assert_not_awaited()
+    assert registry.deleted == []
+
+
 async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monkeypatch):
     from hushh_mcp.services.account_service import (
         AccountService,
@@ -1407,6 +1518,8 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
     terminal = AsyncMock()
     grant = AsyncMock()
     repository_grant = AsyncMock()
+    bootstrap_grants = AsyncMock()
+    monkeypatch.setattr(service, "_erase_reserved_bootstrap_grants", bootstrap_grants)
     repository_inventory = AsyncMock()
     monkeypatch.setattr(service, "_retain_reserved_repository_inventory", repository_inventory)
     monkeypatch.setattr(service, "_erase_reserved_repository_grant", repository_grant)
@@ -1423,6 +1536,7 @@ async def test_account_erasure_retry_skips_phases_requiring_deleted_runtime(monk
     grant.assert_awaited_once_with(user_id=_UID)
     repository_grant.assert_awaited_once_with(user_id=_UID)
     repository_inventory.assert_awaited_once_with(user_id=_UID)
+    bootstrap_grants.assert_awaited_once_with(user_id=_UID)
     for method in earlier:
         getattr(service, method).assert_not_awaited()
     assert service._registry.deleted == []

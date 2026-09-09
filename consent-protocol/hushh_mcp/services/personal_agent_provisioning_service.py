@@ -2726,6 +2726,134 @@ class PersonalAgentProvisioningService:
             states[stage] = {k: v for k, v in receipt.items() if k not in {"ownerId", "attemptId"}}
         await erase(evidence=evidence, state=states, retain_receipt=checkpoint)
 
+    async def _erase_reserved_bootstrap_grants(self, *, user_id: str) -> None:
+        from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
+
+        if not personal_agent_substrate_teardown_enabled():
+            raise RuntimeError("bootstrap grant erasure guarded")
+        current = await self._registry.get(user_id)
+        reservation = ((current or {}).get("backend_metadata") or {}).get("erasure") or {}
+        snapshot = reservation.get("registrySnapshot") or {}
+        if (
+            not current
+            or current.get("status") != "suspended"
+            or reservation.get("ownerId") != user_id
+            or snapshot.get("user_id") != user_id
+        ):
+            raise RuntimeError("bootstrap grant reservation unavailable")
+        prior = reservation.get("bootstrapGrantRelease") or {}
+        backend = None
+        member = prior.get("recoveryMember")
+        if not member:
+            backend = self._reserved_cleanup_backend(snapshot)
+            member = await asyncio.to_thread(backend.bootstrap_release_member)
+        if not await self._registry.reserve_erasure_bootstrap_grants(
+            user_id=user_id, reservation=reservation, recovery_member=member
+        ):
+            raise RuntimeError("bootstrap grant history unresolved")
+        observed = await self._registry.get(user_id)
+        saved = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+        release = saved.get("bootstrapGrantRelease") or {}
+        attempt = reservation["attemptId"]
+        if (
+            not observed
+            or observed.get("status") != "suspended"
+            or saved.get("ownerId") != user_id
+            or saved.get("attemptId") != attempt
+            or saved.get("registrySnapshot") != snapshot
+            or release.get("ownerId") != user_id
+            or release.get("attemptId") != attempt
+            or release.get("recoveryMember") != member
+            or release.get("status") != "reserved"
+        ):
+            raise RuntimeError("bootstrap grant admission readback unconfirmed")
+        groups = release.get("groups") or {}
+        recovery_key = release.get("recoveryGrantKey")
+        if not isinstance(groups, dict) or not groups or recovery_key not in groups:
+            raise RuntimeError("bootstrap grant groups unavailable")
+        loop = asyncio.get_running_loop()
+        for key in sorted(groups, key=lambda key: (key == recovery_key, key)):
+            group = groups[key]
+            expected_evidence = {
+                name: group[name] for name in ("bootstrapIdentity", "bindingObservation")
+            }
+            stages = (saved.get("bootstrapGrantErasure") or {}).get(key) or {}
+            # Even a completed retry passes the SQL guard/project fence above;
+            # it must never attempt to mint a token using revoked authority.
+            if stages.get("deletion"):
+                if stages["deletion"] != {
+                    **expected_evidence,
+                    "ownerId": user_id,
+                    "attemptId": attempt,
+                    "status": "observed_absent",
+                }:
+                    raise RuntimeError("bootstrap completion identity unverified")
+                continue
+
+            async def append(stage: str, raw: dict, grant_key: str = key) -> bool:
+                row = await self._registry.get(user_id)
+                state = ((row or {}).get("backend_metadata") or {}).get("erasure") or {}
+                if (
+                    not row
+                    or row.get("status") != "suspended"
+                    or state.get("ownerId") != user_id
+                    or state.get("attemptId") != attempt
+                    or state.get("registrySnapshot") != snapshot
+                    or state.get("bootstrapGrantRelease") != release
+                ):
+                    return False
+                receipt = {**raw, "ownerId": user_id, "attemptId": attempt}
+                if not await self._registry.retain_erasure_bootstrap_grant_receipt(
+                    user_id=user_id,
+                    reservation=state,
+                    grant_key=grant_key,
+                    stage=stage,
+                    receipt=receipt,
+                ):
+                    return False
+                row = await self._registry.get(user_id)
+                retained = ((row or {}).get("backend_metadata") or {}).get("erasure") or {}
+                return bool(
+                    row
+                    and row.get("status") == "suspended"
+                    and retained.get("bootstrapGrantRelease") == release
+                    and (retained.get("bootstrapGrantErasure") or {}).get(grant_key, {}).get(stage)
+                    == receipt
+                )
+
+            def checkpoint(stage: str, raw: dict) -> bool:
+                return asyncio.run_coroutine_threadsafe(append(stage, raw), loop).result(timeout=30)
+
+            provider_state = {}
+            for stage, receipt in stages.items():
+                if receipt.get("ownerId") != user_id or receipt.get("attemptId") != attempt:
+                    raise RuntimeError("bootstrap grant recovery identity unverified")
+                provider_state[stage] = {
+                    k: v for k, v in receipt.items() if k not in {"ownerId", "attemptId"}
+                }
+            if backend is None:
+                backend = self._reserved_cleanup_backend(snapshot)
+            if await asyncio.to_thread(backend.bootstrap_release_member) != member:
+                raise RuntimeError("bootstrap recovery credential changed")
+            await backend.erase_bootstrap_grant(
+                evidence=expected_evidence, state=provider_state, retain_receipt=checkpoint
+            )
+            row = await self._registry.get(user_id)
+            saved = ((row or {}).get("backend_metadata") or {}).get("erasure") or {}
+            if (
+                not row
+                or row.get("status") != "suspended"
+                or saved.get("bootstrapGrantRelease") != release
+                or (saved.get("bootstrapGrantErasure") or {}).get(key, {}).get("deletion")
+                != {
+                    **expected_evidence,
+                    "ownerId": user_id,
+                    "attemptId": attempt,
+                    "status": "observed_absent",
+                }
+            ):
+                raise RuntimeError("bootstrap grant deletion readback unconfirmed")
+
     async def _retain_reserved_repository_inventory(self, *, user_id: str) -> None:
         from hushh_mcp.runtime_settings import personal_agent_substrate_teardown_enabled
 
@@ -2829,23 +2957,27 @@ class PersonalAgentProvisioningService:
                     reservation = await reserve(user_id=user_id)
                     if not isinstance(reservation, dict):
                         raise RuntimeError("erasure reservation unavailable")
-                    if not (reservation.get("accountErasure") or {}).get("admission"):
-                        if not reservation.get("computeAdmission"):
-                            qualified = await self._fence_reserved_erasure(
-                                user_id=user_id, reservation=reservation
-                            )
-                            await self._erase_reserved_memory(user_id=user_id, qualified=qualified)
-                        await self._erase_reserved_compute(user_id=user_id)
-                        await self._retain_reserved_substrate_inventory(user_id=user_id)
-                        await self._revoke_reserved_runtime_writer(user_id=user_id)
-                        await self._erase_reserved_mail_resources(user_id=user_id)
-                        await self._erase_reserved_bucket(user_id=user_id)
-                        await self._erase_reserved_kms_material(user_id=user_id)
-                        await self._erase_reserved_signing_secret(user_id=user_id)
-                    await self._erase_reserved_runtime_account(user_id=user_id)
-                    await self._erase_reserved_runtime_grant(user_id=user_id)
-                    await self._erase_reserved_repository_grant(user_id=user_id)
-                    await self._retain_reserved_repository_inventory(user_id=user_id)
+                    if not reservation.get("bootstrapGrantRelease"):
+                        if not (reservation.get("accountErasure") or {}).get("admission"):
+                            if not reservation.get("computeAdmission"):
+                                qualified = await self._fence_reserved_erasure(
+                                    user_id=user_id, reservation=reservation
+                                )
+                                await self._erase_reserved_memory(
+                                    user_id=user_id, qualified=qualified
+                                )
+                            await self._erase_reserved_compute(user_id=user_id)
+                            await self._retain_reserved_substrate_inventory(user_id=user_id)
+                            await self._revoke_reserved_runtime_writer(user_id=user_id)
+                            await self._erase_reserved_mail_resources(user_id=user_id)
+                            await self._erase_reserved_bucket(user_id=user_id)
+                            await self._erase_reserved_kms_material(user_id=user_id)
+                            await self._erase_reserved_signing_secret(user_id=user_id)
+                        await self._erase_reserved_runtime_account(user_id=user_id)
+                        await self._erase_reserved_runtime_grant(user_id=user_id)
+                        await self._erase_reserved_repository_grant(user_id=user_id)
+                        await self._retain_reserved_repository_inventory(user_id=user_id)
+                    await self._erase_reserved_bootstrap_grants(user_id=user_id)
                 except Exception as exc:
                     logger.warning(
                         "personal_agent.erasure_admission_unavailable error_type=%s",

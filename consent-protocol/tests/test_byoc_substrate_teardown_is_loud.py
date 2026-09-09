@@ -214,6 +214,7 @@ async def test_bootstrap_grant_recovery_uses_recorded_identity_without_write_rep
             lambda **kwargs: build_gcp_deleter(session=session, **kwargs),
         )
         backend = UserGcpBackend(user_project="proj-x", bootstrap_sa=identity["email"], live=True)
+        monkeypatch.setattr(backend, "_bootstrap_release_source_token", lambda: "synthetic")
         if case == "foreign":
             evidence["bootstrapIdentity"] = {**identity, "projectId": "foreign-project"}
 

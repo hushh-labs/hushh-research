@@ -546,6 +546,38 @@ class PersonalAgentRegistryRepo:
         )
         return bool(response.data and response.data[0].get("retained") is True)
 
+    async def reserve_erasure_bootstrap_grants(
+        self, *, user_id: str, reservation: dict, recovery_member: str
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.reserve_erasure_bootstrap_grants(:owner,:attempt,CAST(:expected AS jsonb),:member) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "member": recovery_member,
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
+    async def retain_erasure_bootstrap_grant_receipt(
+        self, *, user_id: str, reservation: dict, grant_key: str, stage: str, receipt: dict
+    ) -> bool:
+        response = await asyncio.to_thread(
+            self._db().execute_raw,
+            "SELECT public.retain_erasure_bootstrap_grant_receipt(:owner,:attempt,CAST(:expected AS jsonb),:grant_key,:stage,CAST(:receipt AS jsonb)) AS retained",
+            {
+                "owner": user_id,
+                "attempt": reservation["attemptId"],
+                "expected": json.dumps(reservation),
+                "grant_key": grant_key,
+                "stage": stage,
+                "receipt": json.dumps(receipt),
+            },
+        )
+        return bool(response.data and response.data[0].get("retained") is True)
+
     async def retain_erasure_repository_inventory(
         self, *, user_id: str, reservation: dict, receipt: dict
     ) -> bool:

@@ -366,3 +366,40 @@ async def test_completed_bootstrap_release_never_mints_another_token(monkeypatch
             state={"deletion": {"status": "observed_absent"}},
             retain_receipt=lambda *_: True,
         )
+
+
+@pytest.mark.parametrize(
+    "actual",
+    [
+        "operator@example.iam.gserviceaccount.com",
+        "foreign@example.iam.gserviceaccount.com",
+        "default",
+        None,
+    ],
+)
+def test_bootstrap_release_binds_actual_minting_credential(monkeypatch, actual):
+    from types import SimpleNamespace
+
+    configured = "operator@example.iam.gserviceaccount.com"
+    refreshes = []
+    credentials = SimpleNamespace(
+        service_account_email=actual,
+        token="synthetic",  # noqa: S106 -- inert credential fixture
+        refresh=lambda request: refreshes.append(request),
+    )
+    loads = []
+
+    def load():
+        loads.append(True)
+        return credentials
+
+    monkeypatch.setattr("hushh_mcp.services.gcp_run_client.load_operator_credentials", load)
+    backend = UserGcpBackend(hushh_invoker_sa=configured)
+    if actual == configured:
+        assert backend.bootstrap_release_member() == f"serviceAccount:{configured}"
+        assert backend._bootstrap_release_source_token() == "synthetic"
+        assert len(loads) == 1  # Identity check and minting reuse the same credential.
+        assert len(refreshes) == 2
+    else:
+        with pytest.raises(RuntimeError, match="credential identity unverified"):
+            backend._bootstrap_release_source_token()

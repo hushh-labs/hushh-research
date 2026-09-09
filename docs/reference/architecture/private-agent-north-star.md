@@ -481,7 +481,10 @@ Repository creation evidence comes from the completed provider operation; adopte
 without that evidence remain unqualified. Grant cleanup preserves conditional and unrelated
 bindings and refuses uncertain write replay. The repository itself is retained.
 Dev migration 932 records intentional repository retention after writer-grant removal.
-Bootstrap impersonation revocation remains unconnected to final account removal. These source changes are not deployed and do not establish live erasure.
+Dev migration 933 groups original bootstrap authorization receipts in the existing reservation.
+The coordinator removes other captured grants before the actual minting credential's grant,
+rejects duplicate mutation admission, and reconciles completed retries without minting.
+Final account removal remains unconnected. These source changes are not deployed and do not establish live erasure.
 The existing live drill remains unavailable until disposable ownership and complete cleanup
 satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
@@ -532,7 +535,8 @@ historical versions; `--build-location` defaults to `global`) compares digest-ve
 source/destination manifest graphs against successful pod-build log outputs. It emits
 `declaredSourceCommit`, not verified source custody: submitted build configuration and
 log text do not prove the governed recipe or uploaded source. Even a complete output
-match remains `unresolved` and cannot release bootstrap access. Raw build logs stay in
+match remains `unresolved`; it grants no cleanup authority. Bootstrap release follows
+the owner erasure reservation and intentional repository-retention contract below. Raw build logs stay in
 process memory. The comparison inventories manifests, not every physical blob. Add
 `--verify-source` to compare the generation-pinned source archive against its recorded
 SHA-256 and this checkout's Git history without extracting it. This verifies tracked

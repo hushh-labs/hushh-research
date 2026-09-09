@@ -1259,6 +1259,28 @@ class UserGcpBackend:
             }
         )
 
+    def bootstrap_release_member(self) -> str:
+        """Bind recovery ordering to the credential used for impersonation."""
+        from google.auth.transport.requests import Request
+
+        from hushh_mcp.services.gcp_run_client import load_operator_credentials
+
+        credentials = getattr(self, "_bootstrap_release_credentials", None)
+        if credentials is None:
+            credentials = load_operator_credentials()
+        # Attached credentials resolve their actual service account on refresh.
+        credentials.refresh(Request())
+        email = getattr(credentials, "service_account_email", None)
+        configured = (self._hushh_invoker_sa or "").removeprefix("serviceAccount:")
+        if not email or email == "default" or email != configured or not credentials.token:
+            raise RuntimeError("bootstrap recovery credential identity unverified")
+        self._bootstrap_release_credentials = credentials
+        return f"serviceAccount:{email}"
+
+    def _bootstrap_release_source_token(self) -> str:
+        self.bootstrap_release_member()
+        return str(self._bootstrap_release_credentials.token)
+
     async def erase_bootstrap_grant(
         self,
         *,
@@ -1287,7 +1309,9 @@ class UserGcpBackend:
         if state.get("deletion"):
             raise RuntimeError("bootstrap grant completion requires registry reconciliation")
         token = await asyncio.to_thread(
-            mint_bootstrap_token, bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:")
+            mint_bootstrap_token,
+            bootstrap_sa=self._bootstrap_sa.removeprefix("serviceAccount:"),
+            source_token=await asyncio.to_thread(self._bootstrap_release_source_token),
         )
         deleter = build_gcp_deleter(
             token=token,
