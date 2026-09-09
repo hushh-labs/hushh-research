@@ -485,3 +485,50 @@ async def test_foreign_or_absent_binding_returns_no_owner_information(hub_enable
         registry=_Registry(hushh_id=hushh_id),
     )
     assert result == {"valid": False, "reason": "consent is not valid"}
+
+
+@pytest.mark.parametrize("scope", ["cap.location.live.share", "attr.financial.holdings"])
+@pytest.mark.parametrize("sync", [False, True])
+@pytest.mark.parametrize("verdict_kind", ["owner", "foreign", "revoked", "unavailable"])
+async def test_shared_tool_in_pod_requires_remote_owner_scope(
+    monkeypatch, sync, verdict_kind, scope
+):
+    from hushh_mcp.hushh_adk.context import HushhContext
+    from hushh_mcp.hushh_adk.tools import hushh_tool
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-owner")
+    calls = []
+    executed = []
+
+    async def verify(token, *, expected_scope):
+        calls.append(expected_scope)
+        return ConsentVerdict(
+            valid=verdict_kind not in {"revoked", "unavailable"},
+            available=verdict_kind != "unavailable",
+            user_id="foreign" if verdict_kind == "foreign" else "owner",
+            hushh_id="pod-owner",
+        )
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+
+    def sync_body():
+        executed.append(True)
+        return "ok"
+
+    async def async_body():
+        return sync_body()
+
+    tool = hushh_tool(scope)(sync_body if sync else async_body)
+    with HushhContext(user_id="owner", consent_token="synthetic"):
+        if verdict_kind == "owner":
+            assert (tool() if sync else await tool()) == "ok"
+        else:
+            error = RuntimeError if verdict_kind == "unavailable" else PermissionError
+            with pytest.raises(error):
+                if sync:
+                    tool()
+                else:
+                    await tool()
+    assert calls == [scope]
+    assert executed == ([True] if verdict_kind == "owner" else [])

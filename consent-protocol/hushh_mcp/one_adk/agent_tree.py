@@ -1125,7 +1125,7 @@ def _first_party_authority(
     from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token
 
     validation = validate_a2a_consent_token("agent_one", consent_token)
-    if not validation.ok or not validation.user_id:
+    if not validation.ok or validation.user_id != user_id:
         return None
     return A2AAuthorityContext(
         subject_user_id=user_id,
@@ -1155,7 +1155,9 @@ def _task_from_context(tool_context: ToolContext, request: str) -> Optional[A2AT
         conversation_id=conversation_id,
         message=request,
         timezone=timezone_name,
-        authority=_first_party_authority(user_id, consent_token, conversation_id),
+        authority=None
+        if pod_mode()
+        else _first_party_authority(user_id, consent_token, conversation_id),
     )
 
 
@@ -1175,6 +1177,35 @@ async def _specialist_turn(
     # no I/O -- and the same object is dispatched below, so the two cannot disagree.
     task = _task_from_context(tool_context, request)
     grants = tool_context.state.get(STATE_DATA_DOOR_GRANTS)
+    if pod_mode() and task is not None:
+        from dataclasses import replace
+
+        from hushh_mcp.adk_bridge.delegation import validate_a2a_consent_token_with_db
+
+        try:
+            invocation_token = (
+                resolve_request_secret(grants.get("invoke"))
+                if isinstance(grants, dict) and grants.get("invoke")
+                else consent_token
+            )
+            validation = await validate_a2a_consent_token_with_db("agent_one", invocation_token)
+        except RuntimeError:
+            return {"status": "runtime_unavailable", "reason": "consent_authority_unavailable"}
+        if not validation.ok or validation.user_id != user_id:
+            return {"status": "scope_required", "reason": "consent_scope_required"}
+        task = replace(
+            task,
+            consent_token=resolve_request_secret(grants["nav"])
+            if agent_id == "agent_nav" and isinstance(grants, dict) and grants.get("nav")
+            else task.consent_token,
+            authority=A2AAuthorityContext(
+                subject_user_id=user_id,
+                tenant_id=user_id,
+                task_id=task.conversation_id or f"one-{int(time.time() * 1000)}",
+                caller_kind="first_party",
+                invocation_capabilities=(validation.required_scope.value,),
+            ),
+        )
     scoped_email_read = (
         pod_mode()
         and agent_id == "agent_email"
@@ -1276,11 +1307,18 @@ async def _specialist_turn(
     # specialist, no grant, broker refusal), so the normal dispatch below still
     # runs and still degrades to runtime_unavailable exactly as today.
     if pod_mode():
+        from hushh_mcp.adk_bridge.dispatch import specialist_runtime_bound
         from hushh_mcp.one_adk.pod_data_door_specialist import (  # noqa: PLC0415
             serve_specialist_via_data_door,
         )
 
-        door_payload = await serve_specialist_via_data_door(agent_id, tool_context)
+        # The bound Location service runs the shared model/tool loop in this pod.
+        # Other scoped reads retain their explicit transitional broker contract.
+        door_payload = (
+            None
+            if agent_id == "agent_location" and specialist_runtime_bound()
+            else await serve_specialist_via_data_door(agent_id, tool_context)
+        )
         if door_payload is not None:
             door_payload.setdefault("availability", availability_payload)
             return door_payload

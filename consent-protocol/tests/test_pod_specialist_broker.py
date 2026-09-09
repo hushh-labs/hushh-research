@@ -313,3 +313,31 @@ async def test_calendar_options_reach_reader_only_after_owner_binding(
         reader.assert_awaited_once_with(
             "calendar", owner_id="u-owner", calendar_read=payload.calendar_read
         )
+
+
+@pytest.mark.parametrize("foreign", [False, True])
+async def test_nav_read_requires_its_scope_and_serving_owner(flags_on, monkeypatch, foreign):
+    from unittest.mock import AsyncMock
+
+    from fastapi import HTTPException
+
+    _identity(monkeypatch, "other-pod" if foreign else "hushh-owner")
+    reader = AsyncMock(return_value={"active": {"items": [], "total": 0}})
+    kwargs = dict(
+        validator=_validator(scope="agent.nav.review"),
+        registry=_registry({"u-owner": "hushh-owner"}),
+        reader=reader,
+    )
+    if foreign:
+        with pytest.raises(HTTPException) as error:
+            await broker.broker_specialist_read(
+                _Request(), "nav", "Bearer synthetic", _payload(), **kwargs
+            )
+        assert error.value.status_code == 403
+        reader.assert_not_called()
+    else:
+        result = await broker.broker_specialist_read(
+            _Request(), "nav", "Bearer synthetic", _payload(), **kwargs
+        )
+        assert result["name"] == "nav"
+        reader.assert_awaited_once_with("nav", owner_id="u-owner")

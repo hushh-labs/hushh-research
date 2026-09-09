@@ -1,0 +1,167 @@
+"""Turn-owned dependencies for the existing in-process specialist fleet.
+
+Model execution and conversation persistence stay in the pod. Location reads
+currently use the existing scoped broker; this is transitional information
+access, not proof of the ledger's zero-hub-read assertion. Missing adapters fail
+closed instead of constructing shared-runtime services.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from hushh_mcp.adk_bridge.dispatch import SpecialistRuntime
+from hushh_mcp.services.pod_agent_chat_store import PodAgentChatStore
+from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+
+class PodLocationReadPort:
+    def __init__(self, owner_user_id: str, scope_token: str) -> None:
+        self._owner = owner_user_id
+        self._scope_token = scope_token
+
+    def list_state(self, *, user_id: str) -> dict:
+        if user_id != self._owner:
+            raise PermissionError("Location owner mismatch")
+        from hushh_mcp.services.pod_hub_client import PodHubClient
+
+        state = PodHubClient().read_specialist("location", self._scope_token)
+        if not isinstance(state, dict):
+            raise RuntimeError("Location read unavailable")
+        return state
+
+    def revoke_public_invite(self, **kwargs: Any) -> dict:
+        raise PermissionError("Use the owner-confirmed Location controls to revoke this link")
+
+    def refer_recipient(self, **kwargs: Any) -> dict:
+        raise PermissionError("Use the owner-confirmed Location controls for this referral")
+
+
+class PodConsentCenterReadPort:
+    def __init__(self, owner_user_id: str, scope_token: str) -> None:
+        self._owner = owner_user_id
+        self._scope_token = scope_token
+
+    async def list_center(self, user_id: str, *, actor: str, surface: str, top: int) -> dict:
+        if user_id != self._owner or actor != "investor" or surface not in {"active", "previous"}:
+            raise PermissionError("Consent-center read scope denied")
+        from hushh_mcp.services.pod_hub_client import PodHubClient
+
+        state = await asyncio.to_thread(PodHubClient().read_specialist, "nav", self._scope_token)
+        page = state.get(surface)
+        if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+            raise RuntimeError("Consent-center read unavailable")
+        return {**page, "items": page["items"][: max(1, min(top, 10))]}
+
+
+def build_pod_specialist_runtime(
+    *,
+    user_id: str,
+    hushh_id: str,
+    consent_token: str,
+    provider: str,
+    model: str,
+    runtime_mode: str,
+    credential: str | None,
+    credential_transport: Any,
+    vertex_project: str | None,
+    vertex_location: str | None,
+    data_door_grants: dict[str, str],
+) -> SpecialistRuntime:
+    # Construction does no storage/provider I/O. Admission precedes resolution.
+    log: Any = None
+    client: Any = None
+
+    async def require_access() -> None:
+        verdict = await require_owner_scope(
+            consent_token, expected_scope="pkm.read", user_id=user_id
+        )
+        if verdict.hushh_id != hushh_id:
+            raise PermissionError("Pod invocation owner mismatch")
+        if log is not None:
+            if getattr(log, "_owner_id", None) != hushh_id:
+                raise PermissionError("Pod storage owner mismatch")
+            await log.require_open()
+
+    async def model_call(contents: Any, config: Any) -> Any:
+        nonlocal client
+        await require_access()
+        if client is None:
+            from hushh_mcp.runtime_providers.factory import (
+                build_managed_runtime_client,
+                build_runtime_client,
+            )
+
+            if runtime_mode == "byok":
+                client = build_runtime_client(
+                    provider,
+                    credential or "",
+                    gemini_byok_transport=credential_transport,
+                    vertex_project=vertex_project,
+                    vertex_location=vertex_location,
+                )
+            elif runtime_mode in {"user_adc", "hushh_managed_vertex"} and not credential:
+                client = build_managed_runtime_client(provider)
+            else:
+                raise RuntimeError("Pod model authority unavailable")
+        try:
+            result = await asyncio.wait_for(
+                client.aio.models.generate_content(model=model, contents=contents, config=config),
+                timeout=30,
+            )
+        except Exception:
+            raise RuntimeError("Pod specialist provider unavailable") from None
+        await require_access()
+        return result
+
+    async def service_for(agent_id: str) -> Any:
+        nonlocal log
+        await require_access()
+        if agent_id == "agent_nav":
+            from hushh_mcp.adk_bridge.nav_agent import NavAgent
+
+            return NavAgent(
+                service=PodConsentCenterReadPort(user_id, data_door_grants.get("nav", ""))
+            )
+        if agent_id == "agent_connected_systems":
+            from hushh_mcp.adk_bridge.connected_systems_agent import ConnectedSystemsAgentA2A
+
+            return ConnectedSystemsAgentA2A()
+        # Never substitute a hub singleton when an owner adapter is absent.
+        if agent_id != "agent_location":
+            raise RuntimeError("Pod specialist information adapter unavailable")
+        if log is None:
+            from hushh_mcp.services.pod_memory_service import _resolve_log
+
+            log = _resolve_log()
+        if log is None:
+            raise RuntimeError("Pod conversation persistence unavailable")
+        await require_access()
+        from google.genai import types
+
+        from hushh_mcp.services.location_chat_service import LocationChatService
+
+        return LocationChatService(
+            chat_store=PodAgentChatStore(
+                owner_user_id=user_id,
+                hushh_id=hushh_id,
+                log=log,
+                require_access=require_access,
+                agent_id=agent_id,
+                model=model,
+            ),
+            model_call=model_call,
+            genai_types=types,
+            location_service=PodLocationReadPort(user_id, data_door_grants.get("location", "")),
+            scope_tokens={
+                "cap.location.live.view": data_door_grants.get("location", ""),
+                **{
+                    scope: data_door_grants[scope]
+                    for scope in ("cap.location.live.share", "cap.location.live.refer_request")
+                    if data_door_grants.get(scope)
+                },
+            },
+        )
+
+    return SpecialistRuntime(user_id, require_access, service_for)

@@ -239,61 +239,79 @@ async def run_pod_turn(
 
     pod_own_id = (os.environ.get("HUSSH_ID") or "").strip() or None
 
+    from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+    from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+    specialist_runtime = build_pod_specialist_runtime(
+        user_id=user_id,
+        hushh_id=pod_own_id or "",
+        consent_token=consent_token,
+        provider=provider,
+        model=model,
+        runtime_mode=runtime_mode,
+        credential=payload.runtime_credential,
+        credential_transport=payload.runtime_credential_transport,
+        vertex_project=payload.vertex_project,
+        vertex_location=payload.vertex_location,
+        data_door_grants=payload.data_door_grants or {},
+    )
+
     chunks: list[str] = []
     directives: list[Any] = []
     specialists: list[Any] = []
     try:
-        async for event in runner(
-            user_id=user_id,
-            session_owner_id=pod_own_id,
-            consent_token=consent_token,
-            conversation_id=payload.conversation_id,
-            message=payload.message,
-            # Within-conversation continuity, memory-only. The browser-carried
-            # turns are wrapped as attribute-bearing objects because the runner
-            # reads `.role` / `.content` (text_runtime._history_content) and caps
-            # them itself; a non-dict item is skipped rather than raising, so a
-            # malformed history never fails a turn. Empty when the webapp sent
-            # none -> the pre-Phase-3 behaviour, unchanged.
-            history=[
-                SimpleNamespace(
-                    role=str(m.get("role", "")),
-                    content=str(m.get("content", "")),
-                )
-                for m in (payload.history or [])
-                if isinstance(m, dict)
-            ],
-            timezone=payload.timezone,
-            screen_context=None,
-            # Grounded on the owner's OWN projection, opened by their key on their own
-            # device and couriered here by the hub. The pod holds no database
-            # credential by design, so this is what makes a pod turn grounded without
-            # weakening the boundary that makes it a private agent.
-            pkm_context=grounding,
-            # When there is none, say WHY rather than leaving the model to infer it
-            # from silence -- the same honesty the hub path now carries.
-            grounding_reason=None
-            if grounding
-            else "no consented projection was sent with this turn",
-            runtime_provider=provider,
-            runtime_model=model,
-            runtime_mode=runtime_mode,
-            runtime_credential=payload.runtime_credential,
-            runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
-            runtime_vertex_project=payload.vertex_project,
-            runtime_vertex_location=payload.vertex_location,
-            # The couriered per-specialist read scopes. Seeded into the runtime so
-            # a DB-backed specialist reads through the hub broker rather than
-            # failing on the missing DB credential. Empty {} keeps today's behaviour.
-            data_door_grants=payload.data_door_grants or {},
-        ):
-            kind = getattr(event, "kind", "")
-            if kind == "token":
-                chunks.append(str(getattr(event, "text", "") or ""))
-            elif kind == "directive" and getattr(event, "directive", None) is not None:
-                directives.append(event.directive)
-            elif kind == "specialist" and getattr(event, "specialist", None) is not None:
-                specialists.append(event.specialist)
+        with bind_specialist_runtime(specialist_runtime):
+            async for event in runner(
+                user_id=user_id,
+                session_owner_id=pod_own_id,
+                consent_token=consent_token,
+                conversation_id=payload.conversation_id,
+                message=payload.message,
+                # Within-conversation continuity, memory-only. The browser-carried
+                # turns are wrapped as attribute-bearing objects because the runner
+                # reads `.role` / `.content` (text_runtime._history_content) and caps
+                # them itself; a non-dict item is skipped rather than raising, so a
+                # malformed history never fails a turn. Empty when the webapp sent
+                # none -> the pre-Phase-3 behaviour, unchanged.
+                history=[
+                    SimpleNamespace(
+                        role=str(m.get("role", "")),
+                        content=str(m.get("content", "")),
+                    )
+                    for m in (payload.history or [])
+                    if isinstance(m, dict)
+                ],
+                timezone=payload.timezone,
+                screen_context=None,
+                # Grounded on the owner's OWN projection, opened by their key on their own
+                # device and couriered here by the hub. The pod holds no database
+                # credential by design, so this is what makes a pod turn grounded without
+                # weakening the boundary that makes it a private agent.
+                pkm_context=grounding,
+                # When there is none, say WHY rather than leaving the model to infer it
+                # from silence -- the same honesty the hub path now carries.
+                grounding_reason=None
+                if grounding
+                else "no consented projection was sent with this turn",
+                runtime_provider=provider,
+                runtime_model=model,
+                runtime_mode=runtime_mode,
+                runtime_credential=payload.runtime_credential,
+                runtime_credential_transport=payload.runtime_credential_transport,  # type: ignore[arg-type]
+                runtime_vertex_project=payload.vertex_project,
+                runtime_vertex_location=payload.vertex_location,
+                # The couriered per-specialist read scopes. Seeded into the runtime so
+                # a DB-backed specialist reads through the hub broker rather than
+                # failing on the missing DB credential. Empty {} keeps today's behaviour.
+                data_door_grants=payload.data_door_grants or {},
+            ):
+                kind = getattr(event, "kind", "")
+                if kind == "token":
+                    chunks.append(str(getattr(event, "text", "") or ""))
+                elif kind == "directive" and getattr(event, "directive", None) is not None:
+                    directives.append(event.directive)
+                elif kind == "specialist" and getattr(event, "specialist", None) is not None:
+                    specialists.append(event.specialist)
     except Exception as exc:  # noqa: BLE001 - a failed turn is a 502, never a 500 traceback
         # THE KEYLESS-POD DB WALL IS AN EXPECTED CONDITION, NOT A 502.
         # A pod holds no database credential by design. Some tools on One's roster

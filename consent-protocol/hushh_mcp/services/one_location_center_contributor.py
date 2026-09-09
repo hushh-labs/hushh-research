@@ -84,8 +84,11 @@ def _coerce_metadata(metadata: dict[str, Any]) -> dict[str, Any]:
 class OneLocationCenterContributor:
     """Maps ``OneLocationAgentService.list_state`` into ConsentCenterEntry dicts."""
 
-    def __init__(self, location_service: OneLocationAgentService | None = None) -> None:
+    def __init__(
+        self, location_service: OneLocationAgentService | None = None, *, read_only: bool = False
+    ) -> None:
         self._location = location_service or OneLocationAgentService()
+        self._read_only = read_only
 
     # ----- public API ----------------------------------------------------
 
@@ -100,7 +103,11 @@ class OneLocationCenterContributor:
         if not normalized_user:
             return self._empty()
         try:
-            state = self._location.list_state(user_id=normalized_user)
+            state = (
+                self._location.list_state(user_id=normalized_user, read_only=True)
+                if self._read_only
+                else self._location.list_state(user_id=normalized_user)
+            )
         except Exception as exc:  # never let location break the consent surface
             logger.warning(
                 "one_location.consent_center.list_state_failed user=%s error=%s",

@@ -7,6 +7,22 @@ chat's dispatch seam can reach them.
 from hushh_mcp.adk_bridge.dispatch import register_specialist
 
 
+def _with_service(module_name, class_name):
+    """Construct the same authored wrapper with runtime-provided dependencies."""
+
+    async def invoke(task, service):
+        from importlib import import_module
+
+        wrapper = getattr(import_module(module_name), class_name)
+        return await wrapper(service=service).handle(task)
+
+    return invoke
+
+
+async def _runtime_handle(task, service):
+    return await service.handle(task)
+
+
 def _register_builtin_specialists() -> None:
     # Every product specialist is registered and REACHABLE. What protects the
     # authority-sensitive ones is not their absence from this map -- it is their
@@ -54,12 +70,34 @@ def _register_builtin_specialists() -> None:
 
         return get_connected_systems_a2a().handle(task)
 
-    register_specialist("agent_location", _location)
-    register_specialist("agent_nav", _nav)
-    register_specialist("agent_personal_information", _personal_information)
-    register_specialist("agent_email", _email)
-    register_specialist("agent_connections", _connections)
-    register_specialist("agent_connected_systems", _connected_systems)
+    register_specialist(
+        "agent_location",
+        _location,
+        service_handler=_with_service("hushh_mcp.adk_bridge.location_agent", "LocationAgentA2A"),
+    )
+    register_specialist("agent_nav", _nav, service_handler=_runtime_handle)
+    register_specialist(
+        "agent_personal_information",
+        _personal_information,
+        service_handler=_with_service(
+            "hushh_mcp.adk_bridge.personal_information_agent", "PersonalInformationAgentA2A"
+        ),
+    )
+    register_specialist(
+        "agent_email",
+        _email,
+        service_handler=_with_service("hushh_mcp.adk_bridge.email_agent", "EmailAgentA2A"),
+    )
+    register_specialist(
+        "agent_connections",
+        _connections,
+        service_handler=_with_service(
+            "hushh_mcp.adk_bridge.connections_agent", "ConnectionsAgentA2A"
+        ),
+    )
+    register_specialist(
+        "agent_connected_systems", _connected_systems, service_handler=_runtime_handle
+    )
 
 
 _register_builtin_specialists()

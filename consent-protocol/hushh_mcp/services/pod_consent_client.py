@@ -22,6 +22,7 @@ is its own state, and the caller surfaces it as a 503: ask again shortly.
 from __future__ import annotations
 
 import logging
+import os
 from dataclasses import dataclass
 from typing import Any
 
@@ -29,6 +30,27 @@ logger = logging.getLogger(__name__)
 
 _VERIFY_PATH = "/api/one/pod/consent/verify"
 _TIMEOUT_SECONDS = 8.0
+
+
+async def require_owner_scope(
+    token: str, *, expected_scope: str, user_id: str | None = None, verifier: Any = None
+) -> "ConsentVerdict":
+    """Revalidate one exact scope against this serving pod before a tool runs."""
+    mine = (os.getenv("HUSSH_ID") or "").strip()
+    if not mine or not expected_scope:
+        raise PermissionError("Pod authority binding unavailable")
+    check = verifier or verify_consent
+    verdict = await check(token, expected_scope=expected_scope)
+    if not verdict.available:
+        raise RuntimeError("Pod consent authority unavailable")
+    if (
+        not verdict.valid
+        or not verdict.user_id
+        or verdict.hushh_id != mine
+        or (user_id is not None and verdict.user_id != user_id)
+    ):
+        raise PermissionError("Pod consent scope denied")
+    return verdict
 
 
 @dataclass(frozen=True)

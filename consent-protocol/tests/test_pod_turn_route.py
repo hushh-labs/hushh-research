@@ -280,8 +280,11 @@ def test_the_db_wall_detector_is_narrow():
     )
 
 
-def test_the_route_is_mounted_in_the_pod():
+def test_the_route_is_mounted_in_the_pod(monkeypatch):
     """A turn route nobody mounted is a pod that still runs no agent."""
+    # pod_server sets this process environment at import. Restore it after the
+    # mount check so subsequent shared-runtime tests retain their topology.
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
     import pod_server
 
     paths = {getattr(r, "path", "") for r in pod_server.app.routes}
@@ -462,3 +465,129 @@ def test_the_credential_bound_matches_the_hubs():
     pod_max = PodTurnRequest.model_fields["runtime_credential"].metadata
     hub_max = PodTurnRelayRequest.model_fields["runtime_credential"].metadata
     assert str(pod_max) == str(hub_max)
+
+
+async def test_pod_ingress_runs_shared_location_loop_and_recovers_history(tmp_path, monkeypatch):
+    """Real ingress/dispatch/tool/store; only authority and model transports are synthetic."""
+    from types import SimpleNamespace
+    from unittest.mock import AsyncMock
+
+    from google.genai import types
+
+    from hushh_mcp.adk_bridge import _register_builtin_specialists
+    from hushh_mcp.adk_bridge.dispatch import specialist_runtime_bound
+    from hushh_mcp.one_adk import agent_tree
+    from hushh_mcp.runtime_providers import factory
+    from hushh_mcp.services import pod_consent_client, pod_memory_service
+    from hushh_mcp.services.pod_commit_log import LocalObjectStore, PodCommitLog
+    from hushh_mcp.services.pod_consent_client import ConsentVerdict
+
+    monkeypatch.setenv("HUSSH_POD_MODE", "1")
+    monkeypatch.setenv("HUSSH_POD_TURN_ENABLED", "1")
+    monkeypatch.setenv("HUSSH_ID", "pod-synthetic")
+    monkeypatch.setattr(pod_turn, "pod_turn_enabled", lambda: True)
+    monkeypatch.setattr(pod_turn, "_resolve_model", lambda: ("gemini", "synthetic-model"))
+    _register_builtin_specialists()
+    scopes = []
+
+    async def verify(token, *, expected_scope):
+        scopes.append(expected_scope)
+        scoped = {
+            "read": "pkm.read",
+            "invoke": "cap.one.invoke",
+            "share": "cap.location.live.share",
+        }
+        return ConsentVerdict(
+            token in scoped and scoped[token] == expected_scope,
+            True,
+            "owner",
+            "pod-synthetic",
+            scoped.get(token, ""),
+        )
+
+    monkeypatch.setattr(pod_consent_client, "verify_consent", verify)
+    # A fresh log instance on each turn proves reconstruction, not warm cache reuse.
+    monkeypatch.setattr(
+        pod_memory_service,
+        "_resolve_log",
+        lambda: PodCommitLog(LocalObjectStore(str(tmp_path)), b"k" * 32, owner_id="pod-synthetic"),
+    )
+    responses = iter(
+        [
+            SimpleNamespace(
+                function_calls=[
+                    SimpleNamespace(name="propose_public_link", args={"duration_hours": 0.5})
+                ],
+                text="",
+                candidates=[
+                    SimpleNamespace(
+                        content=types.Content(role="model", parts=[types.Part(text="")])
+                    )
+                ],
+            ),
+            SimpleNamespace(function_calls=[], text="Confirm the proposed link.", candidates=[]),
+            SimpleNamespace(
+                function_calls=[], text="We proposed a thirty-minute link.", candidates=[]
+            ),
+        ]
+    )
+    contents_seen = []
+
+    async def generate(*, model, contents, config):
+        assert model == "synthetic-model"
+        contents_seen.append([part.text for item in contents for part in item.parts if part.text])
+        return next(responses)
+
+    client = SimpleNamespace(aio=SimpleNamespace(models=SimpleNamespace(generate_content=generate)))
+    monkeypatch.setattr(factory, "build_runtime_client", lambda *a, **kw: client)
+    # Neither the old summary nor a shared conversation/provider service may serve this turn.
+    from hushh_mcp.one_adk import pod_data_door_specialist
+
+    monkeypatch.setattr(
+        pod_data_door_specialist,
+        "serve_specialist_via_data_door",
+        AsyncMock(side_effect=AssertionError("summary bypass")),
+    )
+    captured = []
+
+    async def run(**kwargs):
+        context = SimpleNamespace(
+            state={
+                agent_tree.STATE_USER_ID: kwargs["user_id"],
+                agent_tree.STATE_CONSENT_TOKEN: kwargs["consent_token"],
+                agent_tree.STATE_CONVERSATION_ID: kwargs["conversation_id"],
+                agent_tree.STATE_DATA_DOOR_GRANTS: kwargs["data_door_grants"],
+            }
+        )
+        result = await agent_tree._specialist_turn("agent_location", kwargs["message"], context)
+        captured.append((result, context.state[agent_tree.STATE_CONVERSATION_ID]))
+        yield _Event("token", result.get("text", result.get("message", "failed")))
+
+    first = await pod_turn.run_pod_turn(
+        payload=_payload(
+            "Propose a public link",
+            pkm_context="synthetic grounding",
+            data_door_grants={"invoke": "invoke", "cap.location.live.share": "share"},
+        ),
+        consent_token="read",
+        stream_fn=run,
+    )
+    assert first["text"] == "Confirm the proposed link."
+    assert captured[0][0]["status"] == "ok"
+    assert "cap.location.live.share" in scopes
+    assert not specialist_runtime_bound()
+    second = await pod_turn.run_pod_turn(
+        payload=_payload(
+            "What did we propose?",
+            # Actual caller behavior: reuse the hub/browser's original root id.
+            conversation_id="pod-first-light",
+            pkm_context="synthetic grounding",
+            data_door_grants={"invoke": "invoke", "cap.location.live.share": "share"},
+        ),
+        consent_token="read",
+        stream_fn=run,
+    )
+    assert second["text"] == "We proposed a thirty-minute link."
+    assert "Propose a public link" in contents_seen[-1]
+    assert "Confirm the proposed link." in contents_seen[-1]
+    assert not specialist_runtime_bound()

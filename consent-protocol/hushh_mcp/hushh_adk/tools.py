@@ -76,6 +76,18 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             Falls back to in-memory check if DB is unavailable (scope-aware fail policy).
             """
             expected = resolve_scope_to_enum(scope) if isinstance(scope, str) else scope
+            from hushh_mcp.runtime_settings import pod_mode
+
+            if pod_mode():
+                from hushh_mcp.services.pod_consent_client import require_owner_scope
+
+                exact_scope = scope.value if hasattr(scope, "value") else str(scope)
+                await require_owner_scope(
+                    ctx.scope_tokens.get(exact_scope, ctx.consent_token),
+                    expected_scope=exact_scope,
+                    user_id=ctx.user_id,
+                )
+                return
             valid, reason, token_obj = await validate_token_with_db(
                 ctx.consent_token, expected_scope=expected
             )
@@ -99,18 +111,7 @@ def hushh_tool(scope: str, name: Optional[str] = None):
             left open. Fail policy matches validate_token_with_db: scoped
             tokens fail closed when revocation status cannot be confirmed.
             """
-            expected = resolve_scope_to_enum(scope) if isinstance(scope, str) else scope
-            valid, reason, token_obj = _run_coro_blocking(
-                validate_token_with_db(ctx.consent_token, expected_scope=expected)
-            )
-            if not valid:
-                error_msg = f"Consent Denied for '{tool_name}': {reason}"
-                logger.warning("%s (user=[redacted])", error_msg)
-                raise PermissionError(error_msg)
-            if token_obj.user_id != ctx.user_id:
-                error_msg = "Identity Spoofing Detected: Token user does not match context user."
-                logger.critical(error_msg)
-                raise PermissionError(error_msg)
+            _run_coro_blocking(_validate_scope_async(ctx))
 
         if is_async:
 

@@ -425,12 +425,67 @@ class PodDataDoorRead:
     project: Callable[[dict[str, Any]], dict[str, Any]]
 
 
+def project_nav_state(raw: dict[str, Any]) -> dict[str, Any]:
+    """Consent display metadata only; never grant tokens or encrypted exports."""
+    result = {}
+    for surface in ("active", "previous"):
+        page = raw.get(surface) if isinstance(raw, dict) else None
+        if not isinstance(page, dict) or not isinstance(page.get("items"), list):
+            raise ValueError("consent center projection unavailable")
+        items = []
+        for item in page["items"][:10]:
+            if not isinstance(item, dict):
+                raise ValueError("consent center item unavailable")
+            projected = {
+                key: item[key]
+                for key in (
+                    "scope",
+                    "scope_description",
+                    "counterpart_label",
+                    "status",
+                    "expires_at",
+                    "revoked_at",
+                    "resolved_at",
+                    "updated_at",
+                    "issued_at",
+                )
+                if isinstance(item.get(key), (str, int))
+            }
+            # Generic consent display ids can contain the bearer token itself.
+            # Only Location's independently typed UUID may support an action card.
+            metadata = item.get("metadata")
+            if (
+                isinstance(metadata, dict)
+                and metadata.get("request_source") == "one_location_share_grant"
+                and isinstance(metadata.get("grant_id"), str)
+            ):
+                from uuid import UUID
+
+                try:
+                    grant_id = str(UUID(metadata["grant_id"]))
+                except ValueError:
+                    pass
+                else:
+                    projected["id"] = f"one_location_grant:{grant_id}"
+                    projected["metadata"] = {
+                        "request_source": "one_location_share_grant",
+                        "grant_id": grant_id,
+                    }
+            items.append(projected)
+        total = page.get("total", len(items))
+        if type(total) is not int or total < len(items):
+            raise ValueError("consent center count unavailable")
+        result[surface] = {"items": items, "total": total}
+    return result
+
+
 #: The registry. Keyed on the specialist NAME, not a scope: location reads and
 #: writes share one scope (``cap.location.live.view``), so a scope predicate
 #: could not tell a read from a write. The name maps to fixed read-only code, so
 #: the read/write boundary is structural, not a runtime check that could be
 #: fooled. Adding a specialist here is a deliberate, reviewable act.
 POD_DATA_DOOR_READS: dict[str, PodDataDoorRead] = {
+    "nav": PodDataDoorRead(name="nav", project=project_nav_state),
     "location": PodDataDoorRead(name="location", project=project_location_state),
     "email": PodDataDoorRead(name="email", project=project_email_state),
     "calendar": PodDataDoorRead(name="calendar", project=project_calendar_state),
@@ -550,7 +605,18 @@ async def _read_calendar(
     }
 
 
+async def _read_nav(owner_id: str) -> dict[str, Any]:
+    from hushh_mcp.services.consent_center_service import ConsentCenterService
+
+    service = ConsentCenterService(read_only=True)
+    return {
+        surface: await service.list_center(owner_id, actor="investor", surface=surface, top=10)
+        for surface in ("active", "previous")
+    }
+
+
 _READERS: dict[str, Callable[[str], Awaitable[dict[str, Any]]]] = {
+    "nav": _read_nav,
     "location": _read_location,
     "email": _read_email,
     "calendar": _read_calendar,

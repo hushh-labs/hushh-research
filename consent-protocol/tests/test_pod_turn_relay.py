@@ -363,6 +363,8 @@ async def test_the_door_grant_is_couriered_to_the_pod_when_enabled(monkeypatch):
         "location": "standing-location-view",
         "email": "standing-cap.email.inbox.view",
         "calendar": "standing-cap.calendar.events.view",
+        "invoke": "standing-cap.one.invoke",
+        "nav": "standing-agent.nav.review",
     }
 
 
@@ -377,9 +379,9 @@ async def test_no_door_grant_is_couriered_when_the_flag_is_off(monkeypatch, _sta
         return {"token": "should-not-be-used"}
 
     await _turn(session=pod, door_grants=_tripwire)
-    assert pod.calls[0]["json"]["dataDoorGrants"] == {}
+    assert pod.calls[0]["json"]["dataDoorGrants"] == {"invoke": "standing-cap.one.invoke"}
     assert consulted["called"] is False
-    assert _standing_door_issuers == []
+    assert [scope.value for _, scope in _standing_door_issuers] == ["cap.one.invoke"]
 
 
 async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
@@ -396,6 +398,8 @@ async def test_a_door_mint_failure_degrades_the_read_not_the_turn(monkeypatch):
     assert pod.calls[0]["json"]["dataDoorGrants"] == {
         "email": "standing-cap.email.inbox.view",
         "calendar": "standing-cap.calendar.events.view",
+        "invoke": "standing-cap.one.invoke",
+        "nav": "standing-agent.nav.review",
     }
 
 

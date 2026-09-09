@@ -594,6 +594,7 @@ async def run_one_live_session(
     from google.adk.events import EventActions
     from google.genai import types as genai_types
 
+    specialist_runtime = None
     try:
         (
             runtime_mode,
@@ -604,6 +605,24 @@ async def run_one_live_session(
             resumption_handle,
             voice_name,
         ) = await _receive_runtime_bootstrap(websocket, uid=uid)
+        if private is not None:
+            from api.routes.one.pod_turn import _resolve_model
+            from hushh_mcp.services.pod_specialist_runtime import build_pod_specialist_runtime
+
+            specialist_provider, specialist_model = _resolve_model()
+            specialist_runtime = build_pod_specialist_runtime(
+                user_id=private.user_id,
+                hushh_id=private.hushh_id,
+                consent_token=private.consent_token,
+                provider=specialist_provider,
+                model=specialist_model,
+                runtime_mode=runtime_mode,
+                credential=runtime_credential,
+                credential_transport=runtime_credential_transport,
+                vertex_project=runtime_vertex_project,
+                vertex_location=runtime_vertex_location,
+                data_door_grants=private.data_door_grants,
+            )
         runner = build_one_live_runner(
             runtime_mode=runtime_mode,
             runtime_credential=runtime_credential,
@@ -649,7 +668,7 @@ async def run_one_live_session(
             )
         return
     finally:
-        # Keep the raw key alive only through connection-local runner creation.
+        # Credentials remain only in connection-local runtime clients/closures.
         runtime_credential = None
         runtime_vertex_project = None
         runtime_vertex_location = None
@@ -1669,7 +1688,16 @@ async def run_one_live_session(
         # The browser is told the reason so it can resume rather than treating
         # this as an ordinary close.
         try:
-            await _pump_live_events()
+            from contextlib import nullcontext
+
+            from hushh_mcp.adk_bridge.dispatch import bind_specialist_runtime
+
+            with (
+                bind_specialist_runtime(specialist_runtime)
+                if specialist_runtime is not None
+                else nullcontext()
+            ):
+                await _pump_live_events()
         except ValueError as tool_error:
             close_reason = "unknown_tool_call"
             logger.warning("one_adk_live_unknown_tool_call error=%s", type(tool_error).__name__)

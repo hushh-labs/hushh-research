@@ -68,6 +68,39 @@ Those remain lifecycle and identity work; a status check cannot substitute for t
 
 ## Status (2026-09-02)
 
+The following table and extension recipe are historical. Current source wiring
+as of 8 September 2026 is qualified below; it has not yet been deployed or
+accepted with a live owner/provider flow.
+
+### Shared-fleet integration, 8 September 2026
+
+Text ingress and the private Live event pump bind the existing specialist
+registry to invocation-local dependencies. Location uses the same authored
+wrapper, model/tool loop and client directives, with pod model credentials and
+the existing sealed log for conversation history. Its read port still calls the
+scoped hub broker; referral and public-link revocation through that port refuse
+and direct the owner to existing controls. This is not full Location parity.
+
+Nav runs its existing handler in the pod. A new read-only `nav` broker entry
+returns allow-listed active/previous consent display metadata under
+`agent.nav.review`; it does not export grant tokens or keys. Consent remains a
+control-plane authority. Connected Systems has a bound stateless handler but
+still requires real information/action authority before producing a directive.
+
+The relay separately couriers `cap.one.invoke` using the existing standing-grant
+issuer, independently of the information-door flag. PKM-read permission is not
+substituted for invocation or mutation authority. Shared tools in pod mode
+revalidate the authored scope remotely and require the current Firebase owner
+and serving HusshID. Missing adapters never select shared service singletons.
+
+Email retains its transitional scoped summary. Email/Connections still lack
+the real first-party encrypted-export/confirmation handoff and pod information
+adapters needed for their full shared loops. Personal Information has no pod
+service adapter. These are remaining implementation gaps, not completed fleet
+acceptance. Local tests with synthetic authority/model transports prove Location
+dispatch, directives and fresh-log reconstruction; they do not prove a process
+restart, live providers, deployed parity or the ledger's zero-hub-read assertion.
+
 | Specialist | Door | Read | Notes |
 |---|---|---|---|
 | location | **OPEN** | `list_state(read_only=True)` (sync DB) | first door; suppresses even expiry housekeeping |

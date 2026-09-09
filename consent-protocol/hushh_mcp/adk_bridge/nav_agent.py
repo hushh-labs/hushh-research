@@ -27,13 +27,23 @@ logger = logging.getLogger(__name__)
 class NavAgent:
     agent_id = NAV_AGENT_ID
 
-    def __init__(self, manifest_path: str | Path | None = None) -> None:
+    def __init__(self, manifest_path: str | Path | None = None, *, service: Any = None) -> None:
+        self._service = service
         self._manifest_path = Path(manifest_path) if manifest_path else _default_manifest_path()
         self._manifest = ManifestLoader.load(str(self._manifest_path))
 
+    def _consent_center(self) -> Any:
+        if self._service is not None:
+            return self._service
+        from hushh_mcp.runtime_settings import pod_mode
+
+        if pod_mode():
+            raise RuntimeError("Pod consent-center information adapter unavailable")
+        return ConsentCenterService()
+
     async def handle(self, task: A2ATask) -> SpecialistTurnResult:
         validation = await validate_a2a_consent_token_with_db(self.agent_id, task.consent_token)
-        if not validation.ok:
+        if not validation.ok or validation.user_id != task.user_id:
             return SpecialistTurnResult(
                 conversation_id=task.conversation_id or "",
                 text=(
@@ -94,7 +104,7 @@ class NavAgent:
     ) -> tuple[str, Any | None]:
         started = time.perf_counter()
         try:
-            payload = await ConsentCenterService().list_center(
+            payload = await self._consent_center().list_center(
                 user_id,
                 actor="investor",
                 surface="active",
@@ -152,7 +162,7 @@ class NavAgent:
     ) -> tuple[str, Any | None]:
         started = time.perf_counter()
         try:
-            payload = await ConsentCenterService().list_center(
+            payload = await self._consent_center().list_center(
                 user_id,
                 actor="investor",
                 surface="previous",

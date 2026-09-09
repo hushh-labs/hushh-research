@@ -72,6 +72,7 @@ router = APIRouter(prefix="/api/one/pod/specialist", tags=["personal-agent"])
 #: weaker scope, it reuses the real one and the relay mints it per turn with a
 #: short TTL. A name absent here has no door and is refused before any read.
 _REQUIRED_SCOPE: dict[str, str] = {
+    "nav": "agent.nav.review",
     "location": "cap.location.live.view",
     "email": "cap.email.inbox.view",
     "calendar": "cap.calendar.events.view",

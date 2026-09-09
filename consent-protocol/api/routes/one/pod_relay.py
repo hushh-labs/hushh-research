@@ -409,16 +409,38 @@ def _not_ready(status: str) -> HTTPException:
 
 
 async def issue_pod_data_door_grants(user_id: str, *, door_grants: Any = None) -> dict[str, str]:
-    """Existing independent read grants shared by text and Live pod transports."""
+    """Separate invocation/read grants shared by text and Live pod transports."""
     data_door_grants: dict[str, str] = {}
-    if pod_data_door_enabled():
-        from hushh_mcp.services.personal_agent_grant_service import (  # noqa: PLC0415
-            PersonalAgentGrantService,
-        )
+    from hushh_mcp.services.personal_agent_grant_service import PersonalAgentGrantService
 
+    try:
+        invoke_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+            user_id,
+            scope=ConsentScope.CAP_ONE_INVOKE,
+            grant_kind="one_invoke",
+            scope_description="Delegate your requests to the private agent's shared specialists",
+        )
+        invoke_token = str((invoke_grant or {}).get("token") or "")
+        if invoke_token:
+            data_door_grants["invoke"] = invoke_token
+    except Exception as exc:
+        logger.info("pod_relay.data_door_grant_skipped door=invoke %s", type(exc).__name__)
+    if pod_data_door_enabled():
         door_issuer = (
             door_grants or PersonalAgentGrantService().issue_or_reuse_standing_location_view
         )
+        try:
+            nav_grant = await PersonalAgentGrantService().issue_or_reuse_standing_scope(
+                user_id,
+                scope=ConsentScope.AGENT_NAV_REVIEW,
+                grant_kind="nav_review",
+                scope_description="Review your active and previous consent grants",
+            )
+            nav_token = str((nav_grant or {}).get("token") or "")
+            if nav_token:
+                data_door_grants["nav"] = nav_token
+        except Exception as exc:
+            logger.info("pod_relay.data_door_grant_skipped door=nav %s", type(exc).__name__)
         try:
             location_grant = await door_issuer(user_id)
             token = str((location_grant or {}).get("token") or "")
