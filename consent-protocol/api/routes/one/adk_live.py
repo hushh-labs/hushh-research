@@ -611,6 +611,7 @@ async def run_one_live_session(
             runtime_vertex_project=runtime_vertex_project,
             runtime_vertex_location=runtime_vertex_location,
             public_intro_only=private is None,
+            require_access=private.require_access if private is not None else None,
         )
     except (ValueError, RuntimeError) as exc:
         # Safe class-only close reasons. Never reflect the credential or a raw

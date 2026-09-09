@@ -23,11 +23,14 @@ from __future__ import annotations
 import logging
 import os
 import time
+from collections.abc import Awaitable, Callable
 from functools import lru_cache
 from pathlib import Path
 from typing import Any, Literal, Optional
 
 from google.adk.agents import LlmAgent
+from google.adk.apps import App
+from google.adk.plugins.base_plugin import BasePlugin
 from google.adk.runners import Runner
 from google.adk.sessions.base_session_service import BaseSessionService
 from google.adk.sessions.in_memory_session_service import InMemorySessionService
@@ -2007,6 +2010,23 @@ def get_one_runner() -> Runner:
     return _runner
 
 
+class _PrivateLiveAccessPlugin(BasePlugin):
+    """Recheck the existing connection authority before every ADK tool execution."""
+
+    def __init__(self, require_access: Callable[[], Awaitable[None]]) -> None:
+        super().__init__(name="private_live_access")
+        self._require_access = require_access
+
+    async def before_tool_callback(self, *, tool, tool_args, tool_context) -> dict | None:
+        try:
+            await self._require_access()
+        except Exception:
+            # ADK skips the tool when a plugin returns a response. Never reflect
+            # consent tokens or provider errors into the model's tool response.
+            return {"error": "private_voice_access_unavailable"}
+        return None
+
+
 def build_one_live_runner(
     *,
     runtime_mode: Literal["hushh_managed_vertex", "byok"],
@@ -2015,6 +2035,7 @@ def build_one_live_runner(
     runtime_vertex_project: str | None = None,
     runtime_vertex_location: str | None = None,
     public_intro_only: bool = False,
+    require_access: Callable[[], Awaitable[None]] | None = None,
 ) -> Runner:
     """Return the managed runner or an isolated, connection-local BYOK runner.
 
@@ -2027,6 +2048,13 @@ def build_one_live_runner(
     explicitly. This prevents an API key from causing a credential fallback
     or an unverified model swap in either direction.
     """
+    plugins: list[BasePlugin] = (
+        [_PrivateLiveAccessPlugin(require_access)] if require_access is not None else []
+    )
+    if require_access is not None and not pod_mode():
+        raise ValueError("private_live_access_required")
+    if pod_mode() and not public_intro_only and require_access is None:
+        raise ValueError("private_live_access_required")
     if public_intro_only:
         if runtime_mode != "hushh_managed_vertex" or runtime_credential:
             raise ValueError("runtime_bootstrap_invalid")
@@ -2044,8 +2072,7 @@ def build_one_live_runner(
             # optional database-session configuration. Experience memory uses
             # the existing owner-bound pod resolver; session context is transient.
             return Runner(
-                app_name=ONE_APP_NAME,
-                agent=build_one_root_agent(),
+                app=App(name=ONE_APP_NAME, root_agent=build_one_root_agent(), plugins=plugins),
                 session_service=InMemorySessionService(),
                 memory_service=_build_one_memory_service(),
                 auto_create_session=True,
@@ -2079,14 +2106,17 @@ def build_one_live_runner(
     )
 
     return Runner(
-        app_name=ONE_APP_NAME,
-        agent=build_one_root_agent(
-            model=build_gemini_byok_adk_model(
-                _BYOK_LIVE_MODEL,
-                runtime_credential,
-                transport=runtime_credential_transport,
+        app=App(
+            name=ONE_APP_NAME,
+            plugins=plugins,
+            root_agent=build_one_root_agent(
+                model=build_gemini_byok_adk_model(
+                    _BYOK_LIVE_MODEL,
+                    runtime_credential,
+                    transport=runtime_credential_transport,
+                ),
+                specialist_model=specialist_model,
             ),
-            specialist_model=specialist_model,
         ),
         # The BYOK-live runner is connection-local and deliberately in-memory: its
         # session state is influenced by a user-supplied key and stays turn/connection

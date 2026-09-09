@@ -229,6 +229,8 @@ assertions:
     blocked_by: >-
       Scoped location, email and calendar reads are connected through the existing
       hub information door; private text/Live compose the result inside the pod.
+      This remains transitional: pod-native specialist information execution is
+      required by the north star and is not proven by successful hub-backed reads.
       Actual deployed specialist execution, exact exports for other specialists and
       owner-confirmed mutations still need independent receipt evidence.
     owner_action: "Verify the connected scoped reads and owner-confirmed proposal handoff on a disposable private pod; retain denial controls."

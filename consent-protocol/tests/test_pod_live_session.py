@@ -125,6 +125,7 @@ async def test_private_runtime_builds_separate_tool_and_memory_identity(private,
             pod_session=private,
         )
     assert factory.call_args.kwargs["public_intro_only"] is False
+    assert factory.call_args.kwargs["require_access"] == private.require_access
     assert create.call_args.kwargs["user_id"] == private.hushh_id
     assert create.call_args.kwargs["session_id"] == private.session_id
     assert create.call_args.kwargs["state"][STATE_USER_ID] == private.user_id
@@ -266,3 +267,98 @@ async def test_pod_entrypoint_denial_does_not_accept_or_read(private, monkeypatc
     socket.accept.assert_not_called()
     socket.receive_text.assert_not_called()
     socket.close.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_live_tool_guard_rechecks_revocation_and_sanitizes_refusal():
+    from hushh_mcp.one_adk.agent_tree import _PrivateLiveAccessPlugin
+
+    authority = AsyncMock(side_effect=[None, RuntimeError("synthetic-private-token")])
+    guard = _PrivateLiveAccessPlugin(authority)
+    assert await guard.before_tool_callback(tool=None, tool_args={}, tool_context=None) is None
+    assert await guard.before_tool_callback(tool=None, tool_args={}, tool_context=None) == {
+        "error": "private_voice_access_unavailable"
+    }
+    assert authority.await_count == 2
+
+
+@pytest.mark.asyncio
+async def test_revoked_live_guard_prevents_adk_memory_tool_execution():
+    from google.adk.agents import LlmAgent
+    from google.adk.apps import App
+    from google.adk.models.base_llm import BaseLlm
+    from google.adk.models.llm_response import LlmResponse
+    from google.adk.runners import Runner
+    from google.adk.sessions import InMemorySessionService
+    from google.genai import types
+
+    from hushh_mcp.one_adk.agent_tree import _PrivateLiveAccessPlugin
+
+    retrieval = AsyncMock(return_value={"fact": "synthetic"})
+
+    async def load_memory() -> dict:
+        return await retrieval()
+
+    responses = iter(
+        [
+            LlmResponse(
+                content=types.Content(
+                    role="model",
+                    parts=[
+                        types.Part(function_call=types.FunctionCall(name="load_memory", args={}))
+                    ],
+                )
+            ),
+            LlmResponse(
+                content=types.Content(role="model", parts=[types.Part(text="Access unavailable.")])
+            ),
+        ]
+    )
+
+    class ScriptedModel(BaseLlm):
+        async def generate_content_async(self, llm_request, stream=False):
+            yield next(responses)
+
+    authority = AsyncMock(side_effect=RuntimeError("synthetic-private-token"))
+    runner = Runner(
+        app=App(
+            name="guard_probe",
+            root_agent=LlmAgent(
+                name="one", model=ScriptedModel(model="synthetic"), tools=[load_memory]
+            ),
+            plugins=[_PrivateLiveAccessPlugin(authority)],
+        ),
+        session_service=InMemorySessionService(),
+        auto_create_session=True,
+    )
+    events = [
+        event
+        async for event in runner.run_async(
+            user_id="synthetic-owner",
+            session_id="synthetic-session",
+            new_message=types.Content(role="user", parts=[types.Part(text="Recall a fact.")]),
+        )
+    ]
+    retrieval.assert_not_awaited()
+    authority.assert_awaited_once()
+    tool_results = [
+        part.function_response.response
+        for event in events
+        for part in (event.content.parts if event.content else [])
+        if part.function_response
+    ]
+    assert tool_results == [{"error": "private_voice_access_unavailable"}]
+
+
+@pytest.mark.parametrize("pod,checker", [(True, None), (False, AsyncMock())])
+def test_private_live_builder_refuses_missing_guard_or_shared_topology(monkeypatch, pod, checker):
+    from hushh_mcp.one_adk import agent_tree
+
+    monkeypatch.setattr(agent_tree, "pod_mode", lambda: pod)
+    monkeypatch.setattr(
+        agent_tree, "get_one_runner", lambda: pytest.fail("private session reached shared runner")
+    )
+    with pytest.raises(ValueError, match="private_live_access_required"):
+        agent_tree.build_one_live_runner(
+            runtime_mode="hushh_managed_vertex", require_access=checker
+        )

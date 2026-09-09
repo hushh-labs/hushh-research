@@ -5288,10 +5288,12 @@ class TestPrivateLiveRuntime:
         )
         first = _tree.build_one_live_runner(
             runtime_mode=runtime_mode,
+            require_access=AsyncMock(),
             runtime_credential="test-key" if runtime_mode == "byok" else None,
         )
         second = _tree.build_one_live_runner(
             runtime_mode=runtime_mode,
+            require_access=AsyncMock(),
             runtime_credential="test-key" if runtime_mode == "byok" else None,
         )
         assert isinstance(first.session_service, InMemorySessionService)
