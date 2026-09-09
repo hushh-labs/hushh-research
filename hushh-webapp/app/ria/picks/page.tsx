@@ -6,7 +6,6 @@ import type { ColumnDef } from "@tanstack/react-table";
 import {
   AlertTriangle,
   Crown,
-  FileSpreadsheet,
   Loader2,
   Medal,
   PencilLine,
@@ -38,6 +37,7 @@ import {
   SurfaceInset,
   SurfaceStack,
 } from "@/components/app-ui/surfaces";
+import { RiaRouteSelector } from "@/components/ria/layout/ria-route-selector";
 import { SegmentedTabs } from "@/components/profile/settings-ui";
 import { RiaCompatibilityState } from "@/components/ria/ria-page-shell";
 import { TemplatePreviewModal } from "@/components/ria/template-preview-modal";
@@ -2707,18 +2707,17 @@ export default function RiaPicksPage() {
     >
       <AppPageHeaderRegion className="pt-2 sm:pt-3">
         <PageHeader
-          eyebrow={RIA_COPY.picks.eyebrow}
           title={RIA_COPY.picks.title}
           description={RIA_COPY.picks.description}
-          icon={FileSpreadsheet}
           accent="ria"
           titleRole="agent"
-          className="[&>div:first-child]:!gap-3.5 [&_[data-slot=page-header-row]]:!items-center"
         />
       </AppPageHeaderRegion>
 
       <AppPageContentRegion>
         <SurfaceStack className="gap-6">
+          <RiaRouteSelector />
+
           <div data-testid="ria-picks-primary">
             <SegmentedTabs
               value={source}
@@ -2744,7 +2743,7 @@ export default function RiaPicksPage() {
             mobileColumns={2}
           />
 
-          {(
+          {
             <>
               {showMyListActionRail ? (
                 <SurfaceCard>
@@ -3235,7 +3234,7 @@ export default function RiaPicksPage() {
                 </div>
               ) : null}
             </>
-          )}
+          }
         </SurfaceStack>
       </AppPageContentRegion>
     </AppPageShell>

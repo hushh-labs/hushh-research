@@ -228,7 +228,7 @@ function resolveSelection(
 
 /**
  * Resolves the one route-owned contextual tab group for the shared top shell.
- * Location and Connect are intentionally excluded here: their hubs render the
+ * Location, Connect, and RIA are intentionally excluded here: their hubs render the
  * same registered tabs directly under their module headers so the local module
  * hierarchy stays intact while retaining shared tab/swipe state.
  */
@@ -264,6 +264,12 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
     };
   }
 
+  return resolvePublicKnowledgeTopShellTabSet(routeKey);
+}
+
+export function resolveRiaRouteTabSet(routeKey: string): TopShellTabSet | null {
+  const { pathname } = splitRouteKey(routeKey);
+
   if (
     pathname === ROUTES.RIA_HOME ||
     pathname === ROUTES.RIA_PROFILE ||
@@ -279,7 +285,7 @@ export function resolveTopShellTabSet(routeKey: string): TopShellTabSet | null {
     };
   }
 
-  return resolvePublicKnowledgeTopShellTabSet(routeKey);
+  return null;
 }
 
 /**
