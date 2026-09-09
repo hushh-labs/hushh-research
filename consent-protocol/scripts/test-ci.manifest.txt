@@ -397,3 +397,8 @@ tests/test_live_context_screen_state.py
 
 # Actual database ordering for private-agent renewal and owner revocation.
 tests/test_personal_agent_renewal_authority.py
+
+# Shared specialist dependency boundaries and real process history recovery.
+tests/test_information_chat_service.py
+tests/test_adk_dispatch.py
+tests/test_pod_agent_chat_store.py
