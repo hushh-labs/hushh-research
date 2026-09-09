@@ -474,9 +474,16 @@ preserves a distinct bootstrap account and rechecks disabled state after admissi
 An admitted retry only observes; it never submits another disable request. This draft
 is not deployed and does not prove that previously accepted uploads have drained.
 The hub reads inventory back before continuing. This preserves shared and unresolved inventory;
-it does not grant cleanup eligibility. Per-action admission and outcome persistence remain
-unconnected to the executor callbacks, so complete substrate erasure remains open. The existing live drill remains unavailable until disposable ownership
-and complete cleanup satisfy those same contracts.
+it does not grant cleanup eligibility. Dev migrations 924–930 and the existing coordinator
+connect KMS destruction, signing-secret deletion, runtime-account deletion, runtime project-grant
+revocation and repository-writer revocation to retained admission and outcome callbacks.
+Repository creation evidence comes from the completed provider operation; adopted repositories
+without that evidence remain unqualified. Grant cleanup preserves conditional and unrelated
+bindings and refuses uncertain write replay. The repository itself is retained.
+Bootstrap impersonation revocation and shared-image contents reconciliation remain unconnected
+to final account removal. These source changes are not deployed and do not establish live erasure.
+The existing live drill remains unavailable until disposable ownership and complete cleanup
+satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
 cancellation. Lost worker or transport outcomes remain `delete_submitting` and cannot
 resubmit DELETE. These source changes require dev rollout and lifecycle acceptance.
