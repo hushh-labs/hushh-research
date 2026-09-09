@@ -480,8 +480,8 @@ revocation and repository-writer revocation to retained admission and outcome ca
 Repository creation evidence comes from the completed provider operation; adopted repositories
 without that evidence remain unqualified. Grant cleanup preserves conditional and unrelated
 bindings and refuses uncertain write replay. The repository itself is retained.
-Bootstrap impersonation revocation and shared-image contents reconciliation remain unconnected
-to final account removal. These source changes are not deployed and do not establish live erasure.
+Dev migration 932 records intentional repository retention after writer-grant removal.
+Bootstrap impersonation revocation remains unconnected to final account removal. These source changes are not deployed and do not establish live erasure.
 The existing live drill remains unavailable until disposable ownership and complete cleanup
 satisfy those same contracts.
 An already-admitted Memory Bank DELETE worker retains its acknowledgement after caller
@@ -542,8 +542,18 @@ changed tracked files, or unrecognized execution fields refuse. Extra/missing fi
 remain explicit and common-executable classification is still unresolved; source
 comparison does not prove reproducibility or complete application functionality.
 
-The stored observation is not fresh classification. Durable classification and a current
-repository check are still required before bootstrap release. The enumeration follows the
+Dev migration 932 appends `repositoryRetention` to the existing owner erasure
+reservation, bound to its attempt, repository incarnation and immutable inventory after
+confirmed writer-grant removal. Its disposition is `retained_shared`, for
+`application_distribution_storage`; the coordinator reads it back before proceeding.
+The image copy path receives application blobs, never pod memory or owner-state exports.
+Retaining this shared repository deliberately preserves unrelated owner-controlled
+contents; it does not describe every package as a verified executable, delete the
+repository, or claim physical-byte erasure. Supply-chain comparison is optional audit
+evidence, not an account-erasure prerequisite. Owner-state stores, uncertain operations
+and final bootstrap release retain their separate cleanup requirements. The current
+account guard still refuses incomplete erasure; repository retention alone cannot
+remove an account. Rollback refuses retained receipts. The enumeration follows the
 [Artifact Registry Docker image list contract](https://docs.cloud.google.com/artifact-registry/docs/reference/rest/v1/projects.locations.repositories.dockerImages/list).
 
 ## What this changes about the work

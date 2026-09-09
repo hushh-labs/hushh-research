@@ -590,6 +590,11 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         ROOT / "db/migrations/rollback/931_personal_agent_repository_inventory.rollback.sql"
     )
     pg.apply_file(ROOT / "db/migrations/parked/931_personal_agent_repository_inventory.sql")
+    pg.apply_file(ROOT / "db/migrations/parked/932_personal_agent_repository_retention.sql")
+    pg.apply_file(
+        ROOT / "db/migrations/rollback/932_personal_agent_repository_retention.rollback.sql"
+    )
+    pg.apply_file(ROOT / "db/migrations/parked/932_personal_agent_repository_retention.sql")
     bucket_identity = {
         "name": "synthetic-bucket",
         "generation": "10",
@@ -1306,6 +1311,21 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
             (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]), json.dumps(receipt)),
         )[0][0]
 
+    retention = {
+        "ownerId": "synthetic-owner",
+        "attemptId": "attempt-one",
+        "repositoryIdentity": repository_identity,
+        "disposition": "retained_shared",
+        "reason": "application_distribution_storage",
+    }
+
+    def retain_shared(receipt):
+        return pg.execute(
+            "SELECT retain_erasure_repository_retention('synthetic-owner','attempt-one',%s::jsonb,%s::jsonb)",
+            (json.dumps(provision_row(pg)["backend_metadata"]["erasure"]), json.dumps(receipt)),
+        )[0][0]
+
+    assert not retain_shared(retention)
     assert not retain_image_inventory(repository_inventory)
     assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
     assert retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
@@ -1331,6 +1351,26 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
         assert not retain_image_inventory({**repository_inventory, **mutation})
     assert retain_image_inventory(repository_inventory)
     assert retain_image_inventory(repository_inventory)
+    for change in (
+        {"ownerId": "foreign"},
+        {"attemptId": "foreign"},
+        {"repositoryIdentity": {}},
+        {"disposition": "deleted"},
+        {"reason": "all_information_erased"},
+        {"extra": True},
+    ):
+        assert not retain_shared({**retention, **change})
+    assert retain_shared(retention)
+    assert retain_shared(retention)
+    with pytest.raises(psycopg2.errors.RaiseException):
+        with connect(pg) as conn:
+            with conn.cursor() as cursor:
+                cursor.execute(
+                    (
+                        ROOT
+                        / "db/migrations/rollback/932_personal_agent_repository_retention.rollback.sql"
+                    ).read_text()
+                )
     with pytest.raises(psycopg2.errors.InsufficientPrivilege):
         pg.execute(
             "UPDATE personal_agent_registry SET backend_metadata=backend_metadata #- '{erasure,repositoryInventory}' WHERE user_id='synthetic-owner'"
@@ -1380,6 +1420,7 @@ def test_erasure_memory_binding_is_append_only_and_attempt_bound(provision_pg, i
     assert not retain_runtime_grant("deletion", {**grant_receipt, "status": "observed_absent"})
     assert not retain_repository("deletion", {**repository_receipt, "status": "observed_absent"})
     assert not retain_image_inventory(repository_inventory)
+    assert not retain_shared(retention)
     assert not bucket_preflight()
     assert not retain_inventory()  # Even identical retries need the active guard.
     assert not retain(receipt)  # Stored evidence cannot substitute for active fencing.

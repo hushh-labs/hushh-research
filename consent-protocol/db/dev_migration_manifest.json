@@ -46,6 +46,7 @@
     "928_byoc_authorization_receipts.sql",
     "929_personal_agent_runtime_grant_erasure.sql",
     "930_personal_agent_repository_grant_erasure.sql",
-    "931_personal_agent_repository_inventory.sql"
+    "931_personal_agent_repository_inventory.sql",
+    "932_personal_agent_repository_retention.sql"
   ]
 }

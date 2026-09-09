@@ -2772,6 +2772,30 @@ class PersonalAgentProvisioningService:
         ):
             raise RuntimeError("repository inventory readback unconfirmed")
 
+        retain_shared = getattr(self._registry, "retain_erasure_repository_retention", None)
+        retention = {
+            "ownerId": user_id,
+            "attemptId": reservation["attemptId"],
+            "repositoryIdentity": receipt["repositoryIdentity"],
+            "disposition": "retained_shared",
+            "reason": "application_distribution_storage",
+        }
+        if retain_shared is None or not await retain_shared(
+            user_id=user_id, reservation=saved, receipt=retention
+        ):
+            raise RuntimeError("repository retention unconfirmed")
+        observed = await self._registry.get(user_id)
+        observed_erasure = ((observed or {}).get("backend_metadata") or {}).get("erasure") or {}
+        if (
+            not observed
+            or observed.get("status") != "suspended"
+            or observed_erasure.get("ownerId") != user_id
+            or observed_erasure.get("attemptId") != reservation["attemptId"]
+            or observed_erasure.get("registrySnapshot") != snapshot
+            or observed_erasure.get("repositoryRetention") != retention
+        ):
+            raise RuntimeError("repository retention readback unconfirmed")
+
     async def deprovision(
         self,
         *,

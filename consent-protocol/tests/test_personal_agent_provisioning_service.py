@@ -1548,7 +1548,9 @@ async def test_runtime_grant_cleanup_requires_owner_fence_and_durable_admission(
     assert registry.deleted == []
 
 
-@pytest.mark.parametrize("failure", [None, "owner", "retain", "readback", "retry"])
+@pytest.mark.parametrize(
+    "failure", [None, "owner", "retain", "readback", "retry", "retention", "retention_readback"]
+)
 async def test_repository_inventory_retains_unresolved_owner_observation(monkeypatch, failure):
     from copy import deepcopy
     from types import SimpleNamespace
@@ -1597,12 +1599,27 @@ async def test_repository_inventory_retains_unresolved_owner_observation(monkeyp
         return True
 
     registry.retain_erasure_repository_inventory = AsyncMock(side_effect=retain)
-    if failure in {"owner", "retain", "readback"}:
+
+    async def retain_shared(**kwargs):
+        if failure == "retention":
+            return False
+        if failure != "retention_readback":
+            registry.rows[_UID]["backend_metadata"]["erasure"]["repositoryRetention"] = deepcopy(
+                kwargs["receipt"]
+            )
+        return True
+
+    registry.retain_erasure_repository_retention = AsyncMock(side_effect=retain_shared)
+    if failure in {"owner", "retain", "readback", "retention", "retention_readback"}:
         with pytest.raises(RuntimeError):
             await service._retain_reserved_repository_inventory(user_id=_UID)
     else:
         await service._retain_reserved_repository_inventory(user_id=_UID)
         assert registry.rows[_UID]["backend_metadata"]["erasure"]["repositoryInventory"] == bound
+        assert (
+            registry.rows[_UID]["backend_metadata"]["erasure"]["repositoryRetention"]["disposition"]
+            == "retained_shared"
+        )
     if failure in {"owner", "retry"}:
         observe.assert_not_awaited()
     assert registry.deleted == []
